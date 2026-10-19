@@ -1,5 +1,6 @@
 import {
-  rankSuggestions,
+  createSuggestionRanker,
+  type SuggestionRanker,
   type SuggestionMatchKind,
   type SuggestionScore,
 } from "@/lib/estimates/suggestion-scoring";
@@ -121,6 +122,7 @@ type FindSuggestibleLinesInput = {
   items: EstimateItemRow[];
   rules: SuggestionRuleRow[];
   suggestionLimit?: number;
+  ranker?: SuggestionRanker<SuggestionRuleRow>;
 };
 
 type ComputeBulkSuggestionsInput = FindSuggestibleLinesInput & {
@@ -248,6 +250,7 @@ export function buildBulkSuggestPreview(input: {
   categories: EstimateCategoryRow[];
   limit?: number;
   unitTarget?: BulkSuggestUnitTarget;
+  ranker?: SuggestionRanker<SuggestionRuleRow>;
 }): BulkSuggestPreviewItem[] {
   const categoryById = new Map<string, EstimateCategoryRow>(
     input.categories.map((category) => [category.id, category])
@@ -258,6 +261,7 @@ export function buildBulkSuggestPreview(input: {
     items: input.items,
     rules: input.suggestionRules,
     suggestionLimit: input.limit,
+    ranker: input.ranker,
   });
 
   return suggestions.flatMap((suggestion) => {
@@ -405,9 +409,14 @@ function buildDiff(
   }, []);
 }
 
+/** Keep the bulk eligibility filter before ranking: a rule with no patch
+ * must never take one of the five slots away from an applicable rule. */
+export function createBulkSuggestionRanker(rules: SuggestionRuleRow[]) {
+  return createSuggestionRanker(rules.filter((rule) => hasPatchValue(toRulePatch(rule))));
+}
+
 export function findSuggestibleLines(input: FindSuggestibleLinesInput): SuggestibleLine[] {
-  const candidateRules = input.rules.filter((rule) => hasPatchValue(toRulePatch(rule)));
-  if (candidateRules.length === 0) return [];
+  const rank = input.ranker ?? createBulkSuggestionRanker(input.rules);
 
   const suggestionLimit = input.suggestionLimit ?? 5;
 
@@ -416,11 +425,7 @@ export function findSuggestibleLines(input: FindSuggestibleLinesInput): Suggesti
       return acc;
     }
 
-    const rankedSuggestions = rankSuggestions({
-      title: item.title,
-      rules: candidateRules,
-      limit: suggestionLimit,
-    }).filter((entry) => {
+    const rankedSuggestions = rank(item.title, suggestionLimit).filter((entry) => {
       const patch = buildApplicablePatchForLine(item, toRulePatch(entry.rule));
       return hasPatchValue(patch);
     });

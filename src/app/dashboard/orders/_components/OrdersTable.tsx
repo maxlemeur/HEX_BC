@@ -64,12 +64,12 @@ export function OrdersTable({
               </td>
             </tr>
           ) : (
-            orders.map((order, index) => {
+            orders.map((order) => {
               const isExpanded = expandedOrderIds.has(order.id);
               const detailsId = `order-details-${order.id}`;
               return (
                 <Fragment key={order.id}>
-                  <tr className="animate-fade-in-static" style={{ animationDelay: `${index * 0.03}s` }}>
+                  <tr>
                     <td>
                       <button
                         type="button"

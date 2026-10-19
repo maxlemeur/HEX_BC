@@ -12,7 +12,7 @@ import { type SuggestionPreview } from "@/components/estimates/components/Estima
 import { type SuggestionLearningState } from "@/components/estimates/estimate-editor-table-types";
 import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
-import { rankSuggestions } from "@/lib/estimates/suggestion-scoring";
+import { createSuggestionRanker } from "@/lib/estimates/suggestion-scoring";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -210,6 +210,7 @@ export function useEstimateEditorSuggestions({
     [categoryById, roleById, supplyTypeById]
   );
 
+  const rankSuggestions = useMemo(() => createSuggestionRanker(scoringRules), [scoringRules]);
   const suggestionsByItemId = useMemo(() => {
     const map = new Map<string, SuggestionPreview[]>();
     if (isReadOnly) return map;
@@ -219,11 +220,7 @@ export function useEstimateEditorSuggestions({
       if (!visibleLineIds.has(item.id)) return;
 
       const dismissedRuleIds = dismissedSuggestionsByItemId[item.id] ?? {};
-      const rankedSuggestions = rankSuggestions({
-        title: item.title,
-        rules: scoringRules,
-        limit: SUGGESTION_SCORE_MAX,
-      });
+      const rankedSuggestions = rankSuggestions(item.title, SUGGESTION_SCORE_MAX);
 
       const visibleSuggestions = rankedSuggestions
         .filter((suggestion) => !dismissedRuleIds[suggestion.rule.id])
@@ -255,7 +252,7 @@ export function useEstimateEditorSuggestions({
     dismissedSuggestionsByItemId,
     isReadOnly,
     items,
-    scoringRules,
+    rankSuggestions,
     v3Grid,
     visibleLineIds,
   ]);

@@ -46,9 +46,12 @@ const ordersDirectoryOutputSchema = z.object({ ok: z.literal(true), data: z.unio
       suppliers: orderRelationOutputSchema, delivery_sites: orderRelationOutputSchema,
       devis_count: z.number().int(), has_devis: z.enum(["with", "without"]),
     })),
-    suppliers: z.array(orderLookupOutputSchema), delivery_sites: z.array(orderLookupOutputSchema),
+    suppliers: z.array(orderLookupOutputSchema).optional(), delivery_sites: z.array(orderLookupOutputSchema).optional(),
+    totalOrders: z.number().int().nonnegative().optional(),
+    pagination: z.object({ page: z.number().int().positive(), size: z.number().int().positive(), totalItems: z.number().int().nonnegative(), totalPages: z.number().int().positive() }).optional(),
   }),
-  purchaseOrderItemsResponseSchema,
+  z.object({ suppliers: z.array(orderLookupOutputSchema), delivery_sites: z.array(orderLookupOutputSchema), totalOrders: z.number().int().nonnegative() }),
+  purchaseOrderItemsResponseSchema.extend({ selection_count: z.number().int().nonnegative().optional() }),
 ]) });
 
 
@@ -863,13 +866,24 @@ const directoryAndOrdersContracts: RouteContract[] = [
     path: "/api/orders",
     summary: "Lister les bons de commande",
     description:
-      "Assemble cote serveur les commandes, leurs relations et, en option, les lignes.",
+      "Vue page paginee avec filtres et tri globaux, lookups complets, inventaire compatible (list) ou export integral filtre (export, limite explicite de 10000 lignes).",
     tags: ["Achats"],
     success: [{ status: "200", description: "Commandes ou lignes avec quantités, unités, provenance et montants persistés.", rawJson: true,
       schema: { schemaName: "OrdersDirectoryResponse", schema: ordersDirectoryOutputSchema, io: "output" },
     }],
     queryParameters: [
-      { name: "view", schema: z.enum(["list", "items"]), description: "Vue liste ou lignes." },
+      { name: "view", schema: z.enum(["list", "page", "items", "lookups", "export"]), description: "Vue inventaire complet, page, lignes, lookups ou export filtre complet." },
+      { name: "q", schema: z.string().max(200), description: "Recherche litterale de reference, insensible a la casse et aux accents." },
+      { name: "page", schema: z.number().int().min(1).max(1000000), description: "Numero de page, a partir de 1 (view=page)." },
+      { name: "size", schema: z.number().int().min(1).max(100), description: "Taille de page, 50 par defaut (view=page)." },
+      { name: "sort", schema: z.enum(["created_at", "expected_delivery_date", "total_ht_cents", "reference"]), description: "Critere de tri global, creation par defaut." },
+      { name: "direction", schema: z.enum(["asc", "desc"]), description: "Direction du tri, decroissante par defaut." },
+      { name: "status", schema: z.array(z.enum(["draft", "sent", "confirmed", "received", "canceled"])).max(5), description: "Statuts retenus, parametre repete." },
+      { name: "supplier_id", schema: uuidSchema, description: "Identifiant fournisseur." },
+      { name: "delivery_site_id", schema: uuidSchema, description: "Identifiant chantier." },
+      { name: "has_devis", schema: z.enum(["with", "without"]), description: "Presence ou absence de devis joint." },
+      { name: "date_from", schema: dateOnlySchema, description: "Date minimale de creation incluse (UTC)." },
+      { name: "date_to", schema: dateOnlySchema, description: "Date maximale de creation incluse (UTC)." },
       {
         name: "order_id",
         schema: z.array(uuidSchema),

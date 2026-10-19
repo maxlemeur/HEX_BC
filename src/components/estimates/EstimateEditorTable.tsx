@@ -1925,7 +1925,7 @@ export function EstimateEditorTable({
     suggestionsByItemId,
     virtualization,
     tableCardRef,
-    scrollToItemId: needsScrollTargetReveal ? null : scrollToItemId,
+    scrollToItemId: needsScrollTargetReveal || (isMobileViewport && !showFullTableOnMobile) ? null : scrollToItemId,
     onScrollToItemHandled,
   });
 
@@ -2449,6 +2449,8 @@ export function EstimateEditorTable({
                   onAddLine={onAddLine}
                   onAddSection={onAddSection}
                   rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
+                  scrollToItemId={needsScrollTargetReveal ? null : scrollToItemId}
+                  onScrollToItemHandled={onScrollToItemHandled}
                 />
               ) : undefined
             }

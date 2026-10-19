@@ -7,10 +7,24 @@ const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
 export const ordersListQuerySchema = z
   .object({
-    view: z.enum(["list", "items"]).optional().default("list"),
+    view: z.enum(["list", "page", "items", "lookups", "export"]).optional().default("list"),
+    q: z.string().trim().max(200).default(""),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+    size: z.coerce.number().int().min(1).max(100).default(50),
+    sort: z.enum(["created_at", "expected_delivery_date", "total_ht_cents", "reference"]).default("created_at"),
+    direction: z.enum(["asc", "desc"]).default("desc"),
+    status: z.array(z.enum(["draft", "sent", "confirmed", "received", "canceled"])).max(5).default([]),
+    supplier_id: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
+    delivery_site_id: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
+    has_devis: z.enum(["with", "without"]).optional(),
+    date_from: z.string().refine(isValidDateOnly, "Date de début invalide.").optional(),
+    date_to: z.string().refine(isValidDateOnly, "Date de fin invalide.").optional(),
     order_id: z.array(z.string().uuid(UUID_ERROR_MESSAGE)).max(1000).default([]),
   })
   .superRefine((query, context) => {
+    if (query.date_from && query.date_to && query.date_from > query.date_to) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["date_to"], message: "La date de fin précède la date de début." });
+    }
     // `view=items` is a per-order detail fetch: never return every item of the tenant.
     if (query.view === "items" && query.order_id.length === 0) {
       context.addIssue({

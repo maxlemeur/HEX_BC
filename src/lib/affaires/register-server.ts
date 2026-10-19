@@ -1527,10 +1527,16 @@ export async function fetchAffaireRegisterSummary(input: {
   projectId: string;
   versionId?: string | null;
 }): Promise<AffaireRegisterSummary> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
+  const { context, project } = await requireAffaireRegisterProjectAccess(input.projectId, "reader");
+  return fetchAffaireRegisterSummaryWithContext({ context, project, versionId: input.versionId });
+}
+
+async function fetchAffaireRegisterSummaryWithContext(input: {
+  context: AuthenticatedRegisterContext;
+  project: AffaireProjectAccessRow;
+  versionId?: string | null;
+}): Promise<AffaireRegisterSummary> {
+  const { context, project } = input;
   const gateSummary = await fetchAffaireRegisterGateSummary({
     supabase: context.supabase,
     projectId: project.id,
@@ -1583,11 +1589,17 @@ export async function fetchAffaireRegisterTimeline(input: {
   versionId?: string | null;
   size?: number;
 }): Promise<AffaireRegisterTimelineEvent[]> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
+  const { context, project } = await requireAffaireRegisterProjectAccess(input.projectId, "reader");
+  return fetchAffaireRegisterTimelineWithContext({ context, project, versionId: input.versionId, size: input.size });
+}
 
+async function fetchAffaireRegisterTimelineWithContext(input: {
+  context: AuthenticatedRegisterContext;
+  project: AffaireProjectAccessRow;
+  versionId?: string | null;
+  size?: number;
+}): Promise<AffaireRegisterTimelineEvent[]> {
+  const { context, project } = input;
   let query = context.supabase
     .from("affaire_register_events" as never)
     .select(EVENT_SELECT as never)
@@ -1671,6 +1683,7 @@ export async function fetchAffaireRegisterPage(
   const [
     { data, error },
     focusedResult,
+    [summaryResult, timelineResult],
   ] = await Promise.all([
     query
       .order("updated_at", { ascending: false })
@@ -1682,6 +1695,10 @@ export async function fetchAffaireRegisterPage(
           .order("id", { ascending: false })
           .limit(1)
       : Promise.resolve({ data: null, error: null }),
+    Promise.allSettled([
+      fetchAffaireRegisterSummaryWithContext({ context, project, versionId: input.versionId }),
+      fetchAffaireRegisterTimelineWithContext({ context, project, versionId: input.versionId, size: 12 }),
+    ]),
   ]);
 
   if (error) {
@@ -1706,17 +1723,14 @@ export async function fetchAffaireRegisterPage(
   const pagedRows = rows.slice(0, shouldInjectFocusedRow ? pageSize - 1 : pageSize);
   const pageRows = shouldInjectFocusedRow ? [focusedRow, ...pagedRows] : pagedRows;
   const lastRow = pagedRows[pagedRows.length - 1] ?? null;
-  const [summary, timeline] = await Promise.all([
-    fetchAffaireRegisterSummary({
-      projectId: project.id,
-      versionId: input.versionId ?? null,
-    }),
-    fetchAffaireRegisterTimeline({
-      projectId: project.id,
-      versionId: input.versionId ?? null,
-      size: 12,
-    }),
-  ]);
+  if (summaryResult.status === "rejected") {
+    throw summaryResult.reason;
+  }
+  if (timelineResult.status === "rejected") {
+    throw timelineResult.reason;
+  }
+  const summary = summaryResult.value;
+  const timeline = timelineResult.value;
   const timelineByEntryId = new Map<string, AffaireRegisterTimelineEvent[]>();
 
   timeline.forEach((event) => {

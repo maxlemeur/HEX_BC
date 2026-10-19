@@ -111,6 +111,7 @@ export function EstimateEditorBody({
             <div
               style={{
                 height: `${virtualTotalSize}px`,
+                flexShrink: 0,
                 position: "relative",
                 width: "100%",
               }}

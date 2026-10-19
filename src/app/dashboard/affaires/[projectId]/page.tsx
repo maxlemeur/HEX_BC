@@ -26,7 +26,8 @@ import {
   fetchAffaireHubFinishLineSummary,
   fetchAffaireHubCurrentVersion,
   fetchAffaireHubCurrentVersionAfterApproval,
-  fetchAffaireHubInitialData,
+  fetchAffaireHubCoreData,
+  fetchAffaireHubMarginCardData,
   fetchAffaireHubPlansSummary,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
@@ -99,7 +100,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     search.registerFocus
   );
 
-  const initialDataPromise = fetchAffaireHubInitialData(projectId, timelinePage);
+  const initialDataPromise = fetchAffaireHubCoreData(projectId, timelinePage);
+  const marginAnalysisPromise = fetchAffaireHubMarginCardData(projectId);
   const takeoffEnabledPromise = isTakeoffEnabled(tenantId);
   const takeoffDataPromise = takeoffEnabledPromise.then(
     (enabled) =>
@@ -130,8 +132,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
         : Promise.resolve(null),
     ]);
   });
-  // Approval reads can persist a projection: keep them after the same successful
-  // initial load, while independent read-only sections overlap that initial work.
+  // Approval reads can persist a projection: keep them after the successful core
+  // load. Independent margin analysis must not extend this write dependency.
   const approvalDataPromise = initialDataPromise.then(({ summary }) => {
     const versionId = summary.currentVersion?.id ?? null;
     return Promise.allSettled([
@@ -154,7 +156,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
 
   const [initialDataResult, takeoffEnabledResult, intakeWorkspaceResult,
     cockpitPreferencesResult, supportingDataResult, approvalDataResult,
-    currentVersionAfterApprovalResult, finishLineSummaryResult] =
+    currentVersionAfterApprovalResult, finishLineSummaryResult, marginResult] =
     await Promise.allSettled([
       initialDataPromise,
       takeoffEnabledPromise,
@@ -164,6 +166,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       approvalDataPromise,
       currentVersionAfterApprovalPromise,
       finishLineDataPromise,
+      marginAnalysisPromise,
     ]);
 
   if (initialDataResult.status === "rejected") {
@@ -183,7 +186,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     summary: initialSummary,
     timelineResult,
     dpgfSourceResult,
-    marginAnalysisResult: marginResult,
   } = initialDataResult.value;
   if (currentVersionAfterApprovalResult.status === "rejected") {
     throw currentVersionAfterApprovalResult.reason;

@@ -104,9 +104,21 @@ export function applyEstimateV3PreviewToItems(
   index: EstimateV3LineIndex
 ): EditorEstimateItem[] {
   if (index.size === 0) return items;
-  return items.map((item) => {
+  let hasChanges = false;
+  const projectedItems = items.map((item) => {
     const line = findEstimateV3Line(index, item.id);
     if (!line) return item;
+    const hMo = toHours(line.h_mo);
+    const hMoAtelier = toHours(line.h_mo_atelier);
+    const hMoChantier = toHours(line.h_mo_chantier);
+    // The server has already persisted these derived values for unchanged
+    // lines. Keep their identities so one edit does not invalidate every row.
+    if (item.pu_ht_cents === line.pu_ht_cents && item.line_total_ht_cents === line.line_total_ht_cents &&
+      item.line_tax_cents === line.line_tax_cents && item.line_total_ttc_cents === line.line_total_ttc_cents &&
+      item.snapshot_fo_ht_cents === line.snapshot_fo_ht_cents && item.snapshot_mo_ht_cents === line.snapshot_mo_ht_cents &&
+      item.snapshot_mo_atelier_ht_cents === line.snapshot_mo_atelier_ht_cents && item.snapshot_mo_chantier_ht_cents === line.snapshot_mo_chantier_ht_cents &&
+      item.h_mo === hMo && item.h_mo_atelier === hMoAtelier && item.h_mo_chantier === hMoChantier) return item;
+    hasChanges = true;
     return {
       ...item,
       pu_ht_cents: line.pu_ht_cents,
@@ -117,11 +129,12 @@ export function applyEstimateV3PreviewToItems(
       snapshot_mo_ht_cents: line.snapshot_mo_ht_cents,
       snapshot_mo_atelier_ht_cents: line.snapshot_mo_atelier_ht_cents,
       snapshot_mo_chantier_ht_cents: line.snapshot_mo_chantier_ht_cents,
-      h_mo: toHours(line.h_mo),
-      h_mo_atelier: toHours(line.h_mo_atelier),
-      h_mo_chantier: toHours(line.h_mo_chantier),
+      h_mo: hMo,
+      h_mo_atelier: hMoAtelier,
+      h_mo_chantier: hMoChantier,
     } as EditorEstimateItem;
   });
+  return hasChanges ? projectedItems : items;
 }
 
 function withoutDerivedKeys(payload: EstimateItemUpdatePayload): EstimateItemUpdatePayload {

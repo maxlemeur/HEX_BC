@@ -320,10 +320,13 @@ export type AffaireHubPageDataResult = {
   dpgfSource: AffaireHubDpgfSourceResult;
 };
 
-export type AffaireHubInitialDataResult = {
+export type AffaireHubCoreDataResult = {
   summary: AffaireHubSummaryResult;
   timelineResult: PromiseSettledResult<AffaireHubTimelineResult>;
   dpgfSourceResult: PromiseSettledResult<AffaireHubDpgfSourceResult>;
+};
+
+export type AffaireHubInitialDataResult = AffaireHubCoreDataResult & {
   marginAnalysisResult: PromiseSettledResult<AffaireHubMarginCardData>;
 };
 
@@ -2220,6 +2223,34 @@ export async function fetchAffaireHubPageData(
   };
 }
 
+async function fetchAffaireHubCoreDataWithContext(
+  context: AffaireContext,
+  project: AffaireHubProjectRow,
+  page: number
+): Promise<AffaireHubCoreDataResult> {
+  const [summaryResult, timelineResult, dpgfSourceResult] = await Promise.allSettled([
+    fetchAffaireHubSummaryWithContext(context, project),
+    listEstimateProjectVersions({ projectId: project.id, page }),
+    fetchAffaireHubDpgfSourceWithContext(context, project),
+  ]);
+
+  if (summaryResult.status === "rejected") {
+    throw summaryResult.reason;
+  }
+
+  return { summary: summaryResult.value, timelineResult, dpgfSourceResult };
+}
+
+export async function fetchAffaireHubCoreData(
+  projectId: string,
+  page?: number
+): Promise<AffaireHubCoreDataResult> {
+  const context = await getAuthenticatedContext();
+  const safePage = normalizeHubTimelinePage(page);
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  return fetchAffaireHubCoreDataWithContext(context, project, safePage);
+}
+
 export async function fetchAffaireHubInitialData(
   projectId: string,
   page?: number
@@ -2227,28 +2258,14 @@ export async function fetchAffaireHubInitialData(
   const context = await getAuthenticatedContext();
   const safePage = normalizeHubTimelinePage(page);
   const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-
-  const [summaryResult, timelineResult, dpgfSourceResult, marginAnalysisResult] =
-    await Promise.allSettled([
-      fetchAffaireHubSummaryWithContext(context, project),
-      listEstimateProjectVersions({
-        projectId: project.id,
-        page: safePage,
-      }),
-      fetchAffaireHubDpgfSourceWithContext(context, project),
-      fetchAffaireHubMarginAnalysisWithContext(context, project),
-    ]);
-
-  if (summaryResult.status === "rejected") {
-    throw summaryResult.reason;
+  const [coreResult, marginAnalysisResult] = await Promise.allSettled([
+    fetchAffaireHubCoreDataWithContext(context, project, safePage),
+    fetchAffaireHubMarginAnalysisWithContext(context, project),
+  ]);
+  if (coreResult.status === "rejected") {
+    throw coreResult.reason;
   }
-
-  return {
-    summary: summaryResult.value,
-    timelineResult,
-    dpgfSourceResult,
-    marginAnalysisResult,
-  };
+  return { ...coreResult.value, marginAnalysisResult };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2595,9 +2612,16 @@ export const fetchProjectVersionList = cache(
 export async function fetchAffaireHubMarginAnalysis(
   projectId: string
 ): Promise<AffaireHubMarginAnalysisResult> {
-  const context = await getAuthenticatedContext();
-  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-  const data = await fetchAffaireHubMarginAnalysisWithContext(context, project);
+  const data = await fetchAffaireHubMarginCardData(projectId);
   // L'analyse seule : l'avis v3 rendu sans analyse ne sert qu'à la carte du hub.
   return data !== null && "global" in data ? data : null;
+}
+
+/** Full hub card: retain the standalone v3 notice when no analysis is calculable. */
+export async function fetchAffaireHubMarginCardData(
+  projectId: string
+): Promise<AffaireHubMarginCardData> {
+  const context = await getAuthenticatedContext();
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  return fetchAffaireHubMarginAnalysisWithContext(context, project);
 }

@@ -17,6 +17,7 @@ import type {
 import type { SuggestionRuleCreatePayload } from "@/components/estimates/EstimateSuggestionRulesManager";
 import {
   buildBulkSuggestPreview,
+  createBulkSuggestionRanker,
   type BulkSuggestPreviewItem,
 } from "@/lib/estimates/bulk-suggest";
 import {
@@ -373,16 +374,18 @@ export function useEstimateEditorSuggestionsController({
   const isApplyingRef = useRef(false);
   const isUndoingRef = useRef(false);
 
+  const rankBulkSuggestions = useMemo(() => createBulkSuggestionRanker(rules), [rules]);
   const preview = useMemo(
     () =>
       buildBulkSuggestPreview({
         items: previewItems,
         suggestionRules: rules,
         categories,
+        ranker: rankBulkSuggestions,
         // Sous-lot 2.6b (A15) : sur une v3, l'unité d'une règle va dans unit_code, jamais dans description.
         unitTarget: v3Writer ? "unit_code" : "description",
       }),
-    [categories, previewItems, rules, v3Writer]
+    [categories, previewItems, rankBulkSuggestions, rules, v3Writer]
   );
 
   const previewItemIds = useMemo(

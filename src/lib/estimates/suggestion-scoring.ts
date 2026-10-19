@@ -94,9 +94,12 @@ function levenshteinDistance(left: string, right: string) {
   return distances[right.length];
 }
 
-function similarityRatio(left: string, right: string) {
+function similarityRatio(left: string, right: string, minimum = 0) {
   const maxLength = Math.max(left.length, right.length);
   if (maxLength === 0) return 1;
+  // The length difference is a lower bound on edit distance. A pair below
+  // the current best cannot change the result, so avoid its quadratic work.
+  if (1 - Math.abs(left.length - right.length) / maxLength < minimum) return 0;
   const distance = levenshteinDistance(left, right);
   return 1 - distance / maxLength;
 }
@@ -151,7 +154,7 @@ function getRecencyBonus(rule: Record<string, unknown>) {
   return 0;
 }
 
-function resolveKeywordMatch(title: string, keyword: string) {
+function resolveKeywordMatch(title: string, keyword: string, titleTokens = title.split(" ").filter(Boolean)) {
   if (!title || !keyword) return null;
   if (title === keyword) {
     return {
@@ -169,7 +172,6 @@ function resolveKeywordMatch(title: string, keyword: string) {
     };
   }
 
-  const titleTokens = title.split(" ").filter(Boolean);
   const keywordTokens = keyword.split(" ").filter(Boolean);
   if (
     titleTokens.some((token) => token === keyword) ||
@@ -182,12 +184,12 @@ function resolveKeywordMatch(title: string, keyword: string) {
     };
   }
 
-  let bestSimilarity = similarityRatio(title, keyword);
+  let bestSimilarity = similarityRatio(title, keyword, MIN_FUZZY_SIMILARITY);
   titleTokens.forEach((token) => {
-    bestSimilarity = Math.max(bestSimilarity, similarityRatio(token, keyword));
+    bestSimilarity = Math.max(bestSimilarity, similarityRatio(token, keyword, Math.max(MIN_FUZZY_SIMILARITY, bestSimilarity)));
   });
   keywordTokens.forEach((token) => {
-    bestSimilarity = Math.max(bestSimilarity, similarityRatio(title, token));
+    bestSimilarity = Math.max(bestSimilarity, similarityRatio(title, token, Math.max(MIN_FUZZY_SIMILARITY, bestSimilarity)));
   });
 
   if (bestSimilarity < MIN_FUZZY_SIMILARITY) return null;
@@ -219,14 +221,19 @@ export function scoreSuggestion<TRule extends SuggestionRuleForScoring>(input: {
   title: string;
   rule: TRule;
 }): SuggestionScore<TRule> | null {
-  const { rule } = input;
+  return scorePreparedSuggestion(normalizeWord(input.title), input.rule, splitKeywords(input.rule.match_value));
+}
+
+function scorePreparedSuggestion<TRule extends SuggestionRuleForScoring>(
+  normalizedTitle: string,
+  rule: TRule,
+  keywords: string[],
+  titleTokens = normalizedTitle.split(" ").filter(Boolean)
+): SuggestionScore<TRule> | null {
   if (!rule.is_active) return null;
   if ((rule.match_type ?? "keyword") !== "keyword") return null;
 
-  const normalizedTitle = normalizeWord(input.title);
   if (!normalizedTitle) return null;
-
-  const keywords = splitKeywords(rule.match_value);
   if (keywords.length === 0) return null;
 
   let bestMatch:
@@ -239,7 +246,7 @@ export function scoreSuggestion<TRule extends SuggestionRuleForScoring>(input: {
     | null = null;
 
   for (const keyword of keywords) {
-    const match = resolveKeywordMatch(normalizedTitle, keyword);
+    const match = resolveKeywordMatch(normalizedTitle, keyword, titleTokens);
     if (!match) continue;
 
     if (!bestMatch || match.score > bestMatch.score) {
@@ -279,11 +286,46 @@ export function rankSuggestions<TRule extends SuggestionRuleForScoring>(input: {
   rules: TRule[];
   limit?: number;
 }) {
-  const limit = input.limit ?? 5;
-  if (limit <= 0) return [] as SuggestionScore<TRule>[];
+  return createSuggestionRanker(input.rules)(input.title, input.limit);
+}
 
-  return input.rules
-    .map((rule) => scoreSuggestion({ title: input.title, rule }))
+export type SuggestionRanker<TRule extends SuggestionRuleForScoring> = (
+  title: string,
+  limit?: number
+) => SuggestionScore<TRule>[];
+
+/** One editor rule snapshot: normalize keywords once and reuse ranks on
+ * unrelated line edits. Bound the cache to a full large estimate, and expire
+ * it at the exact next recency-bonus boundary rather than freezing scores. */
+export function createSuggestionRanker<TRule extends SuggestionRuleForScoring>(
+  rules: TRule[]
+): SuggestionRanker<TRule> {
+  const prepared = rules.filter((rule) => rule.is_active && (rule.match_type ?? "keyword") === "keyword")
+    .map((rule) => ({ rule, keywords: splitKeywords(rule.match_value) }));
+  const cache = new Map<string, SuggestionScore<TRule>[]>();
+  let expiresAt = 0;
+  return (title, limit = 5) => {
+    if (limit <= 0) return [];
+    const now = Date.now();
+    if (now >= expiresAt) {
+      cache.clear();
+      expiresAt = Infinity;
+      for (const { rule } of prepared) {
+        const lastUsed = parseLastUsedAt(rule);
+        if (!lastUsed) continue;
+        for (const days of [8, 31]) {
+          const boundary = lastUsed + days * 86_400_000;
+          if (boundary > now) expiresAt = Math.min(expiresAt, boundary);
+        }
+      }
+    }
+    const key = `${limit}:${title}`;
+    const cached = cache.get(key);
+    if (cached) return cached.slice();
+    const normalizedTitle = normalizeWord(title);
+    const titleTokens = normalizedTitle.split(" ").filter(Boolean);
+    const result = prepared
+    .map(({ rule, keywords }) => scorePreparedSuggestion(normalizedTitle, rule, keywords, titleTokens))
     .filter((score): score is SuggestionScore<TRule> => score !== null)
     .sort((left, right) => {
       if (right.score !== left.score) return right.score - left.score;
@@ -301,6 +343,10 @@ export function rankSuggestions<TRule extends SuggestionRuleForScoring>(input: {
       return (left.rule.name ?? "").localeCompare(right.rule.name ?? "");
     })
     .slice(0, limit);
+    if (cache.size >= 4096) cache.delete(cache.keys().next().value!);
+    cache.set(key, result);
+    return result.slice();
+  };
 }
 
 export function scoreSuggestionRule<TRule extends SuggestionRuleForScoring>(

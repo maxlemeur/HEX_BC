@@ -15,7 +15,9 @@ type ExportOrder = Omit<PurchaseOrderListRow, "devis_count" | "has_devis">;
 type OrderExportSnapshot = {
   orders: ExportOrder[];
   itemsByOrderId: Record<string, OrderItemRow[]>;
+  selection_count?: number;
 };
+type ExportSelection = PurchaseOrderListRow[] | URLSearchParams;
 
 type ItemExportRow = {
   order_reference: string;
@@ -169,31 +171,34 @@ function buildItemsExportRows(
   });
 }
 
-async function fetchOrderExportSnapshot(orderIds: string[]): Promise<OrderExportSnapshot> {
-  const selectedIds = [...new Set(orderIds)];
-  if (selectedIds.length === 0) {
-    throw new Error("Sélectionnez au moins une commande à exporter.");
+async function fetchOrderExportSnapshot(selection: ExportSelection): Promise<OrderExportSnapshot> {
+  const selectedIds = Array.isArray(selection) ? [...new Set(selection.map(order => order.id))] : null;
+  if (selectedIds && selectedIds.length === 0) throw new Error("Sélectionnez au moins une commande à exporter.");
+  const query = selectedIds ? new URLSearchParams({ view: "items" }) : new URLSearchParams(selection as URLSearchParams);
+  if (selectedIds) selectedIds.forEach(orderId => query.append("order_id", orderId));
+  else {
+    query.set("view", "export");
+    query.delete("page");
+    query.delete("size");
   }
-  const query = new URLSearchParams({ view: "items" });
-  selectedIds.forEach((orderId) => query.append("order_id", orderId));
-  const data = await fetchApi<OrderExportSnapshot>(
-    `/api/orders?${query.toString()}`
-  );
+  const data = await fetchApi<OrderExportSnapshot>(`/api/orders?${query.toString()}`);
   if (!data || !Array.isArray(data.orders) || !data.itemsByOrderId ||
       typeof data.itemsByOrderId !== "object" || Array.isArray(data.itemsByOrderId)) {
     throw new Error("La préparation de l’export est incomplète. Rechargez la liste puis réessayez.");
   }
-  const ordersById = new Map(data.orders.map((order) => [order.id, order]));
-  if (ordersById.size !== data.orders.length || ordersById.size !== selectedIds.length) {
+  const ordersById = new Map(data.orders.map(order => [order.id, order]));
+  const expectedCount = selectedIds?.length ?? data.selection_count;
+  if (!Number.isSafeInteger(expectedCount) || ordersById.size !== data.orders.length || ordersById.size !== expectedCount) {
     throw new Error("La sélection de commandes a changé. Rechargez la liste avant d’exporter.");
   }
-  const orders = selectedIds.map((id) => {
+  const orders = (selectedIds ?? data.orders.map(order => order.id)).map(id => {
     const order = ordersById.get(id);
     if (!order || !Array.isArray(data.itemsByOrderId[id])) {
       throw new Error("Une commande sélectionnée est absente ou incomplète. Rechargez la liste avant d’exporter.");
     }
     return order;
   });
+  if (!orders.length) throw new Error("Aucune commande ne correspond aux filtres de cet export.");
   return { orders, itemsByOrderId: data.itemsByOrderId };
 }
 
@@ -202,9 +207,9 @@ function exportFilename() {
 }
 
 /** Workbook with one sheet of orders and one sheet of their lines. */
-export async function exportOrdersToExcel(orders: PurchaseOrderListRow[]) {
-  // The list determines selection only; headers and lines come from one server snapshot.
-  const snapshot = await fetchOrderExportSnapshot(orders.map((order) => order.id));
+export async function exportOrdersToExcel(selection: ExportSelection) {
+  // Server filters determine the complete selection, independently of the page.
+  const snapshot = await fetchOrderExportSnapshot(selection);
   const itemsRows = buildItemsExportRows(snapshot.orders, snapshot.itemsByOrderId);
   const { exportToExcelWithSheets } = await import("@/lib/export");
   await exportToExcelWithSheets(
@@ -217,8 +222,8 @@ export async function exportOrdersToExcel(orders: PurchaseOrderListRow[]) {
 }
 
 /** One CSV line per ordered item (orders without items keep one empty line). */
-export async function exportOrdersToCsv(orders: PurchaseOrderListRow[]) {
-  const snapshot = await fetchOrderExportSnapshot(orders.map((order) => order.id));
+export async function exportOrdersToCsv(selection: ExportSelection) {
+  const snapshot = await fetchOrderExportSnapshot(selection);
   const itemsRows = buildItemsExportRows(snapshot.orders, snapshot.itemsByOrderId);
   const { exportToCSV } = await import("@/lib/export");
   await exportToCSV(itemsRows, ITEM_EXPORT_COLUMNS, { filename: exportFilename() });

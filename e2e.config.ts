@@ -47,6 +47,7 @@ if (workersSetting !== "" && !/^[1-4]$/.test(workersSetting)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workersSetting}".`);
 }
 const workers = workersSetting === "" ? 1 : Number(workersSetting);
+const dogfoodPerformance = performance && process.env.E2E_DOGFOOD_OWNED_STACK === "1";
 if (workers > 1 && !(critical && process.env.E2E_ARMY_LOCAL_DB_URL)) {
   throw new Error("E2E_ARMY_WORKERS above 1 is reserved for critical journeys on the owned ephemeral stack (npm run e2e:army:local or e2e:army:ci).");
 }
@@ -87,6 +88,20 @@ const app = {
         GEMINI_API_KEY: "",
         GOOGLE_GENERATIVE_AI_API_KEY: "",
         ...(localBusiness ? { E2E_ARMY_BLOCK_WORKERS: "1" } : {}),
+      } : {}),
+      ...(dogfoodPerformance ? {
+        NODE_OPTIONS: [
+          "scripts/tester-army/coverage-network-guard.mjs",
+          "scripts/tester-army/performance-network-probe.mjs",
+        ].map((file) => `--import=${pathToFileURL(path.resolve(file)).href}`).join(" "),
+        E2E_DOGFOOD_OWNED_STACK: "1",
+        E2E_DOGFOOD_FETCH_LOG: process.env.E2E_DOGFOOD_FETCH_LOG!,
+        E2E_COVERAGE_BACKEND_ORIGIN: process.env.E2E_COVERAGE_BACKEND_ORIGIN!,
+        E2E_ARMY_BASE_URL: baseUrl.origin,
+        E2E_COVERAGE_NETWORK_LOG: process.env.E2E_COVERAGE_NETWORK_LOG!,
+        E2E_ARMY_BLOCK_WORKERS: "1",
+        GEMINI_API_KEY: "",
+        GOOGLE_GENERATIVE_AI_API_KEY: "",
       } : {}),
     },
     startupTimeout: 180_000,

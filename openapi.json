@@ -14299,15 +14299,114 @@
           "Achats"
         ],
         "summary": "Lister les bons de commande",
-        "description": "Assemble cote serveur les commandes, leurs relations et, en option, les lignes.",
+        "description": "Vue page paginee avec filtres et tri globaux, lookups complets, inventaire compatible (list) ou export integral filtre (export, limite explicite de 10000 lignes).",
         "parameters": [
           {
             "name": "view",
             "in": "query",
-            "description": "Vue liste ou lignes.",
+            "description": "Vue inventaire complet, page, lignes, lookups ou export filtre complet.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ListOrdersViewParameter"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Recherche litterale de reference, insensible a la casse et aux accents.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersQParameter"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Numero de page, a partir de 1 (view=page).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersPageParameter"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Taille de page, 50 par defaut (view=page).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersSizeParameter"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Critere de tri global, creation par defaut.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersSortParameter"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "Direction du tri, decroissante par defaut.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersDirectionParameter"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Statuts retenus, parametre repete.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersStatusParameter"
+            }
+          },
+          {
+            "name": "supplier_id",
+            "in": "query",
+            "description": "Identifiant fournisseur.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersSupplierIdParameter"
+            }
+          },
+          {
+            "name": "delivery_site_id",
+            "in": "query",
+            "description": "Identifiant chantier.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersDeliverySiteIdParameter"
+            }
+          },
+          {
+            "name": "has_devis",
+            "in": "query",
+            "description": "Presence ou absence de devis joint.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersHasDevisParameter"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "description": "Date minimale de creation incluse (UTC).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersDateFromParameter"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "description": "Date maximale de creation incluse (UTC).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListOrdersDateToParameter"
             }
           },
           {
@@ -55524,8 +55623,80 @@
         "type": "string",
         "enum": [
           "list",
-          "items"
+          "page",
+          "items",
+          "lookups",
+          "export"
         ]
+      },
+      "ListOrdersQParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "ListOrdersPageParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000000
+      },
+      "ListOrdersSizeParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "ListOrdersSortParameter": {
+        "type": "string",
+        "enum": [
+          "created_at",
+          "expected_delivery_date",
+          "total_ht_cents",
+          "reference"
+        ]
+      },
+      "ListOrdersDirectionParameter": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "ListOrdersStatusParameter": {
+        "maxItems": 5,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "sent",
+            "confirmed",
+            "received",
+            "canceled"
+          ]
+        }
+      },
+      "ListOrdersSupplierIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ListOrdersDeliverySiteIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ListOrdersHasDevisParameter": {
+        "type": "string",
+        "enum": [
+          "with",
+          "without"
+        ]
+      },
+      "ListOrdersDateFromParameter": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "ListOrdersDateToParameter": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
       },
       "ListOrdersOrderIdParameter": {
         "type": "array",
@@ -55775,12 +55946,105 @@
                       ],
                       "additionalProperties": false
                     }
+                  },
+                  "totalOrders": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "pagination": {
+                    "type": "object",
+                    "properties": {
+                      "page": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "size": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "totalItems": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "totalPages": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "page",
+                      "size",
+                      "totalItems",
+                      "totalPages"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
-                  "items",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "suppliers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "delivery_sites": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "totalOrders": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
                   "suppliers",
-                  "delivery_sites"
+                  "delivery_sites",
+                  "totalOrders"
                 ],
                 "additionalProperties": false
               },
@@ -56191,6 +56455,11 @@
                         "additionalProperties": false
                       }
                     }
+                  },
+                  "selection_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

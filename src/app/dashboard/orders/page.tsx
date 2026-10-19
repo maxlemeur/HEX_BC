@@ -1,17 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { PlusIcon, RotateCwIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { ListPagination } from "@/components/catalogue/ListPagination";
 import { DevisPreviewModal } from "@/components/DevisPreviewModal";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import { PageHeader } from "@/components/layout/page-header";
-import { TableFilterBar } from "@/components/TableFilterBar";
-import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
+import { ServerTableFilterBar } from "@/components/TableFilterBar";
+import type { DateRangeValue, FilterConfig, FilterState, FilterValue, SortOption, SortState } from "@/components/TableFilterBar";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -36,8 +37,12 @@ import {
 
 type OrdersPageResponse = {
   items: PurchaseOrderListRow[];
+  pagination: { page: number; size: number; totalItems: number; totalPages: number };
+};
+type OrdersLookupsResponse = {
   suppliers: { id: string; name: string }[];
   delivery_sites: { id: string; name: string }[];
+  totalOrders: number;
 };
 
 type OrderRef = Pick<PurchaseOrderListRow, "id" | "reference" | "status">;
@@ -60,7 +65,35 @@ export default function OrdersPage() {
   const confirm = useConfirm();
   const toast = useToast();
 
-  const [displayedOrders, setDisplayedOrders] = useState<PurchaseOrderListRow[]>([]);
+  const [searchValue, setSearchValue] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filterState, setFilterState] = useState<FilterState>({});
+  const [sortState, setSortState] = useState<NonNullable<SortState>>({ key: "created_at", direction: "desc" });
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState<50 | 100>(50);
+  useEffect(() => {
+    if (searchValue === debouncedSearch) return;
+    const timer = setTimeout(() => { setDebouncedSearch(searchValue); setPage(1); }, 250);
+    return () => clearTimeout(timer);
+  }, [searchValue, debouncedSearch]);
+  const listQuery = useMemo(() => {
+    const parameters = new URLSearchParams({ view: "page", page: String(page), size: String(size),
+      sort: sortState.key, direction: sortState.direction });
+    if (debouncedSearch.trim()) parameters.set("q", debouncedSearch.trim());
+    for (const status of (filterState.status as string[] | undefined) ?? []) parameters.append("status", status);
+    for (const key of ["supplier_id", "delivery_site_id", "has_devis"]) {
+      const value = filterState[key];
+      if (typeof value === "string" && value) parameters.set(key, value);
+    }
+    const dates = filterState.created_at as DateRangeValue | undefined;
+    if (dates?.from) parameters.set("date_from", dates.from);
+    if (dates?.to) parameters.set("date_to", dates.to);
+    return parameters.toString();
+  }, [debouncedSearch, filterState, sortState, page, size]);
+  const setFilter = useCallback((key: string, value: FilterValue) => {
+    setFilterState(previous => ({ ...previous, [key]: value }));
+    setPage(1);
+  }, []);
   const [isExporting, setIsExporting] = useState(false);
 
   // Accordion state - several rows can be expanded at once.
@@ -78,14 +111,24 @@ export default function OrdersPage() {
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<OrdersPageResponse>("/api/orders", fetchApi, {
-    refreshInterval: 30000,
+  } = useSWR<OrdersPageResponse>(`/api/orders?${listQuery}`, fetchApi, {
+    keepPreviousData: true,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
   });
   const orders = data?.items ?? [];
-  const suppliers = data?.suppliers ?? EMPTY_ORDER_LOOKUPS;
-  const sites = data?.delivery_sites ?? EMPTY_ORDER_LOOKUPS;
+  const { data: lookups, error: lookupsError, mutate: refreshLookups } = useSWR<OrdersLookupsResponse>(
+    "/api/orders?view=lookups", fetchApi, { revalidateOnFocus: false, revalidateOnReconnect: false }
+  );
+  const suppliers = lookups?.suppliers ?? EMPTY_ORDER_LOOKUPS;
+  const sites = lookups?.delivery_sites ?? EMPTY_ORDER_LOOKUPS;
+  const totalItems = data?.pagination.totalItems ?? 0;
+  const totalPages = data?.pagination.totalPages ?? 1;
+  const totalOrders = lookups?.totalOrders ?? totalItems;
+  const isPending = isValidating || searchValue !== debouncedSearch;
+  useEffect(() => {
+    if (!isValidating && data?.pagination.page === page && page > totalPages) setPage(totalPages);
+  }, [data?.pagination.page, isValidating, page, totalPages]);
 
   const fetchOrderItems = useCallback(async (orderId: string) => {
     setItemsCache((prev) => ({ ...prev, [orderId]: "loading" }));
@@ -129,19 +172,19 @@ export default function OrdersPage() {
 
   const runExport = useCallback(
     async (format: "excel" | "csv") => {
-      if (displayedOrders.length === 0 || isExporting) return;
+      if (totalItems === 0 || isExporting || isPending) return;
       setIsExporting(true);
       try {
-        if (format === "excel") await exportOrdersToExcel(displayedOrders);
-        else await exportOrdersToCsv(displayedOrders);
+        if (format === "excel") await exportOrdersToExcel(new URLSearchParams(listQuery));
+        else await exportOrdersToCsv(new URLSearchParams(listQuery));
       } catch (error) {
         console.error(`Erreur lors de l'export ${format}.`, error);
-        toast.error({ title: "L'export a échoué.", description: "Réessayez dans quelques instants." });
+        toast.error({ title: "L'export a échoué.", description: error instanceof Error ? error.message : "Réessayez dans quelques instants." });
       } finally {
         setIsExporting(false);
       }
     },
-    [displayedOrders, isExporting, toast]
+    [totalItems, isExporting, isPending, listQuery, toast]
   );
 
   const handleDownloadZip = useCallback(
@@ -191,6 +234,7 @@ export default function OrdersPage() {
         }
         toast.success({ title: `Bon ${order.reference} supprimé.` });
         void mutate();
+        void refreshLookups();
       } catch (error) {
         toast.error({
           title: "Suppression impossible.",
@@ -198,7 +242,7 @@ export default function OrdersPage() {
         });
       }
     },
-    [confirm, mutate, toast]
+    [confirm, mutate, refreshLookups, toast]
   );
 
   const refreshOrderDevis = useCallback(
@@ -221,14 +265,14 @@ export default function OrdersPage() {
       },
       {
         type: "select",
-        key: "suppliers.id",
+        key: "supplier_id",
         label: "Fournisseur",
         placeholder: "Tous les fournisseurs",
         options: suppliers.map((s) => ({ value: s.id, label: s.name })),
       },
       {
         type: "select",
-        key: "delivery_sites.id",
+        key: "delivery_site_id",
         label: "Chantier",
         placeholder: "Tous les chantiers",
         options: sites.map((s) => ({ value: s.id, label: s.name })),
@@ -262,7 +306,7 @@ export default function OrdersPage() {
     />
   );
 
-  const empty = <OrdersListEmpty isLoading={isLoading} hasOrders={orders.length > 0} />;
+  const empty = <OrdersListEmpty isLoading={isLoading} hasOrders={totalOrders > 0} />;
 
   return (
     <div className="animate-fade-in">
@@ -280,31 +324,36 @@ export default function OrdersPage() {
         }
       />
 
-      {loadError ? (
+      {loadError || lookupsError ? (
         <Alert variant="danger" className="mb-6">
-          {loadError.message}
+          {(loadError ?? lookupsError).message}
         </Alert>
       ) : null}
 
-      <TableFilterBar
-        data={orders}
-        onDataChange={setDisplayedOrders}
-        search={{
-          placeholder: "Rechercher par référence…",
-          fields: ["reference"],
-        }}
+      <ServerTableFilterBar
+        searchValue={searchValue}
+        searchPlaceholder="Rechercher par référence…"
+        onSearchChange={setSearchValue}
+        filterState={filterState}
+        onFilterChange={setFilter}
+        sortState={sortState}
+        onSortChange={(key, direction = "asc") => { setSortState({ key, direction }); setPage(1); }}
+        onClearAll={() => { setSearchValue(""); setDebouncedSearch(""); setFilterState({}); setPage(1); }}
+        filteredCount={totalItems}
+        totalCount={totalOrders}
+        isPending={isPending}
         filters={filterConfig}
         sortOptions={SORT_OPTIONS}
         resultCountLabel="commandes"
-        showResultCount
       />
 
-      <Card>
+      <section aria-label="Bons de commande" aria-busy={isPending}>
+        <Card>
         <CardHeader className="items-center sm:px-6">
           <div className="flex items-center gap-3">
             <CardTitle className="text-sm">Tous les bons</CardTitle>
             <Badge variant="neutral" size="sm">
-              {orders.length}
+              {totalOrders}
               <span className="sr-only"> au total</span>
             </Badge>
           </div>
@@ -312,14 +361,14 @@ export default function OrdersPage() {
             <ExportDropdown
               onExportExcel={() => void runExport("excel")}
               onExportCSV={() => void runExport("csv")}
-              disabled={displayedOrders.length === 0}
+              disabled={totalItems === 0 || isPending}
               loading={isExporting}
             />
             <Button
               variant="outline"
               size="md"
               disabled={isValidating}
-              onClick={() => void mutate()}
+              onClick={() => { void mutate(); void refreshLookups(); }}
               leftIcon={<RotateCwIcon aria-hidden="true" className={isValidating ? "animate-spin motion-reduce:animate-none" : undefined} />}
             >
               {isValidating ? "Chargement…" : "Actualiser"}
@@ -328,13 +377,13 @@ export default function OrdersPage() {
         </CardHeader>
 
         <OrdersCardList
-          orders={displayedOrders}
+          orders={orders}
           renderActions={(order) => renderActions(order, "size-11")}
           empty={empty}
         />
 
         <OrdersTable
-          orders={displayedOrders}
+          orders={orders}
           expandedOrderIds={expandedOrderIds}
           onToggleExpand={handleToggleExpand}
           renderActions={(order) => renderActions(order)}
@@ -355,7 +404,18 @@ export default function OrdersPage() {
           )}
           empty={empty}
         />
-      </Card>
+        <ListPagination
+          label="Pagination des commandes"
+          itemsLabel="Commandes"
+          page={page}
+          totalPages={totalPages}
+          pageSize={size}
+          pageSizes={[50, 100] as const}
+          onPageChange={setPage}
+          onPageSizeChange={nextSize => { setSize(nextSize); setPage(1); }}
+        />
+        </Card>
+      </section>
 
       <DevisPreviewModal
         key={previewDevis?.id ?? "devis-preview-closed"}

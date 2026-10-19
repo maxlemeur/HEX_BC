@@ -279,7 +279,7 @@ export function useEstimateEditorCalculation(
     if (!isUnifiedEngine(calcEngineVersion)) return items;
     if (isReadOnly) {
       return items.map((item) =>
-        item.item_type === "line" && item.snapshot_pu_ht_cents != null
+        item.item_type === "line" && item.snapshot_pu_ht_cents != null && item.pu_ht_cents !== item.snapshot_pu_ht_cents
           ? { ...item, pu_ht_cents: item.snapshot_pu_ht_cents }
           : item
       );
@@ -287,7 +287,8 @@ export function useEstimateEditorCalculation(
     if (!calculationBreakdown) return items;
     return items.map((item) => {
       const line = calculationBreakdown.lineById.get(item.id);
-      return line
+      return line && (item.pu_ht_cents !== line.puNetHtCents || item.line_total_ht_cents !== line.saleNetHtCents ||
+        item.line_tax_cents !== line.taxCents || item.line_total_ttc_cents !== line.saleNetHtCents + line.taxCents)
         ? {
             ...item,
             pu_ht_cents: line.puNetHtCents,
@@ -331,8 +332,10 @@ export function useEstimateEditorCalculation(
   );
 
   const persistedTotals = useMemo(
-    () => computePersistedTotals(items),
-    [computePersistedTotals, items]
+    () => savedSettings === settings && calculationBreakdown
+      ? calculationBreakdown.totals
+      : computePersistedTotals(items),
+    [calculationBreakdown, computePersistedTotals, items, savedSettings, settings]
   );
 
   return {

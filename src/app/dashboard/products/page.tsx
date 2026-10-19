@@ -161,10 +161,10 @@ export default function ProductsPage() {
       }
       if (options.resetPage !== false) next.delete("page");
       const href = next.size > 0 ? `${pathname}?${next.toString()}` : pathname;
-      if (options.replace) router.replace(href, { scroll: false });
-      else router.push(href, { scroll: false });
+      if (options.replace) window.history.replaceState(null, "", href);
+      else window.history.pushState(null, "", href);
     },
-    [pathname, router, searchParams],
+    [pathname, searchParams],
   );
 
   useEffect(() => {
