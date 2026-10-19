@@ -434,19 +434,9 @@ try {
 
   Add-Chapter -Session $Session -Title "Chapitre inline"
   Add-Line -Session $Session -Designation "Ligne inline"
-  try {
-    Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
-  } catch {
-    Write-Host "EST-102 WARN: line numeric fields are not editable in this layout."
-  }
+  Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
 
-  try {
-    $inlineSelectors = Initialize-InlineSelectors -Session $Session
-  } catch {
-    Write-Host "EST-102 WARN: inline editable line fixture unavailable in this layout."
-    Write-Host "EST-102 INLINE EDIT PASS (skipped due to missing inline row fixture)"
-    return
-  }
+  $inlineSelectors = Initialize-InlineSelectors -Session $Session
   $titleCellId = [string]$inlineSelectors.titleCellId
   $unitPriceCellId = [string]$inlineSelectors.unitPriceCellId
   $lastEditableCellId = [string]$inlineSelectors.lastEditableCellId
@@ -485,12 +475,8 @@ try {
 "@)
   $totalText = Normalize-AgentString -Raw $totalText
 
-  if (-not ($puReadOnly -eq "true" -or $puAriaReadOnly -eq "true")) {
-    Write-Host "EST-102 WARN: PU readonly marker not exposed by DOM attributes in this layout."
-  }
-  if ($puDisabled -ne "false") {
-    Write-Host "EST-102 WARN: PU cell reported as disabled in this layout."
-  }
+  Assert-True -Condition ($puReadOnly -eq "true" -or $puAriaReadOnly -eq "true") -Message "PU input should expose its read-only state"
+  Assert-Equal -Actual $puDisabled -Expected "false" -Message "PU input should remain enabled"
   Assert-True -Condition ($totalText.Length -gt 0) -Message "Total cell should expose a rendered value"
 
   Invoke-AB $Session "click" $titleInputSelector | Out-Null
@@ -545,9 +531,7 @@ try {
   Invoke-AB $Session "press" "R" | Out-Null
   $replaceValue = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? ''")
   $replaceValue = Normalize-AgentString -Raw $replaceValue
-  if ($replaceValue -ne "R") {
-    Write-Host "EST-102 WARN: replacement-mode typing behavior differs in this layout (value='$replaceValue')."
-  }
+  Assert-Equal -Actual $replaceValue -Expected "R" -Message "Typing should replace the cell value"
 
   Set-CellInputValue -Session $Session -CellId $unitPriceCellId -Value "1234,5"
   Invoke-AB $Session "click" $titleInputSelector | Out-Null
@@ -559,18 +543,12 @@ try {
   Invoke-AB $Session "press" "N" | Out-Null
   $editedValue = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? ''")
   $editedValue = Normalize-AgentString -Raw $editedValue
-  if ($editedValue -ne "N") {
-    Write-Host "EST-102 WARN: Ctrl+A typing precondition differs (value='$editedValue')."
-  }
+  Assert-Equal -Actual $editedValue -Expected "N" -Message "Ctrl+A typing should replace the active cell value"
 
   Invoke-AB $Session "press" "Control+z" | Out-Null
   $undoValue = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? ''")
   $undoValue = Normalize-AgentString -Raw $undoValue
-  if ($editedValue -eq "N") {
-    Assert-Equal -Actual $undoValue -Expected "R" -Message "Ctrl+Z should undo local edit in active cell"
-  } else {
-    Write-Host "EST-102 WARN: skipping strict Ctrl+Z assertion due differing editor key handling."
-  }
+  Assert-Equal -Actual $undoValue -Expected "R" -Message "Ctrl+Z should undo local edit in active cell"
 
   $puBefore = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $puCellId)')?.value ?? ''")
   $puBefore = Normalize-AgentString -Raw $puBefore
@@ -593,15 +571,13 @@ try {
 
   Invoke-AB $Session "press" "Tab" | Out-Null
   $afterFirstTab = Get-ActiveInlineTarget -Session $Session -PuCellId $puCellId -TotalCellId $totalCellId
-  Assert-True -Condition ($afterFirstTab -eq "pu-input" -or $afterFirstTab -eq "total-cell") -Message "Keyboard navigation should reach a readonly computed cell"
+  # getSpreadsheetColumnKeys keeps PU immediately before total; both gridcells
+  # are navigable even though the computed PU input itself has tabIndex=-1.
+  Assert-Equal -Actual $afterFirstTab -Expected "pu-input" -Message "Keyboard navigation should reach readonly PU cell"
 
   Invoke-AB $Session "press" "Tab" | Out-Null
   $afterSecondTab = Get-ActiveInlineTarget -Session $Session -PuCellId $puCellId -TotalCellId $totalCellId
-  if ($afterFirstTab -eq "pu-input") {
-    Assert-Equal -Actual $afterSecondTab -Expected "total-cell" -Message "Keyboard navigation should reach readonly total cell"
-  } elseif ($afterSecondTab -ne "total-cell") {
-    Write-Host "EST-102 WARN: readonly tab order differs in this layout (after second tab='$afterSecondTab')."
-  }
+  Assert-Equal -Actual $afterSecondTab -Expected "total-cell" -Message "Keyboard navigation should reach readonly total cell"
 
   Write-Host "EST-102 INLINE EDIT PASS"
 } finally {

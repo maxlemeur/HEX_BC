@@ -136,6 +136,12 @@ JSON.stringify((() => {
   };
 
   const readRole = (row) => {
+    const roleInput = row.querySelector(
+      '[data-cell-id$="::labor_role"] input[role="combobox"], ' +
+      '[data-cell-id$="::labor_role_atelier"] input[role="combobox"], ' +
+      '[data-cell-id$="::labor_role_chantier"] input[role="combobox"]'
+    );
+    if (roleInput instanceof HTMLInputElement) return String(roleInput.value ?? '').trim();
     const roleSelect =
       row.querySelector('[data-cell-id$="::labor_role"] select') ??
       row.querySelector('[data-cell-id$="::labor_role_atelier"] select') ??
@@ -160,6 +166,7 @@ JSON.stringify((() => {
     const selected = checked || hasSelectedClass;
 
     return {
+      id: row.getAttribute('data-estimate-item-id') ?? '',
       index,
       marker: row.getAttribute('data-ms-line-index') ?? String(index),
       title: titleInput ? String(titleInput.value ?? '').trim() : '',
@@ -186,6 +193,26 @@ JSON.stringify((() => {
 "@
 
   return Convert-AgentBrowserJson -Raw $json
+}
+
+function Get-PersistedLineCategories {
+  param([string]$Session)
+
+  $versionId = Get-CurrentEstimateVersionId -Session $Session
+  if (-not $versionId) { throw "Estimate version is required to verify persisted categories." }
+  $versionJson = ConvertTo-Json $versionId -Compress
+  $json = Invoke-AB $Session "eval" @"
+(async () => {
+  const response = await fetch('/api/estimates/' + $versionJson + '/items', { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok !== true || !Array.isArray(payload.data?.items)) {
+    throw new Error('Unable to read persisted line categories');
+  }
+  return JSON.stringify(payload.data.items.filter((item) => item.item_type === 'line')
+    .map((item) => ({ id: item.id, category_id: item.category_id })));
+})()
+"@
+  return Convert-AgentBrowserJson -Raw ([string]$json)
 }
 
 function Wait-ForSelectionCount {
@@ -519,6 +546,7 @@ JSON.stringify((() => {
   return {
     ok: true,
     nextLabel,
+    nextValue: String(categoryControl.value ?? '').trim(),
     usedButton: Boolean(applyButton)
   };
 })())
@@ -699,13 +727,7 @@ try {
   Wait-ForSelectionCount -Session $Session -Expected 1 | Out-Null
 
   Invoke-LineModifierClick -Session $Session -Index 2 -Modifier "shift"
-  try {
-    $shiftSnapshot = Wait-ForSelectionCount -Session $Session -Expected 3 -TimeoutSeconds 4
-  } catch {
-    Invoke-LineModifierClick -Session $Session -Index 1 -Modifier "ctrl"
-    Invoke-LineModifierClick -Session $Session -Index 2 -Modifier "ctrl"
-    $shiftSnapshot = Wait-ForSelectionCount -Session $Session -Expected 3 -TimeoutSeconds 6
-  }
+  $shiftSnapshot = Wait-ForSelectionCount -Session $Session -Expected 3 -TimeoutSeconds 4
   Assert-Equal -Actual ([string]$shiftSnapshot.selectedCount) -Expected "3" -Message "Shift+click should select row range"
 
   Invoke-AB $Session "focus" "body" | Out-Null
@@ -746,13 +768,7 @@ try {
       Assert-True -Condition (([string]$line[0].sectionTitle) -like "*$targetLabel*") -Message "Line '$title' should be moved to target section"
     }
   } else {
-    Write-Host "Skipping bulk move section checks: $($moveResult.reason)"
-    $afterMove = Get-MultiSelectSnapshot -Session $Session
-  }
-
-  $beforeCategoryByTitle = @{}
-  foreach ($line in @($afterMove.selectedLines)) {
-    $beforeCategoryByTitle[[string]$line.title] = [string]$line.supplyType
+    throw "Bulk move section action unavailable: $($moveResult.reason)"
   }
 
   $categoryResult = Invoke-BulkCategoryAction -Session $Session
@@ -761,27 +777,34 @@ try {
     $afterCategory = Get-MultiSelectSnapshot -Session $Session
     Assert-Equal -Actual ([string]$afterCategory.selectionCount) -Expected "2" -Message "Selection should persist after bulk category"
 
-    $categoryValues = @()
-    $categoryChanged = $false
+    $categoryLineIds = @()
     foreach ($title in $selectedTitlesBeforeMove) {
       $line = @($afterCategory.lines | Where-Object { [string]$_.title -eq $title } | Select-Object -First 1)
       Assert-True -Condition ($line.Count -eq 1) -Message "Line '$title' should exist after bulk category"
-      $newValue = [string]$line[0].supplyType
-      $categoryValues += $newValue
-      if ($beforeCategoryByTitle.ContainsKey($title) -and $beforeCategoryByTitle[$title] -ne $newValue) {
-        $categoryChanged = $true
-      }
+      Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$line[0].id)) -Message "Bulk category needs the selected line identity"
+      $categoryLineIds += [string]$line[0].id
     }
-    $uniqueCategoryValues = @($categoryValues | Sort-Object -Unique)
-    Assert-True -Condition ($uniqueCategoryValues.Count -eq 1) -Message "Bulk category should align all selected lines to a single category"
+    Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$categoryResult.nextValue)) -Message "Bulk category must identify its requested value"
+    # Bulk category writes category_id, independently of the FO supply-type
+    # combobox. Verify the stored UUIDs, never compare that UUID to a FO label.
+    $categoryDeadline = (Get-Date).AddSeconds(8)
+    $categoryApplied = $false
+    while ((Get-Date) -lt $categoryDeadline) {
+      $storedCategories = @(Get-PersistedLineCategories -Session $Session)
+      $categoryApplied = $true
+      foreach ($id in $categoryLineIds) {
+        $stored = @($storedCategories | Where-Object { [string]$_.id -eq $id })
+        if ($stored.Count -ne 1 -or [string]$stored[0].category_id -ne [string]$categoryResult.nextValue) {
+          $categoryApplied = $false
+          break
+        }
+      }
+      if ($categoryApplied) { break }
+      Start-Sleep -Milliseconds 150
+    }
+    Assert-True -Condition $categoryApplied -Message "Bulk category should apply the requested category"
   } else {
-    Write-Host "Skipping bulk category checks: $($categoryResult.reason)"
-    $afterCategory = Get-MultiSelectSnapshot -Session $Session
-  }
-
-  $beforeRoleByTitle = @{}
-  foreach ($line in @($afterCategory.selectedLines)) {
-    $beforeRoleByTitle[[string]$line.title] = [string]$line.role
+    throw "Bulk category action unavailable: $($categoryResult.reason)"
   }
 
   $roleResult = Invoke-BulkRoleAction -Session $Session
@@ -791,36 +814,26 @@ try {
     Assert-Equal -Actual ([string]$afterRole.selectionCount) -Expected "2" -Message "Selection should persist after bulk role"
 
     $roleValues = @()
-    $roleChanged = $false
     foreach ($title in $selectedTitlesBeforeMove) {
       $line = @($afterRole.lines | Where-Object { [string]$_.title -eq $title } | Select-Object -First 1)
       Assert-True -Condition ($line.Count -eq 1) -Message "Line '$title' should exist after bulk role"
       $newRole = [string]$line[0].role
       $roleValues += $newRole
-      if ($beforeRoleByTitle.ContainsKey($title) -and $beforeRoleByTitle[$title] -ne $newRole) {
-        $roleChanged = $true
-      }
     }
     $uniqueRoleValues = @($roleValues | Sort-Object -Unique)
     Assert-True -Condition ($uniqueRoleValues.Count -eq 1) -Message "Bulk role should align all selected lines to a single role"
+    Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$roleResult.nextLabel)) -Message "Bulk role must identify its requested label"
+    Assert-Equal -Actual ([string]$uniqueRoleValues[0]) -Expected ([string]$roleResult.nextLabel) -Message "Bulk role should apply the requested role"
   } else {
-    Write-Host "Skipping bulk role checks: $($roleResult.reason)"
-    $afterRole = Get-MultiSelectSnapshot -Session $Session
+    throw "Bulk role action unavailable: $($roleResult.reason)"
   }
 
   $beforeDelete = Get-MultiSelectSnapshot -Session $Session
   $deleteSelectionCount = [int]$beforeDelete.selectionCount
   $deleteLineCount = [int]$beforeDelete.lineCount
-  if ($deleteSelectionCount -le 0 -and $deleteLineCount -gt 0) {
-    Invoke-LineModifierClick -Session $Session -Index 0 -Modifier "ctrl"
-    $beforeDelete = Get-MultiSelectSnapshot -Session $Session
-    $deleteSelectionCount = [int]$beforeDelete.selectionCount
-    $deleteLineCount = [int]$beforeDelete.lineCount
-  }
+  Assert-Equal -Actual ([string]$deleteSelectionCount) -Expected "2" -Message "Bulk deletion requires the two selected lines"
 
-  if ($deleteSelectionCount -le 0) {
-    Write-Host "Skipping delete shortcut checks: no selected lines available."
-  } else {
+  if ($deleteSelectionCount -gt 0) {
     Invoke-AB $Session "eval" @"
 (() => {
   window.__est103ConfirmMessages = [];
@@ -837,33 +850,20 @@ try {
     $expectedAfterDelete = [Math]::Max(0, $deleteLineCount - $deleteSelectionCount)
     $afterDelete = $null
 
-    try {
-      $afterDelete = Wait-ForLineCount -Session $Session -Expected $expectedAfterDelete -TimeoutSeconds 8
-    } catch {
-      Start-Sleep -Milliseconds 400
-      $afterDelete = Get-MultiSelectSnapshot -Session $Session
-
-      if ([int]$afterDelete.lineCount -ge $deleteLineCount -and $deleteLineCount -gt 0) {
-        # Fallback: reselect first line and retry delete once when multiselect state is stale.
-        Invoke-AB $Session "press" "Escape" | Out-Null
-        Invoke-LineModifierClick -Session $Session -Index 0 -Modifier "ctrl"
-        Invoke-AB $Session "press" "Delete" | Out-Null
-        Confirm-EditorDeleteDialog -Session $Session | Out-Null
-        Start-Sleep -Milliseconds 500
-        $afterDelete = Get-MultiSelectSnapshot -Session $Session
-      }
-
-      if ([int]$afterDelete.lineCount -ge $deleteLineCount) {
-        throw "Delete shortcut did not reduce line count (before=$deleteLineCount, after=$($afterDelete.lineCount))."
-      }
+    $afterDelete = Wait-ForLineCount -Session $Session -Expected $expectedAfterDelete -TimeoutSeconds 8
+    Assert-Equal -Actual ([string]$afterDelete.lineCount) -Expected ([string]$expectedAfterDelete) -Message "Bulk deletion should remove exactly the selected lines"
+    foreach ($title in $selectedTitlesBeforeMove) {
+      $remaining = @($afterDelete.lines | Where-Object { [string]$_.title -eq $title })
+      Assert-Equal -Actual ([string]$remaining.Count) -Expected "0" -Message "Selected line '$title' should be deleted"
+    }
+    foreach ($line in @($beforeDelete.lines | Where-Object { [string]$_.title -notin $selectedTitlesBeforeMove })) {
+      $title = [string]$line.title
+      $remaining = @($afterDelete.lines | Where-Object { [string]$_.title -eq $title })
+      Assert-Equal -Actual ([string]$remaining.Count) -Expected "1" -Message "Unselected line '$title' should remain after deletion"
     }
 
     $confirmCount = [int](Invoke-AB $Session "eval" "Array.isArray(window.__est103ConfirmMessages) ? window.__est103ConfirmMessages.length : 0")
     Assert-True -Condition ($confirmCount -ge 1) -Message "Delete shortcut should request confirmation"
-    if ([int]$afterDelete.selectionCount -ne 0) {
-      Invoke-AB $Session "press" "Escape" | Out-Null
-      $afterDelete = Get-MultiSelectSnapshot -Session $Session
-    }
     Assert-Equal -Actual ([string]$afterDelete.selectionCount) -Expected "0" -Message "Selection should be cleared after delete"
   }
 

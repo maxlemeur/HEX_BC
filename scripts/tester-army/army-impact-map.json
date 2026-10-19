@@ -461,23 +461,6 @@
       "journeys": []
     },
     {
-      "id": "runtime-unused-modules",
-      "note": "Modules importés seulement par des tests, ou par aucun fichier : aucune page ne les charge. Dès qu'un fichier de l'application les importe, le graphe suit cet importeur.",
-      "paths": [
-        "src/components/affaires/OnboardingIntakeDropzone.tsx",
-        "src/components/affaires/QuickCreateAffaireDialog.tsx",
-        "src/components/catalogue/prices-manager/SupplierCatalogItemModal.tsx",
-        "src/components/takeoff/ProjectTakeoffJobList.tsx",
-        "src/components/takeoff/evidence-source-context.ts",
-        "src/components/ui/{checkbox,empty,select,switch,table}.tsx",
-        "src/hooks/useEstimateLineTruthVisibility.ts",
-        "src/lib/affaires/route-segments.ts",
-        "src/lib/estimates/{assembly-library,calc-context,portal-document-contract}.ts",
-        "src/lib/reference.ts"
-      ],
-      "journeys": []
-    },
-    {
       "id": "deslop-fixtures",
       "note": "Chargées par chemin dans e2e/army/extended/component-fixture.ts.",
       "paths": ["e2e/fixtures/deslop-{client-list,live-replacements}.tsx"],

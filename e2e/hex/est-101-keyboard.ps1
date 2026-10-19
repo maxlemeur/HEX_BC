@@ -77,6 +77,7 @@ try {
 
   Add-Chapter -Session $Session -Title "Chapitre clavier"
   Add-Line -Session $Session -Designation "Ligne clavier"
+  Add-Line -Session $Session -Designation "Deuxième ligne clavier"
 
   $setupJs = @"
 (() => {
@@ -153,6 +154,10 @@ try {
   if (addLineButton) {
     addLineButton.setAttribute('data-kbd-id', 'section-add-line');
   }
+  const quickActions = sectionRow.querySelector('[data-testid="estimate-section-quick-actions-trigger"]');
+  if (quickActions) quickActions.setAttribute('data-kbd-id', 'section-quick-actions');
+  const secondLineRow = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row'))
+    .filter((row) => !row.classList.contains('estimate-row--section'))[1];
 
   return [
     'setupReady=true',
@@ -161,6 +166,8 @@ try {
     'lineTitleCellId=' + String((lineRow.querySelector('[data-cell-column-key=\"title\"]') ?? lineRow.querySelector('[data-cell-id$="::title"]'))?.getAttribute('data-cell-id') ?? ''),
     'lineQuantityCellId=' + String((lineRow.querySelector('[data-cell-column-key=\"quantity\"]') ?? lineRow.querySelector('[data-cell-id$="::quantity"]'))?.getAttribute('data-cell-id') ?? ''),
     'sectionAddLineAvailable=' + String(Boolean(addLineButton)),
+    'sectionQuickActionsAvailable=' + String(Boolean(quickActions)),
+    'secondQuantityCellId=' + String((secondLineRow?.querySelector('[data-cell-column-key="quantity"]') ?? secondLineRow?.querySelector('[data-cell-id$="::quantity"]'))?.getAttribute('data-cell-id') ?? ''),
     'hasQuantityMapping=' + String(hasQuantityMapping)
   ].join('||');
 })();
@@ -174,16 +181,16 @@ try {
     }
   }
   if ([string]$setup.setupReady -eq "false") {
-    Write-Host "EST-101 WARN: keyboard fixture unavailable in this layout ($($setup.reason))."
-    Write-Host "EST-101 KEYBOARD PASS (skipped due to missing editable line fixture)"
-    return
+    throw "Keyboard fixture unavailable in this layout ($($setup.reason))."
   }
   Assert-Equal -Actual ([string]$setup.sectionInputCount) -Expected "1" -Message "Section should expose one editable input (title)"
   Assert-True -Condition ([int]$setup.lineFieldCount -ge 3) -Message "Line row fields are missing"
   Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$setup.lineTitleCellId)) -Message "lineTitleCellId missing in setup"
   $lineTitleCellId = [string]$setup.lineTitleCellId
   Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($lineTitleCellId)) -Message "Missing stable title cell id"
-  $sectionAddLineAvailable = ([string]$setup.sectionAddLineAvailable -eq "True")
+  $sectionQuickActionsAvailable = ([string]$setup.sectionQuickActionsAvailable -eq "True")
+  Assert-True -Condition $sectionQuickActionsAvailable -Message "Section quick-actions trigger is required for the keyboard journey"
+  Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$setup.secondQuantityCellId)) -Message "Second quantity cell is required for vertical navigation"
 
   $focusLineTitleJs = @"
 (() => {
@@ -202,7 +209,7 @@ try {
   $active = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" $focusLineTitleJs))
   $activeCellId = Get-ActiveCellId -Session $Session
   if (-not ($active -eq "line-title" -or $activeCellId -eq [string]$setup.lineTitleCellId)) {
-    Write-Host "EST-101 WARN: initial focus did not land on line title in this layout."
+    throw "Initial focus did not land on line title."
   }
 
   Invoke-AB $Session "press" "Tab" | Out-Null
@@ -265,13 +272,26 @@ try {
   return Number(input?.value ?? '0');
 })();
 "@
-  Invoke-AB $Session "press" "ArrowUp" | Out-Null
-  [double]$qtyAfterUp = Invoke-AB $Session "eval" $readQuantityJs
-  Assert-True -Condition ($qtyAfterUp -ge $qtyBefore) -Message "ArrowUp should increase quantity"
-
+  # Quantity is a text editor with decimal input. Native arrows do not spin its
+  # number; vertical spreadsheet navigation starts from the grid cell instead.
+  Invoke-AB $Session "press" "Escape" | Out-Null
+  $quantityCellIdJson = ConvertTo-Json ([string]$setup.lineQuantityCellId) -Compress
+  Invoke-AB $Session "eval" @"
+(() => {
+  const quantityCell = document.querySelector('[data-cell-id="' + $quantityCellIdJson + '"]');
+  if (!quantityCell) throw new Error('Quantity grid cell not found');
+  quantityCell.focus();
+  return quantityCell.getAttribute('data-cell-id');
+})()
+"@ | Out-Null
   Invoke-AB $Session "press" "ArrowDown" | Out-Null
+  Assert-Equal -Actual (Get-ActiveCellId -Session $Session) -Expected ([string]$setup.secondQuantityCellId) -Message "ArrowDown should navigate to the next quantity cell"
   [double]$qtyAfterDown = Invoke-AB $Session "eval" $readQuantityJs
-  Assert-True -Condition ($qtyAfterDown -le $qtyAfterUp) -Message "ArrowDown should decrease quantity"
+  Assert-Equal -Actual ([string]$qtyAfterDown) -Expected ([string]$qtyBefore) -Message "ArrowDown should preserve the quantity value"
+  Invoke-AB $Session "press" "ArrowUp" | Out-Null
+  Assert-Equal -Actual (Get-ActiveCellId -Session $Session) -Expected ([string]$setup.lineQuantityCellId) -Message "ArrowUp should return to the first quantity cell"
+  [double]$qtyAfterUp = Invoke-AB $Session "eval" $readQuantityJs
+  Assert-Equal -Actual ([string]$qtyAfterUp) -Expected ([string]$qtyBefore) -Message "ArrowUp should preserve the quantity value"
 
   $caretInitJs = @"
 (() => {
@@ -313,14 +333,40 @@ try {
 
   Invoke-AB $Session "press" "ArrowRight" | Out-Null
   [int]$caretRight = Invoke-AB $Session "eval" $readTitleCaretJs
+  Assert-Equal -Actual ([string]$caretLeft) -Expected ([string]($caretInitPos - 1)) -Message "ArrowLeft should move title caret left"
+  Assert-Equal -Actual ([string]$caretRight) -Expected ([string]$caretInitLen) -Message "ArrowRight should restore title caret"
 
   [int]$titlesBeforeEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
   Invoke-AB $Session "eval" "document.querySelector('[data-testid=\"estimate-section-title-input\"]')?.focus(); document.activeElement?.getAttribute('data-kbd-id') || ''" | Out-Null
   Invoke-AB $Session "press" "Tab" | Out-Null
   $active = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "document.activeElement?.getAttribute('data-kbd-id') || ''"))
-  Assert-True -Condition ($active -eq "section-add-line" -or $active -eq "") -Message "Section tab navigation should remain stable"
+  Assert-Equal -Actual (Get-ActiveCellId -Session $Session) -Expected ([string]$setup.lineTitleCellId) -Message "Section Tab should navigate to the following line title"
 
-  if ($sectionAddLineAvailable) {
+  if ($sectionQuickActionsAvailable) {
+    $focusedTrigger = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" @"
+(() => {
+  const trigger = document.querySelector('[data-testid="estimate-section-quick-actions-trigger"]');
+  if (!trigger) throw new Error('Section quick-actions trigger missing');
+  trigger.focus();
+  return document.activeElement?.getAttribute('data-kbd-id') ?? '';
+})()
+"@))
+    Assert-Equal -Actual $focusedTrigger -Expected "section-quick-actions" -Message "Section quick-actions trigger should be keyboard focusable"
+    Invoke-AB $Session "press" "Enter" | Out-Null
+    $deadline = (Get-Date).AddSeconds(4)
+    $addLineVisible = $false
+    while ((Get-Date) -lt $deadline) {
+      $addLineVisible = Invoke-AB $Session "eval" @"
+(() => {
+  const button = document.querySelector('[data-testid="estimate-section-add-line-button"]');
+  if (button) button.setAttribute('data-kbd-id', 'section-add-line');
+  return Boolean(button);
+})()
+"@
+      if ($addLineVisible -eq $true -or "$addLineVisible" -eq "true") { break }
+      Start-Sleep -Milliseconds 100
+    }
+    Assert-True -Condition ($addLineVisible -eq $true -or "$addLineVisible" -eq "true") -Message "Add-line button was not revealed by keyboard"
     $focusAddLine = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" @"
 (() => {
   const button = document.querySelector('[data-testid="estimate-section-add-line-button"]') ?? document.querySelector('[data-kbd-id="section-add-line"]');
@@ -340,25 +386,7 @@ try {
       Start-Sleep -Milliseconds 200
       [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
     }
-    if ($titlesAfterEnter -le $titlesBeforeEnter) {
-      Invoke-AB $Session "eval" @"
-(() => {
-  const button = document.querySelector('[data-testid="estimate-section-add-line-button"]');
-  if (button instanceof HTMLButtonElement && !button.disabled) {
-    button.click();
-  }
-  return true;
-})()
-"@ | Out-Null
-      $deadline = (Get-Date).AddSeconds(4)
-      while ($titlesAfterEnter -le $titlesBeforeEnter -and (Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 200
-        [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
-      }
-    }
-    Assert-True -Condition ($titlesAfterEnter -gt $titlesBeforeEnter) -Message "Enter on section add-line should create a new line"
-  } else {
-    Write-Host "EST-101 INFO: section add-line button not directly exposed in this layout; skipping add-line keyboard trigger assertion."
+    Assert-Equal -Actual ([string]$titlesAfterEnter) -Expected ([string]($titlesBeforeEnter + 1)) -Message "Enter on section add-line should create exactly one line"
   }
 
   Write-Host "EST-101 KEYBOARD PASS"

@@ -358,63 +358,33 @@ try {
   } catch {
     Write-Host "EST-105 WARN: no line row detected after initial setup, retrying line creation."
     Add-Line -Session $Session -Designation $initialLineTitle
-    try {
-      Set-LastLineTitle -Session $Session -Value $updatedLineTitle
-    } catch {
-      Write-Host "EST-105 WARN: unable to edit line title in current layout."
-      Write-Host "EST-105 PASS (skipped due to missing editable line row)"
-      return
-    }
+    Set-LastLineTitle -Session $Session -Value $updatedLineTitle
   }
 
-  try {
-    Wait-Until -TimeoutMessage "Autosave status should transition from 'saving' to 'saved' after line edit." -TimeoutSeconds 35 -Predicate {
-      $events = Get-AutosaveProbeEvents -Session $Session
-      if (-not $events -or $events.Count -eq 0) {
-        return $false
-      }
-
-      $sawSaving = $false
-      $sawSavingThenSaved = $false
-      foreach ($event in $events) {
-        $eventText = [string]$event.text
-        $eventClass = [string]$event.className
-
-        # useAutoSave labels: saving = "Synchronisation..." (status-sent), saved = "Sauvegarde" + accent (status-accepted).
-        if ($eventClass -like "*status-sent*" -and ($eventText -like "*Synchronisation*" -or $eventText -like "*Sauvegarde en cours*")) {
-          $sawSaving = $true
-        }
-
-        if (
-          $sawSaving -and
-          $eventClass -like "*status-accepted*" -and
-          $eventText -like "*Sauvegard*"
-        ) {
-          $sawSavingThenSaved = $true
-          break
-        }
-      }
-
-      return $sawSavingThenSaved
+  Wait-Until -TimeoutMessage "Autosave badge should end on saved state before persistence check." -TimeoutSeconds 10 -Predicate {
+    $snapshot = Get-AutosaveBadgeSnapshot -Session $Session
+    if (-not [bool]$snapshot.found) {
+      return $false
     }
-  } catch {
-    Write-Host "EST-105 WARN: did not observe explicit saving->saved transition in probe timeline."
+
+    return [string]$snapshot.className -like "*status-accepted*" -and [string]$snapshot.text -eq "Sauvegardé"
   }
 
-  try {
-    Wait-Until -TimeoutMessage "Autosave badge should end on saved state before persistence check." -TimeoutSeconds 10 -Predicate {
-      $snapshot = Get-AutosaveBadgeSnapshot -Session $Session
-      if (-not [bool]$snapshot.found) {
-        return $false
-      }
-
-      $badgeClass = [string]$snapshot.className
-      $badgeText = [string]$snapshot.text
-      return $badgeClass -like "*status-accepted*" -and $badgeText -like "*Sauvegard*"
+  # useAutoSave has no minimum duration for its intermediate saving render.
+  # Keep that observation as timing evidence; the final saved badge and exact
+  # edited title after reopening below are required outcomes even on a fast save.
+  $sawSaving = $false
+  $sawSavingThenSaved = $false
+  foreach ($event in @(Get-AutosaveProbeEvents -Session $Session)) {
+    if ([string]$event.className -like "*status-sent*" -and [string]$event.text -like "*Synchronisation*") {
+      $sawSaving = $true
     }
-  } catch {
-    Write-Host "EST-105 WARN: saved autosave badge state not observed before leaving editor."
+    if ($sawSaving -and [string]$event.className -like "*status-accepted*" -and [string]$event.text -eq "Sauvegardé") {
+      $sawSavingThenSaved = $true
+      break
+    }
   }
+  Write-Host "EST-105 INFO: saving-to-saved transition observed=$sawSavingThenSaved; final saved state is required."
 
   # The editor no longer has a "Retour" link: leave through the last breadcrumb link of the
   # production ribbon (affaire, or "Chiffrages" when the version has no affaire).
@@ -448,13 +418,9 @@ try {
   Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
   Go-EditorTab -Session $Session
 
-  try {
-    Wait-Until -TimeoutMessage "Edited line title should persist after autosave and reload." -TimeoutSeconds 30 -Predicate {
-      $titles = Get-LineTitles -Session $Session
-      return $titles -contains $updatedLineTitle
-    }
-  } catch {
-    Write-Host "EST-105 WARN: edited line title persistence was not confirmed in this environment."
+  Wait-Until -TimeoutMessage "Edited line title should persist after autosave and reload." -TimeoutSeconds 30 -Predicate {
+    $titles = Get-LineTitles -Session $Session
+    return $titles -contains $updatedLineTitle
   }
 
   Write-Host "EST-105 PASS"

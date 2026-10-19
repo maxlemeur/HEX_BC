@@ -325,11 +325,7 @@ function Add-LineSafe {
   }
 
   $targetIndex = [Math]::Max(0, (Get-LineCount -Session $Session) - 1)
-  try {
-    Set-LineTitleByIndex -Session $Session -Index $targetIndex -Value $Designation
-  } catch {
-    Write-Host "EST-106 WARN: unable to set title on fallback-added line."
-  }
+  Set-LineTitleByIndex -Session $Session -Index $targetIndex -Value $Designation
 }
 
 function Apply-BulkMajoration {
@@ -446,7 +442,6 @@ try {
     (Get-LineCount -Session $Session) -ge 3
   }
 
-  try {
   Set-LineQuantityByIndex -Session $Session -Index 0 -Value "3"
   Wait-Until -TimeoutMessage "Quantity patch was not applied." -Predicate {
     $state = Get-LineState -Session $Session
@@ -485,118 +480,71 @@ try {
   }
 
   Click-UndoButton -Session $Session
-  $deleteUndoRestored = $true
-  try {
-    Wait-Until -TimeoutMessage "Undo should restore deleted line count." -Predicate {
-      (Get-LineCount -Session $Session) -eq $countBeforeDelete
-    } -TimeoutSeconds 8
-  } catch {
-    $deleteUndoRestored = $false
-    Write-Host "EST-106 WARN: undo delete did not restore line count within timeout."
+  Wait-Until -TimeoutMessage "Undo should restore deleted line count." -Predicate {
+    (Get-LineCount -Session $Session) -eq $countBeforeDelete
+  } -TimeoutSeconds 8
+
+  $titlesAfterDeleteUndo = Get-TitleOrder -Session $Session
+  Assert-Equal `
+    -Actual ($titlesAfterDeleteUndo -join "||") `
+    -Expected ($titlesBeforeDelete -join "||") `
+    -Message "Deleted line should be restored at original position after undo."
+
+  Click-RedoButton -Session $Session
+  Wait-Until -TimeoutMessage "Redo should delete the same line again." -Predicate {
+    (Get-LineCount -Session $Session) -eq ($countBeforeDelete - 1)
   }
 
-  if ($deleteUndoRestored) {
-    $titlesAfterDeleteUndo = Get-TitleOrder -Session $Session
-    Assert-Equal `
-      -Actual ($titlesAfterDeleteUndo -join "||") `
-      -Expected ($titlesBeforeDelete -join "||") `
-      -Message "Deleted line should be restored at original position after undo."
-
-    Click-RedoButton -Session $Session
-    Wait-Until -TimeoutMessage "Redo should delete the same line again." -Predicate {
-      (Get-LineCount -Session $Session) -eq ($countBeforeDelete - 1)
-    }
-
-    Click-UndoButton -Session $Session
-    try {
-      Wait-Until -TimeoutMessage "Undo should restore lines before bulk action checks." -Predicate {
-        (Get-LineCount -Session $Session) -eq $countBeforeDelete
-      } -TimeoutSeconds 8
-    } catch {
-      Write-Host "EST-106 WARN: final delete undo restore not observed before bulk checks."
-    }
-  } else {
-    Write-Host "EST-106 WARN: skipping strict delete undo/redo restoration checks."
-  }
+  Click-UndoButton -Session $Session
+  Wait-Until -TimeoutMessage "Undo should restore lines before bulk action checks." -Predicate {
+    (Get-LineCount -Session $Session) -eq $countBeforeDelete
+  } -TimeoutSeconds 8
 
   Set-LineSelection -Session $Session -Indexes @(0, 1)
   Apply-BulkMajoration -Session $Session -Percent "150"
-  $majorationAfterBulk = $null
-  $bulkMajorationApplied = $true
-  try {
-    Wait-Until -TimeoutMessage "Bulk majoration should set first line majoration to 150." -Predicate {
-      $state = Get-LineState -Session $Session
-      if ($state.lines.Count -lt 1) { return $false }
-      return [double]$state.lines[0].majoration -ge 149
-    } -TimeoutSeconds 8
-    $majorationAfterBulk = [double](Get-LineState -Session $Session).lines[0].majoration
-  } catch {
-    $bulkMajorationApplied = $false
-    Write-Host "EST-106 WARN: bulk majoration update not observed within timeout."
-  }
+  Wait-Until -TimeoutMessage "Bulk majoration should set first line majoration to 150." -Predicate {
+    $state = Get-LineState -Session $Session
+    if ($state.lines.Count -lt 1) { return $false }
+    return [double]$state.lines[0].majoration -ge 149
+  } -TimeoutSeconds 8
+  $majorationAfterBulk = [double](Get-LineState -Session $Session).lines[0].majoration
 
-  if ($bulkMajorationApplied -and $null -ne $majorationAfterBulk) {
-    try {
-      Click-UndoButton -Session $Session
-      Wait-Until -TimeoutMessage "Undo should rollback bulk majoration." -Predicate {
-        $state = Get-LineState -Session $Session
-        if ($state.lines.Count -lt 1) { return $false }
-        return [double]$state.lines[0].majoration -lt 149
-      } -TimeoutSeconds 8
-    } catch {
-      Write-Host "EST-106 WARN: bulk majoration undo not observed."
-    }
+  Click-UndoButton -Session $Session
+  Wait-Until -TimeoutMessage "Undo should rollback bulk majoration." -Predicate {
+    $state = Get-LineState -Session $Session
+    if ($state.lines.Count -lt 1) { return $false }
+    return [double]$state.lines[0].majoration -lt 149
+  } -TimeoutSeconds 8
 
-    try {
-      Click-RedoButton -Session $Session
-      Wait-Until -TimeoutMessage "Redo should reapply bulk majoration." -Predicate {
-        $state = Get-LineState -Session $Session
-        if ($state.lines.Count -lt 1) { return $false }
-        return [double]$state.lines[0].majoration -eq $majorationAfterBulk
-      } -TimeoutSeconds 8
-    } catch {
-      Write-Host "EST-106 WARN: bulk majoration redo not observed."
-    }
-  } else {
-    Write-Host "EST-106 WARN: skipping strict bulk majoration undo/redo checks."
-  }
+  Click-RedoButton -Session $Session
+  Wait-Until -TimeoutMessage "Redo should reapply bulk majoration." -Predicate {
+    $state = Get-LineState -Session $Session
+    if ($state.lines.Count -lt 1) { return $false }
+    return [double]$state.lines[0].majoration -eq $majorationAfterBulk
+  } -TimeoutSeconds 8
 
   $orderBeforeReorder = Get-TitleOrder -Session $Session
-  $orderAfterReorder = $null
-  try {
-    Try-ReorderFirstLineDown -Session $Session
-    Wait-Until -TimeoutMessage "Expected line order to change after reorder." -Predicate {
-      ((Get-TitleOrder -Session $Session) -join "||") -ne ($orderBeforeReorder -join "||")
-    } -TimeoutSeconds 8
-    $orderAfterReorder = Get-TitleOrder -Session $Session
+  Try-ReorderFirstLineDown -Session $Session
+  Wait-Until -TimeoutMessage "Expected line order to change after reorder." -Predicate {
+    ((Get-TitleOrder -Session $Session) -join "||") -ne ($orderBeforeReorder -join "||")
+  } -TimeoutSeconds 8
+  $orderAfterReorder = Get-TitleOrder -Session $Session
 
-    Click-UndoButton -Session $Session
-    Wait-Until -TimeoutMessage "Undo should restore line order before reorder." -Predicate {
-      ((Get-TitleOrder -Session $Session) -join "||") -eq ($orderBeforeReorder -join "||")
-    } -TimeoutSeconds 8
+  Click-UndoButton -Session $Session
+  Wait-Until -TimeoutMessage "Undo should restore line order before reorder." -Predicate {
+    ((Get-TitleOrder -Session $Session) -join "||") -eq ($orderBeforeReorder -join "||")
+  } -TimeoutSeconds 8
 
-    Click-RedoButton -Session $Session
-    Wait-Until -TimeoutMessage "Redo should reapply reordered line order." -Predicate {
-      ((Get-TitleOrder -Session $Session) -join "||") -eq ($orderAfterReorder -join "||")
-    } -TimeoutSeconds 8
-  } catch {
-    Write-Host "EST-106 WARN: reorder undo/redo strict checks not observed."
-  }
+  Click-RedoButton -Session $Session
+  Wait-Until -TimeoutMessage "Redo should reapply reordered line order." -Predicate {
+    ((Get-TitleOrder -Session $Session) -join "||") -eq ($orderAfterReorder -join "||")
+  } -TimeoutSeconds 8
 
-  if ($orderAfterReorder) {
-    Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
-    Go-EditorTab -Session $Session
-    try {
-      Wait-Until -TimeoutMessage "Line order should remain stable after refresh." -Predicate {
-        ((Get-TitleOrder -Session $Session) -join "||") -eq ($orderAfterReorder -join "||")
-      } -TimeoutSeconds 8
-    } catch {
-      Write-Host "EST-106 WARN: reordered state after refresh not confirmed."
-    }
-  }
-  } catch {
-    Write-Host "EST-106 WARN: strict undo/redo checks interrupted: $($_.Exception.Message)"
-  }
+  Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
+  Go-EditorTab -Session $Session
+  Wait-Until -TimeoutMessage "Line order should remain stable after refresh." -Predicate {
+    ((Get-TitleOrder -Session $Session) -join "||") -eq ($orderAfterReorder -join "||")
+  } -TimeoutSeconds 8
 
   Write-Host "EST-106 UNDO REDO PASS"
 } finally {

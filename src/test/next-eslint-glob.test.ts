@@ -4,6 +4,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 
+import { ESLint } from "eslint";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -129,4 +130,28 @@ describe("Next ESLint directory glob compatibility", () => {
     expect(result.stderr).not.toContain("RangeError");
     expect(result.status).toBe(0);
   });
+});
+
+// Browser E2E cannot expose ESLint's filesystem selection. The local quality
+// command linted independent Git worktrees nested under .claude/worktrees, so
+// old sources there could block this checkout. Exercise the real config and
+// lint engine, with a known root-source violation as the protection counterexample.
+describe("project ESLint source discovery", () => {
+  it("ignores nested agent worktrees while enforcing the active checkout's rules", async () => {
+    const eslint = new ESLint({ cwd: process.cwd() });
+    const activeFile = path.resolve("src/test/eslint-discovery-fixture.ts");
+    const worktreeFile = path.resolve(".claude/worktrees/another-checkout/src/test/eslint-discovery-fixture.ts");
+    const otherClaudeFile = path.resolve(".claude/hooks/eslint-discovery-fixture.ts");
+    const violation = 'export const query = client.from("référence");\n';
+
+    expect(await eslint.isPathIgnored(activeFile)).toBe(false);
+    const active = await eslint.lintText(violation, { filePath: activeFile });
+    expect(active[0].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ruleId: "no-restricted-syntax", severity: 2,
+        message: "Supabase table, column and RPC names are ASCII. Keep accents in labels and data, never in query identifiers." }),
+    ]));
+    expect(await eslint.isPathIgnored(otherClaudeFile)).toBe(false);
+    expect(await eslint.isPathIgnored(worktreeFile)).toBe(true);
+    expect(await eslint.lintText(violation, { filePath: worktreeFile, warnIgnored: false })).toEqual([]);
+  }, 10_000);
 });

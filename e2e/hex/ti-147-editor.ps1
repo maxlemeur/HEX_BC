@@ -57,16 +57,8 @@ try {
 
   Add-Chapter -Session $Session -Title "Chapitre 1"
   Add-Line -Session $Session -Designation "Planches bois"
-  try {
-    Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Materiaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
-  } catch {
-    Write-Host "TI-147 WARN: line numeric fields not editable in this layout, continuing persistence check."
-  }
-  try {
-    Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 25
-  } catch {
-    Write-Host "TI-147 WARN: persisted line polling timed out, continuing with reload verification."
-  }
+  Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Materiaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
+  Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 25
 
   Invoke-AB $Session "eval" "document.activeElement && typeof document.activeElement.blur === 'function' ? document.activeElement.blur() : null" | Out-Null
   Start-Sleep -Milliseconds 500
@@ -92,9 +84,7 @@ JSON.stringify((() => {
     throw "Missing expected content: Chapter persisted"
   }
   if ([int]$counts.lineCount -lt 1) {
-    Write-Host "TI-147 WARN: persisted line row not visible after reload in this environment."
-    Write-Host "TI-147 PASS (skipped due to missing persisted line row)"
-    return
+    throw "Missing expected content: Line persisted"
   }
 
   Write-Host "TI-147 PASS"

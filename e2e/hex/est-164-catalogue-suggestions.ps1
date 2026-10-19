@@ -94,12 +94,7 @@ function Get-CandidateVersionIds {
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre EST-164"
   Add-Line -Session $Session -Designation "Tube Inox 316L"
-  try {
-    Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 30
-  } catch {
-    Write-Host "EST-164 WARN: ligne de test non persistee dans ce contexte."
-    return @()
-  }
+  Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 30
 
   return @($versionId)
 }
@@ -109,8 +104,7 @@ try {
 
   $candidateVersionIds = @(Get-CandidateVersionIds -BaseUrl $BaseUrl -Session $Session)
   if ($candidateVersionIds.Count -eq 0) {
-    Write-Host "EST-164 PASS (skipped due to missing persisted line)"
-    return
+    throw "EST-164 requires a persisted line fixture."
   }
   $result = $null
   $lastError = $null
@@ -236,11 +230,6 @@ try {
   }
 
   if (-not $result) {
-    if ($lastError -like "*error=no_suggestions*") {
-      Write-Host "EST-164 WARN: aucune suggestion catalogue disponible sur ce jeu de donnees."
-      Write-Host "EST-164 PASS (skipped due to no suggestions)"
-      return
-    }
     throw "EST-164 API flow failed: $lastError"
   }
 

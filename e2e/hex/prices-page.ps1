@@ -36,6 +36,23 @@ function Get-DialogText {
   return $text
 }
 
+function Get-CsvImportState {
+  param([string]$Session)
+
+  $raw = Invoke-AB $Session "eval" @"
+JSON.stringify((() => {
+  const toggle = document.querySelector('main button[aria-controls="price-csv-import-panel"]');
+  const panel = document.querySelector('#price-csv-import-panel');
+  return {
+    expanded: toggle?.getAttribute('aria-expanded') ?? null,
+    panelPresent: Boolean(panel),
+    panelVisible: Boolean(panel && (panel.offsetWidth || panel.offsetHeight || panel.getClientRects().length))
+  };
+})())
+"@
+  return ConvertFrom-AgentBrowserJson -RawOutput $raw
+}
+
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
@@ -53,52 +70,54 @@ try {
 
   # --- P0-1: CSV import section collapsed by default ---
   Assert-Contains -Text $text -Expected "Importer un fichier de prix" -Message "CSV import header present"
-  # The CSV import content (steps) should NOT be visible when collapsed
-  $hasCsvSteps = $text -like "*tape 1*" -or $text -like "*Étape 1*"
-  if ($hasCsvSteps) {
-    Write-Host "WARNING: CSV import appears expanded by default (may be acceptable if data was loaded)"
-  } else {
-    Write-Host "PASS: CSV import is collapsed by default"
+  $csvState = Get-CsvImportState -Session $Session
+  if ($csvState.expanded -ne "false" -or $csvState.panelPresent) {
+    throw "CSV import should be collapsed by default."
   }
+  Write-Host "PASS: CSV import is collapsed by default"
 
   # --- P0-1: Expand CSV import ---
   Invoke-AB $Session "find" "text" "Importer un fichier de prix" "click" | Out-Null
   Start-Sleep -Milliseconds 500
-  $textAfterExpand = Get-PageText -Session $Session
-  $hasCsvContent = $textAfterExpand -like "*CSV*" -or $textAfterExpand -like "*fichier*"
-  if ($hasCsvContent) {
-    Write-Host "PASS: CSV import expands on click"
+  $csvState = Get-CsvImportState -Session $Session
+  if ($csvState.expanded -ne "true" -or -not $csvState.panelPresent -or -not $csvState.panelVisible) {
+    throw "CSV import should expand and expose its visible panel after click."
   }
+  Write-Host "PASS: CSV import expands on click"
 
   # Collapse it back
   Invoke-AB $Session "find" "text" "Importer un fichier de prix" "click" | Out-Null
   Start-Sleep -Milliseconds 300
+  $csvState = Get-CsvImportState -Session $Session
+  if ($csvState.expanded -ne "false" -or $csvState.panelPresent) {
+    throw "CSV import should collapse after the second click."
+  }
 
   # --- P0-3: TableFilterBar / search ---
-  $hasSearch = $text -like "*Rechercher*" -or $text -like "*rechercher*"
-  if ($hasSearch) {
-    Write-Host "PASS: Search bar present"
-  } else {
-    Write-Host "WARNING: Search bar not detected in page text"
+  # Placeholder and aria-label text are absent from main.innerText.
+  $hasSearch = Invoke-AB $Session "eval" @"
+(() => {
+  const search = document.querySelector('main [role="search"] input[type="search"]');
+  return Boolean(search && search.getAttribute('aria-label')?.startsWith('Rechercher'));
+})()
+"@
+  if (-not ($hasSearch -eq $true -or "$hasSearch" -eq "true")) {
+    throw "Search bar should expose its labelled search input."
   }
+  Write-Host "PASS: Search bar present"
 
   # --- P2-4: Stats cards ---
-  $hasStats = $text -like "*Total prix*"
-  if ($hasStats) {
-    Write-Host "PASS: Stats cards present"
-  } else {
-    Write-Host "INFO: Stats cards not visible (may be expected if no data)"
-  }
+  # This journey requires an existing offer to exercise its edit dialog below.
+  Assert-Contains -Text $text -Expected "Total prix" -Message "Stats cards present for the required offer fixture"
+  Write-Host "PASS: Stats cards present"
 
   # --- Price list (now a card list, PricesTable.tsx: no table headers) ---
   Assert-Contains -Text $text -Expected "Liste des prix fournisseurs" -Message "Price list heading"
   Write-Host "PASS: Price list present"
 
   # --- P2-2: Freshness column ---
-  $hasFreshness = $text -like "*Fraîcheur*" -or $text -like "*fraicheur*"
-  if ($hasFreshness) {
-    Write-Host "PASS: Freshness column present"
-  }
+  Assert-Contains -Text $text -Expected "Fraîcheur" -Message "Freshness filter present"
+  Write-Host "PASS: Freshness filter present"
 
   # --- P1-1: Open create modal ---
   Click-FirstEnabledButtonByText -Session $Session -ButtonText "Ajouter un fournisseur / tarif" -ScopeSelector "main"
@@ -115,7 +134,7 @@ try {
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Annuler" | Out-Null
   Start-Sleep -Milliseconds 300
 
-  # --- P1-1: Open edit modal (if data rows exist) ---
+  # --- P1-1: Open edit modal on the required existing offer ---
   # Row action is now "Voir / modifier l'offre" (typographic apostrophe) in the "Offres fournisseurs" list.
   $openedEdit = Invoke-AB $Session "eval" @"
 (() => {
@@ -139,10 +158,23 @@ try {
     Invoke-AB $Session "find" "role" "button" "click" "--name" "Annuler" | Out-Null
     Start-Sleep -Milliseconds 300
   } else {
-    Write-Host "SKIP: No data rows to test edit modal"
+    throw "An existing offer is required to test the edit modal."
   }
 
   # --- P1-3: Accent verification ---
+  # The update label lives inside closed offer details, outside main.innerText
+  # until the corresponding history is opened.
+  $openedHistory = Invoke-AB $Session "eval" @"
+(() => {
+  const history = document.querySelector('main ul[aria-label="Offres fournisseurs"] details');
+  if (!history) return false;
+  history.open = true;
+  return true;
+})()
+"@
+  if (-not ($openedHistory -eq $true -or "$openedHistory" -eq "true")) {
+    throw "Offer history is required to verify its update label."
+  }
   $textFull = Get-PageText -Session $Session
 
   $accentChecks = @(
@@ -151,23 +183,14 @@ try {
     @{ Expected = "Mis à jour"; Name = "Mis a jour accent" }
   )
 
-  $accentPass = $true
   foreach ($check in $accentChecks) {
-    if ($textFull -notlike "*$($check.Expected)*") {
-      Write-Host "WARNING: Missing accent: $($check.Name) - expected '$($check.Expected)'"
-      $accentPass = $false
-    }
+    Assert-Contains -Text $textFull -Expected $check.Expected -Message $check.Name
   }
-
-  if ($accentPass) {
-    Write-Host "PASS: All French accents correct"
-  }
+  Write-Host "PASS: All French accents correct"
 
   # --- P2-3: Refresh button ---
-  $hasRefresh = $text -like "*Actualiser*"
-  if ($hasRefresh) {
-    Write-Host "PASS: Refresh button present"
-  }
+  Assert-Contains -Text $text -Expected "Actualiser" -Message "Refresh button present"
+  Write-Host "PASS: Refresh button present"
 
   # --- Mode avance section ---
   Assert-Contains -Text $text -Expected "Mode avancé" -Message "Advanced mode section"

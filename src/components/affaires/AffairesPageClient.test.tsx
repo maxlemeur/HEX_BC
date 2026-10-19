@@ -75,10 +75,6 @@ vi.mock("@/app/dashboard/affaires/_actions/manager-queue", () => ({
   }),
 }));
 
-vi.mock("./QuickCreateAffaireDialog", () => ({
-  QuickCreateAffaireDialog: () => null,
-}));
-
 vi.mock("./AffairesCardList", () => ({
   AffairesCardList: ({
     items,

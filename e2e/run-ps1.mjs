@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 const [, , scriptPathArg, ...scriptArgs] = process.argv;
 
@@ -69,7 +70,44 @@ const shellCandidates =
     ? ["pwsh.exe", "powershell.exe", "pwsh", "powershell"]
     : ["pwsh", "powershell"];
 
+// Some retained journeys return after printing "PASS (skipped ...)" when a
+// required fixture or transport fails. Their zero exit is incomplete evidence,
+// even if run-all.ps1 subsequently prints its own PASS. Keep output streaming,
+// and inspect both streams across chunk boundaries without retaining the log.
+function runPowerShell(shellName, shellArgs) {
+  return new Promise((resolve) => {
+    const child = spawn(shellName, shellArgs, {
+      stdio: ["inherit", "pipe", "pipe"],
+      env: process.env,
+    });
+    let incomplete = false;
+    let cancelled = false;
+    const interrupt = () => { cancelled = true; child.kill("SIGINT"); };
+    const terminate = () => { cancelled = true; child.kill("SIGTERM"); };
+    process.on("SIGINT", interrupt);
+    process.on("SIGTERM", terminate);
+    const removeHandlers = () => {
+      process.off("SIGINT", interrupt);
+      process.off("SIGTERM", terminate);
+    };
+    const forward = (destination) => {
+      let tail = "";
+      return (chunk) => {
+        destination.write(chunk);
+        const text = tail + chunk.toString("utf8");
+        if (/\bPASS\s*\(\s*skipped\b/iu.test(stripVTControlCharacters(text))) incomplete = true;
+        tail = text.slice(-128);
+      };
+    };
+    child.stdout.on("data", forward(process.stdout));
+    child.stderr.on("data", forward(process.stderr));
+    child.once("error", (error) => { removeHandlers(); resolve({ error }); });
+    child.once("close", (status) => { removeHandlers(); resolve({ status, incomplete, cancelled }); });
+  });
+}
+
 let runtimeError = null;
+let executed = false;
 
 for (const shellName of shellCandidates) {
   const shellArgs = ["-NoProfile"];
@@ -78,10 +116,7 @@ for (const shellName of shellCandidates) {
   }
   shellArgs.push("-File", scriptPath, ...scriptArgs);
 
-  const run = spawnSync(shellName, shellArgs, {
-    stdio: "inherit",
-    env: process.env,
-  });
+  const run = await runPowerShell(shellName, shellArgs);
 
   if (run.error) {
     if (run.error.code === "ENOENT") {
@@ -92,13 +127,22 @@ for (const shellName of shellCandidates) {
     break;
   }
 
-  process.exit(run.status ?? 1);
+  if (run.cancelled) {
+    process.exitCode = 130;
+  } else if (run.incomplete && run.status === 0) {
+    console.error("Legacy E2E run is incomplete: a journey reported PASS (skipped ...); required coverage was not executed.");
+    process.exitCode = 1;
+  } else {
+    process.exitCode = run.status ?? 1;
+  }
+  executed = true;
+  break;
 }
 
-if (runtimeError) {
+if (!executed && runtimeError) {
   console.error(`Failed to run PowerShell script "${scriptPathArg}": ${runtimeError.message}`);
-  process.exit(1);
+  process.exitCode = 1;
+} else if (!executed) {
+  console.error("No PowerShell runtime found in PATH. Install PowerShell 7 (`pwsh`) to run E2E scripts.");
+  process.exitCode = 1;
 }
-
-console.error("No PowerShell runtime found in PATH. Install PowerShell 7 (`pwsh`) to run E2E scripts.");
-process.exit(1);

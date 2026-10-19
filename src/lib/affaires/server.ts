@@ -2404,7 +2404,6 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     items,
     isLaborSplitEnabled,
     laborRateById,
-    // Même colonne `hourly_rate_cents` pour les trois rôles (cf. calc-context).
     laborRateAtelierById: laborRateById,
     laborRateChantierById: laborRateById,
     // L'arrondi ne joue que sur le TTC, non utilisé par l'analyse de marge.

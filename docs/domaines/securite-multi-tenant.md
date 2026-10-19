@@ -275,7 +275,7 @@ Lecture : `is_tenant_member(tenant_id)` (`022_feature_flags.sql:27-31`). Écritu
 | `TAKEOFF_GEMINI_BATCH_MODE` | `false` | `src/lib/takeoff/constants.ts:35` |
 | `TAKEOFF_LOW_CONFIDENCE_THRESHOLD` | lu par le trigger d'apply | `20260713132407_…sql` (assertion : `src/lib/takeoff/apply-storage-security-regressions.test.ts:37`) |
 | `STALE_PRICE_DAYS` | 90 | `src/lib/catalogue/stale-prices.ts:1`, consommé en `src/lib/feature-flags.ts:317-323` |
-| `EST_031_LABOR_SPLIT` | absent ⇒ `false` | `src/lib/estimates/calc-context.ts:26` |
+| `EST_031_LABOR_SPLIT` | absent ⇒ `false` | `src/lib/estimates/server.ts` via `isFeatureEnabled` |
 | `ESTIMATE_ITEM_AID_REGEX` | absent ⇒ motif par défaut | `src/lib/estimates/schemas.ts:14`, `src/lib/estimates/server.ts:1850-1856` |
 | `ESTIMATE_GATING_BLOCKING_FLAGS` / `ESTIMATE_GATING_WARNING_FLAGS` | absent ⇒ `null` | `src/lib/estimates/gating.ts:39-40`, `src/lib/estimates/anomaly-history.ts:97-98` |
 | `PREFERRED_SUPPLIER_ID` | absent ⇒ aucun ; valeur validée comme UUID | `src/lib/estimates/server.ts:970-976` |

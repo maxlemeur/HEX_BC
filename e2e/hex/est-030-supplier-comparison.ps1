@@ -88,13 +88,7 @@ try {
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre EST-030"
   Add-Line -Session $Session -Designation "Tube Inox 316L"
-  try {
-    Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 30
-  } catch {
-    Write-Host "EST-030 WARN: ligne de test non persistee dans ce contexte."
-    Write-Host "EST-030 PASS (skipped due to missing persisted line)"
-    return
-  }
+  Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 30
   Invoke-AB $Session "wait" "--load" "networkidle" | Out-Null
 
   $versionIdJson = ConvertTo-Json $versionId -Compress
@@ -532,11 +526,6 @@ try {
   $result = Parse-JsonPayload -RawPayload $resultJson
 
   if ($result.error) {
-    if ($result.error -in @("not_enough_alternatives", "not_enough_priced_alternatives")) {
-      Write-Host "EST-030 WARN: jeu de donnees insuffisant pour comparer plusieurs fournisseurs."
-      Write-Host "EST-030 PASS (skipped due to insufficient alternatives)"
-      return
-    }
     throw "EST-030 flow failed: $($result.error)"
   }
 

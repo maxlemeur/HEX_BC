@@ -123,7 +123,7 @@ JSON.stringify((() => {
   $data = $jsonText | ConvertFrom-Json
 
   if ($data.unit -ne "m2" -or $data.typeFo -ne "Materiaux") {
-    Write-Host "Suggestions not applied in current config (unit=$($data.unit), typeFo=$($data.typeFo)); skipping strict assertion."
+    throw "Suggestions were not applied (expected unit=m2, typeFo=Materiaux; actual unit=$($data.unit), typeFo=$($data.typeFo))."
   }
 
   Write-Host "TI-153 PASS"

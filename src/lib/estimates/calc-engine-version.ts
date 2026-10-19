@@ -1,7 +1,7 @@
 /**
  * T6 phase A - version du moteur de calcul des totaux.
  *
- * Module volontairement DEDIE (et non fusionne avec un futur calc-context) :
+ * Module volontairement DEDIE :
  * il ne doit dependre d'aucun module chargeant `next/headers` ni Supabase, afin
  * de rester testable en pur, sans le moindre mock.
  *

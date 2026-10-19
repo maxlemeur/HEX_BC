@@ -185,14 +185,8 @@ try {
   ) -join "`n"
 
   Open-PastePreviewFromText -Session $Session -Text $clipboardTsv
-  try {
-    Wait-Until -TimeoutMessage "Paste dialog did not open." -Predicate {
-      (Get-PasteDialogState -Session $Session).isOpen
-    }
-  } catch {
-    Write-Host "EST-104 WARN: paste dialog not opened with synthetic paste event in this environment."
-    Write-Host "EST-104 CLIPBOARD PASS (skipped due to paste dialog transport limitation)"
-    return
+  Wait-Until -TimeoutMessage "Paste dialog did not open." -Predicate {
+    (Get-PasteDialogState -Session $Session).isOpen
   }
 
   $dialogState = Get-PasteDialogState -Session $Session
@@ -256,32 +250,21 @@ try {
 })()
 "@ | Out-Null
 
-  try {
-    Wait-Until -TimeoutMessage "Expected pasted lines to be inserted." -Predicate {
-      (Get-LineCount -Session $Session) -gt $lineCountBefore
-    }
-  } catch {
-    Write-Host "EST-104 WARN: pasted rows were not inserted in this environment."
-    Write-Host "EST-104 CLIPBOARD PASS (skipped due to paste import limitation)"
-    return
+  Wait-Until -TimeoutMessage "Expected pasted lines to be inserted. Expected exactly one valid pasted line." -Predicate {
+    (Get-LineCount -Session $Session) -eq ($lineCountBefore + 1)
   }
-  Invoke-AB $Session "eval" @"
-(() => {
-  const dialog = document.querySelector('[data-testid="paste-preview-dialog"]') ?? document.querySelector('[role="dialog"]');
-  if (!dialog) return true;
-  const closeButton = dialog.querySelector('[data-testid="paste-preview-dialog-close-button"]') ??
-    Array.from(dialog.querySelectorAll('button')).find((button) =>
-      String(button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Fermer'
-    );
-  if (closeButton) {
-    closeButton.click();
-  }
-  return true;
-})()
-"@ | Out-Null
   Wait-Until -TimeoutMessage "Paste preview dialog should close after confirm." -Predicate {
     -not (Get-PasteDialogState -Session $Session).isOpen
   }
+
+  $lineTitlesJson = [string](Invoke-AB $Session "eval" @"
+JSON.stringify(Array.from(document.querySelectorAll('.estimate-row'))
+  .filter((row) => !row.classList.contains('estimate-row--section'))
+  .map((row) => row.querySelector('input.estimate-input--title')?.value ?? ''))
+"@)
+  $lineTitles = @(Convert-AgentBrowserJson -Raw $lineTitlesJson)
+  Assert-True -Condition ($lineTitles -contains "Porte coupe-feu") -Message "The valid pasted designation should be present."
+  Assert-True -Condition (-not ($lineTitles -contains "Ligne invalide")) -Message "The excluded invalid pasted row should not be inserted."
 
   Invoke-AB $Session "eval" @"
 (() => {
@@ -365,7 +348,7 @@ try {
 
   $copiedTsv = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "window.__e2eCopiedTsv || ''"))
   if (-not $copiedTsv.Contains("`t")) {
-    Write-Host "EST-104 WARN: Ctrl+C payload capture unavailable in this browser context."
+    throw "Copy shortcut should produce TSV containing tab-separated fields."
   }
 
   Write-Host "EST-104 CLIPBOARD PASS"

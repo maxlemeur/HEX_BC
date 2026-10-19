@@ -781,63 +781,6 @@ function Go-ParamsTab {
   Wait-ForSelector -Session $Session -Selector "[aria-label='Paramétrage du devis']" -TimeoutSeconds 20
 }
 
-function Set-EditableTitleValue {
-  param(
-    [string]$Session,
-    [string]$Value
-  )
-
-  $valueJson = ConvertTo-Json $Value -Compress
-  $js = @"
-(() => {
-  const isVisible = (el) => {
-    if (!el) return false;
-    const style = window.getComputedStyle(el);
-    if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
-    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-  };
-
-  const isEditable = (el) => {
-    if (!el || el.disabled) return false;
-    return el.matches('input, textarea, [contenteditable=\"true\"], [role=\"textbox\"]') || el.isContentEditable;
-  };
-
-  const candidates = [];
-  const active = document.activeElement;
-  if (isEditable(active) && isVisible(active)) {
-    candidates.push(active);
-  }
-
-  for (const el of document.querySelectorAll(
-    '[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title, input[type=\"text\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'
-  )) {
-    if (!isEditable(el) || !isVisible(el)) continue;
-    if (!candidates.includes(el)) {
-      candidates.push(el);
-    }
-  }
-
-  if (candidates.length === 0) {
-    throw new Error('No editable title field found');
-  }
-
-  const el = candidates[candidates.length - 1];
-  el.focus();
-
-  if ('value' in el) {
-    el.value = $valueJson;
-  } else {
-    el.textContent = $valueJson;
-  }
-
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-  el.dispatchEvent(new Event('blur', { bubbles: true }));
-})();
-"@
-  Invoke-AB $Session "eval" $js | Out-Null
-}
-
 function Set-LatestSectionTitleValue {
   param(
     [string]$Session,
@@ -1342,7 +1285,7 @@ function Add-Line {
   }
 
   if (-not $titleSet) {
-    Write-Host "E2E WARN: unable to set line title after line creation in this layout."
+    throw "Unable to set line title after line creation and API fallback."
   }
 
   if ($versionId -and $persistedBefore -ge 0) {
@@ -1355,13 +1298,9 @@ function Add-Line {
         Invoke-AB $Session "reload" | Out-Null
         Go-EditorTab -Session $Session
         Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
-        try {
-          Wait-ForPersistedLineItems -Session $Session -VersionId $versionId -MinCount $persistedTarget -TimeoutSeconds 18
-        } catch {
-          Write-Host "E2E WARN: persisted line item count target not reached after API fallback."
-        }
+        Wait-ForPersistedLineItems -Session $Session -VersionId $versionId -MinCount $persistedTarget -TimeoutSeconds 18
       } else {
-        Write-Host "E2E WARN: persisted line item count target not reached and API fallback failed."
+        throw "Persisted line item count target not reached and API fallback failed."
       }
     }
   }
