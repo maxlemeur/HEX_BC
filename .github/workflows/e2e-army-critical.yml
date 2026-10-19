@@ -532,13 +532,13 @@ jobs:
         if: needs.army-select.outputs.mode == 'none'
         run: echo "::notice title=TesterArmy critical::Aucun parcours critical concerné (documentation ou chemins hors suite) ; parcours non exécutés, aucune preuve revendiquée."
       - name: Download the journey selection
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: army-critical-selection
           path: .e2e/army/ci/aggregate-input/selection
       - name: Download the shard evidence
         if: needs.army-select.outputs.mode != 'none'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: army-critical-shard-*-evidence
           path: .e2e/army/ci/aggregate-input/shards
@@ -643,13 +643,13 @@ jobs:
         if: needs.army-select.outputs.full_only_mode == 'none'
         run: echo "::notice title=TesterArmy takeoff::Aucun parcours du métré concerné ; parcours non exécutés, aucune preuve revendiquée."
       - name: Download the journey selection
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: army-critical-selection
           path: .e2e/army/ci/aggregate-input/selection
       - name: Download the shard evidence
         if: needs.army-select.outputs.full_only_mode != 'none'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: army-takeoff-shard-*-evidence
           path: .e2e/army/ci/aggregate-input/shards
