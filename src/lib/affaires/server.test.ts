@@ -3993,3 +3993,52 @@ describe("affaires list currency snapshot race", () => {
     expect(versionRead.in).toHaveBeenCalledWith("id", [listed.current_version_id]);
   });
 });
+
+// UX15 reproduced a fatal Server Component render (digest 4170724324) when a
+// save changed a recent version between the list RPC and currency enrichment.
+// The dashboard renders only recent metadata and counters, not money. Browser
+// routing cannot hold these two internal PostgREST reads without replacing the
+// RSC result, so control that schedule at this existing server-reader boundary.
+// UX15 and LEGCUR02 retain the real dashboard and financial UI assertions; the
+// list race tests above must still refuse a mixed amount/currency snapshot.
+describe("affaires dashboard metadata race", () => {
+  it("keeps the dashboard metadata available during a concurrent currency save", async () => {
+    const listed = Array.from({ length: 6 }, (_, index) => buildAffaireRow(index + 1));
+    const context = createContext({ role: "engineer" });
+    context.supabase.rpc.mockImplementation(async (functionName: string): Promise<RpcResult> => {
+      if (functionName === "list_affaires_page") return { data: listed, error: null };
+      if (functionName === "get_affaires_counters") return {
+        data: [{ total_count: 6, filtered_count: 6, draft_count: 6, sending_count: 0,
+          sent_count: 0, accepted_count: 0, archived_count: 0 }], error: null,
+      };
+      throw new Error(`Unexpected RPC: ${functionName}`);
+    });
+    // If a financial reread occurs, it sees the SAME first version after its
+    // atomic save: USD/2000, whereas the earlier RPC contained total 1000.
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({
+        data: listed.map((row, index) => ({ id: row.current_version_id,
+          currency: index === 0 ? "USD" : "EUR", total_ht_cents: index === 0 ? 2000 : row.current_total_ht_cents })),
+        error: null,
+      }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const overview = await fetchAffaireDashboardOverview();
+
+    // Exact projection prevents fixing availability by returning stale monetary
+    // fields or a later currency attached to the RPC's earlier amount.
+    expect(overview.recentAffaires).toEqual(listed.slice(0, 5).map((row) => ({
+      projectId: row.project_id, projectName: row.project_name,
+      projectReference: row.project_reference, projectClient: row.project_client,
+      currentStatus: row.current_status, currentUpdatedAt: row.current_updated_at,
+    })));
+    expect(overview.counters).toEqual({
+      totalCount: 6, filteredCount: 6,
+      statusCounts: { draft: 6, sending: 0, sent: 0, accepted: 0, archived: 0 },
+    });
+  });
+});

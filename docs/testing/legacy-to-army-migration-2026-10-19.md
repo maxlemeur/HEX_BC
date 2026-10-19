@@ -432,3 +432,92 @@ signatures, architecture, OpenAPI, types et lint verts. Journal :
 `/private/tmp/mergeone-audit-pr-plcamq1n/verify-pr-learning-cancel.log`.
 Les dernières précisions de ce registre sont contrôlées par diff séparément ;
 elles ne changent pas les sources applicatives ou les scénarios vérifiés.
+
+## Régression du tableau de bord sous sauvegarde concurrente
+
+La CI de `b1db089b` confirme LEP01 et LEP06, ainsi que qualité, smoke, RLS,
+critical 1/3/4 et les deux takeoff. Son seul rouge est UX15 dans
+[critical 2/4](https://github.com/maxlemeur/HEX_BC/actions/runs/39231734010/job/117991144111) :
+**70/71**, zéro skip/flaky/interruption. Le heading du tableau de bord est
+remplacé par l'erreur de route, digest `4170724324`. Le candidat exécuté est le
+merge propre `87c2f0455e17ccba15fa1e8b2352a5d9011397ca`, deux workers,
+run `01a1538a-64e9-7e72-9d96-6fa11836a338`.
+
+L'artefact `12177667352`, SHA-256
+`1ef880469fb4f487dfb9cd329ea3a6e32b0167d698e1e60a735c197597187eb4`,
+contient dans `critical/runs/2026-10-19T09-42-20-767Z/logs/app.log` le
+`ApiError` 409 `VERSION_CONFLICT` qui porte ce digest. Son message identifie
+le garde ajouté par cette PR : le montant a changé entre le RPC de liste et
+la lecture de devise de la même version. Les métadonnées du diagnostic sont
+conservées sous
+`/private/tmp/mergeone-audit-pr-plcamq1n/ci-first-failure/b1db089b/`.
+Il s'agit donc d'une régression réelle de notre enrichissement monétaire,
+distincte du chargement abandonné, et non d'une preuve de l'identité du tout
+premier message LEP01 qui reste irrécupérable.
+
+**Contrat défini avant correction.** Le tableau de bord affiche nom,
+référence, client, statut, date et lien de cinq affaires, sans montant.
+Une sauvegarde entre les deux lectures ne doit pas rendre ces métadonnées
+indisponibles. La liste financière doit continuer à refuser une combinaison
+incohérente de montant et devise. Le navigateur ne peut pas intercaler une
+barrière entre ces lectures PostgREST internes au Server Component sans
+remplacer son résultat : la régression de concurrence est donc écrite au
+lecteur serveur existant, avant modification du produit ; UX15 et LEGCUR02
+conservent la preuve sur l'interface réelle.
+
+**Rouge puis vert.** Le nouveau cas
+`keeps the dashboard metadata available during a concurrent currency save`
+configure un RPC à 1 000 centimes, puis la même version à USD/2 000 centimes.
+Avant correction, sa commande Vitest ciblée échoue sur le 409 attendu du
+défaut (un échec, 57 cas non sélectionnés). Après correction, les **58/58**
+cas de `src/lib/affaires/server.test.ts` passent, dont les deux contre-exemples
+financiers déjà présents : refus d'un montant modifié et restitution exacte
+de USD/123 456 centimes lorsque la seconde lecture est cohérente. Journaux :
+`/private/tmp/mergeone-audit-pr-plcamq1n/dashboard-currency-race-before.log`
+et `dashboard-currency-race-after.log`. Commande reproductible :
+`npm test -- src/lib/affaires/server.test.ts --project=node` ; ajouter
+`--testNamePattern 'keeps the dashboard metadata available during a concurrent currency save'`
+pour sélectionner la régression.
+
+**Correctif.** Le lecteur commun du RPC conserve tenant, propriétaire,
+bornes, tri et curseurs. Le tableau de bord utilise cette lecture et renvoie
+explicitement les six champs de métadonnées. La liste, sa page et la file
+manager gardent l'enrichissement et son garde monétaire inchangés. Aucun
+catch, fallback, retry ni modification SQL n'est ajouté. La revue indépendante
+du diff stable et de ses consommateurs ne relève aucun défaut actionnable.
+
+**Vert Army ciblé.** Sur `b1db089b` avec les deux fichiers serveur modifiés,
+diff SHA-256
+`a1f25a668f6ae9933ffc5b732cfca78e01516913c5fb6f2830481553f3605e90`,
+la commande
+`E2E_ARMY_WORKERS=2 npm run e2e:army:dev-loop -- run --grep '^(UX15|LEGCUR02|LEP01|LEP06) '`
+réussit les quatre parcours et leur setup, soit **5/5**, zéro skip/flaky/
+interruption. UX15 retrouve son heading, ses dimensions et ses contrôles Axe ;
+LEGCUR02 conserve les montants USD exacts persistés, dans carte/table et
+impression ; LEP01 et LEP06 gardent leurs oracles stricts d'erreurs et de données.
+Le cas isolé impose la concurrence ; cette exécution Army vérifie les
+consommateurs réels, sans prétendre imposer ce même ordonnancement interne.
+
+Exécution de `10:01:17.951 UTC` à `10:02:32.584 UTC`, build de production
+reconstruit au démarrage `lFbsK2YPmfRKssLjMXZCl`, source applicative SHA-256
+`89c6fa39feed660a7520e6e7eba8dd268b877d625ae45fa4223fdb606f6aed8c`,
+run `01a1539b-bedc-7cab-bf03-b69b3261bca2`. Reçu :
+`.e2e/army/ci/2026-10-19T10-00-17-985Z-dev-loop/iterations/001-2026-10-19T10-01-17-951Z/manifest.json` ;
+rapport SHA-256
+`d3012da5af592ca2426ae0e703c444d83ed31933087cf4c2870f330886393926`.
+La stack dédiée est arrêtée et nettoyée, ports fermés, état supprimé, aucune
+erreur. C'est une itération ciblée ; la CI PR qualifie son propre candidat.
+
+Le premier démarrage à `09:55 UTC` a compilé avec succès mais a refusé son
+résultat car une source avait été modifiée pendant le build ; aucune preuve
+fonctionnelle n'en est tirée, et sa stack a été nettoyée. L'essai suivant dans
+le sandbox refuse l'ouverture d'un port local (`EPERM`), avant toute stack.
+Le démarrage autorisé et figé ci-dessus fournit la preuve conservée.
+
+`npm run verify:pr` passe sur le correctif : **3 280 Node**, trois skips
+locaux documentés, **820 jsdom**, douze contrôles de couverture critique ;
+audit sans avis bloquant, 760 signatures, 218 attestations, architecture,
+OpenAPI, types et lint verts. Journal :
+`/private/tmp/mergeone-audit-pr-plcamq1n/verify-pr-dashboard-metadata.log`.
+Cette mise à jour du registre vient après les vérifications ; elle est
+contrôlée par diff et ne change ni produit ni parcours.

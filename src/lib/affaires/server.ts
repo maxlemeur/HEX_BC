@@ -132,7 +132,14 @@ export type AffairePageDataResult = {
 };
 
 export type AffaireDashboardOverviewResult = {
-  recentAffaires: AffaireListItem[];
+  recentAffaires: Pick<AffaireListItem,
+    | "projectId"
+    | "projectName"
+    | "projectReference"
+    | "projectClient"
+    | "currentStatus"
+    | "currentUpdatedAt"
+  >[];
   counters: AffaireCountersResult;
 };
 
@@ -1624,7 +1631,7 @@ type AffaireListFetchQuery<TPageSize extends number> = Omit<
   size: TPageSize;
 };
 
-async function fetchAffaireListWithContext<TPageSize extends number>(
+async function fetchAffaireListRowsWithContext<TPageSize extends number>(
   context: AffaireContext,
   query: AffaireListFetchQuery<TPageSize>
 ): Promise<AffaireListPageResult<TPageSize>> {
@@ -1684,6 +1691,28 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
   const hasNextPage = rows.length > query.size;
   const pageRows = hasNextPage ? rows.slice(0, query.size) : rows;
   const items = pageRows.map(toAffaireListItem);
+  const lastItem = items[items.length - 1] ?? null;
+  const nextCursor =
+    hasNextPage && lastItem
+      ? encodeAffaireCursor(createAffaireCursorPayload(lastItem, query.sort))
+      : null;
+
+  return {
+    items,
+    pageSize: query.size,
+    nextCursor,
+    hasNextPage,
+  };
+}
+
+// Only consumers that display monetary amounts need the second, guarded
+// currency read. Metadata-only readers keep the RPC snapshot and its ordering.
+async function fetchAffaireListWithContext<TPageSize extends number>(
+  context: AffaireContext,
+  query: AffaireListFetchQuery<TPageSize>
+): Promise<AffaireListPageResult<TPageSize>> {
+  const page = await fetchAffaireListRowsWithContext(context, query);
+  const { items } = page;
   // The list RPC projects amounts but no currency. Read only the versions it
   // selected, under the same tenant/RLS context, in bounded batches. Resolving
   // a project's newest version separately could label another version's amount.
@@ -1713,18 +1742,7 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
     item.currentCurrency = version.currency;
   }
 
-  const lastItem = items[items.length - 1] ?? null;
-  const nextCursor =
-    hasNextPage && lastItem
-      ? encodeAffaireCursor(createAffaireCursorPayload(lastItem, query.sort))
-      : null;
-
-  return {
-    items,
-    pageSize: query.size,
-    nextCursor,
-    hasNextPage,
-  };
+  return page;
 }
 
 const MANAGER_QUEUE_BATCH_SIZE = 10;
@@ -2051,7 +2069,7 @@ export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardO
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery({ dir: "desc" });
   const [list, counters] = await Promise.all([
-    fetchAffaireListWithContext(context, {
+    fetchAffaireListRowsWithContext(context, {
       ...query,
       size: DASHBOARD_RECENT_AFFAIRE_LIMIT,
     }),
@@ -2059,7 +2077,14 @@ export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardO
   ]);
 
   return {
-    recentAffaires: list.items,
+    recentAffaires: list.items.map((item) => ({
+      projectId: item.projectId,
+      projectName: item.projectName,
+      projectReference: item.projectReference,
+      projectClient: item.projectClient,
+      currentStatus: item.currentStatus,
+      currentUpdatedAt: item.currentUpdatedAt,
+    })),
     counters,
   };
 }
