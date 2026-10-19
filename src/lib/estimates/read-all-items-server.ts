@@ -26,9 +26,9 @@ export async function readAllEstimateItems(input: ItemsScope): Promise<Item[]> {
  * Lot 3.1: the items `ids` names in the version (the selected sections of a copy) and all their descendants, level
  * by level, each level by pages; never a partial subtree. A copy no longer reads the whole source version: IO13 read
  * 4 000 items (6,7 Mo) to copy one section of 999 lines. Call after version authorization, then
- * assertEstimateVersionUnchanged: a write between two reads changes the version's content revision. Within a parent,
- * items keep the order of a full read (position, then id). An item reached twice (a selected section inside another
- * selected one) is kept once.
+ * assertEstimateVersionUnchanged: a write between two reads changes the version's content revision. Items come in the
+ * order of a full read (position, then id). An item reached twice (a selected section inside another selected one)
+ * is kept once.
  */
 export async function readEstimateItemSubtrees(input: ItemsScope & { ids: readonly string[] }): Promise<Item[]> {
   const items: Item[] = [];
@@ -46,7 +46,9 @@ export async function readEstimateItemSubtrees(input: ItemsScope & { ids: readon
     if (parents.length === 0) break;
     level = await readItemsWhereIn(input, "parent_id", parents);
   }
-  return items;
+  // A selected sub-section is read before its parent's other children: restore the order of a full read (position,
+  // then id), which the copies keep for each parent's children (merge mode renumbers its lines in that order).
+  return items.sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 async function readItemsWhereIn(input: ItemsScope, column: "id" | "parent_id", values: readonly string[]) {

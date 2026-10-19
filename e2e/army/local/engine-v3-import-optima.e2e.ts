@@ -1313,6 +1313,20 @@ WHERE parent_id = '${copiedSectionId}'::uuid AND item_type = 'line' AND source_m
       await recordEvidence(army, "io-copy-nested-selection", { versionId, nested, nestedObserved });
       expect(nestedObserved).toEqual({ response: [201, true, null], sections: 2, items: 5, rootLines: ["Ligne directe"],
         child: ["Sous-lot imbriqué", ["Ligne imbriquée a", "Ligne imbriquée b"]] });
+
+      // Lot 3.1 (review): merged into the same-titled section, the lines land after its own in the source order (direct
+      // line, then the sub-section's), as a read of the whole source orders them, whatever the order of section_ids.
+      const merged = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [nested.childId, nested.rootId], mode: "merge" });
+      const afterMerge = await readEstimate(browser, versionId);
+      const mergedObserved = {
+        response: [merged.status, merged.body.ok, merged.body.error?.code ?? null],
+        sections: merged.body.data?.created_section_ids?.length ?? null,
+        rootLines: rootCopyId ? subtreeLines(afterMerge, rootCopyId).map((line) => [line.position, line.title]) : null,
+      };
+      await recordEvidence(army, "io-copy-nested-merge", { versionId, nested, mergedObserved });
+      expect(mergedObserved).toEqual({ response: [201, true, null], sections: 0, rootLines: [[1, "Ligne directe"],
+        [3, "Ligne directe"], [4, "Ligne imbriquée a"], [5, "Ligne imbriquée b"]] });
     } finally {
       await closePolicy(owner, army, "limite");
     }
