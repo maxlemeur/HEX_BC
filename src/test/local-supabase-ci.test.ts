@@ -75,7 +75,9 @@ function createDependencies(options: {
     }
     if (command.startsWith("test db --local")) {
       const selected = args.filter((arg) => arg.endsWith(".sql")).length;
-      const fileCount = selected || fs.readdirSync(path.join(process.cwd(), "supabase", "tests", "database"))
+      // A whole pgTAP pass names its directory (database, ceiling or budget).
+      const directory = path.basename(args.find((arg) => /[\\/]supabase[\\/]tests[\\/]\w+$/.test(arg)) ?? "database");
+      const fileCount = selected || fs.readdirSync(path.join(process.cwd(), "supabase", "tests", directory))
         .filter((file) => file.endsWith(".sql")).length;
       return options.pgTapOutput ?? `Files=${fileCount}, Tests=205,  1 wallclock secs\nResult: PASS\n`;
     }
@@ -324,6 +326,7 @@ describe("local Supabase CI", () => {
       `db reset --local --workdir ${projectRoot}`,
       `migration list --local --output-format json --workdir ${projectRoot}`,
       `test db --local ${databaseTests} --workdir ${projectRoot}`,
+      `test db --local ${path.join(projectRoot, "supabase", "tests", "ceiling")} --workdir ${projectRoot}`,
       `status --env --workdir ${projectRoot}`,
       "run application",
       `stop --workdir ${projectRoot}`,
@@ -351,6 +354,29 @@ describe("local Supabase CI", () => {
     }));
     expect(dependencies.runRls.mock.calls[0][0]).not.toHaveProperty("E2E_ARMY_LOCAL_DB_URL");
     expect(logs).not.toContain("postgresql://");
+  });
+
+  // Lot 3.1: a single-run wall-clock ceiling measured beside the Army production build failed correct code (the copy
+  // probe reached 5,6 s there against 2,3 s where the database checks ran alone): the pass runs only alone.
+  it("asserts the CI statement ceilings only where the database checks run alone, and fails the run on them", async () => {
+    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
+    const ceiling = `test db --local ${path.join(projectRoot, "supabase", "tests", "ceiling")} --workdir ${projectRoot}`;
+    const alongside = createDependencies();
+    const onStackStarted = vi.fn();
+    await runLocalSupabaseCi({ ...alongside.dependencies, onStackStarted });
+    expect(onStackStarted).toHaveBeenCalledOnce();
+    expect(alongside.calls).not.toContain(ceiling);
+    expect(alongside.dependencies.log.mock.calls.flat().join("\n")).toContain("CI statement ceilings skipped");
+
+    const over = createDependencies();
+    await expect(runLocalSupabaseCi({
+      ...over.dependencies,
+      supabase: vi.fn((args: string[], capture?: boolean) => {
+        if (args.join(" ") === ceiling) throw new Error("ceiling failed");
+        return over.dependencies.supabase(args, capture);
+      }),
+    })).rejects.toThrow("Phase failed: run CI statement ceilings");
+    expect(over.dependencies.runRls).not.toHaveBeenCalled();
   });
 
   it("parses --files into validated pgTAP files and refuses anything outside the database tests", () => {

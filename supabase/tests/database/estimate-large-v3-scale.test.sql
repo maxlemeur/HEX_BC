@@ -11,16 +11,26 @@
 --   an 8-item and into the 1 021-item v3 (commit_estimate_batch) commits, its receipt (which does not echo the
 --   provenance) under 2 Mio, and updates none of the lines already stored. Before 20261018180306 the v3
 --   projection rewrote every line of the version, each no-op update firing the per-line revision bump and audit
---   (4,1 s for 100 operations locally, the IO13 timeout in CI), and the receipt went over 2 Mio with the provenance.
+--   (4,1 s for 100 operations locally, the IO13 timeout in CI), and the receipt went over 2 Mio with the provenance;
+-- - lot 3.1: each copy writes its 1 000 items with one INSERT statement, not one per operation (pg_stat_statements,
+--   nested statements): 1 000 single-row INSERTs took 235 ms of a 733 ms copy in WSL; a copy whose operation 500 names
+--   a parent that does not exist is refused at that operation by the same loop as before (index 500, the 500 previous
+--   ones rolled back) and writes nothing. The 3,5 s CI/production maximum of that copy is asserted by
+--   supabase/tests/ceiling where the database checks run alone (docs/testing/lot3-1-v3-copy-scale.md).
 begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
-select plan(7);
+select plan(9);
 
 \ir ../fixtures/large-v3-estimate.sql
 select pg_temp.lb29_run(1);
+-- Nested statements too (the INSERTs inside commit_estimate_batch), for this transaction only.
+set local pg_stat_statements.track = 'all';
+select set_config('lb29.copy_inserts_before', pg_temp.lb29_batch_insert_statements()::text, true);
 select pg_temp.lb29_copy_run(1, array[1000]);
+select set_config('lb29.copy_inserts', (pg_temp.lb29_batch_insert_statements()
+  - current_setting('lb29.copy_inserts_before')::bigint)::text, true);
 select * from pg_temp.lb29_diag();
 select * from pg_temp.lb29_copy_report();
 
@@ -61,6 +71,19 @@ select is(
   (select updates from lb29_copy_sample where target = 'large'),
   0::bigint,
   'a copy into the 1 021-item v3 updates none of its stored lines (the projection keeps unchanged amounts)'
+);
+
+select is(
+  current_setting('lb29.copy_inserts')::bigint,
+  2::bigint,
+  'each 1 000-operation copy (into the 8-item and the 1 021-item v3) writes its items with one INSERT statement'
+);
+
+select is(
+  pg_temp.lb29_copy_refused_at(500),
+  jsonb_build_object('committed', false, 'results', 501, 'index', 500, 'code', 'ESTIMATE_BATCH_INVALID_INPUT',
+    'rolled_back', 500, 'items_written', 0, 'version_unchanged', true),
+  'a 1 000-operation copy whose operation 500 names a missing parent is refused at that operation, nothing written'
 );
 
 select * from finish();

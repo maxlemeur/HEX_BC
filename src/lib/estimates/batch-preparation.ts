@@ -11,7 +11,7 @@ import {
 } from "@/lib/estimates/estimate-placement-helpers";
 import {
   buildHierarchyIndex, clampMaxSectionDepth, getDefaultSectionTitleForLevel,
-  isAncestorOrSelf, resolveSectionLevel,
+  isAncestorOrSelf, resolveSectionLevel, type HierarchyIndex,
 } from "@/lib/estimates/hierarchy";
 import { resolveEstimateLineNature, resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import {
@@ -38,6 +38,7 @@ type ItemProjection = { id: string; pu_ht_cents: number | null; line_total_ht_ce
 export type EstimateBatchAidPolicy = { id: string; enabled: boolean; value: string | null } | null;
 /** Identity of a created item; `source_metadata` only from the server-side copies into a v3 (2.8b). */
 export type EstimateBatchCreatedId = { index: number; id: string; source_metadata?: Record<string, unknown> };
+export type EstimateBatchItem = Item;
 export type PreparedEstimateBatch = {
   createdIds: EstimateBatchCreatedId[];
   itemUpdates: ItemProjection[];
@@ -84,6 +85,8 @@ export async function prepareEstimateBatch(input: {
   operations: BatchOperationInput[];
   /** Internal aggregate preparation only; never populated by the HTTP batch API. */
   createdIds?: EstimateBatchCreatedId[];
+  /** Server-side copies only (lot 3.1): every item of the version, read by the caller at `expectedUpdatedAt`. */
+  targetItems?: readonly Item[];
 }): Promise<PreparedEstimateBatch> {
   const { context, versionId } = input;
   const { supabase, tenantId } = context;
@@ -103,14 +106,27 @@ export async function prepareEstimateBatch(input: {
     throw conflict("Le devis a changé. Rechargez avant de réessayer.", undefined, "VERSION_CONFLICT");
   }
   const items = new Map<string, Item>();
-  for (let offset = 0; ; offset += 1000) {
-    const { data, error } = await supabase.from("estimate_items").select("*")
-      .eq("tenant_id", tenantId).eq("version_id", versionId)
-      .order("id").range(offset, offset + 999);
-    if (error) throw unavailable();
-    for (const item of data ?? []) items.set(item.id, { ...item });
-    if (!data || data.length < 1000) break;
+  if (input.targetItems) {
+    // Lot 3.1: the copy already read every item of this version at this token; same order as the read below.
+    if (input.targetItems.some((item) => item.tenant_id !== tenantId || item.version_id !== versionId)) {
+      throw internalError("Les éléments de la version cible sont incohérents.");
+    }
+    for (const item of [...input.targetItems].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+      items.set(item.id, { ...item });
+    }
+  } else {
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase.from("estimate_items").select("*")
+        .eq("tenant_id", tenantId).eq("version_id", versionId)
+        .order("id").range(offset, offset + 999);
+      if (error) throw unavailable();
+      for (const item of data ?? []) items.set(item.id, { ...item });
+      if (!data || data.length < 1000) break;
+    }
   }
+  // Lot 3.1: the hierarchy index by id of the current items, live (no children index: only an existing section's
+  // subtree check reads it, from a full index).
+  const idIndex: HierarchyIndex = { byId: items, childrenByParentId: new Map() };
   const { data: aidPolicy, error: aidError } = await supabase.from("feature_flags")
     .select("id, enabled, value").eq("tenant_id", tenantId)
     .eq("flag_key", ESTIMATE_ITEM_AID_REGEX_FEATURE_FLAG_KEY).maybeSingle();
@@ -201,7 +217,9 @@ export async function prepareEstimateBatch(input: {
     if (item.parent_id !== null && (!parent || parent.item_type !== "section")) {
       throw badRequest("Le parent doit être une section de cette version.");
     }
-    const index = buildHierarchyIndex([...items.values()]);
+    // Lot 3.1: a new item has no subtree, so the live map by id is its index (a 1 000-creation copy rebuilt the full
+    // index at each operation); an existing item still gets the full one for its subtree check.
+    const index = items.has(item.id) ? buildHierarchyIndex([...items.values()]) : idIndex;
     if (isAncestorOrSelf(index, item.id, item.parent_id)) {
       throw badRequest("Un élément ne peut pas être déplacé dans sa descendance.");
     }
@@ -215,8 +233,11 @@ export async function prepareEstimateBatch(input: {
       if (items.has(item.id)) assertSectionSubtreePlacementAllowed({ hierarchyIndex: index,
         sectionId: item.id, nextSectionLevel, maxSectionDepth: maximumDepth });
     }
-    if ([...items.values()].some((other) => other.id !== item.id && other.parent_id === item.parent_id &&
-      other.position === item.position)) throw conflict("Cette position est déjà occupée.");
+    for (const other of items.values()) {
+      if (other.id !== item.id && other.parent_id === item.parent_id && other.position === item.position) {
+        throw conflict("Cette position est déjà occupée.");
+      }
+    }
   }
 
   async function assertBatchVersionUnchanged() {
@@ -238,10 +259,11 @@ export async function prepareEstimateBatch(input: {
       if (operation.op === "create") {
         const data = engineItemWrite(normalizeStoredItemNumerics(operation.data), operation.data.item_type);
         const parentId = data.parent_id ?? null;
-        const siblings = [...items.values()].filter((item) => item.parent_id === parentId);
-        const position = data.position ?? siblings.reduce((max, item) => Math.max(max, item.position), 0) + 1;
-        const parentLevel = parentId ? resolveSectionLevel(buildHierarchyIndex([...items.values()]), parentId) : 0;
+        // Lot 3.1: the sibling scan and the parent level only feed the default position and title.
+        const position = data.position ?? [...items.values()].filter((item) => item.parent_id === parentId)
+          .reduce((max, item) => Math.max(max, item.position), 0) + 1;
         const isLine = data.item_type === "line";
+        const parentLevel = data.title != null || isLine ? 0 : parentId ? resolveSectionLevel(idIndex, parentId) : 0;
         const item: Item = {
           id: suppliedIds.get(index) ?? randomUUID(), tenant_id: tenantId, version_id: versionId,
           created_at: version.updated_at, updated_at: version.updated_at,

@@ -1135,6 +1135,54 @@ SELECT count(*) FROM public.estimate_items WHERE parent_id = '${sectionId}'::uui
   return sectionId;
 }
 
+/**
+ * Lot 3.1: a v2 section of the anchor with one direct line and a sub-section of two lines, written in SQL like
+ * seedLargeV2Section. The copy reads only the selected subtrees of the source.
+ */
+async function seedNestedV2Section(owner: V3Owner, anchorId: string, position: number) {
+  if (!UUID.test(anchorId) || !Number.isSafeInteger(position)) throw new Error("Invalid nested section input.");
+  const rootId = randomUUID();
+  const childId = randomUUID();
+  const line = (parentId: string, linePosition: number, title: string) => `SELECT v.tenant_id, v.id, '${parentId}'::uuid, 'line'::public.estimate_item_type,
+  ${linePosition}, '${title}', 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156
+FROM public.estimate_versions v WHERE v.id = '${anchorId}'::uuid`;
+  const output = await querySql(`BEGIN;
+INSERT INTO public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+SELECT '${rootId}'::uuid, v.tenant_id, v.id, NULL, 'section', ${position}, 'Lot imbriqué'
+FROM public.estimate_versions v WHERE v.id = '${anchorId}'::uuid AND v.tenant_id = '${owner.tenantId}'::uuid;
+INSERT INTO public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+SELECT '${childId}'::uuid, v.tenant_id, v.id, '${rootId}'::uuid, 'section', 2, 'Sous-lot imbriqué'
+FROM public.estimate_versions v WHERE v.id = '${anchorId}'::uuid;
+INSERT INTO public.estimate_items (tenant_id, version_id, parent_id, item_type, position, title, description,
+  quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
+  pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents)
+${line(rootId, 1, "Ligne directe")}
+UNION ALL ${line(childId, 1, "Ligne imbriquée a")}
+UNION ALL ${line(childId, 2, "Ligne imbriquée b")};
+COMMIT;
+SELECT count(*) FROM public.estimate_items WHERE parent_id IN ('${rootId}'::uuid, '${childId}'::uuid);
+`);
+  if (output.at(-1) !== "4") throw new Error("The nested v2 section was not persisted.");
+  return { rootId, childId };
+}
+
+/**
+ * Lot 3.1: as stored after a copy, the content revision of the version, the item audit rows of the copied section and
+ * its lines, and how many copied lines carry exactly the source_metadata of their source line (same position; the writer
+ * trims the titles).
+ */
+async function storedCopyEffects(versionId: string, copiedSectionId: string, sourceSectionId: string) {
+  if (![versionId, copiedSectionId, sourceSectionId].every((id) => UUID.test(id))) throw new Error("Invalid copy identity.");
+  const [revision, itemAudits, provenanceExact] = await querySql(`SELECT content_revision FROM public.estimate_versions WHERE id = '${versionId}'::uuid;
+SELECT count(*) FROM public.audit_logs a JOIN public.estimate_items i ON i.id = a.record_id
+WHERE a.table_name = 'estimate_items' AND a.action = 'INSERT' AND (i.id = '${copiedSectionId}'::uuid OR i.parent_id = '${copiedSectionId}'::uuid);
+SELECT count(*) FROM public.estimate_items c JOIN public.estimate_items s
+  ON s.parent_id = '${sourceSectionId}'::uuid AND s.position = c.position
+WHERE c.parent_id = '${copiedSectionId}'::uuid AND c.item_type = 'line' AND c.source_metadata = s.source_metadata;
+`);
+  return { revision: Number(revision), itemAudits: Number(itemAudits), provenanceExact: Number(provenanceExact) };
+}
+
 // C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3, jusqu'à 1 000 opérations (décision du
 // propriétaire du 18/10, option A : médiane WSL au plus 875 ms pour l'instruction de 1 000 opérations, au plus 3,5 s
 // en CI/production, sous le délai de 8 s des rôles de l'API ; run 39138950745 rouge avant 20261018180306) ; au-delà,
@@ -1209,6 +1257,8 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
 
       // At the limit (1 section + 999 lines = 1 000 operations): one atomic batch, every line, amounts of the writer.
       type Imported = { created_section_ids: string[]; created_line_ids: string[] };
+      const [revisionBefore] = await querySql(`SELECT content_revision FROM public.estimate_versions WHERE id = '${versionId}'::uuid;
+`);
       const started = Date.now();
       const atLimit = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
         { source_version_id: anchorId, section_ids: [boundarySectionId] });
@@ -1220,19 +1270,63 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
 WHERE parent_id = '${copiedSectionId}'::uuid AND item_type = 'line' AND source_metadata ? 'mapped_row_id'
   AND source_metadata->'_timax_structure'->>'sheet_name' = 'PLOMBERIE';
 `) : [null];
+      // Lot 3.1: after the reload, every amount of every line, the footer, the provenance of each line equal to its source
+      // row's, one content revision step per created item plus one for the footer, one item audit row per created item.
+      const effects = copiedSectionId && UUID.test(copiedSectionId)
+        ? await storedCopyEffects(versionId, copiedSectionId, boundarySectionId) : null;
       const boundary = {
         response: [atLimit.status, atLimit.body.ok, atLimit.body.error?.code ?? null],
         lines: copiedLines.length,
         withProvenance: Number(withProvenance),
         priced: copiedLines.filter((line) => num(line.line_total_ht_cents) === 130).length,
+        amounts: copiedLines.filter((line) => [num(field(line, "pu_ht_cents")), num(line.line_total_ht_cents),
+          num(field(line, "line_tax_cents")), num(field(line, "line_total_ttc_cents"))].join() === "130,130,26,156").length,
         total: num(copied.version.total_ht_cents),
+        footer: [num(copied.version.total_tax_cents), num(copied.version.total_ttc_cents)],
         sqlTotal: await storedTotalHtCents(versionId),
+        provenanceExact: effects?.provenanceExact ?? null,
+        revisionSteps: effects ? effects.revision - Number(revisionBefore) : null,
+        itemAudits: effects?.itemAudits ?? null,
       };
-      // elapsedMs: the whole route (reads, preparation, commit_estimate_batch), reported for the CI runner, not asserted.
+      // elapsedMs: the whole route (reads, preparation, commit_estimate_batch), reported for the CI runner, not asserted:
+      // a wall-clock threshold in a journey is not deterministic (docs/testing/lot3-1-v3-copy-scale.md).
       await recordEvidence(army, "io-copy-at-limit", { versionId, boundarySectionId, boundary, elapsedMs });
-      // 999 × (1,00 € × FO 1,30) = 1 298,70 € HT.
-      expect(boundary).toEqual({ response: [201, true, null], lines: 999, withProvenance: 999, priced: 999, total: 129_870,
-        sqlTotal: 129_870 });
+      // 999 × (1,00 € × FO 1,30) = 1 298,70 € HT ; TVA 20 % : 259,74 € ; TTC 1 558,44 €.
+      expect(boundary).toEqual({ response: [201, true, null], lines: 999, withProvenance: 999, priced: 999, amounts: 999,
+        total: 129_870, footer: [25_974, 155_844], sqlTotal: 129_870, provenanceExact: 999, revisionSteps: 1001, itemAudits: 1000 });
+
+      // Lot 3.1: the copy reads only the selected subtrees of the source. A section selected with its own sub-section is
+      // copied once, with its direct line, its sub-section and the two lines of the latter, in their order.
+      const nested = await seedNestedV2Section(owner, anchorId, 905);
+      const nestedCopy = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [nested.childId, nested.rootId] });
+      const afterNested = await readEstimate(browser, versionId);
+      const rootCopyId = nestedCopy.body.data?.created_section_ids?.[0] ?? null;
+      const childCopy = afterNested.items.find((item) => item.parent_id === rootCopyId && item.item_type === "section");
+      const nestedObserved = {
+        response: [nestedCopy.status, nestedCopy.body.ok, nestedCopy.body.error?.code ?? null],
+        sections: nestedCopy.body.data?.created_section_ids?.length ?? null,
+        items: afterNested.items.length - copied.items.length,
+        rootLines: rootCopyId ? subtreeLines(afterNested, rootCopyId).map((line) => line.title) : null,
+        child: childCopy ? [childCopy.title, subtreeLines(afterNested, childCopy.id).map((line) => line.title)] : null,
+      };
+      await recordEvidence(army, "io-copy-nested-selection", { versionId, nested, nestedObserved });
+      expect(nestedObserved).toEqual({ response: [201, true, null], sections: 2, items: 5, rootLines: ["Ligne directe"],
+        child: ["Sous-lot imbriqué", ["Ligne imbriquée a", "Ligne imbriquée b"]] });
+
+      // Lot 3.1 (review): merged into the same-titled section, the lines land after its own in the source order (direct
+      // line, then the sub-section's), as a read of the whole source orders them, whatever the order of section_ids.
+      const merged = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [nested.childId, nested.rootId], mode: "merge" });
+      const afterMerge = await readEstimate(browser, versionId);
+      const mergedObserved = {
+        response: [merged.status, merged.body.ok, merged.body.error?.code ?? null],
+        sections: merged.body.data?.created_section_ids?.length ?? null,
+        rootLines: rootCopyId ? subtreeLines(afterMerge, rootCopyId).map((line) => [line.position, line.title]) : null,
+      };
+      await recordEvidence(army, "io-copy-nested-merge", { versionId, nested, mergedObserved });
+      expect(mergedObserved).toEqual({ response: [201, true, null], sections: 0, rootLines: [[1, "Ligne directe"],
+        [3, "Ligne directe"], [4, "Ligne imbriquée a"], [5, "Ligne imbriquée b"]] });
     } finally {
       await closePolicy(owner, army, "limite");
     }

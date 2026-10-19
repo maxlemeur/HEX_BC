@@ -200,6 +200,8 @@ export async function commitV3Copy(input: {
   versionId: string;
   updatedAt: string;
   plan: Pick<V3CopyPlan, "operations" | "createdIds" | "titles">;
+  /** Lot 3.1 : toutes les lignes de la cible, déjà lues par l'appelant à ce jeton (la préparation ne les relit pas). */
+  targetItems?: readonly ItemRow[];
 }): Promise<EstimateBatchCommittedResult> {
   const { operations, createdIds, titles } = input.plan;
   const operationBytes = jsonbTextBytes(operations);
@@ -225,6 +227,7 @@ export async function commitV3Copy(input: {
   // d'environ 85 caractères au plus. Au-delà, la base refuse le lot par son nom, rien n'est écrit : même refus nommé.
   const result = await executeEstimateBatch(input.versionId, operations, {
     concurrencyToken: input.updatedAt, operationKey: randomUUID(), maxOperations: ESTIMATE_V3_COPY_MAX_OPERATIONS, createdIds,
+    targetItems: input.targetItems,
   }).catch((error: unknown) => {
     if (error instanceof ApiError && error.code === "ESTIMATE_BATCH_RECEIPT_TOO_LARGE") throw tooLarge(operations.length);
     throw error;

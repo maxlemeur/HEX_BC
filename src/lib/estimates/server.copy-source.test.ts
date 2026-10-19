@@ -58,7 +58,8 @@ function fakeSupabase(versions: Map<string, VersionState>) {
   const inserts: unknown[] = [];
   const current = new Map([...versions].map(([id, state]) => [id, { ...state.row }]));
   const from = (table: string) => {
-    const call: { select?: string; filters: Map<string, unknown>; range?: [number, number]; insert?: unknown } = { filters: new Map() };
+    const call: { select?: string; filters: Map<string, unknown>; within?: [string, unknown[]]; range?: [number, number]; insert?: unknown } =
+      { filters: new Map() };
     const respond = () => {
       const versionId = String(call.filters.get("version_id") ?? call.filters.get("id"));
       if (table === "estimate_items" && call.insert !== undefined) {
@@ -68,12 +69,14 @@ function fakeSupabase(versions: Map<string, VersionState>) {
       if (table === "estimate_items" && call.range) {
         const state = versions.get(versionId)!;
         const [start, end] = call.range;
+        // Lot 3.1: the source of a copy is read by subtree (`in` filters on id, then parent_id).
+        const rows = call.within ? state.items.filter((item) => call.within![1].includes(item[call.within![0]])) : state.items;
         if (start === 0 && state.editAfterFirstPage) {
           // Another page saves a title in this draft: the trigger bumps its revision, the item count stays.
           const version = current.get(versionId)!;
           current.set(versionId, { ...version, content_revision: version.content_revision + 1, updated_at: "2026-10-18T10:00:01.000Z" });
         }
-        return { data: state.items.slice(start, end + 1), error: null, count: state.items.length };
+        return { data: rows.slice(start, end + 1), error: null, count: rows.length };
       }
       if (table === "estimate_items" && call.select === "id, version_id, item_type, title") {
         const section = [...versions.values()].flatMap((state) => state.items).find((item) => item.id === call.filters.get("id"));
@@ -89,6 +92,7 @@ function fakeSupabase(versions: Map<string, VersionState>) {
       select: (columns: string) => { call.select = columns; return builder; },
       eq: (column: string, value: unknown) => { call.filters.set(column, value); return builder; },
       is: (column: string, value: unknown) => { call.filters.set(column, value); return builder; },
+      in: (column: string, values: unknown[]) => { call.within = [column, values]; return builder; },
       order: () => builder,
       limit: () => builder,
       abortSignal: () => builder,

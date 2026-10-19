@@ -380,3 +380,42 @@ create function pg_temp.lb29_copy_report() returns setof text language sql as $$
     (select case when size <= 100 then interactive_budget_ms else copy_budget_ms end from lb29_budget)))
   from lb29_copy_sample group by target, size order by size, target
 $$;
+
+-- Lot 3.1: INSERT statements of the batch writer's item insert (commit_estimate_batch, one per operation in its loop),
+-- counted by pg_stat_statements once the caller tracks nested statements. Read as the caller (postgres).
+create function pg_temp.lb29_batch_insert_statements() returns bigint language sql as $$
+  select coalesce(sum(statement.calls), 0)::bigint from extensions.pg_stat_statements statement
+  where statement.query like 'insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,%'
+$$;
+
+-- Lot 3.1: the 1 000-operation copy into the 1 021-item v3 with operation p_index naming a parent that does not exist,
+-- as the owner: the outcome, the items written and whether the version changed.
+create function pg_temp.lb29_copy_refused_at(p_index integer) returns jsonb language plpgsql as $$
+declare
+  payload lb29_copy%rowtype;
+  response jsonb;
+  items_before bigint;
+  updated_before timestamptz;
+begin
+  select * into payload from lb29_copy where target = 'large' and size = 1000;
+  select count(*) into items_before from public.estimate_items where version_id = payload.version_id;
+  select updated_at into updated_before from public.estimate_versions where id = payload.version_id;
+  perform set_config('request.jwt.claims',
+    '{"role":"authenticated","sub":"29200000-0000-4000-8000-000000000001"}', true);
+  perform set_config('request.jwt.claim.sub', '29200000-0000-4000-8000-000000000001', true);
+  perform set_config('role', 'authenticated', true);
+  response := public.commit_estimate_batch(payload.version_id, gen_random_uuid(), updated_before, payload.session_id,
+    jsonb_set(payload.operations, array[p_index::text, 'data', 'parent_id'], to_jsonb(gen_random_uuid())),
+    payload.created_ids, payload.item_updates, payload.version_patch,
+    '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb, null);
+  perform set_config('role', 'none', true);
+  return jsonb_build_object('committed', (response ->> 'committed')::boolean,
+    'results', jsonb_array_length(response -> 'results'),
+    'index', (response -> 'results' -> -1 ->> 'index')::integer,
+    'code', response -> 'results' -> -1 ->> 'code',
+    'rolled_back', (select count(*) from jsonb_array_elements(response -> 'results') entry
+      where entry -> 'data' ->> 'rolled_back' = 'true'),
+    'items_written', (select count(*) from public.estimate_items where version_id = payload.version_id) - items_before,
+    'version_unchanged', (select updated_at from public.estimate_versions where id = payload.version_id) = updated_before);
+end
+$$;
