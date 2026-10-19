@@ -4017,7 +4017,9 @@ describe("affaires list currency snapshot race", () => {
     context.supabase.from.mockImplementation(() => versionRead as never);
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    await expect(fetchAffaireList({ size: 20 })).rejects.toBeTruthy();
+    await expect(fetchAffaireList({ size: 20 })).rejects.toMatchObject({
+      status: 400, code: "BAD_REQUEST", message: "Impossible de charger les devises des affaires.",
+    });
   });
 
   it("keeps the same-version USD currency and exact RPC amount when the second read is coherent", async () => {
@@ -4078,6 +4080,9 @@ describe("affaires dashboard metadata race", () => {
 
     const overview = await fetchAffaireDashboardOverview();
 
+    // The dashboard renders no amount: it must not make the financial read at all.
+    expect(context.supabase.from).not.toHaveBeenCalled();
+    expect(versionRead.in).not.toHaveBeenCalled();
     // Exact projection prevents fixing availability by returning stale monetary
     // fields or a later currency attached to the RPC's earlier amount.
     expect(overview.recentAffaires).toEqual(listed.slice(0, 5).map((row) => ({
