@@ -11,10 +11,11 @@ Les quinze nouveaux cas et leurs parcours existants concernés ont maintenant
 une **exécution commune verte : 61/61 contrôles sur 21 fichiers**, sur le build
 `ziMgguFOu74fsPLMyxEer`. Le smoke final réussit aussi desktop/mobile (2/2).
 Les profils PDF d'émission réussissent aussi : 5/5 historiques et 4/4 v3,
-setup compris. La qualité, le smoke et RLS passent aussi en CI ; un
-`console.error` intermittent de LEP01 bloque encore le lot critical. Le
-diagnostic ci-dessous conserve cet échec. `army-migration.md` et les deux
-audits précédents restent historiques.
+setup compris. Le premier passage CI a détecté un `console.error` intermittent
+de LEP01 ; le candidat instrumenté suivant passe ses quatre workflows. Une
+course de chargement abandonné est ensuite reproduite et corrigée ci-dessous,
+avec son propre rouge puis vert. `army-migration.md` et les deux audits
+précédents restent historiques.
 
 ## Correspondance des 30 scénarios
 
@@ -49,7 +50,7 @@ une exécution identifiée sur le candidat final.
 | `ti-153-suggestions.ps1` | LEGCAT03, V3E19 | Règle créée par UI ; aucune mutation avant « Appliquer », puis `unit_code`, catégorie/rôle UUID et coefficients persistés. « Type FO » règle `category_id` ; pas d'application automatique ni de `supply_type_id` arbitraire. |
 | `est-027-multi-currency.ps1` | LEGCUR01/02, V3E07, V3X02 | Taux créé/modifié/désactivé/filtré/supprimé ; saisie USD, carte/tableau Affaires et ligne/totaux imprimés exacts après relecture. |
 | `ti-141-db-rls.ps1` | LEGACCESS01, `critical/access-boundaries.e2e.ts`, matrice SQL/RLS conservée | Deux tenants réellement distincts : liste étrangère absente, API et page étrangères refusées, retour propriétaire sans mutation. Le partage au sein du tenant reste autorisé. |
-| `ti-142-types.ps1` | LEP01, créations Army, `npm run typecheck` conservé | Création section/ligne sans `console.error`, erreur ou rejet non géré. L'ancien script n'était pas un typecheck. |
+| `ti-142-types.ps1` | LEP01/06, créations Army, `npm run typecheck` conservé | Création section/ligne sans `console.error`, erreur ou rejet non géré ; lecture abandonnée réellement annulée et panne active encore signalée. L'ancien script n'était pas un typecheck. |
 | `ti-182-assemblies.ps1` | LEGASM01, `local/assembly-totals.e2e.ts` | Désignation vide refusée sans POST ; ouvrage réellement créé serveur, relu/recherché, puis inséré avec UUID, provenance, enfants et montants exacts. |
 | `prices-page.ps1` | LEGCAT01, CAT-C02 | CSV replié/déplié, recherche 1→0→1, formulaires réels, historique accentué, actualisation sans mutation. |
 | `prices-import-guided.ps1` | LEGCAT02, `takeoff/team-b-user-stories.e2e.ts` US-4.1 | Vrai `MM_BDC_V1.2.csv` Windows-1252, hash et compteurs exacts : 539 détectées, 412 ignorées, 127 à résoudre. Aperçu uniquement, comme l'ancien script ; l'import confirmé relève d'US-4.1. |
@@ -350,3 +351,84 @@ Node et trois skips locaux inchangés, 820 jsdom, douze contrôles de couverture
 critique ; audit, signatures, architecture, OpenAPI, types et lint verts.
 Journal : `/private/tmp/mergeone-audit-pr-plcamq1n/verify-pr-ci-console-diagnostic.log`.
 Cette dernière mise à jour du registre ne change pas les sources vérifiées.
+
+## Investigation du chargement abandonné
+
+Le candidat instrumenté `ff848c38` passe les quatre workflows PR, dont les
+quatre lots critical et les deux lots takeoff. Le texte du premier appel
+`console.error` n'ayant pas été retenu, cette réussite n'identifie pas sa cause.
+
+L'inspection suivante révèle un défaut de portée concret dans le chargement
+des suggestions : le catch de `fetchEstimateSuggestionLearnings` écrit dans
+la console même après le cleanup de son effet. Le catch principal ignore déjà
+les chargements abandonnés. Ce défaut est un candidat à reproduire ; il n'est
+pas attribué rétrospectivement à l'erreur CI sans texte.
+
+Contrat de régression défini avant correction : LEP06 retient la requête de
+suggestions d'un véritable éditeur, quitte celui-ci par la navigation SPA,
+puis libère le transport en échec. Le nouvel écran et les données persistées
+doivent rester intacts ; la lecture abandonnée doit être annulée et ne doit
+pas signaler une nouvelle erreur. Le contre-exemple sur une lecture encore
+active conserve son signalement d'erreur et le chargement de l'éditeur. Les
+barrières contrôlent l'ordre des événements, sans sleep ni retry de test.
+LEP01 conserve son compteur cumulatif et son assertion stricte.
+
+**Rouge produit exécuté avant correction.** Le build
+`v7WPncfi0Y_utjDRupPZt`, HEAD `ff848c38` avec le nouveau scénario et ce registre,
+échoue sur LEP06 à `09:33:33 UTC` (8,4 s observées, setup vert). Le contre-exemple
+actif donne `errors: { learning: 1 }`. Après navigation SPA, la lecture de
+l'ancien éditeur reste en vol : `started: 1`, `rejected: 0`, `withSignal: 0`,
+`signalAborts: 0`. Sa libération en échec provoque ensuite le même logger
+`learning: 1` sur Affaires ; les valeurs métier et l'identité du document
+restent inchangées. L'oracle `{}` échoue donc bien sur le défaut produit.
+
+Le reçu est
+`.e2e/army/ci/2026-10-19T09-23-27-598Z-dev-loop/iterations/002-2026-10-19T09-33-33-881Z/manifest.json`,
+run `01a15382-5a8c-7d4a-8230-ff43c0343150`, diff SHA-256
+`a14e9b66f53c16524d167fec5c08aac06fc84c7b82ecac838dd2857df17e563e` ;
+le rapport a pour SHA-256
+`f1d82a77000d9f545337b2d1ea9768ecaa0d003ad9dc30eafb73e552940ef486`.
+L'itération 001 précédente a échoué sur un sélecteur de menu absent en desktop :
+elle n'est pas une preuve du défaut. Le sélecteur a été corrigé à partir de
+l'écran réel vers Navigation globale > Affaires avant le rouge produit 002.
+
+**Correctif.** Chaque exécution de l'effet de chargement de l'éditeur possède
+un `AbortController` pour sa lecture des apprentissages. Le helper client transmet le signal au fetch natif ; le
+cleanup désactive la portée avant d'annuler la requête. Le catch ignore cette
+ancienne portée, sans transformer en avertissement les erreurs de la lecture
+encore active. Le chargement principal, la récupération après conflit et les
+écrivains du devis gardent leurs contrats. Aucun délai ou retry n'est ajouté.
+
+**Vert ciblé.** La commande
+`E2E_ARMY_WORKERS=2 npm run e2e:army:dev-loop -- run --grep '^LEP0[16] '`
+réussit LEP01, LEP06 et leur setup, soit **3/3**, zéro skip/flaky/interruption,
+de `09:34:32 UTC` à `09:36:10 UTC`. Le build de production a été régénéré :
+`Jcl2zJeLcU1zfXdDHtvoz`, app source SHA-256
+`15787257e806999c0037606e89fcfd790bb9ffd29977dc9e971529f4cbf78f69`.
+Le diff SHA-256 est
+`e4718cf893e68f19da4881187d6d040a249ce771da34c9f272285f1c389c04e4`.
+
+Le reçu est
+`.e2e/army/ci/2026-10-19T09-23-27-598Z-dev-loop/iterations/003-2026-10-19T09-34-32-319Z/manifest.json`,
+run `01a15383-9bef-7e49-8a76-89c8cfc3ee85` ; rapport SHA-256
+`36e4b03c5fd4ba8ea5801725caecd219a381dd025eb7330a8ecceec511d5dd60`.
+LEP06 observe avant l'ouverture de la barrière `withSignal: 1`,
+`signalAborts: 1`, `rejected: 1`, `resolved: 0`, `errors: {}` ; après libération,
+ces compteurs restent identiques. L'échec actif garde `learning: 1` et aucun
+signal d'annulation. LEP01 garde `errors: {}` et tous ses oracles métier.
+
+La revue indépendante lit le diff stable et les reçus, puis confirme le
+renforcement de l'oracle d'annulation avant barrière ; aucun défaut actionnable
+ne reste. Ces rouges/verts sont des itérations sur stack réutilisée, pas une
+qualification générale. Q61 et les profils PDF conservent leur identité
+historique ; ils ne prouvent pas le nouveau mécanisme d'annulation. La CI du
+nouveau commit constitue sa propre preuve. Le message initial de LEP01 reste
+irrécupérable : cette course est maintenant prouvée et corrigée, mais son
+identité avec l'appel historique n'est pas affirmée.
+
+`npm run verify:pr` passe sur ce correctif : 3 279 tests Node et les trois skips
+locaux documentés, 820 jsdom, douze contrôles de couverture critique ; audit,
+signatures, architecture, OpenAPI, types et lint verts. Journal :
+`/private/tmp/mergeone-audit-pr-plcamq1n/verify-pr-learning-cancel.log`.
+Les dernières précisions de ce registre sont contrôlées par diff séparément ;
+elles ne changent pas les sources applicatives ou les scénarios vérifiés.

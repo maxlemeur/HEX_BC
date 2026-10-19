@@ -715,3 +715,178 @@ armyTest("LEP05 keyboard drag, undo and redo persist the exact sibling order and
       ...ids, parentId, inputMethod: "Space, ArrowDown, Space on the real drag handle", originalIds, movedIds, slots, observations, reloaded,
     });
   });
+
+armyTest("LEP06 abandoned suggestion-learning failures do not report errors while active failures remain reported", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { ids } = await prepare(ui, army, "LEP06", 1);
+    const before = await readEstimate(browser, ids.versionId);
+    const learningPath = `/api/estimates/${ids.versionId}/suggestion-learning`;
+    const learningUrl = new URL(learningPath, app.baseUrl!).href;
+    const phaseKey = `${army.runPrefix}-LEP06-phase`;
+    type Observation = {
+      documentStartedAt: number; phase: string;
+      fetches: { started: number; rejected: number; resolved: number; withSignal: number; signalAborts: number };
+      errors: Record<string, number>; events: Array<{ kind: string; name: string | null }>; dropped: number;
+    };
+    type AuditWindow = Window & { __armyLearningFailureAudit?: { read: () => Observation; restore: () => void } };
+    await browser.addInitScript(({ path, phaseKey }) => {
+      const observed = window as AuditWindow;
+      const state: Observation = {
+        documentStartedAt: performance.timeOrigin, phase: sessionStorage.getItem(phaseKey) ?? "unset",
+        fetches: { started: 0, rejected: 0, resolved: 0, withSignal: 0, signalAborts: 0 }, errors: {}, events: [], dropped: 0,
+      };
+      const record = (kind: string, error: unknown) => {
+        state.errors[kind] = (state.errors[kind] ?? 0) + 1;
+        const name = error instanceof Error && ["Error", "TypeError", "AbortError"].includes(error.name) ? error.name : null;
+        if (state.events.length < 8) state.events.push({ kind, name });
+        else state.dropped++;
+      };
+      const originalFetch = window.fetch;
+      const originalError = console.error;
+      const signalListeners: Array<{ signal: AbortSignal; listener: () => void }> = [];
+      window.fetch = function (this: Window, input, init) {
+        const url = input instanceof Request ? input.url : String(input);
+        const isLearning = new URL(url, location.href).pathname === path &&
+          (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase() === "GET";
+        const result = Reflect.apply(originalFetch, this, [input, init]) as Promise<Response>;
+        if (!isLearning) return result;
+        state.fetches.started++;
+        const signal = init?.signal ?? (input instanceof Request ? input.signal : null);
+        if (signal) {
+          state.fetches.withSignal++;
+          const onAbort = () => {
+            state.fetches.signalAborts++;
+            if (state.events.length < 8) state.events.push({ kind: "signal-abort", name: null });
+            else state.dropped++;
+          };
+          if (signal.aborted) onAbort();
+          else { signal.addEventListener("abort", onAbort, { once: true }); signalListeners.push({ signal, listener: onAbort }); }
+        }
+        return result.then((response) => { state.fetches.resolved++; return response; },
+          (error: unknown) => { state.fetches.rejected++; throw error; });
+      };
+      console.error = function (this: Console, ...args: unknown[]) {
+        record(args[0] === "Impossible de charger les apprentissages de suggestions." ? "learning" : "console-other", args[1]);
+        Reflect.apply(originalError, this, args);
+      };
+      const onError = (event: ErrorEvent) => record("error", event.error);
+      const onRejection = (event: PromiseRejectionEvent) => record("unhandledrejection", event.reason);
+      window.addEventListener("error", onError);
+      window.addEventListener("unhandledrejection", onRejection);
+      observed.__armyLearningFailureAudit = {
+        read: () => state,
+        restore: () => {
+          window.fetch = originalFetch;
+          console.error = originalError;
+          window.removeEventListener("error", onError);
+          window.removeEventListener("unhandledrejection", onRejection);
+          for (const { signal, listener } of signalListeners) signal.removeEventListener("abort", listener);
+          delete observed.__armyLearningFailureAudit;
+        },
+      };
+    }, { path: learningPath, phaseKey });
+    await browser.evaluate((key) => { sessionStorage.setItem(key, "active"); return null; }, phaseKey);
+
+    let phase: "active" | "abandoned" = "active";
+    const held = { active: 0, abandoned: 0 }, aborted = { active: 0, abandoned: 0 };
+    let releaseActive!: () => void, releaseAbandoned!: () => void;
+    const activeGate = new Promise<void>((resolve) => { releaseActive = resolve; });
+    const abandonedGate = new Promise<void>((resolve) => { releaseAbandoned = resolve; });
+    // Deliberate transport failures expose the real loader's catch. No payload,
+    // result, session or application state is replaced; other requests run normally.
+    await browser.route(learningUrl, async (route) => {
+      if (route.request.method !== "GET") { await route.fallback(); return; }
+      const requestPhase = phase;
+      held[requestPhase]++;
+      if (held[requestPhase] !== 1) throw new Error("LEP06 requires exactly one learning request per phase.");
+      await (requestPhase === "active" ? activeGate : abandonedGate);
+      await route.abort();
+      aborted[requestPhase]++;
+    });
+    const observe = async () => browser.evaluate(async () => {
+      // A browser frame follows the fetch rejection's microtasks, including the
+      // application's catch; a zero count before that delivery would prove nothing.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      return (window as AuditWindow).__armyLearningFailureAudit?.read() ?? null;
+    });
+    let active: Observation | null = null, atDeparture: Observation | null = null, abandoned: Observation | null = null;
+    try {
+      await Promise.all([
+        openSeededEditor(ui, ids),
+        (async () => {
+          await expect.poll(() => held.active).toBe(1);
+          await expect(screen.getByText("Chargement du chiffrage…", { exact: true })).toBeVisible();
+          releaseActive();
+        })(),
+      ]);
+      active = await observe();
+      await recordEvidence(army, "lep06-active-learning-failure", { ...ids, held: held.active, aborted: aborted.active, observation: active });
+      expect(active, "An active learning failure must remain reported before checking abandoned reads").toMatchObject({
+        phase: "active", fetches: { started: 1, rejected: 1, resolved: 0 }, errors: { learning: 1 }, dropped: 0,
+      });
+      expect(active?.errors).toEqual({ learning: 1 });
+      expect(active?.events).toHaveLength(1);
+      expect(active?.fetches.signalAborts, "An active read is not cancelled to suppress its failure").toBe(0);
+      expect(aborted.active).toBe(1);
+      await expect(grid(ui)).toBeVisible();
+      await expect(screen.getByLabel(`Quantité pour ${before.items.find((item) => item.item_type === "line")!.title}`, { exact: true })).toHaveValue("1");
+
+      await browser.evaluate((key) => {
+        (window as AuditWindow).__armyLearningFailureAudit?.restore();
+        sessionStorage.setItem(key, "abandoned");
+        return null;
+      }, phaseKey);
+      phase = "abandoned";
+      const unlock = await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+      expect(unlock.status).toBe(200);
+      await browser.reload();
+      await expect.poll(() => held.abandoned).toBe(1);
+      await expect(screen.getByText("Chargement du chiffrage…", { exact: true })).toBeVisible();
+      const documentStartedAt = await browser.evaluate(() => performance.timeOrigin);
+      // DashboardShell keeps its global navigation outside the editor skeleton.
+      await screen.getByRole("navigation", "Navigation globale", { exact: true })
+        .getByRole("menuitem", "Affaires", { exact: true }).click();
+      await expect(browser).toHaveURL("/dashboard/affaires");
+      await expect(screen.getByRole("heading", "Affaires", { exact: true })).toBeVisible();
+      expect(await browser.evaluate(() => performance.timeOrigin), "The real Next Link must navigate within the same document").toBe(documentStartedAt);
+      await expect(screen.getByText("Chargement du chiffrage…", { exact: true })).toBeHidden();
+      atDeparture = await observe();
+      // Release even on the unfixed product before asserting cancellation, so
+      // the late rejection and its real logger are captured in the red receipt.
+      releaseAbandoned();
+      await expect.poll(() => aborted.abandoned).toBe(1);
+      await expect.poll(async () => (await observe())?.fetches.rejected ?? 0).toBe(1);
+      abandoned = await observe();
+      const after = await readEstimate(browser, ids.versionId);
+      const businessItems = (estimate: ArmyEstimate) => estimate.items.map((item) => ({
+        id: item.id, parentId: item.parent_id, position: item.position, title: item.title,
+        quantity: item.quantity, unitPrice: item.unit_price_ht_cents, hours: item.h_mo,
+      })).sort((left, right) => left.id.localeCompare(right.id));
+      await recordEvidence(army, "lep06-abandoned-learning-failure", {
+        ...ids, held, aborted, active, atDeparture, abandoned, sameDocument: abandoned?.documentStartedAt === documentStartedAt,
+        unchangedItems: businessItems(after),
+      });
+      expect(businessItems(after)).toEqual(businessItems(before));
+      expect(abandoned).toMatchObject({
+        phase: "abandoned", documentStartedAt, fetches: { started: 1, rejected: 1, resolved: 0 }, dropped: 0,
+      });
+      expect(abandoned?.errors, "A rejected read from an abandoned editor must not report an error on Affaires").toEqual({});
+      expect(atDeparture?.fetches, "SPA departure must cancel the actual pending learning I/O before the gate opens").toMatchObject({
+        started: 1, rejected: 1, resolved: 0, withSignal: 1, signalAborts: 1,
+      });
+      expect(abandoned?.fetches).toMatchObject({ withSignal: 1, signalAborts: 1 });
+      expect(abandoned?.events).toEqual([{ kind: "signal-abort", name: null }]);
+      await expect(browser).toHaveURL("/dashboard/affaires");
+      await expect(screen.getByRole("heading", "Affaires", { exact: true })).toBeVisible();
+    } finally {
+      releaseActive();
+      releaseAbandoned();
+      await browser.unroute(learningUrl);
+      await browser.evaluate((key) => {
+        (window as AuditWindow).__armyLearningFailureAudit?.restore();
+        sessionStorage.removeItem(key);
+        return null;
+      }, phaseKey);
+    }
+  });

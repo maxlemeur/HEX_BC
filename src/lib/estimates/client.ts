@@ -5559,12 +5559,14 @@ export async function sendEstimateSuggestionRuleFeedback(
 }
 
 export async function fetchEstimateSuggestionLearnings(
-  versionId: string
+  versionId: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<SuggestionLearningState> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/suggestion-learning`,
     {
       method: "GET",
+      signal: options.signal,
     },
     "Impossible de charger les apprentissages de suggestion."
   );

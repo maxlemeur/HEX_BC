@@ -768,6 +768,7 @@ export function useEstimateEditorState({
     if (hasLoadedVersion && initialLoadHandlersRef.current.isReadRecoveryRequired) return;
     let active = true;
     let hasReadEditorData = false;
+    const learningController = new AbortController();
 
     async function load() {
       if (!hasLoadedVersion) setIsLoading(true);
@@ -777,7 +778,8 @@ export function useEstimateEditorState({
       try {
         const [data, learning] = await Promise.all([
           fetchEstimateEditorData(resolvedVersionId),
-          fetchEstimateSuggestionLearnings(resolvedVersionId).catch((error) => {
+          fetchEstimateSuggestionLearnings(resolvedVersionId, { signal: learningController.signal }).catch((error) => {
+            if (!active) return null;
             console.error(
               "Impossible de charger les apprentissages de suggestions.",
               error
@@ -933,6 +935,7 @@ export function useEstimateEditorState({
 
     return () => {
       active = false;
+      learningController.abort();
     };
   }, [
     isLaborSplitEnabled,
