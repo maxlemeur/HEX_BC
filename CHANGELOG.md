@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.1](https://github.com/maxlemeur/HEX_BC/compare/v0.5.0...v0.5.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **affaires-hub:** keep the full hub once any version of the affaire has a line ([17a54d7](https://github.com/maxlemeur/HEX_BC/commit/17a54d79fb2edede3ebc8fc5d4ddd5d17cd32416))
+* **affaires-hub:** keep the full hub once any version of the affaire has a line ([54cab04](https://github.com/maxlemeur/HEX_BC/commit/54cab0408f28065c9f8b86ca78663b4d85b55407))
+* **estimates:** copy ~1 000 items into a v1/v2 draft in one statement ([d90e158](https://github.com/maxlemeur/HEX_BC/commit/d90e158df0aea23cb12dfe509f912497f691851e))
+* **estimates:** offer every source version in the import dialog ([7e8d79d](https://github.com/maxlemeur/HEX_BC/commit/7e8d79de7e9c79ca44f39e8ce9c4d69a882f5278))
+* **estimates:** reorder and move ~1 000 siblings within the API timeout ([0163e7c](https://github.com/maxlemeur/HEX_BC/commit/0163e7cf83b97a6aadcf1c19130c8cd936ffb5c9))
+* **estimates:** reorder and move ~1 000 siblings within the API timeout ([ef6d61b](https://github.com/maxlemeur/HEX_BC/commit/ef6d61b340fcd735b9b0a437b08502be579e1409))
+
 ## [0.5.0](https://github.com/maxlemeur/HEX_BC/compare/v0.4.2...v0.5.0) (2026-10-18)
 
 
