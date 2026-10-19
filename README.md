@@ -28,7 +28,7 @@ Affaire → dépôt des pièces (DPGF, plans, CCTP) → import DPGF / métré as
 - **Next.js 16** (App Router) · **React 19** · **TypeScript strict** · **Tailwind CSS 4**
 - **Supabase** — Postgres multi-tenant, RLS active sur toutes les tables, Auth, Storage, Edge Functions
 - **Gemini** pour le métré assisté et la classification documentaire
-- **Vitest** (projets `node` et `jsdom`) · **TesterArmy** · suites PowerShell héritées
+- **Vitest** (projets `node` et `jsdom`) · **TesterArmy** pour les parcours navigateur
 - OpenAPI 3.1 généré depuis les schémas Zod, validé au build
 
 ## Prérequis
@@ -62,14 +62,9 @@ La base s'initialise **par les migrations**, jamais par `schema.sql` — voir
 npm run dev     # http://localhost:3000
 ```
 
-Avant le démarrage, vérifiez que le port est libre sous PowerShell :
+Avant le démarrage, vérifiez que le port choisi est libre. Le serveur signale un port déjà occupé ; choisissez alors un port explicite comme ci-dessous.
 
-```powershell
-Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue
-```
-
-Si le port 3000 est déjà occupé, choisissez explicitement un autre port (et utilisez cette même URL
-pour `E2E_BASE_URL` lors des tests bout-en-bout) :
+Si le port 3000 est déjà occupé, choisissez explicitement un autre port pour le serveur de développement :
 
 ```bash
 npm run dev -- -p 3001
@@ -77,6 +72,11 @@ npm run dev -- -p 3001
 
 Si le conflit vient déjà de cette application, réutilisez son serveur ou arrêtez-le depuis son
 terminal : le verrou `.next/dev/lock` empêche deux serveurs de développement dans le même dossier.
+
+Le smoke `npm run e2e` lance et arrête son propre serveur sur une origine locale dédiée et libre
+(`http://localhost:3107` par défaut). `E2E_ARMY_BASE_URL` choisit cette origine du smoke.
+Configurez les variables publiques `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+du backend avant son démarrage ; voir [le guide Army](docs/testing/tester-army.md).
 
 ## Commandes courantes
 

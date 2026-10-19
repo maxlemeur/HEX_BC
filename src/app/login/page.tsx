@@ -11,6 +11,7 @@ import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useIsHydrated } from "@/hooks/useIsHydrated";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /* ─── Animation variants ───
@@ -103,6 +104,7 @@ const features = [
 export default function LoginPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const isHydrated = useIsHydrated();
   // Only read for the error message, which never exists on the first render.
   const reduced = !!useReducedMotion();
 
@@ -269,6 +271,7 @@ export default function LoginPage() {
                   size="sm"
                   className="absolute top-1/2 right-2 -translate-y-1/2"
                   type="button"
+                  disabled={!isHydrated}
                   onClick={() => setShowPassword((v) => !v)}
                 >
                   {showPassword ? "Masquer" : "Afficher"}

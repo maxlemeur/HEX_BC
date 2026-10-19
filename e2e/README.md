@@ -1,10 +1,11 @@
 # E2E TesterArmy
 
-TesterArmy (`e2e` 0.21 et `@e2e-dev/web`) exécute les parcours navigateur.
+TesterArmy (`e2e` 0.21.2 et `@e2e-dev/web` 0.15.2) exécute les parcours navigateur.
 Les assertions exactes déterminent le résultat ; la navigation par agent reste
 facultative. Voir [le guide Army](../docs/testing/tester-army.md),
 [la CI native](../docs/testing/tester-army-ci.md) et
-[la correspondance des parcours historiques](../docs/testing/army-migration.md).
+[la correspondance Playwright](../docs/testing/army-migration.md) et
+[le port des scénarios PowerShell](../docs/testing/legacy-to-army-migration-2026-10-19.md).
 
 ## Profils
 
@@ -27,100 +28,45 @@ Les manifestes et archives `.e2e/army/` conservent commande, sources, build,
 identités, assertions et empreintes. Échec, skip et setup incomplet restent des
 preuves manquantes. Les archives de CI sont contrôlées avant publication.
 
-## Scripts PowerShell historiques
+## Sélection locale et preuves
 
-Les scripts ci-dessous restent disponibles pour leurs contrôles spécialisés.
-Ils exigent `agent-browser`, PowerShell et une application locale déjà lancée.
+Pour une itération sur les parcours affectés, utiliser une seule pile locale :
 
-## HEX ticket scripts
+```bash
+npm run e2e:army:local -- --grep 'LEP01|LEGCLIP01'
+```
 
-Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands are cross-platform and routed through `e2e/run-ps1.mjs`.
+Pour une qualification bornée depuis une pile propre :
 
-### Recommended commands
+```bash
+npm run e2e:army:ci -- full --grep 'LEGCUR0[12]|LEGASM01'
+```
 
-- Fast local run (default quick suite): `npm run e2e:hex`
-- Full validation run: `npm run e2e:hex:all`
-- Feature suites:
-  - `npm run e2e:hex:editor`
-  - `npm run e2e:hex:lifecycle`
-  - `npm run e2e:hex:output`
-  - `npm run e2e:hex:settings`
-  - `npm run e2e:hex:security`
-  - `npm run e2e:hex:assemblies`
-  - `npm run e2e:hex:dpgf`
+Un filtre prouve uniquement les scénarios effectivement sélectionnés. Le profil
+`full` comprend aussi les parcours connectés et le métré ; l'émission PDF et les
+contrats v3 ont leurs profils spécialisés documentés dans
+[le guide calc-v3](../docs/testing/tester-army-calc-v3.md).
 
-### Suite matrix
+Les anciens scripts navigateur PowerShell, leur wrapper et les régressions qui
+validaient uniquement ces scripts ont été retirés après qualification exécutée
+de leurs remplacements. La matrice liée ci-dessus conserve la correspondance
+et les limites de preuve ; les rapports datés restent historiques.
+Les contrôles de types, calcul, parser, SQL/RLS et de concurrence restent des
+spécialistes ; ils ne sont pas remplacés par un verdict visuel.
 
-- `quick` (default via `e2e:hex`):
-  - `ti-145-create.ps1`
-  - `ti-147-editor.ps1`
-  - `ti-148-calculations.ps1`
-  - `ti-150-status.ps1`
-- `editor`:
-  - `est-101-keyboard.ps1`
-  - `est-102-inline-edit.ps1`
-  - `est-103-multiselect.ps1`
-  - `est-104-clipboard.ps1`
-  - `est-105-autosave.ps1`
-  - `est-106-undo-redo.ps1`
-  - `est-030-supplier-comparison.ps1`
-  - `ti-147-editor.ps1`
-  - `est-164-catalogue-suggestions.ps1`
-- `lifecycle`:
-  - `ti-143-navigation.ps1`
-  - `ti-144-list.ps1`
-  - `ti-145-create.ps1`
-  - `ti-149-duplicate.ps1`
-  - `ti-150-status.ps1`
-- `output`:
-  - `ti-151-print.ps1`
-  - `ti-152-export.ps1`
-- `settings`:
-  - `ti-146-parameters.ps1`
-  - `ti-153-suggestions.ps1`
-  - `ti-142-types.ps1`
-- `security`:
-  - `ti-141-db-rls.ps1`
-- `assemblies`:
-  - `ti-182-assemblies.ps1`
-- `dpgf`:
-  - `dpgf-import-flow.ps1`
-  - `dpgf-affaire-wizard-editor-flow.ps1`
-- `all`:
-  - full HEX coverage (including `ti-140-epic.ps1`)
+## Environnement
 
-## PowerShell / agent-browser : **non couverts en CI**
+Le runner local provisionne les comptes, les cookies et les clés loopback de sa
+pile éphémère. Il refuse les secrets distants ambiants. Pour un backend manuel
+explicitement autorisé, suivre [le guide critical](../docs/testing/tester-army-critical.md)
+et les [rôles des comptes de test](../docs/test-logins.md). Les identifiants et
+sessions ne sont jamais committés.
 
-Les suites `e2e/hex/*.ps1` (PowerShell + `agent-browser`) ne tournent dans
-aucun workflow GitHub Actions. Les workflows navigateur utilisent TesterArmy.
-Les scripts restent dans le dépôt pour une exécution locale
-(`npm run e2e:hex`, `npm run e2e:hex:all`, `npm run e2e:hex:<suite>`).
-Ce n'est pas un port : c'est la disposition du périmètre HEX hors CI.
-
-Inventaire des scripts sous `e2e/hex/` :
-
-- helpers / runners : `common.ps1`, `run-all.ps1`, `suites.ps1`
-- catalogue : `prices-page.ps1`, `prices-import-guided.ps1`
-- editor : `est-101-keyboard.ps1`, `est-102-inline-edit.ps1`,
-  `est-103-multiselect.ps1`, `est-104-clipboard.ps1`, `est-105-autosave.ps1`,
-  `est-106-undo-redo.ps1`, `est-030-supplier-comparison.ps1`,
-  `est-164-catalogue-suggestions.ps1`, `ti-147-editor.ps1`
-- lifecycle : `ti-140-epic.ps1`, `ti-143-navigation.ps1`, `ti-144-list.ps1`,
-  `ti-145-create.ps1`, `ti-149-duplicate.ps1`, `ti-150-status.ps1`
-- output : `ti-151-print.ps1`, `ti-152-export.ps1`
-- settings : `ti-146-parameters.ps1`, `ti-153-suggestions.ps1`,
-  `ti-142-types.ps1`, `est-027-multi-currency.ps1`
-- security : `ti-141-db-rls.ps1`
-- assemblies : `ti-182-assemblies.ps1`
-- dpgf : `dpgf-import-flow.ps1`, `dpgf-affaire-wizard-editor-flow.ps1`
-
-Scripts spécialisés disponibles ; leur présence ne qualifie pas leur exécution en CI :
-
-- **settings** — `ti-146-parameters.ps1`, `ti-153-suggestions.ps1`, `ti-142-types.ps1`
-- **security** — `ti-141-db-rls.ps1`
-- **assemblies** — `ti-182-assemblies.ps1`
-- **output** — `ti-151-print.ps1`, `ti-152-export.ps1`
-- **editor** — `est-101-keyboard.ps1` … `est-106-undo-redo.ps1`
+Le smoke anonyme lance son propre serveur ; `E2E_ARMY_BASE_URL` choisit son
+origine locale (par défaut `http://localhost:3107`). Fournir les variables
+publiques du backend autorisé avant son démarrage ; lire le guide Army pour
+les options du pilote. Les variables internes `RLS_E2E_*`
+ne doivent pas être configurées avec des secrets distants.
 
 ## RLS matrix (EST-261 partial)
 
@@ -168,79 +114,3 @@ Scripts spécialisés disponibles ; leur présence ne qualifie pas leur exécuti
   [`local-native-stack-tooling.md`](../docs/testing/local-native-stack-tooling.md).
 - Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
   only when repository branch protection requires this check.
-
-## Runner options
-
-List available suites:
-
-```bash
-npm run e2e:run -- e2e/hex/run-all.ps1 -ListSuites
-```
-
-Run one suite manually and stop on first failure:
-
-```bash
-npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
-```
-
-`npm run e2e`, `npm run e2e:auth`, and all `npm run e2e:hex*` commands auto-load `.env` then `.env.local`.
-
-## Environment variables
-
-- `E2E_BASE_URL` (default: `http://localhost:3000`)
-- `E2E_HEADED=1` to run with a visible browser window
-- `E2E_SESSION` to control the agent-browser session name
-- `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state (required; no committed fallback)
-- `E2E_ALLOWED_SUPABASE_HOST` for the exact Supabase hostname authorized for the
-  remote critical suite (for example `staging-project.supabase.co`); loopback runs
-  must explicitly use `localhost` or `127.0.0.1`.
-- `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
-- `E2E_AUTH_CACHE` (default: `1` for HEX flows). Set `0`/`false`/`off`/`no` to disable cache and force UI login.
-- `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2` for `ti-141-db-rls.ps1` secondary account checks
-- Les variables `RLS_E2E_*`, l'URL loopback et les clés locales sont internes au
-  runner `db:ci:local` ; elles ne doivent pas être configurées avec des secrets distants.
-
-Pour la matrice RLS canonique, utilisez `npm run db:ci:local` : la commande
-provisionne trois comptes sur une pile Supabase locale en runtime natif, sans secret
-ni fallback E2E, puis détruit la pile et ses données (`stack destroy`). `npm run e2e:rls` est une sous-commande interne et
-refuse de s'exécuter hors de ce contexte local éphémère.
-
-The expected test-account roles are documented in [`docs/test-logins.md`](../docs/test-logins.md).
-
-If `E2E_LOGIN_EMAIL_2` or `E2E_LOGIN_PASSWORD_2` is missing, `ti-141-db-rls.ps1` now fails fast (no `SKIP` fallback).
-
-By default, session names are isolated per process (`e2e-$PID`, `e2e-auth-$PID`, `e2e-hex-$PID`) and HEX suite runs isolate each test with its own session. This avoids collisions when multiple devs run E2E in parallel.
-
-## Environment examples
-
-```powershell
-$env:E2E_BASE_URL = "http://localhost:3000"
-$env:E2E_HEADED = "1"
-npm run e2e
-```
-
-```powershell
-$env:E2E_LOGIN_EMAIL = "user@example.com"
-$env:E2E_LOGIN_PASSWORD = "password"
-npm run e2e:auth
-```
-
-```bash
-E2E_BASE_URL="http://localhost:3000" E2E_HEADED="1" npm run e2e
-E2E_LOGIN_EMAIL="user@example.com" E2E_LOGIN_PASSWORD="password" npm run e2e:auth
-```
-
-## Auth state cache
-
-When scripts use `e2e/hex/common.ps1`, `Login-E2E` automatically:
-
-- tries to load `E2E_AUTH_STATE` (`e2e/.auth.json` by default),
-- validates access via `/dashboard`,
-- falls back to UI login only when cache is missing/invalid,
-- and saves the refreshed state after a successful login.
-
-Refresh cache manually with:
-
-```bash
-npm run e2e:auth
-```

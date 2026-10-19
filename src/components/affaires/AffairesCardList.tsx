@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FolderIcon, PlusIcon, SearchIcon } from "lucide-react";
 
-import { formatEUR } from "@/lib/money";
+import { formatCurrency } from "@/lib/money";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -136,8 +136,8 @@ export function AffairesCardList({
 
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-medium text-foreground-secondary">
-                      {item.currentTotalHtCents !== null
-                        ? `${formatEUR(item.currentTotalHtCents)} HT`
+                      {item.currentTotalHtCents !== null && item.currentCurrency !== null
+                        ? `${formatCurrency(item.currentTotalHtCents, item.currentCurrency)} HT`
                         : "—"}
                     </span>
                     <span className="text-muted-foreground">

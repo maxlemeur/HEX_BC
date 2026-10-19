@@ -144,7 +144,9 @@ export default {
     name: "chromium-desktop",
     engine: web({ browser: "chromium", viewport: { width: 1280, height: 800 } }),
     app: {
-      url: appOrigin.origin,
+      // clearState reopens app.url. Emission needs a real anonymous entry,
+      // without the homepage's decorative CDN request under its strict guard.
+      url: emission ? `${appOrigin.origin}/login` : appOrigin.origin,
       readyUrl: `${appOrigin.origin}/login`,
       environment: "test",
       command: {

@@ -1649,7 +1649,7 @@ export function normalizeDraftItems<
   /**
    * Taux horaires atelier / chantier (EST-031). Optionnels : a defaut, on
    * retombe sur `rateById`, ce qui reste juste tant que les trois roles sont
-   * alimentes par la meme colonne `hourly_rate_cents` (cf. calc-context).
+   * alimentes par la meme colonne `hourly_rate_cents`.
    *
    * Sans eux, une ligne dont la MO est entierement ventilee en
    * atelier/chantier etait valorisee a 0 EUR — puis PERSISTEE a 0 EUR, la

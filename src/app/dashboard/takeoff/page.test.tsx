@@ -56,6 +56,7 @@ function makeAffaire(index: number, withVersion = true): AffaireListItem {
     currentVersionNumber: withVersion ? 1 : null,
     currentStatus: withVersion ? "draft" : null,
     currentTotalHtCents: withVersion ? 1000 : null,
+    currentCurrency: withVersion ? "EUR" : null,
     currentUpdatedAt: "2026-08-12T10:00:00.000Z",
     acceptedVersionId: null,
     acceptedVersionNumber: null,

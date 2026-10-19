@@ -55,6 +55,7 @@ function makeAffaire(index: number): AffaireListItem {
     currentVersionNumber: 1,
     currentStatus: index % 2 === 0 ? "accepted" : "draft",
     currentTotalHtCents: 1000,
+    currentCurrency: "EUR",
     currentUpdatedAt: `2026-07-${String(12 - index).padStart(2, "0")}T10:00:00.000Z`,
     acceptedVersionId: null,
     acceptedVersionNumber: null,

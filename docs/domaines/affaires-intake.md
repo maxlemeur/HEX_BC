@@ -275,7 +275,7 @@ Aucune page du domaine ne déclare `dynamic`, `revalidate` ou `metadata` (vérif
 
 `src/app/dashboard/affaires/page.tsx` lit les `searchParams` (Promise, l.38) via `parseAffaireListQuery` (l.39) et enveloppe le résultat dans un `Suspense` (l.41-45). `src/app/dashboard/affaires/[projectId]/page.tsx` résout params, searchParams et contexte utilisateur en parallèle (l.49-59), `notFound()` si aucun tenant (l.61-63) ou si le summary remonte `NOT_FOUND` (l.124-135), puis exécute deux vagues de `Promise.allSettled` (6 promesses l.108-122, puis 8 l.139-179) et une troisième vague conditionnelle si takeoff est activé (l.260-276). Les échecs partiels deviennent des `sectionErrors` textuels (l.224-252).
 
-Le segment `new` est statique et prioritaire sur `[projectId]` (`src/app/dashboard/affaires/new/page.tsx:1-5`). `normalizeAffaireProjectId` (`src/lib/affaires/route-segments.ts:3`) rejette `new` et les segments contenant `/ \ ? #` (l.9-20) — mais **cette garde n'a aucun consommateur en production** (vérifié : seul `route-segments.test.ts` l'importe).
+Le segment `new` est statique et prioritaire sur `[projectId]` (`src/app/dashboard/affaires/new/page.tsx`). L'ancien normaliseur de segments, importé uniquement par son propre test, a été supprimé lors de l'[audit du 19/10/2026](../testing/test-legacy-audit-2026-10-19.md) ; il ne constituait pas une garde de production.
 
 Le paramètre `?devHubScenario` active dix-neuf scénarios de démonstration (`src/lib/affaires/hub-dev-scenarios.ts:27-47`) et n'est lu que hors production (`src/app/dashboard/affaires/[projectId]/page.tsx:67-70`).
 

@@ -149,7 +149,7 @@ function createContext(options?: { role?: TenantRole; rpcResult?: RpcResult }) {
   return {
     supabase: {
       rpc,
-      from: vi.fn(),
+      from: createFromMock({}),
     },
     userId: USER_ID,
     tenantId: TENANT_ID,
@@ -189,6 +189,8 @@ function createFromMock(
 
     const scenario = effectiveQueue.shift()!;
 
+    let isListCurrencyRead = false;
+    let currencyIds: string[] = [];
     const builder = {
       select: vi.fn(),
       eq: vi.fn(),
@@ -202,9 +204,15 @@ function createFromMock(
         | undefined,
     };
 
-    builder.select.mockReturnValue(builder);
+    builder.select.mockImplementation((columns: string) => {
+      isListCurrencyRead = table === "estimate_versions" && columns === "id, currency, total_ht_cents";
+      return builder;
+    });
     builder.eq.mockReturnValue(builder);
-    builder.in.mockReturnValue(builder);
+    builder.in.mockImplementation((column: string, values: string[]) => {
+      if (isListCurrencyRead && column === "id") currencyIds = values;
+      return builder;
+    });
     builder.order.mockReturnValue(builder);
     builder.limit.mockReturnValue(builder);
     builder.range.mockReturnValue(builder);
@@ -212,7 +220,12 @@ function createFromMock(
       async () => scenario.maybeSingle ?? defaultResult
     );
     builder.then = (onfulfilled, onrejected) =>
-      Promise.resolve(scenario.limit ?? defaultResult).then(onfulfilled, onrejected);
+      Promise.resolve(isListCurrencyRead
+        // These retained list/readiness fixtures all describe EUR estimates.
+        // The real multi-currency reader and UI are exercised by LEGCUR02.
+        ? { data: currencyIds.map((id) => ({ id, currency: "EUR",
+          total_ht_cents: buildAffaireRow(Number(id.slice(-12))).current_total_ht_cents })), error: null }
+        : scenario.limit ?? defaultResult).then(onfulfilled, onrejected);
 
     return builder;
   });
@@ -3923,5 +3936,163 @@ describe("affaires hub margin analysis", () => {
     expect(result?.global.costCents).toBe(80_000);
     expect(result?.global.saleCents).toBe(108_000);
     expect(result?.global.marginMultiplier).toBe(1.35);
+  });
+});
+
+// Isolation exception: LEGCUR02 covers the real browser, persistence and UI.
+// The App Router performs this RPC and its follow-up PostgREST read on the
+// server; browser routing cannot hold either internal request without replacing
+// the rendered server result. Control that database schedule at the existing
+// reader boundary here, while exercising the real fetchAffaireList function.
+// Failure modes: (1) a save changes a listed version between the two reads,
+// (2) the second read returns an unsupported currency, (3) a listed version is
+// absent from it. None may fail the whole page (PR83 review: one autosave made
+// the list route throw), none may pair the RPC amount with a later save's
+// currency, and the other rows, their exact amounts/currencies and the page
+// cursor must stay intact. A failed currency query itself remains an error.
+describe("affaires list currency snapshot race", () => {
+  it("withholds only the raced amount and keeps the rest of the page when a save lands between the reads", async () => {
+    const raced = buildAffaireRow(1, { current_total_ht_cents: 1000 });
+    const invalid = buildAffaireRow(2, { current_total_ht_cents: 2000 });
+    const vanished = buildAffaireRow(3, { current_total_ht_cents: 3000 });
+    const stable = buildAffaireRow(4, { current_total_ht_cents: 123456 });
+    const fillers = Array.from({ length: 16 }, (_, index) => buildAffaireRow(index + 6));
+    const overflow = buildAffaireRow(5, { current_total_ht_cents: 5000 });
+    const schedule: string[] = [];
+    const context = createContext({ role: "engineer" });
+    context.supabase.rpc.mockImplementation(async () => {
+      schedule.push("RPC: version 1 total 1000 before the save");
+      return { data: [stable, invalid, vanished, ...fillers, raced, overflow], error: null };
+    });
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockImplementation(async () => {
+        schedule.push("PostgREST: version 1 USD/2000 after an atomic save");
+        return {
+          data: [
+            { id: raced.current_version_id, currency: "USD", total_ht_cents: 2000 },
+            { id: invalid.current_version_id, currency: "XXX", total_ht_cents: 2000 },
+            { id: stable.current_version_id, currency: "USD", total_ht_cents: 123456 },
+            ...fillers.map((row) => ({ id: row.current_version_id, currency: "EUR", total_ht_cents: row.current_total_ht_cents })),
+          ],
+          error: null,
+        };
+      }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireList({ size: 20, sort: "totalHtCents", dir: "asc" });
+
+    expect(schedule).toEqual([
+      "RPC: version 1 total 1000 before the save",
+      "PostgREST: version 1 USD/2000 after an atomic save",
+    ]);
+    expect(result.items.map((item) => ({
+      id: item.currentVersionId, total: item.currentTotalHtCents, currency: item.currentCurrency,
+      status: item.currentStatus, name: item.projectName,
+    }))).toEqual([
+      { id: stable.current_version_id, total: 123456, currency: "USD", status: "draft", name: "Projet 4" },
+      { id: invalid.current_version_id, total: null, currency: null, status: "draft", name: "Projet 2" },
+      { id: vanished.current_version_id, total: null, currency: null, status: "draft", name: "Projet 3" },
+      ...fillers.map((row) => ({ id: row.current_version_id, total: row.current_total_ht_cents, currency: "EUR",
+        status: "draft", name: row.project_name })),
+      { id: raced.current_version_id, total: null, currency: null, status: "draft", name: "Projet 1" },
+    ]);
+    expect(result.hasNextPage).toBe(true);
+    // The keyset cursor still continues from the RPC's own row, not the withheld amount.
+    expect(JSON.parse(Buffer.from(result.nextCursor!.replace(/-/g, "+").replace(/_/g, "/"), "base64")
+      .toString("utf8"))).toMatchObject({ sort: "totalHtCents", value: 1000, projectId: raced.project_id });
+  });
+
+  it("still fails when the currency query itself fails", async () => {
+    const listed = buildAffaireRow(1, { current_total_ht_cents: 1000 });
+    const context = createContext({ role: "engineer", rpcResult: { data: [listed], error: null } });
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: null, error: { code: "57014", message: "canceling statement" } }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    await expect(fetchAffaireList({ size: 20 })).rejects.toMatchObject({
+      status: 400, code: "BAD_REQUEST", message: "Impossible de charger les devises des affaires.",
+    });
+  });
+
+  it("keeps the same-version USD currency and exact RPC amount when the second read is coherent", async () => {
+    const listed = buildAffaireRow(1, { current_total_ht_cents: 123456 });
+    const context = createContext({ role: "engineer", rpcResult: { data: [listed], error: null } });
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({
+        data: [{ id: listed.current_version_id, currency: "USD", total_ht_cents: 123456 }], error: null,
+      }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireList({ size: 20 });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      currentVersionId: listed.current_version_id, currentCurrency: "USD", currentTotalHtCents: 123456,
+    });
+    expect(versionRead.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
+    expect(versionRead.in).toHaveBeenCalledWith("id", [listed.current_version_id]);
+  });
+});
+
+// UX15 reproduced a fatal Server Component render (digest 4170724324) when a
+// save changed a recent version between the list RPC and currency enrichment.
+// The dashboard renders only recent metadata and counters, not money. Browser
+// routing cannot hold these two internal PostgREST reads without replacing the
+// RSC result, so control that schedule at this existing server-reader boundary.
+// UX15 and LEGCUR02 retain the real dashboard and financial UI assertions; the
+// list race tests above must still refuse a mixed amount/currency snapshot.
+describe("affaires dashboard metadata race", () => {
+  it("keeps the dashboard metadata available during a concurrent currency save", async () => {
+    const listed = Array.from({ length: 6 }, (_, index) => buildAffaireRow(index + 1));
+    const context = createContext({ role: "engineer" });
+    context.supabase.rpc.mockImplementation(async (functionName: string): Promise<RpcResult> => {
+      if (functionName === "list_affaires_page") return { data: listed, error: null };
+      if (functionName === "get_affaires_counters") return {
+        data: [{ total_count: 6, filtered_count: 6, draft_count: 6, sending_count: 0,
+          sent_count: 0, accepted_count: 0, archived_count: 0 }], error: null,
+      };
+      throw new Error(`Unexpected RPC: ${functionName}`);
+    });
+    // If a financial reread occurs, it sees the SAME first version after its
+    // atomic save: USD/2000, whereas the earlier RPC contained total 1000.
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({
+        data: listed.map((row, index) => ({ id: row.current_version_id,
+          currency: index === 0 ? "USD" : "EUR", total_ht_cents: index === 0 ? 2000 : row.current_total_ht_cents })),
+        error: null,
+      }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const overview = await fetchAffaireDashboardOverview();
+
+    // The dashboard renders no amount: it must not make the financial read at all.
+    expect(context.supabase.from).not.toHaveBeenCalled();
+    expect(versionRead.in).not.toHaveBeenCalled();
+    // Exact projection prevents fixing availability by returning stale monetary
+    // fields or a later currency attached to the RPC's earlier amount.
+    expect(overview.recentAffaires).toEqual(listed.slice(0, 5).map((row) => ({
+      projectId: row.project_id, projectName: row.project_name,
+      projectReference: row.project_reference, projectClient: row.project_client,
+      currentStatus: row.current_status, currentUpdatedAt: row.current_updated_at,
+    })));
+    expect(overview.counters).toEqual({
+      totalCount: 6, filteredCount: 6,
+      statusCounts: { draft: 6, sending: 0, sent: 0, accepted: 0, archived: 0 },
+    });
   });
 });

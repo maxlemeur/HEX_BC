@@ -42,7 +42,13 @@
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
       "e2e/army/local/large-row-completeness.e2e.ts",
       "e2e/army/local/estimate-reorder-move-large-v2.e2e.ts",
-      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
+      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
+      "e2e/army/local/legacy-access-parity.e2e.ts",
+      "e2e/army/local/legacy-assemblies-parity.e2e.ts",
+      "e2e/army/local/legacy-catalogue-parity.e2e.ts",
+      "e2e/army/local/legacy-clipboard-parity.e2e.ts",
+      "e2e/army/local/legacy-currency-parity.e2e.ts",
+      "e2e/army/local/legacy-editor-parity.e2e.ts"
     ],
     "setup": "e2e/army/critical/auth.setup.e2e.ts",
     "anchor": "e2e/army/critical/stale-save.e2e.ts",
@@ -107,9 +113,6 @@
     "e2e.calc-v3.config.ts",
     "e2e.offer.config.ts",
     "e2e.resend-portal.config.ts",
-    "e2e/*.ps1",
-    "e2e/run-ps1.mjs",
-    "e2e/hex/**",
     "e2e/polish/**",
     "e2e/army/*.e2e.ts",
     "e2e/army/{development,extended,local,performance,polish,takeoff}/**",
@@ -187,7 +190,11 @@
       "e2e/army/critical/numeric-entry.e2e.ts",
       "e2e/army/critical/plan-center.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
-      "e2e/army/local/engine-v3-creators.e2e.ts"
+      "e2e/army/local/engine-v3-creators.e2e.ts",
+      "e2e/army/local/legacy-editor-parity.e2e.ts",
+      "e2e/army/local/legacy-currency-parity.e2e.ts",
+      "e2e/army/local/legacy-access-parity.e2e.ts",
+      "e2e/army/local/legacy-assemblies-parity.e2e.ts"
     ],
     "editor": [
       "@wizard",
@@ -200,7 +207,12 @@
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
-      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
+      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
+      "e2e/army/local/legacy-editor-parity.e2e.ts",
+      "e2e/army/local/legacy-clipboard-parity.e2e.ts",
+      "e2e/army/local/legacy-catalogue-parity.e2e.ts",
+      "e2e/army/local/legacy-assemblies-parity.e2e.ts",
+      "e2e/army/local/legacy-currency-parity.e2e.ts"
     ],
     "affaires-list": [
       "e2e/army/critical/dashboard-ux.e2e.ts",
@@ -217,7 +229,9 @@
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/estimate-row-limit-reads.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
-      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
+      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
+      "e2e/army/local/legacy-access-parity.e2e.ts",
+      "e2e/army/local/legacy-currency-parity.e2e.ts"
     ],
     "affaire-hub": [
       "e2e/army/critical/dpgf-import.e2e.ts",
@@ -250,7 +264,8 @@
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/estimate-integrity.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
-      "e2e/army/local/engine-v3-emission.e2e.ts"
+      "e2e/army/local/engine-v3-emission.e2e.ts",
+      "e2e/army/local/legacy-currency-parity.e2e.ts"
     ],
     "takeoff-hub": [
       "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts",
@@ -390,7 +405,7 @@
       "id": "estimate-detail",
       "note": "Fiche de version : les parcours du moteur 3 l’ouvrent (bandeau de lecture de 2.1, brouillon v3 de 2.6), et LR01 y lit le comparatif des variantes.",
       "paths": ["src/app/dashboard/estimates/[versionId]/page.tsx"],
-      "journeys": ["e2e/army/local/engine-v3-default.e2e.ts", "e2e/army/local/engine-v3-editor-actions.e2e.ts", "e2e/army/local/engine-v3-editor.e2e.ts", "e2e/army/local/engine-v3-fail-closed.e2e.ts", "e2e/army/local/estimate-row-limit-reads.e2e.ts"]
+      "journeys": ["e2e/army/local/engine-v3-default.e2e.ts", "e2e/army/local/engine-v3-editor-actions.e2e.ts", "e2e/army/local/engine-v3-editor.e2e.ts", "e2e/army/local/engine-v3-fail-closed.e2e.ts", "e2e/army/local/estimate-row-limit-reads.e2e.ts", "e2e/army/local/legacy-access-parity.e2e.ts"]
     },
     {
       "id": "estimates-boundaries",
@@ -435,8 +450,8 @@
         "src/app/portal/**",
         "src/app/dashboard/_actions/**",
         "src/app/dashboard/estimates/[versionId]/{diff,plans,source-review}/**",
-        "src/app/dashboard/estimates/{assemblies,dashboard,templates}/**",
-        "src/app/dashboard/admin/{currencies,procurement-reset,rules,suggestion-learning,takeoff}/**",
+        "src/app/dashboard/estimates/{dashboard,templates}/**",
+        "src/app/dashboard/admin/{procurement-reset,rules,suggestion-learning,takeoff}/**",
         "src/app/dashboard/{analytics,direction,indices,memberships,profile,referentiel,sites,suppliers,tarifs,tenants}/**"
       ],
       "journeys": []
@@ -457,23 +472,6 @@
         "src/app/api/imports/tabular-pdf/review/route.ts",
         "src/app/api/internal/takeoff/process-job/route.ts",
         "src/app/api/internal/workflows/recover/route.ts"
-      ],
-      "journeys": []
-    },
-    {
-      "id": "runtime-unused-modules",
-      "note": "Modules importés seulement par des tests, ou par aucun fichier : aucune page ne les charge. Dès qu'un fichier de l'application les importe, le graphe suit cet importeur.",
-      "paths": [
-        "src/components/affaires/OnboardingIntakeDropzone.tsx",
-        "src/components/affaires/QuickCreateAffaireDialog.tsx",
-        "src/components/catalogue/prices-manager/SupplierCatalogItemModal.tsx",
-        "src/components/takeoff/ProjectTakeoffJobList.tsx",
-        "src/components/takeoff/evidence-source-context.ts",
-        "src/components/ui/{checkbox,empty,select,switch,table}.tsx",
-        "src/hooks/useEstimateLineTruthVisibility.ts",
-        "src/lib/affaires/route-segments.ts",
-        "src/lib/estimates/{assembly-library,calc-context,portal-document-contract}.ts",
-        "src/lib/reference.ts"
       ],
       "journeys": []
     },
@@ -506,6 +504,21 @@
       "note": "pgTAP s'exécute avant les parcours ; le parcours d'ancrage suffit à faire passer la base.",
       "paths": ["supabase/tests/**"],
       "journeys": ["@anchor"]
+    },
+    {
+      "id": "legacy-parity-catalogue",
+      "paths": ["src/app/dashboard/{products,prices}/**"],
+      "journeys": ["e2e/army/local/legacy-catalogue-parity.e2e.ts"]
+    },
+    {
+      "id": "legacy-parity-currency",
+      "paths": ["src/app/dashboard/admin/currencies/**"],
+      "journeys": ["e2e/army/local/legacy-currency-parity.e2e.ts"]
+    },
+    {
+      "id": "legacy-parity-assemblies",
+      "paths": ["src/app/dashboard/estimates/assemblies/**"],
+      "journeys": ["e2e/army/local/legacy-assemblies-parity.e2e.ts"]
     }
   ]
 }
