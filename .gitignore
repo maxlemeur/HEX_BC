@@ -46,6 +46,7 @@ nul
 e2e/.auth.json
 e2e/.auth/
 .claude/skills/
+/.claude/settings.local.json
 .agent/
 .agents/
 skills/
