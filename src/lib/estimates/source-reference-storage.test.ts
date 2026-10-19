@@ -78,7 +78,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-describe.sequential("source reference Storage transport boundaries", () => {
+describe("source reference Storage transport boundaries", { concurrent: false }, () => {
   it("closes a success stream on the first byte beyond 50 MiB without waiting for EOF", async () => {
     let closed = false, finished = false;
     await server((_req, res) => {

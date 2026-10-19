@@ -644,30 +644,44 @@ export function runChildProcess(
 }
 
 async function runRlsMatrix(environment: SupabaseEnvironment) {
-  const result = await runChildProcess(
-    process.execPath,
-    [
-      resolveVitestEntry(),
-      "run",
-      "--project=node",
-      "src/lib/estimates/rls.e2e.test.ts",
-      "--reporter=verbose",
-      "--reporter=json",
-    ],
-    {
-      cwd: process.cwd(),
-      env: environment as NodeJS.ProcessEnv,
-      maxBuffer: 10 * 1024 * 1024,
-    }
+  // Vitest 5 writes the JSON reporter to a file, not to stdout: name one per
+  // run so the report read is this run's, never a stale `.vitest/` file.
+  const reportDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "miaouffrage-rls-matrix-")
   );
-  if (result.error) {
-    throw new Error("Could not start the local RLS test process");
-  }
+  const reportFile = path.join(reportDirectory, "report.json");
+  try {
+    const result = await runChildProcess(
+      process.execPath,
+      [
+        resolveVitestEntry(),
+        "run",
+        "--project=node",
+        "src/lib/estimates/rls.e2e.test.ts",
+        "--reporter=verbose",
+        "--reporter=json",
+        `--outputFile.json=${reportFile}`,
+      ],
+      {
+        cwd: process.cwd(),
+        env: environment as NodeJS.ProcessEnv,
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+    if (result.error) {
+      throw new Error("Could not start the local RLS test process");
+    }
 
-  if (result.status !== 0) {
-    throw new Error(formatSafeRlsFailure(result.stdout, result.stderr, environment));
+    const report = fs.existsSync(reportFile)
+      ? fs.readFileSync(reportFile, "utf8")
+      : "";
+    if (result.status !== 0) {
+      throw new Error(formatSafeRlsFailure(report, result.stderr, environment));
+    }
+    validateRlsMatrixReport(report);
+  } finally {
+    fs.rmSync(reportDirectory, { recursive: true, force: true });
   }
-  validateRlsMatrixReport(result.stdout);
 }
 
 function redactRlsEnvironmentValues(

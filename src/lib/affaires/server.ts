@@ -1,4 +1,5 @@
 import { selectInChunks } from "@/lib/supabase/in-chunks";
+import { normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { cache } from "react";
 
@@ -90,6 +91,7 @@ export type AffaireListItem = {
   currentVersionNumber: number | null;
   currentStatus: AffaireStatus | null;
   currentTotalHtCents: number | null;
+  currentCurrency: SupportedEstimateCurrency | null;
   currentUpdatedAt: string;
   acceptedVersionId: string | null;
   acceptedVersionNumber: number | null;
@@ -130,7 +132,14 @@ export type AffairePageDataResult = {
 };
 
 export type AffaireDashboardOverviewResult = {
-  recentAffaires: AffaireListItem[];
+  recentAffaires: Pick<AffaireListItem,
+    | "projectId"
+    | "projectName"
+    | "projectReference"
+    | "projectClient"
+    | "currentStatus"
+    | "currentUpdatedAt"
+  >[];
   counters: AffaireCountersResult;
 };
 
@@ -464,6 +473,7 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
     currentVersionNumber: toNullableSafeInteger(row.current_version_number),
     currentStatus: row.current_status ?? null,
     currentTotalHtCents: toNullableSafeInteger(row.current_total_ht_cents),
+    currentCurrency: null,
     currentUpdatedAt: row.current_updated_at,
     acceptedVersionId: row.accepted_version_id,
     acceptedVersionNumber:
@@ -1621,7 +1631,7 @@ type AffaireListFetchQuery<TPageSize extends number> = Omit<
   size: TPageSize;
 };
 
-async function fetchAffaireListWithContext<TPageSize extends number>(
+async function fetchAffaireListRowsWithContext<TPageSize extends number>(
   context: AffaireContext,
   query: AffaireListFetchQuery<TPageSize>
 ): Promise<AffaireListPageResult<TPageSize>> {
@@ -1681,7 +1691,6 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
   const hasNextPage = rows.length > query.size;
   const pageRows = hasNextPage ? rows.slice(0, query.size) : rows;
   const items = pageRows.map(toAffaireListItem);
-
   const lastItem = items[items.length - 1] ?? null;
   const nextCursor =
     hasNextPage && lastItem
@@ -1694,6 +1703,48 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
     nextCursor,
     hasNextPage,
   };
+}
+
+// Only consumers that display monetary amounts need the second, guarded
+// currency read. Metadata-only readers keep the RPC snapshot and its ordering.
+async function fetchAffaireListWithContext<TPageSize extends number>(
+  context: AffaireContext,
+  query: AffaireListFetchQuery<TPageSize>
+): Promise<AffaireListPageResult<TPageSize>> {
+  const page = await fetchAffaireListRowsWithContext(context, query);
+  const { items } = page;
+  // The list RPC projects amounts but no currency. Read only the versions it
+  // selected, under the same tenant/RLS context, in bounded batches. Resolving
+  // a project's newest version separately could label another version's amount.
+  const versionIds = [...new Set(items.flatMap((item) => item.currentVersionId ? [item.currentVersionId] : []))];
+  const { data: versions, error: currenciesError } = await selectInChunks(versionIds, (ids) => context.supabase
+    .from("estimate_versions")
+    .select("id, currency, total_ht_cents")
+    .eq("tenant_id", context.tenantId)
+    .in("id", ids));
+  if (currenciesError) {
+    throw mapSupabaseError(currenciesError, "Impossible de charger les devises des affaires.");
+  }
+  const versionsById = new Map(versions.map((version) => [version.id, {
+    currency: normalizeEstimateCurrency(version.currency), totalHtCents: version.total_ht_cents,
+  }]));
+  for (const item of items) {
+    if (!item.currentVersionId) continue;
+    const version = versionsById.get(item.currentVersionId);
+    // A save can change this same version between the RPC and this read, and
+    // a version can vanish or carry an unsupported currency. Never combine the
+    // RPC's earlier total with another read's currency, and never fail the
+    // whole page for one row: withhold only that amount (rendered as « — »).
+    // Its cursor was already derived from the RPC row and stays unchanged.
+    if (!version?.currency || version.totalHtCents !== item.currentTotalHtCents) {
+      item.currentTotalHtCents = null;
+      item.currentCurrency = null;
+      continue;
+    }
+    item.currentCurrency = version.currency;
+  }
+
+  return page;
 }
 
 const MANAGER_QUEUE_BATCH_SIZE = 10;
@@ -2020,7 +2071,7 @@ export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardO
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery({ dir: "desc" });
   const [list, counters] = await Promise.all([
-    fetchAffaireListWithContext(context, {
+    fetchAffaireListRowsWithContext(context, {
       ...query,
       size: DASHBOARD_RECENT_AFFAIRE_LIMIT,
     }),
@@ -2028,7 +2079,14 @@ export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardO
   ]);
 
   return {
-    recentAffaires: list.items,
+    recentAffaires: list.items.map((item) => ({
+      projectId: item.projectId,
+      projectName: item.projectName,
+      projectReference: item.projectReference,
+      projectClient: item.projectClient,
+      currentStatus: item.currentStatus,
+      currentUpdatedAt: item.currentUpdatedAt,
+    })),
     counters,
   };
 }
@@ -2404,7 +2462,6 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     items,
     isLaborSplitEnabled,
     laborRateById,
-    // Même colonne `hourly_rate_cents` pour les trois rôles (cf. calc-context).
     laborRateAtelierById: laborRateById,
     laborRateChantierById: laborRateById,
     // L'arrondi ne joue que sur le TTC, non utilisé par l'analyse de marge.

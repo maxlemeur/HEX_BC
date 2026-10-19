@@ -210,11 +210,9 @@ async function accountLogin(ui: Ui, name: "army" | "viewer" = "army") {
   await ui.app.open("/login");
   const show = ui.screen.getByRole("button", "Afficher le mot de passe", { exact: true });
   const hide = ui.screen.getByRole("button", "Masquer le mot de passe", { exact: true });
-  await expect.poll(async () => {
-    if (await hide.isVisible()) return true;
-    if (await show.isVisible()) await show.tap();
-    return await hide.isVisible();
-  }, { timeout: 30_000 }).toBe(true);
+  await expect(show).toBeEnabled();
+  await show.tap();
+  await expect(hide).toBeVisible();
   await hide.tap();
   const account = credentials.user(name);
   await ui.screen.getByLabel("Email", { exact: true }).fill(account.username);
@@ -435,14 +433,11 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const portal = documentChecks(await openCollectedPortal(ui, s5Resent.portalUrl), S5);
       await record("s5-portal", { versionId: s5.versionId, portalUrlSha256: digest(s5Resent.portalUrl), expected: expectedDocumentChecks(S5), actual: portal });
       expect(portal).toEqual(expectedDocumentChecks(S5));
-      // The portal actions are a client island: under next dev a click that lands before hydration
-      // opens nothing, so click again until the modal shows (as accountLogin does for its toggle).
       const accept = ui.screen.getByRole("button", "Accepter le devis", { exact: true });
       const modal = ui.screen.getByRole("dialog", "Accepter le devis", { exact: true });
-      await expect.poll(async () => {
-        if (!(await modal.isVisible())) await accept.click();
-        return modal.isVisible();
-      }, { timeout: 30_000 }).toBe(true);
+      // PortalActions keeps its buttons disabled until hydration, so one click is the real user press.
+      await expect(accept).toBeEnabled();
+      await accept.click();
       await expect(modal).toBeVisible();
       await modal.getByRole("checkbox", "J’accepte ce devis et ses conditions", { exact: true }).check();
       const [decision] = await Promise.all([

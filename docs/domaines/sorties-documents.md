@@ -313,14 +313,11 @@ La page compare `expires_at` à l'instant courant ; si le token est `pending` et
 
 ### 6.3 Contrat documentaire opposable
 
-Le portail lit la mise en page et les CGV **stockées** dans `estimate_documents`, jamais un gabarit vivant (`src/app/portal/[token]/page.tsx:101-106`, `136-141`). `resolvePortalDocumentContract` refuse (`src/lib/estimates/portal-document-contract.ts:41-73`) :
+Le portail charge une offre vérifiée via `loadPortalOffer` → `loadVerifiedOfferDocument` → `parseOfferDocumentProof` (`src/lib/estimates/portal-offer.ts`, `offer-document.ts`, `offer-contract.ts`). La mise en page et les CGV viennent du document **stocké** ; la preuve contrôle notamment son état, son émetteur, ses identifiants et le snapshot CGV requis par `includeTerms`. L'ancien helper sans appelant et son repli sans document ont été supprimés lors de l'[audit du 19/10/2026](../testing/test-legacy-audit-2026-10-19.md).
 
-- un document dont `status` existe et vaut autre chose que `ready` → `document_not_ready` ;
-- une mise en page déclarant `includeTerms` sans snapshot CGV exploitable → `required_terms_snapshot_missing_or_invalid`.
+La page refuse une offre non vérifiable par `notFound()` (`src/app/portal/[token]/page.tsx`). Une offre avec snapshot contractuel rend `CommercialEstimateDocument` depuis ce snapshot ; une ancienne offre sans ce snapshot renvoie vers son PDF original vérifié. Elle ne recompose pas ce document historique depuis les données courantes.
 
-La page renvoie alors `notFound()` (`src/app/portal/[token]/page.tsx:137-139`). La route d'acceptation **rejoue le même contrôle avant de réclamer le token**, précisément parce que la page n'est pas une frontière de sécurité et que la route est appelable directement ; l'échec produit un `409` (`src/app/api/portal/[token]/accept/route.ts:118-146`). Une erreur de lecture du document produit un `503` (`…:129-135`). Ces invariants sont couverts par `src/app/portal/portal-document-parity.test.ts:46-63`.
-
-L'émetteur affiché est le profil de `estimate_documents.generated_by`, avec repli sur le propriétaire du projet (`src/app/portal/[token]/page.tsx:146-154`).
+Les routes d'acceptation et de refus chargent elles aussi l'offre avant la décision. Les tests conservés de `src/lib/estimates/offer-contract.test.ts`, `src/app/api/portal/[token]/accept/route.test.ts`, `reject/route.test.ts` et `src/app/portal/[token]/page.test.tsx` couvrent les preuves invalides, les CGV requises et les capacités expirées ou inactives. Leur exécution ciblée du 19/10/2026 est consignée dans l'audit ; elle ne vaut pas qualification d'un parcours navigateur connecté.
 
 ### 6.4 Anti-concurrence : `claim_portal_estimate_decision`
 

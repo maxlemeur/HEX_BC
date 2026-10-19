@@ -5,7 +5,7 @@ import type { MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { formatEUR } from "@/lib/money";
+import { formatCurrency, formatEUR } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { EmptyTableRow } from "@/components/layout/empty-state";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -469,8 +469,8 @@ export function AffairesDenseTable({
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-foreground-secondary whitespace-nowrap">
-                      {item.currentTotalHtCents !== null
-                        ? formatEUR(item.currentTotalHtCents)
+                      {item.currentTotalHtCents !== null && item.currentCurrency !== null
+                        ? formatCurrency(item.currentTotalHtCents, item.currentCurrency)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">

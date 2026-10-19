@@ -75,10 +75,6 @@ vi.mock("@/app/dashboard/affaires/_actions/manager-queue", () => ({
   }),
 }));
 
-vi.mock("./QuickCreateAffaireDialog", () => ({
-  QuickCreateAffaireDialog: () => null,
-}));
-
 vi.mock("./AffairesCardList", () => ({
   AffairesCardList: ({
     items,
@@ -131,6 +127,7 @@ const initialData: AffairePageDataResult = {
         currentVersionNumber: 1,
         currentStatus: "draft" as const,
         currentTotalHtCents: 125000,
+        currentCurrency: "EUR" as const,
         currentUpdatedAt: "2026-03-10T10:00:00.000Z",
         acceptedVersionId: null,
         acceptedVersionNumber: null,

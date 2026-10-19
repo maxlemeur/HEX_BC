@@ -768,6 +768,7 @@ export function useEstimateEditorState({
     if (hasLoadedVersion && initialLoadHandlersRef.current.isReadRecoveryRequired) return;
     let active = true;
     let hasReadEditorData = false;
+    const learningController = new AbortController();
 
     async function load() {
       if (!hasLoadedVersion) setIsLoading(true);
@@ -777,11 +778,20 @@ export function useEstimateEditorState({
       try {
         const [data, learning] = await Promise.all([
           fetchEstimateEditorData(resolvedVersionId),
-          fetchEstimateSuggestionLearnings(resolvedVersionId).catch((error) => {
-            console.error(
-              "Impossible de charger les apprentissages de suggestions.",
-              error
-            );
+          fetchEstimateSuggestionLearnings(resolvedVersionId, { signal: learningController.signal }).catch((error) => {
+            if (!active) return null;
+            // A reload or full navigation discards the document without this
+            // cleanup; the browser cancels the read inside that unload task and
+            // a discarded document runs no later task. Report one task later so
+            // a live editor still reports the failure but a discard does not
+            // (PR83 LEP01/LEP07).
+            window.setTimeout(() => {
+              if (!active) return;
+              console.error(
+                "Impossible de charger les apprentissages de suggestions.",
+                error
+              );
+            }, 0);
             return null;
           }),
         ]);
@@ -933,6 +943,7 @@ export function useEstimateEditorState({
 
     return () => {
       active = false;
+      learningController.abort();
     };
   }, [
     isLaborSplitEnabled,

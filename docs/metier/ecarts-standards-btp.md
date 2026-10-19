@@ -123,7 +123,7 @@ Le sous-détail BTP **existe** au niveau de la bibliothèque d'ouvrages —
 
 Agrégats exposés : `material_cost_cents`, `labor_cost_cents`, `equipment_cost_cents`,
 `subcontract_cost_cents`, `calculated_ds_cents`, `pose_only_cents`, `supplied_installed_cents`
-(`src/lib/estimates/assembly-library.ts:135-141`).
+dans le RPC de bibliothèque (`supabase/migrations/20260718033950_scale_estimate_assembly_library.sql:207`). Son ancien wrapper TypeScript, sans appelant applicatif, a été supprimé le 19/10/2026 ; ces champs ne prouvent donc pas leur exposition par un écran actuel.
 
 **Mais la matérialisation d'un ouvrage dans un devis l'aplatit en lignes ordinaires**
 (`supabase/migrations/20260722132425_nested_estimate_assemblies.sql:561-591`) : ces colonnes
