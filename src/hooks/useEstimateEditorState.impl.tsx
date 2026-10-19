@@ -780,10 +780,18 @@ export function useEstimateEditorState({
           fetchEstimateEditorData(resolvedVersionId),
           fetchEstimateSuggestionLearnings(resolvedVersionId, { signal: learningController.signal }).catch((error) => {
             if (!active) return null;
-            console.error(
-              "Impossible de charger les apprentissages de suggestions.",
-              error
-            );
+            // A reload or full navigation discards the document without this
+            // cleanup; the browser cancels the read inside that unload task and
+            // a discarded document runs no later task. Report one task later so
+            // a live editor still reports the failure but a discard does not
+            // (PR83 LEP01/LEP07).
+            window.setTimeout(() => {
+              if (!active) return;
+              console.error(
+                "Impossible de charger les apprentissages de suggestions.",
+                error
+              );
+            }, 0);
             return null;
           }),
         ]);

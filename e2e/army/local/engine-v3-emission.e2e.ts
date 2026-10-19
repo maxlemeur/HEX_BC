@@ -435,6 +435,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       expect(portal).toEqual(expectedDocumentChecks(S5));
       const accept = ui.screen.getByRole("button", "Accepter le devis", { exact: true });
       const modal = ui.screen.getByRole("dialog", "Accepter le devis", { exact: true });
+      // PortalActions keeps its buttons disabled until hydration, so one click is the real user press.
+      await expect(accept).toBeEnabled();
       await accept.click();
       await expect(modal).toBeVisible();
       await modal.getByRole("checkbox", "J’accepte ce devis et ses conditions", { exact: true }).check();

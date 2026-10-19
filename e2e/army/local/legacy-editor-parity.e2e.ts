@@ -890,3 +890,125 @@ armyTest("LEP06 abandoned suggestion-learning failures do not report errors whil
       }, phaseKey);
     }
   });
+
+// PR83 LEP01 CI failure (run 39223931805): the cumulative counter saw one
+// console.error that the runner's app log never received, the signature of a
+// logger running in a document being discarded. React cleanups do not run on a
+// reload, so a learning read still pending at that moment was cancelled by the
+// browser and its catch reported the cancellation as a learning failure.
+// Failure modes: the discarded document logs the cancellation (live or late);
+// the read is kept pending instead of being cancelled with its document; the
+// next document loses its own learnings or editor data. LEP06 keeps the
+// active-failure counter-example: a live editor still reports its failure.
+armyTest("LEP07 a reload during the learning read cancels it without reporting an error", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { ids } = await prepare(ui, army, "LEP07", 1);
+    const before = await readEstimate(browser, ids.versionId);
+    await openSeededEditor(ui, ids);
+    const learningPath = `/api/estimates/${ids.versionId}/suggestion-learning`;
+    const learningUrl = new URL(learningPath, app.baseUrl!).href;
+    const auditKey = `${army.runPrefix}-LEP07-audit`;
+    type DocumentAudit = {
+      learning: { started: number; rejected: number; resolved: number; withSignal: number; signalAborts: number };
+      errors: Record<string, number>; hiddenErrors: number; pagehide: boolean;
+    };
+    // Each document writes its own entry synchronously: a discarded document's
+    // late callbacks still reach sessionStorage, but not the runner's app log.
+    await browser.addInitScript(({ path, key }) => {
+      if (!/^https?:$/.test(location.protocol)) return;
+      const id = String(Math.round(performance.timeOrigin));
+      const state: DocumentAudit = {
+        learning: { started: 0, rejected: 0, resolved: 0, withSignal: 0, signalAborts: 0 }, errors: {}, hiddenErrors: 0, pagehide: false,
+      };
+      const save = () => {
+        const all = JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<string, DocumentAudit>;
+        all[id] = state;
+        sessionStorage.setItem(key, JSON.stringify(all));
+      };
+      const record = (kind: string) => {
+        state.errors[kind] = (state.errors[kind] ?? 0) + 1;
+        if (state.pagehide) state.hiddenErrors++;
+        save();
+      };
+      const originalFetch = window.fetch;
+      window.fetch = function (this: Window, input, init) {
+        const url = input instanceof Request ? input.url : String(input);
+        const isLearning = new URL(url, location.href).pathname === path &&
+          (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase() === "GET";
+        const result = Reflect.apply(originalFetch, this, [input, init]) as Promise<Response>;
+        if (!isLearning) return result;
+        state.learning.started++;
+        const signal = init?.signal ?? (input instanceof Request ? input.signal : null);
+        if (signal) {
+          state.learning.withSignal++;
+          const onAbort = () => { state.learning.signalAborts++; save(); };
+          if (signal.aborted) onAbort(); else signal.addEventListener("abort", onAbort, { once: true });
+        }
+        save();
+        return result.then((response) => { state.learning.resolved++; save(); return response; },
+          (error: unknown) => { state.learning.rejected++; save(); throw error; });
+      };
+      const originalError = console.error;
+      console.error = function (this: Console, ...args: unknown[]) {
+        record(args[0] === "Impossible de charger les apprentissages de suggestions." ? "learning" : "console-other");
+        Reflect.apply(originalError, this, args);
+      };
+      window.addEventListener("error", () => record("error"));
+      window.addEventListener("unhandledrejection", () => record("unhandledrejection"));
+      window.addEventListener("pagehide", () => { state.pagehide = true; save(); });
+      save();
+    }, { path: learningPath, key: auditKey });
+
+    let held = 0, cancelled = 0;
+    let releaseHeld!: () => void;
+    const heldGate = new Promise<void>((resolve) => { releaseHeld = resolve; });
+    // Holds only the discarded document's learning read; every other request,
+    // including the next document's learning read, reaches the real server.
+    await browser.route(learningUrl, async (route) => {
+      if (route.request.method !== "GET") { await route.fallback(); return; }
+      held++;
+      if (held !== 1) { await route.fallback(); return; }
+      await heldGate;
+      try { await route.fallback(); } catch { cancelled++; }
+    });
+    try {
+      const unlock = await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+      expect(unlock.status).toBe(200);
+      await browser.reload();
+      await expect.poll(() => held).toBe(1);
+      await expect(screen.getByText("Chargement du chiffrage…", { exact: true })).toBeVisible();
+      const discardedDocument = String(Math.round(await browser.evaluate(() => performance.timeOrigin)));
+      const relock = await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+      expect(relock.status).toBe(200);
+      await browser.reload();
+      await expect(grid(ui)).toBeVisible();
+      const nextDocument = String(Math.round(await browser.evaluate(() => performance.timeOrigin)));
+      await expect(screen.getByLabel(`Quantité pour ${before.items.find((item) => item.item_type === "line")!.title}`, { exact: true }))
+        .toHaveValue("1");
+      releaseHeld();
+      await expect.poll(() => held).toBe(2);
+      // One browser frame lets any late logger of either document land first.
+      await browser.evaluate(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); return null; });
+      const audits = JSON.parse(await browser.evaluate((key) => sessionStorage.getItem(key) ?? "{}", auditKey)) as Record<string, DocumentAudit>;
+      const after = await readEstimate(browser, ids.versionId);
+      await recordEvidence(army, "lep07-reload-during-learning-read", {
+        ...ids, discardedDocument, nextDocument, held, cancelled, audits,
+        unchanged: JSON.stringify(after.items) === JSON.stringify(before.items),
+      });
+      expect(nextDocument).not.toBe(discardedDocument);
+      expect(audits[discardedDocument], "The discarded document's cancelled learning read must not be reported").toEqual({
+        learning: { started: 1, rejected: 1, resolved: 0, withSignal: 1, signalAborts: 0 }, errors: {}, hiddenErrors: 0, pagehide: true,
+      });
+      expect(audits[nextDocument], "The next document loads its own learnings normally").toMatchObject({
+        learning: { started: 1, rejected: 0, resolved: 1, withSignal: 1, signalAborts: 0 }, errors: {}, hiddenErrors: 0,
+      });
+      expect(Object.values(audits).flatMap((audit) => Object.keys(audit.errors))).toEqual([]);
+      expect(after.items.map((item) => [item.id, item.position, item.quantity, item.title]))
+        .toEqual(before.items.map((item) => [item.id, item.position, item.quantity, item.title]));
+    } finally {
+      releaseHeld();
+      await browser.unroute(learningUrl);
+      await browser.evaluate((key) => { sessionStorage.removeItem(key); return null; }, auditKey);
+    }
+  });

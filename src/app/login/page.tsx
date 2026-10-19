@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence, MotionConfig, useReducedMotion } from "motion/react";
 import { FileSpreadsheetIcon, FileUpIcon, ReceiptIcon } from "lucide-react";
 
@@ -11,6 +11,7 @@ import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useIsHydrated } from "@/hooks/useIsHydrated";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /* ─── Animation variants ───
@@ -100,20 +101,10 @@ const features = [
 
 /* ─── Component ─── */
 
-const hydrationStore = {
-  subscribe: () => () => undefined,
-  getSnapshot: () => true,
-  getServerSnapshot: () => false,
-};
-
 export default function LoginPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const isHydrated = useSyncExternalStore(
-    hydrationStore.subscribe,
-    hydrationStore.getSnapshot,
-    hydrationStore.getServerSnapshot,
-  );
+  const isHydrated = useIsHydrated();
   // Only read for the error message, which never exists on the first render.
   const reduced = !!useReducedMotion();
 

@@ -1731,13 +1731,15 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
   for (const item of items) {
     if (!item.currentVersionId) continue;
     const version = versionsById.get(item.currentVersionId);
-    if (!version?.currency) {
-      throw conflict("La devise de la version courante est indisponible. Rechargez la liste des affaires.");
-    }
-    // A save can change this same version between the RPC and this read.
-    // Never combine the RPC's earlier total with the later save's currency.
-    if (version.totalHtCents !== item.currentTotalHtCents) {
-      throw conflict("Le montant de la version courante a changé. Rechargez la liste des affaires.", undefined, "VERSION_CONFLICT");
+    // A save can change this same version between the RPC and this read, and
+    // a version can vanish or carry an unsupported currency. Never combine the
+    // RPC's earlier total with another read's currency, and never fail the
+    // whole page for one row: withhold only that amount (rendered as « — »).
+    // Its cursor was already derived from the RPC row and stays unchanged.
+    if (!version?.currency || version.totalHtCents !== item.currentTotalHtCents) {
+      item.currentTotalHtCents = null;
+      item.currentCurrency = null;
+      continue;
     }
     item.currentCurrency = version.currency;
   }

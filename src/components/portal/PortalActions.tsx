@@ -7,6 +7,7 @@ import { CheckIcon, CircleXIcon, PrinterIcon } from "lucide-react";
 import { AcceptEstimateModal } from "@/components/portal/AcceptEstimateModal";
 import { RejectEstimateModal } from "@/components/portal/RejectEstimateModal";
 import { Button } from "@/components/ui/button";
+import { useIsHydrated } from "@/hooks/useIsHydrated";
 
 type PortalActionsProps = {
   token: string;
@@ -20,13 +21,14 @@ type PortalActionsProps = {
  * L'impression navigateur produit une copie fidèle du document affiché — qui est
  * celui du PDF envoyé, mise en page et CGV comprises.
  */
-function PortalPrintButton({ className }: Readonly<{ className?: string }>) {
+function PortalPrintButton({ className, disabled }: Readonly<{ className?: string; disabled: boolean }>) {
   return (
     <Button
       type="button"
       variant="outline"
       size="lg"
       className={className}
+      disabled={disabled}
       leftIcon={<PrinterIcon aria-hidden="true" />}
       onClick={() => window.print()}
     >
@@ -48,6 +50,9 @@ export function PortalActions({
   projectReference,
 }: PortalActionsProps) {
   const router = useRouter();
+  // These actions exist only in client handlers: refuse a press until hydration
+  // instead of silently dropping it from the server HTML.
+  const isHydrated = useIsHydrated();
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [acceptModalOpen, setAcceptModalOpen] = useState(false);
 
@@ -68,7 +73,7 @@ export function PortalActions({
   if (status !== "pending") {
     return (
       <div className="flex justify-end print:hidden">
-        <PortalPrintButton className="w-full sm:w-auto" />
+        <PortalPrintButton className="w-full sm:w-auto" disabled={!isHydrated} />
       </div>
     );
   }
@@ -77,7 +82,7 @@ export function PortalActions({
     <>
       {/* Mobile : l'impression reste dans le flux, au-dessus de la barre de réponse. */}
       <div className="print:hidden sm:hidden">
-        <PortalPrintButton className="w-full" />
+        <PortalPrintButton className="w-full" disabled={!isHydrated} />
       </div>
       {/*
         Rendu au même niveau que l'en-tête et le document : `sticky` reste alors
@@ -86,12 +91,13 @@ export function PortalActions({
       <div
         className="sticky bottom-0 z-10 -mx-4 grid grid-cols-2 gap-2 border-t border-border bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_-6px_rgb(15_23_42/0.15)] print:hidden sm:static sm:mx-0 sm:flex sm:justify-end sm:gap-3 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none"
       >
-        <PortalPrintButton className="hidden sm:mr-auto sm:inline-flex" />
+        <PortalPrintButton className="hidden sm:mr-auto sm:inline-flex" disabled={!isHydrated} />
         <Button
           type="button"
           variant="danger"
           size="lg"
           leftIcon={<CircleXIcon aria-hidden="true" />}
+          disabled={!isHydrated}
           onClick={() => setRejectModalOpen(true)}
         >
           Refuser<span className="hidden sm:inline">&nbsp;le devis</span>
@@ -101,6 +107,7 @@ export function PortalActions({
           size="lg"
           className="bg-success text-success-foreground shadow-none hover:bg-success/90"
           leftIcon={<CheckIcon aria-hidden="true" />}
+          disabled={!isHydrated}
           onClick={() => setAcceptModalOpen(true)}
         >
           Accepter<span className="hidden sm:inline">&nbsp;le devis</span>

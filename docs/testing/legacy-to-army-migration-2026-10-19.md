@@ -11,11 +11,13 @@ Les quinze nouveaux cas et leurs parcours existants concernés ont maintenant
 une **exécution commune verte : 61/61 contrôles sur 21 fichiers**, sur le build
 `ziMgguFOu74fsPLMyxEer`. Le smoke final réussit aussi desktop/mobile (2/2).
 Les profils PDF d'émission réussissent aussi : 5/5 historiques et 4/4 v3,
-setup compris. Le premier passage CI a détecté un `console.error` intermittent
-de LEP01 ; le candidat instrumenté suivant passe ses quatre workflows. Une
-course de chargement abandonné est ensuite reproduite et corrigée ci-dessous,
-avec son propre rouge puis vert. `army-migration.md` et les deux audits
-précédents restent historiques.
+setup compris. CI : `7ba50ca1` rouge sur un `console.error` intermittent de
+LEP01, `ff848c38` vert, `b1db089b` rouge sur UX15 (course devise du tableau de
+bord), `ec3cb48e` vert sur ses quatre workflows. La cause de LEP01 (lecture des
+apprentissages annulée par un rechargement et signalée par le document
+abandonné) et les corrections de la revue indépendante sont établies dans la
+dernière section ; la CI de la tête publiée qui les contient les qualifie.
+`army-migration.md` et les deux audits précédents restent historiques.
 
 ## Correspondance des 30 scénarios
 
@@ -521,3 +523,107 @@ OpenAPI, types et lint verts. Journal :
 `/private/tmp/mergeone-audit-pr-plcamq1n/verify-pr-dashboard-metadata.log`.
 Cette mise à jour du registre vient après les vérifications ; elle est
 contrôlée par diff et ne change ni produit ni parcours.
+
+## Revue indépendante de `ff848c38` — corrections
+
+La revue indépendante de PR83 (tête relue `ff848c38`) a relevé quatre points,
+traités dans un seul commit sur `ec3cb48e`. Itérations dans un clone WSL,
+Node 24.19.0, boucle `.e2e/army/ci/2026-10-19T12-16-38-341Z-dev-loop`
+(pile native possédée, port 3183, 2 workers) ; ce sont des itérations, pas une
+qualification.
+
+### Cause de LEP01 : une lecture annulée par un rechargement
+
+**Indice CI.** Dans l'artefact `12174420096` du rouge `7ba50ca1`, le compteur
+cumulatif de LEP01 vaut `{"console.error":1}`, mais le journal applicatif de la
+tentative ne contient aucune ligne console (seulement le GET 409 du test au
+step 94). Le SDK enregistre pourtant les `console.error` d'un document vivant :
+le même rapport contient celui de V3E05. L'appel a donc eu lieu dans un
+document en cours d'abandon, dont Playwright ne relaie plus la console, alors
+que l'écriture `sessionStorage` du compteur survit. LEP01 abandonne deux
+documents d'éditeur, par ses deux `reload` (steps 39 et 109).
+
+**Mécanisme.** Un rechargement n'exécute pas les cleanups React : le drapeau
+`active` et l'`AbortController` de `b1db089b` restent sans effet. Le
+navigateur annule la lecture `suggestion-learning` encore en vol pendant la
+tâche de déchargement et le `catch` du chargeur appelle `console.error`. Parmi
+les lectures automatiques de l'éditeur, c'est la seule dont le rejet est
+journalisé ; les autres `console.error` client suivent des actions
+utilisateur terminées avant ces rechargements, et Next.js 16.4 supprime
+lui-même ce journal pour ses lectures RSC (`isPageUnloading`,
+`fetch-server-response.js`).
+
+**Reproduction.** La sonde PROBE01 (non versionnée) retient la lecture,
+recharge, puis la libère : compteur `{"console.error":1}`, message
+« Impossible de charger les apprentissages de suggestions. » avec
+`TypeError: Failed to fetch` après `pagehide`, et aucune ligne console dans le
+journal applicatif (itération `002-2026-10-19T12-19-35-943Z`, run
+`01a1541a-5ea2-7cb5-9c32-f02beccfdc8e`). La signature CI est donc reproduite.
+Limite : quel rechargement de LEP01 a trouvé la lecture en vol en CI reste
+inconnu ; deux itérations instrumentées (2 et 4 workers, 7 et 15 parcours,
+`003-…` et `004-…`) ne montrent localement aucune lecture d'apprentissages en
+vol à ces rechargements, seulement le `DELETE /lock` keepalive, silencieux.
+
+**Rouge.** LEP07 retient la lecture d'un vrai éditeur, recharge, vérifie que le
+document suivant charge ses apprentissages et ses lignes inchangées, puis
+libère la barrière. Sur `ec3cb48e` + tests, build `Ns4PltCUJtCnnvCWW6l6H`,
+itération `005-2026-10-19T12-34-22-412Z` (run
+`01a15427-e540-706b-98c1-23ffc726624c`, rapport SHA-256
+`c0fc890cec6be213c3b5c38b635c0617fc9f94ad7ea4d63f7dfc2c1258790bcc`) : LEP07
+échoue avec `errors: { learning: 1 }`, `hiddenErrors: 1` sur le document
+abandonné ; LEP01 et LEP06 passent. Un premier correctif (annulation sur
+`pagehide`) échoue encore à l'itération `006-…` : `signalAborts: 1` mais
+`errors: { learning: 1 }`, le `catch` ayant déjà journalisé avant l'écouteur de
+l'éditeur, qui n'est pas le premier écouteur `pagehide` de la page.
+
+**Correctif.** Le `catch` des apprentissages signale l'échec une tâche plus
+tard (`setTimeout` 0), sous la même garde `active`. Un document abandonné
+n'exécute plus aucune tâche : l'annulation n'est plus signalée ; un éditeur
+vivant signale toujours son échec. Aucun retry, délai de test, quarantaine ni
+assouplissement du compteur strict de LEP01.
+
+**Vert.** `E2E_ARMY_WORKERS=2 npm run e2e:army:dev-loop -- run --grep '^LEP0[167] '`,
+build `49ha5mkrOJD1Og3qeBFUe` (source applicative SHA-256
+`57f019f13a49b4f5d194f3ea20f83a6e4d5be07e6a058a68c41737cb09a2129c`), itération
+`007-2026-10-19T12-39-44-989Z`, run `01a1542d-7009-7492-b137-23d148565227` :
+4/4 avec le setup. LEP07 : document abandonné `rejected: 1`, `errors: {}` ;
+document suivant `resolved: 1`. LEP06 garde `learning: 1` pour l'échec actif,
+visible dans le journal applicatif ; LEP01 garde `errors: {}`.
+
+### Liste des affaires sous sauvegarde concurrente
+
+Le garde ajouté par cette PR levait un 409 pour toute la page dès qu'une
+version listée changeait entre le RPC et la lecture des devises, ou portait
+une devise invalide ou absente. La ligne concernée masque désormais seulement
+son montant (`—`, déjà rendu par la carte et la table) ; les autres lignes, leurs
+montants et devises exacts et le curseur dérivé du RPC restent inchangés. Un
+échec de la requête de devises reste une erreur. Une relecture de la ligne
+n'est pas ajoutée : après une sauvegarde, elle ne retrouverait le montant du
+RPC que si une seconde sauvegarde l'avait rétabli.
+
+Exception d'isolation (les deux lectures PostgREST internes au Server Component
+ne peuvent pas être ordonnées depuis le navigateur sans remplacer son
+résultat) : `npm test -- src/lib/affaires/server.test.ts --project=node`.
+Rouge sur le produit de `ec3cb48e` : le nouveau cas échoue sur le 409
+« La devise de la version courante est indisponible » ; vert après correctif :
+59/59. UX09/16/23 (liste), UX15/22 (tableau de bord) et LEGCUR01/02 passent
+dans l'itération `008-…` ci-dessous.
+
+### Portail : actions désactivées avant hydratation
+
+`PortalActions` désactive Accepter, Refuser et Imprimer jusqu'à l'hydratation,
+avec le hook partagé `useIsHydrated` déjà appliqué à la connexion. Le clic
+unique de V3M01 attend `toBeEnabled()`. Phase de production
+`npm run e2e:army:ci -- calc-v3 --app-port 3185 --phase emission-v3 --grep '^V3M01 '`,
+second clone, `.e2e/army/ci/2026-10-19T12-43-28-385Z-calc-v3` : 2/2 avec le
+setup, zéro échec, flaky ou skip.
+
+### Validation
+
+| Contrôle | Résultat |
+| --- | --- |
+| Fichiers `legacy-*-parity` et `dashboard-ux` : `run --files …` (7 fichiers), itération `008-2026-10-19T12-42-20-469Z`, run `01a1542f-30be-7cfd-b836-131eadc7d636`, build `49ha5mkrOJD1Og3qeBFUe` | 47/47 : setup, 17 cas legacy dont LEP01-LEP07, 29 cas UX ; zéro échec, flaky ou skip |
+| `npm run verify:pr`, clone WSL sur `ec3cb48e` + ce diff (sauf ce registre) | Réussi : 3 282 tests Node et 2 skips, 820 jsdom, 12 contrôles de couverture critique |
+| `git diff --check` | Propre |
+
+Les deux audits précédents portent maintenant leur mention de remplacement.

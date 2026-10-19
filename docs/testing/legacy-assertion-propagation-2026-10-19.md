@@ -1,5 +1,7 @@
 # Assertions legacy : propagation des échecs — 19/10/2026
 
+> **Remplacé au sein de la PR #83** par [la migration PowerShell → TesterArmy](legacy-to-army-migration-2026-10-19.md) ; conservé comme trace historique, les scripts PowerShell qu'il cite sont retirés.
+
 Suite de l'[audit des tests](test-legacy-audit-2026-10-19.md), à la demande du
 propriétaire : corriger les assertions absorbées par des WARN et relancer les
 contrôles pertinents. Base Git : `f1a397d71a205274346bbbaf5b20a66670a5840d`,

@@ -1,5 +1,7 @@
 # Audit des tests et du code dormant — 19/10/2026
 
+> **Remplacé au sein de la PR #83** par [la migration PowerShell → TesterArmy](legacy-to-army-migration-2026-10-19.md) ; conservé comme trace historique, les scripts PowerShell qu'il cite sont retirés.
+
 Base : `f1a397d71a205274346bbbaf5b20a66670a5840d`, checkout `main`,
 initialement propre et en avance d'un commit sur `origin/main`. Le commit
 préexistant est conservé. Les changements de cet audit restent locaux.
