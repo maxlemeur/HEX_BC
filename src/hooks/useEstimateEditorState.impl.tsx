@@ -365,6 +365,7 @@ export type EstimateEditorStateModel = {
     | {
         kind: "ready";
         projectId: string | null;
+        canRetryHistoryRecovery: boolean;
         /** Lot 2, sous-lot 2.6 : lignes du moteur v3 pour la grille, nul en v1/v2. */
         v3Grid: EstimateV3GridModel | null;
         toolbarProps: ComponentProps<typeof EstimateEditorToolbar>;
@@ -707,24 +708,30 @@ export function useEstimateEditorState({
     reloadToken: reloadNonce,
     isStatusReadOnly,
     isDraftLockPending,
-    isReadOnly,
+    isReadOnly: isSyncReadOnly,
     isConflictLocked,
     isSaveBlocked,
     isReadRecoveryRequired,
     readOnlyActionErrorMessage,
     lockHolderLabel,
   } = syncController.meta;
+  const isHistoryBlocked = isUndoRedoBusy || Boolean(historyController.state.recovery);
+  const isReadOnly = isSyncReadOnly || isHistoryBlocked;
   const settingsSaveGuardRef = useRef({
-    isBlocked: isSaveBlocked,
-    message: isConflictLocked
+    isBlocked: isSaveBlocked || isHistoryBlocked,
+    message: isHistoryBlocked
+      ? "Terminez l’annulation et la remise en ordre avant de modifier les paramètres."
+      : isConflictLocked
       ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : (batchRecovery.message ?? readOnlyActionErrorMessage),
   });
 
   useLayoutEffect(() => {
     settingsSaveGuardRef.current = {
-      isBlocked: isSaveBlocked,
-      message: isConflictLocked
+      isBlocked: isSaveBlocked || isHistoryBlocked,
+      message: isHistoryBlocked
+        ? "Terminez l’annulation et la remise en ordre avant de modifier les paramètres."
+        : isConflictLocked
         ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
         : (batchRecovery.message ?? readOnlyActionErrorMessage),
     };
@@ -732,6 +739,7 @@ export function useEstimateEditorState({
     conflictState?.message,
     batchRecovery.message,
     isConflictLocked,
+    isHistoryBlocked,
     isSaveBlocked,
     readOnlyActionErrorMessage,
   ]);
@@ -2298,6 +2306,7 @@ export function useEstimateEditorState({
     applyUpdatedVersion: applyStatusVersion,
     isAdmin,
     isViewerReadOnly,
+    isHistoryBlocked,
     isConflictLocked,
     conflictMessage: conflictState?.message ?? null,
     isDraftLockPending,
@@ -3142,6 +3151,7 @@ export function useEstimateEditorState({
     meta: {
       kind: "ready",
       projectId: version.project_id ?? null,
+      canRetryHistoryRecovery: !isSyncReadOnly && !isSaveBlocked && !isConflictLocked,
       v3Grid,
       toolbarProps: toolbarProps!,
       alertsProps,

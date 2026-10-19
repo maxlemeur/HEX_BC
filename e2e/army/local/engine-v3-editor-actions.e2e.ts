@@ -225,6 +225,39 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
     for (const refusal of refusals) expect(refusal.actual, `unit « ${refusal.typed} » is refused by name`).toEqual(refusal.expected);
     expect(afterRefusals.items.find(item => item.id === lineB.id)?.unit_code).toBe("u");
 
+    // A recreation can already occupy the right slot while its subsequent
+    // reorder is rejected. Require the real request to succeed as well as the
+    // persisted hierarchy, and keep observing errors through the final reload.
+    const errorKey = `${army.runPrefix}-V3E05-errors`;
+    const installErrorObserver = (key: string) => {
+      const count = (kind: string) => {
+        const errors = JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<string, number>;
+        errors[kind] = (errors[kind] ?? 0) + 1;
+        sessionStorage.setItem(key, JSON.stringify(errors));
+      };
+      const originalError = console.error.bind(console);
+      console.error = (...args: unknown[]) => {
+        try { count("console.error"); } finally { originalError(...args); }
+      };
+      window.addEventListener("error", () => count("error"));
+      window.addEventListener("unhandledrejection", () => count("unhandledrejection"));
+      return null;
+    };
+    await browser.addInitScript(installErrorObserver, errorKey);
+    await browser.evaluate(installErrorObserver, errorKey);
+    const readErrors = () => browser.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<string, number>, errorKey);
+    const placement = (state: ArmyEstimate) => state.items.map(item => ({
+      id: item.id, type: item.item_type, parentId: item.parent_id, position: item.position,
+    })).sort((left, right) => left.id.localeCompare(right.id));
+    const domOrder = () => browser.evaluate(() => Array.from(document.querySelectorAll(
+      '[role="grid"][aria-label="Lignes de devis"] [data-estimate-item-id]',
+    )).map(item => item.getAttribute("data-estimate-item-id")));
+    const beforeDelete = await readConsistent(ui, draft.versionId);
+    const placementBeforeDelete = placement(beforeDelete);
+    const orderBeforeDelete = await domOrder();
+    expect(orderBeforeDelete.length).toBe(beforeDelete.items.length);
+    expect(new Set(orderBeforeDelete).size).toBe(beforeDelete.items.length);
+
     // F26-21 : supprimer une ligne v3 depuis la grille passe par le lot (`delete`), qui recalcule ; jamais le refus générique.
     await screen.getByRole("button", `Plus d'actions pour ${lineC.title}`, { exact: true }).tap();
     await screen.getByRole("menuitem", "Supprimer", { exact: true }).tap();
@@ -246,20 +279,48 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
     const sectionTop = async () => { const box = await sectionTitle.boundingBox(); return box ? Math.round(box.y) : null; };
     const totalsAlert = screen.getByTestId("estimate-editor-alert-totals-out-of-sync");
     const topBeforeUndo = await sectionTop();
-    await browser.route(reorderUrl, async (route) => { reorderHeld = true; await reorderGate; await route.fallback(); });
-    let inFlight: { alert: boolean; top: number | null };
-    try {
-      await undo(ui);
-      await expect.poll(() => reorderHeld).toBe(true);
-      // Line C is back in the grid: its recreation is committed and rendered, only its reorder is in flight.
-      await expect(screen.getByRole("combobox", lineC.title, { exact: true })).toBeVisible();
-      inFlight = { alert: await totalsAlert.isVisible(), top: await sectionTop() };
-      await sectionTitle.hover();
-    } finally {
-      releaseReorder();
-    }
+    const reorderRequests: Array<{ method: string; parentId: string | null; orderedIds: string[] | null }> = [];
+    await browser.route(reorderUrl, async (route) => {
+      const body = JSON.parse(route.request.postData ?? "null") as { parent_id?: string | null; ordered_ids?: unknown } | null;
+      reorderRequests.push({ method: route.request.method, parentId: body?.parent_id ?? null,
+        orderedIds: Array.isArray(body?.ordered_ids) && body.ordered_ids.every(id => typeof id === "string") ? body.ordered_ids : null });
+      reorderHeld = true;
+      await reorderGate;
+      await route.fallback();
+    });
+    let inFlight!: { alert: boolean; top: number | null };
+    let recreatedWhileHeld!: ArmyEstimate;
+    const [reorderResponse] = await Promise.all([
+      browser.waitForResponse(reorderUrl),
+      (async () => {
+        try {
+          await undo(ui);
+          await expect.poll(() => reorderHeld).toBe(true);
+          // Line C is back in the grid: its recreation is committed and rendered, only its reorder is in flight.
+          await expect(screen.getByRole("combobox", lineC.title, { exact: true })).toBeVisible();
+          inFlight = { alert: await totalsAlert.isVisible(), top: await sectionTop() };
+          recreatedWhileHeld = await readConsistent(ui, draft.versionId);
+          await sectionTitle.hover();
+        } finally {
+          releaseReorder();
+        }
+      })(),
+    ]);
     await expect(screen.getByTestId("estimate-editor-redo-button", { visible: true })).toBeEnabled({ timeout: 30_000 });
     await browser.unroute(reorderUrl);
+    const reorderBody = await reorderResponse.json<{ ok?: boolean; error?: { code?: string } }>();
+    const recreatedC = lineByTitle(recreatedWhileHeld, lineC.title);
+    const expectedSiblingIds = beforeDelete.items.filter(item => item.parent_id === lineC.parent_id)
+      .sort((left, right) => left.position - right.position).map(item => item.id === lineC.id ? recreatedC?.id ?? null : item.id);
+    const reorderResult = { requests: reorderRequests, status: reorderResponse.status, ok: reorderBody.ok ?? null, code: reorderBody.error?.code ?? null };
+    await recordEvidence(army, "v3e05-undo-reorder-response", {
+      versionId: draft.versionId, expectedParentId: lineC.parent_id, expectedSiblingIds,
+      placementBeforeDelete, recreatedWhileHeld: placement(recreatedWhileHeld), actual: reorderResult, errors: await readErrors(),
+    });
+    expect(recreatedWhileHeld.items.filter(item => item.title === lineC.title)).toHaveLength(1);
+    expect(reorderResult, "undo must send every current sibling, including the recreated ID, and commit its real reorder").toEqual({
+      requests: [{ method: "POST", parentId: lineC.parent_id, orderedIds: expectedSiblingIds }], status: 200, ok: true, code: null,
+    });
     const settled = { alert: await totalsAlert.isVisible(), top: await sectionTop(), status: await autoSaveStatus(ui) };
     await recordEvidence(army, "v3e05-undo-in-flight", { versionId: draft.versionId, actual: { topBeforeUndo, inFlight, settled } });
     expect({ inFlight, settled }, "an undone v3 deletion neither raises the totals alert nor moves the grid").toEqual({
@@ -278,6 +339,24 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
       totals: initial, newId: true, genericRefusal: false,
       line: { unit: "u", status: "priced", quantity: 1, prFo: 1000, hPerUnit: 0, pu: 1300, net: 1300, taxRateBp: 2000, roleId: null },
     });
+    const expectedRestoredPlacement = placementBeforeDelete.map(item => ({ ...item,
+      id: item.id === lineC.id ? restoredC!.id : item.id,
+    })).sort((left, right) => left.id.localeCompare(right.id));
+    const expectedRestoredOrder = orderBeforeDelete.map(id => id === lineC.id ? restoredC!.id : id);
+    expect(placement(restored), "undo restores every exact parent and position from before deletion").toEqual(expectedRestoredPlacement);
+    await expect.poll(domOrder).toEqual(expectedRestoredOrder);
+    await expect(screen.getByTestId("estimate-section-add-line-button")).toBeVisible();
+    await browser.reload();
+    await expect(grid(ui)).toBeVisible();
+    await waitForDraftLease(ui);
+    const restoredAfterReload = await readConsistent(ui, draft.versionId);
+    await recordEvidence(army, "v3e05-undo-placement-reloaded", {
+      versionId: draft.versionId, expected: expectedRestoredPlacement, actual: placement(restoredAfterReload),
+      expectedOrder: expectedRestoredOrder, actualOrder: await domOrder(), errors: await readErrors(),
+    });
+    expect(placement(restoredAfterReload)).toEqual(expectedRestoredPlacement);
+    expect(totalsOf(restoredAfterReload)).toEqual(initial);
+    await expect.poll(domOrder).toEqual(expectedRestoredOrder);
 
     // Annuler l'ajout d'une ligne la supprime par le lot.
     const addedId = await addGridLine(ui, draft);
@@ -309,7 +388,10 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
         lines: { [lineA.id]: { net: 35600 }, [lineB.id]: { unit: "u", net: 6500 }, [restoredC!.id]: { unit: "u", net: 1300 } } },
       screen: { chips: chips(withoutT) },
     });
-    await recordEvidence(army, "v3e05-end", { versionId: draft.versionId, nativeDialogs: dialogs });
+    const errors = await readErrors();
+    await recordEvidence(army, "v3e05-end", { versionId: draft.versionId, nativeDialogs: dialogs, errors });
+    expect(dialogs, "the saved nominal undo must not warn on either reload").toEqual([]);
+    expect(errors, "the nominal deletion/undo and final reload must emit no console.error or uncaught error, including late callbacks").toEqual({});
   });
 
 armyTest("V3E06 bulk majoration, move and delete of v3 lines, and their undo, go through the v3 writer and recompute the totals",
@@ -1489,4 +1571,543 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
       lines: [{ unit: "ml", description: null }, { unit: null, description: null }, { unit: "m2", description: null }, { unit: "u", description: null }],
       kFo: 1.25, totals, genericRefusal: false,
     });
+  });
+
+armyTest("V3E20 a failed reorder after undo restores one line once and offers an explicit recovery without losing its context",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E20");
+    const [lineA, lineB] = await seedLines(ui, army, draft, "v3e20", [
+      supply(`${army.runPrefix} A`, 1, 1000), supply(`${army.runPrefix} B`, 1, 2000), supply(`${army.runPrefix} C`, 1, 3000),
+    ]);
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e20");
+    await waitForDraftLease(ui);
+    const before = await readConsistent(ui, draft.versionId);
+    const initial: Totals = [7800, 1560, 9360];
+    expect(totalsOf(before)).toEqual(initial);
+    const placement = (state: ArmyEstimate) => state.items.map(item => ({
+      id: item.id, type: item.item_type, parentId: item.parent_id, position: item.position,
+    })).sort((left, right) => left.id.localeCompare(right.id));
+    const domOrder = () => browser.evaluate(() => Array.from(document.querySelectorAll(
+      '[role="grid"][aria-label="Lignes de devis"] [data-estimate-item-id]',
+    )).map(item => item.getAttribute("data-estimate-item-id")));
+    const beforeOrder = await domOrder();
+    const editorUrl = await browser.url();
+    const documentOrigin = await browser.evaluate(() => performance.timeOrigin);
+    const sectionRow = browser.locator(`[data-estimate-item-id="${draft.sectionId}"]`);
+    const sectionTitle = browser.locator(`[data-estimate-item-id="${draft.sectionId}"] [data-testid="estimate-section-title-input"]`);
+    const sectionTop = async () => { const box = await sectionTitle.boundingBox(); return box ? Math.round(box.y) : null; };
+
+    await screen.getByRole("button", `Plus d'actions pour ${lineB.title}`, { exact: true }).tap();
+    await screen.getByRole("menuitem", "Supprimer", { exact: true }).tap();
+    await confirmDeletion(ui);
+    const deleted = await waitState(ui, draft.versionId, state => !lineIds(state).includes(lineB.id));
+    expect(totalsOf(deleted)).toEqual([5200, 1040, 6240]);
+    const topBeforeUndo = await sectionTop();
+    const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, app.baseUrl!).href;
+    const reorderUrl = new URL(`/api/estimates/${draft.versionId}/items/reorder`, app.baseUrl!).href;
+    let creationPosts = 0;
+    const reorderRequests: Array<{ parentId: string | null; orderedIds: unknown }> = [];
+    let releaseFailure!: () => void, releaseRetry!: () => void;
+    const failureGate = new Promise<void>(resolve => { releaseFailure = resolve; });
+    const retryGate = new Promise<void>(resolve => { releaseRetry = resolve; });
+    let failureHeld = false, retryHeld = false;
+    await browser.route(itemUrl, async route => {
+      if (route.request.method === "POST") creationPosts++;
+      await route.fallback();
+    });
+    await browser.route(reorderUrl, async route => {
+      const body = JSON.parse(route.request.postData ?? "null") as { parent_id?: string | null; ordered_ids?: unknown } | null;
+      reorderRequests.push({ parentId: body?.parent_id ?? null, orderedIds: body?.ordered_ids ?? null });
+      if (reorderRequests.length === 1) {
+        failureHeld = true;
+        await failureGate;
+        await route.fulfill({ status: 503, json: { ok: false, error: {
+          code: "INTERNAL_ERROR", message: "Transport indisponible pour la remise en ordre (fixture).",
+        } } });
+      } else {
+        retryHeld = true;
+        await retryGate;
+        await route.fallback();
+      }
+    });
+    const pending = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Annulation…" });
+    const partial = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Ligne restaurée, position à vérifier." });
+    const success = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Suppression annulée." });
+    const redo = screen.getByTestId("estimate-editor-redo-button", { visible: true });
+    const retry = screen.getByRole("button", "Réessayer la remise en ordre", { exact: true });
+    let restoredId = "";
+    let inFlightPending = false;
+    try {
+      const [failedReorder] = await Promise.all([
+        browser.waitForResponse(reorderUrl),
+        (async () => {
+          try {
+            await undo(ui);
+            await expect.poll(() => failureHeld).toBe(true);
+            inFlightPending = await pending.isVisible();
+            const recreated = await readConsistent(ui, draft.versionId);
+            const matches = recreated.items.filter(item => item.title === lineB.title);
+            expect(matches).toHaveLength(1);
+            restoredId = matches[0].id;
+            expect(restoredId).not.toBe(lineB.id);
+            expect(creationPosts).toBe(1);
+            expect(await sectionTop()).toBe(topBeforeUndo);
+          } finally { releaseFailure(); }
+        })(),
+      ]);
+      const failure = { status: failedReorder.status, body: await failedReorder.json<{ ok: boolean; error: { code: string } }>() };
+      await recordEvidence(army, "v3e20-reorder-refused", {
+        versionId: draft.versionId, originalId: lineB.id, restoredId, creationPosts,
+        requests: reorderRequests, inFlightPending, failure: { status: failure.status, ok: failure.body.ok, code: failure.body.error.code },
+      });
+      expect([failure.status, failure.body.ok, failure.body.error.code]).toEqual([503, false, "INTERNAL_ERROR"]);
+      await expect(partial).toBeVisible();
+      expect(inFlightPending, "undo announces its work while the first reorder is held").toBe(true);
+      await expect(redo).toBeDisabled();
+      await expect(screen.getByTestId("estimate-editor-undo-button", { visible: true })).toBeDisabled();
+      await expect(screen.getByRole("combobox", lineA.title, { exact: true })).toBeDisabled();
+      await expect(screen.getByLabel(`Sélectionner la ligne ${lineA.title}`, { exact: true })).toBeDisabled();
+      await expect(retry).toBeEnabled();
+      await expect(screen.getByTestId("estimate-page-toolbar-send-button")).toBeDisabled();
+      expect(await sectionTop()).toBe(topBeforeUndo);
+      expect(creationPosts).toBe(1);
+      expect(reorderRequests).toHaveLength(1);
+
+      await sectionRow.getByRole("button", "Replier la section", { exact: true }).click();
+      await expect(sectionRow.getByRole("button", "Deplier la section", { exact: true })).toBeVisible();
+      const restoredRow = browser.locator(`[data-estimate-item-id="${restoredId}"]`);
+      await expect(restoredRow).toBeHidden();
+      await screen.getByRole("button", "Vérifier la position", { exact: true }).click();
+      await expect(sectionRow.getByRole("button", "Replier la section", { exact: true })).toBeVisible();
+      await expect(restoredRow).toBeVisible();
+      await expect.poll(() => browser.evaluate(() =>
+        document.activeElement?.closest("[data-estimate-item-id]")?.getAttribute("data-estimate-item-id") ?? null)).toBe(restoredId);
+      await expect(grid(ui)).toBeVisible();
+      await expect(browser).toHaveURL(editorUrl);
+      expect(await browser.evaluate(() => performance.timeOrigin)).toBe(documentOrigin);
+
+      const quickSearch = screen.getByRole("searchbox", "Rechercher dans le chiffrage", { exact: true });
+      await quickSearch.fill(lineA.title);
+      await expect(quickSearch).toHaveValue(lineA.title);
+      await expect(browser.locator(`[data-estimate-item-id="${lineA.id}"]`)).toBeVisible();
+      await expect(restoredRow).toBeHidden();
+      await screen.getByRole("button", "Vérifier la position", { exact: true }).click();
+      await expect(quickSearch).toHaveValue("");
+      await expect(restoredRow).toBeVisible();
+      await expect.poll(() => browser.evaluate(() =>
+        document.activeElement?.closest("[data-estimate-item-id]")?.getAttribute("data-estimate-item-id") ?? null)).toBe(restoredId);
+      await expect(browser).toHaveURL(editorUrl);
+      expect(await browser.evaluate(() => performance.timeOrigin)).toBe(documentOrigin);
+
+      const [retriedReorder] = await Promise.all([
+        browser.waitForResponse(reorderUrl),
+        (async () => {
+          try {
+            await retry.click();
+            await expect.poll(() => retryHeld).toBe(true);
+            await expect(pending).toBeVisible();
+            await expect(redo).toBeDisabled();
+            expect(creationPosts).toBe(1);
+          } finally { releaseRetry(); }
+        })(),
+      ]);
+      const retriedBody = await retriedReorder.json<{ ok: boolean }>();
+      expect([retriedReorder.status, retriedBody.ok]).toEqual([200, true]);
+      await expect(success).toBeVisible();
+      await expect(partial).toBeHidden();
+      await expect(redo).toBeEnabled();
+      await expect(screen.getByRole("combobox", lineA.title, { exact: true })).toBeEnabled();
+      await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText("À jour");
+      await expect(browser).toHaveURL(editorUrl);
+      expect(await browser.evaluate(() => performance.timeOrigin)).toBe(documentOrigin);
+      expect(await sectionTop()).toBe(topBeforeUndo);
+      expect(creationPosts).toBe(1);
+      expect(reorderRequests).toHaveLength(2);
+      const expectedSiblingIds = before.items.filter(item => item.parent_id === lineB.parent_id)
+        .sort((left, right) => left.position - right.position).map(item => item.id === lineB.id ? restoredId : item.id);
+      expect(reorderRequests).toEqual([
+        { parentId: lineB.parent_id, orderedIds: expectedSiblingIds },
+        { parentId: lineB.parent_id, orderedIds: expectedSiblingIds },
+      ]);
+      const expectedPlacement = placement(before).map(item => ({ ...item, id: item.id === lineB.id ? restoredId : item.id }))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const expectedOrder = beforeOrder.map(id => id === lineB.id ? restoredId : id);
+      const restored = await readConsistent(ui, draft.versionId);
+      expect(placement(restored)).toEqual(expectedPlacement);
+      expect(totalsOf(restored)).toEqual(initial);
+      await expect.poll(domOrder).toEqual(expectedOrder);
+      await browser.reload();
+      await expect(grid(ui)).toBeVisible();
+      await waitForDraftLease(ui);
+      const reloaded = await readConsistent(ui, draft.versionId);
+      await recordEvidence(army, "v3e20-recovery-reloaded", {
+        versionId: draft.versionId, restoredId, creationPosts, reorderRequests,
+        expectedPlacement, actualPlacement: placement(reloaded), expectedOrder, actualOrder: await domOrder(),
+        expectedTotals: initial, actualTotals: totalsOf(reloaded), nativeDialogs: dialogs,
+      });
+      expect(placement(reloaded)).toEqual(expectedPlacement);
+      expect(totalsOf(reloaded)).toEqual(initial);
+      expect(reloaded.items.filter(item => item.title === lineB.title)).toHaveLength(1);
+      await expect.poll(domOrder).toEqual(expectedOrder);
+      expect(creationPosts).toBe(1);
+      expect(dialogs).toEqual([]);
+    } finally {
+      releaseFailure();
+      releaseRetry();
+      await browser.unroute(reorderUrl);
+      await browser.unroute(itemUrl);
+    }
+  });
+
+armyTest("V3E21 a bulk deletion undo recovers its two restored lines without recreating them or losing their exact positions",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E21");
+    const [lineA, lineB] = await seedLines(ui, army, draft, "v3e21", [
+      supply(`${army.runPrefix} A`, 1, 1000), supply(`${army.runPrefix} B`, 1, 2000), supply(`${army.runPrefix} C`, 1, 3000),
+    ]);
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e21");
+    await waitForDraftLease(ui);
+    const before = await readConsistent(ui, draft.versionId);
+    const initial: Totals = [7800, 1560, 9360];
+    expect(totalsOf(before)).toEqual(initial);
+    const placement = (state: ArmyEstimate) => state.items.map(item => ({
+      id: item.id, type: item.item_type, parentId: item.parent_id, position: item.position,
+    })).sort((left, right) => left.id.localeCompare(right.id));
+    const domOrder = () => browser.evaluate(() => Array.from(document.querySelectorAll(
+      '[role="grid"][aria-label="Lignes de devis"] [data-estimate-item-id]',
+    )).map(item => item.getAttribute("data-estimate-item-id")));
+    const beforeOrder = await domOrder();
+    const editorUrl = await browser.url();
+    const documentOrigin = await browser.evaluate(() => performance.timeOrigin);
+    const sectionRow = browser.locator(`[data-estimate-item-id="${draft.sectionId}"]`);
+    const sectionTitle = browser.locator(`[data-estimate-item-id="${draft.sectionId}"] [data-testid="estimate-section-title-input"]`);
+    const sectionTop = async () => { const box = await sectionTitle.boundingBox(); return box ? Math.round(box.y) : null; };
+
+    for (const line of [lineA, lineB]) await screen.getByLabel(`Sélectionner la ligne ${line.title}`, { exact: true }).check();
+    await expect(screen.getByTestId("estimate-editor-bulk-selection-bar")).toBeVisible();
+    await screen.getByTestId("estimate-editor-bulk-delete-selection-button").tap();
+    await confirmDeletion(ui);
+    const deleted = await waitState(ui, draft.versionId, state => !lineIds(state).includes(lineA.id) && !lineIds(state).includes(lineB.id));
+    expect(totalsOf(deleted)).toEqual([3900, 780, 4680]);
+    const topBeforeUndo = await sectionTop();
+    const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, app.baseUrl!).href;
+    const reorderUrl = new URL(`/api/estimates/${draft.versionId}/items/reorder`, app.baseUrl!).href;
+    let creationPosts = 0;
+    const reorderRequests: Array<{ parentId: string | null; orderedIds: unknown }> = [];
+    let releaseFailure!: () => void, releaseRetry!: () => void;
+    const failureGate = new Promise<void>(resolve => { releaseFailure = resolve; });
+    const retryGate = new Promise<void>(resolve => { releaseRetry = resolve; });
+    let failureHeld = false, retryHeld = false;
+    await browser.route(itemUrl, async route => {
+      if (route.request.method === "POST") creationPosts++;
+      await route.fallback();
+    });
+    await browser.route(reorderUrl, async route => {
+      const body = JSON.parse(route.request.postData ?? "null") as { parent_id?: string | null; ordered_ids?: unknown } | null;
+      reorderRequests.push({ parentId: body?.parent_id ?? null, orderedIds: body?.ordered_ids ?? null });
+      if (reorderRequests.length === 1) {
+        failureHeld = true;
+        await failureGate;
+        await route.fulfill({ status: 503, json: { ok: false, error: {
+          code: "INTERNAL_ERROR", message: "Transport indisponible pour la remise en ordre (fixture).",
+        } } });
+      } else {
+        retryHeld = true;
+        await retryGate;
+        await route.fallback();
+      }
+    });
+    const pending = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Annulation…" });
+    const partial = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Lignes restaurées, positions à vérifier." });
+    const success = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Suppression annulée." });
+    const redo = screen.getByTestId("estimate-editor-redo-button", { visible: true });
+    const retry = screen.getByRole("button", "Réessayer la remise en ordre", { exact: true });
+    const restoredIds: Record<string, string> = {};
+    let inFlightPending = false;
+    try {
+      const [failedReorder] = await Promise.all([
+        browser.waitForResponse(reorderUrl),
+        (async () => {
+          try {
+            await undo(ui);
+            await expect.poll(() => failureHeld).toBe(true);
+            inFlightPending = await pending.isVisible();
+            const recreated = await readConsistent(ui, draft.versionId);
+            for (const original of [lineA, lineB]) {
+              const matches = recreated.items.filter(item => item.title === original.title);
+              expect(matches).toHaveLength(1);
+              restoredIds[original.id] = matches[0].id;
+              expect(matches[0].id).not.toBe(original.id);
+            }
+            expect(new Set(Object.values(restoredIds)).size).toBe(2);
+            expect(creationPosts).toBe(2);
+            expect(await sectionTop()).toBe(topBeforeUndo);
+          } finally { releaseFailure(); }
+        })(),
+      ]);
+      const failure = { status: failedReorder.status, body: await failedReorder.json<{ ok: boolean; error: { code: string } }>() };
+      await recordEvidence(army, "v3e21-reorder-refused", {
+        versionId: draft.versionId, originalIds: [lineA.id, lineB.id], restoredIds, creationPosts,
+        requests: reorderRequests, inFlightPending, failure: { status: failure.status, ok: failure.body.ok, code: failure.body.error.code },
+      });
+      expect([failure.status, failure.body.ok, failure.body.error.code]).toEqual([503, false, "INTERNAL_ERROR"]);
+      await expect(partial).toBeVisible();
+      expect(inFlightPending, "undo announces its work while the first reorder is held").toBe(true);
+      await expect(redo).toBeDisabled();
+      await expect(screen.getByTestId("estimate-editor-undo-button", { visible: true })).toBeDisabled();
+      await expect(screen.getByRole("combobox", lineA.title, { exact: true })).toBeDisabled();
+      await expect(screen.getByLabel(`Sélectionner la ligne ${lineA.title}`, { exact: true })).toBeDisabled();
+      await expect(retry).toBeEnabled();
+      await expect(screen.getByTestId("estimate-page-toolbar-send-button")).toBeDisabled();
+      expect(await sectionTop()).toBe(topBeforeUndo);
+      expect(creationPosts).toBe(2);
+      expect(reorderRequests).toHaveLength(1);
+
+      await sectionRow.getByRole("button", "Replier la section", { exact: true }).click();
+      await expect(sectionRow.getByRole("button", "Deplier la section", { exact: true })).toBeVisible();
+      for (const id of Object.values(restoredIds)) {
+        await expect(browser.locator(`[data-estimate-item-id="${id}"]`)).toBeHidden();
+      }
+      await screen.getByRole("button", "Vérifier la position", { exact: true }).click();
+      await expect(sectionRow.getByRole("button", "Replier la section", { exact: true })).toBeVisible();
+      for (const id of Object.values(restoredIds)) {
+        await expect(browser.locator(`[data-estimate-item-id="${id}"]`)).toBeVisible();
+      }
+      await expect.poll(async () => Object.values(restoredIds).includes(await browser.evaluate(() =>
+        document.activeElement?.closest("[data-estimate-item-id]")?.getAttribute("data-estimate-item-id") ?? ""))).toBe(true);
+      await expect(grid(ui)).toBeVisible();
+      await expect(browser).toHaveURL(editorUrl);
+      expect(await browser.evaluate(() => performance.timeOrigin)).toBe(documentOrigin);
+
+      const [retriedReorder] = await Promise.all([
+        browser.waitForResponse(reorderUrl),
+        (async () => {
+          try {
+            await retry.click();
+            await expect.poll(() => retryHeld).toBe(true);
+            await expect(pending).toBeVisible();
+            await expect(redo).toBeDisabled();
+            expect(creationPosts).toBe(2);
+          } finally { releaseRetry(); }
+        })(),
+      ]);
+      const retriedBody = await retriedReorder.json<{ ok: boolean }>();
+      expect([retriedReorder.status, retriedBody.ok]).toEqual([200, true]);
+      await expect(success).toBeVisible();
+      await expect(partial).toBeHidden();
+      await expect(redo).toBeEnabled();
+      await expect(screen.getByRole("combobox", lineA.title, { exact: true })).toBeEnabled();
+      await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText("À jour");
+      await expect(browser).toHaveURL(editorUrl);
+      expect(await browser.evaluate(() => performance.timeOrigin)).toBe(documentOrigin);
+      expect(await sectionTop()).toBe(topBeforeUndo);
+      expect(creationPosts).toBe(2);
+      expect(reorderRequests).toHaveLength(2);
+      const expectedSiblingIds = before.items.filter(item => item.parent_id === lineB.parent_id)
+        .sort((left, right) => left.position - right.position).map(item => restoredIds[item.id] ?? item.id);
+      expect(reorderRequests).toEqual([
+        { parentId: lineB.parent_id, orderedIds: expectedSiblingIds },
+        { parentId: lineB.parent_id, orderedIds: expectedSiblingIds },
+      ]);
+      const expectedPlacement = placement(before).map(item => ({ ...item, id: restoredIds[item.id] ?? item.id }))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const expectedOrder = beforeOrder.map(id => restoredIds[id!] ?? id);
+      const restored = await readConsistent(ui, draft.versionId);
+      expect(placement(restored)).toEqual(expectedPlacement);
+      expect(totalsOf(restored)).toEqual(initial);
+      await expect.poll(domOrder).toEqual(expectedOrder);
+      await browser.reload();
+      await expect(grid(ui)).toBeVisible();
+      await waitForDraftLease(ui);
+      const reloaded = await readConsistent(ui, draft.versionId);
+      await recordEvidence(army, "v3e21-recovery-reloaded", {
+        versionId: draft.versionId, restoredIds, creationPosts, reorderRequests,
+        expectedPlacement, actualPlacement: placement(reloaded), expectedOrder, actualOrder: await domOrder(),
+        expectedTotals: initial, actualTotals: totalsOf(reloaded), nativeDialogs: dialogs,
+      });
+      expect(placement(reloaded)).toEqual(expectedPlacement);
+      expect(totalsOf(reloaded)).toEqual(initial);
+      for (const original of [lineA, lineB]) expect(reloaded.items.filter(item => item.title === original.title)).toHaveLength(1);
+      await expect.poll(domOrder).toEqual(expectedOrder);
+      expect(creationPosts).toBe(2);
+      expect(dialogs).toEqual([]);
+    } finally {
+      releaseFailure();
+      releaseRetry();
+      await browser.unroute(reorderUrl);
+      await browser.unroute(itemUrl);
+    }
+  });
+
+armyTest("V3E22 a queued line save cannot clear an undo recovery when its acknowledgement arrives after the failed reorder",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const draft = await prepareV3Draft(ui, army, "V3E22");
+    const [lineA, lineB] = await seedLines(ui, army, draft, "v3e22", [
+      supply(`${army.runPrefix} A`, 1, 1000), supply(`${army.runPrefix} B`, 1, 2000), supply(`${army.runPrefix} C`, 1, 3000),
+    ]);
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e22");
+    await waitForDraftLease(ui);
+    const before = await readConsistent(ui, draft.versionId);
+    const quantity = screen.getByLabel(`Quantité pour ${lineA.title}`, { exact: true });
+    // A real unsaved edit precedes the deletion, so undo still targets deletion.
+    // Ctrl+S below uses the ordinary flush path; the version mutation queue holds
+    // it behind the in-flight reorder, without changing the one-minute cadence.
+    await fillCell(ui, `Quantité pour ${lineA.title}`, "2");
+    await expect(quantity).toHaveValue("2");
+    await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText("En attente");
+    expect(Number((await readConsistent(ui, draft.versionId)).items.find(item => item.id === lineA.id)?.quantity)).toBe(1);
+    await screen.getByRole("button", `Plus d'actions pour ${lineB.title}`, { exact: true }).tap();
+    await screen.getByRole("menuitem", "Supprimer", { exact: true }).tap();
+    await confirmDeletion(ui);
+    await waitState(ui, draft.versionId, state => !lineIds(state).includes(lineB.id));
+
+    const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, app.baseUrl!).href;
+    const reorderUrl = new URL(`/api/estimates/${draft.versionId}/items/reorder`, app.baseUrl!).href;
+    const batchUrl = new URL(`/api/estimates/${draft.versionId}/batch`, app.baseUrl!).href;
+    const events: string[] = [];
+    let creationPosts = 0;
+    const reorderRequests: Array<{ parentId: string | null; orderedIds: unknown }> = [];
+    const saveRequests: Array<{ operations: Array<{ op: string; id?: string; data?: { quantity?: number } }> }> = [];
+    let releaseFailure!: () => void, releaseSave!: () => void;
+    const failureGate = new Promise<void>(resolve => { releaseFailure = resolve; });
+    const saveGate = new Promise<void>(resolve => { releaseSave = resolve; });
+    let failureHeld = false, saveHeld = false;
+    await browser.route(itemUrl, async route => {
+      if (route.request.method === "POST") creationPosts++;
+      await route.fallback();
+    });
+    await browser.route(reorderUrl, async route => {
+      const body = JSON.parse(route.request.postData ?? "null") as { parent_id?: string | null; ordered_ids?: unknown } | null;
+      reorderRequests.push({ parentId: body?.parent_id ?? null, orderedIds: body?.ordered_ids ?? null });
+      if (reorderRequests.length === 1) {
+        failureHeld = true;
+        events.push("undo-reorder-held");
+        await failureGate;
+        events.push("undo-reorder-refused");
+        await route.fulfill({ status: 503, json: { ok: false, error: {
+          code: "INTERNAL_ERROR", message: "Transport indisponible pour la remise en ordre (fixture).",
+        } } });
+      } else await route.fallback();
+    });
+    await browser.route(batchUrl, async route => {
+      if (route.request.method !== "POST") { await route.fallback(); return; }
+      saveRequests.push(JSON.parse(route.request.postData ?? "null") as typeof saveRequests[number]);
+      saveHeld = true;
+      events.push("queued-save-request-held");
+      await saveGate;
+      events.push("queued-save-request-released");
+      await route.fallback();
+    });
+    const pending = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Annulation…" });
+    const partial = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Ligne restaurée, position à vérifier." });
+    const success = screen.getByRole("status", "Historique des modifications", { exact: true }).filter({ hasText: "Suppression annulée." });
+    const retry = screen.getByRole("button", "Réessayer la remise en ordre", { exact: true });
+    const redo = screen.getByTestId("estimate-editor-redo-button", { visible: true });
+    let restoredId = "";
+    let pendingEdits = { quantityEnabled: true, selectionEnabled: true };
+    try {
+      const [saveResponse] = await Promise.all([
+        browser.waitForResponse(batchUrl),
+        (async () => {
+          const [refused] = await Promise.all([
+            browser.waitForResponse(reorderUrl),
+            (async () => {
+              try {
+                await undo(ui);
+                await expect.poll(() => failureHeld).toBe(true);
+                await expect(pending).toBeVisible();
+                pendingEdits = {
+                  quantityEnabled: await quantity.isEnabled(),
+                  selectionEnabled: await screen.getByLabel(`Sélectionner la ligne ${lineA.title}`, { exact: true }).isEnabled(),
+                };
+                // Record both findings in one red run: the deferred save still
+                // exercises recovery even if the pending edit guard is missing.
+                expect.soft(pendingEdits).toEqual({ quantityEnabled: false, selectionEnabled: false });
+                events.push("save-requested-during-undo");
+                await browser.keyboard.press("ControlOrMeta+s");
+              } finally { releaseFailure(); }
+            })(),
+          ]);
+          const refusedBody = await refused.json<{ ok: boolean; error: { code: string } }>();
+          expect([refused.status, refusedBody.ok, refusedBody.error.code]).toEqual([503, false, "INTERNAL_ERROR"]);
+          await expect.poll(() => saveHeld).toBe(true);
+          await expect(partial).toBeVisible();
+          await expect(retry).toBeEnabled();
+          events.push("recovery-visible-before-save-ack");
+          const recreated = await readConsistent(ui, draft.versionId);
+          const matches = recreated.items.filter(item => item.title === lineB.title);
+          expect(matches).toHaveLength(1);
+          restoredId = matches[0].id;
+          expect(restoredId).not.toBe(lineB.id);
+          expect(Number(recreated.items.find(item => item.id === lineA.id)?.quantity)).toBe(1);
+          expect(creationPosts).toBe(1);
+          expect(saveRequests).toHaveLength(1);
+          expect(saveRequests[0].operations).toHaveLength(1);
+          expect(saveRequests[0].operations[0]).toMatchObject({ op: "update", id: lineA.id, data: { quantity: 2 } });
+          await recordEvidence(army, "v3e22-before-late-save-ack", {
+            versionId: draft.versionId, originalId: lineB.id, restoredId, creationPosts,
+            events, pendingEdits, saveRequests, reorderRequests,
+            failure: { status: refused.status, ok: refusedBody.ok, code: refusedBody.error.code },
+          });
+          releaseSave();
+        })(),
+      ]);
+      const saved = await saveResponse.json<{ ok: boolean; data: { committed: boolean } }>();
+      expect([saveResponse.status, saved.ok, saved.data.committed]).toEqual([200, true, true]);
+      // The buffer is removed by the successful flush before clearHistory is
+      // called; this observes completion of that real acknowledgement path.
+      await expect.poll(() => browser.evaluate(id =>
+        localStorage.getItem(`estimate:edit:autosave-buffer:${id}`) === null, draft.versionId)).toBe(true);
+      const savedState = await readConsistent(ui, draft.versionId);
+      expect(Number(savedState.items.find(item => item.id === lineA.id)?.quantity)).toBe(2);
+      const afterAck = { recoveryVisible: await partial.isVisible(), retryVisible: await retry.isVisible() };
+      events.push("save-acknowledged");
+      await recordEvidence(army, "v3e22-after-late-save-ack", {
+        versionId: draft.versionId, events, afterAck, creationPosts, saveRequests, reorderRequests,
+        saved: { status: saveResponse.status, ok: saved.ok, committed: saved.data.committed },
+      });
+      await expect(partial).toBeVisible();
+      await expect(retry).toBeEnabled();
+      await expect(redo).toBeDisabled();
+      await expect(quantity).toBeDisabled();
+      const [retried] = await Promise.all([browser.waitForResponse(reorderUrl), retry.click()]);
+      const retriedBody = await retried.json<{ ok: boolean }>();
+      expect([retried.status, retriedBody.ok]).toEqual([200, true]);
+      await expect(success).toBeVisible();
+      await expect(partial).toBeHidden();
+      await expect(redo).toBeEnabled();
+      await expect(quantity).toBeEnabled();
+      await expect(quantity).toHaveValue("2");
+      await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(À jour|Sauvegardé)$/);
+      const expectedSiblingIds = before.items.filter(item => item.parent_id === lineB.parent_id)
+        .sort((left, right) => left.position - right.position).map(item => item.id === lineB.id ? restoredId : item.id);
+      expect(reorderRequests).toEqual([
+        { parentId: lineB.parent_id, orderedIds: expectedSiblingIds },
+        { parentId: lineB.parent_id, orderedIds: expectedSiblingIds },
+      ]);
+      const restored = await readConsistent(ui, draft.versionId);
+      expect(Number(restored.items.find(item => item.id === lineA.id)?.quantity)).toBe(2);
+      expect(restored.items.filter(item => item.title === lineB.title)).toHaveLength(1);
+      expect(restored.items.map(item => item.id).sort()).toEqual(before.items.map(item => item.id === lineB.id ? restoredId : item.id).sort());
+      expect(creationPosts).toBe(1);
+      expect(saveRequests).toHaveLength(1);
+      await recordEvidence(army, "v3e22-recovery-after-late-save", {
+        versionId: draft.versionId, restoredId, events, creationPosts, saveRequests, reorderRequests,
+        retry: { status: retried.status, ok: retriedBody.ok }, restoredIds: restored.items.map(item => item.id),
+      });
+    } finally {
+      releaseFailure();
+      releaseSave();
+      await browser.unroute(reorderUrl);
+      await browser.unroute(batchUrl);
+      await browser.unroute(itemUrl);
+    }
   });

@@ -90,6 +90,7 @@ import {
 } from "@/hooks/useEstimateColumnWidths";
 import { useEstimateColumnOrder, DEFAULT_ESTIMATE_COLUMN_ORDER, SPREADSHEET_ESTIMATE_COLUMN_IDS } from "@/hooks/useEstimateColumnOrder";
 import { EstimateColumnOrderContext } from "@/components/estimates/context/EstimateColumnOrderContext";
+import { useEstimateSectionVisibility } from "@/components/estimates/hooks/useEstimateSectionVisibility";
 import { useIsMobileViewport } from "@/hooks/useIsTablet";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
@@ -304,6 +305,7 @@ type EstimateEditorTableProps = {
     orderedTargetIds: string[]
   ) => void;
   scrollToItemId?: string | null;
+  revealScrollTarget?: boolean;
   onScrollToItemHandled?: () => void;
   virtualization?: EstimateVirtualizationConfig;
   highlightedItemIds?: Set<string>;
@@ -923,6 +925,7 @@ export function EstimateEditorTable({
   onReorder,
   onMoveItem,
   scrollToItemId,
+  revealScrollTarget = false,
   onScrollToItemHandled,
   virtualization,
   highlightedItemIds = EMPTY_HIGHLIGHTED_ITEM_IDS,
@@ -966,9 +969,6 @@ export function EstimateEditorTable({
     itemId: string;
     mode: "view" | "associate";
   } | null>(null);
-  const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
-    () => new Set()
-  );
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const columnResizeCleanupRef = useRef<(() => void) | null>(null);
@@ -1016,6 +1016,13 @@ export function EstimateEditorTable({
     sectionCalculation,
     laborRateById,
     isLaborSplitEnabled,
+  });
+  const {
+    collapsedSectionIds, needsScrollTargetReveal,
+    toggleSectionCollapsed, handleExpandAllSections, handleCollapseAllSections,
+  } = useEstimateSectionVisibility({
+    items, quickFilteredItems, itemById, getVisibleItems, scrollToItemId, revealScrollTarget,
+    qualityFilter, onQualityFilterChange, onSearchChange: setSearchTerm,
   });
   const mobileEditorItem = mobileEditorItemId
     ? items.find(
@@ -1237,22 +1244,6 @@ export function EstimateEditorTable({
     if (changed) {
       appliedSuggestionContextByItemIdRef.current = next;
     }
-  }, [items]);
-
-  useEffect(() => {
-    const sectionIdSet = new Set(
-      items.filter((item) => item.item_type === "section").map((item) => item.id)
-    );
-    setCollapsedSectionIds((previous) => {
-      if (previous.size === 0) return previous;
-      const next = new Set<string>();
-      previous.forEach((sectionId) => {
-        if (sectionIdSet.has(sectionId)) {
-          next.add(sectionId);
-        }
-      });
-      return next.size === previous.size ? previous : next;
-    });
   }, [items]);
 
   const categoryById = useMemo(() => {
@@ -1934,7 +1925,7 @@ export function EstimateEditorTable({
     suggestionsByItemId,
     virtualization,
     tableCardRef,
-    scrollToItemId,
+    scrollToItemId: needsScrollTargetReveal ? null : scrollToItemId,
     onScrollToItemHandled,
   });
 
@@ -2019,30 +2010,6 @@ export function EstimateEditorTable({
   useEffect(() => {
     insertionAnchorItemIdRef.current = insertionAnchorItemId;
   }, [insertionAnchorItemId]);
-
-  const toggleSectionCollapsed = useCallback((sectionId: string) => {
-    setCollapsedSectionIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(sectionId)) {
-        next.delete(sectionId);
-      } else {
-        next.add(sectionId);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleExpandAllSections = useCallback(() => {
-    setCollapsedSectionIds(new Set());
-  }, []);
-
-  const handleCollapseAllSections = useCallback(() => {
-    setCollapsedSectionIds(
-      new Set(
-        items.filter((item) => item.item_type === "section").map((item) => item.id)
-      )
-    );
-  }, [items]);
 
   const activeLineBreadcrumb = useMemo(() => {
     if (!activeClientKey) return null;
