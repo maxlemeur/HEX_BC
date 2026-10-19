@@ -22,13 +22,17 @@ const options = { session: "army", tags: ["critical", "legacy-editor-parity"], t
 // TI-142: real section/line creation without console.error or uncaught errors.
 // Existing bulk-move and bulk-edit-sync journeys retain their undo/totals oracles.
 // These new cases do not replace any legacy journey before executed proof exists.
-async function prepare(ui: Ui, army: ArmyState, tag: string, count: number) {
+async function prepare(ui: Ui, army: ArmyState, tag: string, count: number,
+  onStage?: (stage: "fixture" | "wizard" | "api-seed") => Promise<void>) {
   await ui.app.open("/dashboard/affaires");
+  await onStage?.("fixture");
   const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, army.runPrefix, { tag, uiMode: "expert" });
   await ui.browser.emulateMedia({ reducedMotion: "reduce" });
+  await onStage?.("wizard");
   const ids = await createEstimateViaWizard(ui, {
     projectName: army.projectName, title: `${army.runPrefix} ${tag}`,
   }, army);
+  await onStage?.("api-seed");
   const lines: ArmyItem[] = [];
   for (let index = 0; index < count; index++) {
     lines.push(await createLineViaApi(ui.browser, ids.versionId, `${army.runPrefix} ${tag} ${index + 1}`, {
@@ -58,7 +62,8 @@ async function openSeededEditor(ui: Ui, ids: OwnedEstimate) {
     .not.toHaveText("Connexion…", { timeout: 30_000 });
 }
 
-async function reloadAcknowledgedEditor(ui: Ui, army: ArmyState, ids: OwnedEstimate, label: string) {
+async function reloadAcknowledgedEditor(ui: Ui, army: ArmyState, ids: OwnedEstimate, label: string,
+  onBeforeReload?: () => Promise<void>) {
   const status = ui.screen.getByTestId("estimate-page-toolbar-autosave-status");
   const beforeAck = await readEstimate(ui.browser, ids.versionId);
   let afterAck: ArmyEstimate | null = null;
@@ -84,6 +89,7 @@ async function reloadAcknowledgedEditor(ui: Ui, army: ArmyState, ids: OwnedEstim
     await dialog.accept();
   });
   try {
+    await onBeforeReload?.();
     await ui.browser.reload();
   } finally {
     await stopDialogObservation();
@@ -175,21 +181,89 @@ armyTest("LEP01 keyboard navigation and Enter create exactly one persisted line 
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const errorKey = `${army.runPrefix}-LEP01-errors`;
-    await browser.addInitScript((key) => {
+    const diagnosticsKey = `${errorKey}-diagnostics`;
+    await browser.addInitScript(({ key, diagnosticsKey }) => {
       if (!/^https?:$/.test(location.protocol)) return;
       const counts = () => JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<string, number>;
-      const count = (kind: string) => {
+      type SafeError = { type: string; name: string | null; code: string | number | null; status: number | null };
+      type Trace = {
+        stage: string; stages: Array<{ stage: string; at: number }>;
+        events: Array<{ at: number; stage: string; kind: string; classification: string; reactCode: number | null; first: SafeError; detail: SafeError | null }>;
+        unknown: number; dropped: number;
+      };
+      const readTrace = () => JSON.parse(sessionStorage.getItem(diagnosticsKey) ??
+        '{"stage":"fixture","stages":[],"events":[],"unknown":0,"dropped":0}') as Trace;
+      // Only labels from these source literals are retained. Trailing values,
+      // unknown messages, URLs, payloads and stacks never enter this trace.
+      const prefixes: Array<[string, string]> = [
+        ["Impossible de restaurer l'ordre exact après annulation de suppression.", "undo-delete-order"],
+        ["Impossible de charger les apprentissages de suggestions.", "load-suggestion-learnings"],
+        ["Impossible d'enregistrer le feedback de suggestion.", "save-suggestion-feedback"],
+        ["Impossible d'envoyer les corrections de suggestion.", "send-suggestion-corrections"],
+        ["Impossible de rafraichir le jeton de version après insertion d'ouvrage.", "refresh-assembly-insert"],
+        ["Impossible de rafraichir le jeton de version après reinsertion d'ouvrage.", "refresh-assembly-reinsert"],
+        ["Impossible de rafraichir le jeton de version après insertion de template.", "refresh-template-insert"],
+        ["Impossible de rafraichir le jeton de version après reinsertion de template.", "refresh-template-reinsert"],
+        ["Impossible de rafraichir le jeton de version après duplication de section.", "refresh-section-duplicate"],
+        ["Erreur lors du chargement des comparaisons fournisseur pour l'export.", "load-export-supplier-comparisons"],
+        ["Erreur lors de l'export CSV.", "export-csv"],
+        ["Save as assembly failed:", "save-assembly-failed"],
+        ["Save as assembly error:", "save-assembly-error"],
+        ["useToast called without ToastProvider. Toasts will be ignored.", "missing-toast-provider"],
+      ];
+      const property = (value: unknown, name: string): unknown => {
+        if ((typeof value !== "object" || value === null) && typeof value !== "function") return undefined;
+        try { return Reflect.get(value as object, name); } catch { return undefined; }
+      };
+      const metadata = (value: unknown): SafeError => {
+        const name = property(value, "name"), code = property(value, "code"), status = property(value, "status");
+        return {
+          type: value === null ? "null" : typeof value,
+          name: typeof name === "string" && ["Error", "TypeError", "AbortError"].includes(name) ? name : null,
+          code: typeof code === "string" && ["VERSION_CONFLICT", "ESTIMATE_BATCH_STALE", "ESTIMATE_BATCH_CONTEXT_CHANGED"].includes(code)
+            ? code : typeof code === "number" && [0, 18, 20].includes(code) ? code : null,
+          status: typeof status === "number" && [400, 401, 403, 404, 409, 413, 422, 429, 500, 502, 503, 504].includes(status) ? status : null,
+        };
+      };
+      const count = (kind: string, first: unknown, detail?: unknown) => {
         const current = counts();
         current[kind] = (current[kind] ?? 0) + 1;
         sessionStorage.setItem(key, JSON.stringify(current));
+        const trace = readTrace();
+        const message = kind === "console.error" ? typeof first === "string" ? first : property(first, "message") : undefined;
+        const known = typeof message === "string" ? prefixes.find(([prefix]) => message.startsWith(prefix))?.[1] : undefined;
+        const react = typeof message === "string" ? /^(?:Error: )?Minified React error #(\d{1,5})\b/u.exec(message) : null;
+        const classification = known ?? (react ? "react-minified" : "unknown");
+        if (classification === "unknown") trace.unknown++;
+        if (trace.events.length < 16) trace.events.push({
+          at: Date.now(), stage: trace.stage, kind, classification,
+          reactCode: react ? Number(react[1]) : null, first: metadata(first), detail: detail === undefined ? null : metadata(detail),
+        });
+        else trace.dropped++;
+        sessionStorage.setItem(diagnosticsKey, JSON.stringify(trace));
       };
       const originalError = console.error.bind(console);
-      console.error = (...args: unknown[]) => { count("console.error"); originalError(...args); };
-      window.addEventListener("error", () => count("error"));
-      window.addEventListener("unhandledrejection", () => count("unhandledrejection"));
-    }, errorKey);
-    const { ids, lines } = await prepare(ui, army, "LEP01", 2);
+      console.error = (...args: unknown[]) => {
+        try { count("console.error", args[0], args[1]); } finally { originalError(...args); }
+      };
+      window.addEventListener("error", (event) => count("error", event.error));
+      window.addEventListener("unhandledrejection", (event) => count("unhandledrejection", event.reason));
+    }, { key: errorKey, diagnosticsKey });
+    const markStage = async (stage: "fixture" | "wizard" | "api-seed" | "open" | "navigation" | "create" | "undo" | "redo" | "ack" | "reload") => {
+      await browser.evaluate(({ key, stage }) => {
+        const trace = JSON.parse(sessionStorage.getItem(key) ?? '{"stages":[],"events":[],"unknown":0,"dropped":0}') as {
+          stage: string; stages: Array<{ stage: string; at: number }>;
+        };
+        trace.stage = stage;
+        if (trace.stages.length < 16) trace.stages.push({ stage, at: Date.now() });
+        sessionStorage.setItem(key, JSON.stringify(trace));
+        return null;
+      }, { key: diagnosticsKey, stage });
+    };
+    const { ids, lines } = await prepare(ui, army, "LEP01", 2, markStage);
+    await markStage("open");
     await openSeededEditor(ui, ids);
+    await markStage("navigation");
     const firstTitle = row(ui, lines[0].id).getByTestId("estimate-line-title-input");
     const sectionTitle = row(ui, lines[0].parent_id!).getByTestId("estimate-section-title-input");
     await sectionTitle.focus();
@@ -220,6 +294,7 @@ armyTest("LEP01 keyboard navigation and Enter create exactly one persisted line 
     await firstTitle.press("ArrowRight");
     await expect.poll(() => caret(ui)).toBe(lines[0].title.length);
 
+    await markStage("create");
     const before = await readEstimate(browser, ids.versionId);
     const beforeIds = before.items.filter((item) => item.item_type === "line").map((item) => item.id).sort();
     const source = before.items.find((item) => item.id === lines[0].parent_id)!;
@@ -265,12 +340,14 @@ armyTest("LEP01 keyboard navigation and Enter create exactly one persisted line 
     for (const line of lines) expect(after.items.find((item) => item.id === line.id)?.quantity).toBe(1);
     const undoAdd = screen.getByTestId("estimate-editor-undo-button", { visible: true });
     await expect(undoAdd).toBeEnabled();
+    await markStage("undo");
     await undoAdd.click();
     await expect.poll(async () => (await readEstimate(browser, ids.versionId)).items
       .filter((item) => item.item_type === "line").map((item) => item.id).sort()).toEqual(beforeIds);
     await expect(screen.getByTestId("estimate-line-row")).toHaveCount(lines.length);
     const redoAdd = screen.getByTestId("estimate-editor-redo-button", { visible: true });
     await expect(redoAdd).toBeEnabled();
+    await markStage("redo");
     await redoAdd.click();
     await expect.poll(async () => (await readEstimate(browser, ids.versionId)).items
       .filter((item) => item.item_type === "line").length).toBe(lines.length + 1);
@@ -282,7 +359,8 @@ armyTest("LEP01 keyboard navigation and Enter create exactly one persisted line 
       quantity: added[0].quantity, unit_price_ht_cents: added[0].unit_price_ht_cents, h_mo: added[0].h_mo,
       k_fo: added[0].k_fo, k_mo: added[0].k_mo, line_total_ht_cents: added[0].line_total_ht_cents });
     await expect(screen.getByTestId("estimate-line-row")).toHaveCount(lines.length + 1);
-    await reloadAcknowledgedEditor(ui, army, ids, "lep01");
+    await markStage("ack");
+    await reloadAcknowledgedEditor(ui, army, ids, "lep01", () => markStage("reload"));
     const reloaded = await readEstimate(browser, ids.versionId);
     expect(reloaded.items.find((item) => item.id === addedSection.id)).toMatchObject({ item_type: "section", parent_id: source.parent_id });
     expect(reloaded.items.filter((item) => item.item_type === "line")
@@ -290,6 +368,9 @@ armyTest("LEP01 keyboard navigation and Enter create exactly one persisted line 
     expect(reloaded.items.find((item) => item.id === redone[0].id)).toMatchObject({ title: added[0].title,
       parent_id: addedSection.id, position: added[0].position, quantity: added[0].quantity });
     const errors = await browser.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<string, number>, errorKey);
+    const errorDiagnosticsRaw = await browser.evaluate((key) => sessionStorage.getItem(key), diagnosticsKey);
+    const errorDiagnostics: unknown = errorDiagnosticsRaw ? JSON.parse(errorDiagnosticsRaw) : null;
+    await recordEvidence(army, "lep01-error-diagnostics", { ...ids, errors, errorDiagnostics });
     await recordEvidence(army, "lep01-keyboard-persisted", {
       ...ids, inputMethod: "Tab, Shift+Tab, Enter, Escape, ArrowDown/Up, ArrowLeft/Right; Enter on real section trigger and add-line button",
       beforeIds, addedSection, added: { id: added[0].id, parentId: added[0].parent_id }, redone: redone[0], after, reloaded, errors,

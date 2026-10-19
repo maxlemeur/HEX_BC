@@ -11,8 +11,10 @@ Les quinze nouveaux cas et leurs parcours existants concernés ont maintenant
 une **exécution commune verte : 61/61 contrôles sur 21 fichiers**, sur le build
 `ziMgguFOu74fsPLMyxEer`. Le smoke final réussit aussi desktop/mobile (2/2).
 Les profils PDF d'émission réussissent aussi : 5/5 historiques et 4/4 v3,
-setup compris. Seule la qualité finale reste à compléter. `army-migration.md`
-et les deux audits précédents restent historiques.
+setup compris. La qualité, le smoke et RLS passent aussi en CI ; un
+`console.error` intermittent de LEP01 bloque encore le lot critical. Le
+diagnostic ci-dessous conserve cet échec. `army-migration.md` et les deux
+audits précédents restent historiques.
 
 ## Correspondance des 30 scénarios
 
@@ -285,3 +287,66 @@ Bash >= 4, non disponible dans ce PATH macOS et obligatoire dans la CI Linux.
 Ils ne sont pas comptés comme réussis. Cette dernière édition du registre
 ajoute seulement le résultat de la commande ; les sources vérifiées ne changent
 pas et son diff est contrôlé séparément.
+
+## CI du head publié — 19 octobre 2026
+
+Les résultats suivants concernent le commit publié
+`7ba50ca11cfe6e73b6307f769f49f6ed2955191d`. Ils complètent les preuves locales
+Q61, S2 et PDF ; ils ne transforment pas leur périmètre réutilisé en nouvelle
+exécution locale.
+
+| Contrôle GitHub Actions | Résultat observé |
+| --- | --- |
+| [Qualité 39223931724](https://github.com/maxlemeur/HEX_BC/actions/runs/39223931724) | Réussi : 3 280 tests Node, 2 skips RLS explicités ; 820 jsdom ; 12 contrôles de couverture critique ; 19 guardrails avec Bash ≥ 4. La matrice RLS séparée ci-dessous fournit l'exécution réelle de cette protection. |
+| [Smoke 39223931815](https://github.com/maxlemeur/HEX_BC/actions/runs/39223931815) | Réussi : desktop/mobile, 2/2. |
+| [Matrice RLS 39223931709](https://github.com/maxlemeur/HEX_BC/actions/runs/39223931709) | Réussie, avec exécution réelle. |
+| [Army critical/takeoff 39223931805](https://github.com/maxlemeur/HEX_BC/actions/runs/39223931805) | Échec final : 3 shards critical sur 4 verts et 2/2 shards takeoff verts ; shard 2 à 69/70, zéro skip. Seul LEP01 échoue sur `console.error:1`, malgré les assertions métier exactes d'ajout, undo/redo, persistance et recharge réussies. |
+
+Le reçu du shard 2 est conservé dans l'artefact GitHub `12174420096`, SHA-256
+`f869f70788704f22af4a600b6f8c62e8d0091d153a2f6e0b73e17abd97568904`,
+décompressé sous `/private/tmp/mergeone-audit-pr-plcamq1n/ci-first-failure/shard-2/`.
+Le rapport est `critical/report.json`, les faits métier LEP01 sont dans
+`critical/artifacts/business/` et la sortie du runner dans `journeys-critical.log`.
+
+Au step 94 de LEP01, le GET du test sur la version
+`017346fc-1560-4d66-814b-12b5da1cba95` reçoit 409 pendant l'undo ; la lecture
+suivante au step 95 réussit. Ce 409 est compatible avec le garde de lecture
+cohérente ; son corps n'a pas été retenu, donc sa cause précise n'est pas
+établie. Le texte du
+`console.error` n'était pas retenu et aucun lien causal entre ce refus et le
+compteur n'est établi. Le diagnostic applicatif reste en cours ; aucun
+correctif ni vert de remplacement n'est revendiqué. L'assertion stricte reste
+requise avant de clôturer ce blocage CI.
+
+### Diagnostic ciblé après le rouge CI
+
+Le compteur cumulatif et l’assertion stricte `{}` de LEP01 restent identiques.
+Une trace séparée, limitée à seize événements et seize étapes horodatées,
+retient seulement des classifications littérales connues, des types et des
+codes autorisés ; aucun message libre, URL, stack, payload ou secret. La
+console d’origine reçoit toujours tous ses arguments. La revue indépendante
+lecture seule de ce diff ne relève aucun défaut actionnable.
+
+Sur HEAD `7ba50ca1` avec ce seul fichier de parcours modifié (diff SHA-256
+`c7a686f293dbe1ce96ef0f85baafd414cde1d221c1d82a30060e7ed0df91bbcf`),
+la commande `E2E_ARMY_WORKERS=2 npm run e2e:army:dev-loop -- run --grep '^LEP0[1-5] '`
+réussit les cinq cas et leur setup : **6/6**, zéro skip/flaky/interruption.
+Elle s’exécute de `08:58:48 UTC` à `09:03:26 UTC`, avec le build de production
+`LSPapBL1S1LZ7poRCqIn_` et une stack locale propre à cette session.
+
+Le reçu est
+`.e2e/army/ci/2026-10-19T08-55-01-095Z-dev-loop/iterations/001-2026-10-19T08-58-48-379Z/manifest.json` ;
+son `critical/report.json` a pour SHA-256
+`3d7a1df117ea566003e34ab8c3cb8c62866588be72ea271b7aed6bddf5ec0dbe`.
+Le fait `lep01-error-diagnostics.json` contient `errors: {}` et aucun
+événement. Ce résultat est une **itération de diagnostic**, pas une nouvelle
+qualification : le défaut CI n’est pas reproduit ni expliqué, et aucun
+correctif applicatif supplémentaire n’est revendiqué. La stack est arrêtée
+avec le runner après l’exécution. Le candidat instrumenté doit fournir son
+propre résultat CI ; un vert seul ne prouverait pas la cause corrigée.
+
+`npm run verify:pr` est de nouveau réussi sur ce diagnostic : 3 279 tests
+Node et trois skips locaux inchangés, 820 jsdom, douze contrôles de couverture
+critique ; audit, signatures, architecture, OpenAPI, types et lint verts.
+Journal : `/private/tmp/mergeone-audit-pr-plcamq1n/verify-pr-ci-console-diagnostic.log`.
+Cette dernière mise à jour du registre ne change pas les sources vérifiées.
