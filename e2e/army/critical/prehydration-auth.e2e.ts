@@ -41,6 +41,14 @@ for (const page of ["login", "signup"] as const) {
       });
       try {
         await app.open(`/${page}`);
+        if (page === "login") {
+          // Native POST remains usable without JavaScript, while the password
+          // toggle has no native behavior until React attaches its handler.
+          await expect(screen.getByLabel("Email", { exact: true })).toBeEnabled();
+          await expect(screen.getByLabel("Mot de passe", { exact: true })).toBeEnabled();
+          await expect(screen.getByRole("button", "Se connecter", { exact: true })).toBeEnabled();
+          await expect(screen.getByRole("button", "Afficher le mot de passe", { exact: true })).toBeDisabled();
+        }
         const account = credentials.user("prehydration");
         await screen.getByLabel("Email", { exact: true }).fill(account.username);
         await screen.getByLabel(/Mot de passe/).fill(account.password);

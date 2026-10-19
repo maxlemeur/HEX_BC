@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { motion, AnimatePresence, MotionConfig, useReducedMotion } from "motion/react";
 import { FileSpreadsheetIcon, FileUpIcon, ReceiptIcon } from "lucide-react";
 
@@ -100,9 +100,20 @@ const features = [
 
 /* ─── Component ─── */
 
+const hydrationStore = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => true,
+  getServerSnapshot: () => false,
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const isHydrated = useSyncExternalStore(
+    hydrationStore.subscribe,
+    hydrationStore.getSnapshot,
+    hydrationStore.getServerSnapshot,
+  );
   // Only read for the error message, which never exists on the first render.
   const reduced = !!useReducedMotion();
 
@@ -269,6 +280,7 @@ export default function LoginPage() {
                   size="sm"
                   className="absolute top-1/2 right-2 -translate-y-1/2"
                   type="button"
+                  disabled={!isHydrated}
                   onClick={() => setShowPassword((v) => !v)}
                 >
                   {showPassword ? "Masquer" : "Afficher"}

@@ -116,6 +116,11 @@ armyTest("V3C02 the wizard pricing step offers the v3 sale coefficients only and
       await chooseRounding(ui, "100,00 € — palier inférieur");
       await nextStep(ui);
       await expect(screen.getByRole("heading", "Import", { exact: true })).toBeVisible();
+      // Legacy DPGF wizard parity: a fresh tenant without a template can still
+      // create a blank estimate; the unavailable template mode cannot trap it.
+      await expect(screen.getByText("Aucun modèle disponible actuellement. Création en mode Nouveau (vide).", { exact: true })).toBeVisible();
+      await expect(screen.getByRole("button", "Depuis un modèle", { exact: true })).toBeDisabled();
+      await expect(screen.getByRole("button", "Nouveau (vide)", { exact: true })).toHaveAttribute("aria-pressed", "true");
       const outcome = await submitWizard(ui, army, "v3c02", { trigger: "create", endpoint: "estimates" });
       const sent = sentVersion(outcome) ?? {};
       const projects = await ownedProjectIdsNamed(owner, projectName);
@@ -304,7 +309,11 @@ armyTest("V3C06 the wizard's default linked DPGF source creates a v3 through the
       await nextStep(ui);
       const source = screen.getByRole("button", "DPGF source à importer", { exact: true });
       await expect(source).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+      await expect(screen.getByText("La version sera créée avec les lignes du DPGF source lié.", { exact: true })).toBeVisible();
       const outcome = await submitWizard(ui, army, "v3c06", { trigger: "create", endpoint: "estimates" });
+      await screen.getByTestId("estimate-page-toolbar-more-actions-button").click();
+      await expect(screen.getByRole("menuitem", "Importer le DPGF source", { exact: true })).toBeVisible();
+      await browser.keyboard.press("Escape");
       const after = await storedVersions(owner, anchor.projectId);
       const created = createdOf(after, outcome);
       const state = created ? await readEstimate(browser, created.id) : null;

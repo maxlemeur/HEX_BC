@@ -63,7 +63,7 @@ approval, PDF and sending, then the client portal and purchase orders.
 - `src/app/`: Next.js 16 App Router pages, layouts, server actions, and `api/**` handlers.
 - `src/components/`, `src/hooks/`: shared UI and reusable hooks.
 - `src/lib/`, `src/workers/`, `src/test/`: domain/integration logic, background work, and shared test support.
-- `e2e/`: TesterArmy journeys, shared fixtures and legacy PowerShell/agent-browser suites.
+- `e2e/`: TesterArmy journeys and shared fixtures.
 - `supabase/migrations/`, `supabase/functions/`: ordered database changes and Edge Functions.
 - `src/lib/openapi/`, `openapi.json`: OpenAPI source generation and its tracked artifact.
 - `docs/`, `maquette/`: focused records and design references.
@@ -88,7 +88,7 @@ Use Node.js 24 LTS as pinned by `.nvmrc` and used by CI/Vercel.
 - RLS: use `npm run db:ci:local` after checking prerequisites in `e2e/README.md`. It creates and destroys its own ephemeral local stack on the Supabase native runtime, without Docker (Linux or macOS on Apple silicon; on Windows, inside WSL from a Linux checkout). `e2e:rls` is internal to that runner; never provide remote secrets or bypass its local-runner checks.
 - OpenAPI/build: `npm run generate-openapi`, `npm run validate-openapi`, `npm run build`.
 
-Vitest uses `node` and `jsdom` projects. Legacy `e2e:hex`, `e2e:hex:all`, and feature-specific `e2e:hex:*` suites require a running app, `agent-browser`, and `pwsh` or `powershell`; verify prerequisites before blaming the product.
+Vitest uses `node` and `jsdom` projects. TesterArmy profiles above run browser journeys; keep specialist SQL/RLS, calculation and parser checks for their own boundaries.
 
 Use relevant E2E as the primary behavioral validation for UI, routing, auth, workflows, or RLS and preserve its repeatable artifact. Run focused isolation regressions only for a documented E2E gap; `verify:pr` already runs the retained Vitest suites when changing or pruning that coverage. Add affected specialist checks and `git diff --check` as scope requires. Build commands can diagnose routing, configuration or OpenAPI changes during iteration; the complete `check:release` chain belongs to publication preparation. Test warnings about fallback, portal, storage, or toasts may be intentional; prioritize failed assertions and exit codes, while investigating unexpected logs. Report unrelated global failures separately.
 

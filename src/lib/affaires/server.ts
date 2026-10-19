@@ -1,4 +1,5 @@
 import { selectInChunks } from "@/lib/supabase/in-chunks";
+import { normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { cache } from "react";
 
@@ -90,6 +91,7 @@ export type AffaireListItem = {
   currentVersionNumber: number | null;
   currentStatus: AffaireStatus | null;
   currentTotalHtCents: number | null;
+  currentCurrency: SupportedEstimateCurrency | null;
   currentUpdatedAt: string;
   acceptedVersionId: string | null;
   acceptedVersionNumber: number | null;
@@ -464,6 +466,7 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
     currentVersionNumber: toNullableSafeInteger(row.current_version_number),
     currentStatus: row.current_status ?? null,
     currentTotalHtCents: toNullableSafeInteger(row.current_total_ht_cents),
+    currentCurrency: null,
     currentUpdatedAt: row.current_updated_at,
     acceptedVersionId: row.accepted_version_id,
     acceptedVersionNumber:
@@ -1681,6 +1684,34 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
   const hasNextPage = rows.length > query.size;
   const pageRows = hasNextPage ? rows.slice(0, query.size) : rows;
   const items = pageRows.map(toAffaireListItem);
+  // The list RPC projects amounts but no currency. Read only the versions it
+  // selected, under the same tenant/RLS context, in bounded batches. Resolving
+  // a project's newest version separately could label another version's amount.
+  const versionIds = [...new Set(items.flatMap((item) => item.currentVersionId ? [item.currentVersionId] : []))];
+  const { data: versions, error: currenciesError } = await selectInChunks(versionIds, (ids) => context.supabase
+    .from("estimate_versions")
+    .select("id, currency, total_ht_cents")
+    .eq("tenant_id", context.tenantId)
+    .in("id", ids));
+  if (currenciesError) {
+    throw mapSupabaseError(currenciesError, "Impossible de charger les devises des affaires.");
+  }
+  const versionsById = new Map(versions.map((version) => [version.id, {
+    currency: normalizeEstimateCurrency(version.currency), totalHtCents: version.total_ht_cents,
+  }]));
+  for (const item of items) {
+    if (!item.currentVersionId) continue;
+    const version = versionsById.get(item.currentVersionId);
+    if (!version?.currency) {
+      throw conflict("La devise de la version courante est indisponible. Rechargez la liste des affaires.");
+    }
+    // A save can change this same version between the RPC and this read.
+    // Never combine the RPC's earlier total with the later save's currency.
+    if (version.totalHtCents !== item.currentTotalHtCents) {
+      throw conflict("Le montant de la version courante a changé. Rechargez la liste des affaires.", undefined, "VERSION_CONFLICT");
+    }
+    item.currentCurrency = version.currency;
+  }
 
   const lastItem = items[items.length - 1] ?? null;
   const nextCursor =

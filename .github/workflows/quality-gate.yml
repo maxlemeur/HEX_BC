@@ -135,14 +135,6 @@ jobs:
           node-version: "24"
           cache: "npm"
 
-      - name: Require PowerShell for legacy assertion regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          legacy_pwsh="$(command -v pwsh)"
-          "$legacy_pwsh" -NoLogo -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
-          printf 'LEGACY_PWSH_PATH=%s\n' "$legacy_pwsh" >> "$GITHUB_ENV"
-
       - name: Install dependencies
         run: npm ci
 

@@ -79,6 +79,7 @@ const baseItem: AffaireListItem = {
   currentVersionNumber: 3,
   currentStatus: "sent",
   currentTotalHtCents: 125000,
+  currentCurrency: "EUR",
   currentUpdatedAt: "2026-03-09T12:00:00.000Z",
   acceptedVersionId: null,
   acceptedVersionNumber: null,

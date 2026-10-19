@@ -149,7 +149,7 @@ function createContext(options?: { role?: TenantRole; rpcResult?: RpcResult }) {
   return {
     supabase: {
       rpc,
-      from: vi.fn(),
+      from: createFromMock({}),
     },
     userId: USER_ID,
     tenantId: TENANT_ID,
@@ -189,6 +189,8 @@ function createFromMock(
 
     const scenario = effectiveQueue.shift()!;
 
+    let isListCurrencyRead = false;
+    let currencyIds: string[] = [];
     const builder = {
       select: vi.fn(),
       eq: vi.fn(),
@@ -202,9 +204,15 @@ function createFromMock(
         | undefined,
     };
 
-    builder.select.mockReturnValue(builder);
+    builder.select.mockImplementation((columns: string) => {
+      isListCurrencyRead = table === "estimate_versions" && columns === "id, currency, total_ht_cents";
+      return builder;
+    });
     builder.eq.mockReturnValue(builder);
-    builder.in.mockReturnValue(builder);
+    builder.in.mockImplementation((column: string, values: string[]) => {
+      if (isListCurrencyRead && column === "id") currencyIds = values;
+      return builder;
+    });
     builder.order.mockReturnValue(builder);
     builder.limit.mockReturnValue(builder);
     builder.range.mockReturnValue(builder);
@@ -212,7 +220,12 @@ function createFromMock(
       async () => scenario.maybeSingle ?? defaultResult
     );
     builder.then = (onfulfilled, onrejected) =>
-      Promise.resolve(scenario.limit ?? defaultResult).then(onfulfilled, onrejected);
+      Promise.resolve(isListCurrencyRead
+        // These retained list/readiness fixtures all describe EUR estimates.
+        // The real multi-currency reader and UI are exercised by LEGCUR02.
+        ? { data: currencyIds.map((id) => ({ id, currency: "EUR",
+          total_ht_cents: buildAffaireRow(Number(id.slice(-12))).current_total_ht_cents })), error: null }
+        : scenario.limit ?? defaultResult).then(onfulfilled, onrejected);
 
     return builder;
   });
@@ -3923,5 +3936,60 @@ describe("affaires hub margin analysis", () => {
     expect(result?.global.costCents).toBe(80_000);
     expect(result?.global.saleCents).toBe(108_000);
     expect(result?.global.marginMultiplier).toBe(1.35);
+  });
+});
+
+// Isolation exception: LEGCUR02 covers the real browser, persistence and UI.
+// The App Router performs this RPC and its follow-up PostgREST read on the
+// server; browser routing cannot hold either internal request without replacing
+// the rendered server result. Control that database schedule at the existing
+// reader boundary here, while exercising the real fetchAffaireList function.
+describe("affaires list currency snapshot race", () => {
+  it("refuses a currency read from a later save whose total differs from the list RPC", async () => {
+    const listed = buildAffaireRow(1, { current_total_ht_cents: 1000 });
+    const schedule: string[] = [];
+    const context = createContext({ role: "engineer" });
+    context.supabase.rpc.mockImplementation(async () => {
+      schedule.push("RPC: same version, total 1000 before the save");
+      return { data: [listed], error: null };
+    });
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockImplementation(async () => {
+        schedule.push("PostgREST: same version, USD and total 2000 after an atomic save");
+        return { data: [{ id: listed.current_version_id, currency: "USD", total_ht_cents: 2000 }], error: null };
+      }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    await expect(fetchAffaireList({ size: 20 })).rejects.toMatchObject({ status: 409, code: "VERSION_CONFLICT" });
+    expect(schedule).toEqual([
+      "RPC: same version, total 1000 before the save",
+      "PostgREST: same version, USD and total 2000 after an atomic save",
+    ]);
+  });
+
+  it("keeps the same-version USD currency and exact RPC amount when the second read is coherent", async () => {
+    const listed = buildAffaireRow(1, { current_total_ht_cents: 123456 });
+    const context = createContext({ role: "engineer", rpcResult: { data: [listed], error: null } });
+    const versionRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({
+        data: [{ id: listed.current_version_id, currency: "USD", total_ht_cents: 123456 }], error: null,
+      }),
+    };
+    context.supabase.from.mockImplementation(() => versionRead as never);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireList({ size: 20 });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      currentVersionId: listed.current_version_id, currentCurrency: "USD", currentTotalHtCents: 123456,
+    });
+    expect(versionRead.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
+    expect(versionRead.in).toHaveBeenCalledWith("id", [listed.current_version_id]);
   });
 });
