@@ -23,7 +23,7 @@ import {
 import { useToast } from "@/components/ui-legacy/Toast";
 import {
   getEstimateDraftLockSessionId,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/draft-lock-session-client";
 import { applyGeneratedOuvrages } from "@/lib/estimates/generated-ouvrage-client";
 import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
 

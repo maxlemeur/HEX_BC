@@ -23,9 +23,9 @@ import { useDraftLock } from "@/hooks/useDraftLock";
 import {
   fetchEstimateEditorData,
   fetchEstimateSendGating,
-  getEstimateDraftLockSessionId,
   type EstimateSendGatingResponse,
 } from "@/lib/estimates/client";
+import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type { EstimateStatus } from "@/lib/estimates/status";

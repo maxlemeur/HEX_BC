@@ -298,6 +298,8 @@ try {
     path.join(root, "next.config.ts"),
     path.join(root, "tsconfig.json"),
     ...await filesIn(path.join(root, "e2e", "army")),
+    ...await filesIn(path.join(root, "e2e", "fixtures", "business")),
+    ...(coverage ? [] : [path.join(root, "scripts", "tester-army", "business-corpus-selection.ts")]),
     ...(coverage ? await filesIn(path.join(root, "scripts", "tester-army")) : []),
     ...(coverage ? git(["ls-files", "--others", "--exclude-standard", "-z", "--", "supabase/migrations"]).toString().split("\0").filter(Boolean).map((file) => path.join(root, file)) : []),
   ];

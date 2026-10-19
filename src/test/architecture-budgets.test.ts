@@ -92,6 +92,63 @@ describe("architecture budgets", () => {
     expect(analysis.cycles).toEqual([]);
   });
 
+  it("resolves dotted runtime module names without treating assets or type-only imports as dependencies", () => {
+    const rootDirectory = createFixture({
+      "src/entry.ts": [
+        'export * from "./editor.impl";',
+        'import { value } from "@/panel.logic";',
+        'import { enabled } from "./panel.model";',
+        'import { review } from "./panel.review-logic";',
+        'import { delay } from "./controller.types";',
+        'import type { Shape } from "./shapes.types";',
+        'import { type OtherShape } from "./other.types";',
+        'import "./styles.css";',
+        "export async function load() { return import('./lazy.impl'); }",
+        "export const result = value + delay + Number(enabled) + review;",
+        "export type Combined = Shape & OtherShape;",
+      ].join("\n"),
+      "src/editor.impl.ts": "export const editor = 1;\n",
+      "src/panel.logic.ts": "export const value = 2;\n",
+      "src/panel.model.ts": "export const enabled = true;\n",
+      "src/panel.review-logic.ts": "export const review = 3;\n",
+      "src/controller.types.ts": "export const delay = 60;\n",
+      "src/lazy.impl.ts": "export const lazy = 4;\n",
+      "src/shapes.types.ts": "export interface Shape { id: string }\n",
+      "src/other.types.ts": "export interface OtherShape { label: string }\n",
+      "src/styles.css": "body { color: black; }\n",
+    });
+
+    const analysis = analyzeArchitecture({ config: config(), rootDirectory });
+    const entry = analysis.modules.find((module) => module.path === "src/entry.ts");
+
+    expect(entry?.runtimeDependencies).toEqual([
+      "src/controller.types.ts",
+      "src/editor.impl.ts",
+      "src/lazy.impl.ts",
+      "src/panel.logic.ts",
+      "src/panel.model.ts",
+      "src/panel.review-logic.ts",
+    ]);
+    expect(analysis.cycles).toEqual([]);
+  });
+
+  it("rejects a runtime cycle passing through an extensionless dotted module", () => {
+    const rootDirectory = createFixture({
+      "src/entry.ts": 'export * from "./editor.impl";\n',
+      "src/editor.impl.ts": 'import "@/entry";\nexport const editor = 1;\n',
+    });
+    const budgetConfig = config();
+
+    const result = validateArchitectureBudgets(
+      analyzeArchitecture({ config: budgetConfig, rootDirectory }),
+      budgetConfig
+    );
+
+    expect(result.errors).toEqual([
+      "new or expanded runtime dependency cycle: src/editor.impl.ts <-> src/entry.ts",
+    ]);
+  });
+
   it("allows only the exact baseline SCC and rejects its extension", () => {
     const rootDirectory = createFixture({
       "src/a.ts": 'import { b } from "./b";\nexport const a = b;\n',

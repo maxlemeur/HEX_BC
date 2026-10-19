@@ -6,7 +6,7 @@ import {
 import {
   createEstimateTemplateFromVersion,
   listEstimateTemplates,
-} from "@/lib/estimates/server";
+} from "@/lib/estimates/templates-server";
 
 function parsePositiveInt(value: string | null): number | null {
   if (!value) return null;

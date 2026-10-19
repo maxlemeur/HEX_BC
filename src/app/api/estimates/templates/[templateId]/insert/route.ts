@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { insertTemplateIntoVersionSchema } from "@/lib/estimates/schemas";
-import { insertTemplateIntoVersion } from "@/lib/estimates/server";
+import { insertTemplateIntoVersion } from "@/lib/estimates/assemblies-server";
 
 const paramsSchema = z.object({
   templateId: z.string().uuid("templateId invalide."),

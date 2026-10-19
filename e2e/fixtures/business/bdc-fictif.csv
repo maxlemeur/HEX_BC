@@ -1,0 +1,540 @@
+ID;Materiau;Dimension;Caracteristique;Precision;Unite;F1_nom;F1_prix;F1_ref;F1_URL;Devise
+FICTIF-0001;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;11,37;REF-FICTIVE-1;https://supplier.example.invalid/article/1;EUR
+FICTIF-0002;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;11,66;REF-FICTIVE-2;https://supplier.example.invalid/article/2;EUR
+FICTIF-0003;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;11,95;REF-FICTIVE-3;https://supplier.example.invalid/article/3;EUR
+FICTIF-0004;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;12,24;REF-FICTIVE-4;https://supplier.example.invalid/article/4;EUR
+FICTIF-0005;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;12,53;REF-FICTIVE-5;https://supplier.example.invalid/article/5;EUR
+FICTIF-0006;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;12,82;REF-FICTIVE-6;https://supplier.example.invalid/article/6;EUR
+FICTIF-0007;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;13,11;REF-FICTIVE-7;https://supplier.example.invalid/article/7;EUR
+FICTIF-0008;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;13,40;REF-FICTIVE-8;https://supplier.example.invalid/article/8;EUR
+FICTIF-0009;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;13,69;REF-FICTIVE-9;https://supplier.example.invalid/article/9;EUR
+FICTIF-0010;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;13,98;REF-FICTIVE-10;https://supplier.example.invalid/article/10;EUR
+FICTIF-0011;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;14,27;REF-FICTIVE-11;https://supplier.example.invalid/article/11;EUR
+FICTIF-0012;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;14,56;REF-FICTIVE-12;https://supplier.example.invalid/article/12;EUR
+FICTIF-0013;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;14,85;REF-FICTIVE-13;https://supplier.example.invalid/article/13;EUR
+FICTIF-0014;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;15,14;REF-FICTIVE-14;https://supplier.example.invalid/article/14;EUR
+FICTIF-0015;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;15,43;REF-FICTIVE-15;https://supplier.example.invalid/article/15;EUR
+FICTIF-0016;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;15,72;REF-FICTIVE-16;https://supplier.example.invalid/article/16;EUR
+FICTIF-0017;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;16,01;REF-FICTIVE-17;https://supplier.example.invalid/article/17;EUR
+FICTIF-0018;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;16,30;REF-FICTIVE-18;https://supplier.example.invalid/article/18;EUR
+FICTIF-0019;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;16,59;REF-FICTIVE-19;https://supplier.example.invalid/article/19;EUR
+FICTIF-0020;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;16,88;REF-FICTIVE-20;https://supplier.example.invalid/article/20;EUR
+FICTIF-0021;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;17,17;REF-FICTIVE-21;https://supplier.example.invalid/article/21;EUR
+FICTIF-0022;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;17,46;REF-FICTIVE-22;https://supplier.example.invalid/article/22;EUR
+FICTIF-0023;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;17,75;REF-FICTIVE-23;https://supplier.example.invalid/article/23;EUR
+FICTIF-0024;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;18,04;REF-FICTIVE-24;https://supplier.example.invalid/article/24;EUR
+FICTIF-0025;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;18,33;REF-FICTIVE-25;https://supplier.example.invalid/article/25;EUR
+FICTIF-0026;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;18,62;REF-FICTIVE-26;https://supplier.example.invalid/article/26;EUR
+FICTIF-0027;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;18,91;REF-FICTIVE-27;https://supplier.example.invalid/article/27;EUR
+FICTIF-0028;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;19,20;REF-FICTIVE-28;https://supplier.example.invalid/article/28;EUR
+FICTIF-0029;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;19,49;REF-FICTIVE-29;https://supplier.example.invalid/article/29;EUR
+FICTIF-0030;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;19,78;REF-FICTIVE-30;https://supplier.example.invalid/article/30;EUR
+FICTIF-0031;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;20,07;REF-FICTIVE-31;https://supplier.example.invalid/article/31;EUR
+FICTIF-0032;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;20,36;REF-FICTIVE-32;https://supplier.example.invalid/article/32;EUR
+FICTIF-0033;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;20,65;REF-FICTIVE-33;https://supplier.example.invalid/article/33;EUR
+FICTIF-0034;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;20,94;REF-FICTIVE-34;https://supplier.example.invalid/article/34;EUR
+FICTIF-0035;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;21,23;REF-FICTIVE-35;https://supplier.example.invalid/article/35;EUR
+FICTIF-0036;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;21,52;REF-FICTIVE-36;https://supplier.example.invalid/article/36;EUR
+FICTIF-0037;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;21,81;REF-FICTIVE-37;https://supplier.example.invalid/article/37;EUR
+FICTIF-0038;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;22,10;REF-FICTIVE-38;https://supplier.example.invalid/article/38;EUR
+FICTIF-0039;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;22,39;REF-FICTIVE-39;https://supplier.example.invalid/article/39;EUR
+FICTIF-0040;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;22,68;REF-FICTIVE-40;https://supplier.example.invalid/article/40;EUR
+FICTIF-0041;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;22,97;REF-FICTIVE-41;https://supplier.example.invalid/article/41;EUR
+FICTIF-0042;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;23,26;REF-FICTIVE-42;https://supplier.example.invalid/article/42;EUR
+FICTIF-0043;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;23,55;REF-FICTIVE-43;https://supplier.example.invalid/article/43;EUR
+FICTIF-0044;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;23,84;REF-FICTIVE-44;https://supplier.example.invalid/article/44;EUR
+FICTIF-0045;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;24,13;REF-FICTIVE-45;https://supplier.example.invalid/article/45;EUR
+FICTIF-0046;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;24,42;REF-FICTIVE-46;https://supplier.example.invalid/article/46;EUR
+FICTIF-0047;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;24,71;REF-FICTIVE-47;https://supplier.example.invalid/article/47;EUR
+FICTIF-0048;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;25,00;REF-FICTIVE-48;https://supplier.example.invalid/article/48;EUR
+FICTIF-0049;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;25,29;REF-FICTIVE-49;https://supplier.example.invalid/article/49;EUR
+FICTIF-0050;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;25,58;REF-FICTIVE-50;https://supplier.example.invalid/article/50;EUR
+FICTIF-0051;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;25,87;REF-FICTIVE-51;https://supplier.example.invalid/article/51;EUR
+FICTIF-0052;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;26,16;REF-FICTIVE-52;https://supplier.example.invalid/article/52;EUR
+FICTIF-0053;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;26,45;REF-FICTIVE-53;https://supplier.example.invalid/article/53;EUR
+FICTIF-0054;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;26,74;REF-FICTIVE-54;https://supplier.example.invalid/article/54;EUR
+FICTIF-0055;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;27,03;REF-FICTIVE-55;https://supplier.example.invalid/article/55;EUR
+FICTIF-0056;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;27,32;REF-FICTIVE-56;https://supplier.example.invalid/article/56;EUR
+FICTIF-0057;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;27,61;REF-FICTIVE-57;https://supplier.example.invalid/article/57;EUR
+FICTIF-0058;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;27,90;REF-FICTIVE-58;https://supplier.example.invalid/article/58;EUR
+FICTIF-0059;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;28,19;REF-FICTIVE-59;https://supplier.example.invalid/article/59;EUR
+FICTIF-0060;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;28,48;REF-FICTIVE-60;https://supplier.example.invalid/article/60;EUR
+FICTIF-0061;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;28,77;REF-FICTIVE-61;https://supplier.example.invalid/article/61;EUR
+FICTIF-0062;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;29,06;REF-FICTIVE-62;https://supplier.example.invalid/article/62;EUR
+FICTIF-0063;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;29,35;REF-FICTIVE-63;https://supplier.example.invalid/article/63;EUR
+FICTIF-0064;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;29,64;REF-FICTIVE-64;https://supplier.example.invalid/article/64;EUR
+FICTIF-0065;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;29,93;REF-FICTIVE-65;https://supplier.example.invalid/article/65;EUR
+FICTIF-0066;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;30,22;REF-FICTIVE-66;https://supplier.example.invalid/article/66;EUR
+FICTIF-0067;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;30,51;REF-FICTIVE-67;https://supplier.example.invalid/article/67;EUR
+FICTIF-0068;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;30,80;REF-FICTIVE-68;https://supplier.example.invalid/article/68;EUR
+FICTIF-0069;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;31,09;REF-FICTIVE-69;https://supplier.example.invalid/article/69;EUR
+FICTIF-0070;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;31,38;REF-FICTIVE-70;https://supplier.example.invalid/article/70;EUR
+FICTIF-0071;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;31,67;REF-FICTIVE-71;https://supplier.example.invalid/article/71;EUR
+FICTIF-0072;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;31,96;REF-FICTIVE-72;https://supplier.example.invalid/article/72;EUR
+FICTIF-0073;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;32,25;REF-FICTIVE-73;https://supplier.example.invalid/article/73;EUR
+FICTIF-0074;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;32,54;REF-FICTIVE-74;https://supplier.example.invalid/article/74;EUR
+FICTIF-0075;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;32,83;REF-FICTIVE-75;https://supplier.example.invalid/article/75;EUR
+FICTIF-0076;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;33,12;REF-FICTIVE-76;https://supplier.example.invalid/article/76;EUR
+FICTIF-0077;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;33,41;REF-FICTIVE-77;https://supplier.example.invalid/article/77;EUR
+FICTIF-0078;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;33,70;REF-FICTIVE-78;https://supplier.example.invalid/article/78;EUR
+FICTIF-0079;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;33,99;REF-FICTIVE-79;https://supplier.example.invalid/article/79;EUR
+FICTIF-0080;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;34,28;REF-FICTIVE-80;https://supplier.example.invalid/article/80;EUR
+FICTIF-0081;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;34,57;REF-FICTIVE-81;https://supplier.example.invalid/article/81;EUR
+FICTIF-0082;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;34,86;REF-FICTIVE-82;https://supplier.example.invalid/article/82;EUR
+FICTIF-0083;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;35,15;REF-FICTIVE-83;https://supplier.example.invalid/article/83;EUR
+FICTIF-0084;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;35,44;REF-FICTIVE-84;https://supplier.example.invalid/article/84;EUR
+FICTIF-0085;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;35,73;REF-FICTIVE-85;https://supplier.example.invalid/article/85;EUR
+FICTIF-0086;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;36,02;REF-FICTIVE-86;https://supplier.example.invalid/article/86;EUR
+FICTIF-0087;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;36,31;REF-FICTIVE-87;https://supplier.example.invalid/article/87;EUR
+FICTIF-0088;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;36,60;REF-FICTIVE-88;https://supplier.example.invalid/article/88;EUR
+FICTIF-0089;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;36,89;REF-FICTIVE-89;https://supplier.example.invalid/article/89;EUR
+FICTIF-0090;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;37,18;REF-FICTIVE-90;https://supplier.example.invalid/article/90;EUR
+FICTIF-0091;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;37,47;REF-FICTIVE-91;https://supplier.example.invalid/article/91;EUR
+FICTIF-0092;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;37,76;REF-FICTIVE-92;https://supplier.example.invalid/article/92;EUR
+FICTIF-0093;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;38,05;REF-FICTIVE-93;https://supplier.example.invalid/article/93;EUR
+FICTIF-0094;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;38,34;REF-FICTIVE-94;https://supplier.example.invalid/article/94;EUR
+FICTIF-0095;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;38,63;REF-FICTIVE-95;https://supplier.example.invalid/article/95;EUR
+FICTIF-0096;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;38,92;REF-FICTIVE-96;https://supplier.example.invalid/article/96;EUR
+FICTIF-0097;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;39,21;REF-FICTIVE-97;https://supplier.example.invalid/article/97;EUR
+FICTIF-0098;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;39,50;REF-FICTIVE-98;https://supplier.example.invalid/article/98;EUR
+FICTIF-0099;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;39,79;REF-FICTIVE-99;https://supplier.example.invalid/article/99;EUR
+FICTIF-0100;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;40,08;REF-FICTIVE-100;https://supplier.example.invalid/article/100;EUR
+FICTIF-0101;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;40,37;REF-FICTIVE-101;https://supplier.example.invalid/article/101;EUR
+FICTIF-0102;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;40,66;REF-FICTIVE-102;https://supplier.example.invalid/article/102;EUR
+FICTIF-0103;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;40,95;REF-FICTIVE-103;https://supplier.example.invalid/article/103;EUR
+FICTIF-0104;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;41,24;REF-FICTIVE-104;https://supplier.example.invalid/article/104;EUR
+FICTIF-0105;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;41,53;REF-FICTIVE-105;https://supplier.example.invalid/article/105;EUR
+FICTIF-0106;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;41,82;REF-FICTIVE-106;https://supplier.example.invalid/article/106;EUR
+FICTIF-0107;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;42,11;REF-FICTIVE-107;https://supplier.example.invalid/article/107;EUR
+FICTIF-0108;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;42,40;REF-FICTIVE-108;https://supplier.example.invalid/article/108;EUR
+FICTIF-0109;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;42,69;REF-FICTIVE-109;https://supplier.example.invalid/article/109;EUR
+FICTIF-0110;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 2;42,98;REF-FICTIVE-110;https://supplier.example.invalid/article/110;EUR
+FICTIF-0111;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 1;43,27;REF-FICTIVE-111;https://supplier.example.invalid/article/111;EUR
+FICTIF-0112;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 2;43,56;REF-FICTIVE-112;https://supplier.example.invalid/article/112;EUR
+FICTIF-0113;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 1;43,85;REF-FICTIVE-113;https://supplier.example.invalid/article/113;EUR
+FICTIF-0114;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 2;44,14;REF-FICTIVE-114;https://supplier.example.invalid/article/114;EUR
+FICTIF-0115;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 1;44,43;REF-FICTIVE-115;https://supplier.example.invalid/article/115;EUR
+FICTIF-0116;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 2;44,72;REF-FICTIVE-116;https://supplier.example.invalid/article/116;EUR
+FICTIF-0117;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 1;45,01;REF-FICTIVE-117;https://supplier.example.invalid/article/117;EUR
+FICTIF-0118;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 2;45,30;REF-FICTIVE-118;https://supplier.example.invalid/article/118;EUR
+FICTIF-0119;Élément fictif;DN 15;Finition inventée;Recette publique;u;Fournisseur fictif 1;45,59;REF-FICTIVE-119;https://supplier.example.invalid/article/119;EUR
+FICTIF-0120;Élément fictif;DN 20;Finition inventée;Recette publique;u;Fournisseur fictif 2;45,88;REF-FICTIVE-120;https://supplier.example.invalid/article/120;EUR
+FICTIF-0121;Élément fictif;DN 25;Finition inventée;Recette publique;u;Fournisseur fictif 1;46,17;REF-FICTIVE-121;https://supplier.example.invalid/article/121;EUR
+FICTIF-0122;Élément fictif;DN 30;Finition inventée;Recette publique;u;Fournisseur fictif 2;46,46;REF-FICTIVE-122;https://supplier.example.invalid/article/122;EUR
+FICTIF-0123;Élément fictif;DN 35;Finition inventée;Recette publique;u;Fournisseur fictif 1;46,75;REF-FICTIVE-123;https://supplier.example.invalid/article/123;EUR
+FICTIF-0124;Élément fictif;DN 40;Finition inventée;Recette publique;u;Fournisseur fictif 2;47,04;REF-FICTIVE-124;https://supplier.example.invalid/article/124;EUR
+FICTIF-0125;Élément fictif;DN 45;Finition inventée;Recette publique;u;Fournisseur fictif 1;47,33;REF-FICTIVE-125;https://supplier.example.invalid/article/125;EUR
+FICTIF-0126;Élément fictif;DN 50;Finition inventée;Recette publique;u;Fournisseur fictif 2;47,62;REF-FICTIVE-126;https://supplier.example.invalid/article/126;EUR
+FICTIF-0127;Élément fictif;DN 10;Finition inventée;Recette publique;u;Fournisseur fictif 1;47,91;REF-FICTIVE-127;https://supplier.example.invalid/article/127;EUR
+FICTIF-0128;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0129;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0130;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0131;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0132;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0133;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0134;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0135;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0136;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0137;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0138;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0139;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0140;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0141;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0142;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0143;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0144;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0145;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0146;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0147;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0148;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0149;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0150;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0151;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0152;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0153;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0154;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0155;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0156;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0157;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0158;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0159;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0160;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0161;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0162;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0163;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0164;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0165;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0166;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0167;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0168;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0169;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0170;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0171;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0172;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0173;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0174;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0175;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0176;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0177;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0178;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0179;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0180;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0181;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0182;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0183;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0184;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0185;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0186;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0187;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0188;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0189;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0190;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0191;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0192;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0193;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0194;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0195;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0196;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0197;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0198;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0199;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0200;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0201;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0202;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0203;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0204;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0205;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0206;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0207;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0208;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0209;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0210;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0211;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0212;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0213;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0214;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0215;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0216;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0217;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0218;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0219;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0220;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0221;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0222;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0223;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0224;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0225;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0226;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0227;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0228;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0229;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0230;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0231;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0232;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0233;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0234;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0235;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0236;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0237;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0238;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0239;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0240;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0241;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0242;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0243;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0244;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0245;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0246;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0247;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0248;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0249;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0250;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0251;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0252;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0253;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0254;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0255;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0256;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0257;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0258;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0259;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0260;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0261;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0262;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0263;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0264;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0265;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0266;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0267;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0268;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0269;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0270;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0271;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0272;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0273;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0274;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0275;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0276;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0277;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0278;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0279;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0280;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0281;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0282;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0283;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0284;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0285;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0286;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0287;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0288;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0289;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0290;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0291;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0292;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0293;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0294;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0295;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0296;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0297;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0298;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0299;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0300;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0301;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0302;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0303;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0304;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0305;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0306;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0307;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0308;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0309;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0310;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0311;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0312;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0313;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0314;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0315;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0316;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0317;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0318;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0319;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0320;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0321;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0322;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0323;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0324;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0325;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0326;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0327;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0328;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0329;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0330;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0331;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0332;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0333;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0334;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0335;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0336;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0337;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0338;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0339;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0340;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0341;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0342;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0343;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0344;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0345;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0346;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0347;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0348;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0349;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0350;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0351;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0352;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0353;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0354;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0355;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0356;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0357;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0358;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0359;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0360;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0361;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0362;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0363;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0364;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0365;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0366;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0367;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0368;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0369;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0370;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0371;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0372;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0373;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0374;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0375;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0376;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0377;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0378;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0379;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0380;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0381;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0382;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0383;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0384;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0385;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0386;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0387;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0388;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0389;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0390;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0391;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0392;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0393;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0394;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0395;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0396;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0397;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0398;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0399;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0400;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0401;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0402;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0403;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0404;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0405;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0406;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0407;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0408;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0409;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0410;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0411;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0412;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0413;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0414;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0415;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0416;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0417;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0418;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0419;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0420;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0421;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0422;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0423;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0424;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0425;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0426;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0427;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0428;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0429;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0430;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0431;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0432;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0433;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0434;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0435;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0436;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0437;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0438;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0439;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0440;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0441;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0442;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0443;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0444;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0445;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0446;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0447;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0448;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0449;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0450;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0451;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0452;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0453;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0454;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0455;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0456;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0457;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0458;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0459;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0460;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0461;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0462;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0463;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0464;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0465;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0466;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0467;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0468;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0469;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0470;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0471;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0472;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0473;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0474;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0475;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0476;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0477;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0478;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0479;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0480;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0481;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0482;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0483;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0484;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0485;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0486;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0487;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0488;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0489;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0490;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0491;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0492;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0493;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0494;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0495;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0496;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0497;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0498;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0499;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0500;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0501;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0502;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0503;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0504;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0505;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0506;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0507;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0508;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0509;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0510;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0511;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0512;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0513;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0514;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0515;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0516;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0517;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0518;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0519;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0520;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0521;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0522;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0523;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0524;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0525;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0526;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0527;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0528;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0529;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0530;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0531;Élément fictif;DN 50;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0532;Élément fictif;DN 10;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0533;Élément fictif;DN 15;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0534;Élément fictif;DN 20;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0535;Élément fictif;DN 25;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0536;Élément fictif;DN 30;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0537;Élément fictif;DN 35;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0538;Élément fictif;DN 40;Finition inventée;Recette publique;u;;;;;EUR
+FICTIF-0539;Élément fictif;DN 45;Finition inventée;Recette publique;u;;;;;EUR

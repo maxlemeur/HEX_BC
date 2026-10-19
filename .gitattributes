@@ -1,3 +1,5 @@
 docs/test-fixtures/fake-plan-lot-archi.pdf binary
 e2e/fixtures/source-coverage/**/*.pdf binary
 docs/audit-independant-2026-10-14/lot1/*.patch binary
+# Preserve the Windows-1252/CRLF import fixture and its byte-level oracle.
+e2e/fixtures/business/bdc-fictif.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

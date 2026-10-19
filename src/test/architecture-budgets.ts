@@ -417,9 +417,6 @@ export function analyzeArchitecture({
       if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
         continue;
       }
-      if (!isCodeLikeModuleSpecifier(specifier)) {
-        continue;
-      }
       const resolved = ts.resolveModuleName(
         specifier,
         absolutePath,
@@ -427,6 +424,9 @@ export function analyzeArchitecture({
         ts.sys
       ).resolvedModule;
       if (!resolved) {
+        if (!isCodeLikeModuleSpecifier(specifier)) {
+          continue;
+        }
         throw new Error(
           `Unable to resolve local runtime import ${specifier} from ${relativePath}`
         );

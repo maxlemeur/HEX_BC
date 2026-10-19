@@ -2,6 +2,12 @@
 
 Restitution de l'audit demandé par le dossier `docs/handoff-prestataire-2026-10-14/`.
 
+Ce dossier est historique : les constats et états ci-dessous se rapportent aux
+révisions et dates indiquées. Les contrats courants sont indexés dans
+[la documentation](../README.md). Les versions Word/PDF de la restitution sont
+conservées sous `.private/repository-hygiene-20261019/originals/`, avec leurs
+empreintes privées ; elles sont retirées de l'arbre public courant.
+
 | Fichier | Pour qui | Contenu |
 |---|---|---|
 | `rapport-audit-independant.docx` (et `.pdf`) | Porteur du projet | Appréciation globale, points solides, écarts, arbitrages proposés, priorités, chemin de réalisation, conditions de mise en service |

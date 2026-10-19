@@ -21,7 +21,13 @@ authenticated screenshot limitations stay separate from the full business suite.
 
 ## Commands
 
-Node 24 is the repository runtime. Installed versions are pinned in `package-lock.json`: `e2e` 0.21.0, `@e2e-dev/web` 0.15.0 (which bundles its own exact `playwright-core` 1.64.0), `ai` 7.0.127 and `@ai-sdk/openai` 4.0.83. Both runner packages require Node `^22.22.3 || >=24.8.0` and the CLI refuses Node 24.0–24.7 at startup; the local 24.19 and CI's latest 24.x satisfy it, while `package.json` `engines` still declares `24.x`. The root `playwright` 1.63.0 is no longer the engine's peer; it remains for `scripts/sofinther-prices.ts`. Install the engine's browsers with `npx @e2e-dev/web install chromium --with-deps` (`--with-deps` adds the Linux system libraries); otherwise a missing browser downloads once per run, before the run's clock starts.
+Node 24 is the repository runtime. [package.json](../../package.json) and
+`package-lock.json` define the installed runner and engine versions; each run's
+manifest records its effective versions. The engine bundles its own browser
+implementation; the root `playwright` dependency is also used by
+`scripts/sofinther-prices.ts` and is not a substitute for the engine's browser
+installation. Install with `npx @e2e-dev/web install chromium --with-deps`
+(`--with-deps` adds Linux system libraries).
 
 ```powershell
 npm run e2e:army:list
@@ -77,6 +83,9 @@ The [critical campaign](tester-army-critical.md) adds nine scenarios: anonymous 
 
 Note (2026-10-14): those two traces were `e2e` 0.15.2 Playwright trace zips under `.e2e/army/artifacts/`. With `e2e` 0.20.0 the same run keeps two `trace.md` pages under `.e2e/army/results/`. Smoke manifests written with 0.20.0 before the wrapper counted `trace.md` pages are not evidence: on a fresh output they exit 3 `evidence_unavailable`, and with 0.15.2 `artifacts/` left in place they passed on the old zips.
 
-Typecheck, integration ESLint and critical boundary coverage pass. The latest full Vitest and dependency-audit limitations are recorded in [the test-signal audit](test-signal-2026-10-02.md).
+For that dated campaign, typecheck, integration ESLint and critical boundary
+coverage passed; its Vitest and dependency-audit limitations are recorded in
+[the test-signal audit of 2 October](test-signal-2026-10-02.md). Current quality
+is established by `npm run verify:pr` on the identified checkout.
 
 The complete desktop critical run finished with **9 passed / 1 failed**, including one successful login setup and all nine business scenarios. Duplication exposed a real SQL `42P01`; its corrective migration passed isolated PostgreSQL regressions, was subsequently authorized and applied, and a filtered connected duplication replay passed both selected results. That initial replay recorded concurrent source changes and remains distinct from proof on stabilized source. The passing CSV regressions include the formerly failing opaque-header import. See the [critical run results](tester-army-critical.md#verified-results--2026-10-02) for exact artifacts and proof boundaries.

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { LOCAL_JOURNEY_COLLECTORS, LOCAL_JOURNEYS_OUTSIDE_SELECTIONS } from "./journey-preflight.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const directory = path.join(root, ".e2e/retro-runtime/setup-archive-checks", randomUUID());
@@ -34,6 +35,7 @@ const path = require("node:path");
   if (process.argv[2] === "list") { process.stdout.write(JSON.stringify({pairs:[]})); return; }
   const manifest = JSON.parse(await fs.readFile(path.join(output,"manifest.json"),"utf8"));
   const scenario = process.env.HARNESS_SCENARIO;
+  if (process.env.HARNESS_CORPUS_CHANGE) await fs.appendFile(path.join(process.cwd(),process.env.HARNESS_CORPUS_CHANGE),"\\n");
   if (scenario === "collision") {
     const archive = path.join(output,"runs",manifest.startedAt.replace(/[:.]/g,"-")+"-setup-failed");
     await fs.mkdir(archive,{recursive:true}); await fs.writeFile(path.join(archive,"manifest.json"),"existing-owner-bytes");
@@ -113,12 +115,23 @@ async function fixture(name) {
   await writeFile(path.join(cwd, "node_modules/e2e/dist/cli/bin.js"), fixtureCli);
   await mkdir(path.join(cwd, "e2e/army"), { recursive: true });
   for (const file of ["e2e.config.ts", "next.config.ts", "tsconfig.json", "package.json", "package-lock.json"]) await writeFile(path.join(cwd, file), file.endsWith(".json") ? "{}\n" : "export {};\n");
+  // The real wrapper imports and executes the journey preflight before setup.
+  // Mount its actual collectors and documented exclusions; the fixture CLI
+  // still owns all test execution, without a browser or backend.
+  const preflightInputs = new Set(["scripts/tester-army/journey-files.mjs", "scripts/tester-army/journey-preflight.mjs",
+    ...LOCAL_JOURNEY_COLLECTORS, ...Object.entries(LOCAL_JOURNEYS_OUTSIDE_SELECTIONS).flat()]);
+  for (const file of preflightInputs) {
+    await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+    await cp(path.join(root, file), path.join(cwd, file));
+  }
   await writeFile(path.join(cwd, ".gitignore"), ".e2e/\nnode_modules/\n");
   await mkdir(path.join(cwd, ".e2e/army/next"), { recursive: true });
   await mkdir(output, { recursive: true });
   for (const file of ["BUILD_ID", "required-server-files.json", "build-manifest.json"]) await writeFile(path.join(cwd, ".e2e/army/next", file), file === "BUILD_ID" ? "HARNESS\n" : "{}\n");
   const gitCommands = [["init", "--quiet", "--initial-branch=main"], ["add", "."], ["-c", "user.name=Setup Archive Harness", "-c", "user.email=harness@example.invalid", "commit", "--quiet", "-m", "test fixture only"]].map(args => command(cwd, "git", args));
   assert.ok(gitCommands.every(item => item.exitCode === 0), "ephemeral Git fixture must be captured");
+  await cp(path.join(root, "scripts/tester-army/business-corpus-selection.ts"),
+    path.join(cwd, "scripts/tester-army/business-corpus-selection.ts"));
   const outside = path.join(directory, `${name}-outside`);
   await mkdir(outside); await writeFile(path.join(outside, "app.log"), "outside-owner-bytes\n");
   return { cwd, output, outside, gitCommands };
@@ -258,6 +271,28 @@ await test("list-keeps-business-evidence", async f => {
   const run = await execute(f, "list", {}, "coverage-list"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "collected");
   assert.equal(await readFile(path.join(f.output, "artifacts/business/keep.json"), "utf8"), '{"marker":"KEEP-BUSINESS"}\n', "discovery must not clear business evidence");
 });
+// A browser cannot observe whether its wrapper records source changes. Copy a
+// real public input after the fixture Git commit, then mutate it in the real
+// child process: neither git diff nor the src/public untracked scan sees it.
+for (const [label, file] of [
+  ["business-ts", "e2e/fixtures/business/corpus.ts"],
+  ["business-xlsx", "e2e/fixtures/business/optima-hydraulique-fictif.xlsx"],
+  ["corpus-selection-ts", "scripts/tester-army/business-corpus-selection.ts"],
+]) {
+  await test(`changed-untracked-${label}`, async f => {
+    const target = path.join(f.cwd, file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await cp(path.join(root, file), target);
+    const before = await readFile(target);
+    assert.notEqual(command(f.cwd, "git", ["ls-files", "--error-unmatch", file]).exitCode, 0, "the corpus input must be untracked");
+    const run = await execute(f, "critical-fresh", { HARNESS_CORPUS_CHANGE: file }, "critical");
+    const after = await readFile(target);
+    assert.notDeepEqual(after, before, "the child must actually change this corpus input");
+    assert.equal(run.manifest.source.changedDuringRun, true, "changed corpus inputs must invalidate native qualification");
+    assert.equal(run.manifest.source.pilotInputs.find(entry => entry.path === file)?.sha256, digest(before));
+    assert.equal(run.manifest.source.pilotInputsAfter.find(entry => entry.path === file)?.sha256, digest(after));
+  });
+}
 assert.deepEqual(await readFile(path.join(root, "scripts/run-tester-army.mjs")), workspaceRunnerBytes, "workspace runner must remain frozen during check");
 if (helperBytes) assert.deepEqual(await readFile(helperPath), helperBytes, "helper must remain frozen during check");
 const receipt = { schemaVersion: "miaouffrage-setup-archive-check-1", finishedAt: new Date().toISOString(), scope: "isolated real wrapper/child/filesystem; no browser, auth, database or product qualification", source: { baseline, runnerSha256: digest(runnerBytes), helperSha256: helperBytes ? digest(helperBytes) : null, fixtureCliSha256: digest(fixtureCli) }, directory: relative(directory), results, passed: results.filter(item => item.status === "passed").length, failed: results.filter(item => item.status === "failed").length };

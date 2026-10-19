@@ -47,6 +47,19 @@ e2e/.auth.json
 e2e/.auth/
 .claude/skills/
 /.claude/settings.local.json
+CLAUDE.local.md
+settings.local.json
+# Original business documents and private audit material retained locally.
+/.private/
+/docs/prd_file/**
+!/docs/prd_file/README.md
+/docs/handoff-prestataire-2026-10-14/**
+!/docs/handoff-prestataire-2026-10-14/LISEZ-MOI.md
+/docs/MM_bible_chiffrage_hydraulique_V1.03.xlsm
+/docs/excel_ancien/MM_BDC_V1.csv
+/docs/audit-independant-2026-10-14/rapport-audit-independant.docx
+/docs/audit-independant-2026-10-14/rapport-audit-independant.pdf
+/test_prix_import.csv
 .agent/
 .agents/
 skills/

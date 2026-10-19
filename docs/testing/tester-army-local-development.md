@@ -50,9 +50,10 @@ doivent rester figées pendant `critical` et `full`.
 
 ### Itérer sur les parcours concernés
 
-Pendant le développement, n'exécuter que les parcours touchés par la
-modification ; la suite complète (`npm run e2e:army:ci -- full`) est lancée une
-seule fois, à la validation du lot, sur des sources figées :
+Pendant le développement, exécuter les parcours touchés sur des sources figées.
+La qualification large suit les déclencheurs CI et le contrat courant
+[AGENTS.md](../../AGENTS.md) ; elle ne se rajoute pas comme suite locale
+complète à chaque lot :
 
 ```sh
 npm run e2e:army:local -- --grep '<motif>' --app-port 3118

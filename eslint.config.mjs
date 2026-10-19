@@ -182,6 +182,8 @@ const eslintConfig = defineConfig([
     "docs/old_gemini_chiffrage/**",
     // Local e2e outputs and agent scratch directories (git-ignored, may hold huge traces).
     ".e2e/**",
+    // Preserved originals and private audit material are not application sources.
+    ".private/**",
     "**/.codex-tmp/**",
     // Independent Git checkouts belong to their own lint invocation.
     ".claude/worktrees/**",

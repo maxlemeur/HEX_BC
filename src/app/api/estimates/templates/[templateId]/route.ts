@@ -6,7 +6,7 @@ import {
   deleteEstimateTemplate,
   getEstimateTemplate,
   updateEstimateTemplate,
-} from "@/lib/estimates/server";
+} from "@/lib/estimates/templates-server";
 
 const paramsSchema = z.object({
   templateId: z.string().uuid("templateId invalide."),

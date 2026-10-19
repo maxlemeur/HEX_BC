@@ -95,6 +95,10 @@ jobs:
       - name: Enforce append-only migration history
         run: npm run supabase:migrations:git-guard
 
+      - name: Check repository hygiene
+        if: ${{ !cancelled() }}
+        run: npm run check:repository-hygiene
+
       - name: Audit dependencies
         if: ${{ !cancelled() }}
         run: npm run audit:dependencies
@@ -152,6 +156,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:critical-coverage
 
+      - name: Army recipe safety checks
+        if: ${{ !cancelled() }}
+        run: npm run check:army-recipes
+
   build:
     name: Build
     runs-on: ubuntu-24.04
@@ -188,11 +196,17 @@ jobs:
           echo "statique : ${{ needs.static.result }}"
           echo "tests    : ${{ needs.tests.result }}"
           echo "build    : ${{ needs.build.result }}"
-          for result in "${{ needs.static.result }}" "${{ needs.tests.result }}" "${{ needs.build.result }}"; do
-            # « skipped » est attendu : le build ne tourne pas sur une PR.
-            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+          for result in "${{ needs.static.result }}" "${{ needs.tests.result }}"; do
+            if [ "$result" != "success" ]; then
               echo "Quality Gate en echec : voir le job ci-dessus qui n'est pas 'success'."
               exit 1
             fi
           done
+          # Seul le build d'une PR peut être omis ; les autres jobs sont requis.
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            if [ "$GITHUB_EVENT_NAME" != "pull_request" ] || [ "${{ needs.build.result }}" != "skipped" ]; then
+              echo "Quality Gate en echec : build requis hors pull request."
+              exit 1
+            fi
+          fi
           echo "Quality Gate au vert."

@@ -35,7 +35,8 @@ const python = path.join(directory, "probe.py");
 await writeFile(python, `import importlib.util,json,sys\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('cctp_native_seed',Path(sys.argv[1]))\nm=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\nv=json.loads(Path(sys.argv[2]).read_text())\nresults=[]\nfor c in v['cases']:\n    passed=False\n    if callable(getattr(m,'validate_labor_selection',None)):\n        try:\n            m.validate_labor_selection(c['roles'],v['owner'])\n            passed=c['accept']\n        except RuntimeError:\n            passed=not c['accept']\n    results.append({'name':c['name'],'language':'python','passed':passed})\nprint(json.dumps(results))\n`, { flag: "wx" });
 const env = { ...process.env };
 for (const key of Object.keys(env)) if (/SUPABASE|^PG|DATABASE_URL|PASSWORD|SECRET|TOKEN|_KEY|^E2E_|PROXY/i.test(key)) delete env[key];
-const invocation = spawnSync("python", [python, path.join(root, "scripts/tester-army/seed-source-coverage-native.py"), vector], { cwd: root, env, windowsHide: true, encoding: "utf8", timeout: 10_000 });
+const pythonCommand = process.platform === "win32" ? "python" : "python3";
+const invocation = spawnSync(pythonCommand, [python, path.join(root, "scripts/tester-army/seed-source-coverage-native.py"), vector], { cwd: root, env, windowsHide: true, encoding: "utf8", timeout: 10_000 });
 assert.equal(invocation.status, 0, "Offline Python admission harness must execute before interpreting results");
 results.push(...JSON.parse(invocation.stdout));
 const receipt = { schemaVersion: "cctp-rmo-admission-check-1", command: [process.execPath, ...process.argv.slice(1)], createdAt: new Date().toISOString(),

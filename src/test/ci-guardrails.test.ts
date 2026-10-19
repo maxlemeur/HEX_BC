@@ -576,6 +576,118 @@ describe("CI and local quality guardrails", () => {
     expect(workflow).not.toContain("continue-on-error");
   });
 
+  // A browser cannot observe its parent CI's verdict or the local gate's
+  // command selection. Execute the actual workflow shell and package chain;
+  // only the child npm commands are controlled, without running other suites.
+  it.each([
+    { event: "pull_request", build: "skipped" },
+    { event: "pull_request", build: "success" },
+    { event: "push", build: "success" },
+    { event: "workflow_dispatch", build: "success" },
+  ])("accepts the complete quality results for $event (build=$build)", ({ event, build }) => {
+    const script = runScript(stepNamed(read(".github/workflows/quality-gate.yml"), "Aggregate results"))
+      .replaceAll("${{ needs.static.result }}", "success")
+      .replaceAll("${{ needs.tests.result }}", "success")
+      .replaceAll("${{ needs.build.result }}", build);
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8", env: { NODE_ENV: "test", PATH: process.env.PATH ?? "", GITHUB_EVENT_NAME: event },
+    });
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+  });
+
+  it.each([
+    { event: "pull_request", job: "static", status: "skipped" },
+    { event: "pull_request", job: "tests", status: "skipped" },
+    { event: "push", job: "static", status: "skipped" },
+    { event: "push", job: "tests", status: "skipped" },
+    { event: "push", job: "build", status: "skipped" },
+    { event: "workflow_dispatch", job: "build", status: "skipped" },
+    ...["static", "tests", "build"].flatMap((job) =>
+      ["failure", "cancelled", "", "unknown"].map((status) => ({ event: "pull_request", job, status }))
+    ),
+  ])("refuses $job=$status in the quality aggregate for $event", ({ event, job, status }) => {
+    let script = runScript(stepNamed(read(".github/workflows/quality-gate.yml"), "Aggregate results"));
+    for (const name of ["static", "tests", "build"]) {
+      script = script.replaceAll(`\${{ needs.${name}.result }}`, name === job ? status : "success");
+    }
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8", env: { NODE_ENV: "test", PATH: process.env.PATH ?? "", GITHUB_EVENT_NAME: event },
+    });
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(1);
+    expect(result.stdout).not.toContain("Quality Gate au vert.");
+  });
+
+  it.each([
+    { command: "check:repository-hygiene", job: "static" },
+    { command: "check:army-recipes", job: "tests" },
+  ].flatMap((entry) => ["local", "CI"].map((gate) => ({ ...entry, gate }))))(
+    "runs $command and propagates its child failure in the $gate gate", ({ command, job, gate }) => {
+      const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> }).scripts;
+      let shell = scripts["check:quality"];
+      if (gate === "CI") {
+        const jobs = workflowJobs(read(".github/workflows/quality-gate.yml"));
+        const step = workflowSteps(jobs[job]).find((candidate) =>
+          new RegExp(`^\\s+run: npm run ${command}\\s*$`, "mu").test(candidate)
+        );
+        expect(step, `${job} must run the real ${command} command`).toBeDefined();
+        expect(step).toMatch(/^\s+if: \$\{\{ !cancelled\(\) \}\}$/mu);
+        const ciCommand = /^\s+run: (.+)$/mu.exec(step!)?.[1];
+        expect(ciCommand).toBeDefined();
+        shell = ciCommand!;
+      }
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "quality-gate-commands-"));
+      try {
+        const executable = path.join(directory, "npm");
+        const log = path.join(directory, "commands.log");
+        fs.writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$COMMAND_LOG"\nif [ "$1" = run ] && [ "$2" = "$FAIL_COMMAND" ]; then exit 31; fi\n');
+        fs.chmodSync(executable, 0o755);
+        for (const fail of ["", command]) {
+          fs.writeFileSync(log, "");
+          const result = spawnSync("bash", ["-c", shell], {
+            cwd: directory, encoding: "utf8", env: {
+              NODE_ENV: "test",
+              PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
+              COMMAND_LOG: log, FAIL_COMMAND: fail,
+            },
+          });
+          const calls = fs.readFileSync(log, "utf8").trim().split("\n");
+          expect(calls, `${command} must execute exactly once`).toContain(`run ${command}`);
+          expect(calls.filter((call) => call === `run ${command}`)).toHaveLength(1);
+          expect(result.status, `${result.stdout}${result.stderr}`).toBe(fail ? 31 : 0);
+          if (fail) expect(calls.at(-1)).toBe(`run ${command}`);
+        }
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it("runs the offline RMO admission check with the platform interpreter and refuses its absence", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "quality-gate-python-"));
+    try {
+      const pythonCommand = process.platform === "win32" ? "python" : "python3";
+      const probe = spawnSync(pythonCommand, ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" });
+      expect(probe.status, `${probe.stdout}${probe.stderr}`).toBe(0);
+      // Windows needs the real installation beside python.exe (DLLs and stdlib),
+      // and a file symlink can require privileges. POSIX keeps a single-command PATH.
+      const presentPath = process.platform === "win32" ? path.dirname(probe.stdout.trim()) : directory;
+      if (process.platform !== "win32") fs.symlinkSync(probe.stdout.trim(), path.join(directory, pythonCommand));
+      const run = (interpreterPath: string) => spawnSync(process.execPath, ["scripts/tester-army/check-cctp-rmo.mjs"], {
+        cwd: root, encoding: "utf8", timeout: 20_000,
+        env: { NODE_ENV: "test", PATH: interpreterPath, SystemRoot: process.env.SystemRoot },
+      });
+      const present = run(presentPath);
+      expect(present.status, `${present.stdout}${present.stderr}`).toBe(0);
+      expect(JSON.parse(present.stdout)).toMatchObject({ passed: 12, total: 12 });
+      if (process.platform !== "win32") fs.unlinkSync(path.join(directory, pythonCommand));
+      const absent = run(directory);
+      expect(absent.status, `${absent.stdout}${absent.stderr}`).not.toBe(0);
+      expect(absent.stdout).not.toContain('"passed":12');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   // The audited host guard remains; the business runner now owns an ephemeral
   // native stack. Neither a PR nor a nightly run receives shared credentials.
   it("runs Army business workflows only with their isolated native stack", () => {

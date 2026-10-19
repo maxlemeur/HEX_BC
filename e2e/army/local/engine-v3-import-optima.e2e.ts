@@ -16,6 +16,7 @@ import { ownedEstimateContext, querySql } from "./calculation-gate-support";
 import { switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
 // Aliased: not a React hook, despite its name.
 import { insertCompletedTakeoffJob, setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
+import { businessCorpus } from "../../fixtures/business/corpus";
 
 // Lot 2, sous-lot 2.8 — chemins d'entrée v3 (docs/testing/estimate-engine-v3-2.8.md). Défaillances
 // observables, écrites avant le code :
@@ -30,28 +31,15 @@ import { insertCompletedTakeoffJob, setTenantCalcPolicy, useDedicatedV3Owner as 
 //  E10 La lecture d'un lot complet bloque ~60 s une fois sur trois : les enrichissements de provenance filtrent
 //      `.in()` sur tous les éléments, URL au-delà de la limite d'en-têtes de la passerelle (431).
 // Chiffres d'acceptation : conception §5.4 (lots OPTIMA complets, P-03), aussi contrôlés hors navigateur par
-// scripts/engine-v3/optima-lot-check.ts. Les classeurs sont déjà versionnés (docs/prd_file, S-01) : le parcours
-// en copie un dans ses artefacts et n'ajoute rien au dépôt.
+// scripts/engine-v3/optima-lot-check.ts for the original private corpus. The default public workbooks
+// are wholly fictitious and keep these volumes with independently pinned numeric expectations.
 const options = { session: "army", tags: ["critical", "local", "engine-v3", "import"], timeout: 900_000 } as const;
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type Created = { project: { id: string }; version: ArmyEstimate["version"] };
 type Ui = { app: App; screen: Screen; browser: Browser };
 
-const WORKBOOKS = path.resolve("docs/prd_file/exemple chiffrage OPTIMA");
-const LOTS = {
-  HYDRAULIQUE: {
-    file: "BEING - DPGF HYDRAULIQUE.xlsx", priced: 785,
-    sumAtWorkbookCoefficientsCents: 164_420_761, sumAtOfferCoefficientsCents: 157_232_099, costCents: 126_474_907,
-    realizedSaleCoefficient: "1.243188",
-    statuses: { out_of_scope: 61, included: 10, not_priced: 7, for_memory: 1 },
-  },
-  PLOMBERIE: {
-    file: "BEING - DPGF PLOMBERIE.xlsx", priced: 656,
-    sumAtWorkbookCoefficientsCents: 102_765_561, sumAtOfferCoefficientsCents: 98_188_792, costCents: 79_049_005,
-    realizedSaleCoefficient: "1.242126",
-    statuses: { out_of_scope: 74, not_priced: 4, not_applicable: 3, for_memory: 1 },
-  },
-} as const;
+const corpus = businessCorpus();
+const LOTS = corpus.lots;
 type Lot = (typeof LOTS)[keyof typeof LOTS];
 const NEUTRAL_VERSION = {
   margin_mode: "fixed", margin_multiplier: 1, margin_bp: 0, discount_bp: 0, discount_mode: "simple", discount_steps: [],
@@ -74,7 +62,7 @@ const num = (value: unknown) => (value === null || value === undefined ? null : 
 
 /** The control prices of the priced lines and the status mentions of a workbook (§5.4 reading). */
 async function readLot(lot: Lot) {
-  const workbook = XLSX.read(await readFile(path.join(WORKBOOKS, lot.file)), { type: "buffer" });
+  const workbook = XLSX.read(await readFile(lot.path), { type: "buffer" });
   const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0]!]!, { header: 1, raw: true });
   const headers = (rows[0] ?? []).map((cell) => String(cell ?? "").replace(/\s+/g, " ").trim());
   const column = (name: string) => headers.findIndex((header) => header.toLowerCase() === name.toLowerCase());
@@ -199,7 +187,10 @@ async function importWorkbook(ui: Ui, army: ArmyState, projectId: string, lot: L
   const directory = path.resolve(".e2e/army/local/artifacts/fixtures");
   await mkdir(directory, { recursive: true });
   const fixturePath = path.join(directory, `${army.runPrefix}-${path.basename(lot.file)}`);
-  await copyFile(path.join(WORKBOOKS, lot.file), fixturePath);
+  await copyFile(lot.path, fixturePath);
+  await recordEvidence(army, `io-${path.basename(lot.file, ".xlsx")}-corpus`, {
+    corpus: corpus.identity, mode: corpus.mode, file: lot.file,
+  });
   await app.open(`/dashboard/affaires/${projectId}?created=1`);
   await screen.getByRole("button", "Importer la DPGF", { exact: true }).tap();
   await expect(screen.getByText("Glissez-déposez votre fichier DPGF ici", { exact: true })).toBeVisible({ timeout: 30_000 });

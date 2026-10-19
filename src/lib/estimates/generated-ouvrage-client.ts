@@ -2,7 +2,7 @@ import {
   abandonGeneratedOuvrageApplication, getGeneratedOuvrageApplicationReceipt, insertGeneratedOuvrages,
 } from "@/app/dashboard/affaires/_actions/generated-ouvrages";
 import type { GeneratedOuvrageApplicationOutcome, InsertGeneratedOuvragesResult } from "@/lib/estimates/generated-ouvrages";
-import { getEstimateDraftLockSessionId } from "@/lib/estimates/client";
+import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import {
   assertNoPendingEstimateBatch, clearEstimateBatchIntention, EstimateBatchPendingError,
   readEstimateBatchIntention, retainEstimateBatchIntention, setEstimateBatchSending,

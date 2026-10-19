@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "fictional-business-corpus-1",
+  "origin": "generated; no private inputs",
+  "files": [
+    {
+      "file": "optima-hydraulique-fictif.xlsx",
+      "bytes": 145688,
+      "sha256": "cfedeb15a0d2c1bd9dc58d1174ed27d9a341bd048be168f56ae1d4d390f31acd",
+      "semanticSha256": "a8506b2f41c66ff8b4ee801e313063676e32355bf2dcd80f40eef5dc6352fa31"
+    },
+    {
+      "file": "optima-plomberie-fictif.xlsx",
+      "bytes": 94144,
+      "sha256": "7828a7d26966f88e72a0b8ae88305ed800c187a0d2cc26f18589542b642ff0e7",
+      "semanticSha256": "a05032e87d7f7fcd86266cee5ae424e4b40445383c47071cf1d5941c1ab4b1c4"
+    },
+    {
+      "file": "bdc-fictif.csv",
+      "bytes": 53124,
+      "sha256": "6f606a63a1d782c13258e49277929c42fc3541019131c46cfca51fe116b82484"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
+import { selectBusinessCorpus } from "./tester-army/business-corpus-selection";
 
 import {
   assertLoopbackSupabaseUrl, BROWSER_RESTRICTED_LOCAL_PORTS, describeSafeFailure, runLocalSupabaseCi, SafeDiagnosticError,
@@ -126,6 +127,10 @@ if (fullPhase && (grep || files.length || shard)) throw new Error("full --phase 
 // the development phase (its own journeys) runs with the unfiltered suite only,
 // or alone (--phase development) beside the shards of a sharded full suite.
 const fullPhases = fullPhase ? [fullPhase] : grep || files.length ? ["full"] : ["full", "development"];
+const selectedBusinessCorpus = selectBusinessCorpus();
+// Corpus routing reaches only the Node journey process and collection. It is
+// deliberately absent from the backend, build and browser app environments.
+const businessJourneyEnvironment = selectedBusinessCorpus.journeyEnvironment;
 const root = process.cwd();
 const evidence = path.join(root, ".e2e/army/ci", `${new Date().toISOString().replace(/[:.]/g, "-")}-${suite}`);
 fs.mkdirSync(evidence, { recursive: true });
@@ -139,6 +144,7 @@ const developmentNetworkLog = path.join(root, ".e2e/army/coverage", `${path.base
 const manifest: Record<string, unknown> = {
   schemaVersion: "army-native-ci-1",
   suite,
+  businessCorpus: { identity: selectedBusinessCorpus.identity, mode: selectedBusinessCorpus.mode },
   startedAt: new Date().toISOString(),
   command: [process.execPath, ...process.argv.slice(1)],
   node: process.version,
@@ -401,6 +407,7 @@ async function runApplication(local: SupabaseEnvironment) {
   // e2e.config.ts inheritEnv allowlist; the production build never receives it.
   const journeyEnvironment = {
     ...environment,
+    ...businessJourneyEnvironment,
     E2E_ARMY_LOCAL_DB_URL: local.E2E_ARMY_LOCAL_DB_URL,
     E2E_ARMY_LOCAL_PSQL: local.E2E_ARMY_LOCAL_PSQL,
     ...(workers === "" ? {} : { E2E_ARMY_WORKERS: workers }),
@@ -676,7 +683,8 @@ async function main() {
       if (problems.length) throw new Error(problems.join(" "));
     }
     if ((suite === "critical" || suite === "full") && (grep || files.length)) {
-      const pairs = await listArmySelection({ root, suite, grep, files, env: createLocalCiEnvironment(process.env) });
+      const pairs = await listArmySelection({ root, suite, grep, files,
+        env: { ...createLocalCiEnvironment(process.env), ...businessJourneyEnvironment } });
       const problems = selectionPreflightProblems({ pairs, grep, files });
       manifest.selectionPreflight = {
         status: problems.length ? "failed" : "passed",

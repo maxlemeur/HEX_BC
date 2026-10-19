@@ -10,11 +10,11 @@ import type { Database } from "../../../src/types/database";
 import { apiRequest, ownEstimate, readEstimate, type ArmyState } from "../critical/fixtures";
 import { ownedEstimateContext } from "../local/calculation-gate-support";
 import { setTenantCalcPolicy } from "../local/engine-v3-persistence-support";
+import { businessCorpus } from "../../fixtures/business/corpus";
 
 type Ui = { app: App; browser: Browser; screen: Screen };
 type Rule = Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 const fixturePath = path.resolve(".e2e/army/performance/fixtures/editor.json");
-const workbook = "docs/prd_file/exemple chiffrage OPTIMA/BEING - DPGF HYDRAULIQUE.xlsx";
 const TITLES = ["Pose de fenêtres PVC", "Réparations des fenêtres", "PVC", "Cloison", "Enduit", "Isolation thermique", "Menuiserie"];
 const KEYWORDS = ["pose de fenetre pvc", "fenêtres", "pose feneetre pvd", "reparation des feneetre", "pvc", "cloison", "enduit", "isolation thermique", "menuiserie"];
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -23,11 +23,15 @@ const UUID = /^[0-9a-f-]{36}$/i;
  * The temporary policy window affects only this owned local campaign's tenant. It is
  * closed before any measured edit, and no estimate status, access or email is changed. */
 export async function editorDraftFixture(ui: Ui, army: ArmyState) {
+  const corpus = businessCorpus();
+  const workbook = corpus.lots.HYDRAULIQUE.path;
+  const workbookSha256 = createHash("sha256").update(await readFile(workbook)).digest("hex");
   try {
     const retained = JSON.parse(await readFile(fixturePath, "utf8"));
-    if (retained.schemaVersion !== "dogfood-editor-1" || !retained.runPrefix?.startsWith("ARMY-") ||
+    if (retained.schemaVersion !== "dogfood-editor-1" || retained.corpus !== corpus.identity ||
+      retained.workbook?.sha256 !== workbookSha256 || !retained.runPrefix?.startsWith("ARMY-") ||
       retained.supabaseHost !== process.env.E2E_ALLOWED_SUPABASE_HOST || !UUID.test(retained.projectId) || !UUID.test(retained.versionId)) {
-      throw new Error("The retained editor receipt does not identify this owned local fixture.");
+      throw new Error("The retained editor receipt does not identify this owned local fixture and selected corpus; prepare a new owned receipt explicitly.");
     }
     return retained;
   } catch (error) {
@@ -88,10 +92,10 @@ export async function editorDraftFixture(ui: Ui, army: ArmyState) {
   }
   const detail = await apiRequest<{ data: { suggestion_rules: Rule[] } }>(ui.browser, "GET", `/api/estimates/${versionId}`);
   const rules = detail.body.data.suggestion_rules;
-  const receipt = { schemaVersion: "dogfood-editor-1", runPrefix: army.runPrefix, projectId, versionId,
+  const receipt = { schemaVersion: "dogfood-editor-1", corpus: corpus.identity, runPrefix: army.runPrefix, projectId, versionId,
     supabaseHost: process.env.E2E_ALLOWED_SUPABASE_HOST, targetLineId, expectedItems: state.items.length,
     expectedTotals: [state.version.total_ht_cents, state.version.total_tax_cents, state.version.total_ttc_cents], ruleCount: rules.length,
-    workbook: { path: workbook, sha256: createHash("sha256").update(await readFile(workbook)).digest("hex") },
+    workbook: { path: workbook, sha256: workbookSha256 },
     titles: TITLES.map((title) => ({ title, suggestions: rankSuggestions({ title, rules, limit: 5 })
       .map(({ rule, score }) => ({ value: rule.id, text: `${rule.name} (score ${score.toFixed(2)})` })) })),
   };

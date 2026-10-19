@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { businessCorpus } from "../../fixtures/business/corpus";
 
 import { expect } from "e2e";
 
@@ -147,10 +148,11 @@ armyTest("LEGCAT02 the tracked BDC CSV is uploaded, decoded and previewed with e
     const identity = await owner(ui, "LGCAT2");
     const anchor = await createV3Fixture(ui, "ancre import possédée");
     ui.army.ownedPriceLookupProjects = [...(ui.army.ownedPriceLookupProjects ?? []), anchor.project.id];
-    const fixture = path.resolve("docs/prd_file/MM_BDC_V1.2.csv");
+    const corpus = businessCorpus();
+    const fixture = corpus.bdc.path;
     const bytes = await readFile(fixture);
     const sha256 = createHash("sha256").update(bytes).digest("hex");
-    expect(sha256).toBe("b15f6b58a7597de2894810647531a1f0cc4937d99df773d14a3833575fb6f89e");
+    expect(sha256).toBe(corpus.bdc.sha256);
     await ui.app.open("/dashboard/prices");
     await ui.browser.locator('button[aria-controls="price-csv-import-panel"]').click();
     const panel = ui.browser.locator("#price-csv-import-panel");
@@ -162,7 +164,7 @@ armyTest("LEGCAT02 the tracked BDC CSV is uploaded, decoded and previewed with e
     expect(imported.status).toBe(201);
     const canonical = await imported.json<Envelope<{ id: string; filename: string; project_id: string | null }>>();
     expect(canonical.ok).toBe(true);
-    expect(canonical.data).toMatchObject({ filename: "MM_BDC_V1.2.csv", project_id: null });
+    expect(canonical.data).toMatchObject({ filename: path.basename(fixture), project_id: null });
     expect(canonical.data.id).toMatch(/^[0-9a-f-]{36}$/i);
     await expect(panel.getByText("Format BDC détecté", { exact: true })).toBeVisible();
     await expect(panel.getByText("Encodage : windows-1252", { exact: true })).toBeVisible();
@@ -170,13 +172,13 @@ armyTest("LEGCAT02 the tracked BDC CSV is uploaded, decoded and previewed with e
     await expect(panel.getByRole("heading", "Étape 4 — Importer", { exact: true })).toBeVisible();
     const summary = await ui.browser.evaluate(() => Object.fromEntries(Array.from(document.querySelectorAll("#price-csv-import-panel dt"))
       .map((label) => [label.textContent?.trim() ?? "", label.nextElementSibling?.textContent?.trim() ?? null])));
-    // Independently counted from the tracked file: 539 nonempty rows; 127 carry
+    // Both explicit corpora retain 539 nonempty rows; 127 carry
     // supplier prices, 412 have none. This new tenant has no known suppliers or
     // products, so the 127 candidates need resolution; no bulk write is claimed.
     expect(summary).toEqual({ "Total détecté": "539", "Importables": "0", "Ignorées (hors périmètre)": "412", "À corriger": "127" });
     await expect(panel.getByRole("button", "Importer les lignes prêtes", { exact: true })).toBeDisabled();
     await expect(panel.getByRole("region", "Aperçu des lignes du fichier", { exact: true }).getByRole("row")).toHaveCount(11);
-    await recordEvidence(ui.army, "legacy-guided-bdc-preview", { identity, fixture: { path: fixture, bytes: bytes.length, sha256 },
+    await recordEvidence(ui.army, "legacy-guided-bdc-preview", { identity, corpus: corpus.identity, fixture: { path: fixture, bytes: bytes.length, sha256 },
       canonicalImport: canonical.data, summary, confirmedPriceImports: 0, limit: "Upload, canonical trace and guided preview only; no confirmation or supplier creation." });
   });
 
