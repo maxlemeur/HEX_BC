@@ -1,4 +1,4 @@
-import { readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "@/types/database";
@@ -150,6 +150,7 @@ function normalizeRiskSignals(value: unknown): GeneratedOuvrageRiskSignal[] {
 export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
   supabase: Supabase;
   tenantId: string;
+  versionId?: string;
   items: EstimateItemRow[];
 }) {
   const itemIds = input.items.map((item) => item.id);
@@ -158,19 +159,25 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
     return input.items;
   }
 
-  const { data: applicationData, error: applicationError } = await selectInChunks(itemIds, (chunk) =>
-    input.supabase
+  const { data: applicationData, error: applicationError } = input.versionId
+    ? await readAllRows(() => input.supabase
+      .from("estimate_generated_ouvrage_applications" as never)
+      .select("*, estimate_items!inner(version_id)" as never, { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("estimate_items.version_id", input.versionId!))
+    : await selectInChunks(itemIds, (chunk) => input.supabase
       .from("estimate_generated_ouvrage_applications" as never)
       .select("*" as never)
       .eq("tenant_id", input.tenantId)
-      .in("estimate_item_id", chunk)
-  );
+      .in("estimate_item_id", chunk));
 
   if (applicationError || !applicationData || applicationData.length === 0) {
     return input.items;
   }
 
-  const applications = applicationData as GeneratedOuvrageApplicationRow[];
+  const itemIdSet = new Set(itemIds);
+  const applications = (applicationData as GeneratedOuvrageApplicationRow[])
+    .filter((row) => itemIdSet.has(row.estimate_item_id));
   const candidateIds = Array.from(
     new Set(applications.map((row) => row.candidate_id))
   );

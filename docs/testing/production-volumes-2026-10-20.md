@@ -202,3 +202,58 @@ avec ses contre-exemples conservés. `mise exec node@24.19.0 -- npm run
 check:release` passe à nouveau sur ces sources (qualité, build, garde PDF et smoke
 HTTP), journal `/private/tmp/mergeone-exports-ci-fix-release-final-20261020.log`.
 Le push correctif, sa CI et le rejeu en production restent à effectuer.
+
+## Lecture du gros devis : constat et régression prévue
+
+Sur la production `bee01639`, la requête GET du devis de 2 031 items dure
+**20 108 ms** (19 689 ms avant les en-têtes), mesurés par Resource Timing dans
+l'éditeur réellement connecté. La recherche de la dernière ligne reste réactive
+(71 ms de harnais), et le rechargement conserve la quantité éditée à 2.
+Preuve : `large-editor-network-timing-before.json`.
+
+La lecture de provenance IA et d'ouvrages interroge séquentiellement les
+applications par groupes de 150 identifiants, même lorsqu'il n'en existe aucune.
+La correction envisagée cible les items de la version autorisée par leur clé
+étrangère, filtre toujours le tenant et conserve une pagination exhaustive.
+Les appels qui n'ont pas de version conservent la lecture par identifiants.
+Aucune limite d'URL, vérification d'accès ou donnée métier ne change.
+
+Avant cette implémentation, le parcours LOCK01 est renforcé pour vérifier la
+provenance d'une structure appliquée, immédiatement puis après rechargement.
+IO01 conserve son budget de lecture de 10 s, ses 785 prix et ses exports complets.
+GC02 contrôle la provenance d'un ouvrage appliqué et sa réutilisation. Ces
+parcours positifs empêchent qu'une lecture vide et rapide masque la perte des
+preuves ; ils sont exécutés sur une pile locale possédée, sans fournisseur IA.
+
+
+Qualification de cette lecture : IO01 + LOCK01 **3/3** (setup compris), lecture
+complète OPTIMA **235 ms**, CSV **350 ms**, PDF réellement téléchargé de 311 017
+octets. GC02, phase `components` filtrée, **2/2** avec son setup : montants,
+provenance après application et réutilisation vérifiés. Archives canoniques :
+`.e2e/army/ci/2026-10-20T21-40-05-244Z-critical/` et
+`.e2e/army/ci/2026-10-20T21-41-28-872Z-calc-v3/`. La normalisation des deux
+nouvelles fins de ligne du serveur est sans effet sur le code exécuté par le
+premier run ; le second run utilise ces octets finaux. Revue indépendante du diff
+stable : aucun défaut actionnable.
+
+La CI du commit `11bb9b9a` a passé le CSV (1 169 ms), puis échoué pendant
+l'enregistrement du PDF : l'alerte de l'application est « Impossible d'enregistrer
+le PDF », et non un dépassement du budget CSV. Le run
+`39501143681`, job `118898721412`, conserve l'échec ; ZIP `12302045688`, SHA256
+`09f74eb543feb8f990db0464ea1ba10c61c4efd82018bb854c60e64321db4de8`.
+La cause Storage précise n'est pas observable dans ce run. Un diagnostic borné
+est ajouté côté serveur (classe, code fournisseur autorisé, statut HTTP, taille),
+sans message fournisseur, chemin objet, requête imbriquée ni jeton. Le test
+spécialisé de conservation de cette frontière et du marquage d'échec est rouge
+avant cet ajout puis vert (32 tests du générateur). Les timeouts, budgets et
+retries sont inchangés. Un nouveau vert ne suffira pas à attribuer cette erreur
+Storage à l'optimisation de provenance ; le rejeu exact de CI reste nécessaire.
+
+
+La qualification finale `mise exec node@24.19.0 -- npm run check:release` passe
+sur ce diff : tests Node/jsdom, couverture critique, build Webpack, garde PDF et
+smoke HTTP. Log : `/private/tmp/mergeone-provenance-release-final-20261020.log`.
+La revue ciblée du diagnostic ne trouve aucun défaut ; la normalisation de sa
+seule ligne d'import est une modification de fin de ligne sans effet exécuté.
+Les assertions et sorties d'échec ne sont pas assouplies. CI et production de ce
+lot restent à qualifier après son push.

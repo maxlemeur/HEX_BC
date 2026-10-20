@@ -75,3 +75,29 @@ export function classifyEstimatePdfStorageFailure(
         : "Impossible de préparer le téléchargement du PDF. Réessayez ou contactez un administrateur.",
   };
 }
+
+/** Keep provider messages, object paths and nested requests out of server logs. */
+export function logEstimatePdfStorageFailure(
+  error: unknown,
+  operation: EstimatePdfStorageOperation,
+  bytes?: number,
+) {
+  const record = toErrorRecord(error);
+  const status = Number(record?.status ?? record?.statusCode);
+  const knownCodes = new Set([
+    "AccessDenied", "DatabaseError", "DatabaseTimeout", "EntityTooLarge",
+    "InternalError", "InvalidInput", "InvalidJWT", "InvalidMimeType",
+    "InvalidSignature", "KeyAlreadyExists", "NoSuchBucket", "NoSuchKey",
+    "PayloadTooLarge", "RequestTimeout", "ResourceAlreadyExists", "SlowDown",
+    "TooManyRequests",
+  ]);
+  const knownTypes = new Set(["StorageError", "StorageApiError", "StorageUnknownError", "TypeError", "Error"]);
+  console.error("estimate_pdf_storage_failure", {
+    operation,
+    reason: classifyEstimatePdfStorageFailure(error, operation).reason,
+    httpStatus: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+    providerCode: typeof record?.code === "string" && knownCodes.has(record.code) ? record.code : "other",
+    errorType: typeof record?.name === "string" && knownTypes.has(record.name) ? record.name : "other",
+    ...(bytes === undefined ? {} : { bytes }),
+  });
+}

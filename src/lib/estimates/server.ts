@@ -3086,11 +3086,13 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
   const withAiStructure = await enrichEstimateItemsWithAiStructureProvenance({
     supabase: input.supabase,
     tenantId: input.tenantId,
+    versionId: input.targetVersionId,
     items: withTakeoff,
   });
   const withGeneratedOuvrage = await enrichEstimateItemsWithGeneratedOuvrageProvenance({
     supabase: input.supabase,
     tenantId: input.tenantId,
+    versionId: input.targetVersionId,
     items: withAiStructure,
   });
   const withVersionZero = await enrichEstimateItemsWithVersionZeroProvenance({

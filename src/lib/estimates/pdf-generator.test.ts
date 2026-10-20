@@ -1272,6 +1272,28 @@ describe("estimate pdf generator", () => {
     );
   });
 
+  // A real CI upload failed behind a deliberately generic client message. The
+  // specialist failure seam checks that diagnostics never retain provider payloads.
+  it("records bounded Storage diagnostics without exposing the provider payload", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
+    const { serviceRoleSupabase } = usePdfClients({ uploadError: {
+      name: "StorageApiError", status: 503, code: "InternalError",
+      message: "private supplier contact and bearer credential", originalError: { authorization: "secret" },
+    } });
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(generateEstimatePdfNow(VERSION_ID, { force: true }))
+        .rejects.toMatchObject({ code: "PDF_GENERATION_FAILED", details: { reason: "storage_unavailable" } });
+      expect(diagnostic).toHaveBeenCalledWith("estimate_pdf_storage_failure", {
+        operation: "upload", reason: "storage_unavailable", httpStatus: 503,
+        providerCode: "InternalError", errorType: "StorageApiError", bytes: 10,
+      });
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/private supplier|bearer|authorization|secret/);
+      expect(serviceRoleSupabase.rpc).toHaveBeenLastCalledWith("fail_estimate_pdf_generation",
+        expect.objectContaining({ p_generation_token: GENERATION_TOKEN }));
+    } finally { diagnostic.mockRestore(); }
+  });
+
   it("marks generation failure in estimate_documents", async () => {
     const { serviceRoleSupabase } = usePdfClients();
 

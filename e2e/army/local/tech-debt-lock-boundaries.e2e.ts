@@ -183,7 +183,10 @@ armyTest("LOCK01 secondary estimate writes require the owning page session", {
       if (entry.name === "learning") expect(after.records.suggestion_corrections).toMatchObject([{ rule_id: ruleId, original_value: "before", corrected_value: "after" }]);
       if (entry.name === "structure") {
         expect(after.records.estimate_structure_drafts).toMatchObject([{ id: structureId, status: "applied" }]);
-        expect(after.items.filter((item) => item.title === `${army.runPrefix} structure`)).toHaveLength(1);
+        const structure = after.items.filter((item) => item.title === `${army.runPrefix} structure`);
+        expect(structure).toHaveLength(1);
+        expect(structure[0].source_metadata).toMatchObject({ kind: "ai_structure", application_count: 1,
+          applications: [{ draft_id: structureId, draft_node_id: nodeId, applied_action: "create" }] });
       }
       expect([after.version.total_ht_cents, after.version.total_tax_cents, after.version.total_ttc_cents])
         .toEqual([before.version.total_ht_cents, before.version.total_tax_cents, before.version.total_ttc_cents]);
@@ -192,7 +195,12 @@ armyTest("LOCK01 secondary estimate writes require the owning page session", {
     expect([released.status, released.ok, released.released]).toEqual([200, true, true]);
     await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
     await browser.reload();
-    expect((await readEstimate(browser, ids.versionId)).items.filter((item) => item.title === `${army.runPrefix} structure`)).toHaveLength(1);
+    const reloaded = await readEstimate(browser, ids.versionId);
+    const structure = reloaded.items.filter((item) => item.title === `${army.runPrefix} structure`);
+    await recordEvidence(army, "lock-structure-provenance-reloaded", { structure });
+    expect(structure).toHaveLength(1);
+    expect(structure[0].source_metadata).toMatchObject({ kind: "ai_structure", application_count: 1,
+      applications: [{ draft_id: structureId, draft_node_id: nodeId, applied_action: "create" }] });
   } finally {
     if (createdFlagId) {
       const restored = await client.from("feature_flags").delete().eq("id", createdFlagId).eq("tenant_id", tenantId).eq("flag_key", "EST_163_SUGGESTION_LEARNING").select("id");

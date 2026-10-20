@@ -78,7 +78,7 @@ import {
   normalizeEstimateCurrency,
 } from "@/lib/money";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
-import { classifyEstimatePdfStorageFailure } from "@/lib/estimates/pdf-storage-error";
+import { classifyEstimatePdfStorageFailure, logEstimatePdfStorageFailure } from "@/lib/estimates/pdf-storage-error";
 import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
 import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
@@ -1961,6 +1961,7 @@ async function renderAndPublishOfferPdf(input: {
     uploadError &&
     !isImmutableStorageObjectAlreadyPresent(uploadError)
   ) {
+    logEstimatePdfStorageFailure(uploadError, "upload", pdfBuffer.byteLength);
     const failure = classifyEstimatePdfStorageFailure(uploadError, "upload");
     throw internalError(
       failure.message,

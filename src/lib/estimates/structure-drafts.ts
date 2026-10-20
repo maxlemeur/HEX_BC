@@ -3090,6 +3090,7 @@ export async function applyEstimateStructureDraft(
 export async function enrichEstimateItemsWithAiStructureProvenance(input: {
   supabase: Supabase;
   tenantId: string;
+  versionId?: string;
   items: EstimateItemRow[];
 }) {
   const itemIds = input.items.map((item) => item.id);
@@ -3098,25 +3099,36 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
     return input.items;
   }
 
-  const { data: applicationData, error: applicationError } = await selectInChunks(itemIds, (chunk) =>
-    readAllRows(() => input.supabase
+  const { data: applicationData, error: applicationError } = input.versionId
+    ? await readAllRows(() => input.supabase
+      .from("estimate_structure_draft_applications")
+      .select("draft_id, draft_node_id, estimate_item_id, applied_action, created_at, id, estimate_items!inner(version_id)", { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("estimate_items.version_id", input.versionId!))
+    : await selectInChunks(itemIds, (chunk) => readAllRows(() => input.supabase
       .from("estimate_structure_draft_applications")
       .select(
         "draft_id, draft_node_id, estimate_item_id, applied_action, created_at, id",
         { count: "exact" }
       )
       .eq("tenant_id", input.tenantId)
-      .in("estimate_item_id", chunk))
-  );
+      .in("estimate_item_id", chunk)));
 
   if (applicationError || !applicationData || applicationData.length === 0) {
     return input.items;
   }
 
+  // The item FK, rather than the application's historical target, defines membership.
+  const itemIdSet = new Set(itemIds);
+  const applications = (applicationData as Array<Pick<
+    Database["public"]["Tables"]["estimate_structure_draft_applications"]["Row"],
+    "id" | "draft_id" | "draft_node_id" | "estimate_item_id" | "applied_action" | "created_at"
+  >>).filter((row) => itemIdSet.has(row.estimate_item_id));
+
   const draftNodeIds = Array.from(
-    new Set(applicationData.map((row) => row.draft_node_id))
+    new Set(applications.map((row) => row.draft_node_id))
   );
-  const draftIds = Array.from(new Set(applicationData.map((row) => row.draft_id)));
+  const draftIds = Array.from(new Set(applications.map((row) => row.draft_id)));
 
   const [draftNodeResult, draftResult] = await Promise.all([
     selectInChunks(draftNodeIds, (chunk) =>
@@ -3162,7 +3174,7 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
     }>
   >();
 
-  applicationData.forEach((row) => {
+  applications.forEach((row) => {
     const current = applicationsByItemId.get(row.estimate_item_id);
     if (current) {
       current.push(row);
