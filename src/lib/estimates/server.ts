@@ -4912,7 +4912,7 @@ export async function createEstimate(
 
 export async function getEstimateVersionDetails(
   versionId: string,
-  options?: { includeExportCalculationContext?: boolean }
+  options?: { includeExportCalculationContext?: boolean; includeItems?: boolean }
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
@@ -4999,7 +4999,7 @@ export async function getEstimateVersionDetails(
     versionZeroSummary,
   ] =
     await Promise.all([
-      readAllEstimateItems({ supabase, tenantId, versionId }),
+      options?.includeItems === false ? Promise.resolve([]) : readAllEstimateItems({ supabase, tenantId, versionId }),
       categoriesQuery,
       supplyTypesQuery,
       laborRolesQuery,
@@ -5045,7 +5045,10 @@ export async function getEstimateVersionDetails(
     );
   }
 
-  const items = await enrichEstimateItemsWithSourceMetadata({
+  // A CSV v3 already loads the version's complete document under the same
+  // authorization boundary. Its metadata read needs no duplicate item pages
+  // or provenance enrichment; ordinary editor/export callers keep both.
+  const items = options?.includeItems === false ? [] : await enrichEstimateItemsWithSourceMetadata({
     supabase,
     tenantId,
     targetVersionId: versionId,

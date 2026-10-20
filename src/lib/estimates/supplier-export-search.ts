@@ -47,11 +47,15 @@ export async function loadSupplierExportSearch(): Promise<SupplierExportSearch |
 export function mayMatchSupplierExportSearch(search: SupplierExportSearch | null, title: string): boolean {
   if (!search) return true;
   const query = title.trim().replace(/\s+/g, " ").toLowerCase();
+  const digits = query.match(/[0-9]+/g)?.sort((a, b) => b.length - a.length)[0];
+  // ILIKE case folding and escapeIlikeToken never remove literal ASCII
+  // digits. Their absence excludes even an accented/punctuated query safely.
+  if (digits && !search.ascii.some(value => value.includes(digits))
+    && !search.unicode.some(value => value.includes(digits))) return false;
   // SQL strips punctuation from its ILIKE token. Preserve that path, as well
   // as non-ASCII queries, rather than guessing equivalent matching semantics.
   if (!/^[a-z0-9 ]+$/.test(query)) return true;
   if (search.ascii.some(value => value.includes(query))) return true;
   if (search.unicode.length === 0) return false;
-  const digits = query.match(/[0-9]+/g)?.sort((a, b) => b.length - a.length)[0];
   return !digits || search.unicode.some(value => value.includes(digits));
 }

@@ -130,7 +130,7 @@ export function writeEstimateV3Csv(rows: CsvCell[][]): string {
 
 /** CSV de l'export standard d'une v3 (GET …/export?format=csv) ; une v1/v2 reçoit un 409 nommé. */
 export async function exportEstimateVersionV3Csv(versionId: string) {
-  const details = await getEstimateVersionDetails(versionId, { includeExportCalculationContext: true });
+  const details = await getEstimateVersionDetails(versionId, { includeExportCalculationContext: true, includeItems: false });
   if (!usesSaleCoefficients(resolveEstimateEngineVersion(details.version))) {
     throw conflict(
       "L'export CSV par le serveur est réservé aux devis du moteur de calcul 3 ; l'éditeur construit le CSV d'une version v1/v2.",

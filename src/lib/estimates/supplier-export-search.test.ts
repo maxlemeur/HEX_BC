@@ -15,7 +15,11 @@ describe("conservative catalogue preflight for estimate exports", () => {
       expect(mayMatchSupplierExportSearch(search, query), query).toBe(true);
     }
     expect(mayMatchSupplierExportSearch(search, "Ligne fictive 0001")).toBe(false);
+    expect(mayMatchSupplierExportSearch(search, "Réserve fictive 0001")).toBe(false);
     expect(mayMatchSupplierExportSearch(search, "tube")).toBe(true);
+    // SQL removes punctuation but never the literal digit fragments: keep a
+    // possible 12_3 -> 123 match, including a non-ASCII designation.
+    expect(mayMatchSupplierExportSearch({ ascii: ["reserve 123"], unicode: [] }, "Réserve 12_3")).toBe(true);
   });
 
   it("never excludes a query when the inventory is incomplete", () => {

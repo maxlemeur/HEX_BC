@@ -161,3 +161,44 @@ totaux, et la désignation finale contenant point-virgule, guillemets et retour
 à la ligne. Il ne qualifie pas 1 005 en-têtes de commandes en production.
 Références conservées : `C-2610-043` à `C-2610-048` ; fournisseur et chantier
 `ARMY-PROD-ORDERS-20261020`. Aucun envoi ni achat effectué.
+
+## Rouge CI du deuxième lot, avant correction complémentaire
+
+Le commit `2f41de4db5ba3d3e27ec1ff95eff724744fbc532` passe la qualité et le smoke,
+mais IO01 échoue au budget CSV : **20 231 ms > 10 000 ms**, avec les 1 900 lignes
+reçues. Run `39498510766`, job `118889806115`, artefact
+`army-critical-shard-4-evidence` (`12299252606`, SHA-256
+`909324a1ca587b13b9af4088da7ff982c0692f1f8cb33dfeb543cb3a5b8b1ee3`).
+Le déploiement de ce commit reste en attente. Ce rouge n'est pas requalifié par
+le vert local précédent et le budget n'est pas augmenté.
+
+Le CSV utilise les items du document v3, mais recharge aussi tous les items et
+leur provenance enrichie via `getEstimateVersionDetails`, uniquement pour ses
+métadonnées (identité et libellés de rôles/fournitures). La correction ciblée
+doit omettre cette seconde lecture explicitement dans ce seul appelant, en
+conservant l'autorisation propriétaire/tenant et le contrôle de révision. Le
+parcours IO01 existant fournit le rouge/vert de latence et l'oracle complet ;
+un test isolé de simple transmission d'option n'ajouterait aucune preuve.
+
+Le premier rejeu local de cette correction reste rouge à **11 105 ms**. Le filtre
+conservateur conserve aussi toutes les 1 036 désignations « Réserve », à cause de
+leur accent, même en l'absence du fragment numérique dans le catalogue. Une
+condition nécessaire plus simple doit exclure ces recherches : les chiffres
+ASCII contigus de la requête doivent exister dans au moins une valeur indexée.
+Le nettoyage SQL retire des signes, jamais ces chiffres. Les cas incertains
+sans chiffres et les candidats conservant le fragment restent sur le chemin
+actuel. L'oracle Unicode/ponctuation est enrichi et exécuté avant cette seconde
+correction ; le même parcours IO01 et le même budget seront rejoués.
+
+Le rejeu final de la correction complémentaire passe **2/2**, sources inchangées,
+sans retry ni modèle : **358 ms** pour le CSV complet de 1 900 lignes, budget
+inchangé de 10 000 ms, puis vrai téléchargement PDF de 310 976 octets. Les
+contrôles SQL/RLS de sa pile jetable passent également ; ce run ne remplace pas
+la mesure des plafonds SQL en WSL. Reçu : `io01-ci-fix-receipt.json`, archive
+`/private/tmp/mergeone-exports-ci-fix-20261020/.e2e/army/ci/2026-10-20T21-28-22-885Z-critical/`.
+
+La revue indépendante valide l'option de métadonnées et le préfiltre numérique,
+avec ses contre-exemples conservés. `mise exec node@24.19.0 -- npm run
+check:release` passe à nouveau sur ces sources (qualité, build, garde PDF et smoke
+HTTP), journal `/private/tmp/mergeone-exports-ci-fix-release-final-20261020.log`.
+Le push correctif, sa CI et le rejeu en production restent à effectuer.
