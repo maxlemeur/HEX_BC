@@ -9,7 +9,7 @@ export const repositoryRoot = path.resolve(fileURLToPath(new URL("../../", impor
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const relativePath = (file) => path.relative(repositoryRoot, file).replaceAll("\\", "/");
 export const digestPattern = /^[0-9a-f]{64}$/;
-export const buildCommands = [["scripts/validate-openapi-runner.mjs"], ["--max-old-space-size=4096", "node_modules/next/dist/bin/next", "build", "--webpack"], ["--import", "tsx", "scripts/check-performance-budgets.ts"]];
+export const buildCommands = [["scripts/validate-openapi-runner.mjs"], ["--max-old-space-size=4096", "node_modules/next/dist/bin/next", "build", "--webpack"], ["--import", "tsx", "scripts/check-performance-budgets.ts"], ["scripts/check-pdf-runtime.mjs"]];
 
 /**
  * Keep Next's generated config updates separate from another active dev server.
