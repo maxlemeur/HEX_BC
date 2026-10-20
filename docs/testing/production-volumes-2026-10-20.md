@@ -381,3 +381,89 @@ isolé et smoke HTTP). Les trois tests Node préexistants ignorés restent exclu
 de la preuve. Log `/private/tmp/mergeone-pdf-socket-release-final-20261021.log`.
 Revue indépendante close après renforcement de l'oracle réseau ; diff-check
 propre. À ce stade, la CI du commit final puis sa production restent à vérifier.
+
+
+## Résumé de structure tronqué au-delà de1 000 lignes
+
+La préparation des contrôles finaux révèle dans le hub du gros dossier la phrase
+« 1000 lignes de devis disponibles depuis la DPGF importée. », contre1900 lignes
+réelles et exportées. Preuve `large-hub-count-before.json` sur le build bee0163.
+`fetchAffaireHubSummaryWithContext` lit les fournisseurs de structure sans
+pagination : le plafond PostgREST tronque ce résumé et peut aussi masquer les
+modes des lignes après la première page. Le nombre global utilise déjà count
+exact. Avant correction, IO01 est enrichi d'une assertion visible exacte1900,
+sur le même vrai classeur avant la génération PDF. Correctif prévu : lecture
+complète par le helper existant, projection avec id et count exact, filtres de
+tenant/version conservés. Aucun test isolé supplémentaire ni migration requis.
+
+
+## Pagination PDF et stabilité du parcours après export
+
+CIc13999f2 : qualité et smoke verts, mais IO01 dépasse encore30s avant le
+vrai téléchargement. Artefact12304703428 SHA256
+`e0e09c28448de8f69e51adc4df6718ed58b893e53773d78f84bfa0972e99e0fe`.
+Cette fois, aucune panne Storage : upload à22:36:52, publication à22:36:56,
+signature à22:37:03 après clic à22:36:24. Le correctif TCP a donc passé son
+ancienne étape d'échec ; le délai observé reste un défaut à traiter.
+Le profil local du vrai document montre les relayouts Yoga et conversions de
+styles répétés. Le renderer installé4.9.0 expose `experimentalPagination`
+([changelog officiel](https://github.com/diegomura/react-pdf/blob/master/packages/renderer/CHANGELOG.md)),
+qui mesure une fois les contenus. Avant adoption, pilote sur le contrat du même
+devis : mesurer avant/après, toutes les1900lignes et valeurs, texte/footer de
+chaque page, première/dernière page, conditions et titres longs. Conserver le
+budget de téléchargement30s ; aucune dépendance n'est mise à jour pour ce pilote.
+
+Le run local avec compteur corrigé passe l'assertion1900 et les deux fichiers,
+puis expose un409 dans les paramètres après le téléchargement. L'écran du hub
+reste actif et `router.refresh()` est encore déclenché par le succès PDF, alors
+que le test reprend un verrou API : l'exclusivité de page doit rester protégée.
+Le parcours quittera explicitement cet écran avant ses écritures API suivantes ;
+un code d'erreur fermé sera retenu si une assertion échoue. Run
+`.e2e/army/ci/2026-10-20T22-39-53-908Z-critical/`, conservé comme échec partiel.
+Le lancement prématuré22-39-11 a été interrompu avant correction, hors preuve.
+
+
+
+Pilote sur le même contrat de2031items : nouveau moteur seul792ms,71pages,
+1900lignes et tousPU/HT/statuts/totaux exacts. Une première lecture de capture
+suggérait un footer masqué. Les coordonnées et pixels contredisent cette lecture :
+ancien et simple opt-in ont le SIRET à812,34pt et1712pixels d'encre dans la même
+bande basse. Aucun rouge d'occlusion n'est établi. La revue indépendante le
+confirme. Le gabarit`layout` essayé déplace au contraire les mentions de109,01pt
+vers le haut : il est rejeté, malgré ses tests textuels verts. Le simple
+`experimentalPagination` est retenu sur les trois pages, sans changer le chrome.
+La sonde canvas/PDF.js préparée reste hors sources : son vert ne prouve pas le
+doute initial. Les preuves visuelles et de contenu du pilote sont conservées.
+
+Comparaison appariée sans logo, même contrat et même Node24.22.0 : ancien7557,5ms
+contre simple opt-in792ms (échantillons distincts de la campagne, pas une médiane
+WSL). Le dernier rendu apparié1087ms utilisait le template rejeté et ne mesure
+pas le correctif final. La limite de téléchargement30s reste inchangée.
+
+Le run candidat avec template passe IO01 **2/2 avec connexion**, snapshot
+restauré, pgTAP et RLS : compteur1900, CSV1900/1900 en178ms, PDF réel311413octets
+reçu en6217ms, repricing et lectures successives verts après sortie du hub.
+Archive `.e2e/army/ci/2026-10-20T22-48-48-374Z-critical/`. Son check:release est
+également vert (`mergeone-large-pagination-release-final-20261021.log`), mais
+ces preuves PDF sont invalidées par le retrait du template. Les assertions du
+compteur et du transfert d'acteur restent pertinentes sur leurs sources inchangées.
+Le candidat final simple opt-in est requalifié avant son push.
+
+
+Candidat final simple opt-in : IO01 **2/2 avec connexion**, sur Node24.22.0,
+avec snapshot restauré, pgTAP et RLS. Archive canonique
+`.e2e/army/ci/2026-10-20T22-52-58-459Z-critical/` : compteur1900, CSV185ms,
+PDF réel310971octets téléchargé en4693ms, repricing et lectures successives
+passés. Le refus de préparation depuis le checkout racine contenant des fichiers
+d'environnement reste hors preuve ; la qualification utilise la copie propre.
+La revue indépendante du diff stable ne relève aucun défaut actionnable.
+
+
+`mise exec node@24.22.0 -- npm run check:release` passe sur les sources finales
+simples : 3336tests Node,820jsdom,12contrôles critiques, build Webpack, contrôle
+réel des12polices et smokeHTTP. Journal
+`/private/tmp/mergeone-large-simple-pagination-release-final-20261021.log`.
+Dernier échantillon apparié simple806,3ms, contre7557,5ms pour le même contrat
+sans opt-in et le même runtime ; 71pages et310971octets du vrai parcours local
+restent distingués du pilote sans logo. Aucun timeout, retry, formule ou
+contrat d'autorisation ne change. Revue close, diff-check propre.

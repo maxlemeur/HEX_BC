@@ -146,7 +146,7 @@ async function saveSettings(browser: Browser, army: ArmyState, versionId: string
   const sent = Date.now();
   const response = await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}`,
     { ...patch, expected_content_revision: before.version.content_revision }, { "if-match": before.version.updated_at });
-  await recordEvidence(army, `io-settings-${label}`, { versionId, patch, status: response.status, ok: response.body.ok,
+  await recordEvidence(army, `io-settings-${label}`, { versionId, patch, status: response.status, ok: response.body.ok, errorCode: response.body.error?.code ?? null,
     elapsedMs: { leaseAndRead: sent - started, read: beforeMs, save: Date.now() - sent } });
   expectReadsWithinBudget(beforeMs);
   expect([response.status, response.body.ok]).toEqual([200, true]);
@@ -323,6 +323,8 @@ async function expectLargeDownloads(ui: Ui, army: ArmyState, projectId: string, 
   expect(Math.round(Number(cell(footer!, "Total HT (EUR)")) * 100)).toBe(state.version.total_ht_cents);
 
   await ui.app.open(`/dashboard/affaires/${projectId}`);
+  await expect(ui.screen.getByText("1900 lignes de devis disponibles depuis la DPGF importée.", { exact: true }))
+    .toBeVisible({ timeout: 30_000 });
   await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).tap();
   const generate = ui.screen.getByRole("button", "Générer et télécharger", { exact: true });
   await expect(generate).toBeEnabled({ timeout: 30_000 });
@@ -336,6 +338,9 @@ async function expectLargeDownloads(ui: Ui, army: ArmyState, projectId: string, 
     versionId, path: pdfPath, bytes: pdf.byteLength, sha256: createHash("sha256").update(pdf).digest("hex"),
     proof: "actual browser file download; content/amount inspection also runs on the production PDF",
   });
+  // PDF success refreshes the hub. Close that UI lease before the API actor
+  // acquires its own lease and reprices this version in expectOfferAndCost.
+  await ui.app.open("/dashboard/affaires");
 }
 
 armyTest("IO01 the hydraulic OPTIMA lot imports into a v3 at its workbook prices (785/785), then IO02 at 1,30 / 1,20 and at cost", options,

@@ -310,7 +310,7 @@ export function buildCommercialEstimatePdfDocument(input: CommercialEstimateDocu
   const separateLimits = Boolean(limits && layout.conditionsPlacement === "new_page");
   const reversed = c.version.contractorRole === "subcontractor";
   return <Document>
-    <Page size="A4" style={pdfStyles.page} wrap>
+    <Page size="A4" style={pdfStyles.page} wrap experimentalPagination>
       <PdfChrome contract={c} /><PdfBrand contract={c} logoDataUri={input.logoDataUri} />
       <View style={pdfStyles.identity}>
         <View style={pdfStyles.issuer}><Text style={pdfStyles.label}>Émis par</Text><Text style={pdfStyles.name} hyphenationCallback={hyphenatePdfIdentity}>{c.issuer.displayName}</Text>
@@ -337,10 +337,10 @@ export function buildCommercialEstimatePdfDocument(input: CommercialEstimateDocu
       {reversed ? <Text style={pdfStyles.notice}>{ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}</Text> : null}
       {limits && !separateLimits ? <PdfLimits text={limits} /> : null}
     </Page>
-    {separateLimits && limits ? <Page size="A4" style={pdfStyles.page} wrap>
+    {separateLimits && limits ? <Page size="A4" style={pdfStyles.page} wrap experimentalPagination>
       <PdfChrome contract={c} /><PdfBrand contract={c} logoDataUri={input.logoDataUri} /><PdfLimits text={limits} />
     </Page> : null}
-    {layout.includeTerms && terms ? <Page size="A4" style={pdfStyles.page} wrap>
+    {layout.includeTerms && terms ? <Page size="A4" style={pdfStyles.page} wrap experimentalPagination>
       <PdfChrome contract={c} /><PdfBrand contract={c} logoDataUri={input.logoDataUri} />
       <Text style={pdfStyles.conditionsTitle}>{terms.title}</Text><Text style={pdfStyles.notice}>{termsReview(terms)}</Text>
       {"isDraft" in terms ? <Text style={pdfStyles.notice}>{ESTIMATE_DRAFT_TERMS_NOTICE}</Text> : null}

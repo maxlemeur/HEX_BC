@@ -996,12 +996,12 @@ async function fetchAffaireHubSummaryWithContext(
         .eq("version_id", currentVersion.id)
         .eq("item_type", "line")
         .limit(1),
-      context.supabase
+      readAllRows(() => context.supabase
         .from("estimate_items")
-        .select("item_type, source_provider")
+        .select("id, item_type, source_provider", { count: "exact" })
         .eq("tenant_id", context.tenantId)
         .eq("version_id", currentVersion.id)
-        .eq("item_type", "line"),
+        .eq("item_type", "line")),
       Promise.resolve(fetchAffaireIntakeWorkspace(project.id)).catch(() => null),
       Promise.resolve(
         fetchAffaireRegisterGateSummary({
