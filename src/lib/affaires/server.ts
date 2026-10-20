@@ -1001,7 +1001,7 @@ async function fetchAffaireHubSummaryWithContext(
         .select("id, item_type, source_provider", { count: "exact" })
         .eq("tenant_id", context.tenantId)
         .eq("version_id", currentVersion.id)
-        .eq("item_type", "line")),
+        .eq("item_type", "line"), { concurrency: 4 }),
       Promise.resolve(fetchAffaireIntakeWorkspace(project.id)).catch(() => null),
       Promise.resolve(
         fetchAffaireRegisterGateSummary({

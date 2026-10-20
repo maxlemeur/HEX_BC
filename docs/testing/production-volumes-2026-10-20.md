@@ -467,3 +467,46 @@ Dernier échantillon apparié simple806,3ms, contre7557,5ms pour le même contra
 sans opt-in et le même runtime ; 71pages et310971octets du vrai parcours local
 restent distingués du pilote sans logo. Aucun timeout, retry, formule ou
 contrat d'autorisation ne change. Revue close, diff-check propre.
+
+
+## Derniers allers-retours réseau du gros volume
+
+La production f1aa485 est Ready et ses quatre workflows main sont verts. Sur le
+même compte et le même devis : lecture complète 8,72 s, CSV réel 18,70 s,
+1900 lignes et tous les montants exacts. Le résumé affiche désormais 1900.
+Le délai résiduel additionne notamment les pages PostgREST lues en série.
+Comportement visé : première page avec compte exact, puis quatre pages maximum
+en parallèle, assemblées par offset, sans préfixe partiel après une erreur.
+Le chemin générique par défaut reste séquentiel pour ses builders partagés ;
+seules les factories fraîches catalogue et structure optent pour la concurrence.
+Le lecteur des items conserve tenant/version, position/id, sous-arbres et contrôle
+de révision des appelants. Aucun changement SQL ni hausse de budget.
+
+Rouge réel : la même fixture OPTIMA en production, reçue en 18,70 s. IO01
+qualifiera les fichiers et montants après correction. L'isolation complémentaire
+est nécessaire pour inverser les réponses HTTP, injecter une page tronquée, un
+compte modifié, une duplication ou une panne au milieu d'une vague ; le parcours
+réel ne peut pas provoquer ces courses de transport de manière déterministe.
+Ces régressions sont écrites avant le changement du lecteur.
+
+
+Le rouge de transport comporte trois échecs attendus (concurrence1 et page vide
+supplémentaire). Les23 régressions passent après correction. Le premier build
+de qualification révèle une boucle d'inférence TypeScript : annotations des
+offsets et comparaison au count local validé la corrigent. Ce run reste un
+échec de préparation, sans preuve de parcours. Le run final
+`.e2e/army/ci/2026-10-20T23-23-41-810Z-critical/` passe IO01 avec connexion,
+pgTAP et matrice RLS : CSV1900/1900 en209ms, vrai PDF310976octets, six lectures
+de2031items en67–75ms, repricing persistant. Commande :
+`ARMY_DB_SNAPSHOT_DIR=/private/tmp/mergeone-native-snapshot-20261021 mise exec node@24.22.0 -- npm run e2e:army:local -- --grep '^IO01 '`,
+dans la copie propre `/private/tmp/mergeone-exports-ci-fix-20261020` sur f1aa485
+avec le diff de ce lot. Revue indépendante initiale et suivi des annotations
+clos sans défaut.
+
+`mise exec node@24.22.0 -- npm run check:release` passe sur le code final,
+qualité complète, build Webpack, douze polices et smoke HTTP. Journal
+`/private/tmp/mergeone-pagination-network-release-final-20261021.log`.
+Les fichiers réellement téléchargés sur f1aa sont également contrôlés : gros
+PDF71pages avec1900titres/PU/HT/statuts exacts et footer visible en page71 ;
+petit PDF40227octets. Les mesures finales de production seront prises après
+la nouvelle CI et le déploiement du dernier lot, sans build local concurrent.

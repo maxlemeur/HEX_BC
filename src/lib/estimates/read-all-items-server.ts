@@ -12,6 +12,7 @@ type Version = Pick<Database["public"]["Tables"]["estimate_versions"]["Row"],
 type ItemsScope = { supabase: Supabase; tenantId: string; versionId: string };
 
 const PAGE_SIZE = 500;
+const PAGE_CONCURRENCY = 4;
 /** Identifiers per `in` filter: about 3,7 Ko of query string. */
 const IN_FILTER_CHUNK = 100;
 /** Far above any section depth: a deeper walk means a cyclic or corrupt hierarchy. */
@@ -67,37 +68,43 @@ async function readItemPages(input: ItemsScope, filter?: { column: "id" | "paren
   const items: Item[] = [];
   const ids = new Set<string>();
   let expectedCount: number | null = null;
-  for (let offset = 0; ; offset += pageSize) {
-    let query = input.supabase
-      .from("estimate_items")
-      .select("*", { count: "exact" })
-      .eq("tenant_id", input.tenantId)
-      .eq("version_id", input.versionId);
-    if (filter) query = query.in(filter.column, [...filter.values]);
-    const { data, error, count } = await query
-      .order("position", { ascending: true })
-      .order("id", { ascending: true })
-      .range(offset, offset + pageSize - 1);
-    if (error) throw mapSupabaseError(error, "Impossible de charger les lignes.");
-    if (count === null || !Number.isSafeInteger(count) || count < 0 ||
-      (expectedCount !== null && count !== expectedCount)) {
-      throw internalError("Impossible de vérifier la lecture complète des lignes.");
-    }
-    expectedCount = count;
-    const batch = data ?? [];
-    for (const item of batch) {
-      if (ids.has(item.id)) {
+  for (let offset = 0; ;) {
+    const offsets: number[] = Array.from({ length: expectedCount === null ? 1 : PAGE_CONCURRENCY }, (_, index) => offset + index * pageSize)
+      .filter(start => expectedCount === null || start < expectedCount);
+    const pages = await Promise.all(offsets.map(async start => {
+      let query = input.supabase
+        .from("estimate_items")
+        .select("*", { count: "exact" })
+        .eq("tenant_id", input.tenantId)
+        .eq("version_id", input.versionId);
+      if (filter) query = query.in(filter.column, [...filter.values]);
+      return query.order("position", { ascending: true }).order("id", { ascending: true })
+        .range(start, start + pageSize - 1);
+    }));
+    for (const { data, error, count } of pages) {
+      if (error) throw mapSupabaseError(error, "Impossible de charger les lignes.");
+      if (count === null || !Number.isSafeInteger(count) || count < 0 ||
+        (expectedCount !== null && count !== expectedCount)) {
+        throw internalError("Impossible de vérifier la lecture complète des lignes.");
+      }
+      expectedCount = count;
+      const batch = data ?? [];
+      for (const item of batch) {
+        if (ids.has(item.id)) {
+          throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");
+        }
+        ids.add(item.id);
+        items.push(item);
+      }
+      if (items.length > count || batch.length > pageSize) {
         throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");
       }
-      ids.add(item.id);
-      items.push(item);
-    }
-    if (batch.length < pageSize) {
-      if (items.length !== expectedCount) {
+      if (items.length === count) return items;
+      if (batch.length < pageSize) {
         throw internalError("La lecture des lignes est incomplète. Rechargez le chiffrage.");
       }
-      return items;
     }
+    offset += offsets.length * pageSize;
   }
 }
 

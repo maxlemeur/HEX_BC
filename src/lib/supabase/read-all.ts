@@ -9,48 +9,60 @@ export type CompleteRowsQuery<Row, ErrorType> = PromiseLike<CompleteRowsResult<R
   order(column: string, options?: { ascending?: boolean }): CompleteRowsQuery<Row, ErrorType>;
   range(from: number, to: number): CompleteRowsQuery<Row, ErrorType>;
 };
-type ReadOptions = { limit?: number };
+type ReadOptions = { limit?: number; concurrency?: 1 | 4 };
 export type RowOrder = { column: string; ascending?: boolean; nullsFirst?: boolean };
 const PAGE_SIZE = 500;
 const IN_FILTER_ENCODED_BUDGET = 6000;
 
-/** For SELECT only. Require count:exact and the row's primary key in the projection. */
+/** For SELECT only. Require count:exact and the row's primary key in the projection.
+ * Concurrency > 1 requires a fresh builder from every createQuery invocation. */
 export async function readAllRows<Row, ErrorType>(
   createQuery: () => CompleteRowsQuery<Row, ErrorType>,
   options: ReadOptions = {},
 ): Promise<CompleteRowsResult<Row, ErrorType>> {
   const limit = options.limit ?? Infinity;
   if (limit !== Infinity && (!Number.isSafeInteger(limit) || limit < 1)) throw new Error("Limite de lecture invalide.");
+  const concurrency = options.concurrency ?? 1;
+  if (concurrency !== 1 && concurrency !== 4) throw new Error("Concurrence de lecture invalide.");
   const query = createQuery().order("id", { ascending: true });
   const rows: Row[] = [];
   const ids = new Set<string | number>();
   let expectedCount: number | null = null;
-  for (let offset = 0; offset < limit; offset += PAGE_SIZE) {
-    const end = Math.min(offset + PAGE_SIZE, limit) - 1;
-    const { data, error, count } = await query.range(offset, end);
-    if (error) return { data: null, error, count: null };
-    if (count == null || !Number.isSafeInteger(count) || count < 0 ||
-      (expectedCount !== null && count !== expectedCount)) {
-      throw new Error("Lecture incomplète ou modifiée : compte des lignes incohérent.");
-    }
-    expectedCount = count;
-    const batch = data ?? [];
-    for (const row of batch) {
-      const id = (row as { id?: unknown }).id;
-      if ((typeof id !== "string" && typeof id !== "number") || ids.has(id)) {
-        throw new Error("Lecture incomplète ou modifiée : identités des lignes incohérentes.");
+  for (let offset = 0; offset < limit;) {
+    const total = expectedCount === null ? Math.min(PAGE_SIZE, limit) : Math.min(expectedCount, limit);
+    const offsets: number[] = Array.from({ length: expectedCount === null ? 1 : concurrency }, (_, index) => offset + index * PAGE_SIZE)
+      .filter(start => start < total);
+    const pages = await Promise.all(offsets.map(async start => {
+      const end = Math.min(start + PAGE_SIZE, limit) - 1;
+      const pageQuery = concurrency === 1 || start === 0 ? query : createQuery().order("id", { ascending: true });
+      return { start, end, result: await pageQuery.range(start, end) };
+    }));
+    for (const { start, end, result: { data, error, count } } of pages) {
+      if (error) return { data: null, error, count: null };
+      if (count == null || !Number.isSafeInteger(count) || count < 0 ||
+        (expectedCount !== null && count !== expectedCount)) {
+        throw new Error("Lecture incomplète ou modifiée : compte des lignes incohérent.");
       }
-      ids.add(id);
-      rows.push(row);
+      expectedCount = count;
+      const batch = data ?? [];
+      for (const row of batch) {
+        const id = (row as { id?: unknown }).id;
+        if ((typeof id !== "string" && typeof id !== "number") || ids.has(id)) {
+          throw new Error("Lecture incomplète ou modifiée : identités des lignes incohérentes.");
+        }
+        ids.add(id);
+        rows.push(row);
+      }
+      const expected = Math.min(count, limit);
+      if (rows.length > expected || batch.length > end - start + 1) {
+        throw new Error("Lecture incomplète ou modifiée : trop de lignes reçues.");
+      }
+      if (rows.length === expected) return { data: rows, error: null, count: expectedCount };
+      if (batch.length < end - start + 1) {
+        throw new Error("Lecture incomplète : une page de résultats est tronquée.");
+      }
     }
-    const expected = Math.min(expectedCount, limit);
-    if (rows.length > expected || batch.length > end - offset + 1) {
-      throw new Error("Lecture incomplète ou modifiée : trop de lignes reçues.");
-    }
-    if (rows.length === expected) return { data: rows, error: null, count: expectedCount };
-    if (batch.length < end - offset + 1) {
-      throw new Error("Lecture incomplète : une page de résultats est tronquée.");
-    }
+    offset += offsets.length * PAGE_SIZE;
   }
   throw new Error("Lecture incomplète des lignes.");
 }

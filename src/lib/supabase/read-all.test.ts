@@ -2,12 +2,26 @@ import { createClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import { readAllRows, readAllRowsInChunks } from "./read-all";
 
-function fixture(options: { failAt?: number; cap?: number; changedCountAt?: number; duplicateAt?: number } = {}) {
+function fixture(options: { failAt?: number; cap?: number; changedCountAt?: number; duplicateAt?: number; reverse?: boolean } = {}) {
   const rows = Array.from({ length: 2501 }, (_, id) => ({ id: String(id).padStart(5, "0"), value: id }));
   const requests: URL[] = [];
+  const completed: number[] = [];
+  let active = 0;
+  let peak = 0;
+  let flush: ReturnType<typeof setTimeout> | undefined;
+  const waiting: { offset: number; resolve: () => void }[] = [];
   const client = createClient("https://example.test", "test-anon", { global: { fetch: async input => {
     const url = new URL(String(input)); requests.push(url);
     const offset = Number(url.searchParams.get("offset") ?? 0);
+    active++; peak = Math.max(peak, active);
+    if (options.reverse && offset > 0) await new Promise<void>(resolve => {
+      waiting.push({ offset, resolve });
+      flush ??= setTimeout(() => {
+        flush = undefined;
+        for (const page of waiting.splice(0).sort((a, b) => b.offset - a.offset)) page.resolve();
+      }, 0);
+    });
+    active--; completed.push(offset);
     if (offset === options.failAt) return new Response(JSON.stringify({ code: "XX001", message: "page failed", details: "", hint: "" }), { status: 500 });
     const filter = url.searchParams.get("id");
     const selected = filter ? rows.filter(row => filter.slice(4, -1).split(",").includes(row.id)) : rows;
@@ -17,7 +31,7 @@ function fixture(options: { failAt?: number; cap?: number; changedCountAt?: numb
     const count = selected.length + (offset === options.changedCountAt ? 1 : 0);
     return new Response(JSON.stringify(page), { status: 200, headers: { "content-type": "application/json", "content-range": `${offset}-${offset + page.length - 1}/${count}` } });
   } } });
-  return { rows, requests, query: () => client.from("items").select("id,value", { count: "exact" }).eq("tenant_id", "tenant") };
+  return { rows, requests, completed, peak: () => peak, query: () => client.from("items").select("id,value", { count: "exact" }).eq("tenant_id", "tenant") };
 }
 
 describe("complete PostgREST reads", () => {
@@ -36,6 +50,37 @@ describe("complete PostgREST reads", () => {
   });
   it("never exposes a successful prefix if a later page fails", async () => {
     const f = fixture({ failAt: 1000 }); const result = await readAllRows(f.query);
+    expect(result.data).toBeNull(); expect(result.error?.message).toBe("page failed");
+  });
+  it("bounds fresh-query concurrency and restores offset order after reversed HTTP responses", async () => {
+    const f = fixture({ reverse: true });
+    const result = await readAllRows(f.query, { concurrency: 4 });
+    expect(result.data).toEqual(f.rows);
+    expect(f.peak()).toBe(4);
+    expect(f.completed.slice(1, 5)).toEqual([2000, 1500, 1000, 500]);
+    expect(f.requests.every(url => url.searchParams.get("order") === "id.asc"
+      && url.searchParams.get("tenant_id") === "eq.tenant")).toBe(true);
+  });
+  it("keeps shared mutable builders compatible on the default path", async () => {
+    const f = fixture({ reverse: true }); const shared = f.query();
+    const result = await readAllRows(() => shared);
+    expect(result.data).toEqual(f.rows); expect(f.peak()).toBe(1);
+    expect(f.requests.every(url => url.searchParams.get("order") === "id.asc")).toBe(true);
+  });
+  it("bounds concurrent pages by the business limit", async () => {
+    const f = fixture({ reverse: true });
+    const result = await readAllRows(f.query, { concurrency: 4, limit: 1101 });
+    expect(result.data).toEqual(f.rows.slice(0, 1101));
+    expect(f.requests.map(url => [url.searchParams.get("offset"), url.searchParams.get("limit")]))
+      .toEqual([["0", "500"], ["500", "500"], ["1000", "101"]]);
+  });
+  it.each([{ cap: 200 }, { changedCountAt: 1000 }, { duplicateAt: 1500 }])("rejects a corrupt concurrent page: %j", async options => {
+    const f = fixture({ ...options, reverse: true });
+    await expect(readAllRows(f.query, { concurrency: 4 })).rejects.toThrow(/compl|chang|coh/i);
+  });
+  it("never returns the good concurrent pages around a failed page", async () => {
+    const f = fixture({ failAt: 1000, reverse: true });
+    const result = await readAllRows(f.query, { concurrency: 4 });
     expect(result.data).toBeNull(); expect(result.error?.message).toBe("page failed");
   });
   it("bounds IN URLs, reads all chunks, and preserves unique identities", async () => {
