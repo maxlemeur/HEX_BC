@@ -193,20 +193,29 @@ export function lookUpDatabaseSnapshot(directory: string, key: string): Database
   }
 }
 
-/** The native runtime ships one PostgreSQL bundle; its client tools match the server. */
+/** Prefer CLI2.121's checksum-addressed archive to a coexisting legacy extraction. */
 export function resolveNativePostgresTools(homeDirectory = os.homedir()): NativePostgresTools {
   const cache = path.join(homeDirectory, ".supabase", "cache", "stack", "slim-services", "postgres");
   const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-  const bundles = fs.readdirSync(cache, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(cache, entry.name, platform, "bin", "psql")))
-    .map((entry) => entry.name);
-  if (bundles.length !== 1) throw new Error("The native runtime must provide exactly one PostgreSQL client");
+  const archives = fs.readdirSync(cache, { withFileTypes: true }).flatMap((entry) => {
+    if (!entry.isDirectory()) return [];
+    const directory = path.join(cache, entry.name, platform);
+    if (!fs.existsSync(directory)) return [];
+    const addressed = fs.readdirSync(directory, { withFileTypes: true })
+      .filter((child) => child.isDirectory() && DIGEST.test(child.name));
+    if (addressed.length) return addressed.map((child) => ({
+      bundle: `${entry.name}+${child.name}`, directory: path.join(directory, child.name),
+    }));
+    return fs.existsSync(path.join(directory, "bin", "psql")) ? [{ bundle: entry.name, directory }] : [];
+  });
+  if (archives.length !== 1) throw new Error(`The native runtime must provide exactly one PostgreSQL client (found ${archives.length} archives)`);
+  const archive = archives[0];
   const binary = (name: string) => {
-    const file = path.join(cache, bundles[0], platform, "bin", name);
+    const file = path.join(archive.directory, "bin", name);
     fs.accessSync(file, fs.constants.X_OK);
     return file;
   };
-  return { bundle: bundles[0], pgDump: binary("pg_dump"), pgRestore: binary("pg_restore"), psql: binary("psql") };
+  return { bundle: archive.bundle, pgDump: binary("pg_dump"), pgRestore: binary("pg_restore"), psql: binary("psql") };
 }
 
 interface SnapshotConnection {

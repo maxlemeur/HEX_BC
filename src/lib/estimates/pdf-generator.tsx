@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { setImmediate } from "node:timers/promises";
 
 import {
   Document,
@@ -1949,6 +1950,11 @@ async function renderAndPublishOfferPdf(input: {
     versionId,
     sha256Hash,
   });
+
+  // A long CPU render can outlive pooled sockets while their close events
+  // remain unprocessed. Let poll and close callbacks run before the one upload.
+  await setImmediate();
+  await setImmediate();
 
   const { error: uploadError } = await storageClient.storage
     .from(ESTIMATE_DOCUMENTS_BUCKET)

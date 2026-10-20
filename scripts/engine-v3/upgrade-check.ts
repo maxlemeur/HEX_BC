@@ -21,6 +21,7 @@
 // Secrets never reach the console or the evidence; the evidence directory is
 // .e2e/engine-v3/upgrade-check/<timestamp>-<label>/ (report.json, psql.log).
 
+import { resolveNativePostgresTools } from "../../src/test/database-snapshot";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -313,15 +314,7 @@ async function prepareUpgradeProject(
 }
 
 function resolveNativePsql() {
-  const cache = path.join(os.homedir(), ".supabase", "cache", "stack", "slim-services", "postgres");
-  const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-  const candidates = fs.readdirSync(cache, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(cache, entry.name, platform, "bin", "psql"))
-    .filter((file) => fs.existsSync(file));
-  if (candidates.length !== 1) throw new Error("The native runtime must provide exactly one PostgreSQL client");
-  fs.accessSync(candidates[0], fs.constants.X_OK);
-  return candidates[0];
+  return resolveNativePostgresTools().psql;
 }
 
 function createPsqlTransport(databaseUrl: string, executable: string): PsqlTransport {

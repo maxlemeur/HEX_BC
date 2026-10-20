@@ -312,3 +312,72 @@ ignorés restent hors preuve. Journal :
 `/private/tmp/mergeone-native-upgrade-release-final-20261020.log`.
 Les sources applicatives et les contrôles sont revus ; CI et déploiement de ce
 nouveau lot restent à confirmer.
+
+
+## Archives natives PostgreSQL et snapshot CI
+
+La CI `39506092891` de `e0002bc8` échoue à la préparation du snapshot, avant
+l'exécution des parcours : « exactly one PostgreSQL client ». Artefact
+`12303706635`, SHA256
+`ff1c6c8559c04f45a7effc6fe279118437362feda2dc718966c4d94f91d955df`.
+Le cache froid 2.121 place les outils dans `version/plateforme/checksum/bin` ;
+le détecteur ne cherchait que l'ancien `version/plateforme/bin`. L'ancien format
+encore présent sur le Mac masquait cette absence. Il ne s'agit donc pas d'une
+preuve de plusieurs clients actifs : le premier message était ambigu.
+
+Avant correction, deux régressions de fichiers réels sont rouges : archive
+froide introuvable et archive incomplète masquée par le vieux répertoire. Le
+résolveur commun préfère maintenant le chemin à checksum, exige un unique
+candidat et des exécutables complets, refuse toute ambiguïté et inscrit le
+checksum dans l'identité du snapshot. Les trois recettes psql réutilisent ce
+même résolveur. Les huit tests du snapshot passent. Qualification prévue :
+IO01 + LOCK01 avec création réelle d'un snapshot, puis LOCK01 avec restauration
+et contrôles de catalogue/données. Aucun nettoyage de cache utilisateur n'est
+nécessaire et aucun résultat métier n'est revendiqué pour la CI bloquée.
+
+
+## Coupure de connexion après rendu CPU
+
+La création de snapshot passe avec Node 24.19.0 (IO01 + LOCK01 3/3, CSV 223 ms),
+archive `.e2e/army/ci/2026-10-20T22-19-00-493Z-critical/`. Sa restauration réelle
+passe ensuite avec Node 24.22.0, le patch actuellement utilisé par GitHub :
+catalogue et migrations vérifiés, LOCK01 vert. IO01 reproduit alors localement
+la panne PDF : `StorageUnknownError`, `TypeError`, `ECONNRESET`, `fetch_failed`,
+après rendu de 311 014 octets. Archive rouge
+`.e2e/army/ci/2026-10-20T22-23-01-185Z-critical/`. Le cache n'est pas la panne PDF.
+
+Le reproducer HTTP possédé échoue sous 24.22.0 après six uploads puis 3,5 s de
+travail CPU bloquant : la connexion keep-alive est fermée par le serveur sans
+que le client ait traité sa fermeture. Le même reproducer passe avec un retour
+à la boucle réseau avant l'upload. L'essai antérieur sous 24.19.0 ne reproduisait
+pas cette panne. La mise à jour de CLI seule ne constitue donc pas sa correction.
+
+Avant implémentation, régression spécialisée prévue dans le générateur réel :
+serveur HTTP dans un worker indépendant, SDK Storage réel, rendu simulant le
+blocage CPU puis upload immuable exact et unique. L'E2E IO01 couvre le fichier
+réel mais ne contrôle pas précisément la fermeture de socket pendant le rendu ;
+ce cas réseau justifie cette isolation. Conserver les assertions de publication,
+le refus d'écriture échouée et aucun retry. Le correctif rendra la main aux phases
+poll/close avant le premier upload, selon la [boucle Node](https://nodejs.org/learn/asynchronous-work/event-loop-timers-and-nexttick).
+
+
+IO01 + LOCK01 passent après correction sur Node 24.22.0 : **3/3**, vraie
+restauration du snapshot, pgTAP et matrice RLS. CSV 1 900/1 900 en 195 ms ; PDF réel
+et publication vérifiés. Archive `.e2e/army/ci/2026-10-20T22-26-45-990Z-critical/`,
+commande `ARMY_DB_SNAPSHOT_DIR=/private/tmp/mergeone-native-snapshot-20261021 mise exec node@24.22.0 -- npm run e2e:army:local -- --grep 'IO01|LOCK01'`.
+Deux nouvelles fins de ligne d'import sont normalisées ensuite, sans changement
+exécuté. La revue demande de constater la fermeture TCP, plutôt que la supposer
+après 3,5 s. L'oracle utilise maintenant un SharedArrayBuffer écrit par le worker ;
+il bloque la boucle cliente jusqu'à fermeture constatée des connexions warm,
+avec une borne d'échec de 6 s. Il reste rouge sur l'implémentation originale
+(`mergeone-pdf-stale-socket-observed-red-20261021.log`). Le test conserve l'upload
+exact et unique et la publication. Aucun retry ajouté. La qualification finale
+inclut ce renforcement ; il ne change pas les entrées applicatives du run E2E.
+
+
+Qualification finale : `mise exec node@24.22.0 -- npm run check:release` **passe**
+(3 336 tests Node, 820 jsdom, 12 contrôles critiques, build Webpack, runtime PDF
+isolé et smoke HTTP). Les trois tests Node préexistants ignorés restent exclus
+de la preuve. Log `/private/tmp/mergeone-pdf-socket-release-final-20261021.log`.
+Revue indépendante close après renforcement de l'oracle réseau ; diff-check
+propre. À ce stade, la CI du commit final puis sa production restent à vérifier.

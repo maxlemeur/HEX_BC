@@ -9,6 +9,7 @@
 // upgrade-check.ts keeps its own copy of these steps: it is a 2.0 proof whose bytes the lot
 // replays unchanged; factoring both onto this module is left to a later sub-lot.
 
+import { resolveNativePostgresTools } from "../../src/test/database-snapshot";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -128,16 +129,7 @@ async function prepareOwnedProject(prefix: string) {
 }
 
 function resolveNativePsql() {
-  const cache = path.join(os.homedir(), ".supabase", "cache", "stack", "slim-services", "postgres");
-  const platform = `linux-${process.arch === "x64" ? "amd64" : "arm64"}`;
-  const candidates = fs
-    .readdirSync(cache, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(cache, entry.name, platform, "bin", "psql"))
-    .filter((file) => fs.existsSync(file));
-  if (candidates.length !== 1) throw new Error("The native runtime must provide exactly one PostgreSQL client");
-  fs.accessSync(candidates[0], fs.constants.X_OK);
-  return candidates[0];
+  return resolveNativePostgresTools().psql;
 }
 
 export function createSecretRedactor(getPassword: () => string | undefined) {

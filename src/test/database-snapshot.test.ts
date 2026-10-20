@@ -17,6 +17,7 @@ import {
   parseDatabaseFingerprint,
   recordDatabaseSnapshot,
   resolveDatabaseSnapshotDirectory,
+  resolveNativePostgresTools,
   STACK_OWNED_SCHEMAS,
 } from "@/test/database-snapshot";
 
@@ -79,6 +80,38 @@ function writeSnapshot(directory: string, key: string, overrides: Partial<Databa
 }
 
 describe("database snapshot", () => {
+  it("uses the content-addressed native archive on a cold cache and keys its checksum", () => {
+    const home = temporaryDirectory();
+    const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
+    const bundle = "17.11.0.004-r1", digest = "a".repeat(64);
+    const directory = path.join(home, ".supabase/cache/stack/slim-services/postgres", bundle, platform, digest, "bin");
+    fs.mkdirSync(directory, { recursive: true });
+    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(directory, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(resolveNativePostgresTools(home)).toEqual({ bundle: `${bundle}+${digest}`,
+      psql: path.join(directory, "psql"), pgDump: path.join(directory, "pg_dump"), pgRestore: path.join(directory, "pg_restore") });
+    // A coexisting pre-2.121 layout must not silently select the old archive.
+    const legacy = path.join(directory, "../../bin");
+    fs.mkdirSync(legacy, { recursive: true });
+    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(legacy, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(resolveNativePostgresTools(home).psql).toBe(path.join(directory, "psql"));
+    const alternative = path.join(directory, "../../", "b".repeat(64), "bin");
+    fs.mkdirSync(alternative, { recursive: true });
+    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(alternative, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(() => resolveNativePostgresTools(home)).toThrow("exactly one PostgreSQL");
+  });
+
+  it("rejects an incomplete hashed archive instead of falling back to an old complete bundle", () => {
+    const home = temporaryDirectory();
+    const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
+    const base = path.join(home, ".supabase/cache/stack/slim-services/postgres/17.11.0.004-r1", platform);
+    for (const [directory, binaries] of [[path.join(base, "bin"), ["psql", "pg_dump", "pg_restore"]],
+      [path.join(base, "a".repeat(64), "bin"), ["psql"]]] as const) {
+      fs.mkdirSync(directory, { recursive: true });
+      for (const name of binaries) fs.writeFileSync(path.join(directory, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    }
+    expect(() => resolveNativePostgresTools(home)).toThrow();
+  });
+
   it("is opt-in and accepts only an absolute real directory outside disposable workdirs", () => {
     expect(resolveDatabaseSnapshotDirectory({})).toBeUndefined();
     expect(resolveDatabaseSnapshotDirectory({ ARMY_DB_SNAPSHOT_DIR: "  " })).toBeUndefined();

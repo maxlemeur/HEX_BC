@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { Worker } from "node:worker_threads";
+import { createClient } from "@supabase/supabase-js";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -500,6 +502,76 @@ describe("estimate pdf generator", () => {
       );
     });
   });
+
+  it("uploads once after a CPU render outlives the pooled connection", async () => {
+    // IO01 on Node24.22: render finishes but a pooled socket closed during CPU
+    // work causes the first immutable upload to fail with ECONNRESET.
+    const networkState = new Int32Array(new SharedArrayBuffer(8));
+    const worker = new Worker(`
+      const { parentPort, workerData } = require("node:worker_threads");
+      const state = new Int32Array(workerData);
+      const http = require("node:http");
+      const requests = [];
+      const server = http.createServer((req, res) => {
+        const chunks = [];
+        req.on("data", chunk => chunks.push(chunk));
+        req.on("end", () => {
+          requests.push({ path: req.url, body: Buffer.concat(chunks).toString() });
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ Key: "estimate-documents/fixture.pdf" }));
+        });
+      });
+      server.on("connection", socket => {
+        Atomics.add(state, 0, 1);
+        socket.on("close", () => { Atomics.add(state, 1, 1); Atomics.notify(state, 1); });
+      });
+      server.keepAliveTimeout = 3000;
+      server.keepAliveTimeoutBuffer = 0;
+      parentPort.on("message", () => parentPort.postMessage(requests));
+      server.listen(0, "127.0.0.1", () => parentPort.postMessage(server.address().port));
+    `, { eval: true, workerData: networkState.buffer });
+    try {
+      const port = await new Promise<number>((resolve, reject) => {
+        worker.once("message", resolve);
+        worker.once("error", reject);
+      });
+      const storage = createClient(`http://127.0.0.1:${port}`, "owned-test-key", {
+        auth: { autoRefreshToken: false, persistSession: false },
+      }).storage.from("estimate-documents");
+      for (let index = 0; index < 6; index += 1) {
+        expect((await storage.upload(`warm-${index}.pdf`, Buffer.from("warm"))).error).toBeNull();
+      }
+      const buffer = Buffer.from("%PDF-owned-cpu-render");
+      vi.mocked(renderToBuffer).mockImplementation(async () => {
+        // Observe the server-side close without letting this client's loop run.
+        const warmed = Atomics.load(networkState, 0);
+        expect(warmed).toBeGreaterThan(0);
+        const deadline = Date.now() + 6000;
+        while (Atomics.load(networkState, 1) < warmed && Date.now() < deadline) {
+          Atomics.wait(networkState, 1, Atomics.load(networkState, 1), deadline - Date.now());
+        }
+        expect(Atomics.load(networkState, 1)).toBe(warmed);
+        return buffer as never;
+      });
+      const { serviceRoleSupabase } = usePdfClients();
+      serviceRoleSupabase.__mocks.upload.mockImplementation(storage.upload.bind(storage));
+      await expect(generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" }))
+        .resolves.toMatchObject({ status: "ready" });
+      const requests = await new Promise<{ path: string; body: string }[]>((resolve) => {
+        worker.once("message", resolve);
+        worker.postMessage("requests");
+      });
+      const hash = createHash("sha256").update(buffer).digest("hex");
+      expect(requests.filter(request => !request.path.includes("/warm-"))).toEqual([{
+        path: `/storage/v1/object/estimate-documents/${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}/${hash}.pdf`,
+        body: buffer.toString(),
+      }]);
+      expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalledOnce();
+      expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith("publish_estimate_pdf_generation", expect.any(Object));
+    } finally {
+      await worker.terminate();
+    }
+  }, 15_000);
 
   it("generates PDF, uploads it, stores hash and returns signed url", async () => {
     const buffer = Buffer.from("pdf-binary");
