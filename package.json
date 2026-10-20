@@ -126,7 +126,7 @@
     "jsdom": "^29.1.1",
     "playwright": "1.63.0",
     "postcss": "8.5.23",
-    "supabase": "2.120.0",
+    "supabase": "2.121.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",

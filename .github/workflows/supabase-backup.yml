@@ -33,7 +33,7 @@ jobs:
         run: npm audit signatures
 
       - name: Verify locked Supabase CLI
-        run: test "$(npx --no-install supabase --version)" = "2.120.0"
+        run: test "$(npx --no-install supabase --version)" = "2.121.0"
 
       - name: Validate required secrets
         run: |

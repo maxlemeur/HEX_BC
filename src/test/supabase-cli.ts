@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 // 2.119 is the first CLI with the Docker-free native runtime (`[experimental] stack`).
-export const PINNED_SUPABASE_CLI_VERSION = "2.120.0";
+export const PINNED_SUPABASE_CLI_VERSION = "2.121.0";
 export type SupabaseEnvironment = Readonly<
   Record<string, string | undefined>
 >;

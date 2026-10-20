@@ -133,6 +133,7 @@ describe("local Supabase CI", () => {
       const port = await findAvailablePort(reserved, [[32768, 65535]]);
       expect(port).toBeGreaterThanOrEqual(1024);
       expect(port).toBeLessThan(32768);
+      expect(port < 10000 || port > 19999).toBe(true);
       expect(reserved.has(port)).toBe(false);
       reserved.add(port);
       const listener = net.createServer();
@@ -196,7 +197,7 @@ describe("local Supabase CI", () => {
   });
 
   it("keeps caller-owned future listeners out of the real isolated service configuration", async () => {
-    const allowed = new Set(Array.from({ length: 64 }, (_, index) => 16384 + index));
+    const allowed = new Set(Array.from({ length: 64 }, (_, index) => 26384 + index));
     const reservedPorts = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024)
       .filter((port) => !allowed.has(port)));
     const dependencies: Parameters<typeof runLocalSupabaseCi>[0] = { ...createDependencies().dependencies };
@@ -264,6 +265,16 @@ describe("local Supabase CI", () => {
 
   it("refuses browser-blocked ports even when they are the only unreserved candidates", async () => {
     for (const port of [6000, 6667, 10080]) {
+      const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
+      reserved.delete(port);
+      await expect(findAvailablePort(reserved, [[32768, 65535]])).rejects.toThrow("No non-ephemeral Supabase port");
+    }
+  });
+
+  it("refuses the native backend range even when it contains the only candidates", async () => {
+    // CLI2.121 reserves this entire range, including both edges, for internal services.
+    // A bindable port in it must never become a public API/DB/functions inspector port.
+    for (const port of [10000, 15001, 19999]) {
       const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
       reserved.delete(port);
       await expect(findAvailablePort(reserved, [[32768, 65535]])).rejects.toThrow("No non-ephemeral Supabase port");
@@ -526,8 +537,8 @@ describe("local Supabase CI", () => {
   });
 
   it("stops after a reset failure and treats cleanup failure as fatal", async () => {
-    const versionFailure = createDependencies({ cliVersionOutput: "2.121.0\nupdate notification" });
-    await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow("must be exactly 2.120.0");
+    const versionFailure = createDependencies({ cliVersionOutput: "2.120.0\nupdate notification" });
+    await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow("must be exactly 2.121.0");
     expect(versionFailure.dependencies.prepareProject).not.toHaveBeenCalled();
 
     const resetFailure = createDependencies({ failReset: true });

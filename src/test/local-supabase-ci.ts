@@ -264,6 +264,8 @@ export async function findAvailablePort(
   }
   const candidates = Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024)
     .filter((port) => !reserved.has(port) && !BROWSER_RESTRICTED_LOCAL_PORTS.has(port) &&
+      // CLI2.121 reserves these ports for native service backends, never public endpoints.
+      (port < 10000 || port > 19999) &&
       !ephemeralRanges.some(([first, last]) => port >= first && port <= last));
   const offset = candidates.length ? randomInt(candidates.length) : 0;
   for (let index = 0; index < candidates.length; index += 1) {

@@ -92,12 +92,31 @@ export function logEstimatePdfStorageFailure(
     "TooManyRequests",
   ]);
   const knownTypes = new Set(["StorageError", "StorageApiError", "StorageUnknownError", "TypeError", "Error"]);
+  const network = toErrorRecord(record?.originalError);
+  const cause = toErrorRecord(network?.cause);
+  const networkCodes = new Set([
+    "EADDRNOTAVAIL", "EADDRINUSE", "EMFILE", "ENFILE", "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN",
+    "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
+    "UND_ERR_REQ_CONTENT_LENGTH_MISMATCH", "ABORT_ERR", "ERR_INVALID_STATE",
+  ]);
+  const code = network?.code ?? cause?.code;
+  const message = typeof network?.message === "string" ? network.message.toLowerCase() : "";
+  const networkKind = message.includes("fetch failed") ? "fetch_failed"
+    : message.includes("duplex") ? "duplex_required"
+    : /disturbed|locked/.test(message) ? "body_locked"
+    : message.includes("abort") ? "aborted"
+    : message.includes("invalid url") ? "invalid_url" : "other";
   console.error("estimate_pdf_storage_failure", {
     operation,
     reason: classifyEstimatePdfStorageFailure(error, operation).reason,
     httpStatus: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
     providerCode: typeof record?.code === "string" && knownCodes.has(record.code) ? record.code : "other",
     errorType: typeof record?.name === "string" && knownTypes.has(record.name) ? record.name : "other",
+    ...(network ? {
+      networkType: typeof network.name === "string" && ["TypeError", "Error", "AbortError", "TimeoutError"].includes(network.name) ? network.name : "other",
+      networkCode: typeof code === "string" && networkCodes.has(code) ? code : "other",
+      networkKind,
+    } : {}),
     ...(bytes === undefined ? {} : { bytes }),
   });
 }

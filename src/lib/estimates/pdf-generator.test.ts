@@ -1287,10 +1287,26 @@ describe("estimate pdf generator", () => {
       expect(diagnostic).toHaveBeenCalledWith("estimate_pdf_storage_failure", {
         operation: "upload", reason: "storage_unavailable", httpStatus: 503,
         providerCode: "InternalError", errorType: "StorageApiError", bytes: 10,
+        networkType: "other", networkCode: "other", networkKind: "other",
       });
       expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/private supplier|bearer|authorization|secret/);
       expect(serviceRoleSupabase.rpc).toHaveBeenLastCalledWith("fail_estimate_pdf_generation",
         expect.objectContaining({ p_generation_token: GENERATION_TOKEN }));
+    } finally { diagnostic.mockRestore(); }
+  });
+
+  it("diagnoses a wrapped network failure without logging its request or message", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
+    usePdfClients({ uploadError: { name: "StorageUnknownError", originalError: Object.assign(new TypeError("fetch failed with private request"), {
+      cause: { name: "SocketError", code: "UND_ERR_SOCKET", message: "secret authorization and contact", request: { bearer: "private" } },
+    }) } });
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(generateEstimatePdfNow(VERSION_ID, { force: true })).rejects.toMatchObject({ code: "PDF_GENERATION_FAILED" });
+      expect(diagnostic).toHaveBeenCalledWith("estimate_pdf_storage_failure", expect.objectContaining({
+        errorType: "StorageUnknownError", networkType: "TypeError", networkCode: "UND_ERR_SOCKET", networkKind: "fetch_failed",
+      }));
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/private|secret|authorization|contact|bearer/);
     } finally { diagnostic.mockRestore(); }
   });
 

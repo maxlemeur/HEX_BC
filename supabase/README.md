@@ -27,7 +27,7 @@ La preuve locale canonique est une commande unique :
 npm run db:ci:local
 ```
 
-Elle utilise la CLI Supabase `2.120.0` épinglée dans le projet et son **runtime
+Elle utilise la CLI Supabase `2.121.0` épinglée dans le projet et son **runtime
 natif** : chaque service tourne comme un processus local, **sans Docker**. Ce runtime
 est supporté sous Linux (glibc 2.35 ou plus) et sous macOS 14+ sur Apple silicon,
 jamais en root ; sous Windows, lancez la commande dans WSL (Ubuntu 22.04 ou plus)
@@ -44,7 +44,7 @@ isolé ; un échec de ce cleanup fait échouer la commande. Elle refuse les vari
 et commandes qui pourraient cibler un projet distant.
 
 La sauvegarde planifiée (`supabase-backup.yml`) utilise encore `supabase db dump`,
-qui exige Docker même en CLI `2.120.0` : elle tourne sur un runner GitHub, où Docker
+qui exige Docker même en CLI `2.121.0` : elle tourne sur un runner GitHub, où Docker
 est fourni. Aucun poste de développement n'a besoin de Docker.
 
 Les quatre versions date-only historiques (`20260222`, `20260304`, `20260305`,

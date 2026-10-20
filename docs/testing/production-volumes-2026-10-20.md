@@ -257,3 +257,58 @@ La revue ciblée du diagnostic ne trouve aucun défaut ; la normalisation de sa
 seule ligne d'import est une modification de fin de ligne sans effet exécuté.
 Les assertions et sorties d'échec ne sont pas assouplies. CI et production de ce
 lot restent à qualifier après son push.
+
+
+## Panne réseau de la pile CI : runtime et diagnostic
+
+Le run `39503339897` sur `2159f1b2` reproduit le même échec PDF. Le diagnostic
+établit que le rendu est terminé (**311 018 octets**) et que Storage renvoie une
+`StorageUnknownError`, sans statut HTTP. Artefact `12301843422`, SHA256
+`9ca08d9e5742cab3fcd980ebbb97cd2089a7c474ab9d0b0c207d0ebd5cfac331`.
+Un reproducer HTTP local de fermeture keep-alive ne reproduit pas l'erreur ;
+aucun yield, retry ou correctif supposé de connexion n'est adopté sur cette base.
+
+Le diagnostic est complété par des codes réseau et catégories fermées issus de
+`originalError`/`cause`, sans sérialiser leurs messages ni requêtes. Son nouveau
+oracle est rouge avant l'ajout puis vert (**33/33** tests du générateur).
+
+La [release officielle Supabase CLI 2.121.0](https://github.com/supabase/cli/releases/tag/v2.121.0)
+contient le [pool de connexions pour les écritures du gateway](https://github.com/supabase/cli/pull/7075).
+Le correctif upstream explique que RPC, créations Auth et uploads ouvraient une
+connexion neuve par écriture et pouvaient épuiser les ports ; les écritures ne
+sont toujours jamais renvoyées. Ce mécanisme est compatible avec l'échec de la
+suite complète, absent du petit run local, sans constituer seul une attribution
+prouvée de la cause exacte. La mise à jour de l'outil de test **2.120.0 → 2.121.0**
+est donc qualifiée avec IO01 et LOCK01, pgTAP et matrice RLS de leur pile possédée.
+Les deux gardes de version sont mis à jour avant le pin (rouges attendus) ; la
+version précédente reste un contre-exemple refusé avant toute pile. Les erreurs
+de bind de la tentative sandbox sont distinctes de ces rouges de contrat.
+Aucune migration ou configuration distante, aucun délai ou retry ne change.
+
+
+Le premier démarrage avec 2.121 est refusé avant les parcours : l'inspector
+18651 tombe dans la nouvelle plage interne 10000–19999. L'allocateur public
+central exclut maintenant toute cette plage, en plus des ports navigateur,
+ports clients éphémères et ports déjà réservés. La régression spécialisée est
+rouge avant ce filtre (10000 attribué), puis les 112 tests ciblés passent
+(1 test préexistant non applicable reste ignoré). Le test de copie réelle de
+configuration conserve son oracle et choisit 26384–26447. Aucun service partagé
+n'est concerné. Le démarrage refusé reste archivé comme échec de préparation.
+
+
+La nouvelle pile **CLI2.121.0** passe IO01 et LOCK01 : **3/3**, connexion incluse,
+avec pgTAP et matrice RLS du lanceur. Archive canonique
+`.e2e/army/ci/2026-10-20T22-05-53-209Z-critical/`, log
+`/private/tmp/mergeone-native-upgrade-qa-final-20261020.log`. Les montants, la
+provenance appliquée/rechargée et les vrais téléchargements passent, sans retry.
+La revue indépendante a fermé l'incompatibilité des ports et ne signale aucun
+autre défaut. La qualification de publication finale et la CI de ce lot suivent.
+
+
+`mise exec node@24.19.0 -- npm run check:release` passe sur le lot final :
+**3 333 tests Node**, **820 jsdom**, **12 contrôles critiques**, build de
+production, garde du runtime PDF et smoke HTTP. Les trois tests Node déjà
+ignorés restent hors preuve. Journal :
+`/private/tmp/mergeone-native-upgrade-release-final-20261020.log`.
+Les sources applicatives et les contrôles sont revus ; CI et déploiement de ce
+nouveau lot restent à confirmer.
