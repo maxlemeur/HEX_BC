@@ -103,3 +103,29 @@ local databases. The normal separately authorized migration process must precede
 deployment of this code. This qualification does not cover hosted Auth settings,
 CDN behavior, a native/mobile interface or a deployed application. No commit,
 push or deployment was part of the local qualification recorded here.
+
+## Publication gate follow-up
+
+The subsequently authorized commit `b6a5fad9` passed `check:release`, the hosted
+Quality Gate and anonymous smoke. Its first full
+[critical CI run](https://github.com/maxlemeur/HEX_BC/actions/runs/39351642109)
+failed LEP01's ArrowDown assertion; shard 2 passed 74 of 75 selected cases.
+The failure artifact is `12233946147`, SHA-256
+`c967a3cade54ea25e843037794b3df7c7ae0f754a0e494bb31eca19a62ced0e3`.
+
+LEP01 sent ArrowDown immediately after programmatic focus, without checking the
+editor's committed roving focus. The follow-up adds one atomic precondition:
+the starting quantity cell must hold native focus and `tabIndex === 0`.
+It retains the single focus operation, single key press and existing navigation,
+value, persistence, undo and redo assertions. Independent review supports this
+test setup correction; the evidence does not establish a runtime focus defect.
+The editor's application code is unchanged.
+
+The focused follow-up
+[`2026-10-20T01-21-41-283Z-critical`](/private/tmp/mergeone-auth-publication-ci-fix/.e2e/army/ci/2026-10-20T01-21-41-283Z-critical/manifest.json)
+passes: setup login, AUTHSEC01, AUTHSEC02, LEGACCESS01 and LEP01, plus native
+pgTAP and the authenticated RLS matrix. It uses source `b6a5fad9` plus only the
+test readiness change, with no retries or model calls. Exact rerun from the clean
+copy: `npm run e2e:army:local -- --grep 'LEP01|AUTHSEC0[12]|LEGACCESS01' --app-port 3124`
+under Node 24.19.0. The first failed hosted result remains failed; publication
+evidence is tracked separately under `.e2e/army/auth-publication-20261020/`.

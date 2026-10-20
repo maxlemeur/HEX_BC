@@ -280,6 +280,12 @@ armyTest("LEP01 keyboard navigation and Enter create exactly one persisted line 
     await expect.poll(() => activeCellId(ui)).toBe(`${lines[1].id}::title`);
 
     await cell(ui, lines[0].id, "quantity").focus();
+    // Native focus can precede React's committed roving focus. Send the one
+    // navigation key only after this synthetic starting cell is ready.
+    await expect.poll(() => browser.evaluate((id) => {
+      const target = document.querySelector<HTMLElement>(`[data-cell-id="${id}"]`);
+      return { focused: target === document.activeElement, active: target?.tabIndex === 0 };
+    }, `${lines[0].id}::quantity`)).toEqual({ focused: true, active: true });
     await browser.keyboard.press("ArrowDown");
     await expect.poll(() => activeCellId(ui)).toBe(`${lines[1].id}::quantity`);
     await browser.keyboard.press("ArrowUp");
