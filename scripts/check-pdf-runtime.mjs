@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -20,6 +20,23 @@ const report = { trace: path.relative(root, trace), traceSha256: createHash("sha
   copiedFiles: 0, result: "failed", elapsedMs: 0 };
 
 try {
+  if (!process.argv[2]) {
+    const appDirectory = path.resolve(root, distDir, "server/app");
+    const fontsDirectory = path.resolve(root, "node_modules/pdfkit/js/standard-fonts");
+    const requiredFonts = (await readdir(fontsDirectory, { recursive: true })).filter(file => file.endsWith(".cjs"));
+    let checkedTraces = 0;
+    for (const file of await readdir(appDirectory, { recursive: true })) {
+      if (!file.endsWith(".nft.json")) continue;
+      const candidate = path.join(appDirectory, file);
+      const files = JSON.parse(await readFile(candidate, "utf8")).files;
+      const sources = new Set(files.map(file => path.resolve(path.dirname(candidate), file)));
+      if (![...sources].some(file => file.includes(`${path.sep}node_modules${path.sep}pdfkit${path.sep}`))) continue;
+      for (const font of requiredFonts) assert(sources.has(path.join(fontsDirectory, font)), `${file} omits PDFKit font ${font}`);
+      checkedTraces++;
+    }
+    assert(checkedTraces > 0, "The application must trace its PDF renderer.");
+    report.checkedTraces = checkedTraces;
+  }
   for (const file of manifest.files) {
     const source = path.resolve(path.dirname(trace), file);
     const relative = path.relative(root, source);

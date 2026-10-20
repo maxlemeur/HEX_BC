@@ -5011,6 +5011,24 @@ export async function fetchEstimatePdfLayoutConfiguration(
   return parsed;
 }
 
+/** Fetch the authorized binary before announcing success. Opening a popup after
+ * asynchronous generation can be blocked even though the server job is ready. */
+export async function downloadEstimatePdf(versionId: string): Promise<void> {
+  const response = await fetch(`/api/estimates/${versionId}/pdf`, { credentials: "same-origin" });
+  if (!response.ok) {
+    const payload = await readJson(response);
+    throw new EstimateApiError(
+      toErrorMessage(payload, "Impossible de télécharger le PDF."), response.status,
+      extractErrorDetails(payload), extractErrorCode(payload),
+    );
+  }
+  const blob = await response.blob();
+  if (await blob.slice(0, 5).text() !== "%PDF-") {
+    throw new Error("Le fichier reçu n'est pas un PDF valide.");
+  }
+  downloadBlob(blob, extractFilenameFromContentDisposition(response.headers.get("content-disposition")) ?? `devis-${versionId}.pdf`);
+}
+
 export async function fetchEstimatePdfStatus(
   versionId: string
 ): Promise<EstimatePdfStatusResponse> {

@@ -91,8 +91,14 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
     const ownedPurchaseRead = localBackend && allowsOwnedPurchaseRead(
       url, route.request.method, army?.ownedEstimates ?? [], army?.ownedPurchaseOrders ?? [],
     );
+    // The requested PDF download redirects to its signed object on this owned
+    // loopback stack. Permit only a campaign project's exact version and hash.
+    const pdfObject = /^\/storage\/v1\/object\/sign\/estimate-documents\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/[0-9a-f]{64}\.pdf$/i.exec(url.pathname);
+    const ownedPdfRead = localBackend && route.request.method === "GET" && pdfObject !== null &&
+      (army?.ownedEstimates ?? []).some(estimate =>
+        estimate.projectId === pdfObject[2] && estimate.versionId === pdfObject[3]);
     const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
-    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedPurchaseRead) || forbiddenMutation) {
+    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedPurchaseRead && !ownedPdfRead) || forbiddenMutation) {
       await route.abort();
       const safePath = url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]");
       throw new Error(`Critical campaign blocked ${route.request.method} ${url.hostname}${safePath}; external request or email/status mutation.`);

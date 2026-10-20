@@ -142,7 +142,7 @@ export async function exportEstimateVersionV3Csv(versionId: string) {
   const currency = currencyOf(document);
   const lineIds = document.items.filter((item) => item.item_type === "line").map((item) => item.id);
   const comparisons = normalizeSupplierComparisonsByItemId({
-    comparisons: await getSupplierComparisonsForExport(versionId, lineIds),
+    comparisons: await getSupplierComparisonsForExport(versionId, lineIds, document.items),
   });
   const rows = buildEstimateV3CsvRows({
     document,

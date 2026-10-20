@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -7,7 +7,7 @@ import { expect, type App, type Screen } from "e2e";
 import * as XLSX from "xlsx";
 
 import {
-  apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence,
+  apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, resolveDownload,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
 // The 2.4 reading of the OPTIMA control cells (15 significant digits, half up), shared with optima-lot-check.
@@ -284,6 +284,60 @@ async function expectConsecutiveReads(browser: Browser, army: ArmyState, version
   expect(new Set(reads.map((read) => `${read.items}:${read.totalHtCents}`)).size).toBe(1);
 }
 
+// Export regression defined before the production fix: the real 2,031-item
+// workbook must deliver every line and exact cent amounts, within 10 s locally.
+// A ready PDF job alone is insufficient: Chrome must receive the actual file.
+async function expectLargeDownloads(ui: Ui, army: ArmyState, projectId: string, versionId: string) {
+  const { state } = await readEstimatePatiently(ui.browser, versionId);
+  const lines = lineItems(state).sort((a, b) => a.position - b.position);
+  await ui.app.open(`/dashboard/estimates/${versionId}/edit`);
+  await waitForDraftLease(ui);
+  await ui.screen.getByRole("button", "Exporter", { exact: true }).tap();
+  const started = Date.now();
+  const download = await ui.browser.waitForDownload(() =>
+    ui.screen.getByRole("button", "Fichier CSV (.csv)", { exact: true }).tap());
+  const elapsedMs = Date.now() - started;
+  const file = await resolveDownload(download);
+  const bytes = await readFile(file);
+  const csv = XLSX.read(bytes, { type: "buffer", raw: true, FS: ";" });
+  const rows = XLSX.utils.sheet_to_json<string[]>(csv.Sheets[csv.SheetNames[0]], { header: 1, raw: true, defval: "" });
+  const header = rows[0];
+  const cell = (row: string[], name: string) => row[header.indexOf(name)];
+  const data = rows.slice(1, lines.length + 1);
+  await recordEvidence(army, "io-hydraulique-large-csv", {
+    versionId, elapsedMs, budgetMs: 10_000, expectedLines: lines.length, actualLines: data.length,
+    path: file, sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length,
+  });
+  expect(elapsedMs).toBeLessThan(10_000);
+  expect(data).toHaveLength(1900);
+  data.forEach((row, index) => {
+    const line = lines[index];
+    expect([cell(row, "Désignation"), String(cell(row, "Quantité")), cell(row, "Unité")])
+      .toEqual([line.title, String(line.quantity ?? ""), String(line.unit_code ?? "")]);
+    if (line.pricing_status === "priced") {
+      expect(Math.round(Number(cell(row, "Total HT (EUR)")) * 100)).toEqual(line.line_total_ht_cents);
+    }
+  });
+  const footer = rows.find(row => cell(row, "Désignation") === "Total HT net");
+  expect(footer).toBeDefined();
+  expect(Math.round(Number(cell(footer!, "Total HT (EUR)")) * 100)).toBe(state.version.total_ht_cents);
+
+  await ui.app.open(`/dashboard/affaires/${projectId}`);
+  await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).tap();
+  const generate = ui.screen.getByRole("button", "Générer et télécharger", { exact: true });
+  await expect(generate).toBeEnabled({ timeout: 30_000 });
+  const pdfDownload = await ui.browser.waitForDownload(() => generate.tap());
+  const pdfPath = await resolveDownload(pdfDownload);
+  const pdf = await readFile(pdfPath);
+  expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  expect(pdf.subarray(-30).toString()).toContain("%%EOF");
+  expect(pdf.byteLength).toBeGreaterThan(10_000);
+  await recordEvidence(army, "io-hydraulique-large-pdf", {
+    versionId, path: pdfPath, bytes: pdf.byteLength, sha256: createHash("sha256").update(pdf).digest("hex"),
+    proof: "actual browser file download; content/amount inspection also runs on the production PDF",
+  });
+}
+
 armyTest("IO01 the hydraulic OPTIMA lot imports into a v3 at its workbook prices (785/785), then IO02 at 1,30 / 1,20 and at cost", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
@@ -291,6 +345,7 @@ armyTest("IO01 the hydraulic OPTIMA lot imports into a v3 at its workbook prices
     try {
       const versionId = await importWorkbook(ui, army, projectId, LOTS.HYDRAULIQUE);
       await expectImportedLot(browser, army, versionId, LOTS.HYDRAULIQUE, "hydraulique");
+      await expectLargeDownloads(ui, army, projectId, versionId);
       await expectOfferAndCost(browser, army, versionId, LOTS.HYDRAULIQUE, "hydraulique");
       await expectConsecutiveReads(browser, army, versionId, "hydraulique");
     } finally {

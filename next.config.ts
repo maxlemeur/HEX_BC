@@ -10,7 +10,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     // PDFKit's ESM entry loads standard fonts through createRequire. Next traces
     // the ESM font exports, but the deployed renderer needs these CJS modules.
-    "/api/estimates/**": [
+    // Server pages also load the renderer through shared estimate actions.
+    "/**": [
       "./node_modules/pdfkit/js/standard-fonts/**/*.cjs",
     ],
     "/api/docs/swagger-ui/*": [

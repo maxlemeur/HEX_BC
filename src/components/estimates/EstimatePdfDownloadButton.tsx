@@ -8,6 +8,7 @@ import { FileDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchEstimatePdfStatus,
+  downloadEstimatePdf,
   requestEstimatePdfGeneration,
   type EstimateEditorData,
 } from "@/lib/estimates/client";
@@ -47,11 +48,6 @@ function toSafeErrorMessage(error: unknown) {
   return "Échec de la génération du PDF";
 }
 
-function openDownload(url: string) {
-  if (typeof window === "undefined") return;
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
 function wait(delayMs: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, delayMs);
@@ -84,7 +80,7 @@ export function EstimatePdfDownloadButton({
       if (status.status !== "ready" || !status.downloadUrl) {
         throw new Error("Le PDF original de ce devis n’est pas disponible.");
       }
-      openDownload(status.downloadUrl);
+      await downloadEstimatePdf(versionId);
       onSuccess?.(status.downloadUrl);
     } catch (error) {
       const message = toSafeErrorMessage(error);
@@ -133,7 +129,7 @@ export function EstimatePdfDownloadButton({
             ? initial.downloadUrl
             : await pollUntilReady();
 
-        openDownload(downloadUrl);
+        await downloadEstimatePdf(versionId);
         onSuccess?.(downloadUrl);
       } catch (error) {
         const message = toSafeErrorMessage(error);

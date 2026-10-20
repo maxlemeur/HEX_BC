@@ -4,14 +4,38 @@ vi.mock("@/lib/estimates/server", () => ({
   getEstimateVersionDetails: vi.fn(),
   getEstimateSupplierComparisons: vi.fn(),
 }));
+vi.mock("@/lib/estimates/supplier-export-search", async (original) => ({
+  ...await original<typeof import("@/lib/estimates/supplier-export-search")>(),
+  loadSupplierExportSearch: vi.fn(async () => null),
+}));
 
 import {
   ESTIMATE_EXPORT_PROGRESS_COMPLETE,
   ESTIMATE_EXPORT_XLSX_CONTENT_TYPE,
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
-import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
+import { getSupplierComparisonsForExport, streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
 import { getEstimateSupplierComparisons, getEstimateVersionDetails } from "@/lib/estimates/server";
+import { loadSupplierExportSearch } from "@/lib/estimates/supplier-export-search";
+
+beforeEach(() => { vi.mocked(loadSupplierExportSearch).mockResolvedValue(null); });
+
+it("preserves retained suppliers and positive candidates while eliminating impossible bulk lookups", async () => {
+  const items = Array.from({ length: 401 }, (_, index) => index === 11
+    ? { id: `item-${index}`, title: `Ligne ${index}` }
+    : { id: `item-${index}`, title: `Ligne ${index}`, selected_supplier_price_id: index === 10 ? "retained-price" : null });
+  vi.mocked(loadSupplierExportSearch).mockResolvedValue({ ascii: ["ligne 301"], unicode: [] });
+  vi.mocked(getEstimateSupplierComparisons).mockImplementation(async (_version, ids) => ({
+    comparisons: ids!.map(id => ({ item_id: id, selected_supplier_price_id: id === "item-11" ? "unknown-retained-price" : null, alternatives: [] })),
+  }) as never);
+  const result = await getSupplierComparisonsForExport("version", items.map(item => item.id), items);
+  expect(result.map(item => item.item_id)).toEqual(items.map(item => item.id));
+  expect(getEstimateSupplierComparisons).toHaveBeenCalledOnce();
+  // "Ligne 3" is also a legitimate substring of "Ligne 301"; do not drop it.
+  expect(getEstimateSupplierComparisons).toHaveBeenCalledWith("version", ["item-3", "item-10", "item-11", "item-30", "item-301"]);
+  expect(result.find(item => item.item_id === "item-10")).toBeDefined();
+  expect(result.find(item => item.item_id === "item-11")?.selected_supplier_price_id).toBe("unknown-retained-price");
+});
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 

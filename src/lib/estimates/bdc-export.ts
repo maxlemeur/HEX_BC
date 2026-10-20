@@ -23,6 +23,7 @@ import {
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
 import { getEstimateSupplierComparisons, getEstimateVersionDetails } from "@/lib/estimates/server";
+import { loadSupplierExportSearch, mayMatchSupplierExportSearch } from "@/lib/estimates/supplier-export-search";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import {
   amountsSourceLabel,
@@ -415,18 +416,32 @@ function resolveExportAid(item: EstimateItemRecord) {
   return normalized.length > 0 ? normalized : item.id;
 }
 
-export async function getSupplierComparisonsForExport(versionId: string, lineItemIds: string[]) {
+export async function getSupplierComparisonsForExport(
+  versionId: string,
+  lineItemIds: string[],
+  items?: ReadonlyArray<{ id: string; title: string; selected_supplier_price_id?: string | null }>,
+) {
   if (lineItemIds.length === 0) {
     return [] as SupplierComparison[];
   }
 
+  const itemById = new Map(items?.map(item => [item.id, item]));
+  const search = items && lineItemIds.length > SUPPLIER_COMPARISON_BATCH_SIZE
+    ? await loadSupplierExportSearch() : null;
+  const candidateIds = lineItemIds.filter(id => {
+    const item = itemById.get(id);
+    // A retained offer is resolved even when its title has no current search
+    // match. Unknown metadata must also keep the original comparison path.
+    return !item || item.selected_supplier_price_id === undefined || item.selected_supplier_price_id
+      || mayMatchSupplierExportSearch(search, item.title);
+  });
   const comparisons: SupplierComparison[] = [];
   for (
     let startIndex = 0;
-    startIndex < lineItemIds.length;
+    startIndex < candidateIds.length;
     startIndex += SUPPLIER_COMPARISON_BATCH_SIZE
   ) {
-    const batchItemIds = lineItemIds.slice(
+    const batchItemIds = candidateIds.slice(
       startIndex,
       startIndex + SUPPLIER_COMPARISON_BATCH_SIZE
     );
@@ -434,7 +449,10 @@ export async function getSupplierComparisonsForExport(versionId: string, lineIte
     comparisons.push(...(batchResult.comparisons as SupplierComparison[]));
   }
 
-  return comparisons;
+  const byId = new Map(comparisons.map(comparison => [comparison.item_id, comparison]));
+  return lineItemIds.map(id => byId.get(id) ?? {
+    item_id: id, selected_supplier_price_id: null, alternatives: [],
+  });
 }
 
 function buildBdcRows(input: {
@@ -902,7 +920,7 @@ async function buildBdcExportPayload(
   if (usesSaleCoefficients(resolveEstimateEngineVersion(details.version))) {
     const document = await loadEstimateV3ExportDocument(versionId);
     const v3LineIds = document.items.filter((item) => item.item_type === "line").map((item) => item.id);
-    const v3Comparisons = await getSupplierComparisonsForExport(versionId, v3LineIds);
+    const v3Comparisons = await getSupplierComparisonsForExport(versionId, v3LineIds, document.items);
     return {
       projectName: details.version.estimate_projects.name,
       projectReference: details.version.estimate_projects.reference,
@@ -923,7 +941,7 @@ async function buildBdcExportPayload(
     .filter((item) => item.item_type === "line")
     .map((item) => item.id);
 
-  const supplierComparisons = await getSupplierComparisonsForExport(versionId, lineItemIds);
+  const supplierComparisons = await getSupplierComparisonsForExport(versionId, lineItemIds, items);
 
   const comparisonByItemId = new Map(
     supplierComparisons.map((comparison) => [comparison.item_id, comparison])
