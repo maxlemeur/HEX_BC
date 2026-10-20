@@ -350,6 +350,21 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   Ce complément ne modifie ni les dispositions historiques ni les artefacts
   canoniques du scan. Détails : [réparation CI](testing/ci-recovery-2026-10-10.md).
 
+## Complément local — frontières Auth, 20/10/2026
+
+La revue du checkout `00d3f62c` a trouvé trois problèmes supplémentaires,
+distincts des identités et résultats historiques du scan : recherche globale de
+profils par un admin de tenant personnel, perte des en-têtes anti-cache lors du
+renouvellement SSR, et cookies de production sans `Secure`.
+
+Le correctif local remplace l'annuaire par un lookup d'email Auth exact réservé
+au serveur, conserve le tenant par défaut d'un compte ajouté, propage les
+en-têtes SDK sur les redirections et empêche les assets Swagger de rétablir un
+cache public. La nouvelle migration est additive ; lors de cette qualification
+locale, elle n'était pas encore appliquée au Supabase partagé. Les preuves, résultats et limites de cette qualification
+figurent dans [le rapport dédié](testing/authentication-boundaries-2026-10-20.md).
+Les totaux et artefacts canoniques ci-dessous conservent leur sens historique.
+
 ## Bilan terminal
 
 - `fixed` : 95.

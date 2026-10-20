@@ -764,10 +764,10 @@ const importAndMembershipContracts: RouteContract[] = [
     method: "get",
     path: "/api/memberships",
     summary: "Lister les membres du tenant",
-    description: "Retourne les membres du tenant courant selon la recherche optionnelle.",
+    description: "Retourne les membres du tenant courant. Les candidats sont recherches uniquement par email Auth complet, sans nom ni role de profil.",
     tags: ["Administration"],
     queryParameters: [
-      { name: "search", schema: z.string().max(120), description: "Recherche de membre." },
+      { name: "search", schema: z.string().max(254), description: "Email de connexion complet du compte a ajouter. Une recherche partielle ne retourne aucun candidat." },
     ],
   },
   {

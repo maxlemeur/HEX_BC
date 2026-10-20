@@ -1,12 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import path from "node:path";
 
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const moduleRequire = createRequire(import.meta.url);
 
 type SwaggerUiAsset = {
   contentType: string;
@@ -18,14 +16,14 @@ const SWAGGER_UI_ASSETS = new Map<string, SwaggerUiAsset>([
     "swagger-ui.css",
     {
       contentType: "text/css; charset=utf-8",
-      filePath: moduleRequire.resolve("swagger-ui-dist/swagger-ui.css"),
+      filePath: path.join(process.cwd(), "node_modules/swagger-ui-dist/swagger-ui.css"),
     },
   ],
   [
     "swagger-ui-bundle.js",
     {
       contentType: "application/javascript; charset=utf-8",
-      filePath: moduleRequire.resolve("swagger-ui-dist/swagger-ui-bundle.js"),
+      filePath: path.join(process.cwd(), "node_modules/swagger-ui-dist/swagger-ui-bundle.js"),
     },
   ],
 ]);
@@ -65,7 +63,9 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": swaggerUiAsset.contentType,
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        // The session Proxy can renew cookies even for these assets. A route
+        // response must not replace its private/no-store policy with public TTLs.
+        "Cache-Control": "private, no-store",
       },
     });
   } catch {

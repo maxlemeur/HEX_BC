@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
+import { membershipCandidateEmailSchema } from "./schemas";
 
 import {
   conflict,
@@ -46,16 +47,10 @@ type MembershipRecord = {
 
 type CandidateRecord = {
   id: string;
-  full_name: string;
-  work_email: string | null;
-  role: ProfileRow["role"];
+  email: string;
 };
 
 const ADMIN_ROLE: TenantRole = "admin";
-
-function sanitizeSearchTerm(value: string) {
-  return value.replace(/[,%_()]/g, " ").trim();
-}
 
 async function getAuthenticatedContext() {
   const { supabase, user, error } = await readAuthenticatedUser();
@@ -167,37 +162,26 @@ function toMembershipRecords(input: {
 }
 
 async function listCandidates(input: {
-  tenantMemberships: TenantMembershipRow[];
+  actorUserId: string;
   search: string | null | undefined;
 }) {
-  const normalizedSearch = sanitizeSearchTerm(input.search ?? "");
-  if (normalizedSearch.length < 2) {
+  const email = membershipCandidateEmailSchema.safeParse(input.search?.trim().toLowerCase());
+  if (!email.success) {
     return [] as CandidateRecord[];
   }
 
-  const pattern = `%${normalizedSearch}%`;
   const directoryClient = createServiceRoleClient();
   const { data, error } = await directoryClient
-    .from("profiles")
-    .select("id, full_name, work_email, role")
-    .or(`full_name.ilike.${pattern},work_email.ilike.${pattern}`)
-    .order("full_name", { ascending: true })
-    .limit(20);
+    .rpc("find_membership_candidate_by_email", {
+      p_actor_user_id: input.actorUserId,
+      p_email: email.data,
+    });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de rechercher des utilisateurs.");
   }
 
-  const existingIds = new Set(input.tenantMemberships.map((membership) => membership.user_id));
-
-  return ((data ?? []) as ProfileRow[])
-    .filter((profile) => !existingIds.has(profile.id))
-    .map((profile) => ({
-      id: profile.id,
-      full_name: profile.full_name,
-      work_email: profile.work_email,
-      role: profile.role,
-    }));
+  return (data ?? []) as CandidateRecord[];
 }
 
 async function getMembershipByIdOrThrow(supabase: Supabase, membershipId: string) {
@@ -247,7 +231,7 @@ export async function listTenantMemberships(query: MembershipsListQueryInput) {
   );
 
   const candidates = await listCandidates({
-    tenantMemberships: memberships,
+    actorUserId: userId,
     search: query.search,
   });
 
@@ -291,7 +275,9 @@ export async function createMembership(input: CreateMembershipInput) {
     throw notFound("Utilisateur introuvable.");
   }
 
-  const { count: existingAnyMembershipCount, error: countError } = await supabase
+  // The actor's RLS view intentionally hides memberships in other tenants.
+  // Count through the already authorized server client to preserve their default.
+  const { count: existingAnyMembershipCount, error: countError } = await directoryClient
     .from("tenant_memberships")
     .select("id", { count: "exact", head: true })
     .eq("user_id", input.user_id);

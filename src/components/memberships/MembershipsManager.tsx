@@ -39,9 +39,7 @@ type MembershipRecord = {
 
 type CandidateRecord = {
   id: string;
-  full_name: string;
-  work_email: string | null;
-  role: "buyer" | "site_manager" | "admin";
+  email: string;
 };
 
 type MembershipsResponse = {
@@ -99,10 +97,8 @@ export function MembershipsManager() {
     () =>
       candidates.map((candidate) => ({
         value: candidate.id,
-        label: candidate.work_email
-          ? `${candidate.full_name} — ${candidate.work_email}`
-          : candidate.full_name,
-        keywords: [candidate.full_name, candidate.work_email ?? ""],
+        label: candidate.email,
+        keywords: [candidate.email],
       })),
     [candidates]
   );
@@ -301,8 +297,8 @@ export function MembershipsManager() {
   }
 
   const searchHint =
-    search.trim().length < 2
-      ? "Saisissez au moins 2 caractères pour rechercher des profils."
+    !search.trim()
+      ? "Saisissez l’adresse email de connexion complète."
       : describeCandidates(candidates.length);
 
   return (
@@ -336,13 +332,13 @@ export function MembershipsManager() {
       <PageSection title="Ajouter un membre" className="mb-8">
         <form className="grid gap-4 sm:grid-cols-4" onSubmit={handleAddMembership}>
           <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-            <FieldLabel htmlFor="membership-search">Rechercher un utilisateur</FieldLabel>
+            <FieldLabel htmlFor="membership-search">Email de connexion</FieldLabel>
             <Input
               id="membership-search"
-              type="search"
+              type="email"
               size="lg"
               autoComplete="off"
-              placeholder="Nom ou email (2 caractères min.)"
+              placeholder="prenom.nom@entreprise.fr"
               aria-describedby="membership-search-hint"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -397,10 +393,7 @@ export function MembershipsManager() {
 
         {selectedCandidate ? (
           <p className="mt-4 rounded-control border border-border bg-surface-subtle p-3 text-xs text-foreground-secondary">
-            Sélection : <span className="font-medium text-foreground">{selectedCandidate.full_name}</span>
-            {selectedCandidate.work_email ? (
-              <span className="break-all"> ({selectedCandidate.work_email})</span>
-            ) : null}
+            Sélection : <span className="break-all font-medium text-foreground">{selectedCandidate.email}</span>
           </p>
         ) : null}
       </PageSection>

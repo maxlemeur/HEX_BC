@@ -22,6 +22,7 @@ export const createSupabaseServerClient = cache(async () => {
   const { supabaseUrl, supabaseAnonKey } = getSupabasePublicEnv();
 
   return createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
+    cookieOptions: { secure: process.env.NODE_ENV === "production" },
     cookies: {
       getAll() {
         return cookieStore.getAll();

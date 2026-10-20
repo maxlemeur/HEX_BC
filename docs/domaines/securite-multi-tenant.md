@@ -89,6 +89,13 @@ La Proxy redirige un visiteur non authentifié de `/dashboard/**` vers `/login`,
 
 Le client Server Component (`src/lib/supabase/server.ts`) a un `setAll()` volontairement vide : le rafraîchissement de session est porté par `src/proxy.ts`.
 
+Correction locale du 20/10/2026 : les trois factories SSR activent `Secure` en
+production. La Proxy conserve les en-têtes anti-cache fournis avec les cookies,
+y compris sur les redirections et plusieurs écritures successives. Les assets
+Swagger renvoient également `private, no-store` pour ne pas remplacer cette
+protection par un TTL public. Le modèle SDK conserve `SameSite=Lax` et les
+cookies accessibles au navigateur ; activer `HttpOnly` changerait ce modèle.
+
 `src/app/api/docs/route.ts` n'exige aucune authentification : il est gouverné par `ENABLE_OPENAPI_DOCS`, `NODE_ENV !== "production"` ou `VERCEL_ENV === "preview"` — `src/app/api/docs/route.ts:17-28`.
 
 Aucun en-tête de sécurité HTTP (CSP, HSTS, `X-Frame-Options`) n'est défini au niveau applicatif : `grep -c "headers" next.config.ts` renvoie `0`, et la seule occurrence de `Content-Security-Policy` du dépôt est une `<meta>` dans une iframe de prévisualisation (`src/components/DevisPreviewModal.tsx:134`).
@@ -166,7 +173,16 @@ Appels recensés (`grep -rn "createServiceRoleClient\|createOptionalServiceRoleC
 | `src/lib/email/estimate-email-outbox.ts` | Mutations d'outbox et appel Resend après authentification applicative ; les RPC revérifient acteur, rôle et tenant actif |
 | `src/lib/workflows/durable-recovery.ts`, `src/lib/procurement/storage-cleanup-outbox.ts` | Route cron interne protégée par `CRON_SECRET` ; dispatch durable et suppression d'objets déjà inscrits dans l'outbox |
 
-L'usage service-role dans `listCandidates` est délibéré et testé : le RLS `profiles` ayant été resserré, l'annuaire de recherche passe par un client privilégié borné à l'admin du tenant — `src/lib/auth-tenant-rls-security-regressions.test.ts:89-99`.
+Correction locale du 20/10/2026 : `listCandidates` n'expose plus un annuaire de
+profils par recherche partielle. Seul un email de connexion complet est accepté.
+La RPC `find_membership_candidate_by_email`, réservée à `service_role`, relit
+l'administrateur et son tenant actif, compare l'email dans `auth.users` et ne
+retourne que l'ID et l'email déjà fourni. `profiles.work_email`, modifiable, ne
+sert pas d'identité de compte. Les noms et rôles restent limités aux membres
+visibles par le client utilisateur normal. Le comptage des appartenances d'un
+nouveau membre utilise le client serveur autorisé, car la vue RLS de l'appelant
+masque celles des autres tenants et ne peut pas déterminer son tenant par défaut.
+Voir [les régressions et limites](../testing/authentication-boundaries-2026-10-20.md).
 
 Parmi les RPC explicitement réservées au rôle Postgres `service_role` et
 révoquées de `public, anon, authenticated` figurent

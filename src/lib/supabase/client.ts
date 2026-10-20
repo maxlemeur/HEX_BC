@@ -17,5 +17,7 @@ function getSupabasePublicEnv() {
 
 export function createSupabaseBrowserClient() {
   const { supabaseUrl, supabaseAnonKey } = getSupabasePublicEnv();
-  return createBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+  return createBrowserClient<Database>(supabaseUrl, supabaseAnonKey, {
+    cookieOptions: { secure: process.env.NODE_ENV === "production" },
+  });
 }

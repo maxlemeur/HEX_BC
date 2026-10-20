@@ -4219,6 +4219,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      find_membership_candidate_by_email: {
+        Args: { p_actor_user_id: string; p_email: string };
+        Returns: { id: string; email: string }[];
+      };
       get_estimate_source_coverage: {
         Args: { p_version_id: string; p_requirement_id?: string | null; p_after_id?: string | null; p_limit?: number; p_before_event?: number | null; p_operation_key?: string | null };
         Returns: Json;

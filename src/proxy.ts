@@ -14,9 +14,13 @@ function getSupabasePublicEnv() {
   return { supabaseUrl, supabaseAnonKey };
 }
 
-function applyCookies(from: NextResponse, to: NextResponse) {
+function applySessionResponse(from: NextResponse, to: NextResponse) {
   for (const cookie of from.cookies.getAll()) {
     to.cookies.set(cookie);
+  }
+  for (const name of ["cache-control", "expires", "pragma"]) {
+    const value = from.headers.get(name);
+    if (value) to.headers.set(name, value);
   }
   return to;
 }
@@ -26,16 +30,19 @@ export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookieOptions: { secure: process.env.NODE_ENV === "production" },
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, headers) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
+        const previousResponse = response;
+        response = applySessionResponse(previousResponse, NextResponse.next({ request }));
         cookiesToSet.forEach(({ name, value, options }) =>
           response.cookies.set(name, value, options)
         );
+        Object.entries(headers).forEach(([name, value]) => response.headers.set(name, value));
       },
     },
   });
@@ -50,14 +57,14 @@ export async function proxy(request: NextRequest) {
     const redirectResponse = NextResponse.redirect(
       new URL("/login", request.url)
     );
-    return applyCookies(response, redirectResponse);
+    return applySessionResponse(response, redirectResponse);
   }
 
   if (user && (pathname === "/login" || pathname === "/signup")) {
     const redirectResponse = NextResponse.redirect(
       new URL("/dashboard", request.url)
     );
-    return applyCookies(response, redirectResponse);
+    return applySessionResponse(response, redirectResponse);
   }
 
   return response;

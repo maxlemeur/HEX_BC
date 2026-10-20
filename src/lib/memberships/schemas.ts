@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
+export const membershipCandidateEmailSchema = z.email().max(254);
+
 export const tenantRoleSchema = z.enum([
   "admin",
   "engineer",
@@ -13,7 +15,7 @@ export const membershipsListQuerySchema = z.object({
   search: z
     .string()
     .trim()
-    .max(120, "Recherche trop longue.")
+    .max(254, "Recherche trop longue.")
     .optional()
     .nullable(),
 });

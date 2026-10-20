@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
       }
     : {}),
   outputFileTracingIncludes: {
+    "/api/docs/swagger-ui/*": [
+      "./node_modules/swagger-ui-dist/swagger-ui.css",
+      "./node_modules/swagger-ui-dist/swagger-ui-bundle.js",
+    ],
     "/api/estimates/*/source-review/**": [
       "./node_modules/pdf-lib/dist/pdf-lib.min.js",
     ],
