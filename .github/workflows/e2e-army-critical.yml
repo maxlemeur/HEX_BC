@@ -124,7 +124,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
       # Plain Node, no install: a "none" selection starts no shard. A selector
       # error selects the full suite; a missing or empty output also runs it,
       # since only an explicit "none" skips the journeys.
@@ -247,7 +247,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -405,7 +405,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -527,7 +527,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
       - name: No critical journey reached by this change
         if: needs.army-select.outputs.mode == 'none'
         run: echo "::notice title=TesterArmy critical::Aucun parcours critical concerné (documentation ou chemins hors suite) ; parcours non exécutés, aucune preuve revendiquée."
@@ -638,7 +638,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
       - name: No takeoff journey reached by this change
         if: needs.army-select.outputs.full_only_mode == 'none'
         run: echo "::notice title=TesterArmy takeoff::Aucun parcours du métré concerné ; parcours non exécutés, aucune preuve revendiquée."
