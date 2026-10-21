@@ -9,7 +9,7 @@ import { assertCctpLaborSelection } from "./cctp-seed-plan.mjs";
 import { verifyNativeRecipe } from "./local-native-proof.mjs";
 import { ignoredFile, readProof, requireValue, sha256, relativePath, repositoryRoot as root, redactOutput } from "./local-recipe-common.mjs";
 
-requireValue(process.versions.node.startsWith("24.") && process.argv.length === 4 && process.argv[3] === "--execute", "Supply exact component plan and --execute under Node24.");
+requireValue(["24", "26"].includes(process.versions.node.split(".")[0]) && process.argv.length === 4 && process.argv[3] === "--execute", "Supply exact component plan and --execute under Node 24 or 26.");
 const file = await ignoredFile(process.argv[2]), bytes = await readFile(file), plan = validateComponentsPlan(JSON.parse(bytes));
 requireValue(process.env.NEXT_PUBLIC_SUPABASE_URL === plan.apiUrl && process.env.E2E_ALLOWED_SUPABASE_HOST === new URL(plan.apiUrl).hostname &&
   ["NEXT_PUBLIC_SUPABASE_ANON_KEY", "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD"].every((key) => process.env[key]?.trim()), "Explicit ordinary local environment required.");

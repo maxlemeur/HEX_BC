@@ -7,7 +7,7 @@
   "native": {
     "configPath": ".e2e/replace-with-owned-native-config.json",
     "configSha256": "replace-with-actual-sha256",
-    "nodePath": "/absolute/path/to/node24/bin/node",
+    "nodePath": "/absolute/path/to/node26/bin/node",
     "distribution": "Ubuntu-24.04"
   },
   "owner": {

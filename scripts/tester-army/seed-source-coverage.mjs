@@ -27,7 +27,7 @@ if (args.length === 1 && args[0] === "--help") {
 if (args.length !== 3 || args[0] !== "--execute" || args[1] !== "--profile") {
   throw new Error("Explicit --execute --profile required; preparation is not execution authorization.");
 }
-if (process.cwd() !== root || !/^v24\./.test(process.version)) throw new Error("Run from the repository root with Node 24.");
+if (process.cwd() !== root || !/^v(?:24|26)\./.test(process.version)) throw new Error("Run from the repository root with Node 24 or 26.");
 
 function contained(base, file) {
   const relative = path.relative(base, file);

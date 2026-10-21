@@ -21,7 +21,8 @@ authenticated screenshot limitations stay separate from the full business suite.
 
 ## Commands
 
-Node 24 is the repository runtime. [package.json](../../package.json) and
+Node 26.12.1 is the development and CI runtime; Vercel production uses Node
+24.x. [package.json](../../package.json) and
 `package-lock.json` define the installed runner and engine versions; each run's
 manifest records its effective versions. The engine bundles its own browser
 implementation; the root `playwright` dependency is also used by

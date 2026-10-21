@@ -14,7 +14,7 @@ export async function verifyNativeRecipe(receiptPath, receiptSha256, { scenarioS
   const packageJson = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
   requireValue(value.schemaVersion === "army-local-native-qualification-1" && value.status === "verified" &&
     value.host?.platform === "linux" && Number.isInteger(value.host.uid) && value.host.uid > 0 &&
-    value.cliVersion === packageJson.devDependencies.supabase && /^v24\.\d+\.\d+$/.test(value.nativeNodeVersion ?? "") &&
+    value.cliVersion === packageJson.devDependencies.supabase && /^v(?:24|26)\.\d+\.\d+$/.test(value.nativeNodeVersion ?? "") &&
     ["rollbackVerified", "migrationHistoryVerified", "bodiesAndAclVerified"].every((key) => value[key] === true) &&
     ["reset", "migrationApplied", "seed"].every((key) => value[key] === false), "Executed native recipe qualification is required.");
   const directory = await realpath(path.dirname(proof.file));

@@ -19,7 +19,7 @@ async function proof(value, expected) {
   if (!/^[0-9a-f]{64}$/.test(expected ?? "") || sha(bytes) !== expected) throw new Error("Explicit prerequisite SHA differs.");
   return JSON.parse(bytes.toString());
 }
-if (process.versions.node.split(".")[0] !== "24" || process.argv.length !== 4 || process.argv[3] !== "--execute") throw new Error("Supply an explicit reviewed plan and --execute under Node24.");
+if (!["24", "26"].includes(process.versions.node.split(".")[0]) || process.argv.length !== 4 || process.argv[3] !== "--execute") throw new Error("Supply an explicit reviewed plan and --execute under Node 24 or 26.");
 const planFile = await owned(process.argv[2]), bytes = await readFile(planFile), plan = JSON.parse(bytes.toString());
 const recovery = plan.schemaVersion === "estimate-generated-recovery-plan-1";
 const url = new URL(plan.apiUrl);

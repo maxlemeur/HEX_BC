@@ -4,7 +4,7 @@ Read this only for an authorized task in a disposable Cursor Cloud VM running it
 
 ## Verify the environment first
 
-- Use Node 24 from `.nvmrc`. A previously observed VM shim at `/exec-daemon/node` supplied Node 22 ahead of nvm; check `node -v` and `command -v node`. If applicable, source nvm and select 24 for this session. Do not assume a shell startup patch is present.
+- Use Node 26.12.1 from `.nvmrc`. A previously observed VM shim at `/exec-daemon/node` supplied Node 22 ahead of nvm; check `node -v` and `command -v node`. If applicable, source nvm and select the pinned version for this session. Do not assume a shell startup patch is present.
 - Local Supabase runs on the native runtime of the package-pinned Supabase CLI, without Docker: it needs glibc 2.35 or later and a non-root account, and `[experimental] stack = true` in the `config.toml` it starts from. `npm run db:ci:local` sets that up in an isolated copy; for a manual stack, enable it in a copy, never in the repository file.
 - Before startup, reset or privilege changes, identify the exact disposable stack and project (`npx supabase stack list`), verify the loopback endpoint, and confirm no user data must be retained. Do not select the first matching stack or infer isolation from its name. Stop dependent mutations if the target is ambiguous.
 - After those checks, `npx supabase start --runtime native` starts the local stack and may apply migrations. Keep its credential output private. Never assume a reset succeeds; follow the baseline checks in [AGENTS.md](../AGENTS.md).

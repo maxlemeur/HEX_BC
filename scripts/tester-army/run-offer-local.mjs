@@ -81,7 +81,7 @@ if (!["--list", "--execute"].includes(mode) || !["OF00", "OF01", "OF02", "OF03",
   throw new Error("Use --list|--execute OF00|OF01|OF02|OF03|OF04|OF0L|OF0[01234L]|PDFL1…PDFL8|PDFL[1-8]|EF01|EF02|EF03|EF04|EF05|NF02|NF03|NF04.");
 }
 const selectedGrep = selection.startsWith("PDFL") || selection.startsWith("EF") || selection.startsWith("NF") ? `^${selection}(?:\\s|$)` : selection;
-if (Number(process.versions.node.split(".")[0]) !== 24) throw new Error("Node 24 required.");
+if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("Node 24 or 26 required.");
 if (git("branch", "--show-current").trim() !== "main") throw new Error("Existing main checkout required.");
 const serverMode = offerServerMode();
 const productionBuild = await validateOfferProductionBuild();

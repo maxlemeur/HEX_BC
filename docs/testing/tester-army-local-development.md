@@ -7,7 +7,7 @@ nécessaire. Les modes `critical` et `full` gardent leur sélection par défaut.
 
 ## Utilisation
 
-Sous Windows, utiliser un checkout Linux dédié sous WSL, avec Node 24. Ne pas
+Sous Windows, utiliser un checkout Linux dédié sous WSL, avec Node 26.12.1. Ne pas
 copier les `.env` du checkout Windows ni des identifiants du backend partagé.
 Les fichiers `.env` et variables Supabase/DB héritées sont refusés.
 

@@ -18,7 +18,7 @@ archives, les défaillances initiales et les limites de cette preuve locale.
 
 Seul `coverage` ajoute `--max-failures 1` : les douze tests restent sélectionnés, les suivants sont ignorés après un échec et la qualification exige toujours douze réussites ; `coverage-list` n'ajoute pas ce flag.
 
-Lancer avec Node 24 depuis la racine et charger explicitement les fichiers
+Lancer avec Node 26.12.1 depuis la racine et charger explicitement les fichiers
 d'environnement locaux par `--env-file`, le profil backend puis celui du
 nouveau compte de fixture. Le mode coverage ne lit pas `.env.local`.
 L'environnement doit fournir `NEXT_PUBLIC_SUPABASE_URL`,
@@ -185,7 +185,7 @@ node --env-file=<backend.env-neuf> .e2e/product-foundation/build.cjs
 
 ```bash
 GIT_INDEX_FILE="$PWD/.e2e/git-index-recovery/head.index" GIT_OPTIONAL_LOCKS=0 \
-  <node24-verifie> --env-file=<backend.env-neuf> \
+  <node26-verifie> --env-file=<backend.env-neuf> \
   scripts/tester-army/seed-source-coverage.mjs \
   --execute --profile <seed-profile.json-exact>
 ```
@@ -196,7 +196,7 @@ GIT_INDEX_FILE="$PWD/.e2e/git-index-recovery/head.index" GIT_OPTIONAL_LOCKS=0 \
 ```bash
 GIT_INDEX_FILE="$PWD/.e2e/git-index-recovery/head.index" GIT_OPTIONAL_LOCKS=0 \
   E2E_COVERAGE_PROFILE_PATH=<run-profile.json-exact> \
-  <node24-verifie> --env-file=<backend.env-neuf> \
+  <node26-verifie> --env-file=<backend.env-neuf> \
   --env-file=.e2e/army/coverage/fixtures/<campagne>/local.env \
   scripts/run-tester-army.mjs coverage
 ```
@@ -206,7 +206,7 @@ GIT_INDEX_FILE="$PWD/.e2e/git-index-recovery/head.index" GIT_OPTIONAL_LOCKS=0 \
 
 ```bash
 GIT_INDEX_FILE="$PWD/.e2e/git-index-recovery/head.index" GIT_OPTIONAL_LOCKS=0 \
-  <node24-verifie> --env-file=<backend.env-neuf> \
+  <node26-verifie> --env-file=<backend.env-neuf> \
   --env-file=.e2e/army/coverage/fixtures/<campagne>/local.env \
   scripts/tester-army/qualify-source-coverage.mjs <run-terminal-exact>
 ```

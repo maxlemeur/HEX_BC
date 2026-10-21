@@ -4,7 +4,7 @@
 
 Commencer par `npm run check:army-recipes` : six harnais de refus hors réseau,
 60 assertions attendues, arrêt au premier échec, reçus enfants nommés dans la
-sortie. Node 24, Git, Python accessible par `python` et création de liens de
+sortie. Node 26.12.1, Git, Python accessible par `python` et création de liens de
 répertoire doivent être disponibles. Aucun compte, SQL, HTTP ou navigateur
 n'est qualifié par cette commande. Les deux harnais CCTP génèrent maintenant
 leurs propres vecteurs de parser ; aucune archive historique n'est nécessaire.
@@ -71,7 +71,7 @@ concrète ; une configuration d'exemple ne confère aucune autorisation.
 
 ## Depuis une copie propre
 
-Utiliser Node 24, les dépendances du lockfile (`npm ci` sur copie propre), le
+Utiliser Node 26.12.1, les dépendances du lockfile (`npm ci` sur copie propre), le
 Chromium du runner déjà installé, Python 3.11 et une CLI Supabase native déjà
 installée. Sur Windows, Python/CLI/PostgreSQL fonctionnent dans WSL. Les outils
 n'installent aucune dépendance. Les exemples de configuration sont dans

@@ -7,7 +7,7 @@
   "cliSha256": "replace-with-cli-file-sha256",
   "postgresBinDirectory": "/absolute/path/to/native/postgres/bin",
   "psqlSha256": "replace-with-psql-file-sha256",
-  "nodePath": "/absolute/path/to/node24/bin/node",
+  "nodePath": "/absolute/path/to/node26/bin/node",
   "apiUrl": "http://127.0.0.1:45001",
   "dbPort": 45002,
   "systemIdentifier": "replace-with-observed-postgresql-system-identifier",

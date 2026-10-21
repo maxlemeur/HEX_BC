@@ -97,7 +97,7 @@ const receipt = {
   ],
 };
 try {
-  check(process.versions.node.split(".")[0] === "24", "node-24");
+  check(["24", "26"].includes(process.versions.node.split(".")[0]), "node-supported");
   await owned(runBase);
   const run = await owned(requested, runBase), files = await walk(run);
   const manifest = await json(path.join(run, "manifest.json"));

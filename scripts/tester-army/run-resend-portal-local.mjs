@@ -22,7 +22,7 @@ const mode = process.argv[2];
 const selection = process.argv[3] ?? "RS[AR]";
 if (!["--list", "--execute"].includes(mode) || !["RSA", "RSR", "RS[AR]"].includes(selection)) throw new Error("Use --list|--execute RSA|RSR|RS[AR].");
 const selectedGrep = `^${selection}(?:\\s|$)`;
-if (Number(process.versions.node.split(".")[0]) !== 24) throw new Error("Node 24 required.");
+if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("Node 24 or 26 required.");
 if (git("branch", "--show-current").trim() !== "main") throw new Error("Existing main checkout required.");
 const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
 if (backend.origin !== "http://127.0.0.1:45585" || backend.href !== `${backend.origin}/`) throw new Error("This authorized recipe targets the verified local API45585 only.");

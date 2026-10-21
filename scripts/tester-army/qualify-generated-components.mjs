@@ -11,7 +11,7 @@ import { validateAssemblyTotalsResults, validateAssemblyTotalsBusiness } from ".
 import { validateNumericExportCells } from "./generated-numeric-reader-support.mjs";
 const usage = "node scripts/tester-army/qualify-generated-components.mjs <exact .e2e/army/coverage/runs/run-directory>";
 if (process.argv.length === 3 && process.argv[2] === "--help") { console.log(usage); process.exit(0); }
-requireValue(process.versions.node.startsWith("24.") && process.argv.length === 3, usage);
+requireValue(["24", "26"].includes(process.versions.node.split(".")[0]) && process.argv.length === 3, usage);
 const runBase = path.join(root, ".e2e/army/coverage/runs"), requested = path.resolve(root, process.argv[2]);
 requireValue(path.dirname(requested) === runBase, "Exact direct run required; no latest selection.");
 const output = path.join(root, ".e2e/core07/qualifications", randomUUID()); await mkdir(output, { recursive: true });

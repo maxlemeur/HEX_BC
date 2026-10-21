@@ -14,7 +14,7 @@ function explicitOrigin(name: string, collector = false) {
   if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !url.port || url.origin !== value || url.username || url.password || url.pathname !== "/" || url.search || url.hash || (collector && url.hostname !== "127.0.0.1")) throw new Error(`Explicit local ${name} required.`);
   return url;
 }
-if (process.versions.node.split(".")[0] !== "24") throw new Error("Offer profile requires Node 24.");
+if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("Offer profile requires Node 24 or 26.");
 const serverMode = offerServerMode();
 await validateOfferProductionBuild();
 const appOrigin = explicitOrigin("E2E_OFFER_APP_ORIGIN");

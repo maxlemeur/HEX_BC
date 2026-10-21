@@ -50,7 +50,7 @@ export async function probeOfferGuard({ directory, appOrigin, backendOrigin }) {
     report.cases.push({ id, expected, actual, status: "pass", startedAt, completedAt: new Date().toISOString() });
   }
   try {
-    check(process.versions.node.split(".")[0] === "24" && report.sdkVersion === "6.17.2", "runtime-version");
+    check(["24", "26"].includes(process.versions.node.split(".")[0]) && report.sdkVersion === "6.17.2", "runtime-version");
     const collectorDirectory = path.join(run, "collector");
     await mkdir(collectorDirectory);
     collector = await startCollector({ directory: collectorDirectory });
