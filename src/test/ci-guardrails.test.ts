@@ -1037,16 +1037,17 @@ describe("CI and local quality guardrails", () => {
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "null")).toEqual(cases.map(({ workers }) => workers));
   }, 60_000);
 
-  it("uses the project-pinned Supabase CLI for backups", () => {
+  // The dedicated backup role cannot SET ROLE postgres as Supabase CLI does.
+  // Keep the supply-chain and secret-scope guard when using pg_dump directly:
+  // replacing the immutable image with a mutable tag must fail this check.
+  // This ref guard applies to this workflow's execution; repository secrets
+  // remain available to other workflows written by trusted collaborators.
+  it("pins the backup client and runs this backup only on main", () => {
     const workflow = read(".github/workflows/supabase-backup.yml");
 
-    expect(workflow).not.toMatch(/^\s{2}workflow_dispatch:/mu);
-    expect(workflow).toContain("run: npm ci --ignore-scripts");
-    expect(workflow).toContain("run: npm audit signatures");
-    expect(workflow).toContain("npx --no-install supabase --version");
-    expect(workflow).toContain('= "2.121.0"');
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
+    expect(workflow).toMatch(/^\s+POSTGRES_IMAGE: postgres:[\w.-]+@sha256:[a-f0-9]{64}$/mu);
     expect(workflow).not.toContain("npm install -g supabase");
-    expect(workflow).not.toMatch(/^\s+supabase db dump/mu);
     expect(workflow).not.toMatch(
       /^\s{6}SUPABASE_DB_URL:.*secrets\.SUPABASE_DB_URL/mu
     );
@@ -1054,7 +1055,7 @@ describe("CI and local quality guardrails", () => {
       workflow.indexOf("Validate required secrets")
     );
     expect(workflow.indexOf("secrets.SUPABASE_DB_URL")).toBeGreaterThan(
-      workflow.indexOf("npm audit signatures")
+      workflow.indexOf('docker pull "$POSTGRES_IMAGE"')
     );
   });
 

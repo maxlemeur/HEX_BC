@@ -126,28 +126,33 @@ Copiez `.env.example` en `.env.local` et renseignez :
 
 Le workflow [`supabase-backup.yml`](../.github/workflows/supabase-backup.yml) exécute :
 
-- un dump planifié chaque jour (`02:25 UTC`)
-- 3 fichiers SQL (`roles.sql`, `schema.sql`, `data.sql`) chiffrés dans un artefact `.tar.gz.cms`
+- un dump planifié chaque jour (`02:25 UTC`), également lançable manuellement
+- un instantané PostgreSQL unique (`database.dump`, format custom) et un inventaire des rôles sans mots de passe (`roles.sql`), chiffrés dans un artefact `.tar.gz.cms` conservé 30 jours
 
 Secrets requis dans GitHub :
 
 - `SUPABASE_DB_URL` : URL Postgres **percent-encoded** (si le mot de passe contient des caractères spéciaux).
 
+Utiliser une connexion directe ou le pooler en mode session (`5432`). Le rôle dédié `mergeone_backup_reader` possède `pg_read_all_data` et `BYPASSRLS`, sans appartenance à `postgres` ni privilèges d'administration. Il peut lire toutes les données, y compris Auth ; son secret est réservé au workflow de sauvegarde. Son défaut `default_transaction_read_only=on` prévient les écritures accidentelles, mais n'interdit pas les opérations que les privilèges `PUBLIC` autorisent. Ce rôle dans le projet existant ne crée ni abonnement ni instance supplémentaire. Les commandes `pg_dump` et `pg_dumpall` utilisent une image officielle PostgreSQL fixée par digest ; la commande Supabase CLI qui tente `SET ROLE postgres` ne convient pas à ce rôle.
+
+La connexion impose `sslmode=verify-full` avec [le certificat CA Supabase](../.github/supabase-ca.crt), téléchargé depuis [l'hébergement officiel](https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt). Empreinte SHA-256 : `807025AD50D4ED219D2C9C7D299C004F824EB00CF7F65AFEF607D07B72E6CAFA`. La vérification du certificat et du nom d'hôte précède l'authentification ; le simple mode `require` ne suffit pas à identifier le serveur.
+
 Le certificat public de chiffrement est versionné dans [`.github/backup-recipient.pem`](../.github/backup-recipient.pem). Conserver sa clé privée de restauration hors de GitHub ; sans certificat valide, le workflow échoue avant le dump. Lors d'une rotation, conserver ensemble chaque ancienne clé privée et son certificat public tant que les archives chiffrées avec cette paire existent. La restauration d'une archive exige la paire qui a servi à son chiffrement, et non le certificat courant après rotation.
 
-Restauration (exemple local) :
+Inspection après déchiffrement (en dehors du dépôt, dans un répertoire privé) :
 
 ```bash
 timestamp=AAAAMMJJThhmmssZ
 cert_path=/chemin/vers/le-certificat-correspondant.pem
 key_path=/chemin/hors-github/la-cle-privee-correspondante.pem
+umask 077
 openssl cms -decrypt -binary -inform DER -in "supabase-backup-${timestamp}.tar.gz.cms" \
   -recip "$cert_path" -inkey "$key_path" -out "supabase-backup-${timestamp}.tar.gz"
 tar -xzf "supabase-backup-${timestamp}.tar.gz"
-psql "$SUPABASE_DB_URL" -f "$timestamp/roles.sql"
-psql "$SUPABASE_DB_URL" -f "$timestamp/schema.sql"
-psql "$SUPABASE_DB_URL" -f "$timestamp/data.sql"
+pg_restore --list "$timestamp/database.dump"
 ```
+
+`roles.sql` est un inventaire à relire, pas un script à exécuter tel quel sur un Supabase géré : il inclut des rôles système et les attributs du rôle de sauvegarde. Pour une restauration, préparer une cible isolée compatible avec les rôles, extensions et objets Supabase référencés par le dump, puis employer un compte d'administration distinct du rôle de sauvegarde. `pg_restore --exit-on-error` doit arrêter la restauration à la première erreur. Les options `--no-owner` et `--no-privileges` ne retirent pas les dépendances des politiques RLS, fonctions ou extensions : une base PostgreSQL vide n'est pas une cible suffisante pour ce dump. Toute restauration distante exige sa propre autorisation.
 
 Notes :
 

@@ -3,17 +3,22 @@ name: Supabase Backup
 on:
   schedule:
     - cron: "25 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-backup
+  cancel-in-progress: false
 
 jobs:
   backup:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
     env:
       RETENTION_DAYS: "30"
-      DO_NOT_TRACK: "1"
-      SUPABASE_TELEMETRY_DISABLED: "1"
+      POSTGRES_IMAGE: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
 
     steps:
       - name: Checkout
@@ -21,19 +26,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-
-      - name: Install locked dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
-
-      - name: Verify dependency signatures
-        run: npm audit signatures
-
-      - name: Verify locked Supabase CLI
-        run: test "$(npx --no-install supabase --version)" = "2.121.0"
+      - name: Prepare pinned PostgreSQL client
+        run: |
+          set -euo pipefail
+          docker pull "$POSTGRES_IMAGE"
+          docker run --rm "$POSTGRES_IMAGE" pg_dump --version
 
       - name: Validate required secrets
         run: |
@@ -58,6 +55,7 @@ jobs:
             echo "::error::The backup recipient certificate is invalid or expires within 24 hours"
             exit 1
           fi
+          openssl x509 -in "$GITHUB_WORKSPACE/.github/supabase-ca.crt" -noout -checkend 86400
 
       - name: Dump and encrypt database
         id: dump
@@ -75,22 +73,51 @@ jobs:
 
           mkdir -p "$outdir" "$encrypted_dir"
 
-          npx --no-install supabase db dump \
-            --db-url "$SUPABASE_DB_URL" \
-            --schema public,auth,storage \
-            --file "$outdir/schema.sql"
+          python3 - "$outdir" <<'PY'
+          import os
+          import subprocess
+          import sys
+          from urllib.parse import unquote, urlsplit
 
-          npx --no-install supabase db dump \
-            --db-url "$SUPABASE_DB_URL" \
-            --role-only \
-            --file "$outdir/roles.sql"
-
-          npx --no-install supabase db dump \
-            --db-url "$SUPABASE_DB_URL" \
-            --data-only \
-            --use-copy \
-            --schema public,auth,storage \
-            --file "$outdir/data.sql"
+          connection = urlsplit(os.environ["SUPABASE_DB_URL"])
+          if connection.scheme not in ("postgres", "postgresql") or not all(
+              (connection.hostname, connection.username, connection.password, connection.path.lstrip("/"))
+          ):
+              raise SystemExit("SUPABASE_DB_URL must contain a Postgres host, username, password and database")
+          environment = os.environ.copy()
+          environment.update(
+              PGHOST=connection.hostname,
+              PGPORT=str(connection.port or 5432),
+              PGUSER=unquote(connection.username),
+              PGPASSWORD=unquote(connection.password),
+              PGDATABASE=unquote(connection.path.lstrip("/")),
+              PGSSLMODE="verify-full",
+              PGSSLROOTCERT="/supabase-ca.crt",
+              PGCONNECT_TIMEOUT="20",
+          )
+          client = [
+              "docker", "run", "--rm", "--network=host",
+              "--user", f"{os.getuid()}:{os.getgid()}",
+          ]
+          for name in ("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE", "PGSSLROOTCERT", "PGCONNECT_TIMEOUT"):
+              client.extend(("--env", name))
+          client.extend((
+              "--volume", f"{sys.argv[1]}:/backup",
+              "--volume", f"{os.environ['GITHUB_WORKSPACE']}/.github/supabase-ca.crt:/supabase-ca.crt:ro",
+              os.environ["POSTGRES_IMAGE"],
+          ))
+          # One snapshot contains both schema and data, including rows hidden by RLS.
+          subprocess.run(client + [
+              "pg_dump", "--format=custom", "--strict-names", "--lock-wait-timeout=30s",
+              "--schema=public", "--schema=auth", "--schema=storage",
+              "--file=/backup/database.dump",
+          ], env=environment, check=True)
+          # Inventory only: platform roles must not be restored blindly on Supabase.
+          subprocess.run(client + [
+              "pg_dumpall", "--roles-only", "--no-role-passwords", "--database=postgres",
+              "--file=/backup/roles.sql",
+          ], env=environment, check=True)
+          PY
 
           tar -C "$plain_root" -czf - "$timestamp" \
             | openssl cms -encrypt -aes-256-cbc -binary -stream -outform DER \
