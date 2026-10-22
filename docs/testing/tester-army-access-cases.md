@@ -6,7 +6,7 @@ This failure inventory was written before the scenarios. The suite uses a fresh 
 
 Every case must return exactly HTTP `401`, JSON `ok: false`, and `error.code: "UNAUTHORIZED"`. A `400`, `403`, redirect, HTML login page, or network rejection is a failure: it does not prove this authentication boundary. The response must contain only the failure envelope and public authentication error fields, with no business data, resource ID, storage path, or internal error details.
 
-The takeoff upload error contract adds public `retryable: false` and `level: "A"`, repeated under `details`. The test checks those exact values and keys; that metadata is permitted, while a job ID, other detail, or extra response field fails.
+The takeoff upload now authenticates before reading multipart fields. Its anonymous error therefore contains only `code` and `message`; a level, retry metadata, job ID, or other details would show that the request body influenced the response before authentication.
 
 | Case | Request and valid fixture | Failure exposed | Inspected boundary |
 | --- | --- | --- | --- |
@@ -16,7 +16,7 @@ The takeoff upload error contract adds public `retryable: false` and `level: "A"
 | Create canonical JSON import | `POST /api/imports`, `application/json`, one tabular DPGF row with designation, unit, quantity and unit price | Anonymous import or raw-row insertion | `createImportFromJsonBody` validates the shape/metadata and authenticates before project lookup and record/raw-row writes. |
 | Upload CSV import | `POST /api/imports`, multipart with a nonempty CSV `File` and `headerRowNumber=1` | Anonymous Storage upload or import creation through the separate multipart path | `createImportFromMultipartFormData` validates file metadata and authenticates before Storage upload. |
 | List takeoff jobs | `GET /api/takeoff/jobs?limit=1&offset=0` | Anonymous job, counter, or source-file disclosure | `getAuthenticatedTakeoffContext` authenticates before tenant feature checks and queries. |
-| Upload structured takeoff | `POST /api/takeoff/jobs`, multipart CSV, level `A`, a syntactically valid run UUID and idempotency key | Anonymous Storage upload, job creation, or worker dispatch | `createTakeoffJobFromFormData` validates file/level/version UUID and hashes the bytes before authentication; Storage upload, job insert and dispatch occur after the guard. |
+| Upload structured takeoff | `POST /api/takeoff/jobs`, multipart CSV, level `A`, a syntactically valid run UUID and idempotency key | Anonymous Storage upload, job creation, or worker dispatch | The route authenticates before reading multipart bytes, then caps the request stream; `createTakeoffJobFromFormData` also authenticates before inspecting or hashing the file. Storage upload, job insert and dispatch follow those guards. |
 
 The takeoff UUID is deliberately a synthetic fixture identifier, not an existing estimate. This proves authentication occurs before resource lookup. Level A uses a tiny valid CSV to avoid PDF validation or inference masking the guard.
 

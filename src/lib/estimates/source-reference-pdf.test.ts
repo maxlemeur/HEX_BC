@@ -155,4 +155,14 @@ describe("source reference PDF worker lifecycle", () => {
     if (!observation) throw new Error("Real parser worker was not observed");
     assertEnded(observation);
   }, 10_000);
+
+  it("lets takeoff inspect a valid PDF beyond the source-review page limit", async () => {
+    const bytes = await makePagePdf(201);
+    const result = await __testing__.runSourceReferencePdfWorker(bytes, {
+      timeoutMs: 5000,
+      maxPages: 201,
+      strictObjectValidation: false,
+    });
+    expect(result.pageCount).toBe(201);
+  }, 10_000);
 });

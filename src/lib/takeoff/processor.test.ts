@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Pagination faults are covered with the real SDK in read-all.test.ts.
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
 
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(),
+}));
+
 import { PDFDocument } from "pdf-lib";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -1301,6 +1306,7 @@ function createTakeoffProcessorSupabaseMock(
     }),
   };
 
+  vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
   return { supabase, state };
 }
 

@@ -42,6 +42,7 @@ __pycache__/
 # misc
 .DS_Store
 *.pem
+!.github/backup-recipient.pem
 nul
 e2e/.auth.json
 e2e/.auth/

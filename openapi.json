@@ -21241,6 +21241,7 @@
               "TAKEOFF_FILE_TOO_LARGE",
               "TAKEOFF_FILE_TYPE_INVALID",
               "TAKEOFF_PDF_CORRUPTED",
+              "TAKEOFF_PDF_INSPECTION_TIMEOUT",
               "TAKEOFF_PDF_NOT_INTERPRETABLE",
               "TAKEOFF_LEVEL_UNSUPPORTED",
               "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
@@ -21260,6 +21261,7 @@
               "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
               "TAKEOFF_JOB_NOT_RETRIABLE",
               "TAKEOFF_JOB_NOT_CANCELABLE",
+              "TAKEOFF_JOB_ADMISSION_LIMIT",
               "TAKEOFF_APPLY_GUARD_FAILED",
               "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"
             ]
@@ -21315,6 +21317,7 @@
                   "TAKEOFF_FILE_TOO_LARGE",
                   "TAKEOFF_FILE_TYPE_INVALID",
                   "TAKEOFF_PDF_CORRUPTED",
+                  "TAKEOFF_PDF_INSPECTION_TIMEOUT",
                   "TAKEOFF_PDF_NOT_INTERPRETABLE",
                   "TAKEOFF_LEVEL_UNSUPPORTED",
                   "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
@@ -21334,6 +21337,7 @@
                   "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
                   "TAKEOFF_JOB_NOT_RETRIABLE",
                   "TAKEOFF_JOB_NOT_CANCELABLE",
+                  "TAKEOFF_JOB_ADMISSION_LIMIT",
                   "TAKEOFF_APPLY_GUARD_FAILED",
                   "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"
                 ]

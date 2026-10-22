@@ -334,6 +334,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     }),
   };
 
+  createServiceRoleClientMock.mockImplementation(() => ({
+    from: supabase.from,
+    storage: { from: vi.fn(() => ({ remove: serviceRoleRemoveMock })) },
+  }));
   return supabase;
 }
 
@@ -452,6 +456,39 @@ describe("POST /api/takeoff/jobs", () => {
       statusCode: 202,
       outcome: "accepted",
     });
+  });
+
+  // Multipart parsing can allocate and PDF inspection can consume CPU. An
+  // anonymous request must stop before either operation, even if its body is
+  // malformed or intentionally expensive to read.
+  it("rejects an anonymous upload before reading its multipart body", async () => {
+    const supabase = createSupabaseMock();
+    supabase.auth.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const request = {
+      headers: new Headers({ "content-type": "multipart/form-data" }),
+      formData: vi.fn(() => { throw new Error("body was read"); }),
+      get body() { throw new Error("body was read"); },
+    } as unknown as Request;
+
+    const response = await POST(request);
+    expect(response.status).toBe(401);
+    expect(request.formData).not.toHaveBeenCalled();
+    expect(supabase.__state.jobsById.size).toBe(0);
+  });
+
+  it("rejects an oversized multipart request before parsing it", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const request = new Request("http://localhost/api/takeoff/jobs", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=oversized" },
+      body: new Uint8Array(12 * 1024 * 1024),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(413);
+    expect(supabase.__state.jobsById.size).toBe(0);
   });
 
   it("creates a pending takeoff job and writes an audit event", async () => {

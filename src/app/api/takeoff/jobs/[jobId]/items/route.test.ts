@@ -4,12 +4,17 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(),
+}));
+
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
 import { PATCH } from "@/app/api/takeoff/jobs/[jobId]/items/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -452,6 +457,7 @@ describe("PATCH /api/takeoff/jobs/[jobId]/items", () => {
   it("logs audit events for item modifications", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
 
     const [request, context] = buildPatchRequest(JOB_ID, {
       items: [
@@ -479,6 +485,7 @@ describe("PATCH /api/takeoff/jobs/[jobId]/items", () => {
       auditInsert: async () => auditInsert.promise,
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
 
     const [request, context] = buildPatchRequest(JOB_ID, {
       items: [

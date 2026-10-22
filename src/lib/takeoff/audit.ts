@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import { TAKEOFF_LEVELS, type TakeoffLevel } from "@/lib/takeoff/types";
@@ -614,7 +615,9 @@ export async function logTakeoffAuditEvent<Action extends TakeoffAuditAction>(
       after_data: afterData as Json,
     };
 
-    const { error } = await input.supabase.from("audit_logs").insert(payload);
+    // The Data API policy forbids user-authored takeoff audit rows. Only this
+    // authorized server path can emit evidence consumed by the apply guard.
+    const { error } = await createServiceRoleClient().from("audit_logs").insert(payload);
 
     if (!error) {
       return;

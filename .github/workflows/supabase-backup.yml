@@ -37,6 +37,7 @@ jobs:
 
       - name: Validate required secrets
         run: |
+          set -euo pipefail
           if [ -z "$SUPABASE_DB_URL" ]; then
             echo "Missing secret: SUPABASE_DB_URL"
             echo "Use a percent-encoded Postgres connection string."
@@ -45,18 +46,34 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
 
-      - name: Dump database
+      - name: Validate backup encryption certificate
+        run: |
+          set -euo pipefail
+          cert_path="$GITHUB_WORKSPACE/.github/backup-recipient.pem"
+          if [ ! -f "$cert_path" ] || grep -Eq -- '-----BEGIN .*PRIVATE KEY-----' "$cert_path"; then
+            echo "::error::The tracked backup recipient must be a public certificate"
+            exit 1
+          fi
+          if ! openssl x509 -in "$cert_path" -noout -checkend 86400; then
+            echo "::error::The backup recipient certificate is invalid or expires within 24 hours"
+            exit 1
+          fi
+
+      - name: Dump and encrypt database
         id: dump
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
+          umask 077
 
           timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
-          outdir="backups/${timestamp}"
-          archive="supabase-backup-${timestamp}.tar.gz"
+          plain_root="$RUNNER_TEMP/backup-plain"
+          outdir="$plain_root/$timestamp"
+          encrypted_dir="$RUNNER_TEMP/backup-encrypted"
+          archive="supabase-backup-${timestamp}.tar.gz.cms"
 
-          mkdir -p "$outdir"
+          mkdir -p "$outdir" "$encrypted_dir"
 
           npx --no-install supabase db dump \
             --db-url "$SUPABASE_DB_URL" \
@@ -75,16 +92,27 @@ jobs:
             --schema public,auth,storage \
             --file "$outdir/data.sql"
 
-          tar -C backups -czf "$archive" "$timestamp"
-          rm -rf "$outdir"
+          tar -C "$plain_root" -czf - "$timestamp" \
+            | openssl cms -encrypt -aes-256-cbc -binary -stream -outform DER \
+                -recip "$GITHUB_WORKSPACE/.github/backup-recipient.pem" \
+                -out "$encrypted_dir/$archive"
+          openssl cms -cmsout -inform DER -in "$encrypted_dir/$archive" \
+            -out /dev/null
 
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "archive_name=$archive" >> "$GITHUB_OUTPUT"
+          echo "archive_path=$encrypted_dir/$archive" >> "$GITHUB_OUTPUT"
 
-      - name: Upload backup artifact
+      - name: Remove plaintext dump
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/backup-plain"
+
+      - name: Upload encrypted backup artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ steps.dump.outputs.archive }}
-          path: ${{ steps.dump.outputs.archive }}
+          name: ${{ steps.dump.outputs.archive_name }}
+          path: ${{ steps.dump.outputs.archive_path }}
+          if-no-files-found: error
           retention-days: ${{ fromJSON(env.RETENTION_DAYS) }}
 
       - name: Notify backup failure

@@ -12,9 +12,14 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(),
+}));
+
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { TakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   cancelTakeoffJob,
   getTakeoffJobDetails,
@@ -603,6 +608,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     }),
   };
 
+  vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
   return supabase;
 }
 

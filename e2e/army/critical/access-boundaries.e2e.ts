@@ -154,9 +154,9 @@ test(
             bodyKeys: Object.keys(record).sort(),
             errorKeys: Object.keys(error).sort(),
             detailKeys: Object.keys(details).sort(),
-            publicMetadataMatches: input.payloadKind === "csv-takeoff"
-              ? error.retryable === false && error.level === "A" && details.retryable === false && details.level === "A"
-              : rawDetails === undefined,
+            // Authentication now runs before reading the takeoff body, so an
+            // anonymous response cannot contain a level from that body.
+            publicMetadataMatches: rawDetails === undefined && error.level === undefined,
             ok: typeof record.ok === "boolean" ? record.ok : null,
             code: typeof error.code === "string" ? error.code : null,
             hasPublicMessage: typeof error.message === "string" && error.message.length > 0,
@@ -178,12 +178,8 @@ test(
         expect(actual.code, entry.id).toBe("UNAUTHORIZED");
         expect(actual.hasPublicMessage, entry.id).toBe(true);
         expect(actual.bodyKeys, entry.id).toEqual(["error", "ok"]);
-        expect(actual.errorKeys, entry.id).toEqual(entry.payloadKind === "csv-takeoff"
-          ? ["code", "details", "level", "message", "retryable"]
-          : ["code", "message"]);
-        expect(actual.detailKeys, entry.id).toEqual(entry.payloadKind === "csv-takeoff"
-          ? ["level", "retryable"]
-          : []);
+        expect(actual.errorKeys, entry.id).toEqual(["code", "message"]);
+        expect(actual.detailKeys, entry.id).toEqual([]);
         expect(actual.publicMetadataMatches, entry.id).toBe(true);
         entry.result = "passed";
       }

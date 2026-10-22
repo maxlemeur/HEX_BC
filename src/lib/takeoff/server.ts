@@ -27,6 +27,7 @@ import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purc
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { inspectSourceReferencePdf, SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -111,7 +112,6 @@ import {
   getTakeoffLowConfidenceThresholdForTenant,
 } from "@/lib/takeoff/feature-flags";
 import {
-  inspectTakeoffPdfBytes,
   resolveTakeoffPdfMimeType,
   validateTakeoffPdfUploadMetadata,
 } from "@/lib/takeoff/pdf-validation";
@@ -7382,6 +7382,68 @@ async function removeCreatedJobIfPresent(input: {
   }
 }
 
+function takeoffJobInsertError(error: { code: string; message: string }, jobId: string, level?: TakeoffLevel) {
+  if (error.code === "23514" && error.message === "TAKEOFF_JOB_ADMISSION_LIMIT") {
+    return new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.TAKEOFF_JOB_ADMISSION_LIMIT,
+      message: "Trop d'analyses takeoff en cours ou créées récemment. Réessayez plus tard.",
+      retryable: true,
+      jobId,
+      level,
+    });
+  }
+  return toTakeoffError(
+    mapSupabaseError(error, "Impossible de créer le job takeoff."),
+    { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId, level },
+  );
+}
+
+function takeoffPdfInspectionError(error: unknown, level: TakeoffLevel): TakeoffError {
+  if (error instanceof SourceReferencePdfError) {
+    if (error.code === "PDF_ENCRYPTED") {
+      return new TakeoffError({
+        status: 422,
+        code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+        message: "Le PDF est protege et ne peut pas être analyse. Exportez une version non protegee puis relancez.",
+        details: { reason: "encrypted_pdf" },
+        retryable: false,
+        level,
+      });
+    }
+    if (error.code === "PDF_INVALID" || error.code === "PDF_EMPTY" || error.code === "PDF_PAGE_LIMIT") {
+      return new TakeoffError({
+        status: 422,
+        code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+        message: "Le PDF est invalide ou corrompu. Reexportez-le depuis la source puis relancez l'analyse.",
+        details: { reason: "corrupted_pdf" },
+        retryable: false,
+        level,
+      });
+    }
+    if (error.code === "PDF_TIMEOUT") {
+      return new TakeoffError({
+        status: 503,
+        code: TakeoffErrorCode.TAKEOFF_PDF_INSPECTION_TIMEOUT,
+        message: "La vérification du PDF a dépassé le délai autorisé. Réessayez avec un PDF plus simple.",
+        retryable: true,
+        level,
+      });
+    }
+  }
+
+  console.error("Takeoff PDF inspection worker failed", {
+    code: error instanceof SourceReferencePdfError ? error.code : "unknown",
+  });
+  return new TakeoffError({
+    status: 503,
+    code: TakeoffErrorCode.INTERNAL_ERROR,
+    message: "La vérification du PDF est temporairement indisponible.",
+    retryable: true,
+    level,
+  });
+}
+
 export async function createTakeoffJobFromFormData(
   formData: FormData,
   input?: { idempotencyKey?: string | null }
@@ -7390,6 +7452,8 @@ export async function createTakeoffJobFromFormData(
   let jobId: string | undefined;
 
   try {
+    const { supabase, tenantId, userId, tenantRole } =
+      await getAuthenticatedContext();
     const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
     const fileEntry = formData.get("file");
 
@@ -7408,20 +7472,6 @@ export async function createTakeoffJobFromFormData(
 
     assertTakeoffFileIsValid(file, level);
     const fileBytes = await file.arrayBuffer();
-
-    if (level !== "A") {
-      const pdfInspection = await inspectTakeoffPdfBytes(fileBytes);
-      if (!pdfInspection.valid) {
-        throw new TakeoffError({
-          status: 422,
-          code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
-          message: pdfInspection.message,
-          retryable: false,
-          level,
-          details: pdfInspection.details,
-        });
-      }
-    }
 
     const normalizedSourceFileType =
       level === "A"
@@ -7442,9 +7492,6 @@ export async function createTakeoffJobFromFormData(
         file_content_hash: fileContentHash,
       })
     );
-
-    const { supabase, tenantId, userId, tenantRole } =
-      await getAuthenticatedContext();
 
     jobId = idempotencyKey
       ? deriveDeterministicJobId(tenantId, idempotencyKey)
@@ -7489,6 +7536,17 @@ export async function createTakeoffJobFromFormData(
       tenantRole,
       estimateVersionId,
     });
+    if (level !== "A") {
+      try {
+        // The worker owns the buffer after transfer; Storage receives the File.
+        await inspectSourceReferencePdf(fileBytes, {
+          maxPages: Number.MAX_SAFE_INTEGER,
+          strictObjectValidation: false,
+        });
+      } catch (error) {
+        throw takeoffPdfInspectionError(error, level);
+      }
+    }
     const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
       tenantId,
       level,
@@ -7611,15 +7669,7 @@ export async function createTakeoffJobFromFormData(
       });
 
       if (insertError) {
-        throw toTakeoffError(
-          mapSupabaseError(insertError, "Impossible de créer le job takeoff."),
-          {
-            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-            retryable: false,
-            jobId,
-            level,
-          }
-        );
+        throw takeoffJobInsertError(insertError, jobId, level);
       }
 
       throw new TakeoffError({
@@ -7782,16 +7832,12 @@ export async function createTakeoffJobFromPlanSet(input: {
     .single();
 
   if (insertError || !insertedJob) {
-    throw toTakeoffError(
-      insertError
-        ? mapSupabaseError(insertError, "Impossible de créer le job takeoff.")
-        : new Error("Impossible de créer le job takeoff."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId,
-      },
-    );
+    if (insertError) throw takeoffJobInsertError(insertError, jobId, level);
+    throw toTakeoffError(new Error("Impossible de créer le job takeoff."), {
+      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+      retryable: false,
+      jobId,
+    });
   }
 
   const createdJob = insertedJob as TakeoffJobRow;

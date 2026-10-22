@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { X509Certificate } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -21,6 +22,7 @@ const SIGNATURES = [
 ];
 
 function privatePath(name) {
+  if (name === ".github/backup-recipient.pem") return false;
   const segments = name.split("/");
   const basename = segments.at(-1);
   return (
@@ -48,6 +50,15 @@ function hasCredential(bytes) {
 }
 
 function checkBytes(bytes, name, errors) {
+  if (name === ".github/backup-recipient.pem") {
+    const certificate = Buffer.from(bytes).toString("utf8");
+    if (!/^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/.test(certificate)) {
+      errors.push(`${name}: expected one public X.509 certificate`);
+    } else {
+      try { new X509Certificate(certificate); }
+      catch { errors.push(`${name}: invalid X.509 certificate`); }
+    }
+  }
   if (hasCredential(bytes)) errors.push(`${name}: credential signature (value withheld)`);
   if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) return;
   let total = 0;

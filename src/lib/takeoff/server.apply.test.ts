@@ -9,6 +9,10 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(),
+}));
+
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
   getTakeoffLowConfidenceThresholdForTenant: vi.fn(),
@@ -16,6 +20,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 
 import { bulkUpdateEstimateItems } from "@/lib/estimates/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   assertTakeoffEnabled,
   getTakeoffLowConfidenceThresholdForTenant,
@@ -428,6 +433,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     }),
   };
 
+  vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
   return supabase;
 }
 

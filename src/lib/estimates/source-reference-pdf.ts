@@ -59,7 +59,7 @@ async function inspect() {
   try {
     const document = await PDFDocument.load(bytes, {
       ignoreEncryption: false,
-      throwOnInvalidObject: true,
+      throwOnInvalidObject: workerData.strictObjectValidation,
       updateMetadata: false,
     });
     if (document.isEncrypted) {
@@ -83,13 +83,17 @@ async function inspect() {
 inspect();
 `;
 
-function createSourceReferencePdfWorker(bytes: ArrayBuffer): Worker {
+function createSourceReferencePdfWorker(
+  bytes: ArrayBuffer,
+  maxPages = MAX_PAGES,
+  strictObjectValidation = true
+): Worker {
   // This direct dependency is explicitly included in the route output traces.
   // Resolve from the application root without Webpack's createRequire rewrite.
   const parserPath = join(process.cwd(), "node_modules", "pdf-lib", "dist", "pdf-lib.min.js");
   const worker = new Worker(WORKER_SCRIPT, {
     eval: true,
-    workerData: { bytes, parserPath, maxPages: MAX_PAGES },
+    workerData: { bytes, parserPath, maxPages, strictObjectValidation },
     transferList: [bytes],
     resourceLimits: { maxOldGenerationSizeMb: 256, stackSizeMb: 4 },
     // Do not inherit host credentials or flags overriding the V8 limit.
@@ -110,7 +114,8 @@ function hash(bytes: ArrayBuffer): string {
 function parseWorkerResult(
   value: unknown,
   expectedSize: number,
-  expectedHash: string
+  expectedHash: string,
+  maxPages: number
 ): InspectedSourceReferencePdf {
   const invalid = () => new SourceReferencePdfError("PDF_WORKER_PROTOCOL", true);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -133,7 +138,7 @@ function parseWorkerResult(
     !(record.bytes instanceof ArrayBuffer) ||
     record.bytes.byteLength !== expectedSize || record.byteSize !== expectedSize ||
     typeof record.pageCount !== "number" || !Number.isSafeInteger(record.pageCount) ||
-    record.pageCount < 1 || record.pageCount > MAX_PAGES ||
+    record.pageCount < 1 || record.pageCount > maxPages ||
     hash(record.bytes) !== expectedHash
   ) {
     throw invalid();
@@ -144,12 +149,20 @@ function parseWorkerResult(
 type WorkerOptions = {
   timeoutMs: number;
   signal?: AbortSignal;
-  createWorker?: (bytes: ArrayBuffer) => Worker;
+  maxPages?: number;
+  strictObjectValidation?: boolean;
+  createWorker?: (bytes: ArrayBuffer, maxPages: number, strictObjectValidation: boolean) => Worker;
 };
 
 async function runSourceReferencePdfWorker(
   bytes: ArrayBuffer,
-  { timeoutMs, signal, createWorker = createSourceReferencePdfWorker }: WorkerOptions
+  {
+    timeoutMs,
+    signal,
+    maxPages = MAX_PAGES,
+    strictObjectValidation = true,
+    createWorker = createSourceReferencePdfWorker,
+  }: WorkerOptions
 ): Promise<InspectedSourceReferencePdf> {
   const startedAt = performance.now();
   if (!(bytes instanceof ArrayBuffer)) {
@@ -158,6 +171,9 @@ async function runSourceReferencePdfWorker(
   if (bytes.byteLength === 0) throw new SourceReferencePdfError("PDF_EMPTY", false);
   if (bytes.byteLength > MAX_BYTES) throw new SourceReferencePdfError("PDF_TOO_LARGE", false);
   if (signal?.aborted) throw new SourceReferencePdfError("PDF_ABORTED", false);
+  if (!Number.isSafeInteger(maxPages) || maxPages < 1) {
+    throw new RangeError("maxPages must be a positive safe integer.");
+  }
 
   const duration = Number.isFinite(timeoutMs) && timeoutMs > 0
     ? Math.min(TIMEOUT_MS, timeoutMs)
@@ -167,7 +183,7 @@ async function runSourceReferencePdfWorker(
   const digest = hash(bytes);
   let worker: Worker;
   try {
-    worker = createWorker(bytes);
+    worker = createWorker(bytes, maxPages, strictObjectValidation);
   } catch {
     throw new SourceReferencePdfError("PDF_WORKER_FAILURE", bytes.byteLength === 0);
   }
@@ -198,7 +214,7 @@ async function runSourceReferencePdfWorker(
     worker.once("message", (message: unknown) => {
       if (finishing) return;
       try {
-        const result = parseWorkerResult(message, byteSize, digest);
+        const result = parseWorkerResult(message, byteSize, digest, maxPages);
         if (performance.now() >= deadline) {
           finish(new SourceReferencePdfError("PDF_TIMEOUT", true));
         } else {
@@ -224,9 +240,14 @@ async function runSourceReferencePdfWorker(
 /** Consumes an exclusively owned buffer; after transfer, failed attempts need a new read. */
 export function inspectSourceReferencePdf(
   bytes: ArrayBuffer,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; maxPages?: number; strictObjectValidation?: boolean } = {}
 ): Promise<InspectedSourceReferencePdf> {
-  return runSourceReferencePdfWorker(bytes, { timeoutMs: TIMEOUT_MS, signal: options.signal });
+  return runSourceReferencePdfWorker(bytes, {
+    timeoutMs: TIMEOUT_MS,
+    signal: options.signal,
+    maxPages: options.maxPages,
+    strictObjectValidation: options.strictObjectValidation,
+  });
 }
 
 export const __testing__ = {

@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
+
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
@@ -33,8 +36,11 @@ function createSupabaseAuditMock(insertError: SupabaseInsertError | null = null)
     return { insert };
   });
 
+  const supabase = { from } as never;
+  vi.mocked(createServiceRoleClient).mockReturnValue(supabase);
+
   return {
-    supabase: { from } as never,
+    supabase,
     from,
     insert,
     insertedPayloads,
@@ -71,5 +77,6 @@ describe("takeoff audit helpers", () => {
       message: "Conflit de données.",
     });
     expect(mock.insert).toHaveBeenCalledTimes(1);
+    expect(createServiceRoleClient).toHaveBeenCalledTimes(1);
   });
 });

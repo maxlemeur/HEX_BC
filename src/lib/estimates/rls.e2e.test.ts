@@ -1348,6 +1348,32 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
   trackRow("takeoff_jobs", jobId);
 
+  // The apply guard accepts a recent override audit event. A direct Data API
+  // INSERT must not let an operator manufacture that authorization evidence.
+  const { error: forgedOverrideError } = await engineerClient
+    .from("audit_logs")
+    .insert({
+      tenant_id: seedContext.tenantId,
+      user_id: users.engineer.userId,
+      table_name: "takeoff_jobs",
+      record_id: jobId,
+      estimate_version_id: seedContext.versionId,
+      action: "takeoff.apply.override",
+      after_data: {
+        schema_version: 1,
+        action: "takeoff.apply.override",
+        job_id: jobId,
+        tenant_id: seedContext.tenantId,
+        user_id: users.engineer.userId,
+        metadata: { source: "forged-direct-insert" },
+      },
+    });
+  if (forgedOverrideError?.code !== "42501") {
+    throw new Error(
+      `Direct takeoff override audit INSERT must be denied [${forgedOverrideError?.code ?? "no-code"}]`
+    );
+  }
+
   const invalidInitialJobId = randomUUID();
   const { error: invalidInitialJobError } = await engineerClient
     .from("takeoff_jobs")
@@ -1881,17 +1907,28 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
 
   const failedReconcileJobId = await seedBoundaryJob({
-    status: "failed",
     processing_strategy: "batch",
     provider_batch_id: `rls-failed-reconcile-${randomUUID()}`,
     provider_batch_state: "running",
-    completed_at: oldTimestamp,
-    next_retry_at: new Date(Date.now() + 60_000).toISOString(),
-    last_error_at: oldTimestamp,
-    error_code: "AI_TIMEOUT",
-    error_message: "worker timeout",
     provider_reconcile_attempt_count: 2,
   });
+  const { error: firstProcessingError } = await serviceAdmin
+    .from("takeoff_jobs")
+    .update({ status: "processing" })
+    .eq("id", failedReconcileJobId);
+  await assertNoError("seed first paid takeoff processing admission", firstProcessingError);
+  const { error: failedReconcileSeedError } = await serviceAdmin
+    .from("takeoff_jobs")
+    .update({
+      status: "failed",
+      completed_at: oldTimestamp,
+      next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+      last_error_at: oldTimestamp,
+      error_code: "AI_TIMEOUT",
+      error_message: "worker timeout",
+    })
+    .eq("id", failedReconcileJobId);
+  await assertNoError("seed failed takeoff after processing", failedReconcileSeedError);
   const { data: recoveredReconcileJob, error: recoveredReconcileError } =
     await engineerClient
       .from("takeoff_jobs")
@@ -2201,6 +2238,102 @@ async function assertAuthenticatedTakeoffWorkflow() {
   await assertNoError("authenticated rollback DELETE takeoff job", deleteRollbackError);
   if (deletedRollbackJob?.id !== rollbackJobId) {
     throw new Error("Authenticated rollback DELETE did not remove the pending job");
+  }
+
+  // Resuming an old failed batch does not spend another provider attempt, but
+  // it must still occupy an active slot. Direct Data API updates must not
+  // reactivate an unbounded backlog of failed batch jobs.
+  const { count: activeBefore, error: activeCountError } = await serviceAdmin
+    .from("takeoff_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", seedContext.tenantId)
+    .eq("created_by", users.engineer.userId)
+    .in("status", ["pending", "processing"]);
+  await assertNoError("count active takeoff jobs before batch resumption", activeCountError);
+  if (activeBefore === null || activeBefore > 6) {
+    throw new Error(`Unexpected active takeoff baseline: ${activeBefore}`);
+  }
+  const resumedBatchJobs: string[] = [];
+  for (let slot = activeBefore; slot <= 6; slot += 1) {
+    const batchJobId = await seedBoundaryJob({
+      status: "failed",
+      completed_at: oldTimestamp,
+      last_error_at: oldTimestamp,
+      error_code: "AI_TIMEOUT",
+      error_message: "worker timeout",
+      processing_strategy: "batch",
+      provider_batch_id: `rls-active-resume-${randomUUID()}`,
+      provider_batch_state: "running",
+    });
+    const { error: resumeError } = await engineerClient
+      .from("takeoff_jobs")
+      .update({
+        status: "processing",
+        completed_at: null,
+        next_retry_at: null,
+        last_error_at: null,
+        error_code: null,
+        error_message: null,
+        provider_reconcile_due_at: new Date().toISOString(),
+        provider_reconcile_attempt_count: 0,
+        provider_reconcile_lease_token: null,
+        provider_reconcile_lease_expires_at: null,
+      })
+      .eq("id", batchJobId);
+    if (slot === 6) {
+      if (resumeError?.code !== "23514" || resumeError.message !== "TAKEOFF_JOB_ADMISSION_LIMIT") {
+        throw new Error(`Failed batch exceeded active cap [${resumeError?.code ?? "no-code"}]`);
+      }
+    } else {
+      await assertNoError("resume failed batch within active cap", resumeError);
+      resumedBatchJobs.push(batchJobId);
+    }
+  }
+  for (const resumedJobId of resumedBatchJobs) {
+    const { error } = await serviceAdmin
+      .from("takeoff_jobs")
+      .update({ status: "failed", completed_at: oldTimestamp })
+      .eq("id", resumedJobId);
+    await assertNoError("release active batch fixture", error);
+  }
+
+  // Each deleted job still consumes its rolling admission. Otherwise a client
+  // could create, delete, and recreate jobs indefinitely within one day.
+  let admissionRejected = false;
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    const budgetJobId = randomUUID();
+    const { error: budgetInsertError } = await engineerClient
+      .from("takeoff_jobs")
+      .insert({
+        id: budgetJobId,
+        tenant_id: seedContext.tenantId,
+        estimate_version_id: seedContext.versionId,
+        level: "A",
+        status: "pending",
+        processing_strategy: "sync",
+        source_file_path: `${seedContext.tenantId}/${budgetJobId}/rls-fixture.csv`,
+        prompt_version: "rls-e2e-v1",
+        created_by: users.engineer.userId,
+      });
+    if (budgetInsertError) {
+      if (
+        budgetInsertError.code !== "23514" ||
+        budgetInsertError.message !== "TAKEOFF_JOB_ADMISSION_LIMIT"
+      ) {
+        throw new Error(`Unexpected takeoff admission failure: ${budgetInsertError.message}`);
+      }
+      admissionRejected = true;
+      break;
+    }
+
+    const { error: budgetDeleteError } = await engineerClient
+      .from("takeoff_jobs")
+      .delete()
+      .eq("id", budgetJobId);
+    await assertNoError("delete admitted pending takeoff job", budgetDeleteError);
+  }
+  if (!admissionRejected) {
+    throw new Error("Deleting pending takeoff jobs evaded the rolling admission budget");
   }
 }
 

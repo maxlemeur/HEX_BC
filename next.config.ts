@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
     "/api/estimates/*/source-review/**": [
       "./node_modules/pdf-lib/dist/pdf-lib.min.js",
     ],
+    "/api/takeoff/jobs": [
+      "./node_modules/pdf-lib/dist/pdf-lib.min.js",
+    ],
     "/api/imports": [
       "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",
       "./node_modules/pdfjs-dist/standard_fonts/**",

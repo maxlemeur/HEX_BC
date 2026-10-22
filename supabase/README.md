@@ -127,20 +127,26 @@ Copiez `.env.example` en `.env.local` et renseignez :
 Le workflow [`supabase-backup.yml`](../.github/workflows/supabase-backup.yml) exécute :
 
 - un dump planifié chaque jour (`02:25 UTC`)
-- un dump manuel via `workflow_dispatch`
-- 3 fichiers SQL (`roles.sql`, `schema.sql`, `data.sql`) compressés dans un artefact `.tar.gz`
+- 3 fichiers SQL (`roles.sql`, `schema.sql`, `data.sql`) chiffrés dans un artefact `.tar.gz.cms`
 
 Secrets requis dans GitHub :
 
 - `SUPABASE_DB_URL` : URL Postgres **percent-encoded** (si le mot de passe contient des caractères spéciaux).
 
+Le certificat public de chiffrement est versionné dans [`.github/backup-recipient.pem`](../.github/backup-recipient.pem). Conserver sa clé privée de restauration hors de GitHub ; sans certificat valide, le workflow échoue avant le dump. Lors d'une rotation, conserver ensemble chaque ancienne clé privée et son certificat public tant que les archives chiffrées avec cette paire existent. La restauration d'une archive exige la paire qui a servi à son chiffrement, et non le certificat courant après rotation.
+
 Restauration (exemple local) :
 
 ```bash
-tar -xzf supabase-backup-<timestamp>.tar.gz
-psql "$SUPABASE_DB_URL" -f backups/<timestamp>/roles.sql
-psql "$SUPABASE_DB_URL" -f backups/<timestamp>/schema.sql
-psql "$SUPABASE_DB_URL" -f backups/<timestamp>/data.sql
+timestamp=AAAAMMJJThhmmssZ
+cert_path=/chemin/vers/le-certificat-correspondant.pem
+key_path=/chemin/hors-github/la-cle-privee-correspondante.pem
+openssl cms -decrypt -binary -inform DER -in "supabase-backup-${timestamp}.tar.gz.cms" \
+  -recip "$cert_path" -inkey "$key_path" -out "supabase-backup-${timestamp}.tar.gz"
+tar -xzf "supabase-backup-${timestamp}.tar.gz"
+psql "$SUPABASE_DB_URL" -f "$timestamp/roles.sql"
+psql "$SUPABASE_DB_URL" -f "$timestamp/schema.sql"
+psql "$SUPABASE_DB_URL" -f "$timestamp/data.sql"
 ```
 
 Notes :
