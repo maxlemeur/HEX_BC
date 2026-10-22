@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.2](https://github.com/maxlemeur/HEX_BC/compare/v0.5.1...v0.5.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* **auth:** secure session refresh and restrict membership lookup ([b6a5fad](https://github.com/maxlemeur/HEX_BC/commit/b6a5fad9afdbc9ae6d6bdd56651f61e77feb07a4))
+* **backup:** activate encrypted exports with dedicated role ([d5d9dfa](https://github.com/maxlemeur/HEX_BC/commit/d5d9dfa952d0d3e1bc82c9b107d94ccf2fbe3bca))
+* **ci:** read the RLS matrix report from an explicit Vitest file ([c6825a8](https://github.com/maxlemeur/HEX_BC/commit/c6825a88b25dc0f60bf9992018632743e83a6246))
+* **ci:** update native Supabase runtime and port allocation ([e0002bc](https://github.com/maxlemeur/HEX_BC/commit/e0002bc890812c4cb649f661346e41d20f7cf5e2))
+* **dashboard:** avoid financial reads for recent metadata ([ec3cb48](https://github.com/maxlemeur/HEX_BC/commit/ec3cb48e39218d9639b5749ba4aa2cc7c476a147))
+* **editor:** cancel abandoned suggestion learning reads ([b1db089](https://github.com/maxlemeur/HEX_BC/commit/b1db089bb68e8045a370e6f1e79dbd561baf710b))
+* **editor:** recover deleted rows before completing undo ([#87](https://github.com/maxlemeur/HEX_BC/issues/87)) ([1fc25fa](https://github.com/maxlemeur/HEX_BC/commit/1fc25fa983ae0b134bbf1b6ea27cc0e496318765))
+* **editor:** stop reporting learning reads cancelled by a reload ([74b758a](https://github.com/maxlemeur/HEX_BC/commit/74b758a8d9b084783b5b5be1fe6467d167af7404))
+* **exports:** deliver PDFs and avoid impossible supplier lookups ([2f41de4](https://github.com/maxlemeur/HEX_BC/commit/2f41de4db5ba3d3e27ec1ff95eff724744fbc532))
+* **lot3-3.1:** keep the source order of a selected sub-section ([7dcc2ff](https://github.com/maxlemeur/HEX_BC/commit/7dcc2ff704b470830e3f7899851a4f4e1257cabf))
+* **pdf:** avoid stale connections after CPU rendering ([c13999f](https://github.com/maxlemeur/HEX_BC/commit/c13999f25fbd0fe54019b02571cceed9b1b6c13a))
+* **pdf:** include runtime fonts in production functions ([bee0163](https://github.com/maxlemeur/HEX_BC/commit/bee01639bb23d61d258dfc588b7d4b4937fcd9b4))
+* **perf:** eliminate remaining bulk CSV catalogue queries ([11bb9b9](https://github.com/maxlemeur/HEX_BC/commit/11bb9b9a64d1071c07f02076ee65de3242d500a0))
+* **performance:** remove editor stalls and paginate orders ([cf4b6a0](https://github.com/maxlemeur/HEX_BC/commit/cf4b6a08d23708acdb0d0d6f6c73325fbb7b6bb9))
+* **perf:** paginate large PDFs once and load full hub structure ([f1aa485](https://github.com/maxlemeur/HEX_BC/commit/f1aa485004accb02c381b32bea0dc41d90797964))
+* **perf:** scope estimate provenance reads to the version ([2159f1b](https://github.com/maxlemeur/HEX_BC/commit/2159f1b22b00cfc86db59304fac740ff8e7e414c))
+* **security:** harden takeoff, CSV exports and backups ([1914b78](https://github.com/maxlemeur/HEX_BC/commit/1914b7800607d322e728b74c38930e11802eac64))
+* **security:** update Node and Next.js patches ([85d476f](https://github.com/maxlemeur/HEX_BC/commit/85d476ff4ce59c6f46d036749a56f23e4f8adbc3))
+
+
+### Performance Improvements
+
+* **exports:** bound concurrent reads for large estimates ([77340b1](https://github.com/maxlemeur/HEX_BC/commit/77340b18c12f56a017ec099e00546349591c5504))
+* **lot3-3.1:** write v3 copies in one insert and read only the copied subtrees ([994195d](https://github.com/maxlemeur/HEX_BC/commit/994195d6996a2e260659d7836acf0a43ceeecb97))
+
 ## [0.5.1](https://github.com/maxlemeur/HEX_BC/compare/v0.5.0...v0.5.1) (2026-10-19)
 
 
