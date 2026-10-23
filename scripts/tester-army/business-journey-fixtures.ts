@@ -86,7 +86,9 @@ async function seedOrder(context: CalcV3FixtureContext, base: PurchaseBase, labe
   const items = Array.from({ length: count }, (_, index) => {
     const line = lines[index % lines.length];
     return { ...common(context), id: randomUUID(), purchase_order_id: id, position: index + 1,
-      designation: label === "note" ? `${base.prefix} note witness` : `${reference} ligne ${index + 1}`,
+      // Historical transfers retain the source line's title as their snapshot.
+      designation: options.status ? `${base.prefix} ligne ${line.label}` :
+        label === "note" ? `${base.prefix} note witness` : `${reference} ligne ${index + 1}`,
       reference: options.count ? `${reference}-${index + 1}` : line.reference,
       quantity: line.quantity, unit_price_ht_cents: line.price, tax_rate_bp: 2000, unit: "m", price_unit: "m",
       product_id: line.productId, ...(options.linked ? { source_estimate_item_id: line.lineId,
@@ -325,18 +327,28 @@ export async function prepareBusinessJourneyFixtures(context: CalcV3FixtureConte
     }
     for (const [actor, role] of [[director, "director"], [observer, "engineer"]] as const) {
       const membership = await checked("business shared membership", context.admin.from("tenant_memberships")
-        .insert({ tenant_id: engineer.tenantId, user_id: actor.userId, role, is_default: false }).select("id").single());
+        .insert({ tenant_id: engineer.tenantId, user_id: actor.userId, role: "admin", is_default: false }).select("id").single());
       const ordinary = createClient(context.backend, context.anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
       try {
         const auth = await ordinary.auth.signInWithPassword({ email: actor.email, password: actor.password });
         if (auth.error || auth.data.user?.id !== actor.userId) throw new Error("Business actor login failed.");
         await checked("business active tenant", ordinary.rpc("set_active_tenant_membership_default", { p_membership_id: membership.id }));
       } finally { await ordinary.auth.signOut({ scope: "local" }); }
-      actor.membershipId = membership.id;
-      actor.tenantId = engineer.tenantId;
+      // The ordinary tenant-switch RPC requires an admin target. Provisioning
+      // ends with the intended role; no test ever receives the temporary role.
+      const finalMembership = await checked(`business ${role} final membership`, context.admin.from("tenant_memberships")
+        .update({ role }).eq("id", membership.id).eq("user_id", actor.userId).eq("tenant_id", engineer.tenantId)
+        .select("id,tenant_id,role,is_default").single());
+      if (finalMembership.id !== membership.id || finalMembership.tenant_id !== engineer.tenantId ||
+          finalMembership.role !== role || !finalMembership.is_default) throw new Error("Business actor final active role differs.");
+      actor.membershipId = finalMembership.id;
+      actor.tenantId = finalMembership.tenant_id;
     }
-    await checked("business engineer role", context.admin.from("tenant_memberships").update({ role: "engineer" })
-      .eq("id", engineer.membershipId).eq("user_id", engineer.userId).select("id").single());
+    const engineerMembership = await checked("business engineer role", context.admin.from("tenant_memberships").update({ role: "engineer" })
+      .eq("id", engineer.membershipId).eq("user_id", engineer.userId).eq("tenant_id", engineer.tenantId)
+      .select("id,tenant_id,role,is_default").single());
+    if (engineerMembership.id !== engineer.membershipId || engineerMembership.role !== "engineer" ||
+        engineerMembership.tenant_id !== engineer.tenantId || !engineerMembership.is_default) throw new Error("Business requester final active role differs.");
     const ownedContext = { ...context, owner: { ...context.owner, userId: engineer.userId, tenantId: engineer.tenantId } };
     const approval = await purchaseBase(ownedContext, prefix("APPROVAL"), [decimalValues[0]]);
     const ruleId = randomUUID();

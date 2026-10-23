@@ -74,7 +74,11 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string) {
   const filePath = path.join(directory, fileName);
   await writeFile(filePath, "designation;quantity;unit\nARMY worker pipe;12.5;m\nARMY worker valve;3;u\n");
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-  await ui.screen.getByLabel("Fichier source", { exact: true }).setInputFiles(filePath);
+  const source = ui.screen.getByLabel("Fichier source", { exact: true });
+  await expect(source).toBeEnabled();
+  await source.setInputFiles(filePath);
+  await expect(ui.screen.getByText(fileName, { exact: true })).toBeVisible();
+  await expect(ui.screen.getByRole("button", "Lancer l'extraction", { exact: true })).toBeEnabled();
   const [response] = await Promise.all([
     ui.browser.waitForResponse("**/api/takeoff/jobs", { timeout: 30_000 }),
     ui.screen.getByRole("button", "Lancer l'extraction", { exact: true }).click(),

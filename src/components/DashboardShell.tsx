@@ -344,6 +344,9 @@ export function DashboardShell({
           >
             {userInitials}
           </Link>
+          <div className="dashboard-global-topbar__signout">
+            <SignOutButton />
+          </div>
         </div>
       </header>
       </DashboardNavigationProvider>

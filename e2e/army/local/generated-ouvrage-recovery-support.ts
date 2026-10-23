@@ -142,9 +142,9 @@ export async function selectOnly(ui: Ui, s: Scenario, selected: Candidate) {
   }
 }
 export async function cost(ui: Ui, c: Candidate, cents: number) {
-  const card = ui.screen.getByTestId(`candidate-card-${c.candidateId}`), input = card.getByLabel("Coût unitaire HT", { exact: true });
+  const card = ui.screen.getByTestId(`candidate-card-${c.candidateId}`), input = card.getByLabel("Coût unitaire HT (€)", { exact: true });
   if (!await input.isVisible()) await card.getByRole("button", c.componentDesignation, { exact: false }).click();
-  await input.fill(String(cents)); await ui.browser.keyboard.press("Tab");
+  await input.fill((cents / 100).toFixed(2).replace(".", ",")); await ui.browser.keyboard.press("Tab");
 }
 
 export function flightRecords(text: string): Json[] {

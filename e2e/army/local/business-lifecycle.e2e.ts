@@ -100,9 +100,14 @@ async function evidence(scenario: Scenario, label: string, data: unknown) {
   return recordEvidence({ runPrefix: `${scenario.prefix}-${Date.now()}`, projectName: scenario.prefix,
     ownedEstimates: [{ projectId: scenario.projectId, versionId: scenario.versionId }] }, label, data);
 }
-async function switchActor(ui: Ui, label: "ENGINEER" | "DIRECTOR" | "OBSERVER") {
-  await ui.app.open("/dashboard/estimates");
-  await ui.screen.getByRole("button", "Se déconnecter", { exact: true }).tap();
+async function switchActor(ui: Ui, label: "ENGINEER" | "DIRECTOR" | "OBSERVER", initial = false) {
+  // Start the role journeys anonymously: signing out the shared army session
+  // would revoke refresh tokens used by unrelated tests in this campaign.
+  if (initial) await ui.app.open("/login");
+  else {
+    await ui.app.open("/dashboard/estimates");
+    await ui.screen.getByRole("button", "Se déconnecter", { exact: true }).tap();
+  }
   await expect(ui.browser).toHaveURL(/\/login(?:\?|$)/);
   // A visible password toggle proves hydration before submitting credentials.
   await ui.screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
@@ -121,11 +126,11 @@ async function approvalSummary(browser: Browser, versionId: string) {
 }
 
 journey("BIZ01 approval UI separates engineer and direction, corrects and resubmits an exact estimate", {
-  session: "army", tags: ["critical", "local", "business-lifecycle", "approval"], trace: "off", timeout: 300_000,
+  tags: ["critical", "local", "business-lifecycle", "approval"], trace: "off", timeout: 300_000,
 }, async ({ app, browser, screen, business }) => {
   const { fixture } = business, scenario = fixture.approval, ui = { app, browser, screen };
   const detail = `/dashboard/estimates/${scenario.versionId}`;
-  await switchActor(ui, "ENGINEER");
+  await switchActor(ui, "ENGINEER", true);
   await app.open(detail);
   const initial = await readEstimate(browser, scenario.versionId);
   expect(initial.version.total_ht_cents).toBe(2400);
@@ -271,10 +276,10 @@ COMMIT;`;
   });
 }
 journey("BIZ03 revoked live membership denies cached UI and server writes then logout removes authentication", {
-  session: "army", tags: ["critical", "local", "business-lifecycle", "authorization"], trace: "off", timeout: 180_000,
+  tags: ["critical", "local", "business-lifecycle", "authorization"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, screen, business }) => {
   const { fixture } = business, scenario = fixture.access;
-  await switchActor({ app, browser, screen }, "OBSERVER");
+  await switchActor({ app, browser, screen }, "OBSERVER", true);
   const detail = `/dashboard/estimates/${scenario.versionId}`;
   await app.open(detail);
   const before = await readEstimate(browser, scenario.versionId);

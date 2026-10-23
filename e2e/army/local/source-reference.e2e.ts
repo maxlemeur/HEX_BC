@@ -193,8 +193,12 @@ test("source reference UI prepares and confirms A then B with exact PDF bytes an
       if (label === "oversized-utf8") expect(Buffer.byteLength(body) > 8192 && body.length < 8192).toBe(true);
       failure(response, status, code);
     }
-    const target = new URL(`${base}/${suffix}`, app.baseUrl!);
-    if (target.origin !== "http://localhost:3117") throw new Error("Origin prefilter probe restricted to exact local application");
+    const application = new URL(app.baseUrl!);
+    const target = new URL(`${base}/${suffix}`, application);
+    if (application.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(application.hostname) ||
+        !application.port || application.username || application.password || target.origin !== application.origin) {
+      throw new Error("Origin prefilter probe restricted to the owned loopback application");
+    }
     // This anonymous Node request proves the prefilter, not browser cookie CSRF.
     const result = await fetch(target, { method: "POST", headers: { origin: "https://army-origin.invalid", "content-type": "application/json" }, body: JSON.stringify(valid), redirect: "error", signal: AbortSignal.timeout(10_000) });
     const response = { status: result.status, cacheControl: result.headers.get("cache-control"), contentType: result.headers.get("content-type"), body: await result.json() };

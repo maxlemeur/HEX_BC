@@ -179,9 +179,9 @@ armyTest("GO03 stale human review refuses application and stale save before expl
     expect(stableRows(afterSave.objects.components)).toEqual(stableRows(changed.objects.components));
     await reload.click();
     const card = ui.screen.getByTestId(`candidate-card-${c.candidateId}`);
-    const input = card.getByLabel("Coût unitaire HT", { exact: true });
+    const input = card.getByLabel("Coût unitaire HT (€)", { exact: true });
     if (!await input.isVisible()) await card.getByRole("button", c.componentDesignation, { exact: false }).click();
-    await expect(input).toHaveValue("1200");
+    await expect(input).toHaveValue("12,00");
     // The second ordinary action already validated this current content. Reload
     // must expose that exact review, without silently replacing the stale one.
     await expect(section.getByRole("button", "Sous-détail déjà validé", { exact: true })).toBeDisabled();
@@ -269,7 +269,7 @@ armyTest("GO05 a lost real refusal can be durably abandoned after review changes
     await resumeDialog(ui, p.s);
     const card = ui.screen.getByTestId(`candidate-card-${c.candidateId}`);
     await card.getByRole("button", "Valider le sous-détail", { exact: true }).click();
-    await expect(card.getByLabel("Coût unitaire HT", { exact: true })).toHaveValue("1400");
+    await expect(card.getByLabel("Coût unitaire HT (€)", { exact: true })).toHaveValue("14,00");
     await expect(card.getByRole("button", "Sous-détail déjà validé", { exact: true })).toBeDisabled();
     await selectOnly(ui, p.s, c);
     const current = await apply(ui, p), final = await capture(ui, p, "GO05-new-intention-after-closure");

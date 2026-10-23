@@ -187,7 +187,7 @@ describe("DashboardShell universal topbar navigation", () => {
     expect(document.body.style.overflow).toBe("hidden");
     await waitFor(() => expect(closeButton).toHaveFocus());
 
-    const signOutButton = screen.getByRole("button", { name: "Se déconnecter" });
+    const signOutButton = within(sidebar!).getByRole("button", { name: "Se déconnecter" });
     signOutButton.focus();
     await user.keyboard("{Tab}");
     expect(closeButton).toHaveFocus();

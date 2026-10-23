@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useIsHydrated } from "@/hooks/useIsHydrated";
+
 import {
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_LABEL,
@@ -291,6 +293,7 @@ export function TakeoffUploadForm({
   compact,
 }: TakeoffUploadFormProps) {
   const router = useRouter();
+  const isHydrated = useIsHydrated();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isSubmittingRef = useRef(false);
@@ -315,6 +318,7 @@ export function TakeoffUploadForm({
   const [announcement, setAnnouncement] = useState("");
   const [queuedForRecovery, setQueuedForRecovery] = useState(false);
   const [recoveryUnconfirmed, setRecoveryUnconfirmed] = useState(false);
+  const controlsDisabled = !isHydrated || submitState === "loading";
   const uploadRules = resolveAllowedLevelOptions(normalizedAllowedLevels);
   const recommendation = useMemo(
     () =>
@@ -343,7 +347,7 @@ export function TakeoffUploadForm({
     [recommendation, selectedLevel]
   );
   const canSubmit =
-    submitState !== "loading" &&
+    !controlsDisabled &&
     selectedFile !== null &&
     isTakeoffLevelCompatible(recommendation, selectedLevel);
 
@@ -441,6 +445,7 @@ export function TakeoffUploadForm({
   }
 
   function handleFileSelection(file: File | null) {
+    if (controlsDisabled) return;
     resetTransientState();
 
     const nextFingerprint = file ? toFileFingerprint(file) : "";
@@ -483,7 +488,7 @@ export function TakeoffUploadForm({
   }
 
   function handleLevelChange(nextLevel: TakeoffLevel) {
-    if (submitState === "loading" || nextLevel === selectedLevel) {
+    if (controlsDisabled || nextLevel === selectedLevel) {
       return;
     }
 
@@ -494,12 +499,13 @@ export function TakeoffUploadForm({
   }
 
   function openFilePicker() {
-    if (submitState === "loading") return;
+    if (controlsDisabled) return;
     fileInputRef.current?.click();
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (controlsDisabled) return;
 
     const validationMessage = validateTakeoffFileSupport(
       selectedFile,
@@ -612,7 +618,7 @@ export function TakeoffUploadForm({
             handleFileSelection(event.target.files?.[0] ?? null);
             event.target.value = "";
           }}
-          disabled={submitState === "loading"}
+          disabled={controlsDisabled}
           aria-describedby={errorMessage ? "takeoff-upload-error" : undefined}
         />
 
@@ -627,12 +633,12 @@ export function TakeoffUploadForm({
                 : "border-border-strong bg-surface-subtle hover:border-subtle-foreground"
             }`}
             role="button"
-            tabIndex={submitState === "loading" ? -1 : 0}
+            tabIndex={controlsDisabled ? -1 : 0}
             aria-label="Zone de dépôt pour l'extraction. Glissez un fichier ou appuyez pour sélectionner."
-            aria-disabled={submitState === "loading"}
+            aria-disabled={controlsDisabled}
             onClick={openFilePicker}
             onKeyDown={(event) => {
-              if (submitState === "loading") return;
+              if (controlsDisabled) return;
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 openFilePicker();
@@ -641,7 +647,7 @@ export function TakeoffUploadForm({
             onDragEnter={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              setDragActive(true);
+              if (!controlsDisabled) setDragActive(true);
             }}
             onDragOver={(event) => {
               event.preventDefault();
@@ -656,7 +662,7 @@ export function TakeoffUploadForm({
               event.preventDefault();
               event.stopPropagation();
               setDragActive(false);
-              if (submitState === "loading") return;
+              if (controlsDisabled) return;
               handleFileSelection(event.dataTransfer.files?.[0] ?? null);
             }}
           >
@@ -747,7 +753,7 @@ export function TakeoffUploadForm({
               ).map((option) => {
                 const isSelected = selectedLevel === option.level;
                 const isCompatible = compatibleLevels.includes(option.level);
-                const isDisabled = submitState === "loading" || !isCompatible;
+                const isDisabled = controlsDisabled || !isCompatible;
 
                 return (
                   <label

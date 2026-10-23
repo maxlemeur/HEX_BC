@@ -133,7 +133,6 @@
     "e2e/army/*.e2e.ts",
     "e2e/army/{development,extended,local,performance,polish,takeoff}/**",
     "e2e/fixtures/{autosave-navigation,catalogue-offer,ui-polish}.tsx",
-    "e2e/fixtures/source-coverage/**",
     "e2e/fixtures/sample.csv",
     "e2e/fixtures/.gitignore"
   ],
@@ -659,7 +658,9 @@
         "e2e/fixtures/sample-plan.pdf"
       ],
       "journeys": [
-        "@plans"
+        "@plans",
+        "e2e/army/takeoff/intake-dossier.e2e.ts",
+        "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
     },
     {
@@ -769,11 +770,21 @@
         "src/components/estimates/EstimateApproval*",
         "src/lib/purchase-orders/**",
         "src/app/dashboard/orders/**",
-        "src/lib/tenants/**",
         "src/lib/auth/**"
       ],
       "journeys": [
         "e2e/army/local/business-lifecycle.e2e.ts"
+      ]
+    },
+    {
+      "id": "source-reference-fixture",
+      "note": "Corpus fictif utilisé par les parcours de référence source.",
+      "paths": [
+        "e2e/fixtures/source-coverage/**"
+      ],
+      "journeys": [
+        "e2e/army/local/source-reference.e2e.ts",
+        "e2e/army/local/source-reference-read.e2e.ts"
       ]
     }
   ]

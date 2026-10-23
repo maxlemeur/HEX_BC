@@ -116,6 +116,14 @@ async function surfaces(browser: Browser) {
   });
 }
 async function assertCounts(browser: Browser, army: ArmyState, label: string, counts: Counts, badge: string) {
+  // A completed creation triggers another canonical preview. Wait for both UI
+  // surfaces to finish that revalidation before reading their business values.
+  await expect.poll(async () => {
+    const current = await surfaces(browser);
+    return [current.card, current.panel].map((surface) => ({
+      badge: surface.badge, countsVisible: surface.text.includes(countText(counts)),
+    }));
+  }).toEqual([{ badge, countsVisible: true }, { badge, countsVisible: true }]);
   const observed = await surfaces(browser);
   await recordEvidence(army, label, { expected: { counts, text: countText(counts), badge }, observed });
   expect.soft(observed.headingCount).toBe(1);

@@ -1,4 +1,5 @@
-import { cleanup,render,screen,waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor,within } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
@@ -46,6 +47,27 @@ describe("TakeoffUploadForm", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("keeps file controls inactive in server HTML until hydration can retain the selection", async () => {
+    const form = <TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(form);
+    document.body.append(container);
+    const before = within(container);
+    expect(before.getByLabelText("Fichier source")).toBeDisabled();
+    expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("aria-disabled", "true");
+    expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("tabindex", "-1");
+    for (const radio of before.getAllByRole("radio")) expect(radio).toBeDisabled();
+
+    render(form, { container, hydrate: true });
+    const input = before.getByLabelText("Fichier source");
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("aria-disabled", "false");
+    await userEvent.setup().upload(input, makeCsvFile());
+    expect(before.getByText("niveau-a.csv", { exact: true })).toBeVisible();
+    expect(before.getByRole("button", { name: /lancer l'extraction/i })).toBeEnabled();
+    expect(createTakeoffJob).not.toHaveBeenCalled();
   });
 
   it("shows a clear server error message when API returns 413", async () => {

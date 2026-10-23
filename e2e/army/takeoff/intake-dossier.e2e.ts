@@ -18,7 +18,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   await mkdir(directory, { recursive: true });
   const fixtures = [
     { name: `${army.runPrefix}-DPGF.csv`, bytes: Buffer.from("designation;quantity;unit\nTube cuivre;12;m\n") },
-    { name: `${army.runPrefix}-plans.pdf`, bytes: await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")) },
+    { name: `${army.runPrefix}-plan.pdf`, bytes: await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")) },
     { name: `${army.runPrefix}-CCTP-original.txt`, bytes: Buffer.from("CCTP plomberie : tube cuivre et calorifuge.") },
     { name: `${army.runPrefix}-piece-a-classer.txt`, bytes: Buffer.from("CCTP corrige : calorifuge et supports a confirmer.") },
   ];

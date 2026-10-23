@@ -73,9 +73,12 @@ for (const format of ["pdf", "xls"] as const) {
     const edit = screen.getByRole("button", "Modifier le mapping", { exact: true });
     await expect.poll(async () => await next.isVisible() || await edit.isVisible()).toBe(true);
     if (await edit.isVisible()) await edit.click();
-    for (const [source, target] of Object.entries(mapping)) {
-      const row = screen.getByRole("row").filter({ has: screen.getByText(source, { exact: true }) });
-      await row.getByRole("combobox").selectOption({ value: target });
+    const sourceHeaders = format === "xls"
+      ? ["N", "Designation_des_ouvrages", "Unite", "Qte", "P.U._HT", "Total_HT"]
+      : headers;
+    for (const [index, target] of Object.values(mapping).entries()) {
+      await screen.getByRole("combobox", `Champ cible pour ${sourceHeaders[index]}`, { exact: true })
+        .selectOption({ value: target });
     }
     await next.click();
     const imported = await apiRequest<{ data: Array<{ id: string; filename: string; project_id: string; row_count: number }> }>(
