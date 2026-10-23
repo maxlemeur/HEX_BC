@@ -170,7 +170,8 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     errorCode: "AI_PROVIDER", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
   await ui.browser.reload();
-  await expect(ui.screen.getByText("ARMY controlled terminal provider failure", { exact: true }).first()).toBeVisible();
+  await expect(ui.screen.getByRole("alert")).toHaveText("[AI_PROVIDER]ARMY controlled terminal provider failure");
+  await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW05-terminal-error", { ids, jobId, failed, estimateUnchanged: true });
 });

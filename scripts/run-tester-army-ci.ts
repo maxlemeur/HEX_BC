@@ -386,8 +386,29 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
       reason, writer: "public.set_tenant_calc_policy as service_role",
     };
   }
+  const explorationFeatureFlags: Array<{ id: string; tenantId: string; key: string; before: boolean; enabled: boolean }> = [];
+  if (suite === "explore") {
+    // The server's local default does not populate the client feature-flags API.
+    // Tenant bootstrap already inserted this disabled row: enable only that
+    // prerequisite on the fresh owned tenant so the visible Metres entry exists.
+    const key = "TAKEOFF_MODULE_ENABLED";
+    const { data: before, error: beforeError, status: beforeStatus } = await admin.from("feature_flags")
+      .select("id,tenant_id,flag_key,enabled,value").eq("tenant_id", tenantId).eq("flag_key", key).single();
+    if (beforeError || !before || before.tenant_id !== tenantId || before.flag_key !== key || before.enabled !== false || before.value !== null) {
+      throw provisioningFailure("verify exploration takeoff flag", "The fresh exploration tenant must have exactly one disabled takeoff flag.", beforeError, beforeStatus);
+    }
+    const { data: enabled, error: enabledError, status: enabledStatus } = await admin.from("feature_flags")
+      .update({ enabled: true }).eq("id", before.id).eq("tenant_id", tenantId).eq("flag_key", key)
+      .eq("enabled", false).is("value", null).select("id,tenant_id,flag_key,enabled,value").single();
+    if (enabledError || !enabled || enabled.id !== before.id || enabled.tenant_id !== tenantId || enabled.flag_key !== key || enabled.enabled !== true || enabled.value !== null) {
+      throw provisioningFailure("enable exploration takeoff flag", "The owned exploration takeoff flag readback differs.", enabledError, enabledStatus);
+    }
+    explorationFeatureFlags.push({ id: enabled.id, tenantId, key, before: before.enabled, enabled: enabled.enabled });
+    provisioning.completed.push("enable exploration takeoff flag");
+  }
   manifest.fixtures = {
     userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, tenantCalcPolicy,
+    ...(suite === "explore" ? { explorationFeatureFlags } : {}),
     lifecycle: "destroyed with the owned stack",
   };
 

@@ -197,6 +197,78 @@ describe("TakeoffJobMonitor", () => {
     cleanup();
   });
 
+  it.each(["queued", "trigger_failed"] as const)(
+    "removes a stale %s dispatch notice when polling leaves the recoverable state",
+    (dispatchStatus) => {
+      const detail = createJobDetailResponse("pending");
+      detail.job.dispatch_status = dispatchStatus;
+      useTakeoffJobPollingMock.mockReturnValue({
+        data: detail, error: null, errorStatus: null, isPolling: true, refetch: vi.fn(),
+      });
+      const { rerender } = render(
+        <TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />
+      );
+      const notice = "Démarrage immédiat indisponible, reprise automatique active.";
+      expect(screen.getByText(notice)).toBeInTheDocument();
+
+      for (const status of ["processing", "failed", "completed", "applied", "canceled"] as const) {
+        detail.job.status = status;
+        detail.job.error_message = status === "failed" ? "Erreur fournisseur terminale" : null;
+        rerender(<TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />);
+        expect(screen.queryByText(notice), status).not.toBeInTheDocument();
+        if (status === "failed") {
+          expect(screen.getByText("Erreur fournisseur terminale")).toBeInTheDocument();
+        }
+      }
+    }
+  );
+
+  it.each(["queued", "trigger_failed"] as const)(
+    "keeps a %s recovery notice only while a failed job has an eligible retry scheduled",
+    (dispatchStatus) => {
+      const detail = createJobDetailResponse("failed");
+      detail.job.dispatch_status = dispatchStatus;
+      detail.job.retry_count = 2;
+      detail.job.next_retry_at = "2099-01-01T00:00:00.000Z";
+      useTakeoffJobPollingMock.mockReturnValue({
+        data: detail, error: null, errorStatus: null, isPolling: false, refetch: vi.fn(),
+      });
+      const { rerender } = render(
+        <TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />
+      );
+      const notice = "Démarrage immédiat indisponible, reprise automatique active.";
+      expect(screen.getByText(notice)).toBeInTheDocument();
+
+      detail.job.retry_count = 3;
+      rerender(<TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />);
+      expect(screen.queryByText(notice)).not.toBeInTheDocument();
+
+      detail.job.retry_count = 2;
+      detail.job.next_retry_at = null;
+      rerender(<TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />);
+      expect(screen.queryByText(notice)).not.toBeInTheDocument();
+    }
+  );
+
+  it("shows a queued reconciliation only while the batch remains in progress", () => {
+    const detail = createJobDetailResponse("processing");
+    detail.job.dispatch_status = "queued";
+    detail.job.processing_strategy = "batch";
+    detail.job.provider_batch_id = "batch-123";
+    useTakeoffJobPollingMock.mockReturnValue({
+      data: detail, error: null, errorStatus: null, isPolling: true, refetch: vi.fn(),
+    });
+    const { rerender } = render(
+      <TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />
+    );
+    const notice = "Démarrage immédiat indisponible, reprise automatique active.";
+    expect(screen.getByText(notice)).toBeInTheDocument();
+
+    detail.job.status = "completed";
+    rerender(<TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />);
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  });
+
   it("acquires a lock before apply when no active lock exists", async () => {
     const refetch = vi.fn();
     useTakeoffJobPollingMock.mockReturnValue({

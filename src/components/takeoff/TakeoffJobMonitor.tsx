@@ -583,6 +583,15 @@ export default function TakeoffJobMonitor({
   const canResubmit = job.can_resubmit ?? false;
   const canCancel = job.can_cancel ?? isActive;
   const canOpenApplyWizard = isCompleted && includedItemsCount > 0;
+  // Dispatch records the launch attempt; it can outlive the recoverable job state.
+  const isRecoveryEligible =
+    status === "pending" ||
+    (status === "failed" &&
+      job.retry_count < TAKEOFF_JOB_MAX_RETRY_COUNT &&
+      Number.isFinite(Date.parse(job.next_retry_at ?? ""))) ||
+    (status === "processing" &&
+      job.processing_strategy === "batch" &&
+      job.provider_batch_id !== null);
 
   return (
     <div className="animate-fade-in">
@@ -651,8 +660,8 @@ export default function TakeoffJobMonitor({
       <Card className="p-4 sm:p-6">
         <JobDetailsGrid job={job} />
         <JobErrorSection job={job} />
-        {(job.dispatch_status === "queued" ||
-          job.dispatch_status === "trigger_failed") && (
+        {isRecoveryEligible &&
+          (job.dispatch_status === "queued" || job.dispatch_status === "trigger_failed") && (
           <div
             className="mt-4 rounded-md border border-warning-border bg-warning-light p-3"
             role="status"
