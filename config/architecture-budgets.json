@@ -43,7 +43,7 @@
     "src/lib/takeoff/gemini-client.ts": 1300,
     "src/lib/takeoff/plans.ts": 1400,
     "src/lib/takeoff/processor.ts": 4100,
-    "src/lib/takeoff/server.ts": 7600,
+    "src/lib/takeoff/server.ts": 7000,
     "src/lib/takeoff/types.ts": 1200
   },
   "maxNewModuleNonEmptyLines": 1200

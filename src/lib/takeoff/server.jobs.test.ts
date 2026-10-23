@@ -1190,6 +1190,34 @@ describe("takeoff job server helpers (TKF-009)", () => {
       status: 403,
       code: "FORBIDDEN",
     });
+    await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(supabase.__state.auditLogs).toEqual([]);
+  });
+
+  it.each([
+    ["retry", retryTakeoffJob],
+    ["resubmit", resubmitTakeoffJob],
+    ["reconcile", reconcileTakeoffJobNow],
+    ["cancel", cancelTakeoffJob],
+  ] as const)("conceals another tenant's job from %s without changing it or auditing", async (_name, action) => {
+    const job = baseJob({ tenant_id: OTHER_TENANT_ID });
+    const supabase = createSupabaseMock({ jobs: [job] });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    await expect(action(JOB_ID)).rejects.toMatchObject({ status: 404, code: "TAKEOFF_JOB_NOT_FOUND" });
+
+    expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
+    expect(supabase.__state.auditLogs).toEqual([]);
+    expect(createServiceRoleClient).not.toHaveBeenCalled();
   });
 
   it("cancels pending jobs and logs audit event", async () => {
