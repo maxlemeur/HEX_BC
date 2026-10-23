@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  logging: {
+    // OAuth callback query parameters include a short-lived authorization code.
+    incomingRequests: { ignore: [/^\/auth\/chatgpt\/callback(?:\?|$)/] },
+  },
   ...(process.env.E2E_ARMY === "1"
     ? {
         distDir: ".e2e/army/next",

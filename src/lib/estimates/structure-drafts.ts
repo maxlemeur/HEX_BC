@@ -15,7 +15,7 @@ import {
   normalizeAffaireIntakeExtractedMetadata,
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
@@ -2069,7 +2069,7 @@ async function tryGenerateGeminiNodes(input: {
   heuristicNodes: EstimateStructureDraftNodePayload[];
 }) {
   const prompt = buildGeminiPrompt(input);
-  return callGeminiStructured<EstimateStructureGeminiExchange>({
+  return callStructuredAi<EstimateStructureGeminiExchange>({
     prompt,
     schema: EstimateStructureGeminiExchangeSchema,
     thinkingLevel: ESTIMATE_STRUCTURE_PROMPT_THINKING_LEVEL,

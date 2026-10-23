@@ -16,7 +16,11 @@ import {
 } from "@/lib/estimates/errors";
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { callGeminiStructured, type GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
+import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
 
 import {
@@ -979,6 +983,7 @@ async function classifyAffaireIntakeDocument(input: {
   mimeType: string;
   bytes: ArrayBuffer;
   beforeProviderCall?: () => Promise<void>;
+  aiOwner?: ChatGptOwner | null;
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
@@ -1015,7 +1020,7 @@ async function classifyAffaireIntakeDocument(input: {
   await input.beforeProviderCall?.();
 
   try {
-    const geminiResult = await callGeminiStructured({
+    const geminiResult = await callStructuredAi({
       prompt: buildClassificationPrompt({
         fileName: input.fileName,
         mimeType: input.mimeType,
@@ -1027,7 +1032,7 @@ async function classifyAffaireIntakeDocument(input: {
         model: AFFAIRE_INTAKE_CLASSIFICATION_MODEL,
         promptVersion: AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
       },
-    });
+    }, input.aiOwner);
 
     const mergedResult = mergeAffaireDocumentClassificationWithHeuristic({
       aiResult: geminiResult.data,
@@ -1892,6 +1897,7 @@ async function generateAffaireBriefDraft(input: {
   documents: AffaireBriefGenerationDocument[];
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
   renewLease?: () => Promise<void>;
+  aiOwner?: ChatGptOwner | null;
 }): Promise<AffaireIntakeBriefDraft> {
   const fallback = buildFallbackAffaireBrief({
     project: input.project,
@@ -1905,7 +1911,7 @@ async function generateAffaireBriefDraft(input: {
   try {
     const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
       renewLease: input.renewLease ?? (async () => undefined),
-      effect: () => callGeminiStructured({
+      effect: () => callStructuredAi({
         prompt: buildBriefGenerationPrompt({
           project: input.project,
           documents: input.documents,
@@ -1914,7 +1920,7 @@ async function generateAffaireBriefDraft(input: {
         schema: affaireBriefGenerationSchema,
         thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
         context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
-      }),
+      }, input.aiOwner),
     });
 
     generated = result.data;
@@ -2079,6 +2085,7 @@ async function refreshAffaireBriefFromDocuments(input: {
   documents: AffaireIntakeDocumentRow[];
   actorUserId?: string | null;
   renewLease?: () => Promise<void>;
+  aiOwner?: ChatGptOwner | null;
 }) {
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded"
@@ -2132,6 +2139,7 @@ async function refreshAffaireBriefFromDocuments(input: {
     })),
     missingPieces,
     renewLease: input.renewLease,
+    aiOwner: input.aiOwner,
   });
 
   return persistAffaireBriefDraft({
@@ -2483,6 +2491,7 @@ async function processClaimedAffaireIntakeUpload(input: {
   claim: durableIntake.AffaireIntakeClaim;
 }) {
   const { supabase, lifecycleClient, claim } = input;
+  const aiOwner = isLocalChatGptEnabled() ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
   const upload = {
     id: claim.uploadId,
     tenant_id: claim.tenantId,
@@ -2607,6 +2616,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         mimeType,
         bytes,
         beforeProviderCall: renewLease,
+        aiOwner,
       });
       await renewLease();
       const classificationStatus = deriveAffaireIntakeClassificationStatus({
@@ -2736,6 +2746,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         uploadId: upload.id,
         documents: refreshedDocuments,
         renewLease,
+        aiOwner,
       }).catch((error) => {
         if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw error;
         console.error("Affaire brief refresh failed after intake processing", {

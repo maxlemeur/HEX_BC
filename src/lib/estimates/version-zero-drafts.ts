@@ -28,7 +28,7 @@ import {
   generateEstimateStructureDraft,
   withEstimateAiGenerationLease,
 } from "@/lib/estimates/structure-drafts";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { Database, Json } from "@/types/database";
 
 import type {
@@ -688,7 +688,7 @@ async function tryGenerateGeminiLots(input: {
     `Fichiers source: ${sourceFiles.join(", ") || "non renseignés"}`,
   ].join("\n");
 
-  const result = await callGeminiStructured({
+  const result = await callStructuredAi({
     prompt,
     schema: VersionZeroGeminiSchema,
     thinkingLevel: "low",

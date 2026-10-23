@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SaveIcon, UsersIcon } from "lucide-react";
 
 import { useUserContext } from "@/components/UserContext";
+import { ChatGptConnectionCard } from "@/components/ai/ChatGptConnectionCard";
 import { LoadingState } from "@/components/layout/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { PageSection } from "@/components/layout/page-section";
@@ -302,6 +303,7 @@ export default function ProfilePage() {
           </div>
         </form>
       </PageSection>
+      <ChatGptConnectionCard />
     </div>
   );
 }

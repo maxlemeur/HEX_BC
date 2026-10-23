@@ -32,7 +32,7 @@ import {
   notFound,
 } from "@/lib/estimates/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { Database, Json } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -1373,7 +1373,7 @@ async function generatePromptCandidates(input: {
   const prompt = buildGeneratedOuvragePrompt(input);
 
   try {
-    const result = await callGeminiStructured<GeminiGeneratedOuvrageExchange>({
+    const result = await callStructuredAi<GeminiGeneratedOuvrageExchange>({
       prompt,
       schema: geminiGeneratedOuvrageExchangeSchema,
       thinkingLevel: GENERATED_OUVRAGE_PROMPT_THINKING_LEVEL,

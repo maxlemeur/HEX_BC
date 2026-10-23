@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { formatEUR } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import {
   estimateExplanationConfidenceLabelSchema,
   estimateExplanationImpactSummarySchema,
@@ -1014,7 +1014,7 @@ async function generateNarrative(input: NormalizedExplanationPayload) {
   }
 
   try {
-    const result = await callGeminiStructured<z.infer<typeof explanationNarrativeSchema>>({
+    const result = await callStructuredAi<z.infer<typeof explanationNarrativeSchema>>({
       prompt: buildNarrativePrompt(input),
       schema: explanationNarrativeSchema,
       thinkingLevel: ESTIMATE_EXPLANATION_THINKING_LEVEL,
@@ -1073,7 +1073,7 @@ async function generateNarrative(input: NormalizedExplanationPayload) {
             }
           : result.data,
       usedFallback: false,
-      provider: "gemini",
+      provider: result.provider,
       model: result.model,
     };
   } catch (error) {
