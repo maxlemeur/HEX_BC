@@ -372,3 +372,21 @@ Les totaux et artefacts canoniques ci-dessous conservent leur sens historique.
 - `blocked` : 0.
 - Validation indépendante et centrale : aucune objection résiduelle sur les 95 corrections.
 - Artefacts canoniques du scan non modifiés ; aucun commit, push, PR ni changement d'état du scan.
+
+
+## Correctifs récupérés le 23 octobre 2026
+
+Les anciens candidats locaux ont été comparés au code courant : conserver les migrations
+déjà intégrées, sans les rejouer ni les dupliquer. Le delta utile protège les cellules CSV
+contenant un retour chariot et refuse les nouveaux uploads d'un tenant Takeoff désactivé
+avant lecture du multipart, tout en permettant le replay d'un job déjà accessible.
+La régression RLS vérifie désormais aussi le refus de fabrication des métriques de correction.
+Le roundtrip de sauvegarde exécute le workflow actuel avec un producteur de dump synthétique,
+OpenSSL et tar réels ; il ne contacte aucune base et nettoie ses fixtures sous `outputs`.
+
+Validation locale : `npm run verify:pr` passé, régressions API/CSV 26/26, parcours réel
+`npm run e2e:army:local -- --grep '^V3X03 '` passé avec pgTAP et matrice RLS.
+Le test de sauvegarde passe aussi depuis un checkout sans `outputs` préexistant.
+Preuves canoniques : `.e2e/patch-integration-20261023/ci/2026-10-23T09-26-25-366Z-critical/` ;
+la révision testée et les assertions d'export y sont conservées. Le worktree de vérification
+a été retiré. Aucune migration distante ni publication n'a été effectuée pour ce lot.

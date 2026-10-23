@@ -557,7 +557,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
     { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
       const ui: Ui = { app, screen, browser };
       const record = (label: string, data: unknown) => recordEvidence(army, `v3x03-${label}`, data);
-      const title = (ref: string) => `${army.runPrefix} ${ref}`;
+      const title = (ref: string) => ref === "P1" ? "=1+1" : `${army.runPrefix} ${ref}`;
       const draft = await prepareV3Draft(ui, army, "V3X03");
       await seedLines(ui, army, draft, "v3x03", ROUND_TRIP_LINES(draft, title));
       const settled = await readEstimate(browser, draft.versionId);
@@ -583,7 +583,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const lineRow = (line: (typeof ROUND_TRIP)[number]) => {
         const priced = line.status === "priced";
         const label = STATUS_LABELS[line.status];
-        return [draft.sectionTitle, posteOf(title(line.ref)), title(line.ref), line.unit, String(line.quantity), label,
+        return [draft.sectionTitle, posteOf(title(line.ref)), line.ref === "P1" ? "'=1+1" : title(line.ref), line.unit, String(line.quantity), label,
           priced ? String(line.prFo / 100) : label, "", "", "", "", "1", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
           line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20"];
       };

@@ -2619,6 +2619,29 @@ async function getTakeoffJobById(input: {
   return (data ?? null) as TakeoffJobRow | null;
 }
 
+export async function hasAccessibleTakeoffJobForIdempotencyKey(input: {
+  context: Awaited<ReturnType<typeof getAuthenticatedContext>>;
+  idempotencyKey: string | null;
+}) {
+  const key = normalizeIdempotencyKey(input.idempotencyKey);
+  if (!key) return false;
+  const { supabase, tenantId, userId, tenantRole } = input.context;
+  const job = await getTakeoffJobById({
+    supabase,
+    tenantId,
+    jobId: deriveDeterministicJobId(tenantId, key),
+  });
+  if (!job) return false;
+  await assertEstimateVersionAccessibleForTakeoff({
+    supabase,
+    tenantId,
+    userId,
+    tenantRole,
+    estimateVersionId: job.estimate_version_id,
+  });
+  return true;
+}
+
 async function getTakeoffJobDetailById(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;

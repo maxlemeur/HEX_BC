@@ -126,7 +126,11 @@ export function buildEstimateV3CsvRows(input: {
 
 /** Texte CSV : même écriture que le CSV v1/v2 de l'éditeur (`exportToCSV` : SheetJS, séparateur « ; », BOM UTF-8). */
 export function writeEstimateV3Csv(rows: CsvCell[][]): string {
-  return `﻿${XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(neutralizeCsvFormulaRows(rows)), { FS: ";" })}`;
+  const safeRows = neutralizeCsvFormulaRows(rows);
+  // SheetJS quotes LF but not bare CR with the default row separator. Keep CR
+  // inside a quoted cell so a spreadsheet cannot interpret a new formula row.
+  const forceQuotes = safeRows.some((row) => row.some((cell) => typeof cell === "string" && cell.includes("\r")));
+  return `﻿${XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(safeRows), { FS: ";", forceQuotes })}`;
 }
 
 /** CSV de l'export standard d'une v3 (GET …/export?format=csv) ; une v1/v2 reçoit un 409 nommé. */

@@ -6,8 +6,10 @@ import { MAX_FILE_SIZE_BYTES } from "@/lib/file-validation";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { TakeoffError, TakeoffErrorCode, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
+import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   createTakeoffJobFromFormData,
+  hasAccessibleTakeoffJobForIdempotencyKey,
   listTakeoffJobs,
   parseListTakeoffJobsQuery,
 } from "@/lib/takeoff/server";
@@ -81,7 +83,16 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await getAuthenticatedContext();
+    const context = await getAuthenticatedContext();
+    // Only an existing accessible job may bypass the feature flag for replay.
+    // A fresh key must still be rejected before reading the multipart body.
+    const replay = await hasAccessibleTakeoffJobForIdempotencyKey({
+      context,
+      idempotencyKey: request.headers.get("idempotency-key"),
+    });
+    if (!replay) {
+      await assertTakeoffEnabled(context.tenantId, { supabase: context.supabase });
+    }
     const formData = await parseMultipartFormData(request);
     const data = await createTakeoffJobFromFormData(formData, {
       idempotencyKey: request.headers.get("idempotency-key"),

@@ -1059,6 +1059,93 @@ describe("CI and local quality guardrails", () => {
     );
   });
 
+  // Browser E2E does not exercise the scheduled backup's shell pipeline.
+  // Run that exact pipeline with synthetic pg_dump output, real encryption
+  // and restoration, without contacting a database or starting Docker.
+  it("encrypts a synthetic backup and restores its current dump format", () => {
+    const workflow = read(".github/workflows/supabase-backup.yml");
+    fs.mkdirSync(path.join(root, "outputs"), { recursive: true });
+    const temporary = fs.mkdtempSync(path.join(root, "outputs", "backup-roundtrip-"));
+    const workspace = path.join(temporary, "workspace");
+    const runnerTemp = path.join(temporary, "runner");
+    const bin = path.join(temporary, "bin");
+    const privateKey = path.join(temporary, "private.pem");
+    const publicCert = path.join(workspace, ".github", "backup-recipient.pem");
+    const output = path.join(temporary, "github-output");
+    try {
+      fs.mkdirSync(path.dirname(publicCert), { recursive: true });
+      fs.mkdirSync(runnerTemp);
+      fs.mkdirSync(bin);
+      fs.writeFileSync(output, "");
+      fs.writeFileSync(path.join(bin, "docker"), `#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+assert args[:2] == ["run", "--rm"]
+assert os.environ["PGSSLMODE"] == "verify-full"
+assert os.environ["PGSSLROOTCERT"] == "/supabase-ca.crt"
+mounts = [args[i + 1] for i, value in enumerate(args[:-1]) if value == "--volume"]
+root = next(value[:-8] for value in mounts if value.endswith(":/backup"))
+name = next(value.removeprefix("--file=/backup/") for value in args if value.startswith("--file=/backup/"))
+assert name in ("database.dump", "roles.sql")
+Path(root, name).write_bytes(b"synthetic private SQL marker\\n")
+
+`, { mode: 0o700 });
+      const run = (command: string, args: string[], env: Record<string, string | undefined> = {}, input?: Buffer) =>
+        spawnSync(command, args, { cwd: temporary, env: { ...process.env, ...env }, input, timeout: 30_000 });
+      const runStep = (name: string, env: Record<string, string | undefined>) =>
+        run("bash", ["-e", "-c", runScript(stepNamed(workflow, name))], env);
+      const common: Record<string, string | undefined> = {
+        RUNNER_TEMP: runnerTemp,
+        GITHUB_WORKSPACE: workspace,
+        GITHUB_OUTPUT: output,
+        SUPABASE_DB_URL: "postgresql://fixture:synthetic@fixture.invalid:5432/postgres",
+        POSTGRES_IMAGE: /^\s+POSTGRES_IMAGE:\s*(\S+)$/mu.exec(workflow)?.[1],
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+      };
+      const key = run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
+        "-subj", "/CN=backup-fixture", "-keyout", privateKey, "-out", publicCert]);
+      expect(key.status, key.stderr.toString()).toBe(0);
+      const certificate = fs.readFileSync(publicCert);
+      fs.copyFileSync(publicCert, path.join(workspace, ".github", "supabase-ca.crt"));
+      expect(runStep("Validate required secrets", { ...common, SUPABASE_DB_URL: "" }).status).not.toBe(0);
+      expect(fs.existsSync(path.join(runnerTemp, "backup-plain"))).toBe(false);
+      const required = runStep("Validate required secrets", common);
+      expect(required.status, required.stderr.toString()).toBe(0);
+      for (const invalid of [Buffer.from("invalid certificate"), Buffer.concat([certificate, fs.readFileSync(privateKey)])]) {
+        fs.writeFileSync(publicCert, invalid);
+        expect(runStep("Validate backup encryption certificate", common).status).not.toBe(0);
+      }
+      fs.writeFileSync(publicCert, certificate);
+      const validated = runStep("Validate backup encryption certificate", common);
+      expect(validated.status, validated.stderr.toString()).toBe(0);
+      const dumped = runStep("Dump and encrypt database", common);
+      expect(dumped.status, dumped.stderr.toString()).toBe(0);
+      const archivePath = /^archive_path=(.+)$/mu.exec(fs.readFileSync(output, "utf8"))?.[1] ?? "";
+      expect(path.dirname(archivePath)).toBe(path.join(runnerTemp, "backup-encrypted"));
+      expect(archivePath).toMatch(/\.tar\.gz\.cms$/u);
+      expect(fs.readFileSync(archivePath).includes("synthetic private SQL marker")).toBe(false);
+      const decrypted = run("openssl", ["cms", "-decrypt", "-inform", "DER", "-in", archivePath,
+        "-recip", publicCert, "-inkey", privateKey]);
+      expect(decrypted.status, decrypted.stderr.toString()).toBe(0);
+      const listing = run("tar", ["-tzf", "-"], {}, decrypted.stdout);
+      expect(listing.status, listing.stderr.toString()).toBe(0);
+      for (const name of ["database.dump", "roles.sql"]) {
+        const entry = listing.stdout.toString().split("\n").find((item) => item.endsWith(`/${name}`));
+        expect(entry, name).toBeDefined();
+        const restored = run("tar", ["-xOzf", "-", entry ?? ""], {}, decrypted.stdout);
+        expect(restored.status, restored.stderr.toString()).toBe(0);
+        expect(restored.stdout.toString()).toBe("synthetic private SQL marker\n");
+      }
+      const cleaned = runStep("Remove plaintext dump", common);
+      expect(cleaned.status, cleaned.stderr.toString()).toBe(0);
+      expect(fs.existsSync(path.join(runnerTemp, "backup-plain"))).toBe(false);
+      expect(fs.existsSync(archivePath)).toBe(true);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it("does not let manual refs execute release credentials", () => {
     const workflow = read(".github/workflows/release-please.yml");
 

@@ -1348,30 +1348,32 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
   trackRow("takeoff_jobs", jobId);
 
-  // The apply guard accepts a recent override audit event. A direct Data API
-  // INSERT must not let an operator manufacture that authorization evidence.
-  const { error: forgedOverrideError } = await engineerClient
-    .from("audit_logs")
-    .insert({
-      tenant_id: seedContext.tenantId,
-      user_id: users.engineer.userId,
-      table_name: "takeoff_jobs",
-      record_id: jobId,
-      estimate_version_id: seedContext.versionId,
-      action: "takeoff.apply.override",
-      after_data: {
-        schema_version: 1,
-        action: "takeoff.apply.override",
-        job_id: jobId,
+  // Audit events drive both correction metrics and override authorization.
+  // Neither kind may be forged by an operator through the Data API.
+  for (const action of ["takeoff.item.modified", "takeoff.apply.override"] as const) {
+    const { error: forgedAuditError } = await engineerClient
+      .from("audit_logs")
+      .insert({
         tenant_id: seedContext.tenantId,
         user_id: users.engineer.userId,
-        metadata: { source: "forged-direct-insert" },
-      },
-    });
-  if (forgedOverrideError?.code !== "42501") {
-    throw new Error(
-      `Direct takeoff override audit INSERT must be denied [${forgedOverrideError?.code ?? "no-code"}]`
-    );
+        table_name: "takeoff_jobs",
+        record_id: jobId,
+        estimate_version_id: seedContext.versionId,
+        action,
+        after_data: {
+          schema_version: 1,
+          action,
+          job_id: jobId,
+          tenant_id: seedContext.tenantId,
+          user_id: users.engineer.userId,
+          metadata: { source: "forged-direct-insert" },
+        },
+      });
+    if (forgedAuditError?.code !== "42501") {
+      throw new Error(
+        `Direct ${action} audit INSERT must be denied [${forgedAuditError?.code ?? "no-code"}]`
+      );
+    }
   }
 
   const invalidInitialJobId = randomUUID();

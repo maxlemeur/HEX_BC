@@ -477,6 +477,31 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.jobsById.size).toBe(0);
   });
 
+  // Reject before allocation: a disabled feature must not consume a body,
+  // even when the caller supplies an idempotency key that has never been used.
+  it.each([null, "new-key"])(
+    "rejects a disabled tenant before reading its body (idempotency key: %s)",
+    async (idempotencyKey) => {
+      const supabase = createSupabaseMock();
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+      vi.mocked(assertTakeoffEnabled).mockRejectedValue(
+        forbidden("Le module Takeoff est désactivé pour ce tenant.")
+      );
+      const headers = new Headers({ "content-type": "multipart/form-data" });
+      if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
+      const request = {
+        headers,
+        formData: vi.fn(() => { throw new Error("body was read"); }),
+        get body() { throw new Error("body was read"); },
+      } as unknown as Request;
+
+      const response = await POST(request);
+      expect(response.status).toBe(403);
+      expect(request.formData).not.toHaveBeenCalled();
+      expect(supabase.__state.jobsById.size).toBe(0);
+    }
+  );
+
   it("rejects an oversized multipart request before parsing it", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -855,7 +880,9 @@ describe("POST /api/takeoff/jobs", () => {
     expect(firstResponse.status).toBe(201);
     expect(secondResponse.status).toBe(201);
     expect(secondBody.data.id).toBe(firstBody.data.id);
-    expect(assertTakeoffEnabled).toHaveBeenCalledTimes(1);
+    // A new job passes the route and creation guards; a proven replay bypasses
+    // both feature guards after the module is disabled.
+    expect(assertTakeoffEnabled).toHaveBeenCalledTimes(2);
   });
 
   it("returns 409 when idempotency key is reused with a different payload", async () => {
