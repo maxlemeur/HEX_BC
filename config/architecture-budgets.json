@@ -34,7 +34,7 @@
     "src/lib/estimates/pdf-generator.tsx": 2300,
     "src/lib/estimates/rules-engine.ts": 4800,
     "src/lib/estimates/schemas.ts": 1800,
-    "src/lib/estimates/server.ts": 7100,
+    "src/lib/estimates/server.ts": 5900,
     "src/lib/estimates/structure-drafts.ts": 3300,
     "src/lib/estimates/version-zero-drafts.ts": 2100,
     "src/lib/imports/server.ts": 1100,
@@ -43,7 +43,7 @@
     "src/lib/takeoff/gemini-client.ts": 1300,
     "src/lib/takeoff/plans.ts": 1400,
     "src/lib/takeoff/processor.ts": 4100,
-    "src/lib/takeoff/server.ts": 8300,
+    "src/lib/takeoff/server.ts": 7600,
     "src/lib/takeoff/types.ts": 1200
   },
   "maxNewModuleNonEmptyLines": 1200
