@@ -1,106 +1,62 @@
-# HEX_BC — Logiciel de chiffrage BTP
+# MergeOne — chiffrage BTP
 
-Application interne de chiffrage pour le bâtiment : de la réception des pièces d'une affaire
-jusqu'au devis envoyé au client, puis aux bons de commande fournisseurs.
+MergeOne (dépôt historique `HEX_BC`) accompagne une affaire, du dépôt des pièces
+DPGF/plans/CCTP au devis, à sa validation et aux commandes fournisseurs.
+Le code utilise Next.js App Router, React, TypeScript, Supabase et Tailwind ;
+[package.json](package.json) et le lockfile fixent les versions.
 
-Chaîne fonctionnelle principale :
+## Démarrer
 
-```
-Affaire → dépôt des pièces (DPGF, plans, CCTP) → import DPGF / métré assisté par IA
-        → devis chiffré (lots, ouvrages, lignes) → validation → PDF + envoi
-        → portail client (acceptation / signature) → bons de commande
-```
+1. Utiliser le Node indiqué dans [`.nvmrc`](.nvmrc) : `26.12.1`.
+2. Installer les dépendances et préparer la configuration locale :
 
-## Domaines
+   ```bash
+   npm ci
+   cp .env.example .env.local
+   ```
 
-| Domaine | Route | Rôle |
-|---|---|---|
-| **Affaires** | `/dashboard/affaires` | Hub projet : dépôt de pièces, brief IA, registre d'hypothèses, pilotage |
-| **Chiffrages** | `/dashboard/estimates` | Éditeur type tableur, versions, variantes, diff, PDF, envoi |
-| **Métrés** | `/dashboard/takeoff` | Extraction de quantités depuis les plans (Gemini), niveaux A/B/C, preuves |
-| **Référentiel / Tarifs** | `/dashboard/referentiel`, `/dashboard/tarifs` | Produits, fournisseurs, prix, indices, ouvrages réutilisables |
-| **Validation** | `/dashboard/approvals`, `/dashboard/direction` | File d'approbation, revue multi-rôle, portefeuille de risque |
-| **Commandes** | `/dashboard/orders` | Bons de commande fournisseurs et devis rattachés |
-| **Portail client** | `/portal/[token]` | Consultation, acceptation ou refus d'un devis, signature |
+3. Renseigner `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   pour une base autorisée et migrée. Ces deux valeurs initialisent les clients ;
+   elles ne suffisent pas aux opérations privilégiées, à l'IA ou à l'envoi d'emails.
+   Les variables et leurs options sont décrites dans [`.env.example`](.env.example).
+4. Lancer `npm run dev`, ouvrir `http://localhost:3000/login` et utiliser un compte
+   disposant d'une adhésion au tenant visé. `GET /api/health` renvoie `200` et
+   `db: "up"` si la base répond ; cela ne qualifie pas un parcours métier.
 
-## Stack
+Pour préparer une base et les types, suivre [le guide Supabase](supabase/README.md).
+Pour un développement avec une pile locale et des comptes jetables gérés par le
+runner, suivre [le guide local](docs/testing/tester-army-local-development.md).
+Ne pas remplacer une configuration partagée existante sans vérifier sa cible.
+Les secrets et comptes de test restent dans le coffre d'équipe ou un fichier local
+ignoré ; aucune clé `service_role` ne doit parvenir au navigateur.
 
-- **Next.js 16** (App Router) · **React 19** · **TypeScript strict** · **Tailwind CSS 4**
-- **Supabase** — Postgres multi-tenant, RLS active sur toutes les tables, Auth, Storage, Edge Functions
-- **Gemini** pour le métré assisté et la classification documentaire
-- **Vitest** (projets `node` et `jsdom`) · **TesterArmy** pour les parcours navigateur
-- OpenAPI 3.1 généré depuis les schémas Zod, validé au build
+Si le port est occupé, `npm run dev -- -p 3001` choisit un autre port.
+Un seul serveur de développement peut détenir `.next/dev/lock` par checkout.
 
-## Prérequis
+## Vérifier une modification
 
-- Node.js 24 LTS (voir `.nvmrc`) / npm 11
-- Un projet Supabase (cloud ou local via CLI)
-
-## Mise en place
-
-```bash
-npm ci
-cp .env.example .env.local
-```
-
-Renseignez `.env.local`. Les deux premières variables suffisent à démarrer l'application ; les
-suivantes conditionnent l'IA, l'email et les workers :
-
-| Variable | Requise pour |
+| Besoin | Commande |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Démarrage de base |
-| `SUPABASE_SERVICE_ROLE_KEY` | Workers, tâches serveur privilégiées |
-| `GEMINI_API_KEY` | Métré assisté, classification des pièces |
-| `RESEND_API_KEY`, `EMAIL_FROM` | Envoi de devis par email |
-| `NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL` | Liens du portail client |
-| `TAKEOFF_WORKER_SECRET`, `TAKEOFF_WORKER_URL` | Traitement asynchrone des métrés |
+| Types / lint | `npm run typecheck` / `npm run lint` |
+| Qualité avant livraison de code | `npm run verify:pr` |
+| Parcours affecté sur pile locale jetable | `npm run e2e:army:local -- --grep '<pattern>'` |
+| Migrations et RLS locales | `npm run db:ci:local` |
+| Préparer une publication autorisée | `npm run check:release` |
 
-La base s'initialise **par les migrations**, jamais par `schema.sql` — voir
-[supabase/README.md](supabase/README.md).
+Une modification documentaire nécessite une vérification des références et du diff.
+Les prérequis, suites, fixtures et preuves sont dans [le guide de tests](e2e/README.md).
+Les commandes complètes restent dans [package.json](package.json).
 
-```bash
-npm run dev     # http://localhost:3000
-```
+## Repères
 
-Avant le démarrage, vérifiez que le port choisi est libre. Le serveur signale un port déjà occupé ; choisissez alors un port explicite comme ci-dessous.
+- [Documentation](docs/README.md) : règles de calcul, cycle du devis, parcours,
+  sécurité et exploitation.
+- [AGENTS.md](AGENTS.md) : contrat de contribution, limites d'autorisation et
+  vérifications attendues.
+- [API OpenAPI](openapi.json) : contrat généré depuis
+  [`src/lib/openapi`](src/lib/openapi/), consultable sur `/api/docs` en développement et en preview Vercel.
+  En production, cette interface nécessite `ENABLE_OPENAPI_DOCS=1`.
+- [CHANGELOG.md](CHANGELOG.md) : versions gérées par Release Please.
 
-Si le port 3000 est déjà occupé, choisissez explicitement un autre port pour le serveur de développement :
-
-```bash
-npm run dev -- -p 3001
-```
-
-Si le conflit vient déjà de cette application, réutilisez son serveur ou arrêtez-le depuis son
-terminal : le verrou `.next/dev/lock` empêche deux serveurs de développement dans le même dossier.
-
-Le smoke `npm run e2e` lance et arrête son propre serveur sur une origine locale dédiée et libre
-(`http://localhost:3107` par défaut). `E2E_ARMY_BASE_URL` choisit cette origine du smoke.
-Configurez les variables publiques `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-du backend avant son démarrage ; voir [le guide Army](docs/testing/tester-army.md).
-
-## Commandes courantes
-
-```bash
-npm run dev          # serveur de développement
-npm run build        # valide l'OpenAPI puis construit
-npm run typecheck    # TypeScript strict, sans émission
-npm run lint         # ESLint, zéro warning toléré
-npm test             # suite Vitest complète
-npm run e2e:army:critical # TesterArmy, parcours critiques
-```
-
-L'inventaire complet des scripts est dans `package.json`.
-
-## Documentation
-
-| Document | Contenu |
-|---|---|
-| [AGENTS.md](AGENTS.md) | **Contrat de travail** : périmètre, tests, invariants métier et sécurité. À lire en premier |
-| [docs/README.md](docs/README.md) | Index de la documentation |
-| [docs/metier/regles-de-calcul.md](docs/metier/regles-de-calcul.md) | Formules, arrondis, TVA, marge, remises |
-| [docs/metier/glossaire.md](docs/metier/glossaire.md) | Vocabulaire du chiffrage BTP |
-| [docs/metier/cycle-de-vie.md](docs/metier/cycle-de-vie.md) | Statuts, immutabilité, scellement, approbations |
-
-## Comptes de test
-
-Les identifiants ne sont **jamais** committés. Voir [docs/test-logins.md](docs/test-logins.md).
+Le push ne déploie pas l'application : [vercel.json](vercel.json) désactive les
+déploiements Git. Migration partagée et déploiement demandent chacun leur autorisation.

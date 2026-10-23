@@ -1,10 +1,13 @@
 # PRICE-02 — Recette locale du prix de référence
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 Le 11 octobre 2026, la sous-tranche zéro exclu, moyenne positive et validité
 maximale à six mois a passé sa recette sur le build local de production
 `OiZfxTcX7ZyRQ0fbNISSs`. Le résultat est **3/3 exécutés et réussis** : une
 authentification et deux scénarios métier, zéro échec, zéro ignoré. Ce résultat
-ne termine pas l'ensemble de [PRICE-02](../product/price-reference-next-slice.md).
+ne termine pas l'ensemble de [PRICE-02](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/product/price-reference-next-slice.md).
 
 ## Commande et environnement
 
@@ -119,9 +122,9 @@ manifeste initial.
 
 - `bulk-create-atomic` est un contrat d'API exercé sur la base native. Aucun
   téléversement CSV/XLS/XLSX, mapping de colonnes ou parseur de fichier n'a été
-  exécuté dans cette recette. Voir les [suites catalogue](../product/catalogue-integrity-followups.md).
+  exécuté dans cette recette. Voir les [suites catalogue](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/product/catalogue-integrity-followups.md).
 - Les refus ingénieur/lecteur/autre tenant/anonyme ont une
-  [preuve SQL isolée](reference-price-sql.md) sur fixture PGlite avec identité
+  [preuve SQL isolée](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/reference-price-sql.md) sur fixture PGlite avec identité
   simulée. Le run natif utilise un administrateur connecté normalement ; il ne
   qualifie pas la matrice RLS native complète.
 - Le dernier jour exact des six mois, les fins courtes inclusives et les dates

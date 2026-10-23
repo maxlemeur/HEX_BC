@@ -1,5 +1,8 @@
 # Application Supabase partagée — 17/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **Les six migrations autorisées ont été appliquées et vérifiées, dans l'ordre demandé. Aucun déploiement, commit ou push.**
 
 Projet : `ijropnynpwjbllievrip` (`bon_de_commande`, connexion `max`). Sources : `main` à `b91f938fa6e36db27a472cba095693553d1a41fe`. Fin du contrôle : 2026-10-17 18:07:10 UTC.

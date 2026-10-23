@@ -1,7 +1,10 @@
 # Référence CCTP : préparation, consultation et confirmation
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 La recette `e2e/army/local/source-reference.e2e.ts` matérialise le
-[contrat préalable](source-coverage-reference.md). La lecture seule a sa
+[contrat préalable](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/source-coverage-reference.md). La lecture seule a sa
 [qualification distincte](source-reference-read.md). Le plan détaillé de la
 verticale et ses changements datés restent dans
 `.e2e/source-coverage/http-staged/UI-CONTRACT.md`.

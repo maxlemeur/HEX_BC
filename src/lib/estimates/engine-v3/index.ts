@@ -1,7 +1,7 @@
 /**
- * Lot 2, sous-lot 2.4 - moteur de calcul v3 pur (conception §4, D13). Code inerte en 2.4 :
- * aucun écran ni écrivain ne l'appelle et aucune v3 ne peut être créée. Les moteurs 1 et 2
- * (`estimate-calculations.ts`, `estimate-v2-snapshot.ts`) ne sont ni importés ni modifiés.
+ * Moteur de calcul v3 pur, utilisé par les projections et les parcours v3.
+ * La version de moteur reste épinglée sur chaque devis ; les moteurs historiques
+ * 1 et 2 sont conservés séparément. Contrat : docs/metier/regles-de-calcul.md.
  */
 export { allocateExact, type AllocationEntry } from "@/lib/estimates/engine-v3/allocate";
 export { computeEstimateV3Breakdown } from "@/lib/estimates/engine-v3/breakdown";

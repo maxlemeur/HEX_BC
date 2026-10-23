@@ -1,5 +1,8 @@
 # Application de 2.8b et de M8 au Supabase partagé — 18/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **Les deux migrations sont appliquées, dans l'ordre, et vérifiées. Aucun devis existant n'a changé de moteur ni de montant. Aucune politique de calcul n'a été posée et rien n'a été déployé.**
 
 Projet : `ijropnynpwjbllievrip`. Source : `main` à `56de5b1d` (fusion de la PR #68, sous-lot 2.10b), qui contient la PR #59 (sous-lot 2.8b).

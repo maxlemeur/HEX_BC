@@ -1,5 +1,8 @@
 # Application de la migration 2.6 au Supabase partagé — 18/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **Migration du sous-lot 2.6 appliquée et vérifiée, sans donnée applicative modifiée, sans politique de calcul et sans déploiement.**
 
 Projet : `ijropnynpwjbllievrip`. Source immuable : `main` à `da462ac4622893c9d8287e4c56eaa9048eba20e5`, fusion de la PR #44 ; dernier commit du fichier `d0d82b4e`.
@@ -61,7 +64,7 @@ La migration ne contient aucun DML. Le déclencheur ne s'exécute que sur un `UP
 
 ## Preuve comportementale
 
-Le comportement est prouvé sur des piles locales, pas sur le partagé. Sur la tête `0dec560f` de la PR #44, la CI est verte : `rls-matrix` (chaîne `db:ci:local` complète, pgTAP et matrice RLS sur toutes les migrations), `army-critical` (dont V3E02, retour « Hors lot » → « Chiffrée »), `quality-gate`, `Tests`, `Statique` et `smoke`. Détail des parcours : [estimate-engine-v3-2.6.md](./estimate-engine-v3-2.6.md).
+Le comportement est prouvé sur des piles locales, pas sur le partagé. Sur la tête `0dec560f` de la PR #44, la CI est verte : `rls-matrix` (chaîne `db:ci:local` complète, pgTAP et matrice RLS sur toutes les migrations), `army-critical` (dont V3E02, retour « Hors lot » → « Chiffrée »), `quality-gate`, `Tests`, `Statique` et `smoke`. Détail des parcours : [estimate-engine-v3-2.6.md](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/estimate-engine-v3-2.6.md).
 
 Aucune fonction métier n'a été appelée sur le partagé, et aucun devis v3 n'a été créé pour exercer le déclencheur.
 

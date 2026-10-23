@@ -1,157 +1,61 @@
-# Runbook — normalisation des références produit (production)
+# Normalisation des références produit
 
-Migration concernée : `supabase/migrations/20260819205115_case_insensitive_product_reference.sql`
+À utiliser pour diagnostiquer des collisions de catalogue ou préparer un
+rattrapage explicitement autorisé. La
+[migration de référence](../migrations/20260819205115_case_insensitive_product_reference.sql)
+crée `reference_normalized` et `designation_normalized` avec trim et minuscules,
+sans réécrire les valeurs affichées. L'unicité porte sur
+`(tenant_id, reference_normalized)` lorsque la référence normalisée n'est pas nulle.
+Les consommateurs actuels sont le [catalogue](../../src/lib/catalogue/)
+et le [rapprochement DPGF](../../src/lib/mappings/server.ts).
 
-Ce qu'elle change : `products.reference` devient unique **sans distinction de casse ni
-d'espaces de bord** par tenant, et le rapprochement à l'import compare désormais des
-formes normalisées côté SQL comme côté applicatif. Les valeurs saisies ne sont pas
-réécrites.
+## Diagnostic
 
-Verrou pris : `ACCESS EXCLUSIVE` sur `public.products` le temps d'une réécriture de
-table. Ni lecture ni écriture sur `products` pendant cet intervalle. Tout le reste de
-la base est libre.
+1. Vérifier la cible, son historique et ses colonnes/index actuels. Une migration
+   présente dans Git n'est pas une preuve d'application sur ce projet.
+2. Exécuter seulement les parties en lecture seule (0, 1 et 1 bis) de
+   [product-reference-case-collisions.sql](product-reference-case-collisions.sql) :
+   volume, taille, verrous, groupes en collision et commandes dépendantes.
+3. Examiner les clés étrangères et dépendances **du schéma courant** avant
+   toute fusion. Les requêtes historiques listent pricebooks, catalogue
+   fournisseur, lignes de commande et liens DPGF ; ne pas présumer que cette
+   liste suffit après de nouvelles migrations.
 
-La migration est **transactionnelle et idempotente** : elle réussit entièrement ou ne
-laisse rien. On la relance sans nettoyage préalable.
+La migration prend un verrou `ACCESS EXCLUSIVE` sur `products`, avec
+`lock_timeout = 5s` et `statement_timeout = 5min`. La durée dépend des données,
+de la machine et de sa charge ; les anciennes estimations de vitesse dans
+les commentaires du script ne sont pas un budget mesuré. Qualifier sur une
+copie possédée représentative avant de choisir la fenêtre distante.
 
----
+## Intervention autorisée
 
-## 1. Pré-vol (obligatoire, lecture seule)
+- Une collision exige une décision métier sur le produit à conserver et ses
+  dépendances. La section 2 du SQL est un **modèle de fusion**, pas une commande
+  à lancer globalement. Revalider ses hypothèses, sauvegarder et relire les
+  effets avant chaque commit. La fusion n'est pas automatiquement réversible.
+- Si la migration n'est pas appliquée, suivre [le runbook Supabase](../README.md)
+  pour appliquer son contenu exact et vérifier l'historique. Si elle l'est,
+  corriger par une nouvelle migration ; ne pas modifier ou rejouer l'ancienne.
+- Si le verrou est trop coûteux, concevoir et tester une nouvelle intervention
+  compatible. L'ancienne variante qui retirait des instructions du fichier
+  appliqué est obsolète : le manifeste et l'historique doivent rester intacts.
 
-Exécuter les requêtes de `product-reference-case-collisions.sql`, dans l'ordre :
+Après application, vérifier les colonnes normalisées sur des valeurs non vides,
+les index `products_tenant_reference_normalized_key` et
+`products_tenant_designation_normalized_idx`, leur validité et l'absence de
+l'ancien index `products_tenant_reference_key`. Une référence vide normalisée
+à `NULL` est attendue, pas une erreur. Qualifier le refus d'un doublon de casse
+et le rapprochement des imports sur des fixtures autorisées.
 
-**Étape 0 — volumétrie.** Donne le nombre de lignes et la taille de `products`.
-Une réécriture traite grossièrement 10⁶ lignes/seconde. En dessous de ~100 000
-produits, l'indisponibilité est de l'ordre de la fraction de seconde : appliquer en
-direct. Au-delà, estimer et arbitrer avec la section 4.
+## Échec et retour arrière
 
-La même étape liste les transactions détenant déjà un verrou sur `products`. S'il y
-en a une longue, la migration échouera sur `lock_timeout` — la laisser finir d'abord.
+La migration de référence est transactionnelle : un échec SQL doit annuler ses
+changements. Relire le catalogue et l'erreur avant toute nouvelle tentative.
+Après un commit, ne pas supprimer les colonnes normalisées utilisées par
+l'application. Préparer une correction additive, ou une restauration autorisée
+compatible avec l'application et les moteurs de calcul déjà présents. Une
+sauvegarde PostgreSQL ne restaure pas à elle seule les fichiers Storage.
 
-**Étape 1 — collisions.** Liste les groupes de produits dont les références ne
-diffèrent que par la casse ou les espaces.
-
-- **Aucune ligne** → passer directement en section 3.
-- **Des lignes** → section 2. La migration refusera de s'appliquer tant qu'elles
-  existent, avec la liste exacte en `DETAIL`. C'est voulu.
-
-## 2. Fusion des collisions (seulement si l'étape 1 en trouve)
-
-La fusion n'est pas automatisée : le choix du produit survivant change des prix, et
-l'opération repointe `supplier_pricebook`, `supplier_catalog_items`,
-`purchase_order_items` et `dpgf_catalogue_links`.
-
-Les lignes de devis ne sont **pas** concernées : `estimate_items` ne référence pas
-`products(id)`, il stocke une copie de la référence et de la désignation. Aucun montant
-scellé n'est affecté. La pièce sensible est `purchase_order_items` — l'étape 1 bis du
-fichier SQL sort le statut des bons de commande concernés.
-
-Suivre le modèle transactionnel de l'étape 2 du fichier SQL, **un groupe à la fois**,
-en relisant les compteurs de dépendances avant chaque `commit`. Puis rejouer l'étape 1
-jusqu'à ce qu'elle ne renvoie plus rien.
-
-## 3. Application
-
-Fenêtre : hors heure de saisie de devis. La migration bloque `products`, donc l'éditeur
-de devis, les imports DPGF et le catalogue.
-
-Via la CLI, sur un projet lié :
-
-```bash
-npx supabase db push
-```
-
-Via le connecteur MCP Supabase, suivre le runbook de `supabase/README.md` :
-`get_advisors({type:"security"})` → `apply_migration` → `get_advisors({type:"security"})`.
-
-### Contrôles d'après-application
-
-```sql
--- Les deux colonnes générées existent et sont peuplées.
-select
-  count(*) filter (where reference is not null and reference_normalized is null)
-    as references_non_normalisees,
-  count(*) filter (where designation_normalized is null) as designations_vides
-from public.products;
-
--- La nouvelle unicité est en place, l'ancienne est partie.
-select indexname
-from pg_indexes
-where schemaname = 'public'
-  and tablename = 'products'
-  and indexname in (
-    'products_tenant_reference_key',
-    'products_tenant_reference_normalized_key',
-    'products_tenant_designation_normalized_idx'
-  );
-```
-
-Attendu : deux compteurs à zéro, et exactement les deux nouveaux index — pas
-`products_tenant_reference_key`.
-
-Puis un contrôle fonctionnel : créer un produit dont la référence ne diffère d'un
-existant que par la casse. L'API doit renvoyer un conflit d'unicité.
-
-## 4. Variante en deux temps (grosse volumétrie uniquement)
-
-À n'utiliser que si le pré-vol montre une réécriture trop longue pour la fenêtre.
-Elle échange l'atomicité contre une indisponibilité plus courte, et demande une
-surveillance manuelle.
-
-1. Retirer les deux `create index` de la migration et l'appliquer telle quelle : seul
-   l'`alter table` reste, donc une seule réécriture.
-2. Créer les index **hors transaction**, en `CONCURRENTLY` :
-
-   ```sql
-   create unique index concurrently products_tenant_reference_normalized_key
-     on public.products (tenant_id, reference_normalized)
-     where reference_normalized is not null;
-
-   create index concurrently products_tenant_designation_normalized_idx
-     on public.products (tenant_id, designation_normalized);
-   ```
-
-3. Vérifier qu'aucun index n'est resté `INVALID` — `CONCURRENTLY` en laisse un derrière
-   lui en cas d'échec, et il faut alors le `drop` puis recommencer :
-
-   ```sql
-   select index_class.relname
-   from pg_index index_definition
-   join pg_class index_class on index_class.oid = index_definition.indexrelid
-   where not index_definition.indisvalid
-     and index_definition.indrelid = 'public.products'::regclass;
-   ```
-
-4. Seulement une fois les index valides : `drop index public.products_tenant_reference_key;`
-
-Entre les étapes 1 et 4, l'ancienne unicité sensible à la casse reste active : la table
-n'est jamais sans protection, mais elle tolère encore les doublons de casse. Ne pas
-laisser traîner cet intervalle.
-
-## 5. Retour arrière
-
-```sql
-begin;
-set local lock_timeout = '5s';
-
-create unique index if not exists products_tenant_reference_key
-  on public.products (tenant_id, reference)
-  where reference is not null;
-
-drop index if exists public.products_tenant_reference_normalized_key;
-drop index if exists public.products_tenant_designation_normalized_idx;
-
-alter table public.products
-  drop column if exists reference_normalized,
-  drop column if exists designation_normalized;
-
-notify pgrst, 'reload schema';
-commit;
-```
-
-⚠️ Ce retour arrière ne peut réussir que si le code applicatif a été redéployé dans sa
-version précédente **d'abord** : `linkMappedRowsToCatalogue` filtre sur les colonnes
-normalisées et échouerait sans elles. Ordre : redéployer le code, puis dérouler ce SQL.
-
-Il ne restaure pas les produits fusionnés à l'étape 2 — cette fusion-là est
-définitive.
+En cas de collisions métier, de dépendances ambiguës ou d'indisponibilité
+inacceptable, transmettre le diagnostic sans données privées au responsable
+du catalogue et à l'opérateur de la base avant de poursuivre.

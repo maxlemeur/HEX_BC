@@ -1,5 +1,8 @@
 # Application de #72 au Supabase partagé — 19/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **Migration appliquée et vérifiée. Une seule nouvelle fonction ; aucune donnée existante ni définition antérieure modifiée. Aucun déploiement.**
 
 Projet : `ijropnynpwjbllievrip`. Source de `main` : `d90e158df0aea23cb12dfe509f912497f691851e`, fusion de la [PR #72](https://github.com/maxlemeur/HEX_BC/pull/72). Application explicitement autorisée par le porteur, qui a ensuite autorisé le plugin Supabase.

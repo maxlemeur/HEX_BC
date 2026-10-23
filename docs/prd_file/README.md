@@ -2,6 +2,8 @@
 
 Les classeurs, PDF, CSV et documents métier d’origine sont conservés localement
 sous `.private/repository-hygiene-20261019/originals/docs/prd_file/`.
+Les archives de transmission sont conservées sous
+`.private/repository-hygiene-20261019/originals/docs/handoff-prestataire-2026-10-14/`.
 Le manifeste privé conserve leur chemin, taille et SHA-256 ; les fichiers ne
 sont pas anonymisés en place ni perdus.
 

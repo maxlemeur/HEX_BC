@@ -1,5 +1,8 @@
 # Application de M4 au Supabase partagé — 17/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **M4 appliquée et vérifiée. Aucune politique d'entreprise posée, aucune version v3 créée, aucune donnée applicative insérée et aucun déploiement.**
 
 Projet : `ijropnynpwjbllievrip` (`bon_de_commande`). Source immuable : `main` à `94694ab340020aa31dfdb6acbbf7549c20957ab5`, après fusion de la PR #33.

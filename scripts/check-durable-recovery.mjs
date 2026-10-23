@@ -1,5 +1,5 @@
 // The workflow's HTTP boundary. Only fixed labels and validated counters may be logged.
-// Policy and local HTTP regression: docs/testing/tech-debt-recovery-detection.md.
+// Policy: supabase/README.md; HTTP regression: src/test/durable-recovery-command.test.ts.
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_TIMEOUT_MS = 280_000;
 

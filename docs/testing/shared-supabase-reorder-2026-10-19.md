@@ -1,5 +1,8 @@
 # Application de #75 au Supabase partagé — 19/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **Migration appliquée et vérifiée : deux fonctions privées ajoutées, cinq fonctions remplacées exactement, accès des deux RPC limité aux utilisateurs connectés. Aucune donnée existante modifiée et aucun déploiement.**
 
 Projet : `ijropnynpwjbllievrip`. Source immuable : `main` à `0163e7cf83b97a6aadcf1c19130c8cd936ffb5c9`, fusion de la [PR #75](https://github.com/maxlemeur/HEX_BC/pull/75). Le porteur autorise explicitement l'application, selon le protocole précédent et l'autorisation acquise d'utiliser Supabase.
@@ -83,4 +86,4 @@ La [PR #75](https://github.com/maxlemeur/HEX_BC/pull/75) est fusionnée au SHA d
 
 [Rapport JSON](./shared-supabase-reorder-2026-10-19.json). Preuves sous `.e2e/shared-supabase-reorder-20261019/` : sources et archive, cinq prédécesseurs, catalogues complets avant/après, sept corps distants, données et historique empreintés, tests, conseillers et application.
 
-Aucun nouveau parcours UI, export, courriel ni benchmark n'a été exécuté. Les preuves métier/performance de développement restent celles de [reorder-move-large-v2.md](./reorder-move-large-v2.md), avec leurs limites ; cette application ne les renouvelle pas. Pas d'affirmation d'équivalence globale du schéma partagé historique avec main : seules les cibles sont rapprochées au canonique, et le reste est vérifié inchangé.
+Aucun nouveau parcours UI, export, courriel ni benchmark n'a été exécuté. Les preuves métier/performance de développement restent celles de [reorder-move-large-v2.md](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/reorder-move-large-v2.md), avec leurs limites ; cette application ne les renouvelle pas. Pas d'affirmation d'équivalence globale du schéma partagé historique avec main : seules les cibles sont rapprochées au canonique, et le reste est vérifié inchangé.

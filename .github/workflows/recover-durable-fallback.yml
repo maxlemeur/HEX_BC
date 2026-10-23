@@ -36,7 +36,7 @@ jobs:
 
       # HTTP 200 alone is insufficient. Emit counters only, never the response body.
       # Individual failures warn; unavailable drains and exhausted retries fail.
-      # Contract: docs/testing/tech-debt-recovery-detection.md.
+      # Contract: supabase/README.md, section "Reprise des tâches et emails".
       - name: Recover and check durable workflows
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}

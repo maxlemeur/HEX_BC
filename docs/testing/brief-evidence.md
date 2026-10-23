@@ -1,5 +1,8 @@
 # DOS-01 — Sources du brief : contrat et recette
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 ## Défaillances définies avant modification
 
 | Défaillance observable | Scénario et oracle |

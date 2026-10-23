@@ -1,5 +1,8 @@
 # Application de M6 et M6b (2.8) au Supabase partagé — 18/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **Les deux migrations du sous-lot 2.8 sont appliquées et vérifiées. Aucune donnée applicative n'a changé. Aucune politique de calcul n'a été posée et rien n'a été déployé.**
 
 Projet : `ijropnynpwjbllievrip`. Source immuable : `main` à `5cfd4a94215975f3caa122ff5f64e1192b60cc5f`, fusion de la PR #40 (tête `f00da33b`, fusionnée le 18/10/2026 à 07:42:37 UTC).

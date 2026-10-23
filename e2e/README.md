@@ -1,116 +1,112 @@
-# E2E TesterArmy
+# Tester MergeOne
 
-TesterArmy (`e2e` 0.21.2 et `@e2e-dev/web` 0.15.2) exécute les parcours navigateur.
-Les assertions exactes déterminent le résultat ; la navigation par agent reste
-facultative. Voir [le guide Army](../docs/testing/tester-army.md),
-[la CI native](../docs/testing/tester-army-ci.md) et
-[la correspondance Playwright](../docs/testing/army-migration.md) et
-[le port des scénarios PowerShell](../docs/testing/legacy-to-army-migration-2026-10-19.md).
+TesterArmy est le runner des parcours navigateur. Les contrôles SQL/RLS,
+calculs, parseurs, courses et reprises restent dans leurs suites spécialisées.
+Les commandes et versions de référence sont dans [package.json](../package.json),
+[.nvmrc](../.nvmrc) et [e2e.config.ts](../e2e.config.ts).
 
-## Profils
+## Choisir le contrôle
 
-- `npm run e2e` : smoke anonyme desktop/mobile, sans modèle.
-- `npm run e2e:army:critical` : contrôles métier prioritaires.
-- `npm run e2e:army:full` : parcours de production, spécialistes et métré.
-- `npm run e2e:army:development` : trois scénarios du simulateur de hub.
-- `npm run e2e:army:polish` : audit optionnel des routes explicitement sélectionnées,
-  aux quatre largeurs historiques ; voir [ses limites](../docs/testing/tester-army-polish.md).
-- `npm run e2e:army:ci -- full` : SQL, RLS, build, production puis
-  développement sur une pile Supabase native éphémère (Linux/macOS ; Windows via WSL).
+| Modification | Commande / preuve attendue |
+| --- | --- |
+| Documentation seule | Cohérence du contenu, liens et `git diff --check` |
+| Code applicatif | `npm run verify:pr` sur le code final ; parcours affectés ci-dessous |
+| Parcours utilisateur | `npm run e2e:army:local -- --grep '<motif>'` |
+| SQL, RLS ou migration | `npm run db:ci:local`, puis parcours affectés ; voir [Supabase](../supabase/README.md) |
+| Publication préparée | `npm run check:release` ; cela ne déploie rien |
+| Régression de performance | [Mesures navigateur](../docs/testing/tester-army-performance.md) et [budgets SQL](../docs/testing/large-estimate-statement-budget.md) |
 
-La CI crée son compte ARMY, refuse les secrets et fichiers env ambiants et détruit
-sa pile locale. Pour une campagne manuelle, lire les prérequis du profil avant
-exécution : backend loopback explicitement autorisé, compte dédié et nouvelles
-fixtures ARMY. Les prérequis worker locaux gardent leurs clés côté Node ; les
-actions de l'application utilisent la connexion utilisateur normale.
+`verify:pr` exécute les audits de dépendances/signatures, l'hygiène du dépôt,
+les types de base, l'architecture, OpenAPI, le typage, le lint, les gardes Army,
+Vitest node/jsdom et la couverture critique. Les protections GitHub et leur
+sélection sont décrites dans le [guide CI](../docs/testing/tester-army-ci.md).
 
-Les manifestes et archives `.e2e/army/` conservent commande, sources, build,
-identités, assertions et empreintes. Échec, skip et setup incomplet restent des
-preuves manquantes. Les archives de CI sont contrôlées avant publication.
+## Démarrer un parcours local
 
-## Sélection locale et preuves
+Utiliser le Node de `.nvmrc`, un checkout sans `.env` ni variables Supabase/DB
+héritées, avec ses dépendances installées dans sa racine. Si le checkout de
+travail utilise un backend partagé, préparer un worktree de vérification isolé
+sous `~/Projects/.workspaces/mergeone/` ; ne pas déplacer ses secrets.
 
-Pour une itération sur les parcours affectés, utiliser une seule pile locale :
-
-```bash
-npm run e2e:army:local -- --grep 'LEP01|LEGCLIP01'
+```sh
+npm ci
+npx @e2e-dev/web install chromium --with-deps
+npm run e2e:army:local -- --grep 'creation persists final French' --app-port 3118
 ```
 
-Pour une qualification bornée depuis une pile propre :
+Le runner possède sa pile native temporaire, applique les migrations et les
+contrôles SQL/RLS, crée le compte et le tenant ARMY, construit l'application,
+exécute la sélection et détruit la pile. Docker et un compte distant ne sont
+pas nécessaires. Les données de cette pile disparaissent à la fin.
+[Développement interactif et reprise](../docs/testing/tester-army-local-development.md).
 
-```bash
-npm run e2e:army:ci -- full --grep 'LEGCUR0[12]|LEGASM01'
+```sh
+# Inventaire uniquement : aucun navigateur ni résultat métier
+npm run e2e:army:critical:list
+npm run e2e:army:full:list
+
+# Campagnes autonomes, sur leur propre pile locale
+npm run e2e:army:ci -- full --app-port 3118
+npm run e2e:army:calc-v3
 ```
 
-Un filtre prouve uniquement les scénarios effectivement sélectionnés. Le profil
-`full` comprend aussi les parcours connectés et le métré ; l'émission PDF et les
-contrats v3 ont leurs profils spécialisés documentés dans
-[le guide calc-v3](../docs/testing/tester-army-calc-v3.md).
+Les commandes directes `e2e:army:critical` et `e2e:army:full` n'amorcent pas la
+pile. Elles demandent un environnement explicitement préparé, un compte E2E et
+`E2E_ALLOWED_SUPABASE_HOST`. Préférer les commandes autonomes ci-dessus pour
+une vérification locale. Un environnement partagé requiert son propre périmètre
+autorisé de fixtures et d'écritures.
 
-Les anciens scripts navigateur PowerShell, leur wrapper et les régressions qui
-validaient uniquement ces scripts ont été retirés après qualification exécutée
-de leurs remplacements. La matrice liée ci-dessus conserve la correspondance
-et les limites de preuve ; les rapports datés restent historiques.
-Les contrôles de types, calcul, parser, SQL/RLS et de concurrence restent des
-spécialistes ; ils ne sont pas remplacés par un verdict visuel.
+## Organisation et écriture des parcours
 
-## Environnement
+- `army/critical/` : parcours métier et accès ; `army/extended/` : compléments
+  métier et composants montés en navigateur.
+- `army/takeoff/` : plans, imports et métré ; `army/local/` : recettes dédiées,
+  [calcul v3](../docs/testing/tester-army-calc-v3.md), émission et reprises.
+- `army/performance/` : mesures ; `fixtures/business/` et
+  `fixtures/source-coverage/` : corpus publics fictifs et oracles.
 
-Le runner local provisionne les comptes, les cookies et les clés loopback de sa
-pile éphémère. Il refuse les secrets distants ambiants. Pour un backend manuel
-explicitement autorisé, suivre [le guide critical](../docs/testing/tester-army-critical.md)
-et les [rôles des comptes de test](../docs/test-logins.md). Les identifiants et
-sessions ne sont jamais committés.
+Les assertions exactes portent sur les montants, la persistance, les droits et
+les téléchargements. Les mocks de composants n'établissent pas une preuve
+SQL/RLS. Un nouveau parcours doit rejoindre une sélection de `e2e.config.ts` ou
+le registre explicite de `scripts/tester-army/journey-preflight.mjs` ; son simple
+ajout au dossier ne garantit pas son exécution.
 
-Le smoke anonyme lance son propre serveur ; `E2E_ARMY_BASE_URL` choisit son
-origine locale (par défaut `http://localhost:3107`). Fournir les variables
-publiques du backend autorisé avant son démarrage ; lire le guide Army pour
-les options du pilote. Les variables internes `RLS_E2E_*`
-ne doivent pas être configurées avec des secrets distants.
+Les API installées sont documentées dans
+`node_modules/e2e/skills/e2e/references/` et `node_modules/e2e/docs/reference/`.
+Pour les interceptions, un observateur ou mock appelle `route.fallback()` afin
+de conserver les gardes précédents ; `route.continue()` est réservé à la
+décision finale des gardes autorisés par `src/test/ci-guardrails.test.ts`.
 
-## RLS matrix (EST-261 partial)
+`npm run e2e` lance seulement le smoke anonyme desktop/mobile, sans compte ni
+modèle. Depuis un checkout sans `.env`, fournir explicitement les valeurs
+synthétiques utilisées par [la CI smoke](../.github/workflows/e2e-army-smoke.yml) :
 
-- `src/lib/estimates/rls.e2e.test.ts` validates a CRUD matrix (`SELECT/INSERT/UPDATE/DELETE`)
-  by role (`admin/engineer/viewer`) on:
-  - `estimate_versions`
-  - `estimate_items`
-  - `estimate_categories`
-  - `labor_roles`
-  - `estimate_suggestion_rules`
-  - `audit_logs`
-- Le premier des deux tests Vitest couvre aussi les mutations d'un propriétaire
-  rétrogradé viewer, le DELETE gouverné d'`estimate_projects`, la RPC de suppression
-  avec cascade réelle des journaux append-only, ainsi que les frontières
-  `takeoff_jobs`/`takeoff_items` (rôles, statuts, worker/provider, retry/reconcile,
-  source, plan-set, draft-lock et apply atomique).
-- Il vérifie aussi la frontière tenant actif avec la requête PostgREST réelle
-  `tenant_memberships -> tenants!inner`, masque tenant et membership suspendus,
-  puis refuse atomiquement la décision d'un token portail sans modifier le token
-  ni la version.
-- Le même test vérifie le basculement atomique d'un tenant par défaut suspendu et
-  les refus d'une cible inactive, étrangère ou bloquée par un défaut non-admin.
-- Le second test couvre l'isolation cross-tenant (un non-membre doit être refusé).
-- `portal_tokens` is probed and reported when absent from the current schema snapshot.
-- La commande canonique est `npm run db:ci:local` : elle crée une pile loopback
-  éphémère en runtime natif Supabase, sans Docker, et trois comptes Auth jetables.
-  Prérequis : Linux (glibc 2.35+) ou macOS 14+ sur Apple silicon, compte non root ;
-  sous Windows, depuis WSL et un clone Linux du dépôt (voir `supabase/README.md`).
-  La suite refuse une URL distante ou une exécution hors de ce runner local.
-- Run partiel : `npm run db:ci:local -- --files a.test.sql,b.test.sql` ne lance
-  que ces fichiers de `supabase/tests/database` (noms nus ou préfixés par ce
-  dossier ; tout autre chemin est refusé avant la pile) ; la matrice RLS tourne
-  encore, sauf `--skip-rls`. Le journal le déclare partiel : ce n'est jamais la
-  preuve complète `db:ci:local`.
-- Ctrl+C (SIGINT) ou SIGTERM pendant un run détruit la pile (`stop` puis
-  `stack destroy --yes`), retire le répertoire isolé et libère le créneau.
-- Le nombre de places natives simultanées est borné : runs `db:ci:local`,
-  runner Army, `engine-v3` parity et upgrade-check, plus toute pile native
-  qu'aucun run gardé ne possède et tout build `node scripts/next-build.mjs`.
-  Au-delà, le run est refusé (`NativeStackLimitError`, qui nomme les
-  détenteurs) ; `NATIVE_STACK_WAIT_SECONDS=<n>` attend `n` secondes. La limite
-  et son réglage sont définis dans la section « Capacité locale » de
-  [`tester-army-local-development.md`](../docs/testing/tester-army-local-development.md#capacité-locale-et-redémarrages-wsl-18102026).
-  Détails :
-  [`local-native-stack-tooling.md`](../docs/testing/local-native-stack-tooling.md).
-- Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
-  only when repository branch protection requires this check.
+```sh
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
+NEXT_PUBLIC_SUPABASE_ANON_KEY=army-anonymous-smoke-no-auth npm run e2e
+```
+
+Ces valeurs permettent le rendu anonyme ; elles ne donnent aucun accès backend.
+Le mobile est un viewport de navigateur. `npm run e2e:army:agent` est optionnel, utilise
+le login distinct `npx e2e login openai` et des objectifs bornés suivis
+d'assertions exactes ; il ne remplace pas les parcours déterministes.
+
+## Lire une preuve
+
+Conserver la commande, la révision et les empreintes des entrées, le build,
+l'environnement, les fixtures, la sélection, les résultats et la première
+cause d'échec. Les sorties natives restent sous `.e2e/army/` : `manifest.json`,
+`report.json`, `results/`, artefacts métier et archive `runs/<date>/`. Les
+campagnes autonomes ajoutent leur manifeste dans `.e2e/army/ci/<campagne>/`.
+Référencer ces sorties depuis `outputs/` sans recopier les médias.
+
+Les traces actuelles sont des pages `trace.md`, pas des ZIP Playwright. Les
+traces authentifiées sont désactivées ; le rapport contient encore des logs
+navigateur et URL, que le wrapper expurge avant archivage. Ne jamais publier
+les credentials, cookies, sessions, jetons de portail ou payloads privés.
+
+Une collecte, une étape ignorée, un setup en échec ou une source modifiée
+pendant la campagne ne prouvent pas le parcours. La boucle de développement
+marque ses résultats `qualification: false`. Les anciens rapports retirés de
+la documentation courante restent dans l'historique Git ; leurs résultats ne
+sont pas des exécutions de la version actuelle.

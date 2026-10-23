@@ -1,5 +1,8 @@
 # Préparation achats — compteurs opérationnels
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 Plan de régression défini avant correction du 11 octobre 2026. La couverture
 fournisseur ne suffit pas à établir qu’une ligne peut encore être préparée :
 une ligne transférée reste couverte, mais ne doit plus être proposée à l’achat.

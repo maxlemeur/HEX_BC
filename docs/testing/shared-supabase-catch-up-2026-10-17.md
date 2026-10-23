@@ -1,5 +1,8 @@
 # Rattrapage du Supabase partagé — 17/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **14 migrations appliquées dans l'ordre autorisé, puis restauration de la définition récente écrasée. Aucun déploiement et aucune application de M4.**
 
 Projet : `ijropnynpwjbllievrip` (`bon_de_commande`). Sources immuables : `main` à `b91f938fa6e36db27a472cba095693553d1a41fe`, périmètre arrêté à M3. Les fichiers exacts ont été envoyés à `apply_migration` ; aucune utilisation de `supabase db push`.

@@ -1,5 +1,8 @@
 # Régression SQL du contrat d’offre — préparation avant migration
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 Écrit le 13 octobre 2026 avant la migration offre. La fixture est **préparée, non exécutée**. Elle ne crée aucune preuve d’émission, aucun PDF ni envoi fournisseur. Les contrats proposés sont ceux de `.e2e/offer-emission/sql-preparation-20261013-01/proposed-contract.md` et `.e2e/offer-emission/contract-preparation-20261013-01/schema-contract.md`.
 
 ## Défaillances à empêcher, définies avant le SQL

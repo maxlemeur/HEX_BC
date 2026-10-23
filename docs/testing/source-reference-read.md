@@ -1,6 +1,9 @@
 # Lecture initiale de la revue documentaire
 
-Recette locale préparée d’après le [contrat préalable](source-coverage-reference.md),
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
+Recette locale préparée d’après le [contrat préalable](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/source-coverage-reference.md),
 le 12 octobre 2026. Elle couvre une partie de SR01 et le refus anonyme de SR02.
 Elle ne crée aucune copie et ne confirme aucune référence ; SR03 reste hors preuve.
 

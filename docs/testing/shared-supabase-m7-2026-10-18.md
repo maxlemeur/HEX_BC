@@ -1,5 +1,8 @@
 # Application de M7 au Supabase partagé — 18/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **M7 appliquée et vérifiée, sans donnée applicative insérée, sans politique de calcul et sans déploiement.**
 
 Projet : `ijropnynpwjbllievrip` (`bon_de_commande`). Source immuable : `main` à `78ca0855350e18a86eed25f4b15183349f47bf39`, après fusion de la PR #34.

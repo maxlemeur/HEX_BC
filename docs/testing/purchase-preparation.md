@@ -1,8 +1,11 @@
 # Préparation des achats : recette avant implémentation
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 Plan enregistré le 11 octobre 2026 pour SITE-01A. Les scénarios sont définis
 avant le changement du contrat et de l'écriture produit. Ils complètent
-[le cadrage métier](../product/purchase-preparation-next-slice.md) et ne
+[le cadrage métier](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/product/purchase-preparation-next-slice.md) et ne
 remplacent pas la recette existante d'applicabilité fournisseur.
 
 ## Défaillances à exposer
@@ -154,7 +157,7 @@ tests. Lint ciblé et typecheck passent à ce stade.
 ## Recette native et navigateur du candidat final
 
 La suite isolée passe ensuite 25/25 ; les tests conservés du panneau et des
-schémas passent 65/65. La [recette SQL](purchase-preparation-sql.md) réussit
+schémas passent 65/65. La [recette SQL](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/purchase-preparation-sql.md) réussit
 39/39 cas sur le schéma installé, avec contrôle indépendant de l'annulation.
 
 Le navigateur utilise Node 24.19.0, Chromium desktop, le build de production
@@ -178,7 +181,7 @@ Les anciennes commandes envoyées, confirmées, reçues et annulées restent
 identifiées et protégées contre un nouveau transfert.
 
 Commande du GREEN, avec l'index de comparaison séparé documenté dans le
-[journal](../product/progress-chiffrage-2026-10-11.md) :
+[journal](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/product/progress-chiffrage-2026-10-11.md) :
 
 ```powershell
 $env:GIT_INDEX_FILE = Join-Path (Get-Location) '.e2e/git-index-recovery/head.index'

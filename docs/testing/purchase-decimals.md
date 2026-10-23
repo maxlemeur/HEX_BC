@@ -1,7 +1,10 @@
 # SITE-01B — Recette des quantités et de la provenance d’achat
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 Scénarios définis avant implémentation, le 11 octobre 2026. Le cadrage est
-[purchase-decimal-quantities-next-slice.md](../product/purchase-decimal-quantities-next-slice.md).
+[purchase-decimal-quantities-next-slice.md](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/product/purchase-decimal-quantities-next-slice.md).
 
 ## Défaillances observables à reproduire
 

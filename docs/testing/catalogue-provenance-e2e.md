@@ -1,5 +1,8 @@
 # CAT-F01 — Provenance des offres, recette HTTP locale
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 ## Défaillances définies avant le scénario et le correctif
 
 L'update historique `POST /api/prices`, `action: "update"`, doit vérifier la
@@ -109,4 +112,4 @@ fichier produit nul n'a été trouvé parmi les 2 010 fichiers inspectés.
 
 Aucune application distante, publication ou qualification de production.
 La protection des écritures natives et parents est vérifiée séparément dans
-[la recette SQL](catalogue-provenance-sql.md).
+[la recette SQL](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/catalogue-provenance-sql.md).

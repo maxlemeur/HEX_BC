@@ -29,7 +29,7 @@ const limit = environment.NODE_OPTIONS.split(" ").filter((word) => /^"?--max[-_]
 console.log(`[next-build] next build ${args.join(" ")} with NODE_OPTIONS ${limit.join(" ")}`.replace(/\s+/gu, " "));
 
 // A local build takes one of the user's native places (CI, Vercel and --help
-// never do; docs/testing/local-native-stack-tooling.md). Only a full house
+// never do; docs/testing/tester-army-local-development.md). Only a full house
 // stops it; a guard that cannot load lets the build run.
 let place;
 if (isLocalProductionBuild(process.env, args)) {

@@ -13,12 +13,12 @@
 --------------------------------------------------------------------------------
 -- L'etape 2 de la migration reecrit integralement public.products sous
 -- ACCESS EXCLUSIVE : pendant la reecriture, ni lecture ni ecriture sur la table.
--- Cette requete dit combien de temps s'y attendre. Ordre de grandeur : une
--- reecriture traite en gros 10^6 lignes par seconde sur un disque correct.
+-- Cette requete mesure le volume, pas la duree de la reecriture. Qualifier
+-- celle-ci sur une copie possedee representative, avec la charge de l'hote.
 --
--- Si la duree estimee depasse statement_timeout (5min dans la migration) ou la
--- fenetre d'indisponibilite acceptable, appliquer la variante en deux temps
--- decrite dans RUNBOOK-product-reference-normalization.md.
+-- Si la duree depasse statement_timeout (5min dans la migration) ou la fenetre
+-- acceptable, preparer une intervention compatible selon le runbook. Ne jamais
+-- modifier le contenu d'une migration deja appliquee.
 
 select
   count(*) as product_rows,

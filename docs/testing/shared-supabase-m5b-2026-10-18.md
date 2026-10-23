@@ -1,5 +1,8 @@
 # Application de la suite de M5 (ordre du contrat 2) au Supabase partagé — 18/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **La migration `20261018172935_estimate_offer_client_contract_v2_order` est appliquée et vérifiée, après M5. Aucune donnée applicative n'a changé. Aucune politique de calcul n'a été posée et rien n'a été déployé.**
 
 Projet : `ijropnynpwjbllievrip`. Source immuable : `origin/main` à `ab1e0ca33d4fac2fe543033a73393de6aacdcbfa` ; le fichier y est arrivé par la fusion de la PR #65 (`953c26f7`, suite de #45) et a été modifié pour la dernière fois par `f2031747` (restamp seul).

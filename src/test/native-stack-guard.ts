@@ -1,7 +1,7 @@
 // Shared by the local runners that own a disposable Supabase native stack:
 // runLocalSupabaseCi (db:ci:local, the Army runner, document fingerprints),
 // scripts/engine-v3/owned-native-stack.ts and scripts/engine-v3/upgrade-check.ts.
-// See docs/testing/local-native-stack-tooling.md.
+// See docs/testing/tester-army-local-development.md.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";

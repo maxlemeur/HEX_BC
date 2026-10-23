@@ -1,5 +1,8 @@
 # Applicabilité des offres avant brouillon d'achat — SITE-01
 
+> Contrat et reçu de campagne historique conservés car un script les référence. Les résultats ci-dessous ne qualifient pas la version actuelle ; pour exécuter les tests, voir [le guide courant](../../e2e/README.md).
+
+
 ## Échecs observables définis avant la correction
 
 - Une offre déjà retenue peut rester `covered` dans la comparaison après modification de son unité, minimum, devise, activité ou fenêtre de validité. Elle ne doit pas entrer dans un brouillon d'achat.

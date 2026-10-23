@@ -1,5 +1,8 @@
 # Contrôle préalable M2, M1, M3 — 17/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 > État historique avant autorisation du rattrapage. Les six migrations ont ensuite été appliquées et vérifiées : voir le [rapport de clôture](./shared-supabase-m2-m1-m3-application-2026-10-17.md).
 
 **Résultat : bloqué avant toute écriture distante.** Le connecteur Supabase est accessible ; aucun appel à `apply_migration` n'a été effectué. Le refus de permissions signalé dans Claude n'a pas été reproduit ici.

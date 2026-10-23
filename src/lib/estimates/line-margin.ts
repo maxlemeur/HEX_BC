@@ -15,7 +15,7 @@ import { resolveLaborRoleHourlyRate, type LaborRole } from "@/lib/estimates/edit
  *
  * Aucun changement de modele de prix ici : on rend visible ce qui est deja
  * calcule. La decomposition DS/FC/FG/B&A complete n'est pas implementee
- * (docs/metier/ecarts-standards-btp.md).
+ * (docs/metier/regles-de-calcul.md).
  */
 export type EstimateLineMargin = {
   /** Deboursé sec : fournitures (x k_fo) + main-d'oeuvre (x k_mo). */

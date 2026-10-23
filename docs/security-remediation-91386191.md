@@ -1,5 +1,8 @@
 # Remédiation sécurité — scan 91386191-6320-4d8c-83c2-a51fbfba12b1
 
+Les dates, révisions, tests et limites ci-dessous sont historiques. Pour les
+frontières actuelles, lire [le guide de sécurité](domaines/securite-multi-tenant.md).
+
 ## Références et règles de disposition
 
 - Révision auditée : `4ef88d47468f3d0290ee3b01a96176040382478c`.
@@ -8,30 +11,11 @@
 - Findings source : `findings.json` (identité et scénario à revalider, jamais preuve de vulnérabilité courante).
 - Statuts terminaux autorisés : `fixed`, `no_change/already_fixed`, `blocked`.
 - `fixed` exige : applicabilité courante, fermeture sécurité, contrôle légitime positif, tests ciblés, revue de contournement.
-- Les artefacts canoniques du scan restent inchangés. Le parent seul modifie ce ledger et le futur `artifacts/fix_report.md`.
+- Les artefacts canoniques du scan restent inchangés. Ce registre conserve les dispositions et preuves de chaque qualification datée, pas un certificat de sécurité du checkout actuel.
 
-## Plan priorisé
+## Dispositions du scan
 
-1. Revalider et traiter les 6 constats élevés.
-2. Traiter les moyens par frontière commune : tenant/RLS, devis et approbations, capacités privilégiées/Storage/workers, ingestion et ressources.
-3. Traiter les faibles par les mêmes frontières, en regroupant uniquement les correctifs qui partagent réellement le même contrôle.
-4. Faire relire chaque disposition par un agent indépendant sans écriture.
-5. Exécuter les validations ciblées, puis typecheck/lint/build et intégrations disponibles ; toute preuve indisponible reste `blocked`.
-
-## Propriété des fichiers
-
-| Owner | Findings | Élevés | Moyens | Faibles | Propriété d’écriture |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `auth_tenant_rls` | 31 | 2 | 4 | 25 | signup, auth, memberships, migrations et tests dédiés tenant/RLS |
-| `devis_workflows` | 28 | 2 | 21 | 5 | devis, approbations, règles, achats et tests dédiés, hors fichiers explicitement cédés |
-| `privilege_storage_workers` | 25 | 2 | 20 | 3 | takeoff, portail, Storage, workers, PDF privilégié et tests/migrations dédiés |
-| `ingestion_parsers_resources` | 11 | 0 | 6 | 5 | imports, intake, parseurs, budgets IA/PDF/XLSX et fichiers takeoff cédés après les lots privilégiés |
-
-Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/takeoff/plans.ts` et `src/lib/takeoff/gemini-client.ts` ne passent à `ingestion_parsers_resources` qu’après la fin du lot `privilege_storage_workers`. Aucun agent ne modifie ce ledger.
-
-## Ledger exhaustif
-
-| ID | Sévérité | Owner | Statut courant | Titre | Fichiers revalidés/modifiés | Preuve de fermeture | Tests et contrôle légitime |
+| ID | Sévérité | Owner | Statut lors de la qualification | Titre | Fichiers revalidés/modifiés | Preuve de fermeture | Tests et contrôle légitime |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CAND-R001-001` | high | `auth_tenant_rls` | `fixed` | Self-signup metadata is trusted to grant tenant administrator | supabase/migrations/20260713132306_isolate_self_signup_tenants.sql<br>src/lib/signup-tenant-security-regressions.test.ts | Le trigger choisit le rôle profil/membership côté serveur et ignore `role`/`tenant_id` des metadata ; EXECUTE révoqué à tous les rôles API. Migration parsée/appliquée sur PostgreSQL 17.6 isolé. | Vitest 5/5 ; scénario PostgreSQL avec metadata `role=admin` et tenant existant : profil `buyer`, membership serveur, aucun rattachement au tenant choisi. |
 | `CAND-R001-002` | high | `auth_tenant_rls` | `fixed` | Every self-signup is auto-enrolled as engineer in an existing business tenant | supabase/migrations/20260713132306_isolate_self_signup_tenants.sql<br>src/lib/signup-tenant-security-regressions.test.ts | Chaque inscription crée `signup-<user_uuid>` et ne sélectionne plus `hydro-express` ni aucun tenant existant. Migration parsée/appliquée sur PostgreSQL 17.6 isolé. | Vitest 5/5 ; insertion trigger positive : tenant frais, auteur/utilisateur concordants, membership admin par défaut uniquement dans ce tenant. |
@@ -332,7 +316,7 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   les quatre RPC visées. Ce complément ne change pas les dispositions historiques
   des 95 findings ni les artefacts canoniques du scan.
 - Détails, limites et preuves reproductibles :
-  [régression des anciennes RPC](testing/legacy-estimate-creators-regression.md).
+  [régression des anciennes RPC](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/legacy-estimate-creators-regression.md).
 
 ### Audit des dépendances CI — 2026-10-10
 
@@ -348,7 +332,7 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   2 703 assertions actives, lint, typecheck et build/smoke HTTP verts. Ces résultats
   sont locaux ; la CI et le login réel doivent être vérifiés sur le SHA poussé.
   Ce complément ne modifie ni les dispositions historiques ni les artefacts
-  canoniques du scan. Détails : [réparation CI](testing/ci-recovery-2026-10-10.md).
+  canoniques du scan. Détails : [réparation CI](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/ci-recovery-2026-10-10.md).
 
 ## Complément local — frontières Auth, 20/10/2026
 
@@ -362,10 +346,10 @@ au serveur, conserve le tenant par défaut d'un compte ajouté, propage les
 en-têtes SDK sur les redirections et empêche les assets Swagger de rétablir un
 cache public. La nouvelle migration est additive ; lors de cette qualification
 locale, elle n'était pas encore appliquée au Supabase partagé. Les preuves, résultats et limites de cette qualification
-figurent dans [le rapport dédié](testing/authentication-boundaries-2026-10-20.md).
+figurent dans [le rapport dédié](https://github.com/maxlemeur/HEX_BC/blob/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b/docs/testing/authentication-boundaries-2026-10-20.md).
 Les totaux et artefacts canoniques ci-dessous conservent leur sens historique.
 
-## Bilan terminal
+## Bilan terminal de la campagne initiale
 
 - `fixed` : 95.
 - `no_change/already_fixed` : 0.

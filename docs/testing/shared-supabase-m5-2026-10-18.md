@@ -1,5 +1,8 @@
 # Application de M5 (2.7) au Supabase partagé — 18/10/2026
 
+> Reçu historique conservé pour le garde de migrations appliquées. Les identités et résultats ci-dessous décrivent cette exécution datée ; pour la procédure actuelle, voir [Supabase](../../supabase/README.md).
+
+
 **M5 est appliquée et vérifiée. Aucune donnée applicative n'a changé. Aucune politique de calcul n'a été posée et rien n'a été déployé.**
 
 Projet : `ijropnynpwjbllievrip`. Source immuable : `main` à `b905ca26b405ef734de3bdae14acda139f128bc2`, fusion de la PR #45 (sous-lot 2.7) le 18/10/2026 à 18:40 Europe/Paris.
