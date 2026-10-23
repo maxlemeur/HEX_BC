@@ -376,6 +376,34 @@ armyTest("IO03 the plumbing OPTIMA lot imports into a v3 at its workbook prices 
 // (HL, inc, NC, PM ; 46 sur 79 sans quantité dans le classeur) ne lèvent aucun drapeau de qualité, ni à la porte
 // d'envoi ni au radar de risque du métré (alerte « prix atypique », la seule qu'il tire des drapeaux de qualité ;
 // « preuve absente » ne dépend pas du statut). Les lignes chiffrées sans quantité du classeur restent hors de G1.
+// The radar of V3E20 once answered 400/57014 (one statement over the API roles' 8 s timeout) on an otherwise
+// idle shard, and its call takes 8-14 s in CI while the same RLS read of ~2 000 lines takes tens of ms locally.
+// Sample what the database backends wait on during the call: wait events, blockers and statement heads only.
+async function sampleDatabaseWaits<T>(run: () => Promise<T>) {
+  const samples: { atMs: number; rows: string[] }[] = [];
+  const started = Date.now();
+  let done = false;
+  const sampler = (async () => {
+    while (!done) {
+      const rows = await querySql(`SELECT concat_ws(' | ', backend_type, usename, state, wait_event_type, wait_event,
+  (extract(epoch FROM clock_timestamp() - query_start) * 1000)::bigint || ' ms',
+  'blocked by ' || nullif(array_to_string(pg_catalog.pg_blocking_pids(pid), ','), ''),
+  left(regexp_replace(query, '\\s+', ' ', 'g'), 100))
+FROM pg_catalog.pg_stat_activity
+WHERE pid <> pg_catalog.pg_backend_pid() AND (state = 'active' OR wait_event_type = 'Lock' OR backend_type <> 'client backend');
+`).catch((error: unknown) => [`sampling failed: ${error instanceof Error ? error.message : String(error)}`]);
+      samples.push({ atMs: Date.now() - started, rows });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  })();
+  try {
+    return { result: await run(), samples };
+  } finally {
+    done = true;
+    await sampler;
+  }
+}
+
 type GatingFlag = { key: string; severity: string; count?: number; item_ids: string[] };
 type RiskAlert = { line_id: string | null; cause_code: string; reason_labels: string[] };
 armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 raise no quality flag in the send gating or the takeoff risk radar", options,
@@ -395,13 +423,16 @@ armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 
         }
         return counts;
       };
-      const gating = await apiRequest<Envelope<{ gating: { canSend: boolean; blockingFlags: GatingFlag[]; warningFlags: GatingFlag[] } }>>(
-        browser, "GET", `/api/estimates/${versionId}/gating`);
+      const { result: gating, samples: gatingWaits } = await sampleDatabaseWaits(() => apiRequest<Envelope<{
+        gating: { canSend: boolean; blockingFlags: GatingFlag[]; warningFlags: GatingFlag[] } }>>(
+        browser, "GET", `/api/estimates/${versionId}/gating`));
       expect([gating.status, gating.body.ok]).toEqual([200, true]);
       const flags = [...gating.body.data.gating.blockingFlags, ...gating.body.data.gating.warningFlags];
       const takeoffJobId = await insertCompletedTakeoffJob(owner, versionId);
-      const radar = await apiRequest<Envelope<{ items: RiskAlert[] }>>(browser, "GET",
-        `/api/takeoff/jobs/${takeoffJobId}/risk-radar?version_id=${versionId}`);
+      const { result: radar, samples: radarWaits } = await sampleDatabaseWaits(() => apiRequest<Envelope<{ items: RiskAlert[] }>>(
+        browser, "GET", `/api/takeoff/jobs/${takeoffJobId}/risk-radar?version_id=${versionId}`));
+      await recordEvidence(army, "v3e20-database-waits", { versionId, takeoffJobId, gatingStatus: gating.status,
+        radarStatus: radar.status, radarError: radar.body.error ?? null, gatingWaits, radarWaits });
       const radarItems = radar.body.data?.items ?? [];
       const observed = {
         statusLines: statusLines.length,
