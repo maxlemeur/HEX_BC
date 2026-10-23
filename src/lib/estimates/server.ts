@@ -1,3 +1,34 @@
+import {
+  type EstimateItemRow,
+} from "./version-read-server";
+export {
+  getEstimateVersionDetails,
+  type EstimateItemRow,
+  listEstimateItems,
+  listEstimateVersionEvents,
+  type EstimateVersionEvent,
+} from "./version-read-server";
+import {
+  type EstimateStatus,
+  type EstimateProjectRow,
+  type EstimateVersionRow,
+  normalizeEstimateCurrencyOrThrow,
+  DEFAULT_CURRENCY,
+} from "./version-list-server";
+export {
+  listEstimateProjectVersions,
+  type ListEstimateProjectVersionsResult,
+  type EstimateProjectVersionTimelineItem,
+  listEstimateProjectDraftVersions,
+  type ListEstimateProjectDraftVersionsResult,
+  type EstimateProjectDraftVersionItem,
+  listEstimateVersionVariants,
+  type ListEstimateVersionVariantsResult,
+  type EstimateVariantComparisonItem,
+  listLatestEstimates,
+  type SupplyTypeRow,
+  type LaborRoleRow,
+} from "./version-list-server";
 export {
   getEstimateSupplierComparisons,
   suggestEstimateCataloguePrices,
@@ -12,13 +43,15 @@ export {
   type EstimateSupplierComparisonRiskFlag,
   type EstimateSupplierComparisonCoverageSummary,
 } from "./supplier-comparison";
-import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
+import {
+  readAllRows,
+} from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { persistAtomicEstimateItem } from "@/lib/estimates/atomic-item-creation";
 import { normalizeStoredItemNumerics } from "@/lib/estimates/stored-item-numeric";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
-import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
+
 import {
   IMPORT_PREVIEW_REQUIRED_MESSAGE,
   importRequiresPreview,
@@ -47,7 +80,6 @@ import {
 
 import {
   getFeatureFlagValueForTenant,
-  isFeatureEnabled,
 } from "@/lib/feature-flags";
 import {
   calculateEstimateBreakdownForItems,
@@ -60,7 +92,6 @@ import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import {
   resolveCalcEngineVersion,
   resolveEstimateEngineVersion,
-  shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import {
   engineFreezesSnapshot,
@@ -70,12 +101,9 @@ import {
   usesPerUnitLabor,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 
-import {
-  readSelectedSupplierDetails,
-  type SelectedSupplierDetails,
-} from "@/lib/estimates/supplier-offer-conditions";
+
+
 
 
 
@@ -137,16 +165,10 @@ export {
   buildCanonicalEstimateSealPayload,
   computeEstimateSealHash,
 } from "./estimate-seal";
-import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "./generated-ouvrage-provenance";
-import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
-import {
-  enrichEstimateItemsWithVersionZeroProvenance,
-  fetchVersionZeroDraftSummary,
-} from "./version-zero-drafts";
-import {
-  resolveEstimateLineTruth,
-  type EstimateLineTruth,
-} from "./line-truth";
+
+
+
+
 import { assertCanWriteEstimateWorkflows } from "./write-access";
 import { normalizeEstimateDraftLockSessionId } from "./lock-session";
 import {
@@ -163,7 +185,6 @@ import {
 } from "./server-context";
 import type {
   AuthenticatedContext,
-  EmbeddedProjectAccess,
   VersionAccessRow,
 } from "./server-context";
 export {
@@ -207,47 +228,11 @@ import type {
 } from "./schemas";
 
 export type Supabase = SupabaseClient<Database>;
-
-type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
-type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"];
 type DpgfImportRow = Database["public"]["Tables"]["dpgf_imports"]["Row"];
 type DpgfMappingRow = Database["public"]["Tables"]["dpgf_mappings"]["Row"];
 export type EstimateCategoryInsert = Database["public"]["Tables"]["estimate_categories"]["Insert"];
-type EstimateCategoryRow = Database["public"]["Tables"]["estimate_categories"]["Row"];
-export type SupplyTypeRow = Database["public"]["Tables"]["supply_types"]["Row"];
-export type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
-  h_mo_majoration?: number | null;
-  h_mo_atelier?: number | null;
-  k_mo_atelier?: number | null;
-  labor_role_atelier_id?: string | null;
-  h_mo_chantier?: number | null;
-  k_mo_chantier?: number | null;
-  labor_role_chantier_id?: string | null;
-  supply_type_id?: string | null;
-  selected_supplier_price_id?: string | null;
-  source_provider?: string | null;
-  source_job_id?: string | null;
-  source_file_name?: string | null;
-  source_page?: number | null;
-};
-type EstimateItemProvenanceFields = {
-  source_level?: string | null;
-  source_extracted_at?: string | null;
-  source_version_number?: number | null;
-  source_metadata?: Json | null;
-};
-type EstimateItemWithProvenanceRow = EstimateItemRow & EstimateItemProvenanceFields;
-type EstimateItemWithTruthRow = EstimateItemWithProvenanceRow & {
-  line_truth?: EstimateLineTruth | null;
-};
-type TakeoffJobProvenanceRow = {
-  id: string;
-  level: string | null;
-  completed_at: string | null;
-  created_at: string | null;
-};
 type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"] & {
   h_mo_majoration?: number | null;
   h_mo_atelier?: number | null;
@@ -280,17 +265,12 @@ type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update
 };
 export type LaborRoleInsert = Database["public"]["Tables"]["labor_roles"]["Insert"];
 export type LaborRoleUpdate = Database["public"]["Tables"]["labor_roles"]["Update"];
-export type LaborRoleRow = Database["public"]["Tables"]["labor_roles"]["Row"];
-type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 export type MarginTierInsert = Database["public"]["Tables"]["margin_tiers"]["Insert"];
 export type MarginTierUpdate = Database["public"]["Tables"]["margin_tiers"]["Update"];
 export type SuggestionRuleInsert =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Insert"];
 export type SuggestionRuleUpdate =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Update"];
-type SuggestionRuleRow =
-  Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type EstimateVersionEventType =
   | "sent"
   | "accepted"
@@ -300,33 +280,6 @@ type EstimateVersionEventType =
 type EstimateVersionStatusEventType = Extract<
   EstimateVersionEventType,
   "sent" | "accepted" | "archived"
->;
-type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
-
-type EstimateListProject = Pick<
-  EstimateProjectRow,
-  "id" | "name" | "reference" | "client_name" | "is_archived"
->;
-
-type EstimateListRow = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "version_number"
-  | "status"
-  | "title"
-  | "updated_at"
-  | "total_ht_cents"
-  | "date_devis"
-  | "currency"
-  | "validite_jours"
-> & {
-  estimate_projects: EstimateListProject | EstimateListProject[] | null;
-};
-
-type EstimateProjectOwnerRow = Pick<
-  EstimateProjectRow,
-  "id" | "tenant_id" | "user_id"
 >;
 
 type CreateEstimateLatestVersionDefaultsRow = Pick<
@@ -350,113 +303,6 @@ type CreateEstimateLatestVersionDefaultsRow = Pick<
   | "rounding_step_cents"
   | "max_section_depth"
 >;
-
-type EstimateProjectVersionTimelineRow = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "version_number"
-  | "status"
-  | "title"
-  | "updated_at"
-  | "created_at"
-  | "total_ttc_cents"
-  | "total_ht_cents"
-  | "currency"
-> & {
-  parent_version_id?: string | null;
-  variant_label?: string | null;
-};
-
-type EstimateVersionAuditActorRow = Pick<
-  Database["public"]["Tables"]["audit_logs"]["Row"],
-  "record_id" | "user_id" | "created_at"
->;
-
-type ProfileNameRow = Pick<ProfileRow, "id" | "full_name">;
-
-export type EstimateProjectVersionTimelineItem = {
-  id: string;
-  project_id: string;
-  version_number: number;
-  status: EstimateStatus;
-  title: string | null;
-  updated_at: string;
-  created_at: string;
-  total_ttc_cents: number;
-  total_ht_cents: number;
-  /** Devise stockée de la version (code ISO) : ses totaux sont dans cette devise. */
-  currency: string;
-  parent_version_id: string | null;
-  variant_label: string | null;
-  author_name: string | null;
-};
-
-type EstimateVariantComparisonRow = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "version_number"
-  | "status"
-  | "title"
-  | "total_ht_cents"
-  | "total_tax_cents"
-  | "total_ttc_cents"
-  | "updated_at"
-> & {
-  parent_version_id?: string | null;
-  variant_label?: string | null;
-};
-
-export type EstimateVariantComparisonItem = {
-  id: string;
-  project_id: string;
-  version_number: number;
-  status: EstimateStatus;
-  title: string | null;
-  total_ht_cents: number;
-  total_tax_cents: number;
-  total_ttc_cents: number;
-  line_count: number;
-  updated_at: string;
-  parent_version_id: string | null;
-  variant_label: string | null;
-};
-
-export type ListEstimateVersionVariantsResult = {
-  base_version_id: string;
-  items: EstimateVariantComparisonItem[];
-};
-
-export type ListEstimateProjectVersionsResult = {
-  items: EstimateProjectVersionTimelineItem[];
-  pagination: {
-    page: number;
-    page_size: number;
-    total_count: number;
-    total_pages: number;
-    has_prev: boolean;
-    has_next: boolean;
-  };
-};
-
-type EstimateProjectDraftVersionRow = Pick<
-  EstimateVersionRow,
-  "id" | "project_id" | "version_number" | "status" | "title" | "updated_at"
->;
-
-export type EstimateProjectDraftVersionItem = {
-  id: string;
-  project_id: string;
-  version_number: number;
-  status: EstimateStatus;
-  title: string | null;
-  updated_at: string;
-};
-
-export type ListEstimateProjectDraftVersionsResult = {
-  items: EstimateProjectDraftVersionItem[];
-};
 
 type EstimateImportSourceProject = Pick<
   EstimateProjectRow,
@@ -583,32 +429,6 @@ type PreparedLinkedDpgfSource = {
   lineItems: Array<EstimateItemInsert & EstimateItemRecord>;
 };
 
-type EstimateVersionDetailsRow = EstimateVersionRow & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
-type EstimateVersionEventAuthor = Pick<ProfileRow, "full_name">;
-type EstimateVersionEventRow = {
-  id: string;
-  estimate_version_id: string;
-  event_type: string;
-  metadata: Json;
-  created_by: string | null;
-  occurred_at: string;
-  created_at: string;
-  profiles: EstimateVersionEventAuthor | EstimateVersionEventAuthor[] | null;
-};
-
-export type EstimateVersionEvent = {
-  id: string;
-  estimate_version_id: string;
-  event_type: string;
-  metadata: Json;
-  created_by: string | null;
-  actor_name: string | null;
-  occurred_at: string;
-  created_at: string;
-};
-
 export type EstimateTemplateRow = {
   id: string;
   tenant_id: string;
@@ -649,10 +469,6 @@ import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
 } from "@/lib/estimates/constants";
-const DEFAULT_CURRENCY = "EUR";
-const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
-const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
-const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
 const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
 const ESTIMATE_STATUS_TRANSITIONS: Readonly<
@@ -751,33 +567,6 @@ function assertEstimateItemAidFormat(input: {
   throw badRequest(
     `AID invalide. Format attendu: ${DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN}.`
   );
-}
-
-function normalizeEstimateCurrencyOrThrow(
-  value: string | null | undefined,
-  options?: {
-    fallback?: string;
-    fallbackOnInvalid?: boolean;
-  }
-) {
-  const normalized = value?.trim().toUpperCase() ?? "";
-
-  if (!normalized) {
-    if (options?.fallback) return options.fallback;
-    throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
-  }
-
-  if (
-    (SUPPORTED_ESTIMATE_CURRENCIES as readonly string[]).includes(normalized)
-  ) {
-    return normalized;
-  }
-
-  if (options?.fallback && options.fallbackOnInvalid === true) {
-    return options.fallback;
-  }
-
-  throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
 }
 
 export function normalizeConcurrencyToken(token: string | null | undefined): string | null {
@@ -885,25 +674,6 @@ function resolveStatusEventType(
   status: EstimateStatus
 ): EstimateVersionStatusEventType | null {
   return ESTIMATE_VERSION_STATUS_EVENT_TYPES[status] ?? null;
-}
-
-function normalizeEstimateVersionEvent(
-  row: EstimateVersionEventRow
-): EstimateVersionEvent {
-  const profile = resolveEmbeddedOne(row.profiles);
-  const actorName = toNullableText(profile?.full_name) ?? null;
-  const occurredAt = toNullableText(row.occurred_at) ?? row.created_at;
-
-  return {
-    id: row.id,
-    estimate_version_id: row.estimate_version_id,
-    event_type: row.event_type,
-    metadata: row.metadata,
-    created_by: row.created_by,
-    actor_name: actorName,
-    occurred_at: occurredAt,
-    created_at: row.created_at,
-  };
 }
 
 async function logEstimateVersionEvent(input: {
@@ -1901,222 +1671,6 @@ async function recalculateEstimateVersionTotals(
   };
 }
 
-function toNullablePositiveInteger(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    return null;
-  }
-
-  return value > 0 ? value : null;
-}
-
-function normalizeTakeoffJobProvenanceRows(value: unknown): TakeoffJobProvenanceRow[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        return null;
-      }
-
-      const record = entry as Record<string, unknown>;
-      const id = toNullableText(
-        typeof record.id === "string" ? record.id : null
-      );
-
-      if (!id) {
-        return null;
-      }
-
-      return {
-        id,
-        level: toNullableText(
-          typeof record.level === "string" ? record.level : null
-        ),
-        completed_at: toNullableText(
-          typeof record.completed_at === "string"
-            ? record.completed_at
-            : null
-        ),
-        created_at: toNullableText(
-          typeof record.created_at === "string" ? record.created_at : null
-        ),
-      } satisfies TakeoffJobProvenanceRow;
-    })
-    .filter((entry): entry is TakeoffJobProvenanceRow => entry !== null);
-}
-
-async function enrichEstimateItemsWithTakeoffProvenance(input: {
-  supabase: Supabase;
-  tenantId: string;
-  targetVersionId: string;
-  items: EstimateItemRow[];
-}): Promise<EstimateItemWithProvenanceRow[]> {
-  if (input.items.length === 0) {
-    return input.items;
-  }
-
-  const sourceJobIds = [...new Set(
-    input.items
-      .map((item) => toNullableText(item.source_job_id))
-      .filter((jobId): jobId is string => jobId !== null)
-  )];
-
-  if (sourceJobIds.length === 0) {
-    return input.items;
-  }
-
-  const { data, error } = await input.supabase
-    .from("takeoff_jobs" as never)
-    .select("id, level, completed_at, created_at" as never)
-    .eq("tenant_id", input.tenantId)
-    .in("id", sourceJobIds as never);
-
-  if (error) {
-    return input.items;
-  }
-
-  const takeoffJobs = normalizeTakeoffJobProvenanceRows(data);
-  if (takeoffJobs.length === 0) {
-    return input.items;
-  }
-
-  const takeoffJobById = new Map(
-    takeoffJobs.map((job) => [job.id, job] as const)
-  );
-
-  let linkedSourceVersionByJobId = new Map<
-    string,
-    {
-      source_version_id: string;
-      source_version_number: number | null;
-    }
-  >();
-
-  try {
-    linkedSourceVersionByJobId = await getTakeoffLinkedSourceVersionByJobId({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      targetVersionId: input.targetVersionId,
-      jobIds: sourceJobIds,
-    });
-  } catch {
-    linkedSourceVersionByJobId = new Map();
-  }
-
-  return input.items.map((item) => {
-    const sourceJobId = toNullableText(item.source_job_id);
-    if (!sourceJobId) {
-      return item;
-    }
-
-    const takeoffJob = takeoffJobById.get(sourceJobId);
-    if (!takeoffJob) {
-      return item;
-    }
-
-    const withProvenance = item as EstimateItemWithProvenanceRow;
-    const sourceLevel =
-      toNullableText(withProvenance.source_level) ??
-      toNullableText(takeoffJob.level);
-    const sourceExtractedAt =
-      toNullableText(withProvenance.source_extracted_at) ??
-      toNullableText(takeoffJob.completed_at) ??
-      toNullableText(takeoffJob.created_at);
-    const sourceVersionNumber =
-      toNullablePositiveInteger(withProvenance.source_version_number) ??
-      toNullablePositiveInteger(
-        linkedSourceVersionByJobId.get(sourceJobId)?.source_version_number
-      );
-
-    return {
-      ...item,
-      source_level: sourceLevel,
-      source_extracted_at: sourceExtractedAt,
-      source_version_number: sourceVersionNumber,
-    };
-  });
-}
-
-async function enrichEstimateItemsWithSourceMetadata(input: {
-  supabase: Supabase;
-  tenantId: string;
-  targetVersionId: string;
-  items: EstimateItemRow[];
-}): Promise<EstimateItemWithTruthRow[]> {
-  const withTakeoff = await enrichEstimateItemsWithTakeoffProvenance(input);
-  const withAiStructure = await enrichEstimateItemsWithAiStructureProvenance({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    versionId: input.targetVersionId,
-    items: withTakeoff,
-  });
-  const withGeneratedOuvrage = await enrichEstimateItemsWithGeneratedOuvrageProvenance({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    versionId: input.targetVersionId,
-    items: withAiStructure,
-  });
-  const withVersionZero = await enrichEstimateItemsWithVersionZeroProvenance({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    items: withGeneratedOuvrage,
-  });
-
-  return (withVersionZero as EstimateItemWithProvenanceRow[]).map((item) => ({
-    ...item,
-    line_truth: resolveEstimateLineTruth(item),
-  }));
-}
-
-function variantLabelToSequenceIndex(label: string | null | undefined) {
-  const normalized = toNullableText(label)?.toUpperCase();
-  if (!normalized) return null;
-
-  let index = 0;
-
-  for (const character of normalized) {
-    const code = character.charCodeAt(0);
-    if (code < 65 || code > 90) {
-      return null;
-    }
-
-    index = index * 26 + (code - 64);
-  }
-
-  return index > 0 ? index : null;
-}
-
-function normalizePositiveInteger(input: {
-  value: number | undefined;
-  fallback: number;
-  min?: number;
-  max?: number;
-}) {
-  const min = input.min ?? 1;
-  const max = input.max ?? Number.MAX_SAFE_INTEGER;
-
-  if (input.value === undefined || !Number.isFinite(input.value)) {
-    return input.fallback;
-  }
-
-  const normalized = Math.trunc(input.value);
-  if (normalized < min) return min;
-  if (normalized > max) return max;
-  return normalized;
-}
-
-function canAccessEstimateReadResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    canAccessOwnerResource(input) ||
-    input.context.tenantRole === "director"
-  );
-}
-
 async function getNextItemPosition(
   supabase: Supabase,
   versionId: string,
@@ -2249,239 +1803,6 @@ async function resolveLaborRateCents(
   }
 
   return data.hourly_rate_cents;
-}
-
-export async function listEstimateProjectVersions(input: {
-  projectId: string;
-  page?: number;
-  pageSize?: number;
-  anchorVersionId?: string;
-}): Promise<ListEstimateProjectVersionsResult> {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const pageSize = normalizePositiveInteger({
-    value: input.pageSize,
-    fallback: DEFAULT_VERSION_TIMELINE_PAGE_SIZE,
-    min: 1,
-    max: MAX_VERSION_TIMELINE_PAGE_SIZE,
-  });
-
-  const { data: projectData, error: projectError } = await supabase
-    .from("estimate_projects")
-    .select("id, tenant_id, user_id")
-    .eq("id", input.projectId)
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (projectError || !projectData) {
-    throw notFound("Projet de chiffrage introuvable.");
-  }
-
-  const project = projectData as EstimateProjectOwnerRow;
-  if (
-    project.tenant_id !== tenantId ||
-    !canAccessEstimateReadResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Projet de chiffrage introuvable.");
-  }
-
-  let page = normalizePositiveInteger({
-    value: input.page,
-    fallback: 1,
-    min: 1,
-  });
-
-  if (input.page === undefined && input.anchorVersionId) {
-    const { data: anchorData, error: anchorError } = await supabase
-      .from("estimate_versions")
-      .select("version_number")
-      .eq("tenant_id", tenantId)
-      .eq("project_id", input.projectId)
-      .eq("id", input.anchorVersionId)
-      .maybeSingle();
-
-    if (anchorError) {
-      throw mapSupabaseError(
-        anchorError,
-        "Impossible de déterminer la position de la version courante."
-      );
-    }
-
-    if (anchorData?.version_number !== undefined) {
-      const { count: newerCount, error: newerCountError } = await supabase
-        .from("estimate_versions")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("project_id", input.projectId)
-        .gt("version_number", anchorData.version_number);
-
-      if (newerCountError) {
-        throw mapSupabaseError(
-          newerCountError,
-          "Impossible de déterminer la pagination des versions."
-        );
-      }
-
-      page = Math.floor((newerCount ?? 0) / pageSize) + 1;
-    }
-  }
-
-  const { count: totalCountRaw, error: totalCountError } = await supabase
-    .from("estimate_versions")
-    .select("id", { count: "exact", head: true })
-    .eq("tenant_id", tenantId)
-    .eq("project_id", input.projectId);
-
-  if (totalCountError) {
-    throw mapSupabaseError(
-      totalCountError,
-      "Impossible de charger le total des versions."
-    );
-  }
-
-  const totalCount = totalCountRaw ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const rangeStart = (safePage - 1) * pageSize;
-  const rangeEnd = rangeStart + pageSize - 1;
-
-  const { data: versionsData, error: versionsError } = await supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, version_number, status, title, updated_at, created_at, total_ttc_cents, total_ht_cents, currency, parent_version_id, variant_label"
-    )
-    .eq("tenant_id", tenantId)
-    .eq("project_id", input.projectId)
-    .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false })
-    .range(rangeStart, rangeEnd);
-
-  if (versionsError) {
-    throw mapSupabaseError(versionsError, "Impossible de charger les versions.");
-  }
-
-  const rows = (versionsData ?? []) as EstimateProjectVersionTimelineRow[];
-  const versionIds = rows.map((row) => row.id);
-  const latestAuditUserByVersionId = new Map<string, string>();
-
-  if (versionIds.length > 0) {
-    const { data: auditData, error: auditError } = await supabase
-      .from("audit_logs")
-      .select("record_id, user_id, created_at")
-      .eq("tenant_id", tenantId)
-      .eq("table_name", "estimate_versions")
-      .in("record_id", versionIds)
-      .order("created_at", { ascending: false });
-
-    if (auditError) {
-      throw mapSupabaseError(auditError, "Impossible de charger les auteurs.");
-    }
-
-    for (const row of (auditData ?? []) as EstimateVersionAuditActorRow[]) {
-      if (!row.user_id) continue;
-      if (latestAuditUserByVersionId.has(row.record_id)) continue;
-      latestAuditUserByVersionId.set(row.record_id, row.user_id);
-    }
-  }
-
-  const authorIds = new Set<string>();
-  authorIds.add(project.user_id);
-  latestAuditUserByVersionId.forEach((authorId) => {
-    authorIds.add(authorId);
-  });
-
-  const authorNameById = new Map<string, string>();
-  const uniqueAuthorIds = Array.from(authorIds);
-
-  if (uniqueAuthorIds.length > 0) {
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", uniqueAuthorIds);
-
-    if (profileError) {
-      throw mapSupabaseError(profileError, "Impossible de charger les profils.");
-    }
-
-    for (const row of (profileData ?? []) as ProfileNameRow[]) {
-      const fullName = row.full_name.trim();
-      if (fullName.length > 0) {
-        authorNameById.set(row.id, fullName);
-      }
-    }
-  }
-
-  const items: EstimateProjectVersionTimelineItem[] = rows.map((row) => {
-    const authorId = latestAuditUserByVersionId.get(row.id) ?? project.user_id;
-
-    return {
-      id: row.id,
-      project_id: row.project_id,
-      version_number: row.version_number,
-      status: row.status,
-      title: row.title,
-      updated_at: row.updated_at,
-      created_at: row.created_at,
-      total_ttc_cents: row.total_ttc_cents,
-      total_ht_cents: row.total_ht_cents,
-      currency: row.currency,
-      parent_version_id: row.parent_version_id ?? null,
-      variant_label: toNullableText(row.variant_label) ?? null,
-      author_name: authorNameById.get(authorId) ?? null,
-    };
-  });
-
-  return {
-    items,
-    pagination: {
-      page: safePage,
-      page_size: pageSize,
-      total_count: totalCount,
-      total_pages: totalPages,
-      has_prev: safePage > 1,
-      has_next: safePage < totalPages,
-    },
-  };
-}
-
-export async function listEstimateProjectDraftVersions(
-  versionId: string
-): Promise<ListEstimateProjectDraftVersionsResult> {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
-
-  const { data: draftVersionsData, error: draftVersionsError } = await supabase
-    .from("estimate_versions")
-    .select("id, project_id, version_number, status, title, updated_at")
-    .eq("tenant_id", tenantId)
-    .eq("project_id", version.project_id)
-    .eq("status", "draft")
-    .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false });
-
-  if (draftVersionsError) {
-    throw mapSupabaseError(
-      draftVersionsError,
-      "Impossible de charger les versions brouillon."
-    );
-  }
-
-  const items = ((draftVersionsData ?? []) as EstimateProjectDraftVersionRow[]).map(
-    (row): EstimateProjectDraftVersionItem => ({
-      id: row.id,
-      project_id: row.project_id,
-      version_number: row.version_number,
-      status: row.status,
-      title: row.title,
-      updated_at: row.updated_at,
-    })
-  );
-
-  return { items };
 }
 
 export async function listEstimateImportSources(
@@ -2665,272 +1986,6 @@ export async function getAffaireLinkedDpgfSource(
     parse_mode: latestImport.parse_mode,
     row_count: latestImport.row_count ?? 0,
     mapped_row_count: mappedRowCount,
-  };
-}
-
-export async function listEstimateVersionVariants(
-  versionId: string
-): Promise<ListEstimateVersionVariantsResult> {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { data, error } = await supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== tenantId ||
-    !canAccessEstimateReadResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const baseVersionId = version.parent_version_id ?? version.id;
-
-  const { data: versionsData, error: versionsError } = await supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, version_number, status, title, total_ht_cents, total_tax_cents, total_ttc_cents, updated_at, parent_version_id, variant_label"
-    )
-    .eq("tenant_id", tenantId)
-    .eq("project_id", version.project_id);
-
-  if (versionsError) {
-    throw mapSupabaseError(
-      versionsError,
-      "Impossible de charger les variantes de cette version."
-    );
-  }
-
-  const allRows = (versionsData ?? []) as EstimateVariantComparisonRow[];
-  if (allRows.length === 0) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const allRowsById = new Map(allRows.map((row) => [row.id, row]));
-  const baseRow = allRowsById.get(baseVersionId);
-
-  if (!baseRow) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const childrenByParentId = new Map<string, EstimateVariantComparisonRow[]>();
-  for (const row of allRows) {
-    const parentVersionId = row.parent_version_id ?? null;
-    if (!parentVersionId) continue;
-
-    const existingChildren = childrenByParentId.get(parentVersionId);
-    if (existingChildren) {
-      existingChildren.push(row);
-      continue;
-    }
-
-    childrenByParentId.set(parentVersionId, [row]);
-  }
-
-  const descendantRows: EstimateVariantComparisonRow[] = [];
-  const visitedVersionIds = new Set<string>([baseVersionId]);
-  const pendingParentIds: string[] = [baseVersionId];
-
-  while (pendingParentIds.length > 0) {
-    const currentParentId = pendingParentIds.pop();
-    if (!currentParentId) continue;
-
-    const directChildren = childrenByParentId.get(currentParentId) ?? [];
-    for (const child of directChildren) {
-      if (visitedVersionIds.has(child.id)) continue;
-
-      visitedVersionIds.add(child.id);
-      descendantRows.push(child);
-      pendingParentIds.push(child.id);
-    }
-  }
-
-  const rows = [baseRow, ...descendantRows];
-
-  const lineCountByVersionId = new Map<string, number>();
-  const versionIds = rows.map((row) => row.id);
-
-  if (versionIds.length > 0) {
-    const { data: lineItemsData, error: lineItemsError } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
-      .from("estimate_items")
-      .select("version_id, id", { count: "exact" })
-      .eq("tenant_id", tenantId)
-      .eq("item_type", "line")
-      .in("version_id", pageIds));
-
-    if (lineItemsError) {
-      throw mapSupabaseError(
-        lineItemsError,
-        "Impossible de charger le nombre de lignes des variantes."
-      );
-    }
-
-    for (const row of (lineItemsData ?? []) as Array<{ version_id: string }>) {
-      lineCountByVersionId.set(
-        row.version_id,
-        (lineCountByVersionId.get(row.version_id) ?? 0) + 1
-      );
-    }
-  }
-
-  const items = rows
-    .map((row): EstimateVariantComparisonItem => ({
-      id: row.id,
-      project_id: row.project_id,
-      version_number: row.version_number,
-      status: row.status,
-      title: row.title,
-      total_ht_cents: row.total_ht_cents ?? 0,
-      total_tax_cents: row.total_tax_cents ?? 0,
-      total_ttc_cents: row.total_ttc_cents ?? 0,
-      line_count: lineCountByVersionId.get(row.id) ?? 0,
-      updated_at: row.updated_at,
-      parent_version_id: row.parent_version_id ?? null,
-      variant_label: toNullableText(row.variant_label) ?? null,
-    }))
-    .sort((left, right) => {
-      if (left.id === baseVersionId) return -1;
-      if (right.id === baseVersionId) return 1;
-
-      const leftLabel = left.variant_label ?? "";
-      const rightLabel = right.variant_label ?? "";
-
-      if (leftLabel && rightLabel) {
-        const leftLabelIndex = variantLabelToSequenceIndex(leftLabel);
-        const rightLabelIndex = variantLabelToSequenceIndex(rightLabel);
-
-        if (leftLabelIndex !== null && rightLabelIndex !== null) {
-          if (leftLabelIndex !== rightLabelIndex) {
-            return leftLabelIndex - rightLabelIndex;
-          }
-        } else if (leftLabelIndex !== null) {
-          return -1;
-        } else if (rightLabelIndex !== null) {
-          return 1;
-        }
-
-        const labelCompare = leftLabel.localeCompare(rightLabel, "fr", {
-          sensitivity: "base",
-        });
-        if (labelCompare !== 0) {
-          return labelCompare;
-        }
-      }
-
-      if (leftLabel) return -1;
-      if (rightLabel) return 1;
-
-      if (left.version_number !== right.version_number) {
-        return left.version_number - right.version_number;
-      }
-
-      const updatedAtDelta =
-        new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
-      if (updatedAtDelta !== 0) {
-        return updatedAtDelta;
-      }
-
-      return left.id.localeCompare(right.id);
-    });
-
-  return {
-    base_version_id: baseVersionId,
-    items,
-  };
-}
-
-export async function listLatestEstimates() {
-  const { supabase, userId, tenantId, tenantRole } = await getAuthenticatedContext();
-
-  let query = supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)",
-      { count: "exact" }
-    )
-    .eq("tenant_id", tenantId)
-    .eq("estimate_projects.tenant_id", tenantId)
-    .eq("estimate_projects.is_archived", false);
-
-  if (!isTenantAdmin(tenantRole)) {
-    query = query.eq("estimate_projects.user_id", userId);
-  }
-
-  const { data, error } = await readAllRows(() => query
-    .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false }));
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger la liste des chiffrages.");
-  }
-
-  const rows = (data ?? []) as unknown as EstimateListRow[];
-  const latestByProject = new Map<
-    string,
-    {
-      project_id: string;
-      project_name: string;
-      project_reference: string | null;
-      project_client_name: string | null;
-      version_id: string;
-      version_number: number;
-      status: EstimateStatus;
-      title: string | null;
-      updated_at: string;
-      total_ht_cents: number;
-      date_devis: string | null;
-      currency: string;
-      validite_jours: number | null;
-    }
-  >();
-
-  rows.forEach((row) => {
-    const project = resolveEmbeddedOne(row.estimate_projects);
-    if (!project) return;
-    if (latestByProject.has(row.project_id)) return;
-
-    latestByProject.set(row.project_id, {
-      project_id: row.project_id,
-      project_name: project.name,
-      project_reference: project.reference,
-      project_client_name: project.client_name,
-      version_id: row.id,
-      version_number: row.version_number,
-      status: row.status,
-      title: row.title,
-      updated_at: row.updated_at,
-      total_ht_cents: row.total_ht_cents,
-      date_devis: row.date_devis ?? null,
-      currency: normalizeEstimateCurrencyOrThrow(row.currency, {
-        fallback: DEFAULT_CURRENCY,
-        fallbackOnInvalid: true,
-      }),
-      validite_jours: row.validite_jours ?? null,
-    });
-  });
-
-  const items = Array.from(latestByProject.values()).sort((left, right) => {
-    return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
-  });
-
-  return {
-    items,
   };
 }
 
@@ -3843,230 +2898,6 @@ export async function createEstimate(
   return {
     project: persisted.project,
     version: persisted.version,
-  };
-}
-
-export async function getEstimateVersionDetails(
-  versionId: string,
-  options?: { includeExportCalculationContext?: boolean; includeItems?: boolean }
-) {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-
-  const { data: versionData, error: versionError } = await supabase
-    .from("estimate_versions")
-    .select(
-      "*, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (versionError || !versionData) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = versionData as unknown as EstimateVersionDetailsRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  // Lot 2, sous-lot 2.7 : une v3 n'a ni instantané v2 ni barème ; son export relit le gel v3
-  // (v3-export.ts) et ce contexte reste celui d'un brouillon (rôles, ventilation).
-  const preserveStoredSnapshot =
-    options?.includeExportCalculationContext === true &&
-    !usesSaleCoefficients(resolveEstimateEngineVersion(version)) &&
-    shouldPreserveStoredEstimateV2Snapshot(version);
-  const exportLaborSplitEnabled =
-    options?.includeExportCalculationContext === true && !preserveStoredSnapshot
-      ? await isFeatureEnabled(tenantId, "EST_031_LABOR_SPLIT", { supabase })
-      : null;
-
-  const categoriesQuery = supabase
-    .from("estimate_categories")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", project.user_id)
-    .order("position", { ascending: true });
-  const supplyTypesQuery = supabase
-    .from("supply_types")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .order("name", { ascending: true });
-  const laborRolesQuery = preserveStoredSnapshot
-    ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from("labor_roles")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("user_id", project.user_id)
-        .order("position", { ascending: true });
-  const rulesQuery = supabase
-    .from("estimate_suggestion_rules")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", project.user_id)
-    .order("position", { ascending: true });
-  const marginTiersQuery = preserveStoredSnapshot
-    ? Promise.resolve({ data: [], error: null })
-    : supabase
-        .from("margin_tiers")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .order("threshold_cents", { ascending: true })
-        .order("position", { ascending: true });
-
-  const [
-    rawItems,
-    categoriesResult,
-    supplyTypesResult,
-    laborRolesResult,
-    rulesResult,
-    marginTiersResult,
-    versionZeroSummary,
-  ] =
-    await Promise.all([
-      options?.includeItems === false ? Promise.resolve([]) : readAllEstimateItems({ supabase, tenantId, versionId }),
-      categoriesQuery,
-      supplyTypesQuery,
-      laborRolesQuery,
-      rulesQuery,
-      marginTiersQuery,
-      isEstimateAiDraftEnabled()
-        ? fetchVersionZeroDraftSummary({ versionId }).catch(() => null)
-        : Promise.resolve(null),
-    ]);
-
-  if (categoriesResult.error) {
-    throw mapSupabaseError(
-      categoriesResult.error,
-      "Impossible de charger les catégories."
-    );
-  }
-
-  if (supplyTypesResult.error) {
-    throw mapSupabaseError(
-      supplyTypesResult.error,
-      "Impossible de charger les types de fourniture."
-    );
-  }
-
-  if (laborRolesResult.error) {
-    throw mapSupabaseError(
-      laborRolesResult.error,
-      "Impossible de charger les rôles de main d'oeuvre."
-    );
-  }
-
-  if (rulesResult.error) {
-    throw mapSupabaseError(
-      rulesResult.error,
-      "Impossible de charger les règles de suggestion."
-    );
-  }
-
-  if (marginTiersResult.error) {
-    throw mapSupabaseError(
-      marginTiersResult.error,
-      "Impossible de charger les tranches de marge."
-    );
-  }
-
-  // A CSV v3 already loads the version's complete document under the same
-  // authorization boundary. Its metadata read needs no duplicate item pages
-  // or provenance enrichment; ordinary editor/export callers keep both.
-  const items = options?.includeItems === false ? [] : await enrichEstimateItemsWithSourceMetadata({
-    supabase,
-    tenantId,
-    targetVersionId: versionId,
-    items: rawItems,
-  });
-
-  const selectedSuppliers = options?.includeExportCalculationContext
-    ? new Map<string, SelectedSupplierDetails>()
-    : await readSelectedSupplierDetails(supabase, tenantId,
-        items.flatMap((item) => item.selected_supplier_price_id ? [item.selected_supplier_price_id] : []));
-  const itemsWithSelectedSuppliers = items.map((item) => ({
-    ...item,
-    selected_supplier_details: item.selected_supplier_price_id
-      ? selectedSuppliers.get(item.selected_supplier_price_id) ?? null
-      : null,
-  }));
-
-  await assertEstimateVersionUnchanged({ supabase, version });
-
-  return {
-    version: {
-      ...version,
-      estimate_projects: project,
-    },
-    items: itemsWithSelectedSuppliers,
-    categories: (categoriesResult.data ?? []) as EstimateCategoryRow[],
-    supply_types: (supplyTypesResult.data ?? []) as SupplyTypeRow[],
-    labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
-    suggestion_rules: (rulesResult.data ?? []) as SuggestionRuleRow[],
-    margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],
-    is_labor_split_enabled: exportLaborSplitEnabled,
-    version_zero_summary: versionZeroSummary,
-  };
-}
-
-export async function listEstimateItems(versionId: string) {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
-  const rawItems = await readAllEstimateItems({ supabase, tenantId, versionId });
-
-  const items = await enrichEstimateItemsWithSourceMetadata({
-    supabase,
-    tenantId,
-    targetVersionId: versionId,
-    items: rawItems,
-  });
-
-  await assertEstimateVersionUnchanged({
-    supabase,
-    version: { ...version, tenant_id: tenantId },
-  });
-
-  return {
-    items,
-  };
-}
-
-export async function listEstimateVersionEvents(versionId: string) {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-
-  await getVersionAccessOrThrow(supabase, versionId, context);
-
-  const { data, error } = await supabase
-    .from("estimate_version_events")
-    .select(
-      "id, estimate_version_id, event_type, metadata, created_by, occurred_at, created_at, profiles:created_by(full_name)"
-    )
-    .eq("tenant_id", tenantId)
-    .eq("estimate_version_id", versionId)
-    .order("occurred_at", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les événements.");
-  }
-
-  return {
-    events: ((data ?? []) as unknown as EstimateVersionEventRow[]).map((row) =>
-      normalizeEstimateVersionEvent(row)
-    ),
   };
 }
 

@@ -34,7 +34,7 @@
     "src/lib/estimates/pdf-generator.tsx": 2300,
     "src/lib/estimates/rules-engine.ts": 4800,
     "src/lib/estimates/schemas.ts": 1800,
-    "src/lib/estimates/server.ts": 5900,
+    "src/lib/estimates/server.ts": 4800,
     "src/lib/estimates/structure-drafts.ts": 3300,
     "src/lib/estimates/version-zero-drafts.ts": 2100,
     "src/lib/imports/server.ts": 1100,
