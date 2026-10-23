@@ -36,6 +36,7 @@ dans le corps ou une erreur qui ne doivent jamais apparaître dans les logs.
 | `deadCount` ou `emailOutbox.dead` positif | Annotation `error`, échec 1. |
 | Erreur de drain sans échec individuel comptabilisé ; échecs email sans acteur (`failed > claimed`) ; drain Storage ignoré | Annotation `error`, échec 1. |
 | Email ignoré avec erreur ou compteurs non nuls | Annotation `error`, échec 1. |
+| `emailOutbox.blocked` positif | Annotation `error`, échec 1 `email-actor-blocked`, même si les envois éligibles ont avancé. Le compteur compte les acteurs non autorisés, sans envoi ni changement d'auteur ou de statut. |
 | HTTP non 2xx, redirection, réseau/délai, corps trop gros, JSON/contrat invalide, configuration invalide | Message constant sans corps/URL/secret, annotation `error`, échec 1. |
 
 Le contrat actuel ne distingue pas une erreur individuelle transitoire d'une
@@ -50,6 +51,14 @@ dégradation persistante entre deux runs reste hors de ce lot.
 Les sorties ne contiennent que noms de catégories fixes, compteurs validés et
 booléens. Ni corps brut, identifiant métier, texte d'erreur fournisseur, URL,
 header d'autorisation, fichier temporaire de réponse ni artefact sensible.
+
+Depuis le lot du 23 octobre 2026, un compteur `blocked` fourni doit être un
+entier positif ou nul. Son absence dans le format de réponse déjà déployé
+équivaut à zéro pour conserver la compatibilité du workflow avec ce serveur.
+La sélection SQL réservée au service élimine les créateurs non habilités avant
+le `LIMIT`, puis le claim revérifie les droits et les leases. L'alerte exige une
+intervention autorisée ; elle n'annule pas automatiquement un envoi ambigu et
+ne libère pas artificiellement un devis.
 
 ## Exécution et preuve
 

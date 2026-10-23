@@ -109,7 +109,7 @@ jobs:
           # One snapshot contains both schema and data, including rows hidden by RLS.
           subprocess.run(client + [
               "pg_dump", "--format=custom", "--strict-names", "--lock-wait-timeout=30s",
-              "--schema=public", "--schema=auth", "--schema=storage",
+              "--schema=public", "--schema=private", "--schema=auth", "--schema=storage",
               "--file=/backup/database.dump",
           ], env=environment, check=True)
           # Inventory only: platform roles must not be restored blindly on Supabase.

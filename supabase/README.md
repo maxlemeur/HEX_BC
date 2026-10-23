@@ -43,9 +43,10 @@ arrête la pile, la détruit avec ses données (`stack destroy`) et supprime son
 isolé ; un échec de ce cleanup fait échouer la commande. Elle refuse les variables
 et commandes qui pourraient cibler un projet distant.
 
-La sauvegarde planifiée (`supabase-backup.yml`) utilise encore `supabase db dump`,
-qui exige Docker même en CLI `2.121.0` : elle tourne sur un runner GitHub, où Docker
-est fourni. Aucun poste de développement n'a besoin de Docker.
+La sauvegarde planifiée (`supabase-backup.yml`) utilise `pg_dump` et `pg_dumpall`
+dans une image PostgreSQL fixée par digest sur le runner GitHub. L'exercice local
+de restauration utilise les outils PostgreSQL du runtime natif existant ; aucun
+poste de développement n'a besoin de Docker.
 
 Les quatre versions date-only historiques (`20260222`, `20260304`, `20260305`,
 `20260306`) sont, depuis la CLI 2.119, enregistrées dans l'historique local comme
@@ -156,5 +157,23 @@ pg_restore --list "$timestamp/database.dump"
 
 Notes :
 
-- Le dump SQL couvre les schémas `public`, `auth`, `storage`.
+- Le dump SQL couvre les schémas `public`, `private`, `auth`, `storage`.
 - Les binaires de Storage (fichiers objets) ne sont pas dans le dump SQL ; seul le metadata SQL est dumpé.
+
+### Exercice local de restauration
+
+`npm run verify:backup-restore` exécute les contrôles SQL/RLS de `db:ci:local`,
+puis le pipeline de dump et chiffrement du workflow sur cette pile migrée
+jetable. Il restaure le véritable dump custom dans une seconde base de ce
+même cluster, avec les rôles et extensions compatibles. Il compare les
+empreintes des données de toutes les tables et séquences des quatre schémas,
+vérifie un compteur privé réel et le refus RLS d'une ligne restaurée. Les
+bases, les dumps en clair et la clé de fixture sont supprimés après réussite
+comme après échec. Le reçu sans secret est référencé dans
+[`operations-recovery-lot1.md`](../docs/testing/operations-recovery-lot1.md).
+
+L'adaptateur local remplace Docker et le transport TLS par les binaires natifs
+contre la seule pile possédée par le runner. Cette preuve ne qualifie donc ni
+une restauration hébergée, ni la connexion TLS de production, ni les octets des
+documents Storage. Les contrôles de TLS, rôle de lecture et certificat du
+workflow de production restent actifs.

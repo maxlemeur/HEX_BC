@@ -1,4 +1,5 @@
 export const ERROR_REPORTER_LOG_PREFIX = "[error-reporter]";
+const ERROR_REPORT_TIMEOUT_MS = 2_000;
 
 export type ReportedErrorEvent = {
   source: string;
@@ -82,46 +83,45 @@ function parseSentryDsn(dsn: string) {
 
 async function deliverErrorEvent(dsn: string, event: ReportedErrorEvent) {
   const sentry = parseSentryDsn(dsn);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (sentry) {
-    const response = await fetch(sentry.storeUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Sentry-Auth": `Sentry sentry_version=7, sentry_client=hex-bc-error-reporter/1.0, sentry_key=${sentry.publicKey}`,
-      },
-      body: JSON.stringify({
-        message: event.message,
-        level: "error",
-        logger: event.source,
-        timestamp: event.timestamp,
-        extra: event.context ?? {},
-        exception: {
-          values: [
-            {
-              type: event.name,
-              value: event.message,
-              stacktrace: event.stack
-                ? { frames: [{ filename: event.source, context_line: event.stack }] }
-                : undefined,
-            },
-          ],
-        },
-        tags: event.digest ? { digest: event.digest } : undefined,
-      }),
+    headers["X-Sentry-Auth"] = `Sentry sentry_version=7, sentry_client=hex-bc-error-reporter/1.0, sentry_key=${sentry.publicKey}`;
+  }
+  const body = sentry ? {
+    message: event.message,
+    level: "error",
+    logger: event.source,
+    timestamp: event.timestamp,
+    extra: event.context ?? {},
+    exception: {
+      values: [{
+        type: event.name,
+        value: event.message,
+        stacktrace: event.stack
+          ? { frames: [{ filename: event.source, context_line: event.stack }] }
+          : undefined,
+      }],
+    },
+    tags: event.digest ? { digest: event.digest } : undefined,
+  } : event;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ERROR_REPORT_TIMEOUT_MS);
+  let response: Response | undefined;
+  try {
+    response = await fetch(sentry?.storeUrl ?? dsn, {
+      method: "POST", headers, body: JSON.stringify(body), signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`Sentry store rejected the event (${response.status}).`);
+      throw new Error(`${sentry ? "Sentry store" : "Error reporting endpoint"} rejected the event (${response.status}).`);
     }
-    return;
-  }
-
-  const response = await fetch(dsn, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(event),
-  });
-  if (!response.ok) {
-    throw new Error(`Error reporting endpoint rejected the event (${response.status}).`);
+  } finally {
+    try {
+      // The collector response is unused. Releasing its body also closes an
+      // endless stream; the same deadline remains active through cancellation.
+      await response?.body?.cancel();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

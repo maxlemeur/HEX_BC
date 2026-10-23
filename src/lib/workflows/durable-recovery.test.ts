@@ -19,6 +19,7 @@ const EMAIL_OUTBOX_RESULT = {
   sent: 1,
   failed: 0,
   dead: 0,
+  blocked: 0,
   skipped: false,
   errors: [],
 };

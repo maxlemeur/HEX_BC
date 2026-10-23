@@ -96,6 +96,18 @@ async function expectBody(body: unknown, code: number, signal: string) {
 }
 
 describe("durable recovery workflow command (local HTTP boundary)", () => {
+  it("fails on blocked email actors while retaining the progress of eligible sends", async () => {
+    const body = healthyResult();
+    Object.assign(body.emailOutbox, { claimed: 1, sent: 1, blocked: 25, skipped: false });
+    await expectBody(body, 1, "email-actor-blocked");
+  });
+
+  it.each([-1, null, "1", 0.5])("refuses an invalid blocked counter: %j", async (blocked) => {
+    const body = healthyResult();
+    Object.assign(body.emailOutbox, { blocked });
+    await expectBody(body, 1, "invalid-response");
+  });
+
   it("calls the exact endpoint once with its bearer and accepts a healthy empty drain", async () => {
     const requests: Array<{ url?: string; method?: string; authorization?: string }> = [];
     await withFixture((request, response) => {

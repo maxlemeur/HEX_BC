@@ -83,7 +83,8 @@ function checkResult(body) {
     !body.failures.every((failure) => failure !== null && typeof failure === "object" &&
       typeof failure.workId === "string" && typeof failure.message === "string") ||
     !isDrain(body.procurementStorageCleanup, ["claimed", "removed", "failed"]) ||
-    !isDrain(body.emailOutbox, ["claimed", "sent", "failed", "dead"])) {
+    !isDrain(body.emailOutbox, ["claimed", "sent", "failed", "dead"]) ||
+    ("blocked" in body.emailOutbox && !hasCounters(body.emailOutbox, ["blocked"]))) {
     reject("invalid-response");
   }
   const storage = body.procurementStorageCleanup;
@@ -105,9 +106,11 @@ function checkResult(body) {
     emailSent: email.sent,
     emailFailed: email.failed,
     emailDead: email.dead,
+    emailBlocked: email.blocked ?? 0,
     emailSkipped: email.skipped,
     emailErrors: email.errors.length,
   })}`);
+  if ((email.blocked ?? 0) > 0) reject("email-actor-blocked");
   if (body.deadCount > 0 || email.dead > 0) reject("retry-budget-exhausted");
   if (storage.skipped || storage.failed > storage.claimed ||
       (storage.errors.length > 0 && storage.failed === 0) ||

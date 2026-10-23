@@ -1088,6 +1088,8 @@ mounts = [args[i + 1] for i, value in enumerate(args[:-1]) if value == "--volume
 root = next(value[:-8] for value in mounts if value.endswith(":/backup"))
 name = next(value.removeprefix("--file=/backup/") for value in args if value.startswith("--file=/backup/"))
 assert name in ("database.dump", "roles.sql")
+if "pg_dump" in args:
+    assert {value for value in args if value.startswith("--schema=")} == {"--schema=public", "--schema=private", "--schema=auth", "--schema=storage"}
 Path(root, name).write_bytes(b"synthetic private SQL marker\\n")
 
 `, { mode: 0o700 });

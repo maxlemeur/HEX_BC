@@ -68,9 +68,12 @@ export type EmailOutboxDrainResult = {
   sent: number;
   failed: number;
   dead: number;
+  blocked: number;
   skipped: boolean;
   errors: string[];
 };
+
+type DueEmailBatch = { dispatches: EstimateEmailDispatch[]; blocked: number };
 
 type RpcResult = {
   data: unknown;
@@ -797,17 +800,19 @@ export async function drainEstimateEmailOutbox(
   const due = dependencies.listDue
     ? await dependencies.listDue()
     : await listDueEstimateEmailDispatches(dependencies.now ?? new Date());
+  const dispatches = Array.isArray(due) ? due : due.dispatches;
 
   const result: EmailOutboxDrainResult = {
     claimed: 0,
     sent: 0,
     failed: 0,
     dead: 0,
-    skipped: due.length === 0,
+    blocked: Array.isArray(due) ? 0 : due.blocked,
+    skipped: dispatches.length === 0,
     errors: [],
   };
 
-  for (const dispatch of due) {
+  for (const dispatch of dispatches) {
     const actorUserId = dependencies.actorUserId ?? dispatch.created_by;
     if (!actorUserId) {
       result.failed += 1;
@@ -881,22 +886,19 @@ export async function drainEstimateEmailOutbox(
   return result;
 }
 
-async function listDueEstimateEmailDispatches(now: Date) {
+async function listDueEstimateEmailDispatches(now: Date): Promise<DueEmailBatch> {
   const client = createServiceRoleClient();
   const { data, error } = await client
-    .from("estimate_emails")
-    .select("*")
-    .in("status", ["queued", "processing"])
-    .or(`next_attempt_at.is.null,next_attempt_at.lte.${now.toISOString()}`)
-    // A row still leased by an in-flight send (inline or another drain run)
-    // is not due: claiming it would only raise ESTIMATE_EMAIL_DISPATCH_LEASED.
-    .or(`lease_expires_at.is.null,lease_expires_at.lte.${now.toISOString()}`)
-    .order("created_at", { ascending: true })
-    .limit(25);
+    .rpc("list_due_estimate_email_dispatches", { p_now: now.toISOString(), p_limit: 25 });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de lister l'outbox email.");
   }
 
-  return (data ?? []).map((row) => parseDispatch(row));
+  if (!data || typeof data !== "object" || Array.isArray(data) ||
+    !Array.isArray(data.dispatches) || !Number.isSafeInteger(data.blocked) ||
+    typeof data.blocked !== "number" || data.blocked < 0) {
+    throw internalError("Réponse de sélection outbox invalide.", undefined, "ESTIMATE_EMAIL_OUTBOX_INVALID_RESPONSE");
+  }
+  return { dispatches: data.dispatches.map(parseDispatch), blocked: data.blocked };
 }

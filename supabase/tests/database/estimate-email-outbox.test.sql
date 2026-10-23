@@ -2220,5 +2220,90 @@ select is(
   'failed reconciliation is journaled'
 );
 
+-- The cron must pass permanently ineligible actors before applying its batch
+-- limit. A browser cannot prove service-only selection or unchanged leases.
+reset role;
+update public.tenant_memberships set role = 'viewer'
+where id = '22000000-0000-4000-8000-000000000001';
+
+select has_function('public', 'list_due_estimate_email_dispatches', array['timestamp with time zone', 'integer'],
+  'the service has an actor-aware due-email selector');
+set local role service_role;
+create temporary table outbox_selection_baseline as
+select (public.list_due_estimate_email_dispatches(now(), 1)->>'blocked')::bigint as blocked;
+reset role;
+
+insert into public.estimate_versions(id, tenant_id, project_id, version_number, status)
+select ('41000000-0000-4000-8000-' || lpad((100 + n)::text, 12, '0'))::uuid,
+  case when n = 29 then '21000000-0000-4000-8000-000000000003'::uuid
+    else '21000000-0000-4000-8000-000000000001'::uuid end,
+  case when n = 29 then '31000000-0000-4000-8000-000000000004'::uuid
+    else '31000000-0000-4000-8000-000000000001'::uuid end,
+  100 + n, 'draft'::public.estimate_status
+from generate_series(1, 32) n;
+
+-- Historical request-contract-1 rows exercise the compatibility path still
+-- consumed by the worker. Only this disposable transaction bypasses the newer
+-- insert guard; mutation, actor, RLS and lease guards remain installed.
+alter table public.estimate_emails disable trigger guard_estimate_offer_request_insert;
+insert into public.estimate_emails(id, tenant_id, version_id, recipient, subject, type, status,
+  request_id, payload_hash, idempotency_key, created_by, version_content_revision, from_address,
+  request_contract_version, created_at, next_attempt_at, lease_expires_at)
+select ('81000000-0000-4000-8000-' || lpad((100 + n)::text, 12, '0'))::uuid,
+  case when n = 29 then '21000000-0000-4000-8000-000000000003'::uuid
+    else '21000000-0000-4000-8000-000000000001'::uuid end,
+  ('41000000-0000-4000-8000-' || lpad((100 + n)::text, 12, '0'))::uuid,
+  'local-outbox@example.test', 'ARMY recovery eligibility', 'initial',
+  case when n = 32 then 'unknown' else 'queued' end,
+  ('61000000-0000-4000-8000-' || lpad((100 + n)::text, 12, '0'))::uuid,
+  repeat('a', 64), 'selection-fixture/' || n,
+  case when n <= 25 then '11000000-0000-4000-8000-000000000001'::uuid
+    when n = 27 then null
+    when n = 28 then '11000000-0000-4000-8000-000000000004'::uuid
+    when n = 29 then '11000000-0000-4000-8000-000000000005'::uuid
+    else '11000000-0000-4000-8000-000000000002'::uuid end,
+  1, 'fixture@example.test', 1, '2020-01-01'::timestamptz + n * interval '1 second',
+  case when n = 31 then now() + interval '1 hour' else null end,
+  case when n = 30 then now() + interval '1 hour' else null end
+from generate_series(1, 32) n;
+alter table public.estimate_emails enable trigger guard_estimate_offer_request_insert;
+
+create temporary table outbox_selection_before as
+select jsonb_agg(to_jsonb(e) order by e.id) as rows from public.estimate_emails e;
+grant select on outbox_selection_baseline, outbox_selection_before to service_role;
+set local role service_role;
+select is(
+  public.list_due_estimate_email_dispatches(now(), 1)->'dispatches'->0->>'id',
+  '81000000-0000-4000-8000-000000000126',
+  'the 26th, authorized email advances past the first 25 revoked creators'
+);
+select is(
+  (public.list_due_estimate_email_dispatches(now(), 1)->>'blocked')::bigint,
+  (select blocked + 28 from outbox_selection_baseline),
+  'revoked, null, foreign and inactive-tenant actors are counted, live leases/future/unknown rows excluded'
+);
+select is(
+  (select jsonb_agg(to_jsonb(e) order by e.id) from public.estimate_emails e),
+  (select rows from outbox_selection_before),
+  'selection changes no author, payload, attempt, status, timestamp or lease'
+);
+select throws_ok($$select public.assert_estimate_email_dispatch_actor(
+  '21000000-0000-4000-8000-000000000001', '41000000-0000-4000-8000-000000000101',
+  '11000000-0000-4000-8000-000000000001', false)$$,
+  '42501', 'ESTIMATE_EMAIL_DISPATCH_FORBIDDEN', 'selection never grants the revoked actor permission to claim');
+select throws_ok($$select public.list_due_estimate_email_dispatches(now(), 0)$$,
+  '22023', 'ESTIMATE_EMAIL_SELECTION_INVALID', 'a zero batch is refused');
+select throws_ok($$select public.list_due_estimate_email_dispatches(null, 25)$$,
+  '22023', 'ESTIMATE_EMAIL_SELECTION_INVALID', 'a missing clock is refused');
+reset role;
+select ok(not has_function_privilege('anon', 'public.list_due_estimate_email_dispatches(timestamptz,integer)', 'execute'),
+  'anonymous clients cannot enumerate another tenant''s mail');
+select ok(not has_function_privilege('authenticated', 'public.list_due_estimate_email_dispatches(timestamptz,integer)', 'execute'),
+  'authenticated clients cannot call the cron selector');
+set local role authenticated;
+select throws_ok($$select public.list_due_estimate_email_dispatches(now(), 25)$$, '42501', null,
+  'the selector refuses an ordinary user even with a valid fixture session');
+reset role;
+
 select * from finish();
 rollback;

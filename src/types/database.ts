@@ -4219,6 +4219,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      list_due_estimate_email_dispatches: {
+        Args: { p_now?: string; p_limit?: number };
+        Returns: Json;
+      };
       find_membership_candidate_by_email: {
         Args: { p_actor_user_id: string; p_email: string };
         Returns: { id: string; email: string }[];

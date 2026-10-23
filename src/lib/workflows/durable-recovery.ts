@@ -296,6 +296,7 @@ export async function recoverDurableWorkflows(
       sent: 0,
       failed: 0,
       dead: 0,
+      blocked: 0,
       skipped: true,
       errors: [
         error instanceof Error

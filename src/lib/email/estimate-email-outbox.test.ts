@@ -221,6 +221,31 @@ describe("estimate email outbox provider boundary", () => {
 });
 
 describe("drainEstimateEmailOutbox", () => {
+  it("advances the eligible dispatch after 25 blocked actors and reports the blocked count", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "list_due_estimate_email_dispatches") {
+        return { data: { dispatches: [createDispatch("queued")], blocked: 25 }, error: null };
+      }
+      if (name === "claim_estimate_email_dispatch") return { data: createDispatch("processing"), error: null };
+      if (name === "complete_estimate_email_dispatch") return { data: createDispatch("sent"), error: null };
+      throw new Error(`Unexpected RPC ${name}`);
+    });
+    mocks.send.mockClear().mockResolvedValue({ data: { id: "email-1" }, error: null });
+    const result = await drainEstimateEmailOutbox({ apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER });
+    expect(result).toMatchObject({ blocked: 25, claimed: 1, sent: 1, failed: 0, dead: 0, skipped: false });
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.rpc).toHaveBeenCalledWith("list_due_estimate_email_dispatches", expect.objectContaining({ p_limit: 25 }));
+  });
+
+  it.each([{ dispatches: [], blocked: -1 }, { dispatches: "invalid", blocked: 0 }, { dispatches: [], blocked: null }])(
+    "refuses an invalid eligibility response before delivery: %j", async (data) => {
+      mocks.rpc.mockResolvedValue({ data, error: null });
+      mocks.send.mockClear();
+      await expect(drainEstimateEmailOutbox({ apiKey: "test-key" })).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_OUTBOX_INVALID_RESPONSE" });
+      expect(mocks.send).not.toHaveBeenCalled();
+    }
+  );
+
   it("replays due rows with the same deliver path and marks dead after N attempts", async () => {
     const replayable = createDispatch("queued");
     const exhausted = {
