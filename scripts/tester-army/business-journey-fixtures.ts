@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { ensureSourceReferenceBucket } from "./storage-fixtures";
 
-import { buildAffaireIntakeStoragePath, createEmptyAffaireIntakeExtractedMetadata } from "../../src/lib/affaires/intake";
+import type { AffaireIntakeExtractedMetadata } from "../../src/lib/affaires/intake";
 import { checked, createActor, executePlan, sqlTransport, versionDefaults, writeFixture,
   type CalcV3FixtureContext, type PlanRecord } from "./calc-v3-fixtures";
 
@@ -219,14 +219,19 @@ async function documentsFixture(context: CalcV3FixtureContext, kind: "brief" | "
   const records = [...project.records, record("affaire_intake_uploads", { ...common(context), id: uploadId,
     project_id: project.projectId, created_by: context.owner.userId, status: "ready", completed_at: new Date().toISOString() })];
   for (const file of files) {
-    const storagePath = buildAffaireIntakeStoragePath({ tenantId: context.owner.tenantId, projectId: project.projectId,
-      uploadId, documentId: file.id, fileName: file.fileName });
+    // These fictional names already satisfy the intake path contract. Keep the
+    // supervisor independent of application modules edited during a dev loop.
+    if (!/^[A-Za-z0-9_-]+\.(?:pdf|txt)$/.test(file.fileName)) throw new Error("Owned document filename differs from the fixture contract.");
+    const storagePath = [context.owner.tenantId, project.projectId, uploadId, file.id, file.fileName].join("/");
+    const extractedMetadata: AffaireIntakeExtractedMetadata = {
+      projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [],
+    };
     await checked(`${name}:storage`, context.admin.storage.from("affaire-intake").upload(storagePath, file.bytes, { contentType: file.mimeType, upsert: false }));
     records.push(record("affaire_intake_documents", { ...common(context), id: file.id, project_id: project.projectId,
       upload_id: uploadId, created_by: context.owner.userId, storage_path: storagePath, file_name: file.fileName,
       mime_type: file.mimeType, size_bytes: file.bytes.length, upload_status: "uploaded", classification_status: "classified",
       document_kind: "cctp", confidence: 1, classification_source: "manual", classified_by: context.owner.userId,
-      classified_at: new Date().toISOString(), extracted_metadata: createEmptyAffaireIntakeExtractedMetadata() }));
+      classified_at: new Date().toISOString(), extracted_metadata: extractedMetadata }));
   }
   if (kind === "brief") {
     const briefId = randomUUID();

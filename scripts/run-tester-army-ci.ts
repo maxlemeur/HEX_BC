@@ -251,6 +251,15 @@ function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
 }
 
 async function runApplication(local: SupabaseEnvironment) {
+  try { await runOwnedApplication(local); }
+  catch (error) {
+    const diagnostic = redact(error instanceof Error ? error.message : String(error));
+    manifest.applicationFailure = diagnostic;
+    throw new SafeDiagnosticError(diagnostic);
+  }
+}
+
+async function runOwnedApplication(local: SupabaseEnvironment) {
   if (interactive && developmentStop.signal.aborted) return;
   if (local.RLS_E2E_EPHEMERAL !== "1" || local.RLS_E2E_LOCAL !== "1") throw new Error("An owned ephemeral stack is required.");
   const backend = new URL(local.NEXT_PUBLIC_SUPABASE_URL!);
@@ -722,14 +731,7 @@ async function main() {
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
-      runApplication: async (local) => {
-        try { await runApplication(local); }
-        catch (error) {
-          const diagnostic = redact(error instanceof Error ? error.message : String(error));
-          manifest.applicationFailure = diagnostic;
-          throw new SafeDiagnosticError(diagnostic);
-        }
-      },
+      runApplication,
       ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.

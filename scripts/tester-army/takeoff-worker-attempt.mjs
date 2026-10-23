@@ -112,12 +112,14 @@ try {
     processLevelBFn: (id, options) => processLevelB(id, { ...options, callGemini }),
   });
   const job = await readJob();
-  const results = await worker.from("takeoff_results").select("id").eq("job_id", jobId);
+  const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);
   const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page").eq("job_id", jobId).order("designation");
   assert.equal(results.error, null);
   assert.equal(items.error, null);
   emit({ event: "result", outcome, job: { id: job.id, status: job.status, level: job.level, retryCount: job.retry_count,
-    errorCode: job.error_code, nextRetryAt: job.next_retry_at }, resultIds: results.data.map((row) => row.id), items: items.data, providerCalls: events.length });
+    errorCode: job.error_code, nextRetryAt: job.next_retry_at }, resultIds: results.data.map((row) => row.id), results: results.data.map((row) => ({ id: row.id, failed: row.provider_meta?.status === "failed",
+      errorCode: row.provider_meta?.error_code ?? null, extractedJson: row.extracted_json,
+      warningCodes: row.warnings.map((entry) => entry.code) })), items: items.data, providerCalls: events.length });
 } finally {
   clearTimeout(timer);
   input.close();

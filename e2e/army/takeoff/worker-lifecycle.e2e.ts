@@ -24,8 +24,12 @@ armyTest("TKW01 real CSV upload runs the owned worker once and applies exact qua
   expect(replay.resultIds).toEqual(completed.resultIds);
   expect(replay.items).toEqual(completed.items);
 
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+  // The baseline is an API fixture, so it owns and releases its own lease.
+  // Do not mount the editor, whose separate UI lease would race the apply flow.
   const target = await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} existing line`);
+  const released = await apiRequest<{ data: { released: boolean } }>(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+  expect(released.status).toBe(200);
+  expect(released.body.data.released).toBe(true);
   const before = await readEstimate(ui.browser, ids.versionId);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
   await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
@@ -36,7 +40,14 @@ armyTest("TKW01 real CSV upload runs the owned worker once and applies exact qua
   await dialog.getByRole("button", "Suivant", { exact: true }).click();
   await expect(dialog).toContainText("ARMY worker pipe");
   await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await dialog.getByRole("button", "Confirmer l'application", { exact: true }).click();
+  const [applied] = await Promise.all([
+    ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/apply`),
+    dialog.getByRole("button", "Confirmer l'application", { exact: true }).click(),
+  ]);
+  const application = await applied.json<{ ok: boolean }>();
+  await recordEvidence(ui.army, "TKW01-apply-response", { status: applied.status, body: application });
+  expect(applied.status).toBe(200);
+  expect(application.ok).toBe(true);
   await expect(dialog).toBeHidden();
   await ui.browser.reload();
   const after = await readEstimate(ui.browser, ids.versionId);
@@ -63,7 +74,10 @@ armyTest("TKW02 provider failure persists and a real manual retry completes the 
   expect(failed.outcome).toMatchObject({ status: "failed_retryable", retryable: true, should_requeue: true });
   expect(failed.job).toMatchObject({ status: "failed", errorCode: "AI_TIMEOUT" });
   expect(failed.job.nextRetryAt).toBeTruthy();
-  expect(failed.resultIds).toEqual([]);
+  // The real processor retains one failure diagnostic, never extracted rows.
+  expect(failed.resultIds).toHaveLength(1);
+  expect(failed.results).toEqual([{ id: failed.resultIds[0], failed: true,
+    errorCode: "AI_TIMEOUT", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff`);
   const retry = ui.screen.getByRole("button", "Relancer", { exact: true });
@@ -91,6 +105,8 @@ armyTest("TKW02 provider failure persists and a real manual retry completes the 
   expect(completed.outcome.status).toBe("completed");
   expect(completed.job.retryCount).toBe(1);
   expect(completed.resultIds).toHaveLength(1);
+  expect(completed.resultIds).not.toEqual(failed.resultIds);
+  expect(completed.results[0]).toMatchObject({ failed: false, errorCode: null });
   expect(completed.items).toHaveLength(2);
   await ui.browser.reload();
   await expect(ui.screen.getByRole("link", "Revue", { exact: true })).toBeVisible();
@@ -143,12 +159,15 @@ armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persi
   await recordEvidence(ui.army, "TKW04-PDF-worker-persisted", { ids, jobId, completed, replay });
 });
 
-armyTest("TKW05 terminal provider failure leaves no result or automatic retry", options, async (ui) => {
+armyTest("TKW05 terminal provider failure retains its diagnostic without extracted items or automatic retry", options, async (ui) => {
   const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW05");
   const failed = await startOwnedWorker(ui, ids, jobId, "terminal").done;
   expect(failed.outcome).toMatchObject({ status: "failed_terminal", retryable: false, should_requeue: false });
   expect(failed.job).toMatchObject({ status: "failed", errorCode: "AI_PROVIDER", nextRetryAt: null });
-  expect(failed.resultIds).toEqual([]);
+  // The real processor retains one failure diagnostic, never extracted rows.
+  expect(failed.resultIds).toHaveLength(1);
+  expect(failed.results).toEqual([{ id: failed.resultIds[0], failed: true,
+    errorCode: "AI_PROVIDER", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
   await ui.browser.reload();
   await expect(ui.screen.getByText("ARMY controlled terminal provider failure", { exact: true }).first()).toBeVisible();

@@ -13,6 +13,7 @@ export type WorkerResult = {
   outcome: { status: string; retryable: boolean; should_requeue: boolean; next_run_at?: string; error_code?: string };
   job: { id: string; status: string; level: string; retryCount: number; errorCode: string | null; nextRetryAt: string | null };
   resultIds: string[];
+  results: Array<{ id: string; failed: boolean; errorCode: string | null; extractedJson: unknown; warningCodes: string[] }>;
   items: Array<{ id: string; designation: string; quantity: number; unit: string; source_file_name: string; source_page: number }>;
   providerCalls: number;
 };
