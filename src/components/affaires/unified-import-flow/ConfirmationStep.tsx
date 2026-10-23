@@ -19,6 +19,7 @@ import { CheckIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import flowMotion from "@/styles/flow-motion.module.css";
 
 type ConfirmationStepProps = {
   importId: string;
@@ -154,7 +155,7 @@ export function ConfirmationStep({
         className="rounded-lg border border-border bg-surface shadow-card border border-success/25 p-6"
         role="status"
       >
-        <div className="flex items-start gap-3">
+        <div className={cn("flex items-start gap-3", flowMotion.successHeader)}>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-light text-success">
             <CheckIcon strokeWidth="2.5" aria-hidden="true" size={18} />
           </div>

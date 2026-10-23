@@ -1,0 +1,52 @@
+@layer legacy {
+  .successHeader,
+  .stepForward,
+  .stepBackward {
+    opacity: 1;
+    transform: none;
+    transition-property: opacity, transform;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .stepForward,
+  .stepBackward {
+    transition-duration: 160ms;
+  }
+
+  @starting-style {
+    .successHeader {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    .stepForward {
+      opacity: 0.5;
+      transform: translateX(8px);
+    }
+
+    .stepBackward {
+      opacity: 0.5;
+      transform: translateX(-8px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .successHeader,
+    .stepForward,
+    .stepBackward {
+      transform: none;
+      /* Override only these fades within the existing legacy motion guard. */
+      transition-duration: 80ms !important;
+    }
+
+    @starting-style {
+      .successHeader,
+      .stepForward,
+      .stepBackward {
+        opacity: 0.85;
+        transform: none;
+      }
+    }
+  }
+}

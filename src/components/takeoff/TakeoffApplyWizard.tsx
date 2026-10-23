@@ -42,6 +42,7 @@ import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPr
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import flowMotion from "@/styles/flow-motion.module.css";
 
 export type {
   TakeoffApplyStrategy,
@@ -90,6 +91,7 @@ export function TakeoffApplyWizard({
   presetStrategy,
 }: TakeoffApplyWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
+  const [stepDirection, setStepDirection] = useState<"forward" | "backward" | null>(null);
   const [targetSectionId, setTargetSectionId] = useState<string | null>(null);
   const [strategy, setStrategy] = useState<TakeoffApplyStrategy>("append");
   const [sectionOptions, setSectionOptions] = useState<SectionOption[]>([]);
@@ -153,6 +155,7 @@ export function TakeoffApplyWizard({
 
     const loadSections = async () => {
       setStep(1);
+      setStepDirection(null);
       setTargetSectionId(null);
       setStrategy(presetStrategy ?? "append");
       setSectionOptions([]);
@@ -356,74 +359,83 @@ export function TakeoffApplyWizard({
               })}
             </div>
 
-            {step === 1 && (
-              <TakeoffApplyWizardTargetStep
-                targetVersionLabel={targetVersionLabel}
-                targetSectionId={targetSectionId}
-                sectionOptions={sectionOptions}
-                isLoadingSections={isLoadingSections}
-                sectionsError={sectionsError}
-                isSubmitting={isSubmitting}
-                onTargetSectionChange={(value) => {
-                  setTargetSectionId(value);
-                  resetPreview();
-                }}
-              />
-            )}
+            <div
+              key={step}
+              className={cn(
+                "space-y-4",
+                stepDirection === "forward" && flowMotion.stepForward,
+                stepDirection === "backward" && flowMotion.stepBackward
+              )}
+            >
+              {step === 1 && (
+                <TakeoffApplyWizardTargetStep
+                  targetVersionLabel={targetVersionLabel}
+                  targetSectionId={targetSectionId}
+                  sectionOptions={sectionOptions}
+                  isLoadingSections={isLoadingSections}
+                  sectionsError={sectionsError}
+                  isSubmitting={isSubmitting}
+                  onTargetSectionChange={(value) => {
+                    setTargetSectionId(value);
+                    resetPreview();
+                  }}
+                />
+              )}
 
-            {step === 2 && !isPreset && (
-              <TakeoffApplyWizardStrategyStep
-                strategy={strategy}
-                isSubmitting={isSubmitting}
-                onStrategyChange={(value) => {
-                  setStrategy(value);
-                  resetPreview();
-                }}
-              />
-            )}
+              {step === 2 && !isPreset && (
+                <TakeoffApplyWizardStrategyStep
+                  strategy={strategy}
+                  isSubmitting={isSubmitting}
+                  onStrategyChange={(value) => {
+                    setStrategy(value);
+                    resetPreview();
+                  }}
+                />
+              )}
 
-            {step === 3 && !isPreset && (
-              <TakeoffApplyWizardPreviewStep
-                strategy={strategy}
-                sourceFileName={sourceFileName}
-                includedCount={includedCount}
-                previewData={previewData}
-                previewError={previewError}
-                isLoadingPreview={isLoadingPreview}
-                isPreviewStale={isPreviewStale}
-                overrideCount={overrideCount}
-                overridesByItemId={overridesByItemId}
-                sourceByItemId={sourceByItemId}
-                isSubmitting={isSubmitting}
-                onRefreshPreview={() => void refreshPreview(overridesByItemId)}
-                onOverrideActionChange={handleOverrideActionChange}
-                onOverrideParamChange={handleOverrideParamChange}
-              />
-            )}
+              {step === 3 && !isPreset && (
+                <TakeoffApplyWizardPreviewStep
+                  strategy={strategy}
+                  sourceFileName={sourceFileName}
+                  includedCount={includedCount}
+                  previewData={previewData}
+                  previewError={previewError}
+                  isLoadingPreview={isLoadingPreview}
+                  isPreviewStale={isPreviewStale}
+                  overrideCount={overrideCount}
+                  overridesByItemId={overridesByItemId}
+                  sourceByItemId={sourceByItemId}
+                  isSubmitting={isSubmitting}
+                  onRefreshPreview={() => void refreshPreview(overridesByItemId)}
+                  onOverrideActionChange={handleOverrideActionChange}
+                  onOverrideParamChange={handleOverrideParamChange}
+                />
+              )}
 
-            {step === 4 && (
-              <TakeoffApplyWizardConfirmationStep
-                guardBlocking={guardBlocking}
-                guardResult={guardResult}
-                isAdmin={isAdmin}
-                canOverride={canAdminOverride}
-                overrideJustification={overrideJustification}
-                onReturnToReview={onReturnToReview}
-                reviewHref={reviewHref}
-                onOverrideJustificationChange={setOverrideJustification}
-                onOverrideConfirm={() => void handleOverrideConfirm()}
-                isLevelC={isLevelC}
-                previewData={previewData}
-                includedCount={includedCount}
-                totalExcludedCount={totalExcludedCount}
-                overrideCount={overrideCount}
-                targetVersionLabel={targetVersionLabel}
-                selectedSectionLabel={selectedSectionLabel}
-                strategy={strategy}
-                sourceFileName={sourceFileName}
-                hasPreviewReady={hasPreviewReady}
-              />
-            )}
+              {step === 4 && (
+                <TakeoffApplyWizardConfirmationStep
+                  guardBlocking={guardBlocking}
+                  guardResult={guardResult}
+                  isAdmin={isAdmin}
+                  canOverride={canAdminOverride}
+                  overrideJustification={overrideJustification}
+                  onReturnToReview={onReturnToReview}
+                  reviewHref={reviewHref}
+                  onOverrideJustificationChange={setOverrideJustification}
+                  onOverrideConfirm={() => void handleOverrideConfirm()}
+                  isLevelC={isLevelC}
+                  previewData={previewData}
+                  includedCount={includedCount}
+                  totalExcludedCount={totalExcludedCount}
+                  overrideCount={overrideCount}
+                  targetVersionLabel={targetVersionLabel}
+                  selectedSectionLabel={selectedSectionLabel}
+                  strategy={strategy}
+                  sourceFileName={sourceFileName}
+                  hasPreviewReady={hasPreviewReady}
+                />
+              )}
+            </div>
 
           </div>
           {submitError && (
@@ -445,7 +457,10 @@ export function TakeoffApplyWizard({
           {canGoBack && (
             <Button
               variant="outline"
-              onClick={() => setStep(isPreset ? 1 : ((step - 1) as WizardStep))}
+              onClick={(event) => {
+                setStepDirection(event.detail === 0 ? null : "backward");
+                setStep(isPreset ? 1 : ((step - 1) as WizardStep));
+              }}
               disabled={isSubmitting}
             >
               Retour
@@ -454,7 +469,10 @@ export function TakeoffApplyWizard({
 
           {canProceed ? (
             <Button
-              onClick={() => setStep(isPreset ? 4 : ((step + 1) as WizardStep))}
+              onClick={(event) => {
+                setStepDirection(event.detail === 0 ? null : "forward");
+                setStep(isPreset ? 4 : ((step + 1) as WizardStep));
+              }}
               disabled={
                 isSubmitting ||
                 (step === 1 && !targetSectionId) ||
