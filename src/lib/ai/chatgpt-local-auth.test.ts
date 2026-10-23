@@ -27,10 +27,10 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); await rm(directory, { recursive: true, force: true }); });
 
-async function authorize(target: ChatGptOwner = owner, profileId?: string, claims: Record<string, unknown> = {}) {
+async function authorize(target: ChatGptOwner = owner, profileId?: string, claims: Record<string, unknown> = {}, issuedClientId = "oaiapp_test") {
   const start = await beginLocalChatGptSignIn(target, origin, profileId);
   const authorization = new URL(start.url);
-  const clientId = profileId ? authorization.searchParams.get("client_id")! : "oaiapp_test";
+  const clientId = profileId ? authorization.searchParams.get("client_id")! : issuedClientId;
   const idToken = await new SignJWT({ nonce: authorization.searchParams.get("nonce"), email: "fixture@example.test", ...claims })
     .setProtectedHeader({ alg: "RS256", kid: "fixture" }).setIssuer("https://auth.openai.com")
     .setSubject("account-a").setAudience(clientId).setExpirationTime("5m").sign(keys.privateKey);
@@ -46,6 +46,36 @@ async function authorize(target: ChatGptOwner = owner, profileId?: string, claim
 }
 
 describe("local ChatGPT authorization", () => {
+  it("accepts an opaque issued client ID when the signed token audience matches", async () => {
+    const { start, callback } = await authorize(owner, undefined, {}, "agent_fixture_opaque");
+    await finishLocalChatGptSignIn(owner, callback, start.state);
+    const store = await readChatGptStore(owner);
+    expect(store.profiles[0].clientId).toBe("agent_fixture_opaque");
+    expect((await getLocalChatGptState(owner)).sharing).toBe(true);
+  });
+  it("still rejects a token audience that does not match that opaque client ID", async () => {
+    const { start, callback } = await authorize(owner, undefined, {}, "agent_fixture_opaque");
+    const wrongAudience = await new SignJWT({ nonce: new URL(start.url).searchParams.get("nonce") })
+      .setProtectedHeader({ alg: "RS256", kid: "fixture" }).setIssuer("https://auth.openai.com")
+      .setSubject("account-a").setAudience("another-client").setExpirationTime("5m").sign(keys.privateKey);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => String(url).endsWith("jwks.json")
+      ? Response.json({ keys: [{ ...publicJwk, kid: "fixture", alg: "RS256" }] })
+      : Response.json({ access_token: "fixture-access", id_token: wrongAudience, token_type: "Bearer", expires_in: 3600 })));
+    await expect(finishLocalChatGptSignIn(owner, callback, start.state)).rejects.toMatchObject({ reason: "identity" });
+    expect((await readChatGptStore(owner)).selectedId).toBeNull();
+  });
+  it("rejects the bootstrap client ID and a changed returning client before exchange", async () => {
+    const first = await authorize();
+    first.callback.searchParams.set("client_id", "dynamic_agent_client");
+    await expect(finishLocalChatGptSignIn(owner, first.callback, first.start.state)).rejects.toMatchObject({ reason: "registration" });
+    expect(first.fetchMock).not.toHaveBeenCalled();
+    const next = await authorize(); await finishLocalChatGptSignIn(owner, next.callback, next.start.state);
+    const profile = (await readChatGptStore(owner)).profiles[0];
+    const returning = await authorize(owner, profile.id);
+    returning.callback.searchParams.set("client_id", "agent_different_registration");
+    await expect(finishLocalChatGptSignIn(owner, returning.callback, returning.start.state)).rejects.toMatchObject({ reason: "registration" });
+    expect(returning.fetchMock).not.toHaveBeenCalled();
+  });
   it("persists only owner identifiers when passed a richer authenticated context", async () => {
     const circular: { self?: unknown } = {}; circular.self = circular;
     const context = { ...owner, supabase: circular };

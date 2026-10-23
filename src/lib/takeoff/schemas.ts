@@ -663,6 +663,15 @@ function sanitizeGeminiJsonSchema(value: unknown): unknown {
     return value;
   }
 
+  // Recent Zod versions compact simple unions into type arrays. Keep the
+  // single-type alternatives expected by Gemini's responseSchema contract.
+  if (Array.isArray(value.type)) {
+    const { type: types, ...constraints } = value;
+    return {
+      anyOf: types.map((type) => sanitizeGeminiJsonSchema({ ...constraints, type })),
+    };
+  }
+
   const result: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (!GEMINI_RESPONSE_SCHEMA_KEYS.has(key)) {

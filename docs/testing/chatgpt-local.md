@@ -39,6 +39,15 @@ Les traitements métier peuvent conserver leurs replis heuristiques existants.
 - Retour OAuth lié au cookie HTTP-only, état à usage unique, PKCE, nonce et jeton
   signé vérifié avec issuer/audience/expiration. Aucun nouveau client secret ni
   clé API n’est nécessaire. Les paramètres du retour ne sont pas journalisés.
+- Le retour utilise l’hôte local vérifié même si Next.js normalise son URL interne
+  en `localhost`. Les identifiants OAuth sont opaques ; la vérification d’identité
+  repose sur le jeton signé et son audience, pas sur un préfixe d’identifiant.
+- Un échec de connexion affiche une cause limitée et exploitable (session,
+  expiration, inscription, échange ou identité). Les logs ne conservent que cette
+  catégorie, sans paramètres OAuth ni réponse brute du fournisseur.
+- Le lecteur conserve le texte des événements de flux : un événement final peut
+  avoir `output: []`. Il ne valide la réponse qu’après `response.completed` avec
+  le statut `completed`, puis validation métier ; un flux interrompu reste refusé.
 - Renouvellement sérialisé entre processus ; rotation enregistrée atomiquement.
   Après un arrêt brutal, un dossier `.lock` peut subsister. Arrêter les processus
   MergeOne de ce checkout, vérifier le PID dans `.lock/pid`, puis supprimer

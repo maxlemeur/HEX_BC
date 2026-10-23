@@ -86,38 +86,30 @@ describe("generateOpenApiDocument", () => {
     const createEstimateSchema = document.components.schemas[
       "CreateEstimateRequest"
     ] as {
-      allOf?: Array<{ anyOf?: Array<{ required?: string[] }> }>;
+      anyOf?: Array<{ required?: string[] }>;
     };
-    const createEstimateSelectorSchema = createEstimateSchema.allOf?.find(
-      (schemaPart) => Array.isArray(schemaPart.anyOf)
-    );
-    expect(createEstimateSelectorSchema?.anyOf).toEqual(
+    // Zod 4.6 distributes the intersection into final alternatives. Each must
+    // still require a project selector; an unconstrained branch would admit {}.
+    const createEstimateSelectors = createEstimateSchema.anyOf?.map((branch) => branch.required);
+    expect(createEstimateSelectors).toHaveLength(2);
+    expect(createEstimateSelectors).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          required: expect.arrayContaining(["project_id"]),
-        }),
-        expect.objectContaining({
-          required: expect.arrayContaining(["project"]),
-        }),
+        ["project_id"],
+        ["project"],
       ])
     );
 
     const instantiateTemplateSchema = document.components.schemas[
       "InstantiateEstimateFromTemplateRequest"
     ] as {
-      allOf?: Array<{ anyOf?: Array<{ required?: string[] }> }>;
+      anyOf?: Array<{ required?: string[] }>;
     };
-    const instantiateTemplateSelectorSchema = instantiateTemplateSchema.allOf?.find(
-      (schemaPart) => Array.isArray(schemaPart.anyOf)
-    );
-    expect(instantiateTemplateSelectorSchema?.anyOf).toEqual(
+    const instantiateTemplateSelectors = instantiateTemplateSchema.anyOf?.map((branch) => branch.required);
+    expect(instantiateTemplateSelectors).toHaveLength(2);
+    expect(instantiateTemplateSelectors).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          required: expect.arrayContaining(["project_id"]),
-        }),
-        expect.objectContaining({
-          required: expect.arrayContaining(["project_name"]),
-        }),
+        ["project_id"],
+        ["project_name"],
       ])
     );
 

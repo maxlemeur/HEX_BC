@@ -66,7 +66,7 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
   await app.open(`${localOrigin}/dashboard/profile`);
   await expect(screen.getByRole("heading", "Mon forfait ChatGPT", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Continue with ChatGPT", { exact: true }).tap();
-  await expect(screen.getByText("La connexion ChatGPT n’a pas abouti.", { exact: false })).toBeVisible();
+  await expect(screen.getByText("Vous avez annulé la connexion ChatGPT. Vous pouvez la relancer.", { exact: true })).toBeVisible();
   await expect(screen.getByRole("button", "Continue with ChatGPT", { exact: true })).toBeEnabled();
   expect(authorization).toEqual({ host: "auth.openai.com", clientId: "dynamic_agent_client", challengeMethod: "S256", planScope: true });
   expect(diagnostics.some((entry) => /GET \/auth\/chatgpt\/callback.*state=/.test(entry))).toBe(false);

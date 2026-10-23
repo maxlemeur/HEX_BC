@@ -6,6 +6,8 @@ import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 
+import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
+
 import {
   getChatGptHostId, localChatGptDirectory, readChatGptStore, saveChatGptStore,
   withChatGptLock, writePrivateJson,
@@ -90,34 +92,45 @@ export async function beginLocalChatGptSignIn(owner: ChatGptOwner, origin: strin
 }
 
 async function requestTokens(body: URLSearchParams) {
-  const response = await fetch(`${ISSUER}/api/accounts/oauth/token`, {
-    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-    body, signal: AbortSignal.timeout(15_000), cache: "no-store",
-  });
-  if (!response.ok) throw new Error("L’accès ChatGPT a expiré ou a été refusé. Reconnectez le compte.");
-  return tokenSchema.parse(await response.json());
+  let response: Response;
+  try {
+    response = await fetch(`${ISSUER}/api/accounts/oauth/token`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body, signal: AbortSignal.timeout(15_000), cache: "no-store",
+    });
+  } catch { throw new ChatGptSignInError("network"); }
+  if (!response.ok) throw new ChatGptSignInError(body.get("grant_type") === "refresh_token" ? "renewal" : "exchange");
+  try { return tokenSchema.parse(await response.json()); }
+  catch { throw new ChatGptSignInError("response"); }
 }
 
 export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, cookieState?: string) {
   const state = url.searchParams.get("state");
-  if (!state || !/^[\w-]{43}$/.test(state) || cookieState !== state) throw new Error("Connexion ChatGPT non vérifiable.");
+  if (!state || !/^[\w-]{43}$/.test(state) || cookieState !== state) throw new ChatGptSignInError("state");
   const directory = await localChatGptDirectory();
   const pending = path.join(directory, `pending-${state}.json`);
   const consumed = `${pending}.consumed-${randomUUID()}`;
   // Atomic consume prevents replay, including across server processes.
-  await rename(pending, consumed);
+  try { await rename(pending, consumed); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new ChatGptSignInError("missing");
+    throw error;
+  }
   try {
     const transaction = transactionSchema.parse(JSON.parse(await readFile(consumed, "utf8")));
-    if (transaction.expiresAt < Date.now() || transaction.userId !== owner.userId ||
-      transaction.tenantId !== owner.tenantId || transaction.redirectUri !== `${url.origin}${url.pathname}`) {
-      throw new Error("Connexion ChatGPT expirée ou compte MergeOne différent.");
+    if (transaction.expiresAt < Date.now()) throw new ChatGptSignInError("expired");
+    if (transaction.userId !== owner.userId || transaction.tenantId !== owner.tenantId) throw new ChatGptSignInError("owner");
+    if (transaction.redirectUri !== `${url.origin}${url.pathname}`) throw new ChatGptSignInError("callback");
+    if (url.searchParams.has("error")) {
+      throw new ChatGptSignInError(url.searchParams.get("error") === "access_denied" ? "cancelled" : "provider");
     }
-    if (url.searchParams.has("error")) throw new Error("Connexion ChatGPT annulée. Vous pouvez réessayer.");
     const code = url.searchParams.get("code");
     const issuedId = url.searchParams.get("client_id");
     const clientId = issuedId ?? transaction.clientId;
-    if (!code || !clientId.startsWith("oaiapp_") ||
-      (transaction.profileId && clientId !== transaction.clientId)) throw new Error("Inscription ChatGPT incomplète.");
+    // OAuth client IDs are opaque. The documented oaiapp_ prefix is an example,
+    // not an identity check; the issued ID must still match the verified audience.
+    if (!code || !clientId || clientId === "dynamic_agent_client" || clientId.length > 512 ||
+      (transaction.profileId && clientId !== transaction.clientId)) throw new ChatGptSignInError("registration");
 
     // Persist a new issued registration before code exchange, even if that code expires.
     await withChatGptLock(owner, async () => {
@@ -133,10 +146,11 @@ export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, co
         grant_type: "authorization_code", client_id: clientId, code,
         code_verifier: transaction.verifier, redirect_uri: transaction.redirectUri, resource: RESOURCE,
       }));
-      if (!tokens.id_token || tokens.token_type.toLowerCase() !== "bearer") throw new Error("Identité ChatGPT absente.");
-      const { payload } = await jwtVerify(tokens.id_token, jwks, { issuer: ISSUER, audience: clientId, algorithms: ["RS256"], requiredClaims: ["exp", "sub", "nonce"] });
+      if (!tokens.id_token || tokens.token_type.toLowerCase() !== "bearer") throw new ChatGptSignInError("response");
+      const { payload } = await jwtVerify(tokens.id_token, jwks, { issuer: ISSUER, audience: clientId, algorithms: ["RS256"], requiredClaims: ["exp", "sub", "nonce"] })
+        .catch(() => { throw new ChatGptSignInError("identity"); });
       if (payload.nonce !== transaction.nonce || !payload.sub ||
-        (profile.subject && payload.sub !== profile.subject)) throw new Error("Identité ChatGPT différente ou non vérifiable.");
+        (profile.subject && payload.sub !== profile.subject)) throw new ChatGptSignInError("identity");
       Object.assign(profile, {
         subject: payload.sub, email: typeof payload.email === "string" ? payload.email : "Compte ChatGPT",
         accessToken: tokens.access_token, refreshToken: tokens.refresh_token, idToken: tokens.id_token,

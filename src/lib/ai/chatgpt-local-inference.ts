@@ -52,6 +52,7 @@ export async function readChatGptResponse(response: Response) {
   let pending = "";
   let bytes = 0;
   let completed: Record<string, unknown> | null = null;
+  const streamedText = new Map<string, string>();
   try {
     for (;;) {
       const { value, done } = await reader.read();
@@ -68,12 +69,22 @@ export async function readChatGptResponse(response: Response) {
         const data = event.split("\n").filter((line) => line.startsWith("data:"))
           .map((line) => line.slice(5).trimStart()).join("\n");
         if (!data || data === "[DONE]") continue;
-        const parsed = JSON.parse(data) as { type?: string; response?: Record<string, unknown>; code?: string };
+        const parsed = JSON.parse(data) as {
+          type?: string; response?: Record<string, unknown>; code?: string;
+          output_index?: number; content_index?: number; delta?: string; text?: string;
+        };
         if (["response.failed", "response.incomplete", "error"].includes(parsed.type ?? "")) {
           const error = parsed.response?.error as { code?: string } | undefined;
           throw providerError(error?.code ?? parsed.code);
         }
         if (parsed.type === "response.completed") completed = parsed.response ?? null;
+        const part = `${parsed.output_index ?? 0}:${parsed.content_index ?? 0}`;
+        if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
+          streamedText.set(part, (streamedText.get(part) ?? "") + parsed.delta);
+        }
+        if (parsed.type === "response.output_text.done" && typeof parsed.text === "string") {
+          streamedText.set(part, parsed.text);
+        }
       }
     }
   } finally {
@@ -83,9 +94,12 @@ export async function readChatGptResponse(response: Response) {
   if (!completed || completed.status !== "completed") throw providerError();
   const output = z.array(z.object({
     type: z.string(), content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
-  })).parse(completed.output);
-  const text = output.filter((item) => item.type === "message").flatMap((item) => item.content ?? [])
+  })).parse(completed.output ?? []);
+  const finalText = output.filter((item) => item.type === "message").flatMap((item) => item.content ?? [])
     .filter((item) => item.type === "output_text").map((item) => item.text ?? "").join("");
+  // ChatGPT plan streams can leave output empty in the completed response.
+  // Streamed text becomes usable only after that terminal success is verified.
+  const text = finalText || [...streamedText.values()].join("");
   if (!text) throw providerError();
   const usage = z.object({
     input_tokens: z.number().default(0), output_tokens: z.number().default(0), total_tokens: z.number().default(0),

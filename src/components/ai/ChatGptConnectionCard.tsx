@@ -9,6 +9,7 @@ import {
 import { PageSection } from "@/components/layout/page-section";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { chatGptSignInErrorMessage } from "@/lib/ai/chatgpt-sign-in-errors";
 
 type Connection = NonNullable<Awaited<ReturnType<typeof loadChatGptConnection>>>;
 
@@ -32,9 +33,10 @@ export function ChatGptConnectionCard() {
     if (window.location.hostname !== "127.0.0.1") return;
     const query = new URLSearchParams(window.location.search);
     const connected = query.get("chatgpt") === "connected";
-    if (query.get("chatgpt") === "failed") setError("La connexion ChatGPT n’a pas abouti. Réessayez en autorisant l’utilisation du forfait.");
+    if (query.get("chatgpt") === "failed") setError(chatGptSignInErrorMessage(query.get("chatgpt_error")));
     if (query.has("chatgpt")) {
       query.delete("chatgpt");
+      query.delete("chatgpt_error");
       window.history.replaceState(null, "", `${window.location.pathname}${query.size ? `?${query}` : ""}`);
     }
     void reload().then((state) => {

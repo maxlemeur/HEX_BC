@@ -19,6 +19,22 @@ function stream(events: unknown[], crlf = false) {
 }
 afterEach(() => { vi.unstubAllGlobals(); });
 describe("ChatGPT plan inference", () => {
+  it("retains streamed output when the completed plan response carries no output items", async () => {
+    const result = await readChatGptResponse(stream([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: '{"amount":' },
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: "12}" },
+      { type: "response.output_text.done", output_index: 0, content_index: 0, text: '{"amount":12}' },
+      { ...completed, response: { ...completed.response, output: [] } },
+    ]));
+    expect(JSON.parse(result.text)).toEqual({ amount: 12 });
+    expect(result.usage.total_tokens).toBe(17);
+  });
+  it("still rejects streamed text from an empty-output response that never completes", async () => {
+    await expect(readChatGptResponse(stream([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: '{"amount":12}' },
+      { type: "response.output_text.done", output_index: 0, content_index: 0, text: '{"amount":12}' },
+    ]))).rejects.toThrow();
+  });
   it("accepts only a completed stream and reads token usage", async () => {
     const result = await readChatGptResponse(stream([{ type: "response.output_text.delta", delta: "partial" }, completed], true));
     expect(JSON.parse(result.text)).toEqual({ amount: 12 }); expect(result.usage.total_tokens).toBe(17);

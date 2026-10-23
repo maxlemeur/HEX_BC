@@ -337,6 +337,16 @@ describe("zodToGeminiJsonSchema", () => {
     });
   });
 
+  it("keeps every alternative when Zod compacts a nullable union into a type array", () => {
+    const jsonSchema = zodToGeminiJsonSchema(z.object({
+      value: z.union([z.string(), z.number()]).nullable(),
+    }));
+    expect(jsonSchema.properties).toEqual({
+      value: { anyOf: [{ type: "string" }, { type: "number" }, { type: "null" }] },
+    });
+    expect(collectUnsupportedGeminiSchemaKeys(jsonSchema)).toEqual([]);
+  });
+
   it("throws when a schema cannot be represented in JSON Schema", () => {
     const nonRepresentableSchema = z.object({
       issued_at: z.date(),
