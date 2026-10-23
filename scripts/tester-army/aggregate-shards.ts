@@ -140,6 +140,7 @@ function checkPlan(plan: Plan, problems: string[]) {
 function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[]; plan?: Plan; scope: string; wholeSuite?: boolean } {
   if (input.suite === "calc-v3") {
     const phases = strings(input.plan);
+    if (phases?.length === 1 && phases[0] === "none") return { units: [], scope: "not-run" };
     if (!phases || phases.length === 0 || phases.some((phase) => !/^[a-z0-9-]+$/u.test(phase)) || new Set(phases).size !== phases.length) {
       problems.push("The calc-v3 plan must list distinct phase names.");
       return { units: [], scope: "calc-v3" };

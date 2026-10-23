@@ -141,8 +141,8 @@ export default {
   projectId: `miaouffrage-calc-v3-${phase}`,
   tests: [...definition.tests],
   targets: [{
-    name: "chromium-desktop",
-    engine: web({ browser: "chromium", viewport: { width: 1280, height: 800 } }),
+    name: definition.target ?? "chromium-desktop",
+    engine: web({ browser: "chromium", viewport: definition.target === "chromium-mobile" ? { width: 390, height: 844 } : { width: 1280, height: 800 } }),
     app: {
       // clearState reopens app.url. Emission needs a real anonymous entry,
       // without the homepage's decorative CDN request under its strict guard.

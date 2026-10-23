@@ -138,7 +138,7 @@ function redactArmyText(text) {
   const localDatabaseUrl = process.env.E2E_ARMY_LOCAL_DB_URL;
   let localDatabasePassword;
   try { localDatabasePassword = localDatabaseUrl ? decodeURIComponent(new URL(localDatabaseUrl).password) : undefined; } catch { /* Invalid fixture URLs are rejected by the fixture guard. */ }
-  for (const [label, secret] of Object.entries({ password: process.env.E2E_LOGIN_PASSWORD, email: process.env.E2E_LOGIN_EMAIL,
+  for (const [label, secret] of Object.entries({ ...Object.fromEntries(Object.entries(process.env).filter(([key]) => /^E2E_BUSINESS_.*_(?:EMAIL|PASSWORD)$/.test(key))), password: process.env.E2E_LOGIN_PASSWORD, email: process.env.E2E_LOGIN_EMAIL,
     "anon-key": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, "service-role-key": process.env.SUPABASE_SERVICE_ROLE_KEY,
     "portal-token": process.env.E2E_UX_PORTAL_TOKEN, "fixture-database-url": localDatabaseUrl,
     "fixture-database-password": localDatabasePassword })) {

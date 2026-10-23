@@ -28,7 +28,7 @@ type Preparation = {
 // Failure modes preceded the implementation in purchase-draft-eligibility.md.
 // Only the isolated native Supabase runtime may host these fixtures.
 test("local purchase drafts recheck current supplier conditions without changing the estimate", {
-  session: "army", trace: "off", timeout: 300_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   if (backend.protocol !== "http:" || backend.hostname !== "127.0.0.1" || backend.username || backend.password) {

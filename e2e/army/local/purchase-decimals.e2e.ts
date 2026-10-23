@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { test } from "@e2e-dev/web";
@@ -7,7 +7,7 @@ import { expect } from "e2e";
 import { strFromU8, unzipSync } from "fflate";
 import * as xlsx from "xlsx";
 
-import { apiRequest, readEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
+import { apiRequest, readEstimate, recordEvidence, resolveDownload, type ArmyState } from "../critical/fixtures";
 import { sdkResultsRoot } from "./sdk-results";
 
 type Browser = Parameters<typeof apiRequest>[0];
@@ -24,6 +24,7 @@ type Fixture = {
   requests: Array<{ pathname: string; method: string }>;
   bulk?: { prefix: string; orders: Array<{ id: string; reference: string; label: string; template: Line;
     itemIds: string[]; itemCount: number; edit_revision: number; total_ht_cents: number; total_tax_cents: number; total_ttc_cents: number }> };
+  bulkConcurrent?: Fixture["bulk"];
   oversizedOrderId?: string;
   oversized?: { itemIds: string[]; itemCount: number; reference: string };
 };
@@ -49,7 +50,7 @@ type Created = { idempotency_key: string; replayed: boolean; orders: Array<{
 const fixtureTest = test.extend<{ fixture: Fixture }>({
   fixture: async ({ app, browser }, provide) => {
     const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
-    if (backend.origin !== "http://127.0.0.1:59827" || backend.username || backend.password) {
+    if ((backend.protocol !== "http:" || backend.hostname !== "127.0.0.1") || backend.username || backend.password) {
       throw new Error("Decimal purchases require the exact isolated backend.");
     }
     const file = process.env.E2E_PURCHASE_DECIMALS_FIXTURE_PATH;
@@ -116,37 +117,13 @@ function manualRequest(fixture: Fixture, lines = fixture.lines.filter((line) => 
 
 function normalized(value: string) { return value.replace(/\s+/g, " ").trim(); }
 function money(cents: number) { return normalized(new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100)); }
-async function artifactFiles(directory: string): Promise<string[]> {
-  const result: string[] = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.isSymbolicLink()) throw new Error("Download evidence must not follow symlinks.");
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) result.push(...await artifactFiles(file));
-    else result.push(file);
-  }
-  return result;
-}
-async function retainDownload(army: ArmyState, browser: Browser, format: string, trigger: () => Promise<void>) {
+async function retainDownload(_army: ArmyState, browser: Browser, _format: string, trigger: () => Promise<void>) {
   const root = sdkResultsRoot();
-  const scoped = path.relative(path.resolve(".e2e/product-foundation/runs"), root);
-  if (!scoped || scoped.startsWith("..") || path.isAbsolute(scoped)) throw new Error("Download root must stay inside the explicit current campaign.");
-  const before = new Set(await artifactFiles(root));
   const download = await browser.waitForDownload(trigger);
-  // TesterArmy returns an attempt-relative path. Bind it to the unique new
-  // artifact from this exact call, never to cwd or a previous campaign file.
-  const returnedPath = path.normalize(download.path);
-  if (returnedPath.split(path.sep).includes("..")) throw new Error("Unsafe returned download path.");
-  const candidates = (await artifactFiles(root)).filter((file) => !before.has(file) &&
-    (path.isAbsolute(returnedPath) ? file === returnedPath : file.endsWith(path.sep + returnedPath)));
-  if (candidates.length !== 1) throw new Error(`Expected one new artifact for this download; found ${candidates.length}.`);
-  const source = candidates[0];
-  const bytes = await readFile(source);
-  const directory = path.resolve(".e2e/army/critical/artifacts/business", `${army.runPrefix}-exports`);
-  await mkdir(directory, { recursive: true });
-  const file = path.join(directory, `purchase.${format}`);
-  await copyFile(source, file);
+  const file = await resolveDownload(download);
+  const bytes = await readFile(file);
   return { bytes, evidence: { path: file, filename: download.suggestedFilename,
-    runnerArtifactPath: path.relative(root, source).replaceAll("\\", "/"),
+    runnerArtifactPath: path.relative(root, file).replaceAll("\\", "/"),
     bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") } };
 }
 function assertExportRows(rows: Array<Record<string, unknown>>, lines: Line[], fixture: Fixture) {
@@ -181,7 +158,7 @@ function assertDocumentRows(rows: string[][], lines: Line[], fixture: Fixture, s
 }
 
 decimalTest("local decimal purchase note-only editing preserves line identity and provenance", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   await app.open(`/dashboard/orders/${fixture.noteOrderId}/edit`);
   const beforeSource = await readEstimate(browser, fixture.versionId);
@@ -280,7 +257,7 @@ decimalTest("local decimal purchase note-only editing preserves line identity an
 });
 
 decimalTest("local decimal purchase form persists fractional quantities and exact line cents", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   for (const line of fixture.lines.filter((line) => line.label !== "integer")) {
     await app.open(`/dashboard/orders/${fixture.quantityOrderId}/edit`);
@@ -325,7 +302,7 @@ decimalTest("local decimal purchase form persists fractional quantities and exac
 });
 
 decimalTest("local decimal purchase preparation creates exact quantities and replays its receipt", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   await app.open(`/dashboard/affaires/${fixture.projectId}`);
   const source = await readEstimate(browser, fixture.versionId);
@@ -428,7 +405,7 @@ decimalTest("local decimal purchase preparation creates exact quantities and rep
 });
 
 decimalTest("local decimal manual purchase accepts fractional lines with exact per-line rounding", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   await app.open("/dashboard/orders");
   // 0.145 * 100 is 14.499999999999998 in binary floating point; this
@@ -498,7 +475,7 @@ decimalTest("local decimal manual purchase accepts fractional lines with exact p
 });
 
 decimalTest("local decimal purchase rejects a mixed valid and zero request without dropping a line", {
-  session: "army", trace: "off", timeout: 120_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 120_000,
 }, async ({ app, browser, fixture, army }) => {
   await app.open("/dashboard/orders");
   const invalids = [0, -1, 0.0001, null, undefined, "", "0.125", "abc", 2147483648];
@@ -517,10 +494,10 @@ decimalTest("local decimal purchase rejects a mixed valid and zero request witho
 });
 
 decimalTest("local legacy purchase preserves unknown units until explicit audited confirmation", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   const file = process.env.E2E_PURCHASE_DECIMALS_LEGACY_FIXTURE_PATH;
-  if (!file) throw new Error("An explicit unused pre-migration legacy fixture is required.");
+  if (!file) throw new Error("An explicit unused synthetic legacy restoration fixture is required.");
   const legacy = JSON.parse(await readFile(file, "utf8")) as Fixture;
   expect(legacy.status).toBe("ready");
   expect(legacy.apiUrl).toBe(fixture.apiUrl);
@@ -606,8 +583,10 @@ for (const corrected of [false, true]) {
 decimalTest(corrected
   ? "local decimal export rereads coherent headers and lines after a concurrent edit"
   : "local decimal export downloads all 1200 selected lines without silent truncation", {
-  session: "army", trace: "off", timeout: 300_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 300_000,
 }, async ({ app, screen, browser, fixture, army }) => {
+  // Concurrent edit and read-only export own distinct order pairs.
+  if (corrected) fixture.bulk = fixture.bulkConcurrent;
   const bulk = fixture.bulk;
   if (!bulk || bulk.orders.length !== 2 || bulk.orders.some((order) => order.itemCount !== 600)) {
     throw new Error("Two new dedicated 600-line ARMY export orders are required.");
@@ -654,7 +633,7 @@ decimalTest(corrected
 }
 
 decimalTest("local oversized purchase refuses truncated editing detail print and ZIP without losing lines", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   const id = fixture.oversizedOrderId;
   if (!id || fixture.oversized?.itemCount !== 1001) throw new Error("A new 1001-line ARMY direct-write witness is required.");

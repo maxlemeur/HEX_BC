@@ -73,7 +73,8 @@
     "engine:v3:parity": "node --import tsx scripts/engine-v3/parity.ts",
     "engine:v3:optima-lot-check": "node --import tsx scripts/engine-v3/optima-lot-check.ts",
     "engine:v3:performance": "node --import tsx scripts/engine-v3/performance.ts",
-    "e2e:army:calc-v3": "node --import tsx scripts/run-tester-army-ci.ts calc-v3"
+    "e2e:army:calc-v3": "node --import tsx scripts/run-tester-army-ci.ts calc-v3",
+    "e2e:army:explore": "node --import tsx scripts/run-tester-army-ci.ts explore"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

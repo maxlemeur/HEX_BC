@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,11 +73,18 @@ function reply(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-export async function startCollector({ directory, port = 0 }) {
+export async function startCollector({ directory, port = 0, faultPlanPath, attemptLogPath }) {
   if (!Number.isInteger(port) || port < 0 || port > 65535 || !path.isAbsolute(directory)) throw new Error("Absolute fresh run directory and valid port required.");
+  const runDirectory = path.dirname(path.resolve(directory));
+  if ((faultPlanPath || attemptLogPath) && (path.basename(directory) !== "collector"
+    || faultPlanPath !== path.join(runDirectory, "private", "collector-faults.json")
+    || attemptLogPath !== path.join(runDirectory, "public", "collector-attempts.jsonl"))) {
+    throw new Error("Collector fault injection requires the exact private plan and public witness of its owned run.");
+  }
   const receiptRoot = path.join(path.resolve(directory), "receipts");
   await mkdir(receiptRoot); // Fresh ownership; never reuse a previous run.
   const recorded = new Map();
+  const faultAttempts = new Map();
   let queue = Promise.resolve();
   let closed = false;
   const server = http.createServer(async (request, response) => {
@@ -94,6 +101,31 @@ export async function startCollector({ directory, port = 0 }) {
       const valid = validate(payload);
       const keyHash = sha(key);
       const payloadHash = sha(canonical(payload));
+      let fault;
+      if (faultPlanPath) {
+        let plan;
+        try { plan = JSON.parse(await readFile(faultPlanPath, "utf8")); }
+        catch (error) { if (error.code !== "ENOENT") throw new PacketError(500, "api_error", "Local fault plan unreadable."); }
+        if (plan) {
+          if (plan.schemaVersion !== 1 || !/^[a-f0-9-]{36}$/i.test(plan.id ?? "")
+            || typeof plan.recipient !== "string" || !/^ARMY-OFFER-[a-z0-9-]+@offer\.invalid$/i.test(plan.recipient)
+            || !Array.isArray(plan.responses) || plan.responses.length > 3
+            || plan.responses.some((value) => !["rejected", "retryable", "accepted-unknown"].includes(value))) {
+            throw new PacketError(500, "api_error", "Local fault plan has invalid scope.");
+          }
+          if (valid.to.length === 1 && valid.to[0] === plan.recipient) {
+            const count = faultAttempts.get(plan.id) ?? 0;
+            fault = plan.responses[count];
+            faultAttempts.set(plan.id, count + 1);
+          }
+        }
+      }
+      if (attemptLogPath) await appendFile(attemptLogPath, `${JSON.stringify({
+        schemaVersion: 1, time: new Date().toISOString(), keySha256: keyHash, payloadSha256: payloadHash,
+        fault: fault ?? null,
+      })}\n`, { mode: 0o600 });
+      if (fault === "rejected") throw new PacketError(422, "validation_error", "ARMY deterministic provider rejection.");
+      if (fault === "retryable") throw new PacketError(503, "internal_server_error", "ARMY transient provider failure.");
       const work = queue.then(async () => {
         const prior = recorded.get(keyHash);
         if (prior) {
@@ -121,6 +153,9 @@ export async function startCollector({ directory, port = 0 }) {
       });
       queue = work.catch(() => undefined);
       const id = await work;
+      // The payload was committed, but the provider response is ambiguous.
+      // The application must reconcile its outbox without another delivery.
+      if (fault === "accepted-unknown") throw new PacketError(409, "invalid_idempotent_request", "ARMY accepted receipt with ambiguous provider acknowledgement.");
       reply(response, 200, { id });
     } catch (error) {
       if (!response.headersSent && !response.destroyed) reply(response, error instanceof PacketError ? error.statusCode : 500, { name: error instanceof PacketError ? error.name : "api_error", statusCode: error instanceof PacketError ? error.statusCode : 500, message: error instanceof PacketError ? error.message : "Local transport failure." });

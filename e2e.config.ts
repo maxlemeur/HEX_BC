@@ -113,12 +113,12 @@ const app = {
 
 export default {
   projectId: coverage ? "miaouffrage-source-coverage" : critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
-  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts", "e2e/army/local/engine-v3-*.e2e.ts", "e2e/army/local/estimate-copy-row-limit.e2e.ts", "e2e/army/local/estimate-row-limit-reads.e2e.ts", "e2e/army/local/supplier-preselection-v1-totals.e2e.ts", "e2e/army/local/bulk-actions-v1-totals.e2e.ts", "e2e/army/local/large-row-completeness.e2e.ts", "e2e/army/local/estimate-copy-large-v2.e2e.ts", "e2e/army/local/affaire-hub-fresh-start.e2e.ts", "e2e/army/local/estimate-reorder-move-large-v2.e2e.ts", "e2e/army/local/legacy-*-parity.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : techDebt ? [
+  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts", "e2e/army/local/engine-v3-*.e2e.ts", "e2e/army/local/estimate-copy-row-limit.e2e.ts", "e2e/army/local/estimate-row-limit-reads.e2e.ts", "e2e/army/local/supplier-preselection-v1-totals.e2e.ts", "e2e/army/local/bulk-actions-v1-totals.e2e.ts", "e2e/army/local/large-row-completeness.e2e.ts", "e2e/army/local/estimate-copy-large-v2.e2e.ts", "e2e/army/local/affaire-hub-fresh-start.e2e.ts", "e2e/army/local/estimate-reorder-move-large-v2.e2e.ts", "e2e/army/local/legacy-*-parity.e2e.ts", "e2e/army/local/article-association.e2e.ts", "e2e/army/local/brief-evidence.e2e.ts", "e2e/army/local/catalogue-provenance.e2e.ts", "e2e/army/local/purchase-decimals.e2e.ts", "e2e/army/local/purchase-draft-eligibility.e2e.ts", "e2e/army/local/purchase-preparation.e2e.ts", "e2e/army/local/purchase-readiness.e2e.ts", "e2e/army/local/reference-price.e2e.ts", "e2e/army/local/source-reference-read.e2e.ts", "e2e/army/local/source-reference.e2e.ts", "e2e/army/local/business-lifecycle.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : techDebt ? [
     "e2e/army/critical/auth.setup.e2e.ts",
     "e2e/army/critical/numeric-entry.e2e.ts",
     "e2e/army/critical/dpgf-import.e2e.ts",
     "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
-  ] : coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? localBusiness ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts", "e2e/army/local/engine-v3-*.e2e.ts", "e2e/army/local/estimate-copy-row-limit.e2e.ts", "e2e/army/local/estimate-row-limit-reads.e2e.ts", "e2e/army/local/supplier-preselection-v1-totals.e2e.ts", "e2e/army/local/bulk-actions-v1-totals.e2e.ts", "e2e/army/local/large-row-completeness.e2e.ts", "e2e/army/local/estimate-copy-large-v2.e2e.ts", "e2e/army/local/affaire-hub-fresh-start.e2e.ts", "e2e/army/local/estimate-reorder-move-large-v2.e2e.ts", "e2e/army/local/legacy-*-parity.e2e.ts"] : "e2e/army/critical/**/*.e2e.ts" : performance
+  ] : coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? localBusiness ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts", "e2e/army/local/engine-v3-*.e2e.ts", "e2e/army/local/estimate-copy-row-limit.e2e.ts", "e2e/army/local/estimate-row-limit-reads.e2e.ts", "e2e/army/local/supplier-preselection-v1-totals.e2e.ts", "e2e/army/local/bulk-actions-v1-totals.e2e.ts", "e2e/army/local/large-row-completeness.e2e.ts", "e2e/army/local/estimate-copy-large-v2.e2e.ts", "e2e/army/local/affaire-hub-fresh-start.e2e.ts", "e2e/army/local/estimate-reorder-move-large-v2.e2e.ts", "e2e/army/local/legacy-*-parity.e2e.ts", "e2e/army/local/article-association.e2e.ts", "e2e/army/local/brief-evidence.e2e.ts", "e2e/army/local/catalogue-provenance.e2e.ts", "e2e/army/local/purchase-decimals.e2e.ts", "e2e/army/local/purchase-draft-eligibility.e2e.ts", "e2e/army/local/purchase-preparation.e2e.ts", "e2e/army/local/purchase-readiness.e2e.ts", "e2e/army/local/reference-price.e2e.ts", "e2e/army/local/source-reference-read.e2e.ts", "e2e/army/local/source-reference.e2e.ts", "e2e/army/local/business-lifecycle.e2e.ts"] : "e2e/army/critical/**/*.e2e.ts" : performance
     ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/performance/**/*.e2e.ts"]
     : "e2e/army/*.e2e.ts",
   targets: [
@@ -154,6 +154,16 @@ export default {
   cache: process.env.E2E_ARMY_SUITE === "agent" ? "read-write" : "off",
   ...(critical || performance || coverage ? {
     credentials: {
+      ...Object.fromEntries(["engineer", "director", "observer"].map((role) => [
+        `business-${role}`, {
+          username: process.env[`E2E_BUSINESS_${role.toUpperCase()}_EMAIL`] ?? "unconfigured@example.invalid",
+          password: () => {
+            const value = process.env[`E2E_BUSINESS_${role.toUpperCase()}_PASSWORD`];
+            if (!value) throw new Error(`Business ${role} password is not provisioned.`);
+            return value;
+          },
+        },
+      ])),
       prehydration: {
         username: "army-prehydration@example.invalid",
         password: () => "ARMY-synthetic-unused-password",
@@ -167,6 +177,15 @@ export default {
         },
       },
     },
+  } : {}),
+  ...((critical || performance || coverage) ? {
+    secrets: Object.fromEntries(["engineer", "director", "observer"].map((role) => [
+      `business-${role}-email`, () => {
+        const value = process.env[`E2E_BUSINESS_${role.toUpperCase()}_EMAIL`];
+        if (!value) throw new Error(`Business ${role} email is not provisioned.`);
+        return value;
+      },
+    ])),
   } : {}),
   agents: {
     default: {

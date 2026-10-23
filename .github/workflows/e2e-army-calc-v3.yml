@@ -1,28 +1,7 @@
 name: TesterArmy calc-v3
 
-# Lot 2 calc-v3 campaign (docs/testing/tester-army-calc-v3.md), as
-# e2e-army-full.yml: the audited target guard is retained and no shared
-# Supabase secret is loaded; run-tester-army-ci creates and destroys its own
-# native loopback stack and runs the phase journeys only after migrations,
-# pgTAP and RLS pass.
-#
-# Nightly: every phase the owned production build serves, one runner
-# invocation (`--phase`) and one owned stack per phase, each phase in its own
-# parallel job (docs/testing/tester-army-ci.md, "Jobs parallèles"); a red
-# phase never stops the others. The army-calc-v3 job is the check: it fails
-# unless every planned phase passed with verified evidence, then retains it
-# all as army-calc-v3-evidence. Since sub-lot 2.7 that is every phase: the
-# emission phases (contract 1 "emission", engine-3 "emission-v3") run from the
-# owned production build with the sandbox terms of its calc-v3 profile, so the
-# guardrail (src/test/ci-guardrails.test.ts) requires both in
-# CALC_V3_NIGHTLY_PHASES below. A dispatch runs the nightly selection, the
-# whole campaign ("all", exactly npm run e2e:army:calc-v3, one job) or one
-# phase.
-#
-# GitHub schedules and dispatches only a workflow already on the default
-# branch: a pull request that edits this file runs the nightly selection, so
-# the workflow change itself is proven before it merges (sub-lot 2.7 included).
-# No other pull request runs it.
+# Owned native stacks, production builds and exact business assertions. PRs
+# select affected phases; unknown impact runs all. Nightly exercises every phase.
 on:
   workflow_dispatch:
     inputs:
@@ -42,10 +21,16 @@ on:
           - offers
           - emission
           - emission-v3
+          - resend-portal
+          - source-coverage
+          - generated-atomic
+          - generated-recovery
+          - navigation-lease
+          - batch-client
+          - assembly-totals
+          - mobile
   pull_request:
     branches: [main]
-    paths:
-      - .github/workflows/e2e-army-calc-v3.yml
   schedule:
     # After the nightly full suite (03:15 UTC), on its own runner.
     - cron: '45 4 * * *'
@@ -118,31 +103,39 @@ jobs:
           [[ "$host" == "$staging" ]] \
             || refuse "NEXT_PUBLIC_SUPABASE_URL ne désigne pas l'hôte de recette E2E_STAGING_SUPABASE_HOST."
           echo "Cible Supabase : hôte de recette distinct de la production."
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
       - name: Plan the calc-v3 phases
         id: plan
-        # Phase names come from env, quoted; only names a JSON list can carry
-        # verbatim pass, and the runner still refuses any that is not a phase.
         env:
-          # The production-served phases (scripts/tester-army/calc-v3-phases.ts).
-          CALC_V3_NIGHTLY_PHASES: "journeys components numeric resume access offers emission emission-v3"
           CALC_V3_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'nightly' }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARMY_FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'army-full') }}
         run: |
           set -euo pipefail
-          case "$CALC_V3_SELECTION" in
-            nightly) read -r -a phases <<< "$CALC_V3_NIGHTLY_PHASES" ;;
-            *) phases=("$CALC_V3_SELECTION") ;;
-          esac
-          for phase in "${phases[@]}"; do
-            [[ "$phase" =~ ^[a-z0-9-]+$ ]] || { echo "::error title=TesterArmy calc-v3::Nom de phase invalide (attendu : [a-z0-9-]+)."; exit 1; }
-          done
-          list="$(printf '"%s",' "${phases[@]}")"
-          echo "phases=[${list%,}]" >> "$GITHUB_OUTPUT"
-          echo "TesterArmy calc-v3 : ${#phases[@]} job(s) : ${phases[*]}."
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-calc-v3.ts
+      - name: Retain the phase selection
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: army-calc-v3-selection
+          include-hidden-files: true
+          path: .e2e/army/ci/calc-v3-selection.json
+          if-no-files-found: error
+          retention-days: 7
 
   # One owned stack per phase; a red phase never cancels the others.
   army-calc-v3-phase:
     name: army-calc-v3 ${{ matrix.phase }}
     needs: army-calc-v3-plan
+    if: needs.army-calc-v3-plan.outputs.phases != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 80
     strategy:
@@ -332,6 +325,7 @@ jobs:
         with:
           node-version-file: .nvmrc
       - name: Download the phase evidence
+        if: needs.army-calc-v3-plan.outputs.phases != '[]'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: army-calc-v3-*-evidence
@@ -344,9 +338,9 @@ jobs:
           PHASES_JSON: ${{ needs.army-calc-v3-plan.outputs.phases }}
         run: |
           set -euo pipefail
-          phases="$(node -e 'process.stdout.write(JSON.parse(process.env.PHASES_JSON || "[]").join(","))')"
+          phases="$(node -e 'const p = JSON.parse(process.env.PHASES_JSON); if (!Array.isArray(p)) process.exit(1); process.stdout.write(p.length ? p.join(",") : "none")')"
           node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/aggregate-shards.ts calc-v3 \
-            --phases "${phases:-none}" --evidence .e2e/army/ci/aggregate-input/phases --out .e2e/army/ci/aggregate \
+            --phases "$phases" --evidence .e2e/army/ci/aggregate-input/phases --out .e2e/army/ci/aggregate \
             --results "army-calc-v3-plan=$PLAN_RESULT,army-calc-v3-phase=$PHASES_RESULT" --revision "$GITHUB_SHA"
       - name: Retain sanitized business evidence
         if: always() && steps.aggregate.outputs.evidence != ''

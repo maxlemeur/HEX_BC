@@ -664,8 +664,8 @@ offerTest("OF03 public HTML and RSC preserve sales presentation without private 
     return {
       regionPresent: region !== null, lineCount: selected.length,
       quantityOne: /^1(?:[,.]0+)?$/.test(cellFor(/^(Qt[eé]|Quantit)/i)), unitU: cellFor(/^U(?:\.|nité)?$/i) === "u",
-      unitSale20: sale20(cellFor(/P\.U\.\s*HT|Prix unitaire/i)), totalSale20: sale20(cellFor(/^Total HT$/i)),
-      hasUnitSaleHeader: headers.some((header) => /P\.U\.\s*HT|Prix unitaire/i.test(header)),
+      unitSale20: sale20(cellFor(/^(?:P\.?U\.?\s*HT|Prix unitaire)$/i)), totalSale20: sale20(cellFor(/^Total HT$/i)),
+      hasUnitSaleHeader: headers.some((header) => /^(?:P\.?U\.?\s*HT|Prix unitaire)$/i.test(header)),
       hasTotalHtHeader: headers.some((header) => /Total HT/i.test(header)),
       privateColumnLabelsPresent: headers.some((header) => /coût|débours|marge|taux horaire|heures/i.test(header)),
       originalTermsTitlePresent: regionText.includes(expected.termsTitle),

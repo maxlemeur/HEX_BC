@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-// @ts-expect-error Deno Edge imports require the explicit TypeScript extension.
+// Deno Edge and native Node type stripping require explicit TypeScript extensions.
 import { isAuthorizedWorkerRelayRequest } from "./security.ts";
 
 declare const Deno: {

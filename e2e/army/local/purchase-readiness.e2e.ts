@@ -28,7 +28,7 @@ function readinessTestFor(fixtureFileVariable: string) {
   const fixtureTest = test.extend<{ fixture: Fixture }>({
     fixture: async ({ app, browser }, provide) => {
       const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
-      if (backend.origin !== "http://127.0.0.1:59827" || backend.username || backend.password) throw new Error("Exact isolated readiness backend required.");
+      if ((backend.protocol !== "http:" || backend.hostname !== "127.0.0.1") || backend.username || backend.password) throw new Error("Exact isolated readiness backend required.");
       const file = process.env[fixtureFileVariable];
       if (!file) throw new Error("An explicit fresh readiness fixture is required.");
       const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
@@ -136,7 +136,7 @@ function sourceValues(source: Awaited<ReturnType<typeof readEstimate>>) {
 }
 
 readinessTest("local purchase readiness counts remaining blocked and transferred lines before and after creation", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
   const href = `/dashboard/affaires/${fixture.projectId}`;
   const endpoint = `/api/estimates/${fixture.versionId}/purchase-order-drafts`;
@@ -216,7 +216,7 @@ readinessTest("local purchase readiness counts remaining blocked and transferred
 
 for (const failure of ["unavailable", "inconsistent-counts"] as const) {
   failureTest(`local purchase readiness ${failure} hides stale claims until canonical preview recovers`, {
-    session: "army", trace: "off", timeout: 150_000,
+    session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 150_000,
   }, async ({ app, screen, browser, fixture, army }) => {
     const href = `/dashboard/affaires/${fixture.projectId}`;
     const panel = browser.locator("#finish-line-orders");

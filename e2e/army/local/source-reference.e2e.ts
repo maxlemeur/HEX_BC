@@ -5,6 +5,8 @@ import { PDFDocument } from "pdf-lib";
 import { test, type Browser } from "@e2e-dev/web";
 import { expect } from "e2e";
 
+import { isOwnedLoopback, requiredFixturePath } from "./owned-business-inputs";
+
 import { readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 
 type Fixture = { status: string; schemaVersion: string; prefix: string; apiUrl: string; tenantId: string; ownerId: string; projectId: string; versionId: string; documents: { A: string; B: string }; corpusManifestSha256: string };
@@ -108,7 +110,7 @@ async function preservePdf(value: PdfRead, copy: Copy, corpus: Corpus, prefix: s
   expect(value.disposition).toContain(corpus.fileName);
   const bytes = Buffer.from(value.bytes);
   expect([hash(bytes), value.sha256, value.length, bytes.length]).toEqual([corpus.sha256, corpus.sha256, String(corpus.byteSize), corpus.byteSize]);
-  expect(bytes.equals(await readFile(path.resolve(".e2e/source-coverage/http-staged", corpus.path)))).toBe(true);
+  expect(bytes.equals(await readFile(path.resolve(requiredFixturePath("E2E_SOURCE_REFERENCE_CORPUS_DIRECTORY"), corpus.path)))).toBe(true);
   expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
   const directory = path.resolve(".e2e/army/critical/artifacts/business");
   await mkdir(directory, { recursive: true });
@@ -118,12 +120,12 @@ async function preservePdf(value: PdfRead, copy: Copy, corpus: Corpus, prefix: s
 }
 
 test("source reference UI prepares and confirms A then B with exact PDF bytes and recovery of the same intention", {
-  session: "army", tags: ["local", "source-reference"], trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "source-reference"], trace: "off", timeout: 240_000,
 }, async ({ app, browser, screen }) => {
   const file = process.env.E2E_SOURCE_REFERENCE_FIXTURE_PATH;
-  if (!file || process.env.NEXT_PUBLIC_SUPABASE_URL !== "http://127.0.0.1:59827") throw new Error("Explicit isolated source-reference fixture required");
+  if (!file || !isOwnedLoopback(process.env.NEXT_PUBLIC_SUPABASE_URL)) throw new Error("Explicit isolated source-reference fixture required");
   const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
-  expect([fixture.status, fixture.schemaVersion, fixture.apiUrl]).toEqual(["ready", "source-reference-http-fixture-1", "http://127.0.0.1:59827"]);
+  expect([fixture.status, fixture.schemaVersion, fixture.apiUrl]).toEqual(["ready", "source-reference-http-fixture-1", process.env.NEXT_PUBLIC_SUPABASE_URL]);
   expect([fixture.versionId, fixture.projectId, fixture.ownerId, fixture.tenantId, fixture.documents.A, fixture.documents.B].every((id) => UUID.test(id))).toBe(true);
   const recoveryFile = process.env.E2E_SOURCE_REFERENCE_RECOVERY_INPUT;
   const recoveryInput = recoveryFile ? JSON.parse(await readFile(recoveryFile, "utf8")) as { status: string; phase: string; fixtureSha256: string; recovery: Recovery } : null;
@@ -134,7 +136,7 @@ test("source reference UI prepares and confirms A then B with exact PDF bytes an
     expect(recovery?.restoredIntent).toEqual({ schemaVersion: 1, actorId: fixture.ownerId, tenantId: fixture.tenantId, versionId: fixture.versionId, preparation: recovery?.preparation, copyId: null, confirmation: null });
     expect([recovery?.preparation.documentId, recovery?.preparation.expectedRevision]).toEqual([fixture.documents.A, 0]);
   }
-  const manifestBytes = await readFile(".e2e/source-coverage/http-staged/fixtures/manifest.json");
+  const manifestBytes = await readFile(path.join(requiredFixturePath("E2E_SOURCE_REFERENCE_CORPUS_DIRECTORY"), "fixtures/manifest.json"));
   expect(hash(manifestBytes)).toBe(fixture.corpusManifestSha256);
   const corpus = (JSON.parse(manifestBytes.toString("utf8")) as { documents: Corpus[] }).documents;
   const a = corpus.find((entry) => entry.revision === "A")!, b = corpus.find((entry) => entry.revision === "B")!;

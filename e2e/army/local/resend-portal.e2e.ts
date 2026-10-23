@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -6,7 +6,8 @@ import { credentials, expect, secrets, type App, type Screen } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, setLineCoreValues, type ArmyItem, type ArmyState } from "../critical/fixtures";
-import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
+import { admitCollectedReconciliation, admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
+import { expireOwnedCollectedPortal, observeOwnedOffer } from "./offer-emission-state";
 
 // Failure modes precede this harness in docs/testing/offer-emission-business-cases.md.
 const options = { session: "army", trace: "off" as const, tags: ["resend-portal"], timeout: 360000 };
@@ -352,6 +353,18 @@ for (const [caseId, decision, portalLabel, expectedParent] of [
     await expect(ui.screen.getByRole("button", "Refuser le devis", { exact: true })).not.toBeVisible();
     const downloadedAfter = await actualPortalPdf(ui);
     expect(downloadedAfter).toEqual(downloadedBefore);
+    await admitCollectedResendDecision(ui.army, { ...prepared.ids, receiptDirectory: second.directory,
+      providerId: second.receipt.id, initialProviderId: first.receipt.id, portalUrl: second.portalUrl,
+      initialPortalUrl: first.portalUrl, decision, reason });
+    const repeated = await ui.browser.evaluate(async (input) => {
+      const capability = location.pathname.match(/^\/portal\/([a-f0-9-]{36})$/i)?.[1];
+      if (!capability) throw new Error("The collected portal must be open.");
+      const response = await fetch(`/api/portal/${capability}/${input.decision}`, { method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input.decision === "accept" ? { accepted_terms: true } : { reason: input.reason }) });
+      return { status: response.status, body: await response.json() };
+    }, { decision, reason });
+    expect(repeated.status).toBe(409);
     const notificationResponses = (await collectorHttpEvents()).slice(notificationsBefore.length).filter((event) => event.route === "emails" && event.method === "POST");
     expect(notificationResponses.map((event) => event.status)).toEqual(decision === "accept" ? [400] : []);
     // The business decision succeeds; confirmation delivery is deliberately
@@ -376,11 +389,221 @@ for (const [caseId, decision, portalLabel, expectedParent] of [
       ht: item.line_total_ht_cents, tax: item.line_tax_cents, ttc: item.line_total_ttc_cents })))
       .toEqual(baseline.items.map((item) => ({ id: item.id, title: item.title, quantity: item.quantity,
         ht: item.line_total_ht_cents, tax: item.line_tax_cents, ttc: item.line_total_ttc_cents })));
+    const persistedOffer = await observeOwnedOffer(ui.army, prepared.ids.versionId);
+    expect(persistedOffer.dispatches.filter((entry) => [first.receipt.id, second.receipt.id].includes(entry.provider_id ?? "")))
+      .toHaveLength(2);
+    expect(persistedOffer.capabilities.filter((entry) => entry.status === (decision === "accept" ? "accepted" : "rejected"))).toHaveLength(1);
     await recordOfferEvidence(ui.army, `${caseId}-resend-portal-retained`, { ids: prepared.ids, decision, expectedParent,
       initialProviderId: first.receipt.id, resendProviderId: second.receipt.id, pdf: second.receipt.pdf,
       downloadedAfter, sealHash, sealPayloadVersion: 5, revisionRetained: true, fixtureRetained: true,
-      notificationResponses, notificationDeliveryQualified: false, independentDispatchProofRequired: true,
-      nativeReaderCommandPrepared: true, sourcePointer: `private/resend-${caseId}.json` });
+      notificationResponses, notificationDeliveryQualified: false, repeated, persistedOffer,
+      sourcePointer: `private/resend-${caseId}.json` });
   });
 }
+
+type Fault = "rejected" | "retryable" | "accepted-unknown";
+async function setCollectorFault(ui: OfferUi, recipient: string, responses: Fault[]) {
+  const run = path.resolve(process.env.E2E_OFFER_RUN_DIRECTORY ?? "");
+  const file = process.env.E2E_OFFER_FAULT_PLAN;
+  if (file !== path.join(run, "private", "collector-faults.json") || !recipient.startsWith(ui.army.runPrefix)
+    || !recipient.endsWith("@offer.invalid")) throw new Error("An exact owned collector fault plan is required.");
+  await writeFile(file, `${JSON.stringify({ schemaVersion: 1, id: randomUUID(), recipient, responses })}\n`, { mode: 0o600 });
+}
+
+async function collectorAttempts() {
+  const file = process.env.E2E_OFFER_ATTEMPT_LOG;
+  if (!file || file !== path.join(process.env.E2E_OFFER_RUN_DIRECTORY!, "public", "collector-attempts.jsonl")) {
+    throw new Error("The owned collector attempt witness is required.");
+  }
+  return (await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  })).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+    keySha256: string; payloadSha256: string; fault: Fault | null;
+  });
+}
+
+async function submitIncident(ui: OfferUi, versionId: string, recipient: string, caseId: string) {
+  await ui.screen.getByRole("button", /^(Envoyer par email|Reprendre l’envoi)$/).click();
+  const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
+  await expect(modal).toBeVisible();
+  await modal.getByLabel("Destinataire *", { exact: true }).fill(recipient);
+  await modal.getByLabel("Objet *", { exact: true }).fill(`${caseId} offre commerciale`);
+  await modal.getByLabel("Message *", { exact: true }).fill("Veuillez consulter notre proposition et son PDF contractuel.");
+  const [response] = await Promise.all([
+    ui.browser.waitForResponse(new URL(`/api/estimates/${versionId}/send`, ui.app.baseUrl!).href, { timeout: 120000 }),
+    modal.getByRole("button", "Envoyer", { exact: true }).click(),
+  ]);
+  const body = await response.json<{ ok: boolean; data?: { message_id: string }; error?: { code: string; message: string } }>();
+  if (!body.ok) {
+    await expect(modal.getByText(body.error!.message, { exact: true })).toBeVisible();
+    await modal.getByRole("button", "Annuler", { exact: true }).click();
+  } else await expect(modal).not.toBeVisible();
+  return { status: response.status, body };
+}
+
+for (const [caseId, faults, expectedCode, firstStatus] of [
+  ["EIR", ["rejected"], "ESTIMATE_EMAIL_PROVIDER_REJECTED", "failed"],
+  ["EIT", ["retryable", "retryable", "retryable"], "ESTIMATE_EMAIL_RETRYABLE", "queued"],
+] as const) {
+  offerTest(`${caseId} retries the actual failed email with the correct persisted envelope and one receipt`, options, async (ui) => {
+    const prepared = await prepare(ui, caseId);
+    const recipient = `${ui.army.runPrefix}-${caseId}@offer.invalid`;
+    const beforeReceipts = await receiptNames();
+    const beforeAttempts = (await collectorAttempts()).length;
+    await setCollectorFault(ui, recipient, [...faults]);
+    const rejected = await submitIncident(ui, prepared.ids.versionId, recipient, caseId);
+    const first = await observeOwnedOffer(ui.army, prepared.ids.versionId);
+    await recordOfferEvidence(ui.army, `${caseId}-first`, { rejected, first, attempts: (await collectorAttempts()).slice(beforeAttempts) });
+    expect(rejected.body.error?.code).toBe(expectedCode);
+    expect(first.dispatches).toHaveLength(1);
+    expect(first.dispatches[0].status).toBe(firstStatus);
+    expect(await receiptNames()).toEqual(beforeReceipts);
+    expect((await collectorAttempts()).slice(beforeAttempts).map((entry) => entry.fault)).toEqual([...faults]);
+    const failedVersion = await readEstimate(ui.browser, prepared.ids.versionId);
+    expect(failedVersion.version.status).toBe(firstStatus === "failed" ? "draft" : "sending");
+    if (firstStatus === "failed") expect(failedVersion.version.seal_hash).toBe(null);
+
+    await setCollectorFault(ui, recipient, []);
+    await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
+    const retried = await submitIncident(ui, prepared.ids.versionId, recipient, caseId);
+    const after = await observeOwnedOffer(ui.army, prepared.ids.versionId);
+    const attempts = (await collectorAttempts()).slice(beforeAttempts);
+    await recordOfferEvidence(ui.army, `${caseId}-retry`, { retried, first, after, attempts });
+    expect(retried.status).toBe(200);
+    expect(retried.body.ok).toBe(true);
+    expect((await receiptNames()).length).toBe(beforeReceipts.length + 1);
+    expect(after.dispatches).toHaveLength(firstStatus === "failed" ? 2 : 1);
+    const sent = after.dispatches.find((entry) => entry.status === "sent")!;
+    expect(sent.provider_id).toBe(retried.body.data!.message_id);
+    if (firstStatus === "failed") {
+      expect(sent.requestSha256).not.toBe(first.dispatches[0].requestSha256);
+      expect(sent.providerKeySha256).not.toBe(first.dispatches[0].providerKeySha256);
+    } else {
+      expect(sent.id).toBe(first.dispatches[0].id);
+      expect(sent.requestSha256).toBe(first.dispatches[0].requestSha256);
+      expect(new Set(attempts.map((entry) => entry.keySha256)).size).toBe(1);
+      expect(new Set(attempts.map((entry) => entry.payloadSha256)).size).toBe(1);
+    }
+    const receipt = await collected(retried.body.data!.message_id);
+    expect(sent.document_sha256).toBe(receipt.receipt.pdf.sha256);
+    await ui.browser.reload();
+    const persisted = await readEstimate(ui.browser, prepared.ids.versionId);
+    expect(persisted.version.status).toBe("sent");
+    expect(totals(persisted.version)).toEqual([2000, 400, 2400]);
+  });
+}
+
+offerTest("EIU reconciles an ambiguous collected delivery through the admin UI without sending again", options, async (ui) => {
+  const prepared = await prepare(ui, "EIU");
+  const recipient = `${ui.army.runPrefix}-EIU@offer.invalid`;
+  const beforeReceipts = await receiptNames();
+  const beforeAttempts = (await collectorAttempts()).length;
+  await setCollectorFault(ui, recipient, ["accepted-unknown"]);
+  const ambiguous = await submitIncident(ui, prepared.ids.versionId, recipient, "EIU");
+  const unknown = await observeOwnedOffer(ui.army, prepared.ids.versionId);
+  await recordOfferEvidence(ui.army, "EIU-unknown", { ambiguous, unknown });
+  expect(ambiguous.body.error?.code).toBe("ESTIMATE_EMAIL_DELIVERY_UNKNOWN");
+  expect(unknown.dispatches).toHaveLength(1);
+  expect(unknown.dispatches[0].status).toBe("unknown");
+  const added = (await receiptNames()).filter((name) => !beforeReceipts.includes(name));
+  expect(added).toHaveLength(1);
+  const directory = path.join(collectorDirectory(), added[0]);
+  const receipt = JSON.parse(await readFile(path.join(directory, "public", "receipt.json"), "utf8")) as Receipt;
+  const before = await readEstimate(ui.browser, prepared.ids.versionId);
+  expect(before.version.status).toBe("sending");
+  await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
+  await expect(ui.screen.getByTestId("estimate-email-dispatch-problem")).toContainText("indéterminé");
+  const refusedReplay = await submitIncident(ui, prepared.ids.versionId, recipient, "EIU");
+  expect(refusedReplay.body.error?.code).toBe("ESTIMATE_EMAIL_DELIVERY_UNKNOWN");
+  expect((await collectorAttempts()).length).toBe(beforeAttempts + 1);
+  const mark = ui.screen.getByRole("button", "Marquer envoyé", { exact: true });
+  await expect(mark).toBeDisabled();
+  await admitCollectedReconciliation(ui.army, { versionId: prepared.ids.versionId, dispatchId: unknown.dispatches[0].id,
+    providerId: receipt.id, receiptDirectory: directory });
+  await ui.screen.getByRole("textbox", "Identifiant du message chez le fournisseur email", { exact: true }).fill(receipt.id);
+  const [reconciled] = await Promise.all([
+    ui.browser.waitForResponse(new URL(`/api/estimates/${prepared.ids.versionId}/email-dispatch/reconcile`, ui.app.baseUrl!).href),
+    mark.click(),
+  ]);
+  expect(reconciled.status).toBe(200);
+  await expect(ui.screen.getByTestId("estimate-email-dispatch-problem")).toHaveCount(0);
+  await ui.browser.reload();
+  const after = await observeOwnedOffer(ui.army, prepared.ids.versionId);
+  const persisted = await readEstimate(ui.browser, prepared.ids.versionId);
+  expect(after.dispatches).toHaveLength(1);
+  expect(after.dispatches[0]).toMatchObject({ id: unknown.dispatches[0].id, status: "sent", provider_id: receipt.id,
+    document_sha256: receipt.pdf.sha256 });
+  expect(persisted.version.status).toBe("sent");
+  expect(persisted.version.seal_hash).toBe(before.version.seal_hash);
+  expect(totals(persisted.version)).toEqual([2000, 400, 2400]);
+  expect((await collectorAttempts()).length).toBe(beforeAttempts + 1);
+  expect((await receiptNames()).length).toBe(beforeReceipts.length + 1);
+  await recordOfferEvidence(ui.army, "EIU-reconciled", { refusedReplay, after, noProviderReplay: true, sameSeal: true });
+});
+
+offerTest("RSX refuses an expired real resend capability without exposing or deciding the offer", options, async (ui) => {
+  const prepared = await prepare(ui, "RSX");
+  const first = await send(ui, "RSX", prepared.ids.versionId);
+  await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
+  const second = await send(ui, "RSX", prepared.ids.versionId, true);
+  const before = await readEstimate(ui.browser, prepared.ids.versionId);
+  const expiry = await expireOwnedCollectedPortal(ui.army, prepared.ids.versionId, second.portalUrl);
+  await admitCollectedResendDecision(ui.army, { ...prepared.ids, receiptDirectory: second.directory,
+    providerId: second.receipt.id, initialProviderId: first.receipt.id, portalUrl: second.portalUrl,
+    initialPortalUrl: first.portalUrl, decision: "accept", reason: null });
+  await openAnonymous(ui, ui.army, "RSX", second, prepared.originalName);
+  await expect(ui.screen.getByRole("heading", "Devis expiré", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByText(prepared.originalName, { exact: true })).toHaveCount(0);
+  await expect(ui.screen.getByRole("button", "Accepter le devis", { exact: true })).toHaveCount(0);
+  const refused = await ui.browser.evaluate(async () => {
+    const capability = location.pathname.match(/^\/portal\/([a-f0-9-]{36})\/expired$/i)?.[1];
+    if (!capability) throw new Error("The expired portal must be open.");
+    const response = await fetch(`/api/portal/${capability}/accept`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accepted_terms: true }) });
+    return { status: response.status, body: await response.json() };
+  });
+  expect(refused.status).toBe(404);
+  await ownerLogin(ui);
+  const persisted = await readEstimate(ui.browser, prepared.ids.versionId);
+  expect(persisted.version.status).toBe("sent");
+  expect(persisted.version.seal_hash).toBe(before.version.seal_hash);
+  expect(totals(persisted.version)).toEqual(totals(before.version));
+  await recordOfferEvidence(ui.army, "RSX-expired", { expiry, refused, persistedOffer: await observeOwnedOffer(ui.army, prepared.ids.versionId) });
+});
+
+offerTest("RSC commits only one of two competing anonymous decisions on the same collected resend", options, async (ui) => {
+  const prepared = await prepare(ui, "RSC");
+  const first = await send(ui, "RSC", prepared.ids.versionId);
+  await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
+  const second = await send(ui, "RSC", prepared.ids.versionId, true);
+  const before = await readEstimate(ui.browser, prepared.ids.versionId);
+  const reason = `${ui.army.runPrefix}-RSC-refus concurrent`;
+  await admitCollectedResendDecision(ui.army, { ...prepared.ids, receiptDirectory: second.directory,
+    providerId: second.receipt.id, initialProviderId: first.receipt.id, portalUrl: second.portalUrl,
+    initialPortalUrl: first.portalUrl, decision: "accept", reason: null,
+    competingDecision: { decision: "reject", reason } });
+  await openAnonymous(ui, ui.army, "RSC", second, prepared.originalName);
+  const decisions = await ui.browser.evaluate(async (reason) => {
+    const capability = location.pathname.match(/^\/portal\/([a-f0-9-]{36})$/i)?.[1];
+    if (!capability) throw new Error("The collected portal must be open.");
+    return Promise.all((["accept", "reject"] as const).map(async (decision) => {
+      const response = await fetch(`/api/portal/${capability}/${decision}`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(decision === "accept" ? { accepted_terms: true } : { reason }) });
+      return { decision, status: response.status, body: await response.json() as { status?: string } };
+    }));
+  }, reason);
+  expect(decisions.map((entry) => entry.status).sort()).toEqual([200, 409]);
+  const winner = decisions.find((entry) => entry.status === 200)!;
+  await ui.browser.reload();
+  await expect(ui.screen.getByText(winner.decision === "accept" ? "Accepté" : "Refusé", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByRole("button", "Accepter le devis", { exact: true })).toHaveCount(0);
+  await ownerLogin(ui);
+  const persisted = await readEstimate(ui.browser, prepared.ids.versionId);
+  expect(persisted.version.status).toBe(winner.decision === "accept" ? "accepted" : "archived");
+  expect(persisted.version.seal_hash).toBe(before.version.seal_hash);
+  expect(totals(persisted.version)).toEqual(totals(before.version));
+  const observed = await observeOwnedOffer(ui.army, prepared.ids.versionId);
+  expect(observed.capabilities.filter((entry) => ["accepted", "rejected"].includes(entry.status))).toHaveLength(1);
+  await recordOfferEvidence(ui.army, "RSC-one-decision", { decisions, observed, sameSeal: true });
+});
 

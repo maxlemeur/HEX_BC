@@ -39,12 +39,32 @@ export function allowOfferLifecycleTransition(army: ArmyState, versionId: string
 
 type ResendDecision = "accept" | "reject";
 const portalAdmissions = new WeakMap<ArmyState, Map<string, { decision: ResendDecision; reason: string | null; versionId: string; providerId: string }>>();
+const reconciliationAdmissions = new WeakMap<ArmyState, { versionId: string; dispatchId: string; providerId: string }>();
+
+/** Reconciliation is confined to a message actually collected for this offer. */
+export async function admitCollectedReconciliation(army: ArmyState, input: {
+  versionId: string; dispatchId: string; providerId: string; receiptDirectory: string;
+}) {
+  const directory = path.resolve(input.receiptDirectory);
+  if (!army.ownedEstimates.some((owned) => owned.versionId === input.versionId)
+    || !/^[a-f0-9-]{36}$/i.test(input.dispatchId)
+    || path.dirname(directory) !== path.join(campaignDirectory(), "collector", "receipts")
+    || !/^[a-f0-9]{64}$/.test(path.basename(directory))) throw new Error("Exact owned reconciliation receipt required.");
+  const receipt = JSON.parse(await readFile(path.join(directory, "public", "receipt.json"), "utf8"));
+  const packet = JSON.parse(await readFile(path.join(directory, "private", "payload.json"), "utf8"));
+  if (receipt.id !== input.providerId || packet.id !== input.providerId || receipt.delivery !== "local-collection-only"
+    || !packet.payload?.html?.includes(army.runPrefix) || reconciliationAdmissions.has(army)) {
+    throw new Error("Collected reconciliation receipt does not match the owned offer.");
+  }
+  reconciliationAdmissions.set(army, { versionId: input.versionId, dispatchId: input.dispatchId, providerId: input.providerId });
+}
 
 /** One exact form POST from the SECOND real local receipt for this owned version. */
 export async function admitCollectedResendDecision(army: ArmyState, input: {
   projectId: string; versionId: string; receiptDirectory: string; providerId: string;
   initialProviderId: string; portalUrl: string; initialPortalUrl: string;
   decision: ResendDecision; reason: string | null;
+  competingDecision?: { decision: ResendDecision; reason: string | null };
 }) {
   if (!army.ownedEstimates.some((owned) => owned.projectId === input.projectId && owned.versionId === input.versionId)
     || input.providerId === input.initialProviderId || input.portalUrl === input.initialPortalUrl) {
@@ -67,7 +87,13 @@ export async function admitCollectedResendDecision(army: ArmyState, input: {
     || (input.decision === "reject" && (!input.reason || !input.reason.startsWith(army.runPrefix)))) throw new Error("Exact owned portal admission invalid.");
   const map = portalAdmissions.get(army) ?? new Map();
   if (map.size || map.has(token)) throw new Error("Previous portal admission is unconsumed.");
-  map.set(token, { decision: input.decision, reason: input.reason, versionId: input.versionId, providerId: input.providerId });
+  map.set(`${token}/${input.decision}`, { decision: input.decision, reason: input.reason, versionId: input.versionId, providerId: input.providerId });
+  if (input.competingDecision) {
+    const competing = input.competingDecision;
+    if (competing.decision === input.decision || (competing.decision === "accept" ? competing.reason !== null
+      : !competing.reason?.startsWith(army.runPrefix))) throw new Error("Portal conflict requires one exact opposite decision.");
+    map.set(`${token}/${competing.decision}`, { ...competing, versionId: input.versionId, providerId: input.providerId });
+  }
   portalAdmissions.set(army, map);
 }
 
@@ -122,14 +148,24 @@ export async function restrictOfferBrowser(browser: Browser, app: App, army?: Ar
       try { const parsed: unknown = JSON.parse(route.request.postData ?? "null"); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>; } catch { /* A non-JSON ServerAction has its own exact-owned path below. */ }
       const portalMatch = url.pathname.match(/^\/api\/portal\/([a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12})\/(accept|reject)$/i);
       if (portalMatch) {
-        const admitted = portalAdmissions.get(army)?.get(portalMatch[1]);
+        const admissionKey = `${portalMatch[1]}/${portalMatch[2]}`;
+        const admitted = portalAdmissions.get(army)?.get(admissionKey);
         const exactBody = admitted?.decision === "accept"
           ? payload?.accepted_terms === true && Object.keys(payload ?? {}).length === 1
           : admitted?.decision === "reject" && payload?.reason === admitted.reason && Object.keys(payload ?? {}).length === 1;
         allowed = method === "POST" && !url.search && !url.hash && !!admitted
           && portalMatch[2] === admitted.decision && exactBody === true
           && army.ownedEstimates.some((owned) => owned.versionId === admitted.versionId);
-        if (allowed) portalAdmissions.get(army)?.delete(portalMatch[1]);
+        if (allowed) portalAdmissions.get(army)?.delete(admissionKey);
+      }
+      const reconciliation = url.pathname.match(/^\/api\/estimates\/([a-f0-9-]{36})\/email-dispatch\/reconcile$/i);
+      if (reconciliation) {
+        const admitted = reconciliationAdmissions.get(army);
+        allowed = method === "POST" && !url.search && !url.hash && !!admitted
+          && admitted.versionId === reconciliation[1] && payload?.dispatchId === admitted.dispatchId
+          && payload?.resolution === "sent" && payload?.providerId === admitted.providerId
+          && Object.keys(payload ?? {}).length === 3;
+        if (allowed) reconciliationAdmissions.delete(army);
       }
       const versionMatch = url.pathname.match(/^\/api\/estimates\/([0-9a-f-]{36})(?:\/(.*))?$/i);
       const versionOwned = !!versionMatch && army.ownedEstimates.some((item) => item.versionId === versionMatch[1]);

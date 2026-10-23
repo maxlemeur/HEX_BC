@@ -392,6 +392,15 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
     expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).scope).toBe("full");
   });
 
+  it("records calc-v3 none only with a successful plan and skipped phases", () => {
+    const input: AggregateInput = { suite: "calc-v3", plan: ["none"], evidence, out,
+      results: { "army-calc-v3-plan": "success", "army-calc-v3-phase": "skipped" }, revision: REVISION };
+    expect(aggregateEvidence(input)).toMatchObject({ status: "not-run" });
+    expect(aggregateEvidence({ ...input, results: { ...input.results, "army-calc-v3-plan": "failure" } }).status).toBe("failed");
+    expect(aggregateEvidence({ ...input, plan: [] }).status).toBe("failed");
+    expect(aggregateEvidence({ ...input, results: { ...input.results, "army-calc-v3-phase": "success" } }).status).toBe("failed");
+  });
+
   it("passes calc-v3 only when every planned phase passed on its own stack", () => {
     const calc = (phases: string[], results = { "army-calc-v3-plan": "success", "army-calc-v3-phase": "success" }): AggregateInput =>
       ({ suite: "calc-v3", plan: phases, evidence, out, results, revision: REVISION });

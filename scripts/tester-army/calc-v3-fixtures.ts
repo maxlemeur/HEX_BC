@@ -7,6 +7,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../../src/types/database";
 import { CALC_V3_FORBIDDEN_PORTS, type CalcV3Phase } from "./calc-v3-phases";
+import { COVERAGE_PHASES, type CoveragePhase } from "./coverage-phases";
 
 // Seeds, on the owned ephemeral stack only, the prerequisites that the wired
 // lot 2 baseline journeys read from explicit fixture files. Each fixture keeps
@@ -27,7 +28,7 @@ import { CALC_V3_FORBIDDEN_PORTS, type CalcV3Phase } from "./calc-v3-phases";
 
 type Row = Record<string, unknown>;
 // writer: the v3 version an inserted row belongs to (M4 writer contract miaouffrage.estimate_v3_writer).
-type PlanRecord = { table: string; row: Row; writer?: string };
+export type PlanRecord = { table: string; row: Row; writer?: string };
 export type CalcV3Owner = { userId: string; tenantId: string; laborRoleId: string };
 export type CalcV3FixtureContext = {
   /** Fresh directory owned by this campaign; fixture files contain identities only. */
@@ -51,13 +52,13 @@ export type CalcV3PhaseFixtures = {
   identities: Record<string, unknown>;
 };
 
-const versionDefaults = {
+export const versionDefaults = {
   version_number: 1, status: "draft", currency: "EUR", margin_mode: "fixed", margin_multiplier: 1, margin_bp: 0,
   global_coefficient: 1, tax_rate_bp: 2000, rounding_mode: "none", rounding_step_cents: 1,
   total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0,
 };
 
-function sqlTransport(context: CalcV3FixtureContext) {
+export function sqlTransport(context: CalcV3FixtureContext) {
   let database: URL;
   let api: URL;
   try {
@@ -86,7 +87,7 @@ function sqlTransport(context: CalcV3FixtureContext) {
 }
 
 /** Inserts the exact planned rows in one transaction as the native owner, with a per-row readback. */
-async function executePlan(context: CalcV3FixtureContext, label: string, records: PlanRecord[]) {
+export async function executePlan(context: CalcV3FixtureContext, label: string, records: PlanRecord[]) {
   if (!records.length || records.some(({ table, row, writer }) => !/^[a-z_]+$/.test(table) ||
     Object.keys(row).some((key) => !/^[a-z_]+$/.test(key)) || (writer !== undefined && !/^[0-9a-f-]{36}$/.test(writer)))) {
     throw new Error(`calc-v3 fixture ${label}: invalid plan.`);
@@ -140,7 +141,7 @@ SELECT 'CALC_V3_FIXTURE_COMMITTED';
   });
 }
 
-async function checked<T>(label: string, query: PromiseLike<{ data: T; error: { code?: string; message?: string } | null }>): Promise<NonNullable<T>> {
+export async function checked<T>(label: string, query: PromiseLike<{ data: T; error: { code?: string; message?: string } | null }>): Promise<NonNullable<T>> {
   const result = await query;
   if (result.error || result.data === null || result.data === undefined) {
     throw new Error(`calc-v3 fixture ${label}: ${result.error?.code ?? "no data"} ${result.error?.message ?? ""}`.trim());
@@ -148,17 +149,17 @@ async function checked<T>(label: string, query: PromiseLike<{ data: T; error: { 
   return result.data as NonNullable<T>;
 }
 
-async function writeFixture(context: CalcV3FixtureContext, name: string, value: unknown) {
+export async function writeFixture(context: CalcV3FixtureContext, name: string, value: unknown) {
   await mkdir(context.directory, { recursive: true });
   const file = path.join(context.directory, `${name}.json`);
   await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" });
   return file;
 }
 
-type Actor = { userId: string; tenantId: string; membershipId: string; bootstrapTenantId: string; laborRoleId?: string; email: string; password: string };
+export type Actor = { userId: string; tenantId: string; membershipId: string; bootstrapTenantId: string; laborRoleId?: string; email: string; password: string };
 
 /** A new ordinary account with its own bootstrap tenant, as created by sign-up. */
-async function createActor(context: CalcV3FixtureContext, campaign: string, label: string, options: { rmo4000?: boolean } = {}): Promise<Actor> {
+export async function createActor(context: CalcV3FixtureContext, campaign: string, label: string, options: { rmo4000?: boolean } = {}): Promise<Actor> {
   const email = `army-calc-v3-${campaign}-${label}-${randomUUID().slice(0, 8)}@example.test`;
   const password = `Army-${randomBytes(24).toString("base64url")}-A1!`;
   context.remember(email);
@@ -203,14 +204,14 @@ async function createActor(context: CalcV3FixtureContext, campaign: string, labe
   return actor;
 }
 
-const publicActor = (actor: Actor) => ({ userId: actor.userId, tenantId: actor.tenantId, membershipId: actor.membershipId,
+export const publicActor = (actor: Actor) => ({ userId: actor.userId, tenantId: actor.tenantId, membershipId: actor.membershipId,
   bootstrapTenantId: actor.bootstrapTenantId, ...(actor.laborRoleId ? { laborRoleId: actor.laborRoleId } : {}) });
 
 // Totals order witness (docs/testing/generated-ouvrage-resume.md, "témoin d'ordre"):
 // B sorts before A by UUID while A is first by position; A starts at 2 cents.
 // Create-atomic owner (docs/testing/estimate-create-atomic.md): two empty
 // legacy V1 drafts, the only estimates the public creation schema cannot make.
-async function journeysFixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
+export async function journeysFixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
   const { owner } = context;
   const common = { tenant_id: owner.tenantId };
   const order = {
@@ -261,7 +262,7 @@ async function journeysFixtures(context: CalcV3FixtureContext, campaign: string)
 // Same plan as the reviewed native component recipe (generated-components-plan.mjs):
 // four candidates with four suggested components each, plus an empty reuse draft.
 const componentValues = [["material", 1, "u", 4000], ["labor", 1, "h", 4000], ["material", 1, "u", 8000], ["labor", 2, "h", 4000]] as const;
-async function componentsFixtures(context: CalcV3FixtureContext, campaign: string, selection: "full" | "numeric-all"): Promise<CalcV3PhaseFixtures> {
+export async function componentsFixtures(context: CalcV3FixtureContext, campaign: string, selection: "full" | "numeric-all" | "assembly-totals"): Promise<CalcV3PhaseFixtures> {
   const { owner } = context;
   const prefix = `ARMY-GENERATED-COMPONENTS-calc-v3-${selection}-${campaign}`;
   const scenarios = ["GC01", "GC02", "GC03", "GC04"].map((label) => ({
@@ -744,6 +745,10 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
 /** Prepares the explicit fixtures of one calc-v3 phase on the owned stack. */
 export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3FixtureContext): Promise<CalcV3PhaseFixtures> {
   const campaign = randomUUID().slice(0, 8);
+  if ((COVERAGE_PHASES as readonly string[]).includes(phase)) {
+    const { prepareCoverageFixtures } = await import("./coverage-fixtures");
+    return prepareCoverageFixtures(phase as CoveragePhase, context, campaign);
+  }
   switch (phase) {
     case "journeys": return journeysFixtures(context, campaign);
     case "components": return componentsFixtures(context, campaign, "full");
@@ -752,6 +757,8 @@ export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3F
     case "access": return accessFixtures(context, campaign);
     case "offers": return offersFixtures(context, campaign);
     case "emission": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
+    case "resend-portal": return { env: {}, secretEnv: {}, identities: { note: "Resend, portal and incident journeys create their own offers; no sent status or capability is preinserted." } };
     case "emission-v3": return emissionV3Fixtures(context, campaign);
   }
+  throw new Error(`No owned fixture is registered for calc-v3 phase ${phase}.`);
 }

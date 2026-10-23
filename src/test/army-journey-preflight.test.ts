@@ -59,6 +59,7 @@ const setup = pair(SETUP, "authenticate the existing E2E account without provisi
 describe("local journey coverage", () => {
   it("collects or explicitly excludes every e2e/army/local journey of this tree", () => {
     expect(localJourneyCoverageProblems(root)).toEqual([]);
+    expect(LOCAL_JOURNEYS_OUTSIDE_SELECTIONS).toEqual({});
   });
 
   it("reports a journey no selection collects, at any depth, and stale exclusions", () => {
@@ -153,8 +154,8 @@ describe("selection preflight", () => {
   }, 120_000);
 
   it("refuses a requested file outside the critical selection globs", async () => {
-    // An exclusion is, by the coverage contract above, collected by no selection.
-    const outside = Object.keys(LOCAL_JOURNEYS_OUTSIDE_SELECTIONS)[0];
+    // This journey belongs to the dedicated mobile phase, not critical.
+    const outside = "e2e/army/local/mobile-journeys.e2e.ts";
     const files = ["e2e/army/local/engine-v3-creators.e2e.ts", outside];
     const pairs = await listArmySelection({ root, suite: "critical", files, env: process.env });
     expect(selectionPreflightProblems({ pairs, files })).toEqual([`--files ${outside} selects no runnable test.`]);

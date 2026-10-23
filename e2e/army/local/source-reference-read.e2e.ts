@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { test, type Browser } from "@e2e-dev/web";
 import { expect } from "e2e";
 
+import { isOwnedLoopback } from "./owned-business-inputs";
+
 import { readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 
 type Fixture = {
@@ -38,12 +40,12 @@ function assertResponse(response: Response, status: number, body: unknown) {
 }
 
 test("source reference GET reads pristine review without creation and rejects invalid or inaccessible reads", {
-  session: "army", tags: ["local", "source-reference-read"], trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "source-reference-read"], trace: "off", timeout: 180_000,
 }, async ({ app, browser }) => {
-  const file = process.env.E2E_SOURCE_REFERENCE_FIXTURE_PATH;
-  if (!file || process.env.NEXT_PUBLIC_SUPABASE_URL !== "http://127.0.0.1:59827") throw new Error("Explicit local source-reference fixture required");
+  const file = process.env.E2E_SOURCE_REFERENCE_READ_FIXTURE_PATH;
+  if (!file || !isOwnedLoopback(process.env.NEXT_PUBLIC_SUPABASE_URL)) throw new Error("Explicit local source-reference fixture required");
   const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
-  expect([fixture.schemaVersion, fixture.status, fixture.apiUrl]).toEqual(["source-reference-http-fixture-1", "ready", "http://127.0.0.1:59827"]);
+  expect([fixture.schemaVersion, fixture.status, fixture.apiUrl]).toEqual(["source-reference-http-fixture-1", "ready", process.env.NEXT_PUBLIC_SUPABASE_URL]);
   expect(fixture.prefix.startsWith("ARMY-REFERENCE-")).toBe(true);
   expect([fixture.tenantId, fixture.ownerId, fixture.projectId, fixture.versionId, fixture.documents.A, fixture.documents.B].every((id) => UUID.test(id))).toBe(true);
   const army = { runPrefix: `${fixture.prefix}-read-${randomUUID()}`, projectName: fixture.prefix, ownedEstimates: [{ projectId: fixture.projectId, versionId: fixture.versionId }] };

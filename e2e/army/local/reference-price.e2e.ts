@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 
 import { expect } from "e2e";
 
+import { requiredFixturePath } from "./owned-business-inputs";
+
 import type { ReferencePriceResponse } from "../../../src/lib/catalogue/reference-price-schemas";
 import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 
@@ -18,10 +20,10 @@ function requireLocal() {
 // Failure plan and exact oracles precede implementation in price-reference-next-slice.md.
 // Fixtures are created through ordinary authenticated application APIs, never shared data.
 armyTest("local reference price excludes zero while preserving human validation and existing estimates", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, army }) => {
   requireLocal();
-  const localOwner = JSON.parse(await readFile(".e2e/local-article/fixture.json", "utf8")) as { userId: string; apiUrl: string };
+  const localOwner = JSON.parse(await readFile(requiredFixturePath("E2E_LOCAL_ARTICLE_FIXTURE_PATH"), "utf8")) as { userId: string; apiUrl: string };
   expect(localOwner.apiUrl).toBe(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin);
   await app.open("/dashboard/products");
   const product = await apiRequest<Envelope<{ item: Item }>>(browser, "POST", "/api/products", {
@@ -129,7 +131,7 @@ armyTest("local reference price excludes zero while preserving human validation 
 });
 
 armyTest("local supplier validity enforces six calendar months on create partial updates and bulk import", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, army }) => {
   requireLocal();
   await app.open("/dashboard/prices");

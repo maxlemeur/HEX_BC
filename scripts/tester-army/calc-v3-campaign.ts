@@ -2,11 +2,12 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { Server } from "node:http";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../../src/types/database";
-import { prepareCalcV3Fixtures, type CalcV3Owner, type CalcV3PhaseFixtures } from "./calc-v3-fixtures";
+import { prepareCalcV3Fixtures, type CalcV3FixtureContext, type CalcV3Owner, type CalcV3PhaseFixtures } from "./calc-v3-fixtures";
 import {
   CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, CALC_V3_PHASES, type CalcV3Phase,
 } from "./calc-v3-phases";
@@ -14,7 +15,7 @@ import { assertLocalAppPortAvailable } from "./local-development";
 import { buildSourceEvidence, prepareArmyTypeScriptConfig } from "./local-recipe-common.mjs";
 import { extractCollectedPdfTexts } from "./pdf-text";
 
-type Collector = { origin: string; directory: string; close: () => Promise<void> };
+type Collector = { server: Server; origin: string; directory: string; close: () => Promise<void> };
 
 // Lot 2 baseline campaign on the owned ephemeral stack, started by
 // `scripts/run-tester-army-ci.ts calc-v3` once pgTAP and RLS have passed.
@@ -53,7 +54,7 @@ type ReportResult = { selected: boolean; status: string; kind: string; file: str
 const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 const TEXT_EVIDENCE = /\.(?:json|jsonl|txt|md|log|html|csv|xml)$/i;
 
-function scrubber(redact: (value: string) => string) {
+export function scrubber(redact: (value: string) => string) {
   return (text: string) => redact(text)
     .replace(/([?&#](?:password|access_token|refresh_token|token|code|apikey|api_key)=)[^&\s"']*/gi, "$1<redacted>")
     .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted>")
@@ -70,7 +71,7 @@ function scrubJson(value: unknown, scrub: (text: string) => string): unknown {
 }
 
 /** Copies owned evidence, never sessions or private material, scrubbing every text file. */
-function copyScrubbed(source: string, target: string, scrub: (text: string) => string, files: string[] = []) {
+export function copyScrubbed(source: string, target: string, scrub: (text: string) => string, files: string[] = []) {
   if (!fs.existsSync(source)) return files;
   const stat = fs.lstatSync(source);
   if (stat.isSymbolicLink()) throw new Error("calc-v3 evidence must not contain symlinks.");
@@ -211,11 +212,12 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
     await assertLocalAppPortAvailable(input.appPort);
     await prepareArmyTypeScriptConfig(root);
     let fixtures: CalcV3PhaseFixtures;
+    const fixtureContext: CalcV3FixtureContext = {
+      directory: path.join(input.evidence, "fixtures", phase), backend: input.backend, anonKey: input.anonKey, admin: input.admin,
+      databaseUrl: input.databaseUrl, psql: input.psql, owner: input.owner, remember: input.remember,
+    };
     try {
-      fixtures = await prepareCalcV3Fixtures(phase, {
-        directory: path.join(input.evidence, "fixtures", phase), backend: input.backend, anonKey: input.anonKey, admin: input.admin,
-        databaseUrl: input.databaseUrl, psql: input.psql, owner: input.owner, remember: input.remember,
-      });
+      fixtures = await prepareCalcV3Fixtures(phase, fixtureContext);
     } catch (error) {
       throw new Error(`fixture preparation: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -239,19 +241,30 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
       // offer-emission fixtures require exactly <run>/collector, with receipts/ inside.
       const collectorDirectory = path.join(runDirectory, "collector");
       fs.mkdirSync(collectorDirectory);
+      const faultPlanPath = path.join(runDirectory, "private", "collector-faults.json");
+      const attemptLogPath = path.join(runDirectory, "public", "collector-attempts.jsonl");
       for (let attempt = 0; attempt < 3 && !collector; attempt += 1) {
-        const started = await startCollector({ directory: collectorDirectory });
+        const started = await startCollector({ directory: collectorDirectory, faultPlanPath, attemptLogPath });
         if (!CALC_V3_FORBIDDEN_PORTS.has(new URL(started.origin).port)) { collector = started; break; }
         await started.close();
         fs.rmdirSync(path.join(collectorDirectory, "receipts")); // created by this attempt and still empty
       }
       if (!collector) throw new Error("the sentinel collector could not obtain a port outside the developers' stack.");
+      const httpLog = path.join(runDirectory, "public", "collector-http.jsonl");
+      fs.writeFileSync(httpLog, "", { flag: "wx" });
+      collector.server.on("request", (request, response) => {
+        response.once("finish", () => fs.appendFileSync(httpLog, `${JSON.stringify({
+          schemaVersion: 1, time: new Date().toISOString(), method: request.method,
+          route: request.url === "/emails" ? "emails" : "other", status: response.statusCode,
+        })}\n`));
+      });
       output = path.join(runDirectory, "sdk");
       networkLog = path.join(runDirectory, "public", "server-network.jsonl");
       Object.assign(environment, {
         E2E_OFFER_APP_ORIGIN: environment.E2E_ARMY_BASE_URL, E2E_OFFER_BACKEND_ORIGIN: input.backend,
         E2E_OFFER_COLLECTOR_ORIGIN: collector.origin, E2E_OFFER_RUN_DIRECTORY: runDirectory,
         E2E_OFFER_COLLECTOR_DIRECTORY: collector.directory, E2E_OFFER_SECRET_POINTER: path.join(runDirectory, "private", "portal-pointer.json"),
+        E2E_OFFER_COLLECTOR_HTTP_LOG: httpLog, E2E_OFFER_FAULT_PLAN: faultPlanPath, E2E_OFFER_ATTEMPT_LOG: attemptLogPath,
         E2E_OFFER_NETWORK_LOG: networkLog, E2E_OFFER_SERVER_MODE: definition.serverMode === "production" ? "production" : "dev",
         RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM,
       });
@@ -265,14 +278,28 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
     environment.E2E_CALC_V3_OUTPUT = output;
     environment.E2E_ARMY_ARTIFACT_ROOT = path.join(output, "results");
     const args = [path.join(root, "node_modules", "e2e", "dist", "cli", "bin.js"), "run", "--config", "e2e.calc-v3.config.ts",
-      "--target", "chromium-desktop", "--workers", "1", "--retries", "0", "--trace", "off", "--no-cache", ...(grep ? ["--grep", grep] : [])];
+      "--target", definition.target ?? "chromium-desktop", "--workers", "1", "--retries", "0", "--trace", "off", "--no-cache", ...(grep ? ["--grep", grep] : [])];
     const buildBefore = definition.serverMode === "production" ? buildIdentity(root) : null;
     const startedAt = new Date();
     summary.command = [process.execPath, ...args.map((arg) => path.isAbsolute(arg) ? path.relative(root, arg).replaceAll("\\", "/") : arg)];
     summary.environmentNames = Object.keys(environment).filter((name) => name.startsWith("E2E_") || name.startsWith("NEXT_PUBLIC_")).sort();
     summary.grep = grep ?? null;
     summary.filtered = filtered;
-    const exitCode = await runTesterArmy(root, args, environment, path.join(phaseEvidence, "runner.log"), scrub, definition.maxDuration + 600_000);
+    let exitCode: number;
+    let fixtureEffectError: string | undefined;
+    try {
+      exitCode = await runTesterArmy(root, args, environment, path.join(phaseEvidence, "runner.log"), scrub, definition.maxDuration + 600_000);
+    } finally {
+      // A failed UI assertion still needs an independent witness that the
+      // intended late native fault was reached, with no transactional writes.
+      try {
+        const { verifyCoverageFixtureEffects } = await import("./coverage-fixtures");
+        summary.fixtureEffects = await verifyCoverageFixtureEffects(phase, fixtureContext, fixtures, filtered);
+      } catch (error) {
+        fixtureEffectError = scrub(error instanceof Error ? error.message : String(error));
+        summary.fixtureEffects = { status: "failed", error: fixtureEffectError };
+      }
+    }
     summary.exitCode = exitCode;
     if (collector) { await collector.close(); summary.collectorStopped = true; }
     const pointer = path.join(runDirectory, "private", "portal-pointer.json");
@@ -283,6 +310,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
     const validation = validateReport(phase, output, startedAt, filtered);
     summary.validation = validation;
     const problems = [...validation.problems];
+    if (fixtureEffectError) problems.push(`fixture effects: ${fixtureEffectError}`);
     if (exitCode !== 0) problems.push(`TesterArmy exited ${exitCode}`);
     const network = networkReceipt(networkLog, definition.sentinelCollector ? "offer" : "coverage");
     summary.serverNetwork = network;

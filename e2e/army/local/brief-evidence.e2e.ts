@@ -10,10 +10,10 @@ const FILE_NAME = "ARMY-CCTP-reference.txt";
 const UNCERTAIN_LABEL = "Inférence / sans preuve directe";
 
 // Seed contract and failure modes: docs/testing/brief-evidence.md.
-// Deliberately outside the shared critical campaign; no automatic seed/migration.
+// The owned native runner provisions this brief and its source document for each run.
 test("brief document associations remain distinct from proof after edit and reload", {
   session: "army",
-  tags: ["local", "brief-evidence"],
+  tags: ["critical", "local", "brief-evidence"],
   trace: "off",
   timeout: 120_000,
 }, async ({ app, browser, screen }) => {

@@ -14,27 +14,17 @@ import path from "node:path";
 export const LOCAL_JOURNEY_COLLECTORS = [
   "e2e.config.ts",
   "scripts/tester-army/calc-v3-phases.ts",
+  "scripts/tester-army/coverage-phases.ts",
   "e2e/army/local/offer-emission.config.ts",
   "e2e/army/local/resend-portal.config.ts",
 ];
 
 /**
- * Local journeys no standing selection collects: a one-off campaign config ran
- * each of them, as the named document records. A new journey joins a
- * selection, or this list with the document of the run that executed it.
+ * No business journey is excluded from standing selections. Kept as an empty
+ * compatibility hook for diagnostic tests; adding a journey requires a runner
+ * selection and owned prerequisites.
  */
-export const LOCAL_JOURNEYS_OUTSIDE_SELECTIONS = {
-  "e2e/army/local/article-association.e2e.ts": "docs/testing/purchase-preparation.md",
-  "e2e/army/local/brief-evidence.e2e.ts": "docs/testing/brief-evidence.md",
-  "e2e/army/local/catalogue-provenance.e2e.ts": "docs/testing/catalogue-provenance-e2e.md",
-  "e2e/army/local/purchase-decimals.e2e.ts": "docs/testing/purchase-decimals.md",
-  "e2e/army/local/purchase-draft-eligibility.e2e.ts": "docs/testing/purchase-draft-eligibility.md",
-  "e2e/army/local/purchase-preparation.e2e.ts": "docs/testing/purchase-preparation.md",
-  "e2e/army/local/purchase-readiness.e2e.ts": "docs/testing/purchase-readiness.md",
-  "e2e/army/local/reference-price.e2e.ts": "docs/testing/reference-price-e2e.md",
-  "e2e/army/local/source-reference-read.e2e.ts": "docs/testing/source-reference-read.md",
-  "e2e/army/local/source-reference.e2e.ts": "docs/testing/source-reference-vertical.md",
-};
+export const LOCAL_JOURNEYS_OUTSIDE_SELECTIONS = {};
 
 const LOCAL_DIRECTORY = "e2e/army/local";
 

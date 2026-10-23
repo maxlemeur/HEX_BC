@@ -3,7 +3,9 @@
 // the profile loads it at config time, so it must not import clients or fixtures.
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md.
 
-export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers", "emission", "emission-v3"] as const;
+import { COVERAGE_PHASE_DEFINITIONS, COVERAGE_PHASES } from "./coverage-phases.ts";
+
+export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers", "emission", "emission-v3", "resend-portal", ...COVERAGE_PHASES] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
 
 /** The developers' long-running local recipe stack (API 45585, DB 33485): never a calc-v3 target. */
@@ -12,6 +14,7 @@ export const CALC_V3_FORBIDDEN_PORTS: ReadonlySet<string> = new Set(["45585", "3
 export const CALC_V3_EMAIL_FROM = "ARMY Local <offer@army.invalid>";
 
 export type CalcV3PhaseDefinition = {
+  target?: "chromium-desktop" | "chromium-mobile";
   /**
    * production: owned build + next start (every phase since 2.7; the emission phases get the sandbox terms of
    * the owned calc-v3 production profile, src/lib/estimates/pdf-terms-server.ts); development: next dev.
@@ -47,6 +50,7 @@ const CRITICAL_SETUP = "e2e/army/critical/auth.setup.e2e.ts";
 const CRITICAL_SETUP_TITLE = "authenticate the existing E2E account without provisioning memberships";
 
 export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3PhaseDefinition>> = {
+  ...COVERAGE_PHASE_DEFINITIONS,
   journeys: {
     serverMode: "production",
     tests: [
@@ -86,13 +90,8 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     serverMode: "production",
     tests: [CRITICAL_SETUP, "e2e/army/local/generated-ouvrage-resume.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-resume.e2e.ts": 4 },
-    defaultGrep: "^GR0[2468]\\s",
-    // GR01, GR03, GR07 and GR09: forged requests or oracles predate the insertion,
-    // rejection and error contracts committed with them in 28ccc857. GR05: its
-    // waitForResponse can capture the late event of the response it fulfilled itself
-    // just before. The doc records each exact cause.
-    knownRedAtBase: { grep: "^GR0[13579]\\s", journeys: ["GR01", "GR03", "GR05", "GR07", "GR09"] },
+    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-resume.e2e.ts": 9 },
+    defaultGrep: "^GR0[1-9]\\s",
     maxDuration: 3_600_000,
   },
   access: {
@@ -117,11 +116,10 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     sentinelCollector: true,
     tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/offer-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/offer-emission.e2e.ts": 5 },
-    defaultGrep: "^OF0[0-24L]\\s",
-    // OF03's header matchers expect "P.U. HT" or "Prix unitaire"; the PDF and the
-    // portal both print "PU HT". PDFL, EF and NF stay opt-in through --grep.
-    knownRedAtBase: { grep: "^OF03\\s", journeys: ["OF03"] },
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/offer-emission.e2e.ts": 6 },
+    defaultGrep: "^OF0[0-4L]\\s",
+    // OF03 checks the current "PU HT" client header and its exact sale amount.
+    // PDFL, EF and NF stay opt-in through --grep.
     // OF00 to OF02 each send one ARMY-OFFER line of 1 u at 20,00 € HT with 20 % VAT.
     collectedPdfMustContain: [
       /ARMY-OFFER-/u,
@@ -129,6 +127,14 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
       /\s1\s+u\s+20,00\s*€\s+20,00\s*€/u,
       /Total\s+HT\s+20,00\s*€\s+TVA\s+4,00\s*€\s+Total\s+TTC\s+24,00\s*€/u,
     ],
+    maxDuration: 3_600_000,
+  },
+  "resend-portal": {
+    serverMode: "production",
+    sentinelCollector: true,
+    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/resend-portal.e2e.ts"],
+    setupTitle: "ordinary native ARMY login for local offer profile",
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/resend-portal.e2e.ts": 7 },
     maxDuration: 3_600_000,
   },
   // Sub-lot 2.7 (D14, D15, M5): a v3 issued under client contract 2 and calculation payload 6, on a

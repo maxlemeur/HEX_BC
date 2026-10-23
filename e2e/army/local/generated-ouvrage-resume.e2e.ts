@@ -240,6 +240,7 @@ async function assertInsertionSessionDenials(browser: Browser, context: Context,
   expect(before).toEqual({ estimate_generated_ouvrage_applications: [], estimate_generated_ouvrage_work_snapshots: [], estimate_items: [scenario.sectionA, scenario.sectionB].sort(), estimate_assemblies: [] });
   const observed = [];
   for (const mode of ["missing", "wrong", "other-page", "released"] as const) {
+    const currentVersion = await readEstimate(browser, scenario.versionId);
     const refusal = await browser.evaluate(async (request) => {
       const session = sessionStorage.getItem(`__miaouffrageEstimateDraftLockSession:${request.versionId}`);
       if (!session || !/^[0-9a-f-]{36}$/i.test(session)) throw new Error("Real editor session is required.");
@@ -259,7 +260,11 @@ async function assertInsertionSessionDenials(browser: Browser, context: Context,
           await lock("DELETE", session, "release-editor"); current = "none";
           if (request.mode === "other-page") { await lock("POST", other, "acquire-other-page"); current = "other"; }
         }
-        const body = { versionId: request.versionId, draftId: request.draftId, acceptedCandidates: [{ candidateId: request.candidateId, designation: request.designation, unit: "m", quantity: 10, lotId: null }], ...(request.mode === "missing" ? {} : { draftLockSessionId: request.mode === "wrong" ? other : session }) };
+        // Keep the application request valid so these counterexamples reach
+        // the lock boundary instead of failing on missing CAS/idempotency data.
+        const body = { versionId: request.versionId, draftId: request.draftId,
+          operationKey: crypto.randomUUID(), expectedUpdatedAt: request.updatedAt,
+          acceptedCandidates: [{ candidateId: request.candidateId, designation: request.designation, unit: "m", quantity: 10, lotId: null }], ...(request.mode === "missing" ? {} : { draftLockSessionId: request.mode === "wrong" ? other : session }) };
         const response = await fetch(location.pathname, { method: "POST", credentials: "same-origin", headers: { "next-action": request.actionId, "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" }, body: JSON.stringify([body]) });
         const flight = await response.text();
         const results = flight.split("\n").flatMap((line) => {
@@ -272,7 +277,8 @@ async function assertInsertionSessionDenials(browser: Browser, context: Context,
         if (current === "other") { await lock("DELETE", other, "release-other-page"); current = "none"; }
         if (current === "none") await lock("POST", session, "restore-editor");
       }
-    }, { mode, versionId: scenario.versionId, draftId: draft.draftId, candidateId: candidate.candidateId, designation: candidate.designation, actionId });
+    }, { mode, versionId: scenario.versionId, draftId: draft.draftId, candidateId: candidate.candidateId,
+      designation: candidate.designation, updatedAt: currentVersion.version.updated_at, actionId });
     const after = await snapshot();
     observed.push({ ...refusal, after });
     await evidence(scenario, `session-denial-${mode}`, { before, ...refusal, after });
@@ -325,7 +331,7 @@ generatedTest("GR01 resumes the saved ouvrage after closing and reload, reviews 
   expect(generated.calls.filter((call) => call.name === "fetchResumableGeneratedOuvrageDraft")).toHaveLength(2);
 });
 
-type ActionResult = { ok: boolean; data?: Record<string, unknown>; error?: { code: string; message: string } };
+type ActionResult = { ok: boolean; data?: Record<string, unknown>; error?: { status: number; code: string; message: string } };
 function lastCall(context: Context, name: string) {
   const call = context.calls.filter((entry) => entry.name === name).at(-1);
   if (!call?.body) throw new Error(`The UI has not emitted the expected ${name} action.`);
@@ -405,7 +411,7 @@ generatedTest("GR03 denies forged resume IDs from another version author or tena
   for (const item of cases) {
     const response = await replayAction(browser, call, { versionId: item.versionId, draftId: item.draftId });
     observed.push({ label: item.label, ...response });
-    expect(response.result).toEqual({ ok: false, error: { code: "NOT_FOUND", message: "Brouillon introuvable ou non reprenable." } });
+    expect(response.result).toEqual({ ok: false, error: { status: 404, code: "NOT_FOUND", message: "Brouillon introuvable ou non reprenable." } });
   }
   await evidence(s, "forged-scope-denials", observed);
   expect((await readEstimate(browser, s.versionId)).items.filter((item) => item.item_type === "line")).toHaveLength(0);
@@ -462,7 +468,6 @@ generatedTest("GR05 preserves received pages and retries real list and resume re
   session: "army", trace: "off", timeout: 180_000,
 }, async ({ app, browser, screen, generated }) => {
   const s = generated.fixture.scenarios.pagination;
-  const pattern = `${new URL(app.baseUrl!).origin}/dashboard/estimates/${s.versionId}/edit`;
   let mode: "list503" | "list-invalid" | "list-incoherent" | "next503" | "resume503" | "pass" = "list503";
   let incoherentFlight = "";
   const intercepted: Array<{ action: string; mode: string }> = [];
@@ -489,9 +494,50 @@ generatedTest("GR05 preserves received pages and retries real list and resume re
   await expect(screen.getByText(/Impossible de charger les brouillons/)).toBeVisible();
   await expect(screen.getByText("Aucun brouillon à reprendre.", { exact: true })).toHaveCount(0);
   mode = "pass";
-  const validPageResponse = browser.waitForResponse(pattern, { timeout: 30_000 });
-  await screen.getByRole("button", "Réessayer", { exact: true }).tap();
-  const template = await (await validPageResponse).text();
+  const listActionId = [...generated.actionNames].find(([, name]) => name === "listResumableGeneratedOuvrageDrafts")?.[0];
+  if (!listActionId) throw new Error("The real list action must exist in this build.");
+  // Install before the retry. A URL-only network waiter can consume the late
+  // event of the invalid response above, or an RSC GET on the editor URL.
+  await browser.evaluate((actionId) => {
+    const scope = window as Window & { __armyListCapture?: { original: typeof fetch; flight: string | null; error: string | null; posts: number } };
+    if (scope.__armyListCapture) throw new Error("A list observer is already installed.");
+    const capture = { original: window.fetch, flight: null as string | null, error: null as string | null, posts: 0 };
+    scope.__armyListCapture = capture;
+    window.fetch = async function(input, init) {
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+      const matches = method === "POST" && url.origin === location.origin && url.pathname === location.pathname && headers.get("next-action") === actionId;
+      if (matches) capture.posts += 1;
+      const response = await capture.original.call(window, input, init);
+      if (matches) void response.clone().text().then((flight) => { capture.flight = flight; })
+        .catch((error) => { capture.error = error instanceof Error ? error.message : "List response unreadable."; });
+      return response;
+    };
+    return true;
+  }, listActionId);
+  let template: string;
+  try {
+    await screen.getByRole("button", "Réessayer", { exact: true }).tap();
+    await expect.poll(() => browser.evaluate(() => {
+      const capture = (window as Window & { __armyListCapture?: { flight: string | null; error: string | null } }).__armyListCapture;
+      return !!capture && (capture.flight !== null || capture.error !== null);
+    })).toBe(true);
+    const captured = await browser.evaluate(() => {
+      const capture = (window as Window & { __armyListCapture?: { flight: string | null; error: string | null; posts: number } }).__armyListCapture!;
+      return { flight: capture.flight, error: capture.error, posts: capture.posts };
+    });
+    expect(captured.error).toBe(null);
+    expect(captured.posts).toBe(1);
+    expect(typeof captured.flight).toBe("string");
+    template = captured.flight!;
+  } finally {
+    await browser.evaluate(() => {
+      const scope = window as Window & { __armyListCapture?: { original: typeof fetch } };
+      if (scope.__armyListCapture) { window.fetch = scope.__armyListCapture.original; delete scope.__armyListCapture; }
+      return true;
+    });
+  }
   await expect(screen.getByTestId(/^generated-ouvrage-draft-/)).toHaveCount(20);
   let changedRecords = 0;
   incoherentFlight = template.split("\n").map((line) => {
@@ -676,10 +722,21 @@ generatedTest("GR07 refuses a displayed draft after a real rejection and refresh
   const rejectionAction = [...generated.actionNames].find(([, name]) => name === "rejectGeneratedOuvrageDraft")?.[0];
   if (!rejectionAction) throw new Error("The real rejection action must exist in this build.");
   const rejected = await browser.evaluate(async (request) => {
-    const response = await fetch(location.pathname, { method: "POST", credentials: "same-origin", headers: { "next-action": request.actionId, "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" }, body: JSON.stringify([{ draftId: request.draftId, candidateId: request.candidateId }]) });
-    return { status: response.status };
-  }, { actionId: rejectionAction, draftId: draft.draftId, candidateId: draft.candidates[0].candidateId });
+    const session = sessionStorage.getItem(`__miaouffrageEstimateDraftLockSession:${request.versionId}`);
+    if (!session) throw new Error("The owned editor lock session is required to reject a draft.");
+    const response = await fetch(location.pathname, { method: "POST", credentials: "same-origin", headers: { "next-action": request.actionId, "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" }, body: JSON.stringify([{ versionId: request.versionId, draftLockSessionId: session, draftId: request.draftId, candidateId: request.candidateId }]) });
+    const flight = await response.text();
+    const results = flight.split("\n").flatMap((line) => {
+      const json = line.match(/^[0-9a-f]+:(\{.*\})$/i)?.[1];
+      if (!json) return [];
+      try { const value = JSON.parse(json); return typeof value.ok === "boolean" ? [value] : []; } catch { return []; }
+    });
+    return { status: response.status, results };
+  }, { actionId: rejectionAction, versionId: s.versionId, draftId: draft.draftId, candidateId: draft.candidates[0].candidateId });
+  await evidence(s, "rejection-before-stale-resume", rejected);
   expect(rejected.status).toBe(200);
+  expect(rejected.results).toHaveLength(1);
+  expect(rejected.results[0].ok).toBe(true);
   const refused = await replayAction(browser, readCall, { versionId: s.versionId, draftId: draft.draftId });
   expect(refused.result.ok).toBe(false);
   expect(refused.result.error?.code).toBe("GENERATED_OUVRAGE_NOT_RESUMABLE");
@@ -872,7 +929,9 @@ generatedTest("GR09 preserves exact costs and hours in both projections or refus
       const canonicalItems = after.estimate_assembly_items;
       expect(canonicalItems.map((row) => [row.title, row.default_quantity, row.unit, row.unit_cost_ht_cents])).toEqual(draft.candidates[0].components.map((component) => [component.designation, component.quantity, component.unit, component.unitCostHtCents]));
       expect(canonicalItems.filter((row) => row.cost_type === "labor").reduce((sum, row) => sum + Number(row.h_mo), 0)).toBe(oracle.hours);
-      if (oracle.scenario === "cost_yield") expect([canonicalItems[0].h_mo, canonicalItems[0].k_mo, canonicalItems[0].labor_role_id]).toEqual([5, 0.8, null]);
+      // The canonical labor component retains the selected role; losing it
+      // would make later assembly insertions resolve a different labor cost.
+      if (oracle.scenario === "cost_yield") expect([canonicalItems[0].h_mo, canonicalItems[0].k_mo, canonicalItems[0].labor_role_id]).toEqual([5, 0.8, generated.fixture.owner.laborRoleId]);
       if (oracle.scenario === "cost_loss") expect(canonicalItems[0].k_fo).toBe(1.05);
     }
     await waitForObservedAutosave(browser, s, oracle.accept ? oracle.dsCents : 0, oracle.accept ? "shortcut" : "automatic");

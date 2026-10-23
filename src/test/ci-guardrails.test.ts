@@ -179,6 +179,7 @@ const ARMY_ROUTE_GUARD_CONTINUES: Record<string, number> = {
   "e2e/army/critical/access-boundaries.e2e.ts | test | **/*": 1,
   "e2e/army/critical/fixtures.ts | restrictCriticalBrowser | **/*": 1,
   "e2e/army/local/brief-evidence.e2e.ts | test | **/*": 1,
+  "e2e/army/local/business-lifecycle.e2e.ts | business | **/*": 1,
   "e2e/army/local/offer-emission-fixtures.ts | restrictOfferBrowser | **/*": 1,
   "e2e/army/local/purchase-decimals.e2e.ts | fixture | **/*": 1,
   "e2e/army/local/purchase-draft-eligibility.e2e.ts | test | **/*": 1,
@@ -865,7 +866,7 @@ describe("CI and local quality guardrails", () => {
     }
   });
 
-  it("runs every production-served calc-v3 phase nightly and on the pull requests that edit it, any phase on dispatch", async () => {
+  it("runs every calc-v3 phase nightly, selects PR impact and permits each explicit phase", async () => {
     const { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS } = await import("../../scripts/tester-army/calc-v3-phases");
     const workflow = read(".github/workflows/e2e-army-calc-v3.yml");
     const trigger = workflow.slice(0, workflow.search(/^permissions:/mu));
@@ -878,10 +879,9 @@ describe("CI and local quality guardrails", () => {
     expect(options?.split("\n").filter(Boolean).map((line) => line.trim().replace(/^- /u, ""))).toEqual(["nightly", "all", ...CALC_V3_PHASES]);
     expect(trigger).toMatch(/^ {6}phase:\n(?: {8}.*\n)*? {8}type: choice\n/mu);
     expect(trigger).toMatch(/^ {6}phase:\n(?: {8}.*\n)*? {8}default: nightly\n/mu);
-    // GitHub schedules and dispatches only a workflow already on the default
-    // branch: a pull request that edits this one runs its nightly selection, so
-    // the change is proven before it merges; no other pull request runs it.
-    expect(trigger).toMatch(/^ {2}pull_request:\n {4}branches: \[main\]\n {4}paths:\n {6}- \.github\/workflows\/e2e-army-calc-v3\.yml\n(?! {6}- )/mu);
+    // All PRs reach the selector; only a proven docs-only diff skips phases.
+    expect(trigger).toMatch(/^ {2}pull_request:\n {4}branches: \[main\]\n/mu);
+    expect(trigger).not.toContain("    paths:");
     expect(trigger.match(/^ {2}[a-z_]+:/gmu)).toEqual(["  workflow_dispatch:", "  pull_request:", "  schedule:"]);
     // Each push to that pull request replaces its previous run; a nightly or a
     // dispatch is never cancelled.
@@ -892,10 +892,11 @@ describe("CI and local quality guardrails", () => {
     // serves. Since sub-lot 2.7 that includes emission and emission-v3; a phase
     // moved back to next dev must also leave the nightly list.
     const plan = stepNamed(workflow, "Plan the calc-v3 phases");
-    const nightly = /^\s+CALC_V3_NIGHTLY_PHASES: "([a-z0-9 -]+)"$/mu.exec(plan)?.[1].split(" ");
-    expect(nightly).toEqual(CALC_V3_PHASES.filter((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
-    if (CALC_V3_PHASE_DEFINITIONS.emission.serverMode !== "production") expect(nightly).not.toContain("emission");
-    expect(plan).toMatch(/^\s+CALC_V3_SELECTION: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.phase \|\| 'nightly' \}\}$/mu);
+    const nightly = [...CALC_V3_PHASES];
+    expect(nightly.every((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production")).toBe(true);
+    expect(runScript(plan)).toContain("scripts/tester-army/select-calc-v3.ts");
+    expect(plan).toContain("EVENT_NAME: ${{ github.event_name }}");
+    expect(workflow).toContain("if: needs.army-calc-v3-plan.outputs.phases != '[]'");
     // One job and one owned stack per planned phase ("all" is one job of the
     // whole campaign); only evidence that passed the runner's privacy check
     // is uploaded.
@@ -918,7 +919,7 @@ describe("CI and local quality guardrails", () => {
         const result = spawnSync("bash", ["-c", runScript(plan)], {
           encoding: "utf8",
           env: { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? "", GITHUB_OUTPUT: output,
-            CALC_V3_NIGHTLY_PHASES: nightly!.join(" "), CALC_V3_SELECTION: selection },
+            CALC_V3_SELECTION: selection },
         });
         return { status: result.status, phases: /^phases=(.*)$/mu.exec(fs.readFileSync(output, "utf8"))?.[1] };
       } finally {

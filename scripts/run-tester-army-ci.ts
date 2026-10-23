@@ -12,8 +12,10 @@ import {
 } from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
+import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-fixtures";
+import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
-import { CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import { CALC_V3_PHASES, CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
 import { runDevLoopSession } from "./tester-army/dev-loop";
 import {
   DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
@@ -27,14 +29,15 @@ import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
 const suite = process.argv[2];
-if (!["critical", "full", "dev", "dev-loop", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3|absent] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
+if (!["critical", "full", "dev", "dev-loop", "calc-v3", "explore"].includes(suite)) {
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3|explore [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3|absent] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 // Journey files a --files run may name: critical and local journeys of the
 // critical suite; for full, any journey folder of its selection (its shards,
 // the takeoff journeys and their login setup among them).
 const FILES_PATTERN = suite === "full" ? FULL_JOURNEY_FILE : CRITICAL_JOURNEY_FILE;
 let grep: string | undefined;
+let selectedFixtureFiles: string[] | undefined;
 let files: string[] = [];
 let calcV3Phase: CalcV3Phase | undefined;
 // The development phase of the full suite alone: its own job in a sharded nightly run.
@@ -72,7 +75,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
   } else if (option === "--grep") {
     if (files.length) throw new Error("--grep excludes --files.");
     // A dev-loop session selects its journeys per `run`, never at start.
-    if (suite === "dev" || suite === "dev-loop") {
+    if (suite === "dev" || suite === "dev-loop" || suite === "explore") {
       throw new Error("--grep is restricted to critical, full and one calc-v3 phase; dev and dev-loop cannot be filtered.");
     }
     // Forwarded to two command lines: a leading dash would read as their next flag.
@@ -94,7 +97,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
   } else if (option === "--phase") {
-    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|offers|emission|emission-v3.");
+    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error(`--phase names one calc-v3 phase: ${CALC_V3_PHASES.join("|")}.`);
     calcV3Phase = value;
   } else if (option === "--ttl-minutes") {
     if (suite !== "dev-loop" || !/^[0-9]+$/.test(value) || Number(value) < DEV_LOOP_TTL_RANGE[0] || Number(value) > DEV_LOOP_TTL_RANGE[1]) {
@@ -403,11 +406,25 @@ async function runApplication(local: SupabaseEnvironment) {
     });
     return;
   }
+  const business = suite === "critical" || (suite === "full" && fullPhase !== "development")
+    ? await prepareBusinessJourneyFixtures({
+      directory: path.join(evidence, "business-fixtures"), backend: backend.origin,
+      anonKey: local.NEXT_PUBLIC_SUPABASE_ANON_KEY!, admin,
+      databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL,
+      owner: { userId: user.user.id, tenantId, laborRoleId: laborRole.id },
+      remember: (secret) => { knownSecrets.push(secret); },
+    }, { files: selectedFixtureFiles ?? (files.length ? files : undefined) })
+    : { env: {}, secretEnv: {}, identities: {} };
+  manifest.businessFixtures = business.identities;
   // Only the Node journey process receives this transport. The app uses the
   // e2e.config.ts inheritEnv allowlist; the production build never receives it.
   const journeyEnvironment = {
     ...environment,
     ...businessJourneyEnvironment,
+    ...business.env,
+    ...business.secretEnv,
+    E2E_ARMY_TAKEOFF_WORKER: "1",
+    E2E_ARMY_BLOCK_WORKERS: "1",
     E2E_ARMY_LOCAL_DB_URL: local.E2E_ARMY_LOCAL_DB_URL,
     E2E_ARMY_LOCAL_PSQL: local.E2E_ARMY_LOCAL_PSQL,
     ...(workers === "" ? {} : { E2E_ARMY_WORKERS: workers }),
@@ -446,6 +463,12 @@ async function runApplication(local: SupabaseEnvironment) {
   }
   // Before the phases: an install failure is the run's error, not a phase's.
   if (browserInstallDirectory) await awaitBrowserInstall();
+  if (suite === "explore") {
+    manifest.exploration = await runExplorationCampaign({ root, evidence, environment: journeyEnvironment, run: runNode, redact });
+    const after = await runSourceEvidence();
+    if (JSON.stringify(after) !== JSON.stringify(manifest.source)) throw new Error("Sources changed during exploration.");
+    return;
+  }
   const failures: string[] = [];
   for (const phase of suite === "full" ? fullPhases : [suite!]) {
     try {
@@ -686,6 +709,7 @@ async function main() {
       const pairs = await listArmySelection({ root, suite, grep, files,
         env: { ...createLocalCiEnvironment(process.env), ...businessJourneyEnvironment } });
       const problems = selectionPreflightProblems({ pairs, grep, files });
+      selectedFixtureFiles = [...new Set(pairs.filter((pair) => pair.disposition === "run" && pair.kind === "test").map((pair) => pair.file))];
       manifest.selectionPreflight = {
         status: problems.length ? "failed" : "passed",
         runnable: pairs.filter((pair) => pair.disposition === "run" && pair.kind === "test")
@@ -697,7 +721,14 @@ async function main() {
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
-      runApplication,
+      runApplication: async (local) => {
+        try { await runApplication(local); }
+        catch (error) {
+          const diagnostic = redact(error instanceof Error ? error.message : String(error));
+          manifest.applicationFailure = diagnostic;
+          throw new SafeDiagnosticError(diagnostic);
+        }
+      },
       ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.

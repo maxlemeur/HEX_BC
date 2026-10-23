@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 
 import { expect } from "e2e";
 
+import { requiredFixturePath } from "./owned-business-inputs";
+
 import type { ReferencePriceResponse } from "../../../src/lib/catalogue/reference-price-schemas";
 import { apiRequest, armyTest, recordEvidence, type ArmyState } from "../critical/fixtures";
 
@@ -34,7 +36,7 @@ async function localFixture(): Promise<HttpFixture> {
   if (backend.protocol !== "http:" || backend.hostname !== "127.0.0.1" || backend.username || backend.password) {
     throw new Error("Catalogue provenance requires the isolated loopback Supabase.");
   }
-  const raw = JSON.parse(await readFile(".e2e/catalogue-provenance/http-fixture.json", "utf8")) as HttpFixture & { status: string };
+  const raw = JSON.parse(await readFile(requiredFixturePath("E2E_CATALOGUE_PROVENANCE_FIXTURE_PATH"), "utf8")) as HttpFixture & { status: string };
   expect(raw.status).toBe("ready");
   const fixture: HttpFixture = {
     apiUrl: raw.apiUrl, userId: raw.userId, tenantId: raw.tenantId, otherTenantId: raw.otherTenantId,
@@ -140,7 +142,7 @@ async function createCampaign(browser: Browser, army: ArmyState, fixture: HttpFi
 }
 
 armyTest("local catalogue provenance rejects six invalid final source pairs without changing a validated reference", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, browser, army }) => {
   const fixture = await localFixture();
   await app.open("/dashboard/products");
@@ -193,7 +195,7 @@ armyTest("local catalogue provenance rejects six invalid final source pairs with
 });
 
 armyTest("local catalogue provenance preserves valid partial sources omissions and explicit clearing", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, army }) => {
   const fixture = await localFixture();
   await app.open("/dashboard/products");

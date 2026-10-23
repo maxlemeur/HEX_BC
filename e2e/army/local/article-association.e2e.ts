@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
 import { expect } from "e2e";
 
+import { requiredFixturePath } from "./owned-business-inputs";
+
 import {
   armyTest,
+  resolveDownload,
   createEstimateViaWizard,
   createLineViaApi,
   ownEstimate,
@@ -28,13 +31,13 @@ type LocalProduct = {
 // This suite requires the isolated native stack from docs/testing/rls-required-check.md.
 armyTest(
   "local article association and replacement preserve units and DPGF",
-  { session: "army", timeout: 300_000 },
+  { session: "army", tags: ["critical", "local", "business-corpus"], timeout: 300_000 },
   async ({ app, screen, browser, army }) => {
     const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
     if (backend.protocol !== "http:" || backend.hostname !== "127.0.0.1") {
       throw new Error("This fixture is restricted to the isolated loopback stack.");
     }
-    const fixture = JSON.parse(await readFile(".e2e/local-article/fixture.json", "utf8")) as {
+    const fixture = JSON.parse(await readFile(requiredFixturePath("E2E_LOCAL_ARTICLE_FIXTURE_PATH"), "utf8")) as {
       apiUrl: string;
       products: LocalProduct[];
     };
@@ -44,10 +47,10 @@ armyTest(
       { reference: "ARMY-ACIER", unit: "u", unit_price_cents: 2500 },
     ]);
 
-    const directory = path.resolve(".e2e/local-article/diagnostic/artifacts");
+    const directory = path.resolve(".e2e/army/critical/artifacts/business", army.runPrefix);
     await mkdir(directory, { recursive: true });
     // SDK downloads land in the diagnostic output's results/, not beside this evidence.
-    const downloadRoot = sdkResultsRoot(".e2e/local-article/diagnostic/results");
+    const downloadRoot = sdkResultsRoot(".e2e/army/critical/results");
     const ui = { app, screen, browser };
     const ids = await createEstimateViaWizard(ui, {
       projectName: army.projectName,
@@ -110,10 +113,7 @@ armyTest(
       const download = await browser.waitForDownload(
         () => screen.getByTestId("estimate-page-toolbar-export-dpgf-button").tap(), { timeout: 60_000 }
       );
-      const files = (await readdir(downloadRoot, { recursive: true }))
-        .filter((entry) => entry.split(path.sep).join("/").endsWith(download.path));
-      expect(files).toHaveLength(1);
-      const file = path.join(downloadRoot, files[0]);
+      const file = await resolveDownload(download);
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.readFile(file);
       const rows: ExcelJS.Row[] = [];

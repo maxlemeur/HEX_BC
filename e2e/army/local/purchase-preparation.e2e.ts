@@ -135,7 +135,7 @@ for (const mutation of [
   { scenario: "stale-cost", patch: { unit_price_ht_cents: 1300 }, expectedQuantity: 2, expectedPrice: 1300 },
 ]) {
   purchaseTest(`local purchase preparation rejects ${mutation.scenario} after the buyer preview`, {
-    session: "army", trace: "off", timeout: 180_000,
+    session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
   }, async ({ app, browser, campaign, army }) => {
     const fixture = scenario(campaign, mutation.scenario, army);
     await app.open(`/dashboard/affaires/${fixture.projectId}`);
@@ -175,7 +175,7 @@ for (const mutation of [
 
 for (const status of ["sent", "confirmed", "received", "canceled"]) {
 purchaseTest(`local purchase preparation does not transfer already ${status} source lines again`, {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, status, army);
   await app.open(`/dashboard/affaires/${fixture.projectId}`);
@@ -268,7 +268,7 @@ async function assertCreatedOrders(browser: Browser, fixture: ScenarioFixture, r
 }
 
 purchaseTest("local purchase preparation records two exact drafts and recovers the same receipt", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, "valid", army);
   await app.open(`/dashboard/affaires/${fixture.projectId}`);
@@ -328,7 +328,7 @@ purchaseTest("local purchase preparation records two exact drafts and recovers t
 });
 
 purchaseTest("local purchase preparation coalesces concurrent calls for the same intent", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, "same-intent", army);
   await app.open(`/dashboard/affaires/${fixture.projectId}`);
@@ -353,7 +353,7 @@ purchaseTest("local purchase preparation coalesces concurrent calls for the same
 });
 
 purchaseTest("local purchase preparation prevents distinct concurrent intents from transferring the same lines", {
-  session: "army", trace: "off", timeout: 180_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, "different-intents", army);
   await app.open(`/dashboard/affaires/${fixture.projectId}`);
@@ -375,7 +375,7 @@ purchaseTest("local purchase preparation prevents distinct concurrent intents fr
 });
 
 purchaseTest("local purchase preparation requires review and recovers a lost response without a second creation", {
-  session: "army", trace: "off", timeout: 240_000,
+  session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, campaign, army }) => {
   const fixture = scenario(campaign, "ui-recovery", army);
   const hub = `/dashboard/affaires/${fixture.projectId}`;
