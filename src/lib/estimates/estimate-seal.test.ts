@@ -47,6 +47,15 @@ function createVersion(
 
 function createItem(overrides: Partial<EstimateItemRow> = {}): EstimateItemRow {
   return {
+    aid: null,
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    pricing_status: "priced",
+    product_id: null,
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id: "77777777-7777-4777-8777-777777777777",
     created_at: "2026-08-12T08:00:00.000Z",
     updated_at: "2026-08-12T08:00:00.000Z",

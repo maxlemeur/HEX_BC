@@ -65,6 +65,15 @@ function createJsonResponse(
 
 function createLine(id = "line-1"): EstimateItem {
   return {
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    line_nature: null,
+    pricing_status: "priced",
+    product_id: null,
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id,
     created_at: "2026-07-01T08:00:00.000Z",
     updated_at: "2026-07-01T08:00:00.000Z",

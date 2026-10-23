@@ -38,6 +38,7 @@ import {
   parseSupabaseMigrationList,
   validateAppliedMigrationRows,
 } from "@/test/supabase-migrations";
+import { verifyLocalDatabaseTypes } from "@/test/database-types";
 
 type RoleKey = "admin" | "engineer" | "viewer";
 
@@ -184,6 +185,7 @@ interface LocalSupabaseCiDependencies {
   supabase: (args: string[], capture?: boolean) => string;
   validateProject: () => string[];
   verifyMigrations: (output: string) => string[];
+  verifyDatabaseTypes: (workdir: string) => void;
   /** File names under supabase/tests/database; the whole folder when absent. */
   pgTapFiles?: readonly string[];
   skipRlsMatrix?: boolean;
@@ -754,6 +756,7 @@ function defaultDependencies(): LocalSupabaseCiDependencies {
     supabase: (args, capture = false) =>
       runSupabaseCli(args, { capture, environment: process.env }),
     validateProject: () => inspectSupabaseMigrations().errors,
+    verifyDatabaseTypes: verifyLocalDatabaseTypes,
     verifyMigrations: (output) => {
       const inventory = inspectSupabaseMigrations();
       const rows = parseSupabaseMigrationList(output);
@@ -1106,6 +1109,10 @@ export async function runLocalSupabaseCi(
       }
     }
     dependencies.onDatabaseProvenance?.({ ...provenance });
+
+    checkpoint("verify generated database types");
+    dependencies.verifyDatabaseTypes(project.rootDirectory);
+    dependencies.log("Generated database types match the migrated local schema.");
 
     checkpoint("run pgTAP");
     const pgTapDirectory = path.join(project.rootDirectory, PGTAP_DIRECTORY);

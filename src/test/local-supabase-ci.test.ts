@@ -122,11 +122,38 @@ function createDependencies(options: {
       supabase,
       validateProject: vi.fn(() => []),
       verifyMigrations: vi.fn(() => []),
+      verifyDatabaseTypes: vi.fn(),
     },
   };
 }
 
 describe("local Supabase CI", () => {
+  it("refuses generated-type drift before database/application qualification and destroys its owned stack", async () => {
+    const { dependencies, calls, release } = createDependencies();
+    dependencies.verifyDatabaseTypes.mockImplementation(() => { throw new Error("Generated database types differ"); });
+    const runApplication = vi.fn();
+    await expect(runLocalSupabaseCi({ ...dependencies, runApplication })).rejects.toThrow("Phase failed: verify generated database types");
+    expect(calls.some((command) => command.startsWith("test db"))).toBe(false);
+    expect(dependencies.provisionUsers).not.toHaveBeenCalled();
+    expect(runApplication).not.toHaveBeenCalled();
+    expect(calls.slice(-2)).toEqual([
+      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
+    ]);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("permits type generation only from its owned local public schema, never a URL or linked project", () => {
+    const args = ["gen", "types", "--local", "--lang", "typescript", "--schema", "public", "--workdir", path.join(os.tmpdir(), "miaouffrage-supabase-ci-types")];
+    expect(() => assertLocalOnlySupabaseArgs(args)).not.toThrow();
+    for (const bad of [
+      args.map((value) => value === "--local" ? "--linked" : value),
+      [...args, "--db-url", "postgresql://remote.test/postgres"],
+      args.map((value) => value === "public" ? "private" : value),
+      [...args.slice(0, -1), process.cwd()],
+    ]) expect(() => assertLocalOnlySupabaseArgs(bad)).toThrow("not allowlisted");
+  });
+
   it("allocates eight distinct real listening ports outside the ephemeral client range", async () => {
     const reserved = new Set<number>();
     for (let index = 0; index < 8; index += 1) {

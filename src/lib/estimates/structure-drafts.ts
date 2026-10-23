@@ -565,6 +565,8 @@ function getConfidenceLabel(
   return "faible";
 }
 
+function toJson(value: JsonRecord | unknown[]): NonNullable<Json>;
+function toJson(value: unknown): Json;
 function toJson(value: unknown): Json {
   return value as Json;
 }

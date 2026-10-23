@@ -78,6 +78,11 @@ function createVersion(
   overrides: Partial<EstimateVersionRow> = {}
 ): EstimateVersionRow {
   return {
+    commercial_rounding_cents: null,
+    discount_applied_cents: null,
+    gross_ht_cents: null,
+    sale_coefficient_fo: null,
+    sale_coefficient_mo: null,
     id: "627ef080-0001-4000-8000-000000000001",
     created_at: "2026-07-15T08:00:00.000Z",
     updated_at: "token-initial",
@@ -128,6 +133,15 @@ function createItem(
   overrides: Partial<EstimateItem> = {}
 ): EstimateItem {
   return {
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    line_nature: null,
+    pricing_status: "priced",
+    product_id: null,
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id,
     created_at: "2026-07-15T08:00:00.000Z",
     updated_at: "2026-07-15T08:00:00.000Z",

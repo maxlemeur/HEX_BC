@@ -330,7 +330,7 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     loss_coeff_bp: item.loss_coeff_bp ?? 0,
     yield_value: item.yield_value ?? null,
     yield_unit: toNullableText(item.yield_unit),
-    source_metadata: (item.source_metadata ?? {}) as Json,
+    source_metadata: (item.source_metadata ?? {}) as NonNullable<Json>,
   }));
 
   const membersPayload: EstimateAssemblyMemberInsert[] = input.members.map(

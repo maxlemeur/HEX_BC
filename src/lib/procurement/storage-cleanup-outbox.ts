@@ -33,14 +33,14 @@ function errorMessage(error: unknown) {
   return String(error);
 }
 
-function requireLeaseToken(cleanup: CleanupRow) {
+function requireLeaseToken(cleanup: Pick<CleanupRow, "lease_token">) {
   if (!cleanup.lease_token) {
     throw new Error("Cleanup claim returned without a lease token.");
   }
   return cleanup.lease_token;
 }
 
-function assertCanonicalCleanupTarget(cleanup: CleanupRow) {
+function assertCanonicalCleanupTarget(cleanup: Omit<CleanupRow, "bucket_id"> & { bucket_id: string }): asserts cleanup is CleanupRow {
   const prefix = `purchase-orders/${cleanup.purchase_order_id}/`;
   const filename = cleanup.storage_path.startsWith(prefix)
     ? cleanup.storage_path.slice(prefix.length)

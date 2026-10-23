@@ -532,7 +532,7 @@ function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "i
         source_provider: "dpgf",
         source_file_name: source.filename,
         source_page: sourceItem.source_page,
-        source_metadata: sourceMetadata as Json,
+        source_metadata: sourceMetadata,
       });
       insertedSectionCount += 1;
       return;
@@ -561,7 +561,7 @@ function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "i
       source_provider: "dpgf",
       source_file_name: source.filename,
       source_page: sourceItem.source_page,
-      source_metadata: sourceMetadata as Json,
+      source_metadata: sourceMetadata,
       line_total_ht_cents: sourceItem.line_total_ht_cents,
       line_tax_cents: sourceItem.line_tax_cents,
       line_total_ttc_cents: sourceItem.line_total_ttc_cents,

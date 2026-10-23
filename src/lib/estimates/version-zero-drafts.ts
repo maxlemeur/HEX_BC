@@ -408,6 +408,8 @@ function toJsonRecord(value: unknown): JsonRecord {
   return value as JsonRecord;
 }
 
+function toJson(value: JsonRecord | unknown[]): NonNullable<Json>;
+function toJson(value: unknown): Json;
 function toJson(value: unknown): Json {
   return value as Json;
 }

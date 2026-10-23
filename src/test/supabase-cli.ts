@@ -106,6 +106,14 @@ export function assertLocalOnlySupabaseArgs(args: string[]) {
   }
 
   if (
+    args.length === 9 &&
+    args.slice(0, 8).join(" ") === "gen types --local --lang typescript --schema public --workdir" &&
+    hasIsolatedWorkdir(args, 8)
+  ) {
+    return;
+  }
+
+  if (
     args.length === 5 &&
     args[0] === "start" &&
     args[1] === "--runtime" &&
@@ -304,7 +312,7 @@ export function resolveSupabaseCli(rootDirectory = process.cwd()) {
 export function runSupabaseCli(
   args: string[],
   options: {
-    capture?: boolean;
+    capture?: boolean | "stdout";
     environment?: SupabaseEnvironment;
     rootDirectory?: string;
   } = {}
@@ -349,5 +357,5 @@ export function runSupabaseCli(
     );
   }
 
-  return [result.stdout, result.stderr].filter(Boolean).join("\n");
+  return options.capture === "stdout" ? result.stdout : [result.stdout, result.stderr].filter(Boolean).join("\n");
 }

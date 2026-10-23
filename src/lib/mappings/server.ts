@@ -1892,7 +1892,7 @@ export async function createMapping(input: {
         designation: designation || null,
         supply_type: supplyType || null,
         h_mo_majoration: hMoMajoration || null,
-      } as Json,
+      },
     };
   });
 

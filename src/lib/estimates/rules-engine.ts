@@ -73,33 +73,11 @@ export type EstimateReviewCorrectionStatus =
 export type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];
 
-type EstimateRuleRow = {
-  id: string;
-  created_at: string;
-  updated_at: string;
-  tenant_id: string;
-  rule_type: ExtendedEstimateRuleType;
-  scope_type: EstimateRuleScopeType;
-  scope_id: string | null;
-  threshold_value: number;
-  action: EstimateRuleAction;
-  is_active: boolean;
-};
+type EstimateRuleRow = Database["public"]["Tables"]["estimate_rules"]["Row"];
 
-type EstimateRuleInsert = {
-  id?: string;
-  created_at?: string;
-  updated_at?: string;
-  tenant_id?: string;
-  rule_type: ExtendedEstimateRuleType;
-  scope_type?: EstimateRuleScopeType;
-  scope_id?: string | null;
-  threshold_value: number;
-  action: EstimateRuleAction;
-  is_active?: boolean;
-};
+type EstimateRuleInsert = Database["public"]["Tables"]["estimate_rules"]["Insert"];
 
-type EstimateRuleUpdate = Partial<EstimateRuleInsert>;
+type EstimateRuleUpdate = Database["public"]["Tables"]["estimate_rules"]["Update"];
 
 type EstimateApprovalRow = {
   id: string;
@@ -116,8 +94,6 @@ type EstimateApprovalRow = {
   review_cycle_id: string | null;
   superseded_at: string | null;
 };
-
-type EstimateApprovalUpdate = Partial<EstimateApprovalRow>;
 
 type EstimateReviewCycleRow = {
   id: string;
@@ -140,8 +116,6 @@ type EstimateReviewCycleRow = {
   superseded_by_cycle_id: string | null;
 };
 
-type EstimateReviewCycleUpdate = Partial<EstimateReviewCycleRow>;
-
 type EstimateReviewCommentRow = {
   id: string;
   created_at: string;
@@ -150,19 +124,6 @@ type EstimateReviewCommentRow = {
   cycle_id: string;
   scope_type: EstimateReviewCommentScope;
   scope_id: string | null;
-  scope_label: string;
-  comment: string;
-  created_by: string;
-};
-
-type EstimateReviewCommentInsert = {
-  id?: string;
-  created_at?: string;
-  tenant_id?: string;
-  version_id: string;
-  cycle_id: string;
-  scope_type: EstimateReviewCommentScope;
-  scope_id?: string | null;
   scope_label: string;
   comment: string;
   created_by: string;
@@ -243,46 +204,7 @@ type DecideEstimateReviewCycleResult = {
   comment_count: number;
 };
 
-type EstimateRulesTable = {
-  Row: EstimateRuleRow;
-  Insert: EstimateRuleInsert;
-  Update: EstimateRuleUpdate;
-  Relationships: [];
-};
-
-type EstimateApprovalsTable = {
-  Row: EstimateApprovalRow;
-  Insert: never;
-  Update: EstimateApprovalUpdate;
-  Relationships: [];
-};
-
-type EstimateReviewCyclesTable = {
-  Row: EstimateReviewCycleRow;
-  Insert: never;
-  Update: EstimateReviewCycleUpdate;
-  Relationships: [];
-};
-
-type EstimateReviewCommentsTable = {
-  Row: EstimateReviewCommentRow;
-  Insert: EstimateReviewCommentInsert;
-  Update: Partial<EstimateReviewCommentInsert>;
-  Relationships: [];
-};
-
-type DatabaseWithRules = Omit<Database, "public"> & {
-  public: Omit<Database["public"], "Tables"> & {
-    Tables: Database["public"]["Tables"] & {
-      estimate_rules: EstimateRulesTable;
-      estimate_approvals: EstimateApprovalsTable;
-      estimate_review_cycles: EstimateReviewCyclesTable;
-      estimate_review_comments: EstimateReviewCommentsTable;
-    };
-  };
-};
-
-type Supabase = SupabaseClient<DatabaseWithRules>;
+type Supabase = SupabaseClient<Database>;
 
 type AuthenticatedContext = {
   supabase: Supabase;
@@ -295,7 +217,7 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const context = await getAuthenticatedTenantContext();
 
   return {
-    supabase: context.supabase as unknown as Supabase,
+    supabase: context.supabase,
     userId: context.userId,
     tenantId: context.tenantId,
     tenantRole: context.tenantRole,
@@ -894,7 +816,7 @@ function formatChangeFieldValue(input: {
 function toRulesSupabaseClient(
   supabase: SupabaseClient<Database> | Supabase
 ): Supabase {
-  return supabase as unknown as Supabase;
+  return supabase;
 }
 
 function isTenantAdmin(tenantRole: TenantRole) {
@@ -985,15 +907,15 @@ async function resolveRelatedTakeoffJobIds(input: {
 }) {
   const [directJobsResult, linkedJobsResult] = await Promise.all([
     readAllRows(() => input.supabase
-      .from("takeoff_jobs" as never)
-      .select("id" as never, { count: "exact" })
-      .eq("tenant_id" as never, input.tenantId as never)
-      .eq("estimate_version_id" as never, input.versionId as never)),
+      .from("takeoff_jobs")
+      .select("id", { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("estimate_version_id", input.versionId)),
     readAllRows(() => input.supabase
-      .from("takeoff_version_links" as never)
-      .select("takeoff_job_id, id" as never, { count: "exact" })
-      .eq("tenant_id" as never, input.tenantId as never)
-      .eq("target_version_id" as never, input.versionId as never)),
+      .from("takeoff_version_links")
+      .select("takeoff_job_id, id", { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("target_version_id", input.versionId)),
   ]);
 
   if (directJobsResult.error) {
@@ -1064,10 +986,10 @@ async function loadRuleSignalContext(input: {
 
   if (shouldLoadTakeoffEvidenceCoverage) {
     const { data, error } = await readAllRowsInChunks(relatedJobIds, (pageIds) => input.supabase
-      .from("takeoff_items" as never)
-      .select("id, evidence" as never, { count: "exact" })
-      .eq("tenant_id" as never, input.tenantId as never)
-      .in("job_id" as never, pageIds as never));
+      .from("takeoff_items")
+      .select("id, evidence", { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .in("job_id", pageIds));
 
     if (error) {
       throw mapSupabaseError(
@@ -1091,11 +1013,11 @@ async function loadRuleSignalContext(input: {
 
   if (shouldLoadDpgfCoverage && input.lineItemIds.length > 0) {
     const { data, error } = await readAllRowsInChunks(relatedJobIds, (pageIds) => input.supabase
-      .from("takeoff_dpgf_links" as never)
-      .select("estimate_item_id, id" as never, { count: "exact" })
-      .eq("tenant_id" as never, input.tenantId as never)
-      .eq("version_id" as never, input.versionId as never)
-      .in("takeoff_job_id" as never, pageIds as never));
+      .from("takeoff_dpgf_links")
+      .select("estimate_item_id, id", { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("version_id", input.versionId)
+      .in("takeoff_job_id", pageIds));
 
     if (error) {
       throw mapSupabaseError(
@@ -1379,10 +1301,10 @@ async function loadCurrentEstimateContentRevision(input: {
   versionId: string;
 }) {
   const { data, error } = await input.supabase.rpc(
-    "get_estimate_content_revision" as never,
+    "get_estimate_content_revision",
     {
       p_version_id: input.versionId,
-    } as never
+    }
   );
 
   if (error) {
@@ -1752,7 +1674,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
 }) {
   const [registerSummary, versionZeroSummary] = await Promise.all([
     fetchAffaireRegisterGateSummary({
-      supabase: input.supabase as never,
+      supabase: input.supabase,
       projectId: input.projectId,
       versionId: input.versionId,
     }),
@@ -2097,7 +2019,7 @@ async function evaluateSubmissionReadiness(input: {
   });
 }
 
-function toApprovalSummaryStorage(summary: EstimateApprovalSummaryCore): Json {
+function toApprovalSummaryStorage(summary: EstimateApprovalSummaryCore): NonNullable<Json> {
   return {
     requiresApproval: summary.requiresApproval,
     reasons: summary.reasons.map((reason) => ({
@@ -2714,7 +2636,7 @@ async function listEstimateReviewCorrectionItems(input: {
   }
 
   const { data, error } = await readAllRowsInChunks(input.cycleIds, (pageIds) => input.context.supabase
-    .from("estimate_review_correction_items" as never)
+    .from("estimate_review_correction_items")
     .select(
       ([
         "id",
@@ -2733,13 +2655,13 @@ async function listEstimateReviewCorrectionItems(input: {
         "last_treated_by",
         "last_treatment_note",
         "last_treated_by_profile:last_treated_by(full_name)",
-      ].join(", ") as never + ", id") as never,
+      ].join(", ") + ", id"),
       { count: "exact" }
     )
-    .eq("tenant_id" as never, input.context.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .in("cycle_id" as never, pageIds as never)
-    .order("created_at" as never, { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
+    .eq("tenant_id", input.context.tenantId)
+    .eq("version_id", input.versionId)
+    .in("cycle_id", pageIds)
+    .order("created_at", { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
 
   if (error) {
     throw mapSupabaseError(
@@ -2761,7 +2683,7 @@ async function listEstimateReviewCorrectionEvents(input: {
   }
 
   const { data, error } = await readAllRowsInChunks(input.cycleIds, (pageIds) => input.context.supabase
-    .from("estimate_review_correction_events" as never)
+    .from("estimate_review_correction_events")
     .select(
       [
         "id",
@@ -2775,13 +2697,13 @@ async function listEstimateReviewCorrectionEvents(input: {
         "next_status",
         "note",
         "actor_profile:actor_user_id(full_name)",
-      ].join(", ") as never,
+      ].join(", "),
       { count: "exact" }
     )
-    .eq("tenant_id" as never, input.context.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .in("cycle_id" as never, pageIds as never)
-    .order("created_at" as never, { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
+    .eq("tenant_id", input.context.tenantId)
+    .eq("version_id", input.versionId)
+    .in("cycle_id", pageIds)
+    .order("created_at", { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
 
   if (error) {
     throw mapSupabaseError(
@@ -3508,26 +3430,26 @@ async function loadApprovalCommentTargetContext(input: {
 }) {
   const [exceptionResult, hypothesisResult] = await Promise.all([
     readAllRows(() => input.context.supabase
-      .from("estimate_risk_alerts" as never)
+      .from("estimate_risk_alerts")
       .select(
-        "id, takeoff_job_id, line_id, lot_id, scope_type, scope_id, scope_label, severity, status, is_active" as never,
+        "id, takeoff_job_id, line_id, lot_id, scope_type, scope_id, scope_label, severity, status, is_active",
         { count: "exact" }
       )
-      .eq("tenant_id" as never, input.context.tenantId as never)
-      .eq("version_id" as never, input.versionId as never)
-      .eq("is_active" as never, true as never)
-      .order("scope_label" as never, { ascending: true })),
+      .eq("tenant_id", input.context.tenantId)
+      .eq("version_id", input.versionId)
+      .eq("is_active", true)
+      .order("scope_label", { ascending: true })),
     readAllRows(() => input.context.supabase
-      .from("affaire_register_entries" as never)
+      .from("affaire_register_entries")
       .select(
-        "id, project_id, version_id, kind, text, scope_type, scope_id, scope_label, severity, status, is_active" as never,
+        "id, project_id, version_id, kind, text, scope_type, scope_id, scope_label, severity, status, is_active",
         { count: "exact" }
       )
-      .eq("tenant_id" as never, input.context.tenantId as never)
-      .eq("project_id" as never, input.projectId as never)
-      .eq("kind" as never, "assumption" as never)
-      .eq("is_active" as never, true as never)
-      .order("updated_at" as never, { ascending: false })),
+      .eq("tenant_id", input.context.tenantId)
+      .eq("project_id", input.projectId)
+      .eq("kind", "assumption")
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })),
   ]);
 
   if (exceptionResult.error) {
@@ -3776,12 +3698,12 @@ export async function updateEstimateReviewCorrectionItemStatus(input: {
   }
 
   const { data, error } = await context.supabase.rpc(
-    "record_estimate_review_correction_action" as never,
+    "record_estimate_review_correction_action",
     {
       p_item_id: input.itemId,
       p_status: input.status,
       p_note: input.note?.trim() || null,
-    } as never
+    }
   );
 
   if (error) {
@@ -4102,7 +4024,7 @@ async function decideReviewCycleAtomically(input: {
   comments: NormalizedDecisionComment[];
 }) {
   const { data, error } = await input.context.supabase.rpc(
-    "decide_estimate_review_cycle" as never,
+    "decide_estimate_review_cycle",
     {
       p_cycle_id: input.cycleId,
       p_decision: input.decision,
@@ -4112,7 +4034,7 @@ async function decideReviewCycleAtomically(input: {
         scope_label: comment.scopeLabel,
         comment: comment.comment,
       })),
-    } as never
+    }
   );
 
   if (error) {
@@ -4154,11 +4076,11 @@ async function decideApprovalAtomically(input: {
   status: "approved" | "rejected";
 }) {
   const { data, error } = await input.context.supabase.rpc(
-    "decide_estimate_approval" as never,
+    "decide_estimate_approval",
     {
       p_approval_id: input.approvalId,
       p_status: input.status,
-    } as never
+    }
   );
 
   if (error) {

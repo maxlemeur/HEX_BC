@@ -55,6 +55,16 @@ function createSection(
     Pick<EstimateItemRow, "id" | "version_id" | "position" | "title">
 ): EstimateItemRow {
   return {
+    aid: null,
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    line_nature: null,
+    pricing_status: "priced",
+    product_id: null,
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id: overrides.id,
     created_at: overrides.created_at ?? BASE_TIMESTAMP,
     updated_at: overrides.updated_at ?? BASE_TIMESTAMP,
@@ -106,6 +116,16 @@ function createLine(
     Pick<EstimateItemRow, "id" | "version_id" | "position" | "title">
 ): EstimateItemRow {
   return {
+    aid: null,
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    line_nature: null,
+    pricing_status: "priced",
+    product_id: null,
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id: overrides.id,
     created_at: overrides.created_at ?? BASE_TIMESTAMP,
     updated_at: overrides.updated_at ?? BASE_TIMESTAMP,

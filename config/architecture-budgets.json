@@ -2,8 +2,9 @@
   "version": 1,
   "sourceDirectory": "src",
   "excludedModulePaths": [
-    "src/types/database.ts"
+    "src/types/database.generated.ts"
   ],
+  "_generatedTypes": "L'exception du schema suit le fichier genere, controle par check:database-types et regeneration native. L'adaptateur database.ts reste soumis aux budgets ordinaires.",
   "allowedCycles": [],
   "_comment": "Budgets = taille au gel + 10 %, arrondie a la centaine superieure. Une croissance ordinaire ne casse plus la CI ; depasser le budget veut dire que le module a vraiment enfle, et on relit alors la valeur.",
   "hotspotNonEmptyLineBudgets": {

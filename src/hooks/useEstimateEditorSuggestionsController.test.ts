@@ -73,6 +73,15 @@ function createLine(
   overrides: Partial<EstimateItem> = {}
 ): EstimateItem {
   return {
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    line_nature: null,
+    pricing_status: "priced",
+    product_id: null,
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id,
     created_at: NOW_ISO,
     updated_at: NOW_ISO,

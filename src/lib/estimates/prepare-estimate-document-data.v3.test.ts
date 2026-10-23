@@ -79,6 +79,8 @@ const O8 = fixtureLineId(8);
 
 function row(overrides: Partial<EstimateItem>): EstimateItem {
   return {
+    aid: null,
+    product_id: null,
     id: fixtureLineId(1), created_at: "2026-10-17T08:00:00.000Z", updated_at: "2026-10-17T08:00:00.000Z",
     tenant_id: TENANT_ID, version_id: VERSION_ID, parent_id: null, item_type: "line", line_nature: "supply_and_labor",
     position: 0, title: "Ligne", description: null, quantity: null, unit_price_ht_cents: null, tax_rate_bp: 2000,

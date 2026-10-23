@@ -36,6 +36,7 @@ import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 import type { Database, Json } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
+type CandidateSourceInsert = Database["public"]["Tables"]["estimate_generated_ouvrage_candidate_sources"]["Insert"];
 type JsonRecord = Record<string, unknown>;
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
@@ -805,6 +806,8 @@ function clampConfidence(value: number | null | undefined) {
   return Math.max(0, Math.min(1, Number(value)));
 }
 
+function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean): NonNullable<Json>;
+function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null): Json;
 function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null) {
   return value as Json;
 }
@@ -916,9 +919,9 @@ async function loadConfirmedBriefFragments(input: {
 }): Promise<SourceFragmentSeed[]> {
   try {
     const { data, error } = await input.supabase
-      .from("affaire_briefs" as never)
+      .from("affaire_briefs")
       .select(
-        "id, project_id, status, summary, project_object, scope, lots, assumptions, vigilance_points, missing_elements" as never
+        "id, project_id, status, summary, project_object, scope, lots, assumptions, vigilance_points, missing_elements"
       )
       .eq("project_id", input.projectId)
       .eq("status", "confirme")
@@ -1518,7 +1521,7 @@ async function updateDraftProjection(input: {
     applications: input.applications,
   });
 
-  const payload: Record<string, unknown> = {
+  const payload: Database["public"]["Tables"]["estimate_generated_ouvrage_drafts"]["Update"] = {
     status: nextStatus,
     summary: toJson(summary),
     applied_at:
@@ -1532,10 +1535,10 @@ async function updateDraftProjection(input: {
   }
 
   const { data, error } = await input.supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
-    .update(payload as never)
+    .from("estimate_generated_ouvrage_drafts")
+    .update(payload)
     .eq("id", input.draft.id)
-    .select("*" as never)
+    .select("*")
     .single();
 
   if (error || !data) {
@@ -2340,50 +2343,44 @@ async function loadGeneratedOuvrageDraftOrThrow(input: {
   draftId: string;
 }): Promise<DraftLoaded> {
   const [draftResult, fragmentResult, candidateResult, candidateSourceResult, applicationResult] =
-    (await Promise.all([
+    await Promise.all([
       input.supabase
-        .from("estimate_generated_ouvrage_drafts" as never)
-        .select("*" as never)
+        .from("estimate_generated_ouvrage_drafts")
+        .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("target_version_id", input.versionId)
         .eq("id", input.draftId)
         .single(),
       input.supabase
-        .from("estimate_generated_ouvrage_source_fragments" as never)
-        .select("*" as never)
+        .from("estimate_generated_ouvrage_source_fragments")
+        .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("draft_id", input.draftId)
         .order("fragment_order", { ascending: true }),
       input.supabase
-        .from("estimate_generated_ouvrage_candidates" as never)
-        .select("*" as never)
+        .from("estimate_generated_ouvrage_candidates")
+        .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("draft_id", input.draftId)
         .order("candidate_order", { ascending: true }),
       input.supabase
-        .from("estimate_generated_ouvrage_candidate_sources" as never)
-        .select("*" as never)
+        .from("estimate_generated_ouvrage_candidate_sources")
+        .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("draft_id", input.draftId)
         .order("source_rank", { ascending: true }),
       input.supabase
-        .from("estimate_generated_ouvrage_applications" as never)
-        .select("*" as never)
+        .from("estimate_generated_ouvrage_applications")
+        .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("draft_id", input.draftId)
         .order("created_at", { ascending: true }),
-    ])) as [
-      { data: unknown; error: { message?: string; code?: string } | null },
-      { data: unknown[] | null; error: { message?: string; code?: string } | null },
-      { data: unknown[] | null; error: { message?: string; code?: string } | null },
-      { data: unknown[] | null; error: { message?: string; code?: string } | null },
-      { data: unknown[] | null; error: { message?: string; code?: string } | null },
-    ];
+    ]);
 
   if (draftResult.error || !draftResult.data) {
     if (draftResult.error) {
       throw mapSupabaseError(
-        draftResult.error as never,
+        draftResult.error,
         "Impossible de charger le brouillon d'ouvrages."
       );
     }
@@ -2392,28 +2389,28 @@ async function loadGeneratedOuvrageDraftOrThrow(input: {
 
   if (fragmentResult.error) {
     throw mapSupabaseError(
-      fragmentResult.error as never,
+      fragmentResult.error,
       "Impossible de charger les fragments sources du brouillon."
     );
   }
 
   if (candidateResult.error) {
     throw mapSupabaseError(
-      candidateResult.error as never,
+      candidateResult.error,
       "Impossible de charger les candidats d'ouvrages."
     );
   }
 
   if (candidateSourceResult.error) {
     throw mapSupabaseError(
-      candidateSourceResult.error as never,
+      candidateSourceResult.error,
       "Impossible de charger les rattachements source des candidats."
     );
   }
 
   if (applicationResult.error) {
     throw mapSupabaseError(
-      applicationResult.error as never,
+      applicationResult.error,
       "Impossible de charger les applications du brouillon."
     );
   }
@@ -2614,7 +2611,7 @@ export async function generateOuvragesFromText(
     : null;
 
   const { data: draftData, error: draftError } = await supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
+    .from("estimate_generated_ouvrage_drafts")
     .insert({
       tenant_id: tenantId,
       project_id: parsed.projectId,
@@ -2625,8 +2622,8 @@ export async function generateOuvragesFromText(
       status: "pending",
       summary: {},
       generation_metadata: {},
-    } as never)
-    .select("*" as never)
+    })
+    .select("*")
     .single();
 
   if (draftError || !draftData) {
@@ -2636,15 +2633,7 @@ export async function generateOuvragesFromText(
   const draft = draftData as GeneratedOuvrageDraftRow;
   let fragments: GeneratedOuvrageSourceFragmentRow[] = [];
   let candidates: GeneratedOuvrageCandidateRow[] = [];
-  let sourceLinkRows: Array<{
-    tenant_id: string;
-    draft_id: string;
-    candidate_id: string;
-    source_fragment_id: string;
-    source_rank: number;
-    rationale: string | null;
-    metadata: JsonRecord;
-  }> = [];
+  let sourceLinkRows: Array<CandidateSourceInsert & Required<Pick<CandidateSourceInsert, "source_rank" | "rationale" | "metadata">>> = [];
   let generation: Awaited<ReturnType<typeof generatePromptCandidates>> | null = null;
   let updatedDraft: GeneratedOuvrageDraftRow | null = null;
 
@@ -2679,13 +2668,13 @@ export async function generateOuvragesFromText(
       source_page_to: seed.sourcePageTo ?? null,
       selection_label: toNullableText(seed.selectionLabel),
       cctp_section_ref: toNullableText(seed.cctpSectionRef),
-      metadata: seed.metadata ?? {},
+      metadata: toJson(seed.metadata ?? {}),
     }));
 
     const { data: fragmentData, error: fragmentError } = await supabase
-      .from("estimate_generated_ouvrage_source_fragments" as never)
-      .insert(fragmentInsertRows as never)
-      .select("*" as never)
+      .from("estimate_generated_ouvrage_source_fragments")
+      .insert(fragmentInsertRows)
+      .select("*")
       .order("fragment_order", { ascending: true });
 
     if (fragmentError || !fragmentData) {
@@ -2730,9 +2719,9 @@ export async function generateOuvragesFromText(
     }));
 
     const { data: candidateData, error: candidateError } = await supabase
-      .from("estimate_generated_ouvrage_candidates" as never)
-      .insert(candidateInsertRows as never)
-      .select("*" as never)
+      .from("estimate_generated_ouvrage_candidates")
+      .insert(candidateInsertRows)
+      .select("*")
       .order("candidate_order", { ascending: true });
 
     if (candidateError || !candidateData) {
@@ -2758,8 +2747,8 @@ export async function generateOuvragesFromText(
 
     if (sourceLinkRows.length > 0) {
       const { error: sourceLinkError } = await supabase
-        .from("estimate_generated_ouvrage_candidate_sources" as never)
-        .insert(sourceLinkRows as never);
+        .from("estimate_generated_ouvrage_candidate_sources")
+        .insert(sourceLinkRows);
 
       if (sourceLinkError) {
         throw mapSupabaseError(
@@ -2895,9 +2884,9 @@ export async function listResumableGeneratedOuvrageDrafts(
   const { supabase, tenantId, userId } = context;
   const { project } = await getGeneratedOuvrageResumeAccess(context, parsed.versionId);
   let query = supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
+    .from("estimate_generated_ouvrage_drafts")
     .select(
-      "id, created_at, source_kind, status, candidates:estimate_generated_ouvrage_candidates(ai_status, resolution_status)" as never
+      "id, created_at, source_kind, status, candidates:estimate_generated_ouvrage_candidates(ai_status, resolution_status)"
     )
     .eq("tenant_id", tenantId)
     .eq("project_id", project.id)
@@ -2954,8 +2943,8 @@ export async function fetchResumableGeneratedOuvrageDraft(
   const { supabase, tenantId, userId } = context;
   const { project } = await getGeneratedOuvrageResumeAccess(context, parsed.versionId);
   const { data, error } = await supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
-    .select("id, status" as never)
+    .from("estimate_generated_ouvrage_drafts")
+    .select("id, status")
     .eq("tenant_id", tenantId)
     .eq("project_id", project.id)
     .eq("target_version_id", parsed.versionId)

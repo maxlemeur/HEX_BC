@@ -318,6 +318,14 @@ export function createOptimisticSectionItem(input: {
 }): EditorEstimateItem {
   const timestamp = new Date().toISOString();
   return {
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    line_nature: null,
+    pricing_status: "priced",
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id: input.tempId,
     created_at: timestamp,
     updated_at: timestamp,
@@ -385,6 +393,13 @@ export function createOptimisticLineItem(input: {
 }): EditorEstimateItem {
   const timestamp = new Date().toISOString();
   return {
+    h_mo_atelier_per_unit: null,
+    h_mo_chantier_per_unit: null,
+    h_mo_per_unit: null,
+    pricing_status: "priced",
+    snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null,
+    unit_code: null,
     id: input.tempId,
     created_at: timestamp,
     updated_at: timestamp,

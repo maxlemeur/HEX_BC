@@ -265,6 +265,13 @@ export async function prepareEstimateBatch(input: {
         const isLine = data.item_type === "line";
         const parentLevel = data.title != null || isLine ? 0 : parentId ? resolveSectionLevel(idIndex, parentId) : 0;
         const item: Item = {
+          h_mo_atelier_per_unit: null,
+          h_mo_chantier_per_unit: null,
+          h_mo_per_unit: null,
+          pricing_status: "priced",
+          snapshot_gross_fo_ht_cents: null,
+          snapshot_gross_ht_cents: null,
+          unit_code: null,
           id: suppliedIds.get(index) ?? randomUUID(), tenant_id: tenantId, version_id: versionId,
           created_at: version.updated_at, updated_at: version.updated_at,
           parent_id: parentId, item_type: data.item_type, position,

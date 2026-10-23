@@ -177,3 +177,29 @@ contre la seule pile possédée par le runner. Cette preuve ne qualifie donc ni
 une restauration hébergée, ni la connexion TLS de production, ni les octets des
 documents Storage. Les contrôles de TLS, rôle de lecture et certificat du
 workflow de production restent actifs.
+
+## 6) Types TypeScript du schéma local
+
+`npm run supabase:types` utilise le runner natif possédé pour rejouer les
+migrations et générer deux fois les types de `public` avec la CLI épinglée.
+Les deux sorties doivent être identiques. La commande publie atomiquement
+`src/types/database.generated.ts` seulement après les contrôles SQL/RLS et le
+nettoyage de la pile. Elle ne reçoit ni URL de base, ni référence de projet
+lié, ni identifiant distant. Aucun Docker n'est nécessaire.
+
+Le corps du fichier est la sortie de `supabase gen types --local`, avec les
+espaces de fin de ligne retirés. Son en-tête contient les empreintes des
+entrées (CLI, configuration et migrations) et de la sortie. Après une
+migration ou une mise à jour de CLI, régénérer puis revoir le diff avant
+commit. `npm run check:database-types`, inclus dans `verify:pr`, refuse les
+types périmés ou modifiés manuellement. Sur la pile native, `db:ci:local` et
+les campagnes TesterArmy régénèrent aussi les types et les comparent avant
+pgTAP ; une différence bloque la qualification et conserve le nettoyage.
+
+`src/types/database.ts` contient les seuls raffinements qui dépassent
+l'introspection : contraintes CHECK textuelles, arguments RPC explicitement
+nullables, valeur JSON `null` en lecture et contrat JSON métier d'un reçu.
+Ces raffinements référencent les noms et types générés. Ils ne changent ni
+les droits, ni les requêtes, ni le schéma. Voir
+[`database-types-lot2.md`](../docs/testing/database-types-lot2.md) pour les
+contre-exemples, commandes et limites de qualification.
