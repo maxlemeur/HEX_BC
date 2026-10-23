@@ -16,12 +16,15 @@ insert into public.estimate_projects (id, tenant_id, user_id, name) values
    '29200000-0000-4000-8000-000000000001', 'LB29 affaire');
 select public.set_tenant_calc_policy(current_setting('test.tenant_id')::uuid, 3::smallint, 1.3, 1.2, array[2000],
   'LB29 v3', '29200000-0000-4000-8000-000000000001');
+insert into public.labor_roles (id, tenant_id, user_id, name, hourly_rate_cents)
+values ('29200000-0000-4000-8000-000000000301', current_setting('test.tenant_id')::uuid,
+  '29200000-0000-4000-8000-000000000001', 'LB29 public workbook MO', 4000);
 
--- Local WSL budgets, opt-in (AGENTS.md; docs/testing/large-estimate-statement-budget.md, « Budget derivation »). An
--- atomic bulk operation gets 1 000 ms at the real volume, so budget_ms is 500 ms pro rata for this 1 021-item creation
--- and settings probe against the 2 031-item hydraulic v3. copy_budget_ms (L7): option A gives a 1 000-operation copy
+-- Local native budgets, opt-in (AGENTS.md; docs/testing/large-estimate-statement-budget.md). The large target is
+-- the real 2 031-item public workbook; bulk operations get 1 000 ms without a pro-rata approximation.
+-- copy_budget_ms (L7): option A gives a 1 000-operation copy
 -- 875 ms = the 3 500 ms CI/production maximum / planning factor 4. L4: at most 100 operations get 400 ms.
-create temporary table lb29_budget as select 500::numeric as budget_ms, 875::numeric as copy_budget_ms,
+create temporary table lb29_budget as select 1000::numeric as budget_ms, 875::numeric as copy_budget_ms,
   400::numeric as interactive_budget_ms, clock_timestamp() as started_at;
 -- updates: estimate_versions rows updated by a creation, estimate_items rows updated by a settings save.
 create temporary table lb29_sample (operation text, run integer, outcome text, duration_ms numeric, updates bigint);
@@ -29,9 +32,11 @@ create temporary table lb29_payload (operation text, run integer, items jsonb, t
 grant all on lb29_sample to service_role;
 grant select on lb29_budget, lb29_payload to service_role;
 
--- The IO01 profile: one import root, 60 lots each with one sub-lot, 15 priced v3 lines per sub-lot (1 021 items),
--- with the DPGF provenance and OPTIMA structure metadata of an import. Supply costs vary per line; the amounts
--- are set by pg_temp.lb29_priced.
+-- Generated inside the owned workdir from the actual public IO01 workbook.
+\ir large-v3-workbook.sql
+
+-- Small synthetic control only (one import root, one lot/sub-lot and five lines).
+-- The large target comes from lb29_workbook, not from scaling this factory.
 create function pg_temp.lb29_items(p_lots integer, p_lines integer) returns jsonb language sql volatile as $$
   with meta as (
     select jsonb_build_object('import_id', gen_random_uuid(), 'mapping_id', gen_random_uuid(),
@@ -65,7 +70,7 @@ create function pg_temp.lb29_items(p_lots integer, p_lines integer) returns json
       'unit_price_ht_cents', 500 + ((lots.lot_number * 37 + line_number * 101) % 4000), 'tax_rate_bp', 2000, 'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1,
       'labor_role_id', null, 'pu_ht_cents', 0, 'line_total_ht_cents', 0, 'line_tax_cents', 0,
       'line_total_ttc_cents', 0, 'unit_code', 'ml', 'pricing_status', 'priced', 'h_mo_per_unit', 0,
-      'source_provider', 'dpgf', 'source_file_name', 'BEING - DPGF HYDRAULIQUE.xlsx',
+      'source_provider', 'dpgf', 'source_file_name', 'optima-hydraulique-fictif.xlsx',
       'source_metadata', meta.value || jsonb_build_object('mapped_row_id', gen_random_uuid(),
         'row_index', lots.first_position + 1 + line_number))
     from lots, meta, generate_series(1, p_lines) line_number
@@ -81,10 +86,11 @@ declare
 begin
   computed := private.estimate_v3_compute_items(
     (select jsonb_agg(jsonb_build_object('id', item ->> 'id', 'item_type', 'line', 'parent_id', item ->> 'parent_id',
-        'pricing_status', 'priced', 'tax_rate_bp', 2000, 'unit_code', 'ml', 'quantity', item -> 'quantity',
-        'unit_price_ht_cents', item -> 'unit_price_ht_cents', 'k_fo', 1, 'h_mo_per_unit', 0,
-        'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', 1, 'k_mo', 1,
-        'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', 0, 'labor_rate_atelier_cents', null,
+        'pricing_status', item -> 'pricing_status', 'tax_rate_bp', item -> 'tax_rate_bp', 'unit_code', item -> 'unit_code', 'quantity', item -> 'quantity',
+        'unit_price_ht_cents', item -> 'unit_price_ht_cents', 'k_fo', item -> 'k_fo', 'h_mo_per_unit', item -> 'h_mo_per_unit',
+        'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', item -> 'h_mo_majoration', 'k_mo', item -> 'k_mo',
+        'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', coalesce((select hourly_rate_cents from public.labor_roles
+          where id = (item ->> 'labor_role_id')::uuid), 0), 'labor_rate_atelier_cents', null,
         'labor_rate_chantier_cents', null) order by (item ->> 'id')::uuid)
      from jsonb_array_elements(p_items) item where item ->> 'item_type' = 'line'),
     jsonb_build_object('sale_coefficient_fo', 1.3, 'sale_coefficient_mo', 1.2, 'discount_amount_cents', null,
@@ -115,6 +121,13 @@ $$;
 create function pg_temp.lb29_updates(p_table text) returns bigint language sql as $$
   select coalesce(sum(t.n_tup_upd), 0)::bigint from pg_stat_xact_user_tables t
   where t.schemaname = 'public' and t.relname = p_table
+$$;
+
+create function pg_temp.lb29_context(p_version_id uuid) returns jsonb language sql stable as $$
+  select jsonb_build_object('labor_roles', coalesce((select jsonb_agg(jsonb_build_object('id', role.id,
+    'tenant_id', role.tenant_id, 'user_id', role.user_id, 'hourly_rate_cents', role.hourly_rate_cents) order by role.id)
+    from public.labor_roles role where role.id in (select labor_role_id from public.estimate_items
+      where version_id = p_version_id)), '[]'::jsonb), 'margin_tiers', '[]'::jsonb, 'labor_split_flag', null)
 $$;
 
 -- One creation of a prepared payload, rolled back unless p_keep.
@@ -154,8 +167,10 @@ declare
   updates_before bigint;
   updates bigint;
   payload lb29_payload%rowtype;
+  calculation_context jsonb;
 begin
   select * into payload from lb29_payload where operation = 'settings';
+  calculation_context := pg_temp.lb29_context('29200000-0000-4000-8000-000000000101');
   begin
     updates_before := pg_temp.lb29_updates('estimate_items');
     started_at := clock_timestamp();
@@ -164,7 +179,7 @@ begin
       (select updated_at from public.estimate_versions where id = '29200000-0000-4000-8000-000000000101'),
       (select content_revision from public.estimate_versions where id = '29200000-0000-4000-8000-000000000101'),
       '29200000-0000-4000-8000-000000000401', '{"sale_coefficient_fo":2}'::jsonb, payload.items, payload.totals,
-      '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb);
+      calculation_context);
     duration := round(extract(epoch from clock_timestamp() - started_at) * 1000, 1);
     updates := pg_temp.lb29_updates('estimate_items') - updates_before;
     raise exception using errcode = 'P0001', message = 'LB29_ROLLBACK';
@@ -175,20 +190,20 @@ begin
 end
 $$;
 
--- p_runs rolled-back 1 021-item creations, one 8-item creation, one kept creation (the subject of the settings
+-- p_runs rolled-back 2 031-item creations, one 8-item creation, one kept creation (the subject of the settings
 -- saves) and p_runs rolled-back v3 settings saves (c_FO 1,3 -> 2) with the projection of every line, as the
--- settings route sends it: the engine 3 amounts of the stored lines at the new coefficient, so every line's price
--- changes and is written. Payloads are built and priced as the caller, before the clock and the role switch.
+-- settings route sends it: engine 3 amounts at the new coefficient change the 785 nonzero workbook lines.
+-- Payloads are built and priced as the caller, before the clock and the role switch.
 create function pg_temp.lb29_run(p_runs integer) returns void language plpgsql as $$
 begin
   insert into lb29_payload
-  select payload.operation, payload.run, priced -> 'items', priced -> 'totals'
-  from (values ('create-small', 1, 1, 5), ('create-kept', 1, 60, 15)) payload(operation, run, lots, lines)
-  cross join lateral pg_temp.lb29_priced(pg_temp.lb29_items(payload.lots, payload.lines)) priced
+  select payload.operation, 1, priced -> 'items', priced -> 'totals'
+  from (values ('create-small', pg_temp.lb29_items(1, 5)), ('create-kept', (select items from lb29_workbook))) payload(operation, items)
+  cross join lateral pg_temp.lb29_priced(payload.items) priced
   union all
   select 'create', run, priced -> 'items', priced -> 'totals'
   from generate_series(1, p_runs) run
-  cross join lateral pg_temp.lb29_priced(pg_temp.lb29_items(60, 15)) priced;
+  cross join lateral pg_temp.lb29_priced((select items from lb29_workbook)) priced;
 
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   perform set_config('role', 'service_role', true);
@@ -225,7 +240,7 @@ create function pg_temp.lb29_median(p_operation text) returns numeric language s
   select percentile_cont(0.5) within group (order by duration_ms)::numeric from lb29_sample where operation = p_operation
 $$;
 create function pg_temp.lb29_report(p_operation text) returns text language sql as $$
-  select format('%s: median %s ms over %s runs (%s), local WSL budget %s ms (opt-in)', p_operation,
+  select format('%s: median %s ms over %s runs (%s), local native budget %s ms (opt-in)', p_operation,
     pg_temp.lb29_median(p_operation), count(*), string_agg(duration_ms::text, ' ' order by run),
     (select budget_ms from lb29_budget))
   from lb29_sample where operation = p_operation
@@ -252,7 +267,7 @@ $$;
 
 -- Sub-lot 2.8b (review, L7): a copy into a v3 is one commit_estimate_batch statement (sections from the same or
 -- another version, the linked DPGF): one root section and p_size - 1 priced lines under it, the IO13 profile, into
--- the kept 1 021-item version ('large') and into a kept 8-item version ('small'). The projections of every line of
+-- the kept 2 031-item version ('large') and into a kept 8-item version ('small'). The projections of every line of
 -- the target and its v3 totals come from private.estimate_v3_compute_items before the clock, as
 -- prepareEstimateBatch sends them. Each copy runs as the owner (authenticated) and is rolled back.
 create temporary table lb29_copy (target text, size integer, version_id uuid, session_id uuid, operations jsonb,
@@ -283,12 +298,12 @@ begin
     jsonb_build_array(jsonb_build_object('op', 'create', 'data', jsonb_build_object('item_type', 'section',
       'parent_id', null, 'position', (select coalesce(max(position), 0) + 1 from public.estimate_items
         where version_id = p_version_id and parent_id is null), 'title', 'Copie LB29 ' || p_size,
-      'source_provider', 'dpgf', 'source_file_name', 'BEING - DPGF HYDRAULIQUE.xlsx')))
+      'source_provider', 'dpgf', 'source_file_name', 'optima-hydraulique-fictif.xlsx')))
     || (select jsonb_agg(jsonb_build_object('op', 'create', 'data', jsonb_build_object('item_type', 'line',
       'parent_id', section_id, 'position', n, 'title', 'Fourniture et pose tube acier noir DN' || n || ' copie LB29',
       'description', 'ml', 'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'tax_rate_bp', 2000,
       'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1, 'unit_code', 'ml', 'pricing_status', 'priced', 'h_mo_per_unit', 0,
-      'source_provider', 'dpgf', 'source_file_name', 'BEING - DPGF HYDRAULIQUE.xlsx', 'source_page', n)) order by n)
+      'source_provider', 'dpgf', 'source_file_name', 'optima-hydraulique-fictif.xlsx', 'source_page', n)) order by n)
       from generate_series(1, p_size - 1) n),
     -- Each line carries the provenance of its mapped row, as the copies send it (server-side created ids).
     (select jsonb_agg(jsonb_build_object('index', n, 'id', case when n = 0 then section_id else line_ids[n] end)
@@ -311,15 +326,17 @@ declare
   receipt text;
   updates_before bigint;
   payload lb29_copy%rowtype;
+  calculation_context jsonb;
 begin
   select * into payload from lb29_copy where target = p_target and size = p_size;
+  calculation_context := pg_temp.lb29_context(payload.version_id);
   begin
     updates_before := pg_temp.lb29_updates('estimate_items');
     started_at := clock_timestamp();
     response := public.commit_estimate_batch(payload.version_id, gen_random_uuid(),
       (select updated_at from public.estimate_versions where id = payload.version_id), payload.session_id,
       payload.operations, payload.created_ids, payload.item_updates, payload.version_patch,
-      '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb, null);
+      calculation_context, null);
     duration := round(extract(epoch from clock_timestamp() - started_at) * 1000, 1);
     if (response ->> 'committed')::boolean is not true then
       raise exception using errcode = 'P0001', message = 'LB29_REFUSED ' || left((response -> 'results' -> -1)::text, 300);
@@ -374,7 +391,7 @@ create function pg_temp.lb29_copy_median(p_target text, p_size integer) returns 
 $$;
 create function pg_temp.lb29_copy_report() returns setof text language sql as $$
   select diag(format('copy of %s operations into the %s target: median %s ms over %s runs (%s), receipt %s bytes, '
-      || '%s line updates, local WSL budget %s ms (opt-in)', size, target, pg_temp.lb29_copy_median(target, size),
+      || '%s line updates, local native budget %s ms (opt-in)', size, target, pg_temp.lb29_copy_median(target, size),
     count(*), string_agg(case when outcome = 'ok' then duration_ms::text else outcome end, ' ' order by run),
     max(receipt_bytes), max(updates),
     (select case when size <= 100 then interactive_budget_ms else copy_budget_ms end from lb29_budget)))
@@ -388,7 +405,7 @@ create function pg_temp.lb29_batch_insert_statements() returns bigint language s
   where statement.query like 'insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,%'
 $$;
 
--- Lot 3.1: the 1 000-operation copy into the 1 021-item v3 with operation p_index naming a parent that does not exist,
+-- Lot 3.1: the 1 000-operation copy into the 2 031-item v3 with operation p_index naming a parent that does not exist,
 -- as the owner: the outcome, the items written and whether the version changed.
 create function pg_temp.lb29_copy_refused_at(p_index integer) returns jsonb language plpgsql as $$
 declare
@@ -407,7 +424,7 @@ begin
   response := public.commit_estimate_batch(payload.version_id, gen_random_uuid(), updated_before, payload.session_id,
     jsonb_set(payload.operations, array[p_index::text, 'data', 'parent_id'], to_jsonb(gen_random_uuid())),
     payload.created_ids, payload.item_updates, payload.version_patch,
-    '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb, null);
+    pg_temp.lb29_context(payload.version_id), null);
   perform set_config('role', 'none', true);
   return jsonb_build_object('committed', (response ->> 'committed')::boolean,
     'results', jsonb_array_length(response -> 'results'),

@@ -5,14 +5,16 @@ through `persist_estimate_creation_atomic` took 660 ms on the owner's Mac but ex
 of the API roles in CI (`57014`). No local check covered large volumes, so the regression first showed up as a CI
 journey failure. M6b (`20261018013249`, see [estimate-engine-v3-2.8.md](estimate-engine-v3-2.8.md), « Création
 atomique ») fixed it. This guard makes the same kind of regression fail in `npm run db:ci:local` before CI: a
-deterministic check on every run, and a wall-clock budget in WSL when asked for.
+deterministic check on every run, and an opt-in local wall-clock budget.
 
 **Rule since 18/10/2026** (AGENTS.md Testing Policy; the owner asked that evening to relax the repository's
 mandatory 330 ms local limit and to find the limit that best fits this application): two tiers and a stricter copy
-exception replace the single 330 ms on a developer Mac. Each is a local median of 7 runs in WSL at the volume of the
-largest real input the statement serves (the hydraulic OPTIMA lot: 2 031 items; a copy: 1 000 operations):
+exception replace the single 330 ms on a developer Mac. Since the owner's simplification of `AGENTS.md` on
+23/10/2026, measure on the available native macOS or Linux host; WSL is optional. Keep the host identity, load and
+raw samples. Each budget is a local median of 7 runs at the largest real input the statement serves
+(the hydraulic OPTIMA lot: 2 031 items; a copy: 1 000 operations):
 
-| Tier | Statements | Local WSL median | Derivation |
+| Tier | Statements | Local native median | Derivation |
 | --- | --- | --- | --- |
 | Bulk | atomic import or creation (`persist_estimate_creation_atomic`), v3 settings repricing (`save_estimate_settings_atomic`) | ≤ **1 000 ms** | 8 s `statement_timeout` / (CI/WSL planning factor F = 4 × margin 2) |
 | Copy into a v3, option A | one `commit_estimate_batch`, up to 1 000 operations | ≤ **875 ms** | 3 500 ms CI/production maximum / planning factor 4 |
@@ -23,18 +25,25 @@ with a stricter local target of 875 ms. A local SQL median alone does not prove 
 the full HTTP route. A statement over its tier gets a faster write, never a raised timeout or retries.
 Derivation, sources and limits below.
 
+**Current qualification (23/10/2026):** the runner now parses the exact public IO01 workbook instead of the
+1 021-item synthetic approximation. Creation and settings both assert the full-volume **1 000 ms** budget;
+the 500 ms pro rata is retired. The final native Mac run passed with medians **584,3 / 564,7 ms**, and the
+1 000-operation copy into that target took **418,3 ms** (875 ms budget). See
+[the third-lot report](real-volume-qualification-lot3.md) for source identity, samples and browser evidence.
+Historical results below retain their original volume and host; they are not before/after optimization results.
+
 ## Failure modes and where they are checked
 
 | # | Failure | Check |
 | --- | --- | --- |
-| L1 | The per-line content revision bump comes back on the creation path (the version updated once per item, the main cost in IO01) | pgTAP, **every run, CI included**: a 1 021-item creation updates its version as many times as an 8-item creation. The other effects M6b replays (item audit, coverage invalidation, depth check) write the same rows on both paths, so no row count separates them: only L2 sees them come back |
-| L2 | The creation gets slower without per-line version updates (a new BEFORE row trigger with a lookup, a slower D12 check, a missing index, a heavier audit) | pgTAP, **opt-in** in WSL, bulk tier: median of 7 rolled-back creations ≤ **500 ms** (1 000 ms pro rata of the 1 021-item probe to the 2 031-item hydraulic v3) |
-| L3 | The v3 settings save (`save_estimate_settings_atomic`, every line's projection checked and written in one statement) slows down on 1 021 items | Every run: the save rewrites all 900 lines (so the measurement is a real repricing). Opt-in, bulk tier: median of 7 saves **reported, not asserted**. It is over its 500 ms pro rata (see « Settings save ») |
-| L4 | The v3 batch writer (`commit_estimate_batch`, paste and undo in batches of 100) slows down | pgTAP, **opt-in**, interactive tier: median of 7 batches of 100 creates (the copy probe at 100 operations) into the 1 021-item v3 ≤ **400 ms**. The assumption « ≤ 100 items, far from the timeout » was wrong on a large v3 until `20261018180306` (see « Copy into a v3 ») |
-| L7 | A copy into a v3 (2.8b: sections, linked DPGF; one `commit_estimate_batch` of at most 1 000 operations) rewrites the stored lines again, slows down or its receipt goes over 2 Mio | pgTAP, **every run**: a 1 000-operation copy with provenance into the 8-item and the 1 021-item v3 commits and updates **0** stored lines; since lot 3.1 each copy writes its items with **one** INSERT statement and a copy refused at operation 500 reports that index and writes nothing. **Opt-in**, option A: median of 7 such copies into the 1 021-item v3 ≤ **875 ms**, derived from the 3,5 s CI/production maximum. **Ceiling pass** (lot 3.1, [lot3-1-v3-copy-scale.md](lot3-1-v3-copy-scale.md)): one such copy ≤ **3 500 ms** wherever the database checks run alone, CI included (E2E RLS Matrix) |
+| L1 | The per-line content revision bump comes back on the creation path (the version updated once per item, the main cost in IO01) | pgTAP, **every run, CI included**: a 2 031-item creation updates its version as many times as an 8-item creation. Other per-item work needs L2's duration check |
+| L2 | Creation slows down without per-line version updates (triggers, D12, indexes or audit cost) | pgTAP, **opt-in**: median of 7 rolled-back workbook creations ≤ **1 000 ms** |
+| L3 | The v3 settings save (`save_estimate_settings_atomic`) slows down on 2 031 items, or the probe stops repricing | Every run: all 1 900 line projections are checked; **785** positive priced lines actually change at c_FO 1,3 → 2. Opt-in: median of 7 saves **asserted ≤ 1 000 ms** |
+| L4 | The v3 batch writer (`commit_estimate_batch`, paste and undo in batches of 100) slows down | pgTAP, **opt-in**: median of 7 batches of 100 creates into the 2 031-item v3 ≤ **400 ms** |
+| L7 | A v3 copy rewrites existing lines, slows down or its provenance receipt exceeds its cap | Every run: 1 000-operation copies into the 8-item and 2 031-item v3 commit, update **0** stored lines and use **one** item INSERT; refusal at operation 500 reports that index and writes nothing. **Opt-in:** median of 7 large-target copies ≤ **875 ms**. **Ceiling pass:** one such copy ≤ **3 500 ms** when database checks run alone, including CI E2E RLS Matrix ([lot 3.1](lot3-1-v3-copy-scale.md)) |
 | L8 | Reorder and move of ~1 000 siblings in a v1/v2 draft (`reorder_estimate_items`, `move_estimate_item`) take the per-row content revision bump and audit back, or slow down ([reorder-move-large-v2.md](reorder-move-large-v2.md)) | pgTAP, **every run**: the RPCs update their version once per operation where the per-row path updates it once per written row (4 against 52), with the same audit rows. **Opt-in**, interactive tier: median of 7 reversals of a section of 1 000 lines and of 7 moves of its first line into a section of 3 lines ≤ **400 ms** each; the move between sections of 1 000 and 999 lines is reported |
 | L5 | The route, serialization or UI around the RPC is slow (time to « Devis créé », settings PATCH) | TesterArmy: IO01 step durations in `report.json` and the `io-settings-*` business artifacts (`elapsedMs.save`); reported, no threshold |
-| L6 | The 8 s timeout of the API roles or the CI/WSL factor F changes | Reported by the probes (`diag` of `pg_roles.rolconfig`, and every CI job's creation and settings durations); the tiers must then be derived again |
+| L6 | The 8 s API role timeout or host calibration changes | Probes report role settings and durations. Recalibrate comparisons on the new host; the planning factor is not a measured bound |
 | — | Reading a large estimate (`GET /api/estimates`, the ~60 s stall) | Out of scope: a separate investigation covers it |
 
 pgTAP takes the statement-level failures (L1–L4, L7): no browser, and the work done is deterministic. A wall-clock
@@ -46,28 +55,31 @@ fail once the 8 s timeout was crossed.
 The shared fixture [`supabase/tests/fixtures/large-v3-estimate.sql`](../../supabase/tests/fixtures/large-v3-estimate.sql)
 (included with `\ir`, not a test file) builds the IO01 profile and runs the statements:
 
-1. tenant on engine 3 (c_FO 1,3, c_MO 1,2); payload: one import root, 60 lots each with one sub-lot, 15 priced v3
-   lines per sub-lot (1 021 items), DPGF provenance and OPTIMA structure metadata, as in the 2.8 timing probe.
-   Supply costs vary per line (5–45 €). Their engine 3 amounts come from `private.estimate_v3_compute_items`,
-   the D12 reference, before the clock starts;
+1. [`src/test/large-estimate-workbook.ts`](../../src/test/large-estimate-workbook.ts) verifies the manifest SHA-256
+   and parses `e2e/fixtures/business/optima-hydraulique-fictif.xlsx` through the application's OPTIMA parser and
+   normalizer, then writes an input only inside the owned temporary stack. It creates 131 sections including the
+   import root and 1 900 lines, with statuses and provenance; 785 lines have positive prices. Engine 3 coefficients
+   are c_FO 1,3 / c_MO 1,2, labor 40 €/h. The independent HT oracle is **67 298,03 €**;
 2. N creations, each rolled back in its own subtransaction, plus one 8-item creation, with the `estimate_versions`
    update count of each (`pg_stat_xact_user_tables`);
 3. one kept creation and its draft lease, then N rolled-back v3 settings saves (c_FO 1,3 → 2) with the projection
-   of all 900 lines at the new coefficient, as the settings route sends it, and the `estimate_items` update count;
-4. `diag` lines with the role timeouts, the server version, every run's duration, the local WSL budget it is
-   compared with when opted in, and the probe's own time.
+   of all 1 900 lines at the new coefficient, and an assertion that 785 line projections change. The SQL engine
+   computes projections before timing; the statement includes D12 validation and writes;
+4. copy payloads retain the existing worst-case structure (one root and N − 1 priced lines with provenance), into
+   the real workbook target and the small control. `diag` retains input hashes, timeouts, server, raw samples,
+   local native budget, receipt size, update counts and probe duration.
 
-Two files use it:
+Three files use it:
 
 | File | Runs | When | Assertions |
 | --- | --- | --- | --- |
-| [`supabase/tests/database/estimate-large-v3-scale.test.sql`](../../supabase/tests/database/estimate-large-v3-scale.test.sql) | N = 1 | every `db:ci:local`, so every CI job that runs it | all statements succeed, payload size, L1, one audit row per item, the settings save rewrites 900 lines, L7 (the 1 000-operation copies commit, 0 line updates); durations reported, never asserted |
-| [`supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql`](../../supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql) | N = 1 | every `db:ci:local` whose caller starts nothing alongside the database checks (local runs, CI E2E RLS Matrix); skipped and logged in the Army jobs, whose production build runs beside them | the 1 000-operation copies commit; into the 1 021-item v3 ≤ 3 500 ms (lot 3.1) |
-| [`supabase/tests/budget/estimate-large-v3-statement-budget.test.sql`](../../supabase/tests/budget/estimate-large-v3-statement-budget.test.sql) | N = 7 | only with `DB_CI_STATEMENT_BUDGET=enforce`, after the main pgTAP phase | all statements and copies succeed, L2 (creation median ≤ 500 ms), L7 (1 000-operation copy median ≤ 875 ms), L4 (100-operation batch median ≤ 400 ms); settings median reported |
+| [`supabase/tests/database/estimate-large-v3-scale.test.sql`](../../supabase/tests/database/estimate-large-v3-scale.test.sql) | N = 1 | every `db:ci:local` | exact volume, statuses and HT oracle, L1, one audit row per item, 785 repriced lines, L7; durations reported |
+| [`supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql`](../../supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql) | N = 1 | checks run alone; skipped and logged beside Army's production build | copies commit; into the 2 031-item v3 ≤ 3 500 ms |
+| [`supabase/tests/budget/estimate-large-v3-statement-budget.test.sql`](../../supabase/tests/budget/estimate-large-v3-statement-budget.test.sql) | N = 7 | `DB_CI_STATEMENT_BUDGET=enforce`, after regular pgTAP | creation and settings ≤ 1 000 ms, copy of 1 000 ≤ 875 ms, batch of 100 ≤ 400 ms |
 
-The budget is opt-in rather than inferred from the platform: it is calibrated in WSL (Ubuntu 24.04 on the Windows
-development PC, 24 cores, 31 GB, native Supabase runtime), and a wall-clock assertion must not fail correct code on
-another machine or a loaded host. CI never sets the variable (see « Why CI does not assert »). The Supabase CLI does
+The local budget stays opt-in rather than inferred from the platform. The 18/10 historical calibration used WSL;
+the 23/10 qualification uses a native Mac and does not establish a new CI multiplier. CI does not set the variable
+(see « Why CI does not assert »). The Supabase CLI does
 not forward `PGOPTIONS` to pg_prove, and the `postgres` role cannot attach a custom setting to the database. So the
 runner runs the `supabase/tests/budget` directory as a second pgTAP pass.
 
@@ -110,27 +122,28 @@ DB_CI_STATEMENT_BUDGET=enforce npm run db:ci:local
   ([Nielsen Norman Group, response-time limits](https://www.nngroup.com/articles/response-times-3-important-limits/)).
   The factor 2,5 is a rounded planning choice near the limited 2,45× comparison, not a reproduced p75. It covers
   SQL time only; a complete interaction includes more work.
-- **Probe volume.** The IO01/IO02 v3 holds 2 031 items in PR #59's business artifact
-  `ARMY-1792348073459-021430c7-io-hydraulique-consecutive-reads.json` (six reads all return that count);
-  this fixture creates 1 021. Until the fixture reproduces the hydraulic lot, the 1 021-item creation and settings
-  probes get the bulk tier pro rata: 1 000 × 1 021 / 2 031 ≈ **500 ms** (`budget_ms`). The copy probe exercises
-  the real 1 000-operation cap, into an existing 1 021-item target, so it gets the 875 ms copy budget
-  (`copy_budget_ms`). The 100-operation copy into the 1 021-item v3 probes the interactive tier
-  (`interactive_budget_ms`, 400 ms).
+- **Probe volume.** Since 23/10 the probe creates the public workbook's 2 031 items. Creation and settings use
+  **1 000 ms**, replacing the former 500 ms pro rata for 1 021 synthetic items. Copy still exercises the full
+  1 000-operation cap at **875 ms**, and the 100-operation batch at **400 ms**, into that larger target.
 - **Why CI does not assert these local tiers.** Each CI probe is a single run on another host. A 4 s threshold
   might fail on a future slower or loaded runner; the source commit's reported maximum of 3 388 ms does not
   demonstrate such a failure. An 8 s guard would approach the existing API timeout instead of validating the
   calibrated local median. This change adds no CI duration threshold and proves no CI/production maximum. The
   every-run `diag` lines stay diagnostic: until this change they printed CI values beside the local budget (PR #59,
   run [39138950745](https://github.com/maxlemeur/HEX_BC/actions/runs/39138950745): « create: median 584.8 ms over
-  1 runs, budget 330 ms », settings 1 383,7 ms); they now label it « local WSL budget … (opt-in) ».
+  1 runs, budget 330 ms », settings 1 383,7 ms); they now label it « local native budget … (opt-in) ».
   **Lot 3.1 exception, the copy ceiling**: the owner asked for a CI assertion of the 3,5 s maximum. Over 303 CI
   samples of the every-run copy probe (18–19/10/2026), the E2E RLS Matrix job, where `db:ci:local` runs alone, peaked
   at 2 277 ms, while the Army shards, whose production build starts beside pgTAP, reached 5 596 ms with 15 of 281
   samples over 3,5 s. The ceiling is therefore a separate pass that runs only where nothing starts alongside the
   database checks ([lot3-1-v3-copy-scale.md](lot3-1-v3-copy-scale.md)). The local tiers above stay opt-in.
 
-WSL outcome on 18/10/2026, before this change (shared host, single runs from the every-run probe, medians of 7 from
+## Historical qualification — 18/10/2026, synthetic 1 021-item probe
+
+These results describe the previous fixture; settings were then reported without a budget assertion.
+The current full-volume qualification is linked above.
+
+WSL outcome on 18/10/2026, before the tier change (shared host, single runs from the every-run probe, medians of 7 from
 the budget pass):
 
 | Statement (probe) | Measured in WSL | Tier for the probe | Result |
@@ -196,7 +209,7 @@ equivalence report SHA-256: `dce269f4df8a8337db781b8e1c18c372bd50e2985bfe0550ec4
 Quality counts: 3 304 node tests passed, two skipped (one file skipped); 831 jsdom
 and 12 boundary-coverage tests passed. The skips remain visible in the log.
 
-## Settings save: over its pro rata
+## Historical settings save: over its pro rata
 
 With every line repriced, the settings save of the 1 021-item estimate takes about 816 ms in WSL in single runs
 (medians of 7 historical runs from 894 to 1 333 ms, and 863,8 ms in the option A run), over the 500 ms pro rata of
@@ -204,13 +217,13 @@ the bulk tier. On the owner's Mac it took a median of 546 ms (7 runs, 539–549 
 The IO02 settings `PATCH` route (the same hydraulic lot, then c_FO/c_MO changed twice; the route also reads the
 estimate) took 3,3 s and 6,6 s in run 39100138108 and 9,9 s and 9,4 s in run
 [39088903048](https://github.com/maxlemeur/HEX_BC/actions/runs/39088903048), all answering 200. The budget file
-therefore reports the settings median without asserting it. The assertion belongs with the change that brings the
-save under 500 ms (under 1 000 ms once the probe reproduces the 2 031-item lot). Before M6b the same save took
+therefore reported the settings median without asserting it. The 23/10 full-volume probe now asserts the
+1 000 ms budget; the old 500 ms result is not reclassified as passing. Before M6b the same save took
 702 ms on the Mac, so M6b already helped it.
 
 The first version of this probe sent all-zero lines. Changing c_FO then left every projection identical to the
 stored row, and the save's `IS DISTINCT FROM` filter skipped all 900 writes (~75 ms). The every-run assertion
-« rewrites 900 lines » now keeps the measurement honest.
+« rewrites 900 lines » kept that synthetic measurement honest; the public workbook now changes 785 lines.
 
 ## Copy into a v3 (2.8b, L7)
 
@@ -288,16 +301,15 @@ and 7 settings saves). The `diag` line gives the real duration in each CI job lo
   creation's median of 7 took 722 ms (18/10/2026, 19:51). Record host load before the run. If a check fails,
   retain that failure and diagnose the cause before a new run; an unchanged retry is not qualification. Since CI does not assert the tiers, a slow
   drift is caught only when someone opts in or a journey hits `57014`.
-- **Calibration**: the local medians are measured in WSL. F = 4 and the interactive factor 2,5 remain planning
+- **Calibration**: current local medians use the available native host; historical medians used WSL. F = 4 and the interactive factor 2,5 remain planning
   choices, not validated distribution bounds. A slower runner, more parallelism or another local machine needs
   fresh paired probes. Retain the raw inventory and calculation before claiming new percentiles.
 - **Production**: not measured by this qualification. Resource class, role timeouts and actual load are not
-  established here. The 3,5 s maximum is the owner's target, not a production result inferred from WSL.
-- **Volume**: the probe has 1 021 items, the real lot 2 031. The 500 ms pro rata assumes the cost grows linearly
-  with the items, which is not verified. PostgREST, JSON handling and work at commit time are not measured by
-  this local statement probe. Follow-up lot:
-  build the probe from the hydraulic workbook's real shape (2 031 items, 785 priced lines plus status and section
-  rows), then drop the pro rata.
+  established here. The 3,5 s maximum is the owner's target, not a production result inferred from local medians.
+- **Volume**: the probe consumes the actual public IO01 workbook shape: 2 031 items, 785 positive priced lines,
+  status rows and sections. The generated copy source remains a worst-case payload, not another real workbook.
+  Private originals are not consumed. PostgREST, JSON handling and transaction commit cost remain outside
+  the SQL statement timing.
 - **Coverage**: the probes measure the database statements only. They do not cover the route, the network,
   PostgREST or the read path (L5). L4 and L7 measure the batch writer for creates only: single-line updates,
   delete and duplication have no probe. Reorder and move have one since L8 (about 350 ms for 1 000 siblings, 0,7 s

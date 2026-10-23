@@ -308,6 +308,13 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
       path.join(targetDirectory, "tests"),
       { recursive: true }
     );
+    // Parsing application inputs is a one-shot preparation step. Keep its
+    // application imports out of the long-lived dev-loop supervisor's modules.
+    const workbook = spawnSync(process.execPath, ["--import", "tsx", "src/test/large-estimate-workbook.ts", rootDirectory], {
+      env: createLocalCiEnvironment(process.env), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (workbook.error) throw workbook.error;
+    if (workbook.status !== 0) throw new Error(`Large estimate fixture preparation failed: ${workbook.stderr.trim() || workbook.status}`);
 
     const configuredPorts = [
       54320,
@@ -1148,8 +1155,8 @@ export async function runLocalSupabaseCi(
       dependencies.log(ceilingOutput.trim());
       dependencies.log("CI statement ceilings passed.");
     }
-    // Wall-clock budgets are opt-in and never run in CI: they are calibrated in
-    // WSL, and a single-run CI timing depends on the runner class drawn
+    // Wall-clock budgets are opt-in on an identified native host; a single-run
+    // CI timing depends on the runner class drawn
     // (docs/testing/large-estimate-statement-budget.md).
     if (dependencies.environment.DB_CI_STATEMENT_BUDGET === "enforce") {
       activePhase = "run statement budgets";
