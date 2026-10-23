@@ -12,7 +12,7 @@
   "defaultSeconds": 20,
   "suites": {
     "critical": {
-      "maxShards": 4,
+      "maxShards": 5,
       "secondsPerShard": 300,
       "workers": 2
     },
