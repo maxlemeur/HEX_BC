@@ -3144,13 +3144,16 @@ async function fetchAllTakeoffDpgfComparisonRows(input: {
   versionId: string;
   threshold?: number;
 }) {
+  // Keep the authorized source snapshot within this request. Reloading all sources
+  // for every 200-line page makes the radar quadratic in database reads.
+  const context = await loadTakeoffDpgfComparison(input.jobId, input.versionId);
   const rows: TakeoffDpgfComparisonResponse["rows"] = [];
   let cursor: string | undefined;
   let response: TakeoffDpgfComparisonResponse | null = null;
   const seenCursors = new Set<string>();
 
   while (true) {
-    response = await fetchDpgfTakeoffComparison(input.jobId, {
+    response = await buildAndHydrateTakeoffDpgfComparison(context, {
       version_id: input.versionId,
       cursor,
       page_size: TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
@@ -3675,10 +3678,7 @@ export async function compareTakeoffJobs(
   };
 }
 
-export async function fetchDpgfTakeoffComparison(
-  jobId: string,
-  input: TakeoffDpgfComparisonQuery
-): Promise<TakeoffDpgfComparisonResponse> {
+async function loadTakeoffDpgfComparison(jobId: string, versionId: string) {
   const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
@@ -3687,7 +3687,7 @@ export async function fetchDpgfTakeoffComparison(
   );
   const normalizedVersionId = parseWithSchema(
     z.string().uuid("version_id invalide."),
-    input.version_id,
+    versionId,
     "version_id invalide."
   );
 
@@ -3771,30 +3771,44 @@ export async function fetchDpgfTakeoffComparison(
     tenantId,
     estimateItems,
   });
-  const compareInput = {
-    versionId: normalizedVersionId,
-    jobId: normalizedJobId,
-    dpgfLines,
-    takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
-    manualLinks,
-    reviewDecisions,
-    carriedReviewDecisions,
-    threshold: input.threshold,
-    cursor: input.cursor ?? null,
-    pageSize: input.page_size ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
-    view: input.view,
-  };
-
-  const comparison = buildTakeoffDpgfComparison(compareInput);
-  const hydratedRows = await syncAndHydrateTakeoffLineProofs({
+  return {
     supabase,
     tenantId,
     userId,
     projectId,
-    versionId: normalizedVersionId,
-    jobId: normalizedJobId,
-    rows: comparison.rows,
     supplierPriceByEstimateItemId,
+    comparisonInput: {
+      versionId: normalizedVersionId,
+      jobId: normalizedJobId,
+      dpgfLines,
+      takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
+      manualLinks,
+      reviewDecisions,
+      carriedReviewDecisions,
+    },
+  };
+}
+
+async function buildAndHydrateTakeoffDpgfComparison(
+  context: Awaited<ReturnType<typeof loadTakeoffDpgfComparison>>,
+  input: TakeoffDpgfComparisonQuery
+): Promise<TakeoffDpgfComparisonResponse> {
+  const comparison = buildTakeoffDpgfComparison({
+    ...context.comparisonInput,
+    threshold: input.threshold,
+    cursor: input.cursor ?? null,
+    pageSize: input.page_size ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
+    view: input.view,
+  });
+  const hydratedRows = await syncAndHydrateTakeoffLineProofs({
+    supabase: context.supabase,
+    tenantId: context.tenantId,
+    userId: context.userId,
+    projectId: context.projectId,
+    versionId: context.comparisonInput.versionId,
+    jobId: context.comparisonInput.jobId,
+    rows: comparison.rows,
+    supplierPriceByEstimateItemId: context.supplierPriceByEstimateItemId,
   });
   const hydratedLinesWithoutProof = hydratedRows.filter((row) =>
     row.proofs.every((proof) => proof.type === "dpgf")
@@ -3816,6 +3830,14 @@ export async function fetchDpgfTakeoffComparison(
     summary,
     rows: hydratedRows,
   };
+}
+
+export async function fetchDpgfTakeoffComparison(
+  jobId: string,
+  input: TakeoffDpgfComparisonQuery
+): Promise<TakeoffDpgfComparisonResponse> {
+  const context = await loadTakeoffDpgfComparison(jobId, input.version_id);
+  return buildAndHydrateTakeoffDpgfComparison(context, input);
 }
 
 export async function fetchTakeoffRiskRadar(

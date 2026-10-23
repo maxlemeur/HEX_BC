@@ -25,6 +25,7 @@ import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   fetchDpgfTakeoffComparison,
+  fetchTakeoffRiskRadar,
   fetchTakeoffLineEvidencePanel,
   fetchTakeoffDpgfSummaryForHub,
   parseTakeoffDpgfComparisonQuery,
@@ -100,6 +101,8 @@ type StoredEstimateItem = {
   title: string;
   description: string | null;
   quantity: number | null;
+  pricing_status?: string;
+  unit_price_ht_cents?: number;
   selected_supplier_price_id: string | null;
   source_file_name: string | null;
   source_page: number | null;
@@ -254,6 +257,7 @@ function createSupabaseMock() {
     takeoffItems: StoredTakeoffItem[];
     estimateItems: StoredEstimateItem[];
     estimateItemSelects: string[];
+    riskAlerts: Record<string, unknown>[];
     links: StoredLink[];
     reviewDecisions: StoredDecision[];
     evidences: StoredEvidence[];
@@ -327,6 +331,7 @@ function createSupabaseMock() {
       },
     ],
     estimateItemSelects: [],
+    riskAlerts: [],
     links: [],
     reviewDecisions: [],
     evidences: [],
@@ -398,6 +403,15 @@ function createSupabaseMock() {
                   id: VERSION_ID,
                   project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
                   version_number: 3,
+                  tenant_id: TENANT_ID,
+                  calc_engine_version: 3,
+                  status: "draft",
+                  tax_rate_bp: 2000,
+                  estimate_projects: {
+                    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                    user_id: USER_ID,
+                    name: "Affaire radar",
+                  },
                 },
                 {
                   id: SOURCE_VERSION_ID,
@@ -426,6 +440,33 @@ function createSupabaseMock() {
               return builder;
             });
             return builder;
+          }),
+        };
+      }
+
+      if (["estimate_item_outlier_dismissals", "estimate_rules", "feature_flags"].includes(table)) {
+        return { select: vi.fn(() => buildThenableSelectBuilder(() => [])) };
+      }
+
+      if (table === "estimate_risk_alerts") {
+        return {
+          select: vi.fn(() => {
+            const filters: Record<string, unknown> = {};
+            const builder = buildThenableSelectBuilder(() => state.riskAlerts.filter((row) =>
+              Object.entries(filters).every(([key, value]) => row[key] === value)
+            ));
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = value;
+              return builder;
+            });
+            return builder;
+          }),
+          insert: vi.fn(async (rows: Record<string, unknown>[]) => {
+            state.riskAlerts.push(...rows.map((row, index) => ({
+              ...row,
+              id: `alert-${state.riskAlerts.length + index}`,
+            })));
+            return { error: null };
           }),
         };
       }
@@ -667,7 +708,7 @@ function createSupabaseMock() {
                 id:
                   typeof entry.id === "string"
                     ? entry.id
-                    : `f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0${index}`,
+                    : `f0f0f0f0-f0f0-4f0f-8f0f-${String(state.evidences.length + index).padStart(12, "0")}`,
                 created_at: String(entry.created_at),
                 tenant_id: String(entry.tenant_id),
                 project_id: String(entry.project_id),
@@ -996,6 +1037,84 @@ describe("takeoff DPGF comparison server helpers", () => {
     expect(response.rows).toHaveLength(1);
     expect(response.summary.total_lines).toBe(2);
     expect(response.pagination.total).toBe(2);
+  });
+
+  it("loads comparison sources once while preserving risk and evidence past the 200-line pages", async () => {
+    const mock = createSupabaseMock();
+    mock.state.takeoffItems = [];
+    const baseLine = mock.state.estimateItems[0]!;
+    mock.state.estimateItems = Array.from({ length: 401 }, (_, index) => ({
+      ...baseLine,
+      id: `55555555-5555-4555-8555-${String(index).padStart(12, "0")}`,
+      position: index + 1,
+      title: `Ligne ${index + 1}`,
+      quantity: 1,
+      unit_price_ht_cents: 1000,
+      pricing_status: "priced",
+    }));
+    const lastLine = mock.state.estimateItems[400]!;
+    lastLine.unit_price_ht_cents = 0;
+    lastLine.pricing_status = "out_of_scope";
+    lastLine.selected_supplier_price_id = "abababab-abab-4bab-8bab-abababababab";
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const radar = await fetchTakeoffRiskRadar(JOB_ID, { version_id: VERSION_ID });
+
+    const missingProofs = radar.items.filter((item) => item.cause_code === "missing_proof");
+    expect(missingProofs.map((item) => item.line_id).sort()).toEqual(
+      mock.state.estimateItems.slice(0, 400).map((item) => item.id).sort()
+    );
+    expect(radar.items.filter((item) => item.line_id === lastLine.id)).toEqual([]);
+    const finalEvidence = mock.state.evidences.filter((row) => row.estimate_item_id === lastLine.id);
+    expect(finalEvidence.map((row) => row.evidence_type).sort()).toEqual(["dpgf", "price_source"]);
+    expect(finalEvidence.find((row) => row.evidence_type === "dpgf")).toMatchObject({
+      source_file_name: "dpgf.xlsx", source_page: 12, version_id: VERSION_ID, takeoff_job_id: JOB_ID,
+    });
+    expect(new Set(mock.state.evidences.map((row) => row.estimate_item_id)).size).toBe(401);
+    // One comparison load and one distinct quality projection; no full reload per page.
+    expect(mock.state.estimateItemSelects.filter((select) => !select.includes("pricing_status"))).toHaveLength(1);
+    expect(mock.state.estimateItemSelects.filter((select) => select.includes("pricing_status"))).toHaveLength(1);
+
+    const firstPage = await fetchDpgfTakeoffComparison(JOB_ID, {
+      version_id: VERSION_ID, view: "all", page_size: 200,
+    });
+    expect(firstPage.rows).toHaveLength(200);
+    expect(firstPage.pagination.total).toBe(401);
+    expect(firstPage.pagination.next_cursor).not.toBeNull();
+
+    lastLine.source_file_name = "dpgf-revised.xlsx";
+    const lastPage = await fetchDpgfTakeoffComparison(JOB_ID, {
+      version_id: VERSION_ID, view: "all", page_size: 200,
+      cursor: Buffer.from(JSON.stringify({ offset: 400 })).toString("base64url"),
+    });
+    expect(lastPage.rows.map((row) => row.line_id)).toEqual([lastLine.id]);
+    expect(lastPage.rows[0]?.proofs.find((proof) => proof.type === "dpgf")).toMatchObject({
+      source: "DPGF dpgf-revised.xlsx",
+    });
+    expect(lastPage.pagination.next_cursor).toBeNull();
+    expect(lastPage.pagination.total).toBe(401);
+    expect(mock.state.estimateItemSelects.filter((select) => !select.includes("pricing_status"))).toHaveLength(3);
+
+    // The source snapshot never escapes the request or bypasses a changed tenant.
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(listAccessibleTakeoffJobsForVersion).mockResolvedValue([]);
+    await expect(fetchDpgfTakeoffComparison(JOB_ID, {
+      version_id: VERSION_ID, view: "all", page_size: 200,
+    })).rejects.toMatchObject({ status: 409, code: TakeoffErrorCode.CONFLICT });
+    expect(listAccessibleTakeoffJobsForVersion).toHaveBeenLastCalledWith(expect.objectContaining({
+      tenantId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", versionId: VERSION_ID,
+    }));
+    expect(mock.state.estimateItemSelects.filter((select) => !select.includes("pricing_status"))).toHaveLength(3);
   });
 
   it("recomputes lines_without_proof from hydrated persisted evidence", async () => {

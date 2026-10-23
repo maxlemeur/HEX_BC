@@ -766,9 +766,14 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     const cloisonRow = page.getByRole("button", { name: /Cloison BA13/i });
     await cloisonRow.click();
 
-    await expect(page.getByText("Faits")).toBeVisible();
-    await expect(page.getByText("Hypothèses")).toBeVisible();
-    await expect(page.getByText("Inférences")).toBeVisible();
+    // Risk cards repeat these labels; assert the persisted proof groups of the selected line.
+    const persistedProofs = page.locator("aside > div > div").filter({
+      has: page.getByText("Traçabilité persistée", { exact: true }),
+    });
+    await expect(persistedProofs).toHaveCount(1);
+    await expect(persistedProofs.getByText("Faits", { exact: true })).toBeVisible();
+    await expect(persistedProofs.getByText("Hypothèses", { exact: true })).toBeVisible();
+    await expect(persistedProofs.getByText("Inférences", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Recomposer les liens" }).click();
     const modal = page.getByRole("dialog", { name: /Lier manuellement des éléments de métré/i });
