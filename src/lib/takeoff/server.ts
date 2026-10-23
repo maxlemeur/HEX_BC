@@ -1,3 +1,4 @@
+import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 export {
   reconcileTakeoffJobNow,
   resubmitTakeoffJob,
@@ -6119,6 +6120,7 @@ export async function createTakeoffJobFromFormData(
       sourceFileName
     )}`;
 
+    const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId });
     const { error: uploadError } = await supabase.storage
       .from(TAKEOFF_FILES_BUCKET)
       .upload(sourceFilePath, file, {
@@ -6153,6 +6155,8 @@ export async function createTakeoffJobFromFormData(
         source_file_size_bytes: file.size,
         prompt_version: getTakeoffPromptVersion(level),
         created_by: userId,
+        ...executionOwner,
+        ...(executionOwner.execution_provider ? { processing_strategy: "sync" } : {}),
       } as never)
       .select(
         "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never
@@ -6315,6 +6319,7 @@ export async function createTakeoffJobFromPlanSet(input: {
     tenantRole,
     estimateVersionId: input.estimateVersionId,
   });
+  const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId });
   const [geminiDeliveryConfig, planSetPageConfig] = await Promise.all([
     getTakeoffGeminiDeliveryConfigForTenant(tenantId, level, { supabase }),
     level === "C"
@@ -6376,6 +6381,8 @@ export async function createTakeoffJobFromPlanSet(input: {
       source_file_size_bytes: sourceFile.sourceFileSizeBytes,
       prompt_version: getTakeoffPromptVersion(level),
       created_by: userId,
+      ...executionOwner,
+      ...(executionOwner.execution_provider ? { processing_strategy: "sync" } : {}),
     } as never)
     .select(
       "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never,

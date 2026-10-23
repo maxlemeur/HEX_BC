@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+
 export type TriggerTakeoffJobProcessingInput = {
   jobId: string;
   correlationId?: string;
@@ -47,6 +49,10 @@ export async function triggerTakeoffJobProcessing(
   input: TriggerTakeoffJobProcessingInput
 ): Promise<TriggerTakeoffJobProcessingResult> {
   const correlationId = input.correlationId ?? randomUUID();
+  if (isLocalChatGptEnabled()) {
+    const { dispatchLocalTakeoff } = await import("@/lib/takeoff/local-dispatch");
+    return dispatchLocalTakeoff({ ...input, correlationId });
+  }
   const config = resolveEdgeFunctionConfig();
 
   if (!config) {

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
 import {
@@ -55,7 +56,6 @@ import {
   getTakeoffLevelConfig,
   getTakeoffPrompt,
   type TakeoffEscalationModelConfig,
-  type TakeoffModelConfig,
 } from "@/lib/takeoff/prompts";
 import {
   TakeoffChunkExchangeSchema,
@@ -83,6 +83,8 @@ type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 type CallGeminiStructuredFn = <T>(
   options: CallGeminiStructuredOptions<T>
 ) => Promise<CallGeminiStructuredResult<T>>;
+
+type TakeoffExecutionModelConfig = { model: string; thinkingLevel: GeminiThinkingLevel | null };
 
 type SubmitGeminiBatchStructuredFn = typeof submitGeminiBatchStructured;
 type PollGeminiBatchStructuredOnceFn = typeof pollGeminiBatchStructuredOnce;
@@ -807,7 +809,7 @@ async function markJobAsProcessing(input: {
   startedAtIso: string;
   processingStrategy: TakeoffProcessingStrategy;
   model: string;
-  thinkingLevel: string;
+  thinkingLevel: string | null;
   promptVersion: string;
   level: ProcessableTakeoffLevel;
 }): Promise<TakeoffJobProcessingRow> {
@@ -818,6 +820,13 @@ async function markJobAsProcessing(input: {
     Date.parse(input.startedAtIso) + TAKEOFF_PROCESSING_LEASE_TTL_MS
   ).toISOString();
 
+  const localHostId = await assertLocalTakeoffExecutionHost(input.job);
+  const claimLocal = () => input.supabase.rpc("claim_local_takeoff_job" as never, {
+    p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_host_id: localHostId,
+    p_started_at: input.startedAtIso, p_lease_token: processingLeaseToken,
+    p_lease_expires_at: processingLeaseExpiresAt, p_model: input.model,
+    p_prompt_version: input.promptVersion,
+  } as never).maybeSingle();
   let query = input.supabase
     .from("takeoff_jobs" as never)
     .update({
@@ -851,7 +860,7 @@ async function markJobAsProcessing(input: {
     query = query.eq("tenant_id" as never, input.tenantId as never);
   }
 
-  const { data, error } = await query.maybeSingle();
+  const { data, error } = localHostId ? await claimLocal() : await query.maybeSingle();
 
   if (error) {
     throw toTakeoffError(
@@ -893,7 +902,7 @@ async function updateJobAsCompleted(input: {
   costCents: number;
   durationMs: number;
   model: string;
-  thinkingLevel: string;
+  thinkingLevel: string | null;
   promptVersion: string;
   level: ProcessableTakeoffLevel;
 }) {
@@ -1654,7 +1663,7 @@ async function persistFailureSnapshotIfNeeded(input: {
   durationMs: number;
   model: string;
   promptVersion: string;
-  thinkingLevel: string;
+  thinkingLevel: string | null;
   level: ProcessableTakeoffLevel;
 }): Promise<boolean> {
   const rawResponse = extractRawResponseFromTakeoffError(input.error);
@@ -1795,6 +1804,7 @@ async function logFailedAuditEvent(input: {
 }
 
 type LevelCChunkMetric = {
+  provider?: "chatgpt";
   index: number;
   start: number;
   end: number;
@@ -2105,7 +2115,7 @@ async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
     job_id: input.job.id,
     result_id: input.resultId ?? null,
     level: TAKEOFF_LEVEL_C,
-    provider: "gemini",
+    provider: metric.provider ?? "gemini",
     model: metric.model,
     chunk_index: metric.index,
     chunk_start_page: metric.start,
@@ -2142,6 +2152,7 @@ async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
 }
 
 async function processLevelCGeminiChunks(input: {
+  provider?: "chatgpt";
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
@@ -2149,7 +2160,7 @@ async function processLevelCGeminiChunks(input: {
   schemaVersion: string;
   model: string;
   promptVersion: string;
-  thinkingLevel: GeminiThinkingLevel;
+  thinkingLevel: GeminiThinkingLevel | null;
   deliveryMode: GeminiDeliveryMode;
   onBatchLifecycleEvent?: (
     event: GeminiBatchLifecycleEvent
@@ -2267,7 +2278,7 @@ async function processLevelCGeminiChunks(input: {
             mimeType: "application/pdf",
           },
         ],
-        thinkingLevel: input.thinkingLevel,
+        thinkingLevel: input.thinkingLevel ?? undefined,
         timeoutMs: levelCProcessingConfig.timeoutMs,
         deliveryMode: input.deliveryMode,
         onBatchLifecycleEvent: input.onBatchLifecycleEvent,
@@ -2303,6 +2314,7 @@ async function processLevelCGeminiChunks(input: {
       const isBudgetExceeded = tokenBudgetExceeded || costBudgetExceeded;
 
       const metric: LevelCChunkMetric = {
+        ...(input.provider ? { provider: input.provider } : {}),
         index: chunk.index,
         start: chunk.startPage,
         end: chunk.endPage,
@@ -2369,6 +2381,7 @@ async function processLevelCGeminiChunks(input: {
       const alreadyTracked = chunkMetrics.some((metric) => metric.index === chunk.index);
       if (!alreadyTracked) {
         const fallbackMetric: LevelCChunkMetric = {
+          ...(input.provider ? { provider: input.provider } : {}),
           index: chunk.index,
           start: chunk.startPage,
           end: chunk.endPage,
@@ -2462,7 +2475,7 @@ type ProcessLevelBGeminiAggregate = {
   pageCount: number | null;
   chunksCount: number;
   model: string;
-  thinkingLevel: GeminiThinkingLevel;
+  thinkingLevel: GeminiThinkingLevel | null;
   promptVersion: string;
   providerMeta: Record<string, unknown>;
 };
@@ -2635,7 +2648,7 @@ type StructuredTakeoffRunResult = {
   durationMs: number;
   tablesCount: number;
   model: string;
-  thinkingLevel: GeminiThinkingLevel;
+  thinkingLevel: GeminiThinkingLevel | null;
   promptVersion: string;
   providerMeta: Record<string, unknown>;
 };
@@ -2680,7 +2693,7 @@ async function processLevelBGeminiChunks(input: {
   schemaVersion: string;
   model: string;
   promptVersion: string;
-  thinkingLevel: GeminiThinkingLevel;
+  thinkingLevel: GeminiThinkingLevel | null;
   deliveryMode: GeminiDeliveryMode;
   onBatchLifecycleEvent?: (
     event: GeminiBatchLifecycleEvent
@@ -2804,7 +2817,7 @@ async function processLevelBGeminiChunks(input: {
           mimeType: "application/pdf",
         },
       ],
-      thinkingLevel: input.thinkingLevel,
+      thinkingLevel: input.thinkingLevel ?? undefined,
       timeoutMs: resolveGeminiTimeoutMs(),
       deliveryMode: input.deliveryMode,
       onBatchLifecycleEvent: input.onBatchLifecycleEvent,
@@ -2965,12 +2978,13 @@ async function finalizeCompletedLevelAJob(input: {
 }
 
 async function executeStructuredTakeoffRun(input: {
+  provider?: "chatgpt";
   level: typeof TAKEOFF_LEVEL_A;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
   callGemini: CallGeminiStructuredFn;
   schemaVersion: string;
-  modelConfig: TakeoffModelConfig;
+  modelConfig: TakeoffExecutionModelConfig;
   promptVersion: string;
   deliveryMode: GeminiDeliveryMode;
   onBatchLifecycleEvent?: (
@@ -2991,7 +3005,7 @@ async function executeStructuredTakeoffRun(input: {
     prompt,
     schema: TakeoffExchangeSchema,
     files: preparedLevelInput.files,
-    thinkingLevel: input.modelConfig.thinkingLevel,
+    thinkingLevel: input.modelConfig.thinkingLevel ?? undefined,
     timeoutMs: resolveGeminiTimeoutMs(),
     deliveryMode: input.deliveryMode,
     onBatchLifecycleEvent: input.onBatchLifecycleEvent,
@@ -3026,6 +3040,7 @@ async function executeStructuredTakeoffRun(input: {
     promptVersion: geminiResult.promptVersion,
     providerMeta: {
       ...preparedLevelInput.providerMeta,
+      provider: input.provider ?? "gemini",
       delivery_mode: input.deliveryMode,
       routing: {
         strategy: "single_model_with_fallback",
@@ -3042,7 +3057,7 @@ async function executeLevelBWithRouting(input: {
   sourceFile: DownloadedTakeoffFile;
   callGemini: CallGeminiStructuredFn;
   schemaVersion: string;
-  primaryConfig: TakeoffModelConfig;
+  primaryConfig: TakeoffExecutionModelConfig;
   primaryPromptVersion: string;
   escalationConfig: TakeoffEscalationModelConfig | null;
   escalationPolicy: TakeoffEscalationConfig;
@@ -3261,13 +3276,14 @@ async function processTakeoffLevel(
   const baseSubmitGeminiBatch =
     options.submitGeminiBatch ?? submitGeminiBatchStructured;
   const now = options.now ?? (() => new Date());
-  let levelConfig = getTakeoffLevelConfig(level);
-  const escalationConfig = getTakeoffEscalationModelConfig(level);
+  let levelConfig: TakeoffExecutionModelConfig & { promptVersion: string } = getTakeoffLevelConfig(level);
+  let escalationConfig = getTakeoffEscalationModelConfig(level);
   const processingStartedAt = now();
   let attemptedModel = levelConfig.model;
-  let attemptedThinkingLevel = levelConfig.thinkingLevel;
+  let attemptedThinkingLevel: GeminiThinkingLevel | null = levelConfig.thinkingLevel;
   let attemptedPromptVersion: string = levelConfig.promptVersion;
   let processingStrategy: TakeoffProcessingStrategy | null = null;
+  let localProvider: Awaited<ReturnType<typeof resolveLocalTakeoffProvider>> = null;
 
   let job: TakeoffJobProcessingRow | null = null;
   let enteredProcessing = false;
@@ -3299,7 +3315,8 @@ async function processTakeoffLevel(
     providerOptions: CallGeminiStructuredOptions<T>
   ) => {
     await assertProviderTenantActive();
-    return runWithTakeoffLeaseRenewal(renewProcessingLease, () => baseCallGemini<T>(providerOptions));
+    return runWithTakeoffLeaseRenewal(renewProcessingLease, () =>
+      localProvider ? localProvider.call<T>(providerOptions) : baseCallGemini<T>(providerOptions));
   };
 
   const submitGeminiBatch = async <T>(
@@ -3329,6 +3346,10 @@ async function processTakeoffLevel(
       });
     }
 
+    await assertLocalTakeoffExecutionHost(job);
+    let localRoutingFailure: { error: unknown } | null = null;
+    try { localProvider = await resolveLocalTakeoffProvider(context.supabase, job); }
+    catch (error) { localRoutingFailure = { error }; }
     const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
       job.tenant_id,
       level,
@@ -3336,16 +3357,23 @@ async function processTakeoffLevel(
         supabase: context.supabase,
       }
     );
-    const escalationPolicy = await getTakeoffEscalationConfigForTenant(job.tenant_id, {
+    let escalationPolicy = await getTakeoffEscalationConfigForTenant(job.tenant_id, {
       supabase: context.supabase,
     });
     levelConfig = getTakeoffLevelConfig(level, {
       preferEscalationPrimary: escalationPolicy.enabled && escalationConfig !== null,
     });
+    if (localProvider) {
+      levelConfig = { ...levelConfig, model: localProvider.model, thinkingLevel: null };
+      escalationConfig = null;
+      escalationPolicy = { ...escalationPolicy, enabled: false };
+    }
+    attemptedModel = levelConfig.model;
+    attemptedThinkingLevel = levelConfig.thinkingLevel;
     const requestedProcessingStrategy =
       job.processing_strategy ??
       resolveTakeoffProcessingStrategy(geminiDeliveryConfig.useBatchApi);
-    processingStrategy = resolveExecutableTakeoffProcessingStrategy(
+    processingStrategy = job.execution_provider === "chatgpt_local" || localProvider ? "sync" : resolveExecutableTakeoffProcessingStrategy(
       level,
       requestedProcessingStrategy
     );
@@ -3362,6 +3390,8 @@ async function processTakeoffLevel(
       level,
     });
     enteredProcessing = true;
+    // Even preflight failures must become visible, terminal job failures.
+    if (localRoutingFailure) throw localRoutingFailure.error;
 
     const actorUserId = context.userId ?? job.created_by;
     await logProcessingAuditEvent({
@@ -3398,6 +3428,7 @@ async function processTakeoffLevel(
 
     if (level === TAKEOFF_LEVEL_C) {
       const levelCResult = await processLevelCGeminiChunks({
+        provider: localProvider ? "chatgpt" : undefined,
         supabase: context.supabase,
         job,
         sourceFile,
@@ -3432,6 +3463,7 @@ async function processTakeoffLevel(
         rawResponse: null,
         providerMeta: {
           ...levelCResult.providerMeta,
+          provider: localProvider ? "chatgpt" : "gemini",
           model: levelConfig.model,
           prompt_version: levelConfig.promptVersion,
           thinking_level: levelConfig.thinkingLevel,
@@ -3537,6 +3569,7 @@ async function processTakeoffLevel(
         rawResponse: null,
         providerMeta: {
           ...levelBResult.providerMeta,
+          provider: localProvider ? "chatgpt" : "gemini",
           model: levelBResult.model,
           prompt_version: levelBResult.promptVersion,
           thinking_level: levelBResult.thinkingLevel,
@@ -3601,7 +3634,7 @@ async function processTakeoffLevel(
         prompt,
         schema: TakeoffExchangeSchema,
         files: preparedLevelInput.files,
-        thinkingLevel: levelConfig.thinkingLevel,
+        thinkingLevel: levelConfig.thinkingLevel ?? undefined,
         timeoutMs: resolveGeminiTimeoutMs(),
         onBatchLifecycleEvent,
         context: {
@@ -3662,6 +3695,7 @@ async function processTakeoffLevel(
       attemptedThinkingLevel = levelConfig.thinkingLevel;
       attemptedPromptVersion = levelConfig.promptVersion;
       levelAResult = await executeStructuredTakeoffRun({
+        provider: localProvider ? "chatgpt" : undefined,
         level: TAKEOFF_LEVEL_A,
         job,
         sourceFile,

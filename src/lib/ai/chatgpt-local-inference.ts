@@ -108,11 +108,14 @@ export async function readChatGptResponse(response: Response) {
   return { text, usage };
 }
 
-export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>): Promise<CallGeminiStructuredResult<T>> {
+export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>, selection?: { profileId: string; model: string }): Promise<CallGeminiStructuredResult<T>> {
   const startedAt = Date.now();
   const credential = await getLocalChatGptCredential(owner);
   if (!credential) throw new Error("Connectez votre compte ChatGPT.");
   if (!credential.model) throw new Error("Choisissez un modèle ChatGPT dans Mon profil.");
+  if (selection && (credential.profileId !== selection.profileId || credential.model !== selection.model)) {
+    throw new Error("Le compte ou le modèle ChatGPT a changé. Relancez le métré.");
+  }
   const content: Record<string, unknown>[] = [{ type: "input_text", text: options.prompt }];
   for (const file of options.files ?? []) {
     if (["text/plain", "text/csv"].includes(file.mimeType)) {

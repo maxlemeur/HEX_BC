@@ -64,12 +64,16 @@ export function ChatGptConnectionCard() {
     <PageSection title="Mon forfait ChatGPT" className="mt-6 max-w-2xl">
       <p className="text-sm text-muted-foreground">
         Connectez votre forfait ChatGPT Plus ou Pro pour le classement des documents,
-        le brief, les ouvrages et les explications IA dans MergeOne sur ce Mac.
-        Le métré différé continue d’utiliser Gemini.
+        le brief, les ouvrages, la structure, les explications IA et le métré
+        dans MergeOne sur ce Mac.
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
         Les demandes consomment les limites de votre forfait. Vos conversations ChatGPT
         ne sont pas accessibles à MergeOne. La connexion est propre à votre compte et à votre tenant actif.
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Le métré utilise le forfait et le modèle choisis par son créateur. Gardez MergeOne
+        ouvert sur ce Mac pendant l’analyse. Les restrictions des niveaux de métré restent applicables.
       </p>
 
       {welcome && connection.sharing ? (

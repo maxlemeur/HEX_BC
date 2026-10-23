@@ -35,6 +35,8 @@ export const TAKEOFF_JOB_PROCESSING_SELECT = [
   "processing_lease_expires_at",
   "retry_count",
   "created_by",
+  "execution_provider",
+  "execution_host_id",
 ].join(", ");
 
 const takeoffJobProcessingSchema = z.object({
@@ -63,6 +65,8 @@ const takeoffJobProcessingSchema = z.object({
   processing_lease_expires_at: z.string().nullable().optional(),
   retry_count: z.number().int().nonnegative().nullable().optional(),
   created_by: z.string().uuid().nullable().optional(),
+  execution_provider: z.enum(["gemini", "chatgpt_local"]).optional(),
+  execution_host_id: z.string().nullable().optional(),
 });
 
 export type TakeoffJobProcessingRow =

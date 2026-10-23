@@ -265,6 +265,7 @@
     "20261020004336_restrict_membership_directory_lookup.sql": "94c051cd194651417287bc3053bede2fde4753a5ba758437bcc731aa02c3cc4a",
     "20261022074859_close_takeoff_audit_forgery.sql": "27920655c1f764564d910103d5bb8eef6ab6747491391e01f9e7c4636d3cf24f",
     "20261022075204_bound_takeoff_job_admission.sql": "272502cd0fd58c7aae7cf97aa449b181db251ab17f023203166369f385c99774",
-    "20261023132913_select_authorized_email_recovery.sql": "06acc76e161ab2cddf34078e0d540adc49f84e44321220eaee310620d14148b2"
+    "20261023132913_select_authorized_email_recovery.sql": "06acc76e161ab2cddf34078e0d540adc49f84e44321220eaee310620d14148b2",
+    "20261023222150_chatgpt_local_takeoff_execution.sql": "2f210d212cfd5f4245f997aeca08e2ba3e54cb68768f00f87381d83a09aaaf28"
   }
 }

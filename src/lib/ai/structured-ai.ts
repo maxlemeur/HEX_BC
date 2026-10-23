@@ -9,7 +9,7 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callGeminiStructured, type CallGeminiStructuredOptions, type CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 
-/** Durable intake passes its verified creator; takeoff workers keep their provider contract. */
+/** Durable intake passes its verified creator; takeoff resolves its own persisted job owner. */
 export async function callStructuredAi<T>(options: CallGeminiStructuredOptions<T>, workflowOwner?: ChatGptOwner | null): Promise<CallGeminiStructuredResult<T> & { provider: "gemini" | "chatgpt" }> {
   if (isLocalChatGptEnabled()) {
     if (workflowOwner === null) throw new Error("Le créateur de l’import n’a plus d’accès actif au tenant.");
@@ -18,7 +18,7 @@ export async function callStructuredAi<T>(options: CallGeminiStructuredOptions<T
     const store = await readChatGptStore(owner);
     if (store.selectedId) {
       // Once selected, a failure never silently switches to a paid API provider.
-      if (options.deliveryMode === "batch") throw new Error("Le traitement différé utilise le worker Gemini.");
+      if (options.deliveryMode === "batch") throw new Error("Le forfait ChatGPT utilise des requêtes en streaming, sans API batch.");
       return { ...await callLocalChatGptStructured(owner, options), provider: "chatgpt" };
     }
   }

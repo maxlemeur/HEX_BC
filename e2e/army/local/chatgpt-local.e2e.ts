@@ -1,18 +1,37 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
-import { recordEvidence } from "../critical/fixtures";
+import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
+import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 
 let localServer: ChildProcess;
 let localOrigin: string;
 const diagnostics: string[] = [];
+let fixtureStore: string | undefined;
+// Explicit opt-in for an owner-authorized live probe on the disposable backend.
+// The private file contains only a short-lived access token, never refresh/ID tokens.
+const liveProbePath = path.resolve(".private/chatgpt-local-live-probe.json");
+let liveProbe: { accessToken: string; model: string; expiresAt: number } | null = null;
+const transportLog = path.resolve(".e2e/army/critical/artifacts/chatgpt-transport.jsonl");
 
 beforeAll(async () => {
   // Use the campaign's disposable local backend, never ambient .env credentials.
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   if (!["localhost", "127.0.0.1"].includes(backend.hostname)) throw new Error("Local backend required.");
+  liveProbe = await readFile(liveProbePath, "utf8").then((text) => JSON.parse(text)).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw new Error("Invalid live probe configuration.");
+  });
+  if (liveProbe && (!liveProbe.accessToken || !liveProbe.model || liveProbe.expiresAt < Date.now() + 300_000)) {
+    throw new Error("Live probe requires a selected model and a valid short-lived token.");
+  }
   const reservation = createServer();
   await new Promise<void>((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
   const address = reservation.address();
@@ -20,8 +39,12 @@ beforeAll(async () => {
   const port = address.port;
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
   localOrigin = `http://127.0.0.1:${port}`;
+  await mkdir(path.dirname(transportLog), { recursive: true });
+  await writeFile(transportLog, "");
   localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port)], {
-    cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development" },
+    cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development",
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
+      ARMY_CHATGPT_TRANSPORT_LOG: transportLog },
     stdio: ["ignore", "pipe", "pipe"],
   });
   for (const stream of [localServer.stdout, localServer.stderr]) stream?.on("data", (chunk) => {
@@ -39,6 +62,7 @@ afterAll(async () => {
     localServer.kill("SIGTERM");
     await new Promise<void>((resolve) => localServer.once("exit", () => resolve()));
   }
+  if (fixtureStore) await rm(fixtureStore, { force: true });
 });
 
 test("ChatGPT local: profile starts PKCE authorization and recovers from declined consent", {
@@ -75,4 +99,64 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
     outcome: "local OAuth start and injected consent refusal", liveChatGptSignIn: false, inference: false,
     authorization, callbackContainsSecretsInLog: diagnostics.some((entry) => /GET \/auth\/chatgpt\/callback.*state=/.test(entry)),
   });
+});
+
+test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantities", {
+  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+  if (backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST) throw new Error("Owned local backend required.");
+  const client = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+  const login = await client.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
+  expect(login.error).toBeNull();
+  const userId = login.data.user!.id;
+  const membership = await client.from("tenant_memberships").select("tenant_id, tenants!inner(is_active)").eq("user_id", userId)
+    .eq("tenants.is_active", true).order("is_default", { ascending: false }).order("created_at").limit(1).single();
+  expect(membership.error).toBeNull();
+  const tenantId = membership.data!.tenant_id;
+  const key = createHash("sha256").update(JSON.stringify([userId, tenantId])).digest("hex");
+  const directory = path.resolve(".private/chatgpt-local");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const file = path.join(directory, `${key}.json`);
+  const id = randomUUID();
+  const model = liveProbe?.model ?? "army-plan-model";
+  await writeFile(file, JSON.stringify({ selectedId: id, profiles: [{ id, clientId: "army-fixture", issuer: "https://auth.openai.com",
+    subject: "army-fixture", email: "fixture@example.test", model, accessToken: liveProbe?.accessToken ?? "army-chatgpt-fixture",
+    expiresAt: liveProbe?.expiresAt ?? Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] }] }), { mode: 0o600, flag: "wx" });
+  fixtureStore = file;
+  const account = credentials.user("army");
+  await app.open(`${localOrigin}/login`);
+  await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-chatgpt-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré forfait local" }, army);
+  expect((await readEstimate(browser, ids.versionId)).version.calc_engine_version).toBe(2);
+  const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
+  await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
+  await screen.getByLabel("Fichier source", { exact: true }).setInputFiles(csv);
+  const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
+    screen.getByRole("button", "Lancer l'extraction", { exact: true }).tap()]);
+  expect(created.status).toBe(201);
+  const body = await created.json<{ data: { id: string } }>();
+  const jobId = body.data.id;
+  const read = () => apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
+  const detail = (await read()).body.data;
+  expect(detail.job).toMatchObject({ model, metrics: { cost_cents: 0 }, processing_strategy: "sync" });
+  expect(detail.result?.provider_meta).toMatchObject({ provider: "chatgpt", model });
+  expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
+  expect(detail.job.metrics.token_count).toBeGreaterThan(0);
+  expect((await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line))).toEqual([
+    { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model, sourceMatched: true },
+  ]);
+  await recordEvidence(army, "chatgpt-takeoff", { ids, jobId, provider: "chatgpt", model: detail.job.model,
+    quantity: 12.5, tokenCount: detail.job.metrics.token_count, livePlanInference: Boolean(liveProbe),
+    transport: liveProbe ? "Live OpenAI Responses using authorized short-lived plan token; Gemini and Edge dispatch forbidden."
+      : "Explicit fixture; real UI, Storage, worker, schema and persistence." });
 });

@@ -19,6 +19,14 @@ function stream(events: unknown[], crlf = false) {
 }
 afterEach(() => { vi.unstubAllGlobals(); });
 describe("ChatGPT plan inference", () => {
+  it("refuses a changed account or model before sending another takeoff chunk", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
+      { profileId: "another-profile", model: "account-model" })).rejects.toThrow("a changé");
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
+      { profileId: "profile-a", model: "another-model" })).rejects.toThrow("a changé");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("retains streamed output when the completed plan response carries no output items", async () => {
     const result = await readChatGptResponse(stream([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: '{"amount":' },
