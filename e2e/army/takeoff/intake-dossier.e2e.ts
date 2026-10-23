@@ -55,7 +55,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   const ambiguous = uploaded.find((doc) => doc.file_name.endsWith("-piece-a-classer.txt"))!;
   expect(ambiguous.document_kind).toBe("a_classer");
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${ambiguous.id}#intake`);
-  const card = browser.locator(`[data-document-id="${ambiguous.id}"]`);
+  const card = browser.locator(`[aria-label="Intake dossier affaire"] [data-document-id="${ambiguous.id}"]`);
   await card.getByRole("button", "Reclasser", { exact: true }).click();
   await card.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "cctp" });
   await card.getByRole("button", "Valider", { exact: true }).click();

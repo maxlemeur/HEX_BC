@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: "nightly : phases servies par le build de production ; all : campagne complète, émission comprise ; sinon une seule phase."
+        description: "nightly : toutes les phases en parallèle ; all : campagne complète dans un job ; sinon une seule phase."
         required: false
         default: nightly
         type: choice

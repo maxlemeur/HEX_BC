@@ -5,6 +5,7 @@ import {
 } from "./calc-v3-fixtures";
 import { installGeneratedAtomicFault, readGeneratedAtomicFault } from "./coverage-native-fault";
 import type { CoveragePhase } from "./coverage-phases";
+import { ensureSourceReferenceBucket } from "./storage-fixtures";
 
 const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 
@@ -68,6 +69,7 @@ async function sourceCoverageFixtures(context: CalcV3FixtureContext, campaign: s
   // result, coverage decision, generated application or library item is seeded.
   const { newCctpPlan, cctpCorpus } = await import("./cctp-seed-plan.mjs");
   const prefix = `ARMY-COVERAGE-${campaign}`;
+  const sourceReferenceBucket = await ensureSourceReferenceBucket(context);
   const membership = await checked("CCTP owner membership", context.admin.from("tenant_memberships").select("id")
     .eq("user_id", context.owner.userId).eq("tenant_id", context.owner.tenantId).single());
   const owner = { ...context.owner, membershipId: membership.id };
@@ -93,7 +95,7 @@ async function sourceCoverageFixtures(context: CalcV3FixtureContext, campaign: s
   }]));
   const fixture = await writeFixture(context, "source-coverage", { schemaVersion: "source-coverage-fixture-1", status: "ready", campaign, prefix,
     apiUrl: context.backend, owner, scenarios, corpus: Object.fromEntries([...corpus].map(([revision, pdf]) => [revision, { sha256: pdf.sha256, bytes: pdf.byteSize }])) });
-  return { env: { E2E_COVERAGE_FIXTURE_PATH: fixture }, secretEnv: {}, identities: { owner, prefix, scenarios, prerequisiteRows: plan.records.length } };
+  return { env: { E2E_COVERAGE_FIXTURE_PATH: fixture }, secretEnv: {}, identities: { owner, prefix, scenarios, sourceReferenceBucket, prerequisiteRows: plan.records.length } };
 }
 
 export async function prepareCoverageFixtures(phase: CoveragePhase, context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {

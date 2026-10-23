@@ -147,9 +147,52 @@ for (const label of ["existing", "fallback"]) {
       expect(totals(beforeEstimate.version)).toEqual([5, 0, 5]);
       const select = card.getByRole("checkbox", `Sélectionner ${s.designation}`, { exact: true });
       if (!await select.isChecked()) await select.check();
-      const responsePromise = browser.waitForResponse(editorUrl, { timeout: 45_000 });
-      await screen.getByTestId("generated-ouvrage-insert-button").click();
-      const response = await responsePromise, flight = await response.text();
+      const actionId = [...names].find(([, name]) => name === "insertGeneratedOuvrages")?.[0];
+      if (!actionId) throw new Error("The built generated application action is required.");
+      // URL-only matching also sees a subsequently aborted RSC refresh. Capture
+      // the actual POST/action response without changing its request or reply.
+      await browser.evaluate((actionId) => {
+        const scope = window as Window & { __armyAtomicCapture?: { original: typeof fetch; flight: string | null; status: number | null; error: string | null; posts: number } };
+        const capture = { original: window.fetch, flight: null as string | null, status: null as number | null, error: null as string | null, posts: 0 };
+        scope.__armyAtomicCapture = capture;
+        window.fetch = async (input, init) => {
+          const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+          const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+          const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+          const matches = method === "POST" && url.origin === location.origin && url.pathname === location.pathname && headers.get("next-action") === actionId;
+          if (matches) capture.posts += 1;
+          const response = await capture.original.call(window, input, init);
+          if (matches) {
+            capture.status = response.status;
+            void response.clone().text().then((flight) => { capture.flight = flight; })
+              .catch((error) => { capture.error = error instanceof Error ? error.message : "Application response unreadable."; });
+          }
+          return response;
+        };
+        return true;
+      }, actionId);
+      let response: { status: number | null; flight: string | null; error: string | null; posts: number };
+      try {
+        await screen.getByTestId("generated-ouvrage-insert-button").click();
+        await expect.poll(() => browser.evaluate(() => {
+          const capture = (window as Window & { __armyAtomicCapture?: { flight: string | null; error: string | null } }).__armyAtomicCapture;
+          return !!capture && (capture.flight !== null || capture.error !== null);
+        }), { timeout: 45_000 }).toBe(true);
+        response = await browser.evaluate(() => {
+          const capture = (window as Window & { __armyAtomicCapture?: { status: number | null; flight: string | null; error: string | null; posts: number } }).__armyAtomicCapture!;
+          return { status: capture.status, flight: capture.flight, error: capture.error, posts: capture.posts };
+        });
+        expect(response.error).toBe(null);
+        expect(response.posts).toBe(1);
+        expect(typeof response.flight).toBe("string");
+      } finally {
+        await browser.evaluate(() => {
+          const scope = window as Window & { __armyAtomicCapture?: { original: typeof fetch } };
+          if (scope.__armyAtomicCapture) { window.fetch = scope.__armyAtomicCapture.original; delete scope.__armyAtomicCapture; }
+          return true;
+        });
+      }
+      const flight = response.flight!;
       const results = flight.split("\n").flatMap((line) => {
         const raw = line.match(/^[0-9a-f]+:(\{.*\})$/i)?.[1]; if (!raw) return [];
         try { const value = JSON.parse(raw); return typeof value.ok === "boolean" ? [{ ok: value.ok, error: value.error ?? null }] : []; } catch { return []; }

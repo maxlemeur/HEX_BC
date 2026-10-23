@@ -60,7 +60,7 @@ armyTest("TKW01 real CSV upload runs the owned worker once and applies exact qua
 armyTest("TKW02 provider failure persists and a real manual retry completes the same job without duplicate results", options, async (ui) => {
   const { ids, jobId } = await launchWorkerCsv(ui, "TKW02");
   const failed = await startOwnedWorker(ui, ids, jobId, "transient").done;
-  expect(failed.outcome).toMatchObject({ status: "failed_retryable", retryable: true, shouldRequeue: true });
+  expect(failed.outcome).toMatchObject({ status: "failed_retryable", retryable: true, should_requeue: true });
   expect(failed.job).toMatchObject({ status: "failed", errorCode: "AI_TIMEOUT" });
   expect(failed.job.nextRetryAt).toBeTruthy();
   expect(failed.resultIds).toEqual([]);
@@ -146,8 +146,8 @@ armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persi
 armyTest("TKW05 terminal provider failure leaves no result or automatic retry", options, async (ui) => {
   const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW05");
   const failed = await startOwnedWorker(ui, ids, jobId, "terminal").done;
-  expect(failed.outcome).toMatchObject({ status: "failed_terminal", retryable: false, shouldRequeue: false });
-  expect(failed.job).toMatchObject({ status: "failed", nextRetryAt: null });
+  expect(failed.outcome).toMatchObject({ status: "failed_terminal", retryable: false, should_requeue: false });
+  expect(failed.job).toMatchObject({ status: "failed", errorCode: "AI_PROVIDER", nextRetryAt: null });
   expect(failed.resultIds).toEqual([]);
   expect(failed.items).toEqual([]);
   await ui.browser.reload();

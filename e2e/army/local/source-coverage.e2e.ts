@@ -16,7 +16,8 @@ async function context(ui: Ui & { army: ArmyState }, name: string): Promise<Case
   if (!scenario) throw new Error(`Fresh coverage scenario required: ${name}`);
   ui.army.ownedEstimates.push({ projectId: scenario.projectId, versionId: scenario.versionId });
   ui.army.projectName = `${fixture.prefix}-${name}`;
-  return { ...ui, fixture, scenario };
+  // Do not enumerate the SDK fixtures: its lazy agent getter would require a model.
+  return { app: ui.app, browser: ui.browser, screen: ui.screen, army: ui.army, fixture, scenario };
 }
 function exactInvalidations(state: Awaited<ReturnType<typeof workspace>>, ids: Record<string, string>, expected: string[]) {
   expect(state.requirements.filter((entry) => entry.validity === "needs_review").map((entry) => entry.id).sort()).toEqual(expected.map((alias) => ids[alias]).sort());

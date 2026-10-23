@@ -106,7 +106,9 @@ for (const format of ["pdf", "xls"] as const) {
       expect(line).toMatchObject({ quantity: entry.quantity, unit_price_ht_cents: entry.price, line_total_ht_cents: entry.total,
         source_provider: "dpgf", source_file_name: filename, source_page: format === "pdf" ? 1 : null });
       expect(line?.source_metadata).toMatchObject({ import_id: source.id, mapping_id: expect.any(String), mapped_row_id: expect.any(String) });
-      if (format === "pdf") expect(line?.source_metadata).toMatchObject({ source_page: 1, table_index: 0 });
+      if (format === "pdf") expect(line?.source_metadata).toMatchObject({
+        _timax_provenance: { source_page: 1, table_index: 0, source_file_name: filename },
+      });
       else expect(line?.source_metadata).toMatchObject({ sheet_name: "DPGF" });
     }
     expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);

@@ -388,7 +388,8 @@ async function runApplication(local: SupabaseEnvironment) {
   };
   if (suite === "calc-v3") {
     // Lot 2 baseline phases (docs/testing/tester-army-calc-v3.md). The PostgreSQL
-    // route stays in this Node process for fixture seeding; journeys never get it.
+    // route seeds fixtures here; only resend-portal receives it for its owned
+    // expiry-clock fixture. The application process never inherits this route.
     await runCalcV3Campaign({
       root, evidence, appPort, environment, backend: backend.origin, anonKey: local.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL, admin,

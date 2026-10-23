@@ -10,7 +10,7 @@ import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/p
 export type WorkerUi = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 export type WorkerResult = {
   event: "result";
-  outcome: { status: string; retryable: boolean; shouldRequeue: boolean; nextRunAt?: string; errorCode?: string };
+  outcome: { status: string; retryable: boolean; should_requeue: boolean; next_run_at?: string; error_code?: string };
   job: { id: string; status: string; level: string; retryCount: number; errorCode: string | null; nextRetryAt: string | null };
   resultIds: string[];
   items: Array<{ id: string; designation: string; quantity: number; unit: string; source_file_name: string; source_page: number }>;

@@ -58,7 +58,7 @@ export const versionDefaults = {
   total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0,
 };
 
-export function sqlTransport(context: CalcV3FixtureContext) {
+export function sqlTransport(context: Pick<CalcV3FixtureContext, "backend" | "databaseUrl" | "psql">) {
   let database: URL;
   let api: URL;
   try {

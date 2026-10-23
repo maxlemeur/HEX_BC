@@ -3,7 +3,9 @@ import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence, setLin
 import { amounts, componentExports, openComponents, prepareComponents } from "./generated-ouvrage-components-support";
 import { numericField, persistNumeric, retainNumeric, type NumericContext, type NumericOracle } from "./numeric-entry-support";
 
-// Defined before the harness: docs/testing/assembly-insertion-financial-e2e.md.
+// Current contract: docs/metier/regles-de-calcul.md and EstimateSettingsPanel.
+// Entering EUR creates a fixed amount. After the gross grows from 20 to 32.50,
+// a 2 EUR discount stays 2 EUR; treating it as 10% would incorrectly yield 29.25.
 if (process.env.E2E_GENERATED_COMPONENTS_SELECTION !== "assembly-totals") throw new Error("Explicit assembly-totals selection required.");
 const options = { session: "army", trace: "off" as const, tags: ["source-coverage", "generated-components", "assembly-totals"], timeout: 420000 };
 const sourceOracle: NumericOracle = { retainedIndices: [0], components: [{ index: 0, costType: "material", quantity: 1, unit: "u", unitCostHtCents: 1250,
@@ -13,10 +15,11 @@ const business = (row: ArmyItem) => Object.fromEntries(["id", "parent_id", "posi
 const lineTotals = (row: ArmyItem) => [row.line_total_ht_cents, row.line_tax_cents, row.line_total_ttc_cents];
 
 for (const specification of [
-  { caseId: "AT01", fixture: "GC01", title: "AT01 assembly insertion persists nonempty fixed footer before any save", discountBp: 0,
-    old: [2000, 400, 2400], added: [1250, 250, 1500], totals: [3250, 650, 3900], footer: /32[,.]50\s*€/ },
-  { caseId: "AT02", fixture: "GC02", title: "AT02 assembly insertion persists V2 global discount allocation before any save", discountBp: 1000,
-    old: [1800, 360, 2160], added: [1125, 225, 1350], totals: [2925, 585, 3510], footer: /29[,.]25\s*€/ },
+  { caseId: "AT01", fixture: "GC01", title: "AT01 assembly insertion persists nonempty fixed footer before any save", discountAmountCents: 0,
+    old: [2000, 400, 2400], existingAfter: [2000, 400, 2400], oldRow: /20[,.]00\s*€/, added: [1250, 250, 1500], totals: [3250, 650, 3900], footer: /32[,.]50\s*€/ },
+  { caseId: "AT02", fixture: "GC02", title: "AT02 assembly insertion preserves the fixed V2 euro discount and reallocates exact lines before any save", discountAmountCents: 200,
+    old: [1800, 360, 2160], existingAfter: [1877, 375, 2252], oldRow: /18[,.]77\s*€/,
+    added: [1173, 235, 1408], totals: [3050, 610, 3660], footer: /30[,.]50\s*€/ },
 ]) armyTest(specification.title, options, async (ui) => {
   const p = await prepareComponents(ui, specification.fixture), c: NumericContext = { ui, p, caseId: specification.caseId, oracle: sourceOracle };
   let targetVersionId: string | undefined;
@@ -77,17 +80,18 @@ for (const specification of [
     await setLineCoreValues(ui, oldTitle, { quantity: "1", unitPriceHt: "20.00" });
     await ui.browser.keyboard.press("Control+s");
     await expect.poll(async () => amounts((await readEstimate(ui.browser, target.versionId)).version), { timeout: 45000 }).toEqual([2000, 400, 2400]);
-    if (specification.discountBp) {
+    if (specification.discountAmountCents) {
       await ui.screen.getByRole("button", "Ouvrir les paramètres", { exact: true }).click();
       await ui.screen.getByLabel("Remise (EUR HT)", { exact: true }).fill("2"); await ui.browser.keyboard.press("Tab");
       await ui.screen.getByRole("button", "Enregistrer le paramétrage", { exact: true }).click();
-      await expect.poll(async () => (await readEstimate(ui.browser, target.versionId)).version.discount_bp, { timeout: 45000 }).toBe(1000);
+      await expect.poll(async () => (await readEstimate(ui.browser, target.versionId)).version.discount_amount_cents, { timeout: 45000 }).toBe(specification.discountAmountCents);
       await expect.poll(async () => amounts((await readEstimate(ui.browser, target.versionId)).version), { timeout: 45000 }).toEqual(specification.old);
       await ui.screen.getByTestId("estimate-editor-drawer-close-button").click();
     }
     const before = await readEstimate(ui.browser, target.versionId), old = before.items.filter((row) => row.item_type === "line"); expect(old).toHaveLength(1);
-    if (!specification.discountBp) expect(lineTotals(old[0])).toEqual(specification.old);
-    expect(amounts(before.version)).toEqual(specification.old); expect(before.version.calc_engine_version).toBe(2); expect(before.version.discount_bp).toBe(specification.discountBp);
+    if (!specification.discountAmountCents) expect(lineTotals(old[0])).toEqual(specification.old);
+    expect(amounts(before.version)).toEqual(specification.old); expect(before.version.calc_engine_version).toBe(2);
+    if (specification.discountAmountCents) expect(before.version.discount_amount_cents).toBe(specification.discountAmountCents);
     expect([old[0].quantity, old[0].unit_price_ht_cents, old[0].tax_rate_bp]).toEqual([1, 2000, 2000]);
     const ordinaryBefore = { items: await p.versionRows(target.versionId), version: await p.versionRow(target.versionId) };
     const baselineRow = ordinaryBefore.items.find((row) => row.id === old[0].id)!;
@@ -122,22 +126,28 @@ for (const specification of [
     await observe("immediate", { status: response.status, reply, api: immediate, ordinary, requests: [...requests] });
     expect(response.status).toBe(200); expect(reply.ok).toBe(true); expect(amounts(immediate.version)).toEqual(specification.totals);
     expect(amounts(ordinary.version)).toEqual(specification.totals); expect(reply.data.version.id).toBe(target.versionId); expect(amounts(reply.data.totals)).toEqual(specification.totals);
+    if (specification.discountAmountCents) {
+      expect(immediate.version.discount_amount_cents).toBe(200);
+      expect(ordinary.version.discount_amount_cents).toBe(200);
+      // Counterexample: 10% follows the larger base, while the entered 2 EUR must not.
+      expect(amounts(immediate.version)).not.toEqual([2925, 585, 3510]);
+    }
     const lines = immediate.items.filter((row) => row.item_type === "line"); expect(lines).toHaveLength(2);
-    const previous = lines.find((row) => row.id === old[0].id)!; expect(business(previous)).toEqual(business(old[0])); expect(lineTotals(previous)).toEqual(specification.old);
+    const previous = lines.find((row) => row.id === old[0].id)!; expect(business(previous)).toEqual(business(old[0])); expect(lineTotals(previous)).toEqual(specification.existingAfter);
     const inserted = lines.find((row) => row.id !== old[0].id)!; expect(lineTotals(inserted)).toEqual(specification.added);
     expect(inserted.source_provider).toBe("assembly_library"); expect(inserted.source_metadata).toEqual({ kind: "assembly_library",
       library_origin: { assembly_id: assembly.id, assembly_item_id: library.id, source_metadata: library.source_metadata } });
     expect([inserted.quantity, inserted.unit_price_ht_cents, inserted.h_mo]).toEqual([1, 1250, 0]); expect(reply.data.items.filter((row) => row.item_type === "line").map((row) => row.id)).toEqual([inserted.id]);
     for (const line of lines) { const row = ordinary.items.find((item) => item.id === line.id)!; expect(lineTotals(row as ArmyItem)).toEqual(lineTotals(line)); expect(business(row as ArmyItem)).toEqual(business(line)); }
     const footer = ui.browser.locator('[data-testid="estimate-editor-table-footer"] [data-estimate-column="total_price"]'); await expect(footer).toHaveText(specification.footer);
-    if (specification.discountBp) {
+    if (specification.discountAmountCents) {
       await ui.screen.getByRole("button", "Ouvrir les paramètres", { exact: true }).click();
       const discount = ui.screen.getByLabel("Remise (EUR HT)", { exact: true });
-      await expect(discount).toHaveValue("3.25");
-      await observe("discount-synchronized", { equivalentInput: await discount.inputValue(), expectedBp: specification.discountBp });
+      await expect(discount).toHaveValue("2");
+      await observe("discount-synchronized", { fixedAmountInput: await discount.inputValue(), expectedAmountCents: specification.discountAmountCents });
       await ui.screen.getByTestId("estimate-editor-drawer-close-button").click();
     }
-    const oldUi = ui.browser.locator(`[data-estimate-item-id="${old[0].id}"] [data-estimate-column="total_price"]`); await expect(oldUi).toHaveText(specification.discountBp ? /18[,.]00\s*€/ : /20[,.]00\s*€/);
+    const oldUi = ui.browser.locator(`[data-estimate-item-id="${old[0].id}"] [data-estimate-column="total_price"]`); await expect(oldUi).toHaveText(specification.oldRow);
     const immediateStatus = ui.screen.getByTestId("estimate-page-toolbar-autosave-status");
     await expect(immediateStatus).toHaveText(/^(À jour|Sauvegardé)$/);
     await observe("ui", { footerText: await footer.textContent(), oldRowText: await oldUi.textContent(), statusText: await immediateStatus.textContent(), requests: [...requests] });
@@ -145,14 +155,18 @@ for (const specification of [
     const reload = await readEstimate(ui.browser, target.versionId), reloadedOrdinary = { items: await p.versionRows(target.versionId), version: await p.versionRow(target.versionId) };
     await observe("reload", { api: reload, ordinary: reloadedOrdinary, requests: [...requests] });
     expect(amounts(reload.version)).toEqual(specification.totals); expect(amounts(reloadedOrdinary.version)).toEqual(specification.totals);
+    if (specification.discountAmountCents) {
+      expect(reload.version.discount_amount_cents).toBe(200);
+      expect(reloadedOrdinary.version.discount_amount_cents).toBe(200);
+    }
     expect(reload.items).toEqual(immediate.items); expect(reloadedOrdinary.items).toEqual(ordinary.items); expect(requests).toEqual(["POST"]);
     await expect(footer).toHaveText(specification.footer);
-    await expect(oldUi).toHaveText(specification.discountBp ? /18[,.]00\s*€/ : /20[,.]00\s*€/);
+    await expect(oldUi).toHaveText(specification.oldRow);
     let reloadedDiscount: string | null = null;
-    if (specification.discountBp) {
+    if (specification.discountAmountCents) {
       await ui.screen.getByRole("button", "Ouvrir les paramètres", { exact: true }).click();
       const discount = ui.screen.getByLabel("Remise (EUR HT)", { exact: true });
-      await expect(discount).toHaveValue("3.25"); reloadedDiscount = await discount.inputValue();
+      await expect(discount).toHaveValue("2"); reloadedDiscount = await discount.inputValue();
       await ui.screen.getByTestId("estimate-editor-drawer-close-button").click();
     }
     await observe("ui-reload", { footerText: await footer.textContent(), oldRowText: await oldUi.textContent(), reloadedDiscount, requests: [...requests] });

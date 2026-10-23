@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
-import { tsImport } from "tsx/esm/api";
+import { register } from "tsx/cjs/api";
 import { createClient } from "@supabase/supabase-js";
 
 // Test-only worker entrypoint. The application keeps its Edge dispatch guard.
@@ -54,13 +54,14 @@ const readJob = async () => {
   assert.equal(data.tenant_id, version.data.tenant_id);
   return data;
 };
-const load = async (file) => {
-  const loaded = await tsImport(file, import.meta.url);
-  return loaded.default ?? loaded;
-};
-const { processTakeoffJobAttempt } = await load("../../src/lib/takeoff/async-worker.ts");
-const { processLevelA, processLevelB } = await load("../../src/lib/takeoff/processor.ts");
-const { TakeoffError, TakeoffErrorCode } = await load("../../src/lib/takeoff/errors.ts");
+// One module graph preserves TakeoffError identity across provider, processor
+// and async worker. Separate tsImport calls create separate namespaces and can
+// mistakenly reclassify an explicitly non-retryable provider error.
+const runtime = register({ namespace: "army-owned-takeoff-worker" });
+const load = (file) => runtime.require(file, import.meta.url);
+const { processTakeoffJobAttempt } = load("../../src/lib/takeoff/async-worker.ts");
+const { processLevelA, processLevelB } = load("../../src/lib/takeoff/processor.ts");
+const { TakeoffError, TakeoffErrorCode } = load("../../src/lib/takeoff/errors.ts");
 const events = [];
 const emit = (event) => process.stdout.write("ARMY_WORKER " + JSON.stringify(event) + "\n");
 let release;
@@ -120,4 +121,5 @@ try {
 } finally {
   clearTimeout(timer);
   input.close();
+  runtime.unregister();
 }

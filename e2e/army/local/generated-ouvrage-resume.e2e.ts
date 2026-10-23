@@ -262,9 +262,11 @@ async function assertInsertionSessionDenials(browser: Browser, context: Context,
         }
         // Keep the application request valid so these counterexamples reach
         // the lock boundary instead of failing on missing CAS/idempotency data.
+        // This syntactically valid review hash is only a witness: these denied
+        // sessions must stop at the lock guard before any review lookup.
         const body = { versionId: request.versionId, draftId: request.draftId,
           operationKey: crypto.randomUUID(), expectedUpdatedAt: request.updatedAt,
-          acceptedCandidates: [{ candidateId: request.candidateId, designation: request.designation, unit: "m", quantity: 10, lotId: null }], ...(request.mode === "missing" ? {} : { draftLockSessionId: request.mode === "wrong" ? other : session }) };
+          acceptedCandidates: [{ candidateId: request.candidateId, designation: request.designation, unit: "m", quantity: 10, lotId: null, reviewToken: "0".repeat(64) }], ...(request.mode === "missing" ? {} : { draftLockSessionId: request.mode === "wrong" ? other : session }) };
         const response = await fetch(location.pathname, { method: "POST", credentials: "same-origin", headers: { "next-action": request.actionId, "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" }, body: JSON.stringify([body]) });
         const flight = await response.text();
         const results = flight.split("\n").flatMap((line) => {

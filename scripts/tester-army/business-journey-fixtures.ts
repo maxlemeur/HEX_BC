@@ -6,6 +6,8 @@ import path from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { createClient } from "@supabase/supabase-js";
 
+import { ensureSourceReferenceBucket } from "./storage-fixtures";
+
 import { buildAffaireIntakeStoragePath, createEmptyAffaireIntakeExtractedMetadata } from "../../src/lib/affaires/intake";
 import { checked, createActor, executePlan, sqlTransport, versionDefaults, writeFixture,
   type CalcV3FixtureContext, type PlanRecord } from "./calc-v3-fixtures";
@@ -289,6 +291,9 @@ export async function prepareBusinessJourneyFixtures(context: CalcV3FixtureConte
     const fixture = await documentsFixture(context, "brief");
     env.E2E_BRIEF_EVIDENCE_PROJECT_ID = fixture.projectId; env.E2E_BRIEF_EVIDENCE_DOCUMENT_ID = fixture.documents.A;
     identities.brief = fixture;
+  }
+  if (selected.has("source-reference.e2e.ts")) {
+    identities.sourceReferenceBucket = await ensureSourceReferenceBucket(context);
   }
   for (const [file, kind, variable] of [
     ["source-reference.e2e.ts", "source", "E2E_SOURCE_REFERENCE_FIXTURE_PATH"],
