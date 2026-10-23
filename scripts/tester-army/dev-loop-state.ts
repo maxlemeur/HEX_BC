@@ -204,7 +204,10 @@ export function probeSupervisor(pid: number, checkout: string): SupervisorProbe 
   } else if (process.platform === "darwin") {
     const ps = spawnSync("/bin/ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 });
     argv = ps.status === 0 ? ps.stdout.trim().split(/\s+/).filter(Boolean) : [];
-    const lsof = spawnSync("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8", timeout: 5_000 });
+    // The macOS cwd comes from the process vnode. Avoid lsof's blocking
+    // filesystem stat/readlink probes; they add seconds per process even when
+    // only cwd is selected. A missing cwd still cannot establish ownership.
+    const lsof = spawnSync("/usr/sbin/lsof", ["-b", "-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8", timeout: 5_000 });
     cwd = lsof.status === 0 ? lsof.stdout.split("\n").find((line) => line.startsWith("n"))?.slice(1) : undefined;
   } else {
     throw new Error("The dev loop runs only where the Supabase native runtime runs (Linux or macOS).");
