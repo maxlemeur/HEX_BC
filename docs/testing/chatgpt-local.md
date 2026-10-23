@@ -40,6 +40,15 @@ local peut le démarrer sur l’hôte réservé. Garder le serveur ouvert pendan
 l’analyse. Les batches Gemini déjà acceptés continuent leur réconciliation
 habituelle ; ils ne sont pas renvoyés à ChatGPT.
 
+Les formulaires de téléversement et de lancement depuis un jeu de plans proposent
+**Fournisseur IA** en local : Automatique, ChatGPT (forfait local) ou Gemini (API).
+Automatique conserve le comportement existant. Un choix explicite de ChatGPT
+exige une connexion et un modèle disponibles sur ce Mac ; il ne revient jamais à
+Gemini si cette condition manque. Un choix explicite de Gemini utilise la
+configuration API, même lorsqu’un forfait ChatGPT est connecté. Le choix entre
+dans l’identité de la demande : changer de fournisseur crée une nouvelle demande,
+sans recycler une tâche existante avec une autre facturation.
+
 Sans compte sélectionné, le fournisseur habituel est utilisé. Après sélection,
 un refus, un quota ou une panne ChatGPT ne déclenche aucun appel Gemini de secours.
 Les traitements métier peuvent conserver leurs replis heuristiques existants.
@@ -106,5 +115,21 @@ uniquement `accessToken`, `model` et `expiresAt` d’un forfait connecté (jamai
 refresh token ni d’ID token). Le test exige un backend loopback, utilise le vrai
 endpoint Responses, bloque Gemini et retire le profil temporaire en fin de run.
 La preuve marque `livePlanInference: true` et conserve uniquement le modèle,
-les jetons et les identifiants fictifs. Retirer le fichier privé après le run.
+le nombre de jetons et les identifiants fictifs. Retirer le fichier privé après le run.
 La connexion réelle reste une qualification distincte du refus OAuth injecté.
+
+Le parcours `ChatGPT local: PDF plan` utilise aussi le plan fictif
+`e2e/fixtures/takeoff/army-chatgpt-plan.pdf` et sa vérité terrain indépendante :
+12,5 m de tuyauterie (segments de 5 m et 7,5 m) et quatre vannes. Il choisit
+explicitement ChatGPT, vérifie les quantités, les unités, la page source,
+la persistance et l’absence de transport Gemini. Le mode live décrit ci-dessus
+fait réellement passer ce PDF au modèle du forfait ; le mode CI conserve une
+réponse de fournisseur simulée et l’indique dans sa preuve.
+
+Qualification réelle du 24 octobre 2026 : le plan PDF a produit 12,5 m de cuivre
+et quatre vannes avec `gpt-6.1-sol` (1 982 jetons), via un seul appel OpenAI,
+sans transport Gemini. Le navigateur, le stockage et la persistance utilisaient
+une pile locale isolée. La correction de formats du bucket `takeoff-files` a
+également été appliquée à la base partagée après autorisation du propriétaire ;
+elle conserve les anciens formats, le caractère privé et la limite de 10 Mio.
+Voir le [reçu de migration et de qualification PDF](shared-supabase-chatgpt-pdf-storage-2026-10-24.json).

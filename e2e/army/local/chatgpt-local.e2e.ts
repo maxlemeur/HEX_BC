@@ -101,9 +101,8 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
   });
 });
 
-test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantities", {
-  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
-}, async ({ app, screen, browser }) => {
+async function preparePlanFixture() {
+  if (fixtureStore) return;
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   if (backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST) throw new Error("Owned local backend required.");
   const client = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -124,6 +123,13 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
     subject: "army-fixture", email: "fixture@example.test", model, accessToken: liveProbe?.accessToken ?? "army-chatgpt-fixture",
     expiresAt: liveProbe?.expiresAt ?? Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] }] }), { mode: 0o600, flag: "wx" });
   fixtureStore = file;
+}
+
+test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantities", {
+  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  await preparePlanFixture();
+  const model = liveProbe?.model ?? "army-plan-model";
   const account = credentials.user("army");
   await app.open(`${localOrigin}/login`);
   await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
@@ -159,4 +165,61 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
     quantity: 12.5, tokenCount: detail.job.metrics.token_count, livePlanInference: Boolean(liveProbe),
     transport: liveProbe ? "Live OpenAI Responses using authorized short-lived plan token; Gemini and Edge dispatch forbidden."
       : "Explicit fixture; real UI, Storage, worker, schema and persistence." });
+});
+
+
+test("ChatGPT local: PDF plan uses the chosen subscription provider and persists measured quantities", {
+  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  await preparePlanFixture();
+  const account = credentials.user("army");
+  await app.open(`${localOrigin}/login`);
+  await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-chatgpt-pdf-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré PDF forfait local" }, army);
+  const file = path.resolve("e2e/fixtures/takeoff/army-chatgpt-plan.pdf");
+  const truth = JSON.parse(await readFile(path.resolve("e2e/fixtures/takeoff/army-chatgpt-plan.expected.json"), "utf8"));
+  expect(createHash("sha256").update(await readFile(file)).digest("hex")).toBe(truth.sha256);
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
+  await screen.getByLabel("Fichier source", { exact: true }).setInputFiles(file);
+  await screen.getByRole("radio", /Niveau C/).check();
+  const picker = screen.getByLabel("Fournisseur IA", { exact: true });
+  await expect(picker).toBeVisible();
+  await picker.selectOption({ value: "gemini" });
+  await picker.selectOption({ value: "chatgpt" });
+  await expect(picker).toHaveValue("chatgpt");
+  const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
+    screen.getByRole("button", "Lancer l'extraction", { exact: true }).tap()]);
+  const responseBody = await created.json<{ data: { id: string } }>();
+  expect({ status: created.status, body: responseBody }).toMatchObject({ status: 201 });
+  const jobId = responseBody.data.id;
+  const read = () => apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  await expect.poll(async () => (await read()).body.data.job.status, { timeout: 180_000 }).toBe("completed");
+  const detail = (await read()).body.data;
+  expect(detail.job).toMatchObject({ level: "C", model: liveProbe?.model ?? "army-plan-model", processing_strategy: "sync", metrics: { cost_cents: 0 } });
+  expect(detail.result?.provider_meta).toMatchObject({ provider: "chatgpt" });
+  const sum = (pattern: RegExp) => detail.items.data.filter(item => pattern.test(item.designation)).reduce((total, item) => total + item.quantity, 0);
+  expect(sum(/cuivre/i)).toBe(12.5);
+  expect(sum(/vanne/i)).toBe(4);
+  for (const expected of truth.expected) {
+    const matching = detail.items.data.filter(item => item.designation.toLowerCase().includes(expected.designationContains));
+    expect(matching.length).toBeGreaterThan(0);
+    for (const item of matching) expect(item.unit).toBe(expected.unit);
+  }
+  expect(detail.items.data.every(item => item.source_page === 1)).toBe(true);
+  expect(detail.job.metrics.token_count).toBeGreaterThan(0);
+  const transport = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+  expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+  expect(transport.filter(entry => entry.inputKind === "pdf")).toEqual([
+    { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model: detail.job.model, sourceMatched: true, inputKind: "pdf" },
+  ]);
+  await recordEvidence(army, "chatgpt-pdf-takeoff", { ids, jobId, provider: "chatgpt", model: detail.job.model,
+    expected: truth.expected, actual: detail.items.data.map(item => ({ designation: item.designation, quantity: item.quantity, unit: item.unit, sourcePage: item.source_page })),
+    tokenCount: detail.job.metrics.token_count, livePlanInference: Boolean(liveProbe), geminiRequests: 0, inputKind: "pdf" });
 });

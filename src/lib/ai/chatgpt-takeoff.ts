@@ -9,13 +9,31 @@ import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import type { CallGeminiStructuredOptions } from "@/lib/takeoff/gemini-client";
+import type { TakeoffProvider } from "@/lib/takeoff/types";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 
-export async function getTakeoffExecutionOwner(supabase: ServerSupabaseClient, owner: ChatGptOwner) {
-  if (!isLocalChatGptEnabled()) return {};
+export function parseTakeoffProvider(value: unknown): TakeoffProvider {
+  const parsed = z.enum(["auto", "chatgpt", "gemini"]).safeParse(value ?? "auto");
+  if (!parsed.success) throw new TakeoffError({ code: TakeoffErrorCode.BAD_REQUEST, retryable: false,
+    message: "Choisissez un fournisseur de métré valide." });
+  return parsed.data;
+}
+
+export async function getTakeoffExecutionOwner(supabase: ServerSupabaseClient, owner: ChatGptOwner, requestedProvider: TakeoffProvider = "auto") {
+  const provider = parseTakeoffProvider(requestedProvider);
+  if (provider === "gemini") return {};
+  if (!isLocalChatGptEnabled()) {
+    if (provider === "chatgpt") throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté." });
+    return {};
+  }
   assertLocalChatGptHost((await headers()).get("host"));
   const store = await readChatGptStore(owner);
-  if (!store.selectedId) return {};
+  if (!store.selectedId) {
+    if (provider === "chatgpt") throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Connectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré." });
+    return {};
+  }
   if (!store.profiles.find((profile) => profile.id === store.selectedId)?.model) {
     throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré." });

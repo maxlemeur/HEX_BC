@@ -1,0 +1,19 @@
+{
+  "source": "e2e/fixtures/takeoff/army-chatgpt-plan.pdf",
+  "sha256": "1fd21dcc72a8d70ad49978ad6b7eb5c8226e6359d630e995f36ebed010332b3e",
+  "level": "C",
+  "pages": 1,
+  "expected": [
+    {
+      "designationContains": "cuivre",
+      "quantity": 12.5,
+      "unit": "m"
+    },
+    {
+      "designationContains": "vanne",
+      "quantity": 4,
+      "unit": "u"
+    }
+  ],
+  "basis": "Two labelled segments 5.00 m and 7.50 m; four valve symbols V1 to V4."
+}

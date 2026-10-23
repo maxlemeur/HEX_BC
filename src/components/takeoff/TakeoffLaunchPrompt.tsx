@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -14,7 +15,7 @@ import {
   isTakeoffLevelCompatible,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
-import type { TakeoffLevel } from "@/lib/takeoff/types";
+import type { TakeoffLevel, TakeoffProvider } from "@/lib/takeoff/types";
 import type { EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { takeoffTargetEngineRefusal } from "@/lib/takeoff/engine-support";
 import { CheckIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
@@ -164,6 +165,7 @@ export function TakeoffLaunchPrompt({
     () => getLaunchableLevels(launchRecommendation),
     [launchRecommendation],
   );
+  const [provider, setProvider] = useState<TakeoffProvider>("auto");
   const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel | null>(
     isPlanSetTakeoffLevel(launchRecommendation.recommendedLevel) &&
       launchableLevels.includes(launchRecommendation.recommendedLevel)
@@ -239,6 +241,7 @@ export function TakeoffLaunchPrompt({
         planSetId,
         versionId: resolvedVersionId,
         level: selectedLevel,
+        ...(provider !== "auto" ? { provider } : {}),
       });
       createdJobIdForLaunch = result.jobId;
       const launchQueuedForRecovery =
@@ -289,6 +292,7 @@ export function TakeoffLaunchPrompt({
     projectId,
     resolvedVersionLabel,
     selectedLevel,
+    provider,
     sourceVersionId,
     toast,
     versionId,
@@ -445,6 +449,7 @@ export function TakeoffLaunchPrompt({
                 ))}
               </div>
             </fieldset>
+            <TakeoffProviderSelect value={provider} onChange={setProvider} />
             {levelWarning ? (
               <div
                 className={`rounded border px-3 py-2 text-xs ${

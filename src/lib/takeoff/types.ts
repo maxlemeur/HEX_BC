@@ -70,7 +70,10 @@ export type TakeoffApplyScope = (typeof TAKEOFF_APPLY_SCOPES)[number];
 
 export type TakeoffApplyRequest = z.infer<typeof takeoffApplyRequestSchema>;
 
+export type TakeoffProvider = "auto" | "chatgpt" | "gemini";
+
 export type TakeoffJobCreateInput = {
+  provider?: TakeoffProvider;
   estimateVersionId: string;
   level: TakeoffLevel;
   file: File;

@@ -1,4 +1,4 @@
-import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 export {
   reconcileTakeoffJobNow,
   resubmitTakeoffJob,
@@ -6021,6 +6021,7 @@ export async function createTakeoffJobFromFormData(
     const file = fileEntry;
     const estimateVersionId = parseEstimateVersionId(formData);
     level = parseTakeoffLevel(formData);
+    const provider = parseTakeoffProvider(formData.get("provider"));
 
     assertTakeoffFileIsValid(file, level);
     const fileBytes = await file.arrayBuffer();
@@ -6038,6 +6039,7 @@ export async function createTakeoffJobFromFormData(
       JSON.stringify({
         estimate_version_id: estimateVersionId,
         level,
+        ...(provider !== "auto" ? { provider } : {}),
         file_name: file.name,
         file_type: normalizedSourceFileType,
         file_size_bytes: file.size,
@@ -6120,7 +6122,7 @@ export async function createTakeoffJobFromFormData(
       sourceFileName
     )}`;
 
-    const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId });
+    const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, provider);
     const { error: uploadError } = await supabase.storage
       .from(TAKEOFF_FILES_BUCKET)
       .upload(sourceFilePath, file, {
@@ -6295,6 +6297,7 @@ export async function createTakeoffJobFromPlanSet(input: {
   planSetId: string;
   estimateVersionId: string;
   level?: TakeoffLevel;
+  provider?: import("@/lib/takeoff/types").TakeoffProvider;
 }): Promise<TakeoffJobCreateResponse> {
   const { supabase, tenantId, userId, tenantRole } =
     await getAuthenticatedContext();
@@ -6319,7 +6322,7 @@ export async function createTakeoffJobFromPlanSet(input: {
     tenantRole,
     estimateVersionId: input.estimateVersionId,
   });
-  const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId });
+  const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, input.provider);
   const [geminiDeliveryConfig, planSetPageConfig] = await Promise.all([
     getTakeoffGeminiDeliveryConfigForTenant(tenantId, level, { supabase }),
     level === "C"

@@ -16,6 +16,7 @@ const launchTakeoffFromPlanSetSchema = z.object({
   planSetId: z.string().uuid(),
   versionId: z.string().uuid(),
   level: z.enum(["B", "C"]).default("B"),
+  provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
 });
 
 export type LaunchTakeoffFromPlanSetInput = z.infer<
@@ -27,6 +28,7 @@ const launchTakeoffFromSourceVersionPlanSetSchema = z.object({
   planSetId: z.string().uuid(),
   sourceVersionId: z.string().uuid(),
   level: z.enum(["B", "C"]).default("B"),
+  provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
 });
 
 export type LaunchTakeoffFromSourceVersionPlanSetInput = z.infer<
@@ -70,6 +72,7 @@ export async function launchTakeoffFromPlanSet(
     planSetId: parsed.planSetId,
     estimateVersionId: parsed.versionId,
     level: parsed.level,
+    ...(parsed.provider ? { provider: parsed.provider } : {}),
   });
 
   const triggerResult = await triggerTakeoffJobProcessing({
@@ -116,6 +119,7 @@ export async function launchTakeoffFromSourceVersionPlanSet(
       planSetId: parsed.planSetId,
       versionId: duplicatedVersionId,
       level: parsed.level,
+      ...(parsed.provider ? { provider: parsed.provider } : {}),
     });
 
     return {

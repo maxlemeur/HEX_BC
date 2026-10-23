@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
+import type { TakeoffProvider } from "@/lib/takeoff/types";
 import { useIsHydrated } from "@/hooks/useIsHydrated";
 
 import {
@@ -304,6 +306,7 @@ export function TakeoffUploadForm({
       ? level
       : normalizedAllowedLevels[0] ?? "A";
 
+  const [provider, setProvider] = useState<TakeoffProvider>("auto");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileFingerprint, setSelectedFileFingerprint] = useState("");
   const [stableIdempotencyKey, setStableIdempotencyKey] = useState<string | null>(
@@ -554,6 +557,7 @@ export function TakeoffUploadForm({
       const job = await createTakeoffJob({
         estimateVersionId: versionId,
         level: selectedLevel,
+        ...(provider !== "auto" ? { provider } : {}),
         file: selectedFile,
         idempotencyKey,
         onUploadProgress: (progress) => setUploadProgress(progress),
@@ -789,6 +793,12 @@ export function TakeoffUploadForm({
             </div>
           </fieldset>
         )}
+
+        <TakeoffProviderSelect value={provider} disabled={controlsDisabled} onChange={(next) => {
+          setProvider(next);
+          setStableIdempotencyKey(null);
+          resetTransientState();
+        }} />
 
         {(submitState === "loading" || uploadProgress > 0) && (
           <div>

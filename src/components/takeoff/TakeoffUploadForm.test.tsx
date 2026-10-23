@@ -1,8 +1,10 @@
+vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: vi.fn().mockResolvedValue(null) }));
 import { cleanup,render,screen,waitFor,within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
+import { loadChatGptConnection } from "@/app/dashboard/_actions/chatgpt";
 import { TakeoffUploadForm } from "@/components/takeoff/TakeoffUploadForm";
 import {
 createTakeoffJob,
@@ -240,4 +242,22 @@ describe("TakeoffUploadForm", () => {
       );
     });
   });
+});
+
+it("sends an explicit provider choice and uses a fresh idempotency key when it changes", async () => {
+  vi.mocked(loadChatGptConnection).mockResolvedValueOnce({ enabled: true, selectedId: "profile", model: "plan-model", sharing: true, profiles: [] });
+  vi.mocked(createTakeoffJob).mockRejectedValue(new Error("Temporary failure"));
+  const user = userEvent.setup();
+  render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+  const provider = await screen.findByLabelText("Fournisseur IA");
+  await user.upload(screen.getByLabelText("Fichier source"), makeCsvFile());
+  await user.selectOptions(provider, "gemini");
+  await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+  await waitFor(() => expect(createTakeoffJob).toHaveBeenCalledTimes(1));
+  await user.selectOptions(provider, "chatgpt");
+  await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+  await waitFor(() => expect(createTakeoffJob).toHaveBeenCalledTimes(2));
+  const [first, second] = vi.mocked(createTakeoffJob).mock.calls.map(([input]) => input);
+  expect(first.provider).toBe("gemini"); expect(second.provider).toBe("chatgpt");
+  expect(first.idempotencyKey).not.toBe(second.idempotencyKey);
 });

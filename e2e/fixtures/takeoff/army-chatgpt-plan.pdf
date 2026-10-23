@@ -1,0 +1,152 @@
+%PDF-1.4
+%“Œ‹ž ReportLab Generated PDF document (opensource)
+1 0 obj
+<<
+/F1 2 0 R /F2 3 0 R
+>>
+endobj
+2 0 obj
+<<
+/BaseFont /Helvetica /Encoding /WinAnsiEncoding /Name /F1 /Subtype /Type1 /Type /Font
+>>
+endobj
+3 0 obj
+<<
+/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding /Name /F2 /Subtype /Type1 /Type /Font
+>>
+endobj
+4 0 obj
+<<
+/Contents 8 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 7 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+5 0 obj
+<<
+/PageMode /UseNone /Pages 7 0 R /Type /Catalog
+>>
+endobj
+6 0 obj
+<<
+/Author (anonymous) /CreationDate (D:20000101000000+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20000101000000+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+  /Subject (unspecified) /Title (ARMY - Plan fictif de reseau cuivre TC1) /Trapped /False
+>>
+endobj
+7 0 obj
+<<
+/Count 1 /Kids [ 4 0 R ] /Type /Pages
+>>
+endobj
+8 0 obj
+<<
+/Length 2359
+>>
+stream
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+.090196 .184314 .313725 rg
+BT /F2 20 Tf 24 TL ET
+BT 1 0 0 1 48 785 Tm (Plan de test - reseau TC1) Tj T* ET
+BT /F1 11 Tf 13.2 TL ET
+BT 1 0 0 1 48 763 Tm (Document fictif ARMY - aucune donnee de chantier reel) Tj T* ET
+.27451 .341176 .439216 rg
+BT /F1 10 Tf 12 TL ET
+BT 1 0 0 1 48 721 Tm (Relever la longueur de tuyauterie et les vannes visibles.) Tj T* ET
+BT 1 0 0 1 48 704 Tm (Les cotes indiquees font foi. Tous les elements du reseau sont representes.) Tj T* ET
+.156863 .478431 .67451 RG
+4 w
+n 70 480 m 520 480 l S
+.090196 .184314 .313725 rg
+BT /F2 11 Tf 13.2 TL ET
+BT 1 0 0 1 70 448 Tm (TC1 - Tuyauterie cuivre DN20) Tj T* ET
+.27451 .341176 .439216 RG
+.8 w
+n 70 496 m 70 548 l S
+n 250 496 m 250 548 l S
+n 70 534 m 250 534 l S
+n 70 534 m 76 537 l S
+n 70 534 m 76 531 l S
+n 250 534 m 244 537 l S
+n 250 534 m 244 531 l S
+BT /F2 12 Tf 14.4 TL ET
+BT 1 0 0 1 141.322 544 Tm (5,00 m) Tj T* ET
+n 250 496 m 250 548 l S
+n 520 496 m 520 548 l S
+n 250 534 m 520 534 l S
+n 250 534 m 256 537 l S
+n 250 534 m 256 531 l S
+n 520 534 m 514 537 l S
+n 520 534 m 514 531 l S
+BT /F2 12 Tf 14.4 TL ET
+BT 1 0 0 1 366.322 544 Tm (7,50 m) Tj T* ET
+1 1 1 rg
+.090196 .184314 .313725 RG
+1.5 w
+n 117 488 m 133 472 l 133 488 l 117 472 l h
+B*
+.090196 .184314 .313725 rg
+BT /F2 10 Tf 12 TL ET
+BT 1 0 0 1 118.885 507 Tm (V1) Tj T* ET
+1 1 1 rg
+.090196 .184314 .313725 RG
+1.5 w
+n 227 488 m 243 472 l 243 488 l 227 472 l h
+B*
+.090196 .184314 .313725 rg
+BT /F2 10 Tf 12 TL ET
+BT 1 0 0 1 228.885 507 Tm (V2) Tj T* ET
+1 1 1 rg
+.090196 .184314 .313725 RG
+1.5 w
+n 347 488 m 363 472 l 363 488 l 347 472 l h
+B*
+.090196 .184314 .313725 rg
+BT /F2 10 Tf 12 TL ET
+BT 1 0 0 1 348.885 507 Tm (V3) Tj T* ET
+1 1 1 rg
+.090196 .184314 .313725 RG
+1.5 w
+n 467 488 m 483 472 l 483 488 l 467 472 l h
+B*
+.090196 .184314 .313725 rg
+BT /F2 10 Tf 12 TL ET
+BT 1 0 0 1 468.885 507 Tm (V4) Tj T* ET
+BT /F2 13 Tf 15.6 TL ET
+BT 1 0 0 1 48 365 Tm (Legende) Tj T* ET
+BT /F1 11 Tf 13.2 TL ET
+BT 1 0 0 1 48 340 Tm (TC1 : tuyauterie cuivre DN20 - unite de metre : m) Tj T* ET
+BT 1 0 0 1 48 319 Tm (V1 a V4 : vannes d'isolement DN20 - unite de comptage : u) Tj T* ET
+BT /F1 10 Tf 12 TL ET
+BT 1 0 0 1 48 270 Tm (Un seul reseau, sans branche cachee ni element hors plan.) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 48 48 Tm (ARMY-CHATGPT-PDF-20261024 / Plan fictif / Page 1 sur 1) Tj T* ET
+ 
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000061 00000 n 
+0000000102 00000 n 
+0000000209 00000 n 
+0000000321 00000 n 
+0000000524 00000 n 
+0000000592 00000 n 
+0000000884 00000 n 
+0000000943 00000 n 
+trailer
+<<
+/ID 
+[<6502fe5efb2e6706eef491f26c9cedc1><6502fe5efb2e6706eef491f26c9cedc1>]
+% ReportLab generated PDF document -- digest (opensource)
+
+/Info 6 0 R
+/Root 5 0 R
+/Size 9
+>>
+startxref
+3353
+%%EOF

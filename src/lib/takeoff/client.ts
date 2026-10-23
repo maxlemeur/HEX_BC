@@ -420,6 +420,7 @@ export async function createTakeoffJob(
   formData.append("file", input.file);
   formData.append("estimate_version_id", input.estimateVersionId);
   formData.append("level", input.level);
+  if (input.provider) formData.append("provider", input.provider);
 
   return new Promise<TakeoffJobCreateResponse>((resolve, reject) => {
     const xhr = new XMLHttpRequest();

@@ -1,3 +1,4 @@
+vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers({ host: "127.0.0.1:3000" })) }));
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -5,7 +6,7 @@ vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn(), getC
 vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: vi.fn() }));
 import { readChatGptStore, getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
-import { resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { getTakeoffExecutionOwner, parseTakeoffProvider, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 
 const job = { id: "job", tenant_id: "tenant", created_by: "creator", execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:host" } as TakeoffJobProcessingRow;
@@ -69,4 +70,20 @@ it("refuses a different host and production before loading credentials", async (
   vi.stubEnv("NODE_ENV", "production");
   await expect(resolveLocalTakeoffProvider(client as never, job)).rejects.toMatchObject({ code: "AI_PROVIDER" });
   expect(readChatGptStore).not.toHaveBeenCalled();
+});
+
+it("honors an explicit Gemini choice even with a connected local plan", async () => {
+  expect(await getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "gemini")).toEqual({});
+  expect(readChatGptStore).not.toHaveBeenCalled();
+});
+it("refuses an explicit ChatGPT choice when disconnected or outside the local runtime", async () => {
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] });
+  await expect(getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "chatgpt")).rejects.toMatchObject({ code: "AI_PROVIDER" });
+  vi.stubEnv("NODE_ENV", "production");
+  await expect(getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "chatgpt")).rejects.toMatchObject({ code: "AI_PROVIDER" });
+});
+it("defaults omitted provider input and rejects malformed billing choices", () => {
+  expect(parseTakeoffProvider(null)).toBe("auto");
+  expect(() => parseTakeoffProvider("unknown")).toThrow();
+  expect(() => parseTakeoffProvider("")).toThrow();
 });
