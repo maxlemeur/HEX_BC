@@ -31,12 +31,13 @@ ni utilisés implicitement ni publiés.
 ## Qualification
 
 Preuves canoniques sous `outputs/tech-debt-real-volumes-lot3-2026-10-23/`, hors Git.
-Source exécutée : `af9cefa4fd4427d22cee5f47d730bb26d8b3b880` et changements du lot,
+Source de la qualification native et navigateur initiale :
+`af9cefa4fd4427d22cee5f47d730bb26d8b3b880` et changements du lot,
 conservés dans `qualified-source.patch` et `qualified-inputs.json` (incluant le
 générateur encore non suivi au moment des tests). Le diff suivi exécuté a pour
 SHA-256 `1fd6edc3d20674dd78178ca16b085aeea4e5534829ca3743e768d11f96c9b4dd`.
-Seuls ce rapport, les chiffres du guide et deux commentaires historiques SQL
-sont complétés ensuite ; les entrées exécutables restent identiques
+Avant le premier commit `94bffd10`, seuls ce rapport, les chiffres du guide et deux
+commentaires historiques SQL sont complétés ; les entrées exécutables restent identiques
 (`final-source-equivalence.json`, `post-qualification-sql-comments.json`). `build-source-before.json` et les
 manifestes natifs identifient le build et ses 1 826 entrées.
 
@@ -139,7 +140,7 @@ Le dossier de preuves natif a été déplacé, sans copie de médias supplément
 puis le checkout QA retiré après contrôle d'absence d'utilisation ; `qa-cleanup.json`
 conserve la correspondance des anciens chemins absolus.
 
-`verify:pr` final : **PASS, sortie 0**, 3 377 tests Node passés (3 skips existants,
+`verify:pr` après la correction du superviseur : **PASS, sortie 0**, 3 377 tests Node passés (3 skips existants,
 un fichier hors exécution), 820 jsdom et 12 de couverture des frontières passés.
 Audits, architecture, OpenAPI, types et lint réussis. Journal : `verify-pr-final.log`.
 Revue indépendante : une lecture initiale et un suivi ciblé de la correction du
@@ -164,3 +165,35 @@ Elles ne qualifient ni un hôte WSL absent, ni une latence terrain ou un maximum
 de production. Le plafond SQL local et la route locale ne remplacent pas les
 parcours CI et la cible de 3,5 s en production. Les autres parcours non sélectionnés
 ne sont pas déclarés exécutés localement. Aucun déploiement ni migration distante.
+
+## Suivi du premier push : environnement de préparation
+
+Le [Quality Gate de `94bffd10`](https://github.com/maxlemeur/HEX_BC/actions/runs/39980272021)
+a ensuite détecté un défaut propre à son environnement : le test réel de réservation
+des ports fournit un environnement vide validé par le runner, mais le nouveau
+processus enfant relisait `process.env`. Les deux réglages applicatifs factices
+présents en CI déclenchaient alors le refus des variables Supabase préconfigurées.
+Le build et les contrôles statiques CI avaient réussi ; le défaut concerne la
+préparation isolée, sans appel à une base distante.
+
+La correction transmet l'environnement déjà validé à `prepareProject`, puis au
+filtrage du processus enfant. Le refus au préflight et la liste blanche restent
+inchangés. Le test existant fixe désormais les deux variables ambiantes et les
+restaure dans `finally` ; il exerce toujours la génération réelle du classeur,
+la configuration et les huit ports, sans démarrer de service.
+
+- Rouge avant correction : `red-preparation-environment.log`, même erreur que CI.
+- Vert : `green-preparation-environment.log`, 1 test ciblé passé ; les 35 autres
+  tests de ce fichier sont hors sélection. Une tentative bloquée par le sandbox
+  sur l'ouverture d'un port est conservée dans `preparation-environment-sandbox-denied.log`.
+- `verify:pr` final **avec les deux variables factices de CI** : sortie 0,
+  3 377 Node passés / 3 skips existants, 820 jsdom et 12 frontières passés.
+  Journal : `verify-pr-ci-environment.log`. Revue indépendante ciblée : aucun
+  défaut restant sur la transmission d'environnement et la restauration du test.
+
+Les preuves SQL chronométrées et IO01/IO13 ci-dessus sont **réutilisées** depuis
+`94bffd10` : générateur, classeur, quatre fichiers SQL et parcours restent identiques
+(`ci-correction-proof-reuse.json`). Seuls la transmission d'environnement avant
+stack et son test changent ; les mesures ne sont pas présentées comme une nouvelle
+exécution sur le commit correctif. La CI du nouveau push requalifie l'intégration
+complète sur son propre commit.

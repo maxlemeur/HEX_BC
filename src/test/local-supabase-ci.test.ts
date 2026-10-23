@@ -243,6 +243,10 @@ describe("local Supabase CI", () => {
     });
     // Only host metadata is supplied; config copying and port probes stay real.
     const nativeProcess = process;
+    // Quality CI supplies dummy app settings. Preparation must use the caller's
+    // validated environment, like the runner preflight, rather than ambient env.
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "ci-anon-key");
     const readFile = fs.readFileSync;
     const reader = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...args) => {
       if (file === "/proc/sys/net/ipv4/ip_local_port_range") return "32768 65535\n";
@@ -262,6 +266,7 @@ describe("local Supabase CI", () => {
       expect([...reportedPorts].sort()).toEqual([...allocated].sort());
     } finally {
       vi.stubGlobal("process", nativeProcess);
+      vi.unstubAllEnvs();
       reader.mockRestore();
     }
   });

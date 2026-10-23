@@ -174,7 +174,7 @@ interface LocalSupabaseCiDependencies {
    * still starts only after pgTAP and the RLS matrix pass.
    */
   onStackStarted?: (status: Readonly<LocalSupabaseStatus>) => void;
-  prepareProject: (reservedPorts: ReadonlySet<number>) => Promise<IsolatedSupabaseProject>;
+  prepareProject: (reservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment) => Promise<IsolatedSupabaseProject>;
   provisionUsers: (
     status: LocalSupabaseStatus
   ) => Promise<ProvisionedUsers>;
@@ -288,7 +288,7 @@ export async function findAvailablePort(
   throw new Error("No non-ephemeral Supabase port is available");
 }
 
-async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<number>): Promise<IsolatedSupabaseProject> {
+async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment): Promise<IsolatedSupabaseProject> {
   const rootDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "miaouffrage-supabase-ci-")
   );
@@ -311,7 +311,7 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
     // Parsing application inputs is a one-shot preparation step. Keep its
     // application imports out of the long-lived dev-loop supervisor's modules.
     const workbook = spawnSync(process.execPath, ["--import", "tsx", "src/test/large-estimate-workbook.ts", rootDirectory], {
-      env: createLocalCiEnvironment(process.env), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      env: createLocalCiEnvironment(environment), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
     });
     if (workbook.error) throw workbook.error;
     if (workbook.status !== 0) throw new Error(`Large estimate fixture preparation failed: ${workbook.stderr.trim() || workbook.status}`);
@@ -997,7 +997,7 @@ export async function runLocalSupabaseCi(
     checkpoint("reserve native stack slot");
     slot = await dependencies.acquireStackSlot();
     checkpoint("prepare isolated project");
-    project = await dependencies.prepareProject(dependencies.reservedPorts);
+    project = await dependencies.prepareProject(dependencies.reservedPorts, dependencies.environment);
     slot.recordStack(project.rootDirectory);
     dependencies.onProjectPrepared?.({ ...project });
     if (interrupted) throw new Error(`Interrupted by ${interrupted} before the stack started`);
