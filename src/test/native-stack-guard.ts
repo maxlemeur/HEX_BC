@@ -112,11 +112,103 @@ function nextBuildsWithoutPlace(entries: ReturnType<typeof processEntries>, slot
   }).map(({ command }) => command);
 }
 
-/** Workdirs of running Supabase native stack hosts. */
-function stackHostRoots(entries: ReturnType<typeof processEntries>) {
-  return entries.map(({ command }) => command)
-    .filter((command) => /(?:^|\/)supabase __supabase_stack_host__ /.test(command))
-    .map((command) => /"projectRoot":"((?:[^"\\]|\\.)*)"/.exec(command)?.[1] ?? command);
+function absolutePath(value: unknown): value is string {
+  return typeof value === "string" && path.isAbsolute(value) && !/[\r\n\0]/.test(value);
+}
+
+function executableFile(file: string) {
+  try {
+    const stat = fs.statSync(file);
+    return stat.isFile() && (stat.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function identityRoot(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return;
+  const identity = (value as { identity?: { projectRoot?: unknown } }).identity;
+  return absolutePath(identity?.projectRoot) ? identity.projectRoot : undefined;
+}
+
+/** Only the user's native registry is readable from a process command line. */
+function currentStackHostRoot(args: string): string | undefined {
+  const match = /^(.+) ([a-f0-9]{64}) (.+[/\\]startup-[a-f0-9]{32}\.json)$/.exec(args);
+  if (!match) return;
+  const [, roots, stackId, startup] = match;
+  if (!absolutePath(startup) || path.normalize(startup) !== startup) return;
+  const stackDirectory = path.dirname(startup);
+  const stateRoot = path.dirname(stackDirectory);
+  if (path.basename(stackDirectory) !== stackId || !roots.startsWith(`${stateRoot} `)) return;
+  const cacheRoot = roots.slice(stateRoot.length + 1);
+  const registry = path.join(os.homedir(), ".supabase", "stacks");
+  const cache = path.join(os.homedir(), ".supabase", "cache", "stack");
+  // Custom or unknown layouts still occupy a place; never follow an arbitrary
+  // metadata path from ps, including a symlink out of the known registry.
+  if (!absolutePath(cacheRoot) || canonical(stateRoot) !== canonical(registry) || canonical(cacheRoot) !== canonical(cache)) return;
+  try {
+    const realDirectory = fs.realpathSync(stackDirectory);
+    if (path.dirname(realDirectory) !== fs.realpathSync(registry) || path.basename(realDirectory) !== stackId) return;
+  } catch {
+    return;
+  }
+  const readIdentity = (file: string, startupFile: boolean): string | null | undefined => {
+    try {
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.size > 1024 * 1024) return null;
+      const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+      const saved = startupFile && parsed && typeof parsed === "object"
+        ? (parsed as { register?: unknown }).register : parsed;
+      if (!saved || typeof saved !== "object" || (saved as { id?: unknown }).id !== stackId) return null;
+      return identityRoot(saved) ?? null;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null;
+    }
+  };
+  // Startup metadata is transient; state.json remains after the CLI removes it.
+  // During registration only startup.register may exist. Conflicts or malformed
+  // metadata never establish ownership and their private payload is discarded.
+  const saved = readIdentity(path.join(stackDirectory, "state.json"), false);
+  const starting = readIdentity(startup, true);
+  if (saved === null || starting === null || (saved && starting && canonical(saved) !== canonical(starting))) return;
+  return saved ?? starting;
+}
+
+/** Workdirs of native stack hosts, with an opaque fallback for unknown formats. */
+function stackHosts(entries: ReturnType<typeof processEntries>) {
+  return entries.flatMap(({ pid, command }) => {
+    // Match the executable, not a shell or grep command mentioning an owner.
+    const host = /^(.+?) __supabase_stack_host__ (.*)$/.exec(command);
+    if (!host || path.basename(host[1]) !== "supabase") return [];
+    const executable = host[1];
+    const unknown = { root: undefined, detail: `PID ${pid ?? "unknown"} (identity unavailable)` };
+    if (/\s/.test(executable)) {
+      // ps does not quote executable paths containing spaces. Check the whole
+      // prefix first, including directories named `env projet` or `sh projet`.
+      // A removed CLI still occupies a place without establishing ownership.
+      if (!absolutePath(executable)) return [];
+      if (!executableFile(executable)) {
+        const firstCommand = executable.split(/\s+/, 1)[0];
+        // Exclude a wrapper only when the actual first token is executable;
+        // the basename of a truncated directory path is not enough evidence.
+        if (["sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "csh", "tcsh", "env", "grep", "pgrep", "rg"].includes(path.basename(firstCommand)) && executableFile(firstCommand)) return [];
+        return [unknown];
+      }
+    }
+    const args = host[2];
+    const inline = /^(.+?) (\{.*)$/.exec(args);
+    let root: string | undefined;
+    if (inline && absolutePath(inline[1])) {
+      try {
+        root = identityRoot(JSON.parse(inline[2]));
+      } catch {
+        // Legacy descriptors may include credentials: never echo them.
+      }
+    } else {
+      root = currentStackHostRoot(args);
+    }
+    return [{ root, detail: root ?? unknown.detail }];
+  });
 }
 
 /** Production builds (`npm run build`) that hold no slot of their own. */
@@ -216,8 +308,8 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
         const commands = processEntries(listProcesses());
         holders = [
           ...slots.filter((slot) => slot.file !== file).map((slot) => `run PID ${slot.pid}: ${slot.detail}`),
-          ...stackHostRoots(commands).filter((root) => !owned.has(canonical(root)))
-            .map((root) => `native stack not owned by a guarded run: ${root}`),
+          ...stackHosts(commands).filter(({ root }) => !root || !owned.has(canonical(root)))
+            .map(({ detail }) => `native stack not owned by a guarded run: ${detail}`),
           ...productionBuilds(commands, new Set(slots.map((slot) => slot.pid)))
             .map((command) => `production build: ${command.slice(0, 120)}`),
           ...nextBuildsWithoutPlace(commands, new Set(slots.map((slot) => slot.pid)))

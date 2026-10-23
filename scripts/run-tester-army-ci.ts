@@ -13,6 +13,7 @@ import {
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
 import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-fixtures";
+import { awaitBrowserInstall } from "./tester-army/browser-install";
 import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
 import { CALC_V3_PHASES, CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
@@ -493,7 +494,7 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
     await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
   }
   // Before the phases: an install failure is the run's error, not a phase's.
-  if (browserInstallDirectory) await awaitBrowserInstall();
+  if (browserInstallDirectory) await awaitBrowserInstall({ directory: browserInstallDirectory, evidence, manifest, redact });
   if (suite === "explore") {
     manifest.exploration = await runExplorationCampaign({ root, evidence, environment: journeyEnvironment, run: runNode, redact });
     const after = await runSourceEvidence();
@@ -522,24 +523,6 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
 // this directory, whose exit-code file appears when it ends. runApplication
 // waits for it before the journeys; a failed install fails the run with its log.
 const browserInstallDirectory = process.env.ARMY_BROWSER_INSTALL_DIR?.trim() || undefined;
-
-async function awaitBrowserInstall() {
-  const directory = browserInstallDirectory!;
-  if (!path.isAbsolute(directory)) throw new Error("ARMY_BROWSER_INSTALL_DIR must be an absolute directory.");
-  const exitFile = path.join(directory, "exit-code");
-  const startedAt = Date.now();
-  while (!fs.existsSync(exitFile)) {
-    if (Date.now() - startedAt > 10 * 60_000) throw new Error("The background Chromium install did not finish within 10 minutes.");
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  // The workflow moves a complete file into place: anything but an exit status is a failure.
-  const status = fs.readFileSync(exitFile, "utf8").trim();
-  const exitCode = /^[0-9]{1,3}$/.test(status) ? Number(status) : -1;
-  const log = path.join(directory, "install.log");
-  if (fs.existsSync(log)) fs.writeFileSync(path.join(evidence, "browser-install.log"), redact(fs.readFileSync(log, "utf8")));
-  manifest.browserInstall = { mode: "background", exitCode, waitedSeconds: Math.round((Date.now() - startedAt) / 100) / 10 };
-  if (exitCode !== 0) throw new Error(`The background Chromium install failed with exit code ${exitCode}; see browser-install.log.`);
-}
 
 async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, context = mainContext) {
   const { manifest, grep, files } = context;

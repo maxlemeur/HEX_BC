@@ -26,6 +26,24 @@ function slotDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "native-stack-guard-"));
 }
 
+function currentHostFixture(prefix = "native guard home ") {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const stateRoot = path.join(home, ".supabase", "stacks");
+  const cacheRoot = path.join(home, ".supabase", "cache", "stack");
+  const stackId = "a".repeat(64);
+  const stackDirectory = path.join(stateRoot, stackId);
+  const startup = path.join(stackDirectory, `startup-${"b".repeat(32)}.json`);
+  const root = path.join(home, "project with spaces");
+  fs.mkdirSync(stackDirectory, { recursive: true });
+  fs.mkdirSync(root);
+  return {
+    home, root, stateRoot, cacheRoot, stackId, stackDirectory, startup,
+    state: path.join(stackDirectory, "state.json"),
+    command: `/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase __supabase_stack_host__ ${stateRoot} ${cacheRoot} ${stackId} ${startup}`,
+    saved: { id: stackId, identity: { projectRoot: root }, credentials: { serviceRoleKey: "private-fixture-credential" } },
+  };
+}
+
 function runChild(source: string) {
   return spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
     cwd: process.cwd(),
@@ -105,6 +123,253 @@ describe("native stack slots", () => {
     expect(nativeStackLimit({ NATIVE_STACK_MAX_RUNS: "2" })).toBe(2);
     for (const value of ["0", "33", "two"]) {
       expect(() => nativeStackLimit({ NATIVE_STACK_MAX_RUNS: value })).toThrow("from 1 to 32");
+    }
+  });
+
+  it.each(["saved", "startup", "both"])("counts a CLI 2.121 host once with %s metadata and a symlink project root", async (metadata) => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const alias = path.join(fixture.home, "project alias");
+    fs.symlinkSync(fixture.root, alias);
+    const directory = path.join(fixture.home, "slots");
+    const held = await acquireNativeStackSlot({ label: "guarded", directory, pid: 101, isAlive: () => true, listProcesses: noProcesses });
+    held.recordStack(alias);
+    const admitted: Array<{ release: () => void }> = [];
+    try {
+      if (metadata !== "startup") fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+      if (metadata !== "saved") fs.writeFileSync(fixture.startup, JSON.stringify({ register: fixture.saved }));
+      admitted.push(await acquireNativeStackSlot({
+        label: "second", directory, pid: 102, limit: 2, isAlive: () => true,
+        listProcesses: () => [`  501  1 ${fixture.command}`],
+      }));
+      expect(fs.readdirSync(directory)).toHaveLength(2);
+    } finally {
+      for (const slot of admitted) slot.release();
+      held.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it("still counts a CLI 2.121 host with a known identity when no live slot owns it", async () => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    try {
+      fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+      await expect(acquireNativeStackSlot({
+        label: "next", directory: path.join(fixture.home, "slots"), pid: 102, limit: 1,
+        isAlive: () => true, listProcesses: () => [fixture.command],
+      })).rejects.toThrow(`native stack not owned by a guarded run: ${fixture.root}`);
+    } finally {
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["file", "symlink"])("counts native hosts under an executable path with spaces (%s), including an unknown identity", async (kind) => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const executable = path.join(fixture.home, "Mon Projet", "node_modules", "@supabase", "cli-darwin-arm64", "bin", "supabase");
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    const target = kind === "symlink" ? path.join(fixture.home, "supabase-binary") : executable;
+    fs.writeFileSync(target, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    if (kind === "symlink") fs.symlinkSync(target, executable);
+    const command = fixture.command.replace("/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase", executable);
+    const directory = path.join(fixture.home, "slots");
+    let held: { release: () => void } | undefined;
+    try {
+      // Missing metadata may prevent attribution, never remove a live host
+      // from the capacity calculation merely because its executable has spaces.
+      await expect(acquireNativeStackSlot({
+        label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
+        listProcesses: () => [`  501  1 ${command}`],
+      })).rejects.toThrow(/native stack not owned by a guarded run: PID 501 \(identity unavailable\)/);
+      fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+      await expect(acquireNativeStackSlot({
+        label: "first", directory, pid: 102, limit: 1, isAlive: () => true, listProcesses: () => [command],
+      })).rejects.toThrow(`native stack not owned by a guarded run: ${fixture.root}`);
+      // Shell/grep mentions of that same real binary do not occupy places.
+      held = await acquireNativeStackSlot({
+        label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
+        listProcesses: () => [`/bin/sh -c ${command}`, `/usr/bin/grep ${command}`],
+      });
+    } finally {
+      held?.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a host with a deleted spaced executable counted without trusting its metadata", async () => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const executable = path.join(fixture.home, "Mon Projet", "node_modules", "@supabase", "cli-darwin-arm64", "bin", "supabase");
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const command = fixture.command.replace("/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase", executable);
+    fs.unlinkSync(executable);
+    fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+    const directory = path.join(fixture.home, "slots");
+    const held = await acquireNativeStackSlot({ label: "guarded", directory, pid: 101, isAlive: () => true, listProcesses: noProcesses });
+    held.recordStack(fixture.root);
+    const read = vi.spyOn(fs, "readFileSync");
+    let admitted: { release: () => void } | undefined;
+    try {
+      const refusal = acquireNativeStackSlot({
+        label: "second", directory, pid: 102, limit: 2, isAlive: () => true,
+        listProcesses: () => [`  501  1 ${command}`],
+      });
+      await expect(refusal).rejects.toThrow(/2 of 2 places[\s\S]*native stack not owned by a guarded run: PID 501 \(identity unavailable\)/);
+      expect(read.mock.calls.some(([file]) => String(file) === fixture.state)).toBe(false);
+      // An unavailable executable does not turn known shell/grep/env prefixes
+      // into hosts, even when they mention the same unquoted native command.
+      admitted = await acquireNativeStackSlot({
+        label: "second", directory, pid: 102, limit: 2, isAlive: () => true,
+        listProcesses: () => [`/bin/sh -c ${command}`, `/usr/bin/grep ${command}`, `/usr/bin/env bash -c ${command}`],
+      });
+    } finally {
+      read.mockRestore();
+      admitted?.release();
+      held.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["env", "sh", "rg"])("recognizes a native executable under %s projet before and after its removal", async (name) => {
+    // No earlier space in the fixture home: the first whitespace-delimited
+    // segment ends in env/sh/rg, but that segment is not a wrapper executable.
+    const fixture = currentHostFixture("native-guard-");
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const executable = path.join(fixture.home, `${name} projet`, "node_modules", "@supabase", "cli-darwin-arm64", "bin", "supabase");
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+    const command = fixture.command.replace("/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase", executable);
+    const directory = path.join(fixture.home, "slots");
+    const reserve = () => acquireNativeStackSlot({
+      label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
+      listProcesses: () => [`  501  1 ${command}`],
+    });
+    const read = vi.spyOn(fs, "readFileSync");
+    let admitted: { release: () => void } | undefined;
+    try {
+      const existingFailure = await reserve().then((slot) => { slot.release(); }, (error: unknown) => error);
+      expect(existingFailure).toBeInstanceOf(NativeStackLimitError);
+      expect(String(existingFailure)).toContain(`native stack not owned by a guarded run: ${fixture.root}`);
+      fs.unlinkSync(executable);
+      read.mockClear();
+      const removedFailure = await reserve().then((slot) => { slot.release(); }, (error: unknown) => error);
+      expect(removedFailure).toBeInstanceOf(NativeStackLimitError);
+      expect(String(removedFailure)).toContain("native stack not owned by a guarded run: PID 501 (identity unavailable)");
+      expect(read.mock.calls.some(([file]) => String(file) === fixture.state)).toBe(false);
+      admitted = await acquireNativeStackSlot({
+        label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
+        listProcesses: () => [`/bin/sh -c ${command}`, `/usr/bin/grep ${command}`, `/usr/bin/env bash -c ${command}`, `sh -c ${command}`, `grep ${command}`, `env bash -c ${command}`],
+      });
+    } finally {
+      read.mockRestore();
+      admitted?.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["missing", "invalid", "wrong-id", "relative-root", "disagree"])("keeps an unknown CLI host counted when metadata is %s without printing its private descriptor", async (scenario) => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const directory = path.join(fixture.home, "slots");
+    const held = await acquireNativeStackSlot({ label: "guarded", directory, pid: 101, isAlive: () => true, listProcesses: noProcesses });
+    held.recordStack(fixture.root);
+    try {
+      if (scenario === "invalid") fs.writeFileSync(fixture.state, "private-fixture-credential{invalid JSON");
+      if (scenario === "wrong-id") fs.writeFileSync(fixture.state, JSON.stringify({ ...fixture.saved, id: "c".repeat(64) }));
+      if (scenario === "relative-root") fs.writeFileSync(fixture.state, JSON.stringify({ ...fixture.saved, identity: { projectRoot: "relative/path" } }));
+      if (scenario === "disagree") {
+        fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+        fs.writeFileSync(fixture.startup, JSON.stringify({ register: { ...fixture.saved, identity: { projectRoot: path.join(fixture.home, "other project") } } }));
+      }
+      const refusal = acquireNativeStackSlot({
+        label: "second", directory, pid: 102, limit: 2, isAlive: () => true,
+        listProcesses: () => [`  501  1 ${fixture.command}`],
+      });
+      await expect(refusal).rejects.toThrow(/2 of 2 places[\s\S]*native stack not owned by a guarded run:/);
+      await expect(refusal).rejects.not.toThrow(/private-fixture-credential|startup-|__supabase_stack_host__/);
+    } finally {
+      held.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it("does not read metadata outside the native registry or through a symlink", async () => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    const outside = path.join(fixture.home, "private", fixture.stackId);
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "state.json"), JSON.stringify(fixture.saved));
+    const read = vi.spyOn(fs, "readFileSync");
+    const directory = path.join(fixture.home, "slots");
+    const held = await acquireNativeStackSlot({ label: "guarded", directory, pid: 101, isAlive: () => true, listProcesses: noProcesses });
+    held.recordStack(fixture.root);
+    try {
+      const outsideStartup = path.join(outside, path.basename(fixture.startup));
+      const commands = [
+        fixture.command.replace(`${fixture.stateRoot} ${fixture.cacheRoot}`, `${path.dirname(outside)} ${fixture.cacheRoot}`).replace(fixture.startup, outsideStartup),
+        fixture.command.replace(` ${fixture.stackId} `, ` ${"c".repeat(64)} `),
+      ];
+      fs.symlinkSync(path.join(outside, "state.json"), fixture.state);
+      for (const command of [...commands, fixture.command]) {
+        const refusal = acquireNativeStackSlot({ label: "second", directory, pid: 102, limit: 2, isAlive: () => true, listProcesses: () => [command] });
+        await expect(refusal).rejects.toBeInstanceOf(NativeStackLimitError);
+      }
+      expect(read.mock.calls.some(([file]) => [fixture.state, path.join(outside, "state.json")].includes(String(file)))).toBe(false);
+    } finally {
+      read.mockRestore();
+      held.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores shell and grep lines that only mention a native host", async () => {
+    const fixture = currentHostFixture();
+    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
+    let slot: { release: () => void } | undefined;
+    try {
+      fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
+      slot = await acquireNativeStackSlot({
+        label: "first", directory: path.join(fixture.home, "slots"), pid: 102, limit: 1, isAlive: () => true,
+        listProcesses: () => [`zsh -c ${fixture.command}`, `/bin/sh -c ${fixture.command}`, `/usr/bin/grep ${fixture.command}`],
+      });
+      expect(slot).toHaveProperty("release");
+    } finally {
+      slot?.release();
+      home.mockRestore();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
+    }
+  });
+
+  it("parses escaped legacy JSON roots and conceals malformed private descriptors", async () => {
+    const fixture = currentHostFixture();
+    const quotedRoot = path.join(fixture.home, 'project "quoted"');
+    fs.mkdirSync(quotedRoot);
+    const directory = path.join(fixture.home, "slots");
+    const held = await acquireNativeStackSlot({ label: "guarded", directory, pid: 101, isAlive: () => true, listProcesses: noProcesses });
+    held.recordStack(quotedRoot);
+    let slot: { release: () => void } | undefined;
+    try {
+      const descriptor = JSON.stringify({ identity: { projectRoot: quotedRoot }, credentials: { token: "private-fixture-credential" } });
+      const command = `/x/bin/supabase __supabase_stack_host__ ${fixture.stateRoot} ${descriptor}`;
+      slot = await acquireNativeStackSlot({ label: "second", directory, pid: 102, limit: 2, isAlive: () => true, listProcesses: () => [command] });
+      slot.release();
+      const refusal = acquireNativeStackSlot({ label: "second", directory, pid: 102, limit: 2, isAlive: () => true, listProcesses: () => [command.slice(0, -1)] });
+      await expect(refusal).rejects.toBeInstanceOf(NativeStackLimitError);
+      await expect(refusal).rejects.not.toThrow(/private-fixture-credential|credentials|__supabase_stack_host__/);
+    } finally {
+      slot?.release();
+      held.release();
+      fs.rmSync(fixture.home, { recursive: true, force: true });
     }
   });
 
