@@ -4,7 +4,7 @@ vi.mock("@/lib/affaires/intake-server", () => ({ requireAffaireProjectOwnerOrAdm
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { driveRequestSchema, DRIVE_MAX_BATCH_BYTES, DRIVE_MAX_FILES } from "./contracts";
 import { driveState, executeDriveRequest } from "./server";
-import { driveCopyId } from "./store";
+import { driveBatchUploadId, driveCopyId } from "./store";
 import { fakeDrive, memoryBackend } from "./memory.test-utils";
 
 describe("Drive folder copies (Google and persistence simulated, no OAuth grants)", () => {
@@ -16,6 +16,7 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
   const request = (files = [selection()]) => executeDriveRequest("project_demo", {
     action: "import", token: "fictitious-not-a-token", folderId: "folder_demo", files,
   }, signal());
+  const lotUploadId = (files = [selection()]) => driveBatchUploadId("tenant_demo", "project_demo", files);
   beforeEach(() => {
     backend = memoryBackend(); google = fakeDrive();
     vi.stubGlobal("fetch", google.fetchMock);
@@ -59,6 +60,39 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     expect(backend.objects.size).toBe(2);
     expect(backend.rows("affaire_intake_documents").size).toBe(2);
     expect((await driveState("project_demo")).history).toHaveLength(2);
+    // The retried piece keeps the upload of its original lot.
+    expect(first.results[0].uploadId).toBe(lotUploadId([selection(), selection("cctp_demo")]));
+    expect(retry.results[0].uploadId).toBe(first.results[0].uploadId);
+    expect(retry.uploads).toEqual([first.results[0].uploadId]);
+    expect(backend.rows("affaire_intake_uploads").size).toBe(1);
+  });
+  it("imports a confirmed selection as one intake upload armed once after its last copy", async () => {
+    const result = await request([selection(), selection("cctp_demo")]);
+    expect(backend.rows("affaire_intake_uploads").size).toBe(1);
+    expect(result.results.map((file) => [file.status, file.uploadId])).toEqual([["imported", result.uploads[0]], ["imported", result.uploads[0]]]);
+    expect(result.uploads).toEqual([lotUploadId([selection("cctp_demo"), selection()])]);
+    const queries = backend.queries.map((query, index) => ({ ...query, index }));
+    const arming = queries.filter((query) => query.table === "affaire_intake_uploads" && query.operation === "update");
+    const lastCopy = queries.filter((query) => query.table === "affaire_intake_events" && query.operation === "insert").at(-1)!;
+    expect(arming).toHaveLength(1); expect(arming[0].index).toBeGreaterThan(lastCopy.index);
+    expect([...backend.rows("affaire_intake_uploads").values()][0]).toMatchObject({ status: "queued", completed_at: null });
+  });
+  it("rearms a processed lot when one of its failed pieces is retried later", async () => {
+    backend.failStorage.add("cctp-fictif.txt");
+    const first = await request([selection(), selection("cctp_demo")]);
+    const lot = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    lot.status = "ready"; lot.completed_at = new Date().toISOString();
+    backend.failStorage.clear();
+    expect((await request([selection("cctp_demo")])).uploads).toEqual([first.uploads[0]]);
+    expect(lot).toMatchObject({ status: "queued", completed_at: null });
+  });
+  it("refuses a copy whose immutable provenance belongs to another upload", async () => {
+    const provenance = driveCopyId("tenant_demo", "project_demo", "plan_demo", "1", "provenance");
+    backend.rows("affaire_intake_events").set(provenance, { id: provenance, tenant_id: "tenant_demo", project_id: "project_demo",
+      upload_id: "foreign_upload", document_id: driveCopyId("tenant_demo", "project_demo", "plan_demo", "1"), event_type: "upload.created",
+      after_payload: { drive: { provider: "google_drive", sha256: createHash("sha256").update("plans").digest("hex") } } });
+    expect((await request()).results).toEqual([expect.objectContaining({ status: "failed", message: expect.stringContaining("provenance Drive") })]);
+    expect(backend.objects.size).toBe(0);
   });
   it("ignores a forged event parent and never schedules its upload", async () => {
     await request();
@@ -67,7 +101,7 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     expect((await driveState("project_demo")).history).toEqual([]);
     const replay = await request();
     expect(replay.uploads).not.toContain("foreign_upload");
-    expect(replay.results[0].uploadId).toBe(driveCopyId("tenant_demo", "project_demo", "plan_demo", "1", "upload"));
+    expect(replay.results[0].uploadId).toBe(lotUploadId());
   });
   it("ignores Drive provenance rebound to another document or upload", async () => {
     await request();
@@ -109,7 +143,7 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     backend.failures.clear();
     const resumed = await request();
     expect(resumed.results).toEqual([expect.objectContaining({ fileId: "plan_demo", status: "already_imported" })]);
-    expect(resumed.uploads).toEqual([driveCopyId("tenant_demo", "project_demo", "plan_demo", "1", "upload")]);
+    expect(resumed.uploads).toEqual([lotUploadId()]);
   });
   it("requires explicit new revision confirmation and keeps both private versions", async () => {
     await request(); google.files.get("plan_demo")!.version = "2";
@@ -181,5 +215,10 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     expect(driveRequestSchema.safeParse(body).success).toBe(false);
     expect(driveCopyId("tenant_a", "project_a", "file", "1")).not.toBe(driveCopyId("tenant_b", "project_a", "file", "1"));
     expect(driveCopyId("tenant_a", "project_a", "file", "1")).not.toBe(driveCopyId("tenant_a", "project_b", "file", "1"));
+    const lot = [selection(), selection("cctp_demo")];
+    expect(driveBatchUploadId("tenant_a", "project_a", lot)).toBe(driveBatchUploadId("tenant_a", "project_a", [...lot].reverse()));
+    expect(driveBatchUploadId("tenant_a", "project_a", lot)).not.toBe(driveBatchUploadId("tenant_b", "project_a", lot));
+    expect(driveBatchUploadId("tenant_a", "project_a", lot)).not.toBe(driveBatchUploadId("tenant_a", "project_b", lot));
+    expect(driveBatchUploadId("tenant_a", "project_a", lot)).not.toBe(driveBatchUploadId("tenant_a", "project_a", [selection(), selection("cctp_demo", "2")]));
   });
 });

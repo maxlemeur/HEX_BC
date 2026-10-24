@@ -3,11 +3,15 @@ import { ApiError, badRequest, conflict, internalError } from "@/lib/estimates/e
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { DRIVE_MAX_BATCH_BYTES, driveFileRejection, type DriveImportResult, type DriveRequest } from "./contracts";
 import { GoogleDriveReader } from "./provider";
-import { DriveStoreError, persistDriveCopy, readDriveHistory, resumeDriveCopy } from "./store";
+import { DriveStoreError, driveBatchUploadId, persistDriveCopy, readDriveHistory, requeueDriveUpload, resumeDriveCopy } from "./store";
 
 function toApiError(error: unknown) {
   if (!(error instanceof DriveStoreError)) return error;
   return error.status === 409 ? conflict(error.message) : internalError(error.message);
+}
+function failureMessage(error: unknown) {
+  const failure = toApiError(error);
+  return failure instanceof ApiError ? failure.message : "Import interrompu. Reprenez cette pièce après reconnexion.";
 }
 export function driveConfiguration() {
   const clientId = process.env.MERGEONE_GOOGLE_DRIVE_CLIENT_ID?.trim();
@@ -37,8 +41,11 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
   if (metadata.reduce((sum, item) => sum + (item.file ? Number(item.file.size ?? 0) : 0), 0) > DRIVE_MAX_BATCH_BYTES) {
     throw badRequest("Le lot sélectionné dépasse 100 Mo. Réduisez la sélection.");
   }
+  // One confirmed selection is one intake upload, armed once after its last copy so the
+  // classifier regenerates the brief and missing pieces from the whole lot.
+  const batchUploadId = driveBatchUploadId(access.context.tenantId, projectId, request.files);
   const results: DriveImportResult[] = [];
-  const uploads: string[] = [];
+  const pending = new Set<string>();
   for (const item of metadata) {
     const name = item.file ? item.file.name : item.selection.id;
     try {
@@ -59,11 +66,10 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
       const prior = history.filter((entry) => entry.source.fileId === file.id);
       const same = prior.find((entry) => entry.source.revision === file.version);
       if (same) {
-        // Report the replay only once the copy is verified and rearmed; a failure stays the piece's sole result.
-        const resumed = await resumeDriveCopy(access, same);
+        // Report the replay only once the copy is verified; a failure stays the piece's sole result.
+        if (await resumeDriveCopy(access, same)) pending.add(same.uploadId);
         results.push({ fileId: file.id, name, status: "already_imported", message: "Cette révision est déjà importée.",
           documentId: same.documentId, uploadId: same.uploadId });
-        if (resumed) uploads.push(same.uploadId);
         continue;
       }
       if (prior.length && !selection.newVersion) throw badRequest("Cette pièce existe déjà. Confirmez l'import d'une nouvelle version.");
@@ -75,16 +81,29 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
         sourceUrl: `https://drive.google.com/file/d/${file.id}/view`, sha256: content.sha256,
         importedAt: new Date().toISOString(), importedBy: access.context.userId,
         tenantId: access.context.tenantId, projectId,
-      });
+      }, batchUploadId);
       results.push({ fileId: file.id, name, status: copy.status,
         message: copy.status === "imported" ? "Copie importée. Classement en cours." : "Cette révision est déjà importée.",
         documentId: copy.documentId, uploadId: copy.uploadId });
-      if (copy.shouldProcess) uploads.push(copy.uploadId);
+      if (copy.shouldProcess) pending.add(copy.uploadId);
     } catch (error) {
-      const failure = toApiError(error);
-      results.push({ fileId: item.selection.id, name, status: "failed",
-        message: failure instanceof ApiError ? failure.message : "Import interrompu. Reprenez cette pièce après reconnexion." });
+      results.push({ fileId: item.selection.id, name, status: "failed", message: failureMessage(error) });
     }
   }
-  return { results, uploads: [...new Set(uploads)] };
+  const uploads: string[] = [];
+  for (const uploadId of pending) {
+    try {
+      await requeueDriveUpload(access, uploadId);
+      uploads.push(uploadId);
+    } catch (error) {
+      // Copies stay stored; every piece of this upload reports the interrupted classification once.
+      const message = failureMessage(error);
+      results.forEach((result, index) => {
+        if (result.uploadId === uploadId && result.status !== "failed") {
+          results[index] = { fileId: result.fileId, name: result.name, status: "failed", message };
+        }
+      });
+    }
+  }
+  return { results, uploads };
 }

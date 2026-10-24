@@ -50,20 +50,29 @@ armyTest("DRV02 fictional Drive copies persist in real private Storage with prov
     sourceName: file.name, sourceMimeType: file.type, revision: "1", sourceModifiedTime: null,
     sourceUrl: "https://drive.google.com/file/d/fixture_plan/view", sha256, importedAt: new Date().toISOString(),
     importedBy: userId, tenantId: project.data!.tenant_id, projectId: ids.projectId };
-  const first = await store.persistDriveCopy(access, file, source);
+  const lot = (revision: string) => store.driveBatchUploadId(project.data!.tenant_id, ids.projectId, [{ id: source.fileId, version: revision }]);
+  const parent = async (uploadId: string) => (await client.from("affaire_intake_uploads").select("status,completed_at").eq("id", uploadId).single()).data;
+  const first = await store.persistDriveCopy(access, file, source, lot("1"));
   expect(first.status).toBe("imported");
-  expect((await store.persistDriveCopy(access, file, source)).status).toBe("already_imported");
+  expect(first.uploadId).toBe(lot("1"));
+  // The caller arms the lot once, after its last copy: persisting a copy never queues it.
+  expect(await parent(first.uploadId)).toMatchObject({ status: "failed" });
+  await store.requeueDriveUpload(access, first.uploadId);
+  expect(await parent(first.uploadId)).toEqual({ status: "queued", completed_at: null });
+  expect((await store.persistDriveCopy(access, file, source, lot("1"))).status).toBe("already_imported");
   // Simulate the exact lost-ack state against real Storage RLS, then rearm
   // an upload the existing worker may have finalized before transfer completed.
   const pending = await client.from("affaire_intake_documents").update({ upload_status: "pending" }).eq("id", first.documentId);
   expect(pending.error).toBeNull();
   const failedParent = await client.from("affaire_intake_uploads").update({ status: "failed", completed_at: new Date().toISOString() }).eq("id", first.uploadId);
   expect(failedParent.error).toBeNull();
-  expect((await store.persistDriveCopy(access, file, source)).status).toBe("imported");
-  const resumedParent = await client.from("affaire_intake_uploads").select("status,completed_at").eq("id", first.uploadId).single();
-  expect(resumedParent.data).toEqual({ status: "queued", completed_at: null });
-  const second = await store.persistDriveCopy(access, file, { ...source, revision: "2" });
+  expect((await store.persistDriveCopy(access, file, source, lot("1"))).status).toBe("imported");
+  expect(await parent(first.uploadId)).toMatchObject({ status: "failed" });
+  await store.requeueDriveUpload(access, first.uploadId);
+  expect(await parent(first.uploadId)).toEqual({ status: "queued", completed_at: null });
+  const second = await store.persistDriveCopy(access, file, { ...source, revision: "2" }, lot("2"));
   expect(second.documentId).not.toBe(first.documentId);
+  await store.requeueDriveUpload(access, second.uploadId);
   const documents = await client.from("affaire_intake_documents").select("id,storage_path,upload_status,size_bytes")
     .eq("project_id", ids.projectId).order("id");
   expect(documents.error).toBeNull(); expect(documents.data).toHaveLength(2);
