@@ -914,9 +914,21 @@ function createSupabaseMock() {
     rpc: vi.fn((fn: string, args: Record<string, unknown>) => fn === "read_estimate_version_items"
       // The version's items: served by the estimate_items reads above, under the function's tenant and version.
       ? {
-        select: (columns?: string) => (supabase.from("estimate_items") as unknown as {
-          select: (columns?: string) => ReturnType<typeof buildThenableSelectBuilder>;
-        }).select(columns).eq("tenant_id", args.p_tenant_id).eq("version_id", args.p_version_id),
+        select: (columns?: string) => {
+          const builder = (supabase.from("estimate_items") as unknown as {
+            select: (columns?: string) => ReturnType<typeof buildThenableSelectBuilder>;
+          }).select(columns).eq("tenant_id", args.p_tenant_id).eq("version_id", args.p_version_id);
+          // PostgREST orders a function's rows by the selected columns only (42703 otherwise).
+          const selected = (columns ?? "*").split(",").map((column) => column.trim());
+          const order = builder.order;
+          builder.order = vi.fn((...orderArgs: unknown[]) => {
+            if (!selected.includes("*") && !selected.includes(String(orderArgs[0]))) {
+              throw new Error(`column estimate_items.${String(orderArgs[0])} does not exist`);
+            }
+            return order(...orderArgs);
+          });
+          return builder;
+        },
       }
       : saveManualLinks(fn, args)),
   };
