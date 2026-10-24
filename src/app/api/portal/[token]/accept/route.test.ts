@@ -21,6 +21,22 @@ const mockDocumentSingle = vi.fn();
 const mockResendSend = vi.fn();
 const offerFixture = createPortalLegacyOfferFixture();
 
+/** The offer's items, as public.read_estimate_version_items returns them. */
+function buildItemsRead() {
+  const builder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    range: vi.fn((from: number, to: number) => Promise.resolve({
+      data: offerFixture.items.slice(from, to + 1),
+      count: offerFixture.items.length,
+      error: null,
+    })),
+  };
+  builder.eq.mockReturnValue(builder);
+  builder.order.mockReturnValue(builder);
+  return builder;
+}
+
 function buildMockFrom() {
   return (table: string) => {
     if (table === "portal_tokens") {
@@ -82,20 +98,6 @@ function buildMockFrom() {
         select: vi.fn(() => builder),
       };
     }
-    if (table === "estimate_items") {
-      const builder = {
-        eq: vi.fn(),
-        order: vi.fn(),
-        range: vi.fn((from: number, to: number) => Promise.resolve({
-          data: offerFixture.items.slice(from, to + 1),
-          count: offerFixture.items.length,
-          error: null,
-        })),
-      };
-      builder.eq.mockReturnValue(builder);
-      builder.order.mockReturnValue(builder);
-      return { select: vi.fn(() => builder) };
-    }
     if (table === "estimate_emails") {
       return {
         insert: mockEmailInsert,
@@ -108,7 +110,10 @@ function buildMockFrom() {
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: () => ({
     from: vi.fn(buildMockFrom()),
-    rpc: mockRpc,
+    // The offer's items come from buildItemsRead; mockRpc receives every other function call.
+    rpc: (functionName: string, ...args: unknown[]) => functionName === "read_estimate_version_items"
+      ? buildItemsRead()
+      : mockRpc(functionName, ...args),
     storage: {
       from: vi.fn(() => ({
         upload: mockStorageUpload,

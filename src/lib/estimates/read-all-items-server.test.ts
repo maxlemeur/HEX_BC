@@ -48,8 +48,9 @@ describe("complete estimate item transport", () => {
     expect(await readAllEstimateItems(f.input)).toEqual(f.rows);
     expect(f.peak()).toBe(4);
     expect(f.completed.slice(1, 5)).toEqual([2000, 1500, 1000, 500]);
-    expect(f.requests.every(url => url.searchParams.get("tenant_id") === "eq.tenant"
-      && url.searchParams.get("version_id") === "eq.version"
+    expect(f.requests.every(url => url.pathname === "/rest/v1/rpc/read_estimate_version_items"
+      && url.searchParams.get("p_tenant_id") === "tenant"
+      && url.searchParams.get("p_version_id") === "version"
       && url.searchParams.get("order") === "position.asc,id.asc"
       && Number(url.searchParams.get("limit")) <= 500)).toBe(true);
   });

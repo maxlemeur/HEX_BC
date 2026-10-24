@@ -235,10 +235,13 @@ function createHubContext(options: {
   role?: TenantRole;
   tableScenarios: Record<string, TableQueryScenario[]>;
 }) {
+  const from = createFromMock(options.tableScenarios);
   return {
     supabase: {
-      rpc: vi.fn(),
-      from: createFromMock(options.tableScenarios),
+      // The version's lines (read_estimate_version_items) answer from the next estimate_items scenario.
+      rpc: vi.fn((functionName: string) =>
+        functionName === "read_estimate_version_items" ? from("estimate_items") : undefined),
+      from,
     },
     userId: USER_ID,
     tenantId: TENANT_ID,

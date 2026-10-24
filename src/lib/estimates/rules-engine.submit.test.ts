@@ -335,7 +335,10 @@ function mockAuthenticatedSupabase(input: {
         throw error;
       }
     }) as typeof input.from,
-    rpc: input.rpc ?? vi.fn(),
+    // The version's items (readAllEstimateItems) come from the test's estimate_items builder.
+    rpc: (functionName: string, ...args: unknown[]) => functionName === "read_estimate_version_items"
+      ? (input.from("estimate_items") as { select: (columns: string) => unknown }).select("*")
+      : (input.rpc ?? vi.fn())(functionName, ...args),
   } as never);
 }
 

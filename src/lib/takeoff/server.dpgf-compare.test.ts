@@ -340,6 +340,62 @@ function createSupabaseMock() {
     manualLinkRpcError: null,
   };
 
+  const saveManualLinks = async (fn: string, args: Record<string, unknown>) => {
+    if (fn !== "save_takeoff_dpgf_manual_links") {
+      throw new Error(`Unexpected rpc: ${fn}`);
+    }
+
+    if (state.manualLinkRpcError) {
+      const error = state.manualLinkRpcError;
+      state.manualLinkRpcError = null;
+      return {
+        data: null,
+        error,
+      };
+    }
+
+    const versionId = String(args.p_version_id);
+    const takeoffJobId = String(args.p_takeoff_job_id);
+    const estimateItemId = String(args.p_estimate_item_id);
+    const takeoffItemIds = Array.isArray(args.p_takeoff_item_ids)
+      ? args.p_takeoff_item_ids.map((itemId) => String(itemId))
+      : [];
+    const linkedBy =
+      args.p_linked_by === null || args.p_linked_by === undefined
+        ? null
+        : String(args.p_linked_by);
+
+    state.links = state.links.filter(
+      (link) =>
+        !(
+          link.tenant_id === TENANT_ID &&
+          link.version_id === versionId &&
+          link.takeoff_job_id === takeoffJobId &&
+          link.estimate_item_id === estimateItemId
+        )
+    );
+
+    const now = "2026-03-06T11:00:00.000Z";
+    const insertedLinks = takeoffItemIds.map((takeoffItemId, index) => ({
+      id: `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa${index}`,
+      tenant_id: TENANT_ID,
+      version_id: versionId,
+      takeoff_job_id: takeoffJobId,
+      estimate_item_id: estimateItemId,
+      takeoff_item_id: takeoffItemId,
+      created_at: now,
+      updated_at: now,
+      linked_by: linkedBy,
+    }));
+
+    state.links.push(...insertedLinks);
+
+    return {
+      data: insertedLinks.map((link) => link.id),
+      error: null,
+    };
+  };
+
   const supabase = {
     from: vi.fn((table: string) => {
       if (table === "takeoff_jobs") {
@@ -855,61 +911,14 @@ function createSupabaseMock() {
 
       throw new Error(`Unexpected table: ${table}`);
     }),
-    rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
-      if (fn !== "save_takeoff_dpgf_manual_links") {
-        throw new Error(`Unexpected rpc: ${fn}`);
+    rpc: vi.fn((fn: string, args: Record<string, unknown>) => fn === "read_estimate_version_items"
+      // The version's items: served by the estimate_items reads above, under the function's tenant and version.
+      ? {
+        select: (columns?: string) => (supabase.from("estimate_items") as unknown as {
+          select: (columns?: string) => ReturnType<typeof buildThenableSelectBuilder>;
+        }).select(columns).eq("tenant_id", args.p_tenant_id).eq("version_id", args.p_version_id),
       }
-
-      if (state.manualLinkRpcError) {
-        const error = state.manualLinkRpcError;
-        state.manualLinkRpcError = null;
-        return {
-          data: null,
-          error,
-        };
-      }
-
-      const versionId = String(args.p_version_id);
-      const takeoffJobId = String(args.p_takeoff_job_id);
-      const estimateItemId = String(args.p_estimate_item_id);
-      const takeoffItemIds = Array.isArray(args.p_takeoff_item_ids)
-        ? args.p_takeoff_item_ids.map((itemId) => String(itemId))
-        : [];
-      const linkedBy =
-        args.p_linked_by === null || args.p_linked_by === undefined
-          ? null
-          : String(args.p_linked_by);
-
-      state.links = state.links.filter(
-        (link) =>
-          !(
-            link.tenant_id === TENANT_ID &&
-            link.version_id === versionId &&
-            link.takeoff_job_id === takeoffJobId &&
-            link.estimate_item_id === estimateItemId
-          )
-      );
-
-      const now = "2026-03-06T11:00:00.000Z";
-      const insertedLinks = takeoffItemIds.map((takeoffItemId, index) => ({
-        id: `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa${index}`,
-        tenant_id: TENANT_ID,
-        version_id: versionId,
-        takeoff_job_id: takeoffJobId,
-        estimate_item_id: estimateItemId,
-        takeoff_item_id: takeoffItemId,
-        created_at: now,
-        updated_at: now,
-        linked_by: linkedBy,
-      }));
-
-      state.links.push(...insertedLinks);
-
-      return {
-        data: insertedLinks.map((link) => link.id),
-        error: null,
-      };
-    }),
+      : saveManualLinks(fn, args)),
   };
 
   return {
