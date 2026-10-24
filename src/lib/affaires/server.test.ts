@@ -235,10 +235,13 @@ function createHubContext(options: {
   role?: TenantRole;
   tableScenarios: Record<string, TableQueryScenario[]>;
 }) {
+  const from = createFromMock(options.tableScenarios);
   return {
     supabase: {
-      rpc: vi.fn(),
-      from: createFromMock(options.tableScenarios),
+      // The version's lines (read_estimate_version_items) answer from the next estimate_items scenario.
+      rpc: vi.fn((functionName: string) =>
+        functionName === "read_estimate_version_items" ? from("estimate_items") : undefined),
+      from,
     },
     userId: USER_ID,
     tenantId: TENANT_ID,
@@ -1432,6 +1435,10 @@ describe("affaires hub server", () => {
     });
     expect(summary.versionsCount).toBe(3);
     expect(summary.lineCount).toBe(42);
+    expect(context.supabase.rpc).toHaveBeenCalledWith("read_estimate_version_items",
+      { p_tenant_id: TENANT_ID, p_version_id: "v3" }, { count: "exact", head: true });
+    expect(context.supabase.rpc).toHaveBeenCalledWith("read_estimate_version_items",
+      { p_tenant_id: TENANT_ID, p_version_id: "v3" }, { count: "exact", get: true });
     expect(summary.currentVersion).toMatchObject({
       id: "v3",
       versionNumber: 3,

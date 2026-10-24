@@ -16,6 +16,22 @@ const mockRpc = vi.fn();
 const mockStorageDownload = vi.fn();
 const offerFixture = createPortalLegacyOfferFixture();
 
+/** The offer's items, as public.read_estimate_version_items returns them. */
+function buildItemsRead() {
+  const builder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    range: vi.fn((from: number, to: number) => Promise.resolve({
+      data: offerFixture.items.slice(from, to + 1),
+      count: offerFixture.items.length,
+      error: null,
+    })),
+  };
+  builder.eq.mockReturnValue(builder);
+  builder.order.mockReturnValue(builder);
+  return builder;
+}
+
 function setupFromMock() {
   // Fluent chain: from().select().eq().single() and from().update().eq().eq().select().single()
   mockFrom.mockImplementation((table: string) => {
@@ -71,20 +87,6 @@ function setupFromMock() {
       builder.eq.mockReturnValue(builder);
       return { select: vi.fn(() => builder) };
     }
-    if (table === "estimate_items") {
-      const builder = {
-        eq: vi.fn(),
-        order: vi.fn(),
-        range: vi.fn((from: number, to: number) => Promise.resolve({
-          data: offerFixture.items.slice(from, to + 1),
-          count: offerFixture.items.length,
-          error: null,
-        })),
-      };
-      builder.eq.mockReturnValue(builder);
-      builder.order.mockReturnValue(builder);
-      return { select: vi.fn(() => builder) };
-    }
     return {};
   });
 }
@@ -92,7 +94,10 @@ function setupFromMock() {
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: () => ({
     from: mockFrom,
-    rpc: mockRpc,
+    // The offer's items come from buildItemsRead; mockRpc receives every other function call.
+    rpc: (functionName: string, ...args: unknown[]) => functionName === "read_estimate_version_items"
+      ? buildItemsRead()
+      : mockRpc(functionName, ...args),
     storage: { from: vi.fn(() => ({ download: mockStorageDownload })) },
   }),
 }));

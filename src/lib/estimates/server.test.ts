@@ -439,12 +439,6 @@ function createSupabaseMock(input: {
         };
       }
 
-      if (table === "estimate_items") {
-        return {
-          select: vi.fn(() => estimateItemsBuilder),
-        };
-      }
-
       if (["labor_roles", "margin_tiers", "feature_flags"].includes(table)) {
         return {
           select: vi.fn(() => emptyCalculationDependencyBuilder),
@@ -459,7 +453,9 @@ function createSupabaseMock(input: {
 
       throw new Error(`Unexpected table: ${table}`);
     }),
-    rpc: vi.fn().mockResolvedValue(input.rpcResult),
+    rpc: vi.fn((functionName: string) => functionName === "read_estimate_version_items"
+      ? estimateItemsBuilder
+      : Promise.resolve(input.rpcResult)),
     __mocks: {
       auditLogInsert,
       estimateVersionUpdate,
@@ -1938,12 +1934,6 @@ function createListEstimateItemsSupabaseMock() {
         };
       }
 
-      if (table === "estimate_items") {
-        return {
-          select: vi.fn(() => estimateItemsBuilder),
-        };
-      }
-
       if (table === "takeoff_jobs") {
         return {
           select: vi.fn(() => takeoffJobsBuilder),
@@ -1975,6 +1965,10 @@ function createListEstimateItemsSupabaseMock() {
       }
 
       throw new Error(`Unexpected table: ${table}`);
+    }),
+    rpc: vi.fn((functionName: string) => {
+      if (functionName === "read_estimate_version_items") return estimateItemsBuilder;
+      throw new Error(`Unexpected function: ${functionName}`);
     }),
   };
 

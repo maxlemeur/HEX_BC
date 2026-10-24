@@ -431,6 +431,10 @@ function createSupabaseSealMock(input: {
         error: null,
       }),
     },
+    rpc: vi.fn((functionName: string) => {
+      if (functionName === "read_estimate_version_items") return estimateItemsSelect();
+      throw new Error(`Unexpected function: ${functionName}`);
+    }),
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
@@ -442,12 +446,6 @@ function createSupabaseSealMock(input: {
         return {
           select: estimateVersionsSelect,
           update: estimateVersionsUpdate,
-        };
-      }
-
-      if (table === "estimate_items") {
-        return {
-          select: estimateItemsSelect,
         };
       }
 

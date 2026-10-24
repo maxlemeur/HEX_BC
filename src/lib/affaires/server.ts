@@ -989,18 +989,16 @@ async function fetchAffaireHubSummaryWithContext(
       registerGateSummaryResult,
       dpgfSource,
     ] = await Promise.all([
+      // One access check per statement, not one per item: supabase/migrations/20261024130000_read_estimate_version_items.sql.
       context.supabase
-        .from("estimate_items")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", context.tenantId)
-        .eq("version_id", currentVersion.id)
+        .rpc("read_estimate_version_items", { p_tenant_id: context.tenantId, p_version_id: currentVersion.id },
+          { count: "exact", head: true })
         .eq("item_type", "line")
         .limit(1),
       readAllRows(() => context.supabase
-        .from("estimate_items")
-        .select("id, item_type, source_provider", { count: "exact" })
-        .eq("tenant_id", context.tenantId)
-        .eq("version_id", currentVersion.id)
+        .rpc("read_estimate_version_items", { p_tenant_id: context.tenantId, p_version_id: currentVersion.id },
+          { count: "exact", get: true })
+        .select("id, item_type, source_provider")
         .eq("item_type", "line"), { concurrency: 4 }),
       Promise.resolve(fetchAffaireIntakeWorkspace(project.id)).catch(() => null),
       Promise.resolve(
