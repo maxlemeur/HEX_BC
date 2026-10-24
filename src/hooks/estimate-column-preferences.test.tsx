@@ -6,7 +6,11 @@ import { UserProvider, useUserContext } from "@/components/UserContext";
 import type { UserProfile } from "@/lib/auth/server";
 import { useColumnVisibility } from "@/hooks/useColumnVisibility";
 import { useEstimateColumnWidths } from "@/hooks/useEstimateColumnWidths";
-import { DEFAULT_ESTIMATE_COLUMN_ORDER, useEstimateColumnOrder } from "@/hooks/useEstimateColumnOrder";
+import {
+  DEFAULT_ESTIMATE_COLUMN_ORDER,
+  ESTIMATE_V3_ONLY_COLUMN_IDS,
+  useEstimateColumnOrder,
+} from "@/hooks/useEstimateColumnOrder";
 
 function profile(id: string): UserProfile {
   return { id, full_name: id, phone: null, job_title: null, work_email: null,
@@ -41,7 +45,8 @@ describe("personal estimate column preferences", () => {
     act(() => {
       first.result.current.visibility.toggleColumn("marque");
       first.result.current.widths.setColumnWidth("designation", 440);
-      first.result.current.order.moveColumn("k_fo", -1);
+      // A v1/v2 grid has no FO provision column: the move steps over it (TI-534).
+      first.result.current.order.moveColumn("k_fo", -1, ESTIMATE_V3_ONLY_COLUMN_IDS);
     });
     first.unmount();
 
@@ -56,6 +61,14 @@ describe("personal estimate column preferences", () => {
     expect(restored.result.current.widths.widths.designation).toBe(440);
     expect(restored.result.current.order.order.indexOf("k_fo"))
       .toBeLessThan(restored.result.current.order.order.indexOf("supply_type"));
+  });
+
+  it("moves K FO past the FO provision on a v3 grid, where that column is shown", () => {
+    const { result } = preferences();
+    act(() => result.current.order.moveColumn("k_fo", -1));
+    const order = result.current.order.order;
+    expect(order.indexOf("k_fo")).toBe(order.indexOf("fo_provision") - 1);
+    expect(order.indexOf("supply_type")).toBeLessThan(order.indexOf("k_fo"));
   });
 
   it("switches preferences immediately and rejects a callback from the previous account", () => {

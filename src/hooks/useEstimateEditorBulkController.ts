@@ -126,8 +126,11 @@ export function useEstimateEditorBulkController({
         throw new Error("Version introuvable.");
       }
       const targetVersionId = versionSnapshot.id;
+      // TI-534 : en v3, une ligne rétablie (annuler, rétablir) garde la provision FO de la ligne en place, sauf
+      // changement de type FO, comme l'écriture.
+      const lines = v3Writer ? targetLines.map((line) => normalizeLine(line) as EstimateItem) : targetLines;
       const updatedById = new Map(
-        targetLines.map((line) => [line.id, line])
+        lines.map((line) => [line.id, line])
       );
       // The lines and the version totals they imply are written by one RPC: the
       // stored totals feed the affaires list, approvals and documents. A v3
@@ -149,7 +152,7 @@ export function useEstimateEditorBulkController({
       setItems((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
-      const updates = targetLines.map((line) => ({
+      const updates = lines.map((line) => ({
         id: line.id,
         updates: buildUpdate(line),
       }));
@@ -207,6 +210,7 @@ export function useEstimateEditorBulkController({
       getVersionSnapshot,
       handleVersionConflict,
       markItemsSynced,
+      normalizeLine,
       reportError,
       resolveErrorMessage,
       setItems,

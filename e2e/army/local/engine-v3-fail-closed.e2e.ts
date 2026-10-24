@@ -14,7 +14,7 @@ import { insertV3Fixture, readV3State, type V3Fixture } from "./engine-v3-suppor
 //         (45,00 € HT, 54,00 € TTC, PU 22,50 € pour 2 × 22,50 € à marge ×1).
 //         Réécrit en 2.6 (docs/testing/estimate-engine-v3-2.6.md §1.4) : l'éditeur et la fiche d'un
 //         brouillon v3 s'ouvrent sans le bandeau de 2.1 ; l'éditeur montre l'aperçu du moteur 3
-//         (PU 29,25 €, 58,50 € HT, 70,20 € TTC à c_FO 1,30), la fiche les montants stockés. Le
+//         (PU 29,54 €, 59,08 € HT, 70,90 € TTC à provision FO 1,01 et c_FO 1,30, TI-534), la fiche les montants stockés. Le
 //         propriétaire de la fixture est en mode Simplifié : le pied montre la seule pastille HT et
 //         le TTC se lit dans son détail (« Voir les détails de TVA, remise et TTC »).
 //  E2E-02 Ouvrir une v3 la réécrit (sauvegarde, normalisation, totaux) : révision ou montants
@@ -29,9 +29,10 @@ const BANNER = "Ce devis utilise le moteur de calcul 3, pas encore disponible po
 const V1_AMOUNTS = /45,00|54,00|22,50/;
 // L'éditeur v3 affiche le PR FO saisi (22,50) : seule la lecture v1 du HT et du TTC y est interdite.
 const V1_TOTALS = /45,00\s?€|54,00\s?€/;
-// Aperçu du moteur 3 de la fixture : 2 × ⌈2 250 × 1,30⌋ = 5 850 c HT, TVA 20 % 1 170 c, TTC 7 020 c.
-const V3_PREVIEW_HT_CHIP = "Total HT : 58,50 €";
-const V3_PREVIEW_TTC = /TTC à payer\s*70,20\s?€/;
+// Aperçu du moteur 3 de la fixture (ligne sans type FO : provision 1,01, TI-534) : 2 × ⌈2 250 × 1,01 × 1,30⌋ = 5 908 c HT,
+// TVA 20 % 1 182 c, TTC 7 090 c.
+const V3_PREVIEW_HT_CHIP = "Total HT : 59,08 €";
+const V3_PREVIEW_TTC = /TTC à payer\s*70,90\s?€/;
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
 function assertOwnedLocalBackend() {

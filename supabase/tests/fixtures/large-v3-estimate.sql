@@ -19,6 +19,13 @@ select public.set_tenant_calc_policy(current_setting('test.tenant_id')::uuid, 3:
 insert into public.labor_roles (id, tenant_id, user_id, name, hourly_rate_cents)
 values ('29200000-0000-4000-8000-000000000301', current_setting('test.tenant_id')::uuid,
   '29200000-0000-4000-8000-000000000001', 'LB29 public workbook MO', 4000);
+-- TI-534: the workbook oracle (HT 6 729 803 at 1,30 / 1,20) predates the FO provision. Every line of a created version
+-- carries this neutral supply type (provision 1,000), so it matches private.estimate_v3_compute_items without the key.
+-- The copied lines have no supply type: their projection carries the default provision 1,010, as prepareEstimateBatch
+-- derives it (a supply type on each operation would grow the receipt of the 1 000-operation copy by about 90 kB).
+insert into public.supply_types (id, tenant_id, code, name, default_fo_provision)
+values ('29200000-0000-4000-8000-000000000302', current_setting('test.tenant_id')::uuid, 'lb29_neutral',
+  'LB29 neutral supply type', 1.000);
 
 -- Local native budgets, opt-in (AGENTS.md; docs/testing/large-estimate-statement-budget.md). The large target is
 -- the real 2 031-item public workbook; bulk operations get 1 000 ms without a pro-rata approximation.
@@ -79,7 +86,8 @@ create function pg_temp.lb29_items(p_lots integer, p_lines integer) returns json
 $$;
 
 -- The engine 3 amounts of the payload lines (private.estimate_v3_compute_items, the D12 reference), at c_FO 1,3 and
--- c_MO 1,2: {items, totals}. Called before the role switch: private is not granted to service_role.
+-- c_MO 1,2: {items, totals}, each line with the neutral supply type. Called before the role switch: private is not
+-- granted to service_role.
 create function pg_temp.lb29_priced(p_items jsonb) returns jsonb language plpgsql as $$
 declare
   computed jsonb;
@@ -97,7 +105,9 @@ begin
       'discount_bp', 0, 'rounding_mode', 'none', 'rounding_step_cents', 1, 'reverse_charge', false,
       'labor_split_enabled', false));
   return jsonb_build_object('items', (
-      select jsonb_agg(item || coalesce((select jsonb_build_object('pu_ht_cents', line -> 'pu_ht_cents',
+      select jsonb_agg(item || case when item ->> 'item_type' = 'line'
+            then '{"supply_type_id":"29200000-0000-4000-8000-000000000302"}'::jsonb else '{}'::jsonb end
+          || coalesce((select jsonb_build_object('pu_ht_cents', line -> 'pu_ht_cents',
             'line_total_ht_cents', line -> 'line_total_ht_cents', 'line_tax_cents', line -> 'line_tax_cents',
             'line_total_ttc_cents', line -> 'line_total_ttc_cents')
           from jsonb_array_elements(computed -> 'lines') line where line ->> 'id' = item ->> 'id'), '{}'::jsonb)
@@ -290,7 +300,7 @@ begin
   computed := private.estimate_v3_compute_items((select jsonb_agg(item order by (item ->> 'id')::uuid)
     from jsonb_array_elements((canonical -> 'items') || (select jsonb_agg(jsonb_build_object('id', line_ids[n],
       'item_type', 'line', 'parent_id', section_id, 'pricing_status', 'priced', 'tax_rate_bp', 2000, 'unit_code', 'ml',
-      'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'k_fo', 1, 'h_mo_per_unit', 0,
+      'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'k_fo', 1, 'fo_provision', 1.01, 'h_mo_per_unit', 0,
       'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', 1, 'k_mo', 1,
       'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', 0, 'labor_rate_atelier_cents', null,
       'labor_rate_chantier_cents', null)) from generate_series(1, p_size - 1) n)) item), canonical -> 'params');

@@ -348,7 +348,8 @@ select results_eq(
   'a direct content revision write is refused unless it is the upward replay of the creation of that version'
 );
 
--- Engine 3: the same replay, compatible with the D12 projection check (one priced line, coefficients 1 / 1).
+-- Engine 3: the same replay, compatible with the D12 projection check (one priced line, coefficients 1 / 1). The line
+-- has no supply type, so the database gives it the default FO provision 1,010 (TI-534): PU = 1000 × 1,010 = 1010.
 select set_config('role', 'service_role', true);
 select public.set_tenant_calc_policy(p_tenant_id => current_setting('test.tenant_id')::uuid,
   p_new_estimate_calc_engine => 3::smallint, p_default_sale_coefficient_fo => 1, p_default_sale_coefficient_mo => 1,
@@ -356,14 +357,14 @@ select public.set_tenant_calc_policy(p_tenant_id => current_setting('test.tenant
 select set_config('role', 'none', true);
 insert into ec28_outcome values ('v3', pg_temp.ec28_create(
   pg_temp.ec28_version('28100000-0000-4000-8000-000000000104', 3) || jsonb_build_object('sale_coefficient_fo', 1,
-    'sale_coefficient_mo', 1, 'gross_ht_cents', 1000, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0,
-    'total_ht_cents', 1000, 'total_tax_cents', 200, 'total_ttc_cents', 1200),
+    'sale_coefficient_mo', 1, 'gross_ht_cents', 1010, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0,
+    'total_ht_cents', 1010, 'total_tax_cents', 202, 'total_ttc_cents', 1212),
   jsonb_build_array(
     jsonb_build_object('id', '28100000-0000-4000-8400-000000000001', 'parent_id', null, 'item_type', 'section', 'position', 1, 'title', 'Lot'),
     jsonb_build_object('id', '28100000-0000-4000-8400-000000000002', 'parent_id', '28100000-0000-4000-8400-000000000001',
       'item_type', 'line', 'position', 2, 'title', 'Robinet', 'description', 'u', 'quantity', 1, 'unit_price_ht_cents', 1000,
-      'tax_rate_bp', 2000, 'k_fo', 1, 'h_mo_per_unit', 0, 'h_mo_majoration', 1, 'k_mo', 1, 'pu_ht_cents', 1000,
-      'line_total_ht_cents', 1000, 'line_tax_cents', 200, 'line_total_ttc_cents', 1200, 'unit_code', 'u',
+      'tax_rate_bp', 2000, 'k_fo', 1, 'h_mo_per_unit', 0, 'h_mo_majoration', 1, 'k_mo', 1, 'pu_ht_cents', 1010,
+      'line_total_ht_cents', 1010, 'line_tax_cents', 202, 'line_total_ttc_cents', 1212, 'unit_code', 'u',
       'pricing_status', 'priced'))));
 
 select results_eq(

@@ -291,6 +291,15 @@ export function formatNumberDisplay(
   return formatter.format(value);
 }
 
+/** TI-534 : provision FO d'une ligne v3, avec 2 ou 3 décimales (1,03 ; 1,025) ; 1,00 sans valeur. */
+export function formatFoProvision(value: number | string | null | undefined) {
+  const numeric = Number(value ?? 1);
+  return formatNumberDisplay(Number.isFinite(numeric) ? numeric : 1, { minDecimals: 2, maxDecimals: 3 });
+}
+
+export const FO_PROVISION_CELL_TITLE =
+  "Provision FO automatique du type FO (1,03 pour un tube ou un calorifuge, 1,01 sinon), appliquée au PR FO avant le K FO.";
+
 export function formatCompactDate(value: string | null | undefined) {
   if (!value) return "-";
 

@@ -48,6 +48,7 @@ import {
   type SpreadsheetNavigationResult,
 } from "@/hooks/useSpreadsheetNavigation";
 import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
+import { FoProvisionCell } from "@/components/estimates/components/estimate-editor-row/FoProvisionCell";
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
@@ -416,6 +417,8 @@ export function LineRow({
   );
   const isLaborRoleVisible =
     isLaborSplitEnabled || !visibleColumns || visibleColumns.has("labor_role");
+  const isFoColumnVisible = (column: "supply_type" | "k_fo") =>
+    isLaborSplitEnabled || !visibleColumns || visibleColumns.has(column);
 
   const dispatchLineSelection = (
     modifiers: Pick<
@@ -938,9 +941,7 @@ export function LineRow({
           );
         }}
       />
-      {!visibleColumns ||
-      visibleColumns.has("supply_type") ||
-      isLaborSplitEnabled ? (
+      {isFoColumnVisible("supply_type") ? (
         <div
           {...supplyTypeCellProps}
         data-estimate-column="supply_type"
@@ -963,7 +964,8 @@ export function LineRow({
           />
         </div>
       ) : null}
-      {!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled ? (
+      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} /> : null}
+      {isFoColumnVisible("k_fo") ? (
         <div
           {...kFoCellProps}
         data-estimate-column="k_fo"
@@ -986,21 +988,9 @@ export function LineRow({
             title="K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
             onFocus={kFoEditorProps.onFocus}
             onKeyDown={kFoEditorProps.onKeyDown}
-            onValueChange={(value) =>
-              onPatchItem(
-                item.id,
-                { k_fo: value },
-                { persist: false },
-              )
-            }
+            onValueChange={(value) => onPatchItem(item.id, { k_fo: value }, { persist: false })}
             onBlur={kFoEditorProps.onBlur}
-            onValueCommit={(value) =>
-              onPatchItem(
-                item.id,
-                { k_fo: value },
-                { persist: true },
-              )
-            }
+            onValueCommit={(value) => onPatchItem(item.id, { k_fo: value }, { persist: true })}
             placeholder="1.00"
             disabled={isReadOnly}
           />

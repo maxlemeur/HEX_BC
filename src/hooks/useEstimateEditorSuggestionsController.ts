@@ -1246,8 +1246,10 @@ export function useEstimateEditorSuggestionsController({
         return;
       }
 
+      // TI-534: on a v3, going back to the previous supply type re-derives its FO
+      // provision, as the writer does.
       const previousById = new Map(
-        previousItems.map((item) => [item.id, item])
+        previousItems.map((item) => [item.id, v3Writer ? normalizeLine(item) : item])
       );
       // A v3 sends no client total: its writer recalculates and checks them (D12).
       const versionTotalsPatch = v3Writer
@@ -1351,6 +1353,7 @@ export function useEstimateEditorSuggestionsController({
     isScopeCurrent,
     markItemsSynced,
     mutationBlockedMessage,
+    normalizeLine,
     reportError,
     resolveErrorMessage,
     setItems,

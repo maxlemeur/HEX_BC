@@ -341,6 +341,7 @@ export function createOptimisticSectionItem(input: {
     unit_price_ht_cents: null,
     tax_rate_bp: null,
     k_fo: null,
+    fo_provision: 1,
     h_mo: null,
     h_mo_majoration: 1,
     k_mo: null,
@@ -390,6 +391,8 @@ export function createOptimisticLineItem(input: {
   lineTaxCents: number;
   lineTotalTtcCents: number;
   isLaborSplitEnabled: boolean;
+  /** TI-534 : provision FO d'une ligne v3 sans type FO (1,010) ; 1 en v1/v2. */
+  foProvision?: number;
 }): EditorEstimateItem {
   const timestamp = new Date().toISOString();
   return {
@@ -416,6 +419,7 @@ export function createOptimisticLineItem(input: {
     unit_price_ht_cents: 0,
     tax_rate_bp: input.taxRateBp,
     k_fo: 1,
+    fo_provision: input.foProvision ?? 1,
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,
