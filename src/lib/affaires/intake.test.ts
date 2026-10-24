@@ -12,6 +12,7 @@ import {
   isAffaireIntakeDocumentProcessing,
   isAffaireIntakePrimaryEligibleKind,
   mergeAffaireDocumentClassificationWithHeuristic,
+  normalizeAffaireIntakeExtractedMetadata,
   normalizeAffaireIntakeTextList,
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
@@ -464,6 +465,24 @@ describe("affaire intake helpers", () => {
         }
       )
     ).toEqual(["Lot gros oeuvre", "Facade"]);
+  });
+
+  it("completes model deadlines given to the minute instead of dropping the metadata", () => {
+    expect(
+      normalizeAffaireIntakeExtractedMetadata({
+        projectName: "Ecole Jules Ferry",
+        clientName: null,
+        deadlineAt: "2026-11-15T12:00+01:00",
+        detectedLots: ["Plomberie"],
+        detectedVariants: [],
+      })
+    ).toEqual({
+      projectName: "Ecole Jules Ferry",
+      clientName: null,
+      deadlineAt: "2026-11-15T12:00:00+01:00",
+      detectedLots: ["Plomberie"],
+      detectedVariants: [],
+    });
   });
 
   it("accepts postgres timestamps with timezone offsets in brief payloads", () => {

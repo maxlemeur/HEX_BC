@@ -108,9 +108,19 @@ function sortOperations(
   });
 }
 
-function removeSchemaDialectKeyword(value: unknown): unknown {
+// Zod >= 4.6 exposes the names of its string checks as `format` next to the
+// `pattern` that already enforces them; these are not JSON Schema formats.
+const ZOD_STRING_CHECK_FORMATS = new Set([
+  "starts_with",
+  "ends_with",
+  "includes",
+  "lowercase",
+  "uppercase",
+]);
+
+function cleanZodJsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(removeSchemaDialectKeyword);
+    return value.map(cleanZodJsonSchema);
   }
 
   if (!value || typeof value !== "object") {
@@ -125,7 +135,15 @@ function removeSchemaDialectKeyword(value: unknown): unknown {
       return;
     }
 
-    output[key] = removeSchemaDialectKeyword(nestedValue);
+    if (
+      key === "format" &&
+      typeof nestedValue === "string" &&
+      ZOD_STRING_CHECK_FORMATS.has(nestedValue)
+    ) {
+      return;
+    }
+
+    output[key] = cleanZodJsonSchema(nestedValue);
   });
 
   return output;
@@ -139,7 +157,7 @@ function toJsonSchema(definition: OpenApiSchemaDefinition): Record<string, unkno
     reused: "inline",
   });
 
-  return removeSchemaDialectKeyword(rawJsonSchema) as Record<string, unknown>;
+  return cleanZodJsonSchema(rawJsonSchema) as Record<string, unknown>;
 }
 
 function ensureSchemaRef(
