@@ -12,6 +12,7 @@ import {
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
 import { AffaireFileDropSurface } from "./AffaireFileDropSurface";
+import { GoogleDriveImport } from "./GoogleDriveImport";
 import { CheckIcon } from "lucide-react";
 
 type FileResult = {
@@ -30,6 +31,7 @@ type DropzoneState =
 type IntakeDropzoneProps = {
   projectId: string;
   onUploadComplete: (uploadId: string) => void;
+  onRefresh?: () => void;
   compact?: boolean;
   hideSurface?: boolean;
 };
@@ -122,6 +124,7 @@ function validateFile(file: File): string | null {
 export function IntakeDropzone({
   projectId,
   onUploadComplete,
+  onRefresh,
   compact = false,
   hideSurface = false,
 }: IntakeDropzoneProps) {
@@ -246,6 +249,8 @@ export function IntakeDropzone({
         triggerId={projectId}
         hiddenSurface={hideSurface}
       />
+
+      <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={onUploadComplete} onRefresh={onRefresh} />
 
       {/* Client-side validation errors */}
       {clientErrors.length > 0 && (

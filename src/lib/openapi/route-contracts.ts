@@ -1,4 +1,5 @@
 import { z, type ZodTypeAny } from "zod";
+import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
 
 import {
@@ -435,6 +436,19 @@ export const insertTemplateIntoVersionBodySchema = z.object({
 });
 
 const administrationContracts: RouteContract[] = [
+  {
+    id: "read-affaire-google-drive", method: "get", path: "/api/affaires/{projectId}/intake/google-drive",
+    summary: "Lire la disponibilité et les copies Google Drive de cette affaire",
+    description: "Disponibilité OAuth et provenance des copies privées de cette affaire accessible.", tags: ["Affaires"],
+    pathParameters: [projectIdParameter],
+  },
+  {
+    id: "import-affaire-google-drive", method: "post", path: "/api/affaires/{projectId}/intake/google-drive",
+    summary: "Parcourir un dossier ou confirmer des copies Drive", tags: ["Affaires"],
+    description: "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Jeton éphémère dans le corps JSON, jamais dans une URL. Aucun contenu téléchargé avant confirmation. Résultats par pièce et reprise par révision.",
+    pathParameters: [projectIdParameter],
+    body: { schema: driveRequestSchema, description: "Dossier personnel, au plus 20 pièces et 100 Mo par lot, 50 Mo par pièce. Origine identique requise." },
+  },
   {
     id: "get-affaire-dpgf-source",
     method: "get",

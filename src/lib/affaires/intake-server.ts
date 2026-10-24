@@ -1064,7 +1064,7 @@ async function classifyAffaireIntakeDocument(input: {
   }
 }
 
-async function requireAffaireProjectOwnerOrAdmin(
+export async function requireAffaireProjectOwnerOrAdmin(
   projectId: string
 ): Promise<{
   context: AuthenticatedContext;
