@@ -489,6 +489,7 @@ export function IntakeWorkspace({
           <IntakeDropzone
             projectId={projectId}
             onUploadComplete={handleUploadComplete}
+            onRefresh={handleReclassified}
             compact={hasDocuments}
             hideSurface={shouldRenderEntryShell}
           />
