@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "sourceCommit": "981b5c2",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's standing authorization (24/10) to apply repository migrations to shared Supabase when needed, confirmed for this application.",
+  "method": "MCP Supabase apply_migration with the exact file content from git show 981b5c2, in order, one attempt each, from the owner's Mac in ask-permissions mode. No supabase db push.",
+  "applied": [
+    {
+      "repositoryFile": "supabase/migrations/20261019123000_estimate_batch_set_based_creates.sql",
+      "bytes": 45423,
+      "sha256": "6d124d2201402dd34e9e1d26256492eaf9d36099d5fac101215d64eb193132e1",
+      "appliedVersion": "20261024112732",
+      "appliedName": "20261019123000_estimate_batch_set_based_creates",
+      "appliedAtUtc": "2026-10-24T11:27:32Z",
+      "storedStatementSha256Matches": true,
+      "target": {
+        "function": "public.commit_estimate_batch(uuid,uuid,timestamptz,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)",
+        "prosrcMd5LfBefore": "7bc2f6c5702364b39fa6582cb363591c",
+        "beforeMatchesSource": "20261018180306_estimate_v3_batch_copy_effects.sql",
+        "prosrcMd5LfAfter": "be31a92e1680b0af83c33c3abc9ae896",
+        "securityDefiner": true,
+        "searchPath": "",
+        "owner": "postgres",
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}"
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261024000936_google_drive_pending_copy_recovery.sql",
+      "bytes": 1637,
+      "sha256": "6227ca74a8ff01d798da88053b064b945960c3a3b6a13bdc62485390bb05609e",
+      "appliedVersion": "20261024112810",
+      "appliedName": "20261024000936_google_drive_pending_copy_recovery",
+      "appliedAtUtc": "2026-10-24T11:28:10Z",
+      "storedStatementSha256Matches": true,
+      "target": {
+        "policy": "storage.objects / Project writers can verify pending Drive copies",
+        "permissive": true,
+        "command": "SELECT",
+        "roles": [
+          "authenticated"
+        ]
+      }
+    }
+  ],
+  "alreadyAppliedWithoutReceipt": [
+    {
+      "name": "20261020004336_restrict_membership_directory_lookup",
+      "appliedVersion": "20261020010631",
+      "sha256": "94c051cd194651417287bc3053bede2fde4753a5ba758437bcc731aa02c3cc4a"
+    },
+    {
+      "name": "20261022074859_close_takeoff_audit_forgery",
+      "appliedVersion": "20261022085931",
+      "sha256": "27920655c1f764564d910103d5bb8eef6ab6747491391e01f9e7c4636d3cf24f"
+    },
+    {
+      "name": "20261022075204_bound_takeoff_job_admission",
+      "appliedVersion": "20261022085945",
+      "sha256": "272502cd0fd58c7aae7cf97aa449b181db251ab17f023203166369f385c99774"
+    },
+    {
+      "name": "20261023132913_select_authorized_email_recovery",
+      "appliedVersion": "20261023161922",
+      "sha256": "06acc76e161ab2cddf34078e0d540adc49f84e44321220eaee310620d14148b2"
+    }
+  ],
+  "alreadyAppliedObjectChecks": {
+    "functionBodiesMd5Lf": {
+      "public.find_membership_candidate_by_email(uuid,text)": "92d1e4922c7ff2891cdd17eb1943788d",
+      "public.enforce_takeoff_job_admission()": "2bad91a4303e4b602ae822ec1f51216d",
+      "public.enforce_takeoff_job_reactivation()": "81f07ac85d2a59cf8499d5204eee6dff",
+      "public.enforce_takeoff_processing_admission()": "16aef89b2c4b82bf2da6722808ab6307",
+      "public.list_due_estimate_email_dispatches(timestamptz,integer)": "7bc2a1f07dccfa346518db66d9c94a2a"
+    },
+    "bodiesMatchSource": true,
+    "executeOnlyServiceRole": true,
+    "admissionTablesForcedRlsNoApiGrants": true,
+    "takeoffJobsTriggersEnabled": 3,
+    "auditInsertPolicy": "Authenticated can insert invariant violation audit logs (old scoped policy absent)"
+  },
+  "history": {
+    "rowsBefore": 317,
+    "rowsAfter": 319,
+    "distinctNamesBefore": 313,
+    "priorRowsFingerprint": "5fd9e151a86ee6915d3de1f2ca9049a4",
+    "priorRowsUnchanged": true,
+    "remoteOnly": [
+      {
+        "version": "20261022112603",
+        "name": "provision_mergeone_backup_reader",
+        "bytes": 389
+      }
+    ]
+  },
+  "catalog": {
+    "scope": [
+      "public",
+      "private",
+      "storage"
+    ],
+    "functions": {
+      "before": 446,
+      "after": 446,
+      "changed": [
+        "public.commit_estimate_batch"
+      ]
+    },
+    "policies": {
+      "before": 377,
+      "after": 378,
+      "added": [
+        "storage.objects / Project writers can verify pending Drive copies"
+      ]
+    },
+    "relations": {
+      "before": 132,
+      "after": 132,
+      "changed": []
+    }
+  },
+  "data": {
+    "scope": [
+      "public",
+      "private"
+    ],
+    "tables": 124,
+    "rows": 56374,
+    "fingerprintBefore": "ce6eedb4bc552befc6a69c89a662918b",
+    "fingerprintAfter": "ce6eedb4bc552befc6a69c89a662918b"
+  },
+  "securityAdvisors": {
+    "unchangedFindingByFinding": true,
+    "anonSecurityDefinerExecutable": 18,
+    "authenticatedSecurityDefinerExecutable": 66,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1
+  },
+  "knownDrift": {
+    "repositoryMigrationsMissingByName": [
+      "20260714120000_preserve_assembly_cost_details",
+      "20260714134334_use_assembly_cost_coefficients",
+      "20260718014058_protect_takeoff_replace_with_recovery (empty)"
+    ],
+    "canonicalOnlyMissingOnShared": [
+      "trigger guard_estimate_approvals_insert_trigger on public.estimate_approvals (0 rows)",
+      "public.guard_estimate_approvals_insert()",
+      "public.assign_estimate_explanations_scope()"
+    ],
+    "sharedOnlyFunctions": {
+      "public.get_takeoff_secret(text)": "SECURITY DEFINER, EXECUTE service_role",
+      "public.set_estimate_explanation_scope_defaults()": "SECURITY DEFINER, EXECUTE PUBLIC/anon/authenticated, trigger",
+      "public.set_estimate_explanation_source_scope_defaults()": "SECURITY DEFINER, EXECUTE PUBLIC/anon/authenticated, trigger",
+      "public.sync_estimate_explanation_source_contract()": "INVOKER, trigger",
+      "public.assign_estimate_template_item_tenant_id()": "INVOKER, no trigger"
+    }
+  },
+  "limits": [
+    "No commit_estimate_batch business call, no Drive import (feature disabled), no deployment.",
+    "Cloud-session attempts timed out on the connector confirmation without executing; history re-read unchanged."
+  ]
+}
