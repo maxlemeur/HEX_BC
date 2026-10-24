@@ -106,7 +106,12 @@ import {
   type EstimateVersionTotalsPatch,
   type LaborRole,
 } from "@/lib/estimates/editor-items";
-import { withRederivedFoProvision } from "@/lib/estimates/fo-provision";
+import {
+  foProvisionsBySupplyType,
+  withBufferedFoProvision,
+  withRederivedFoProvision,
+  type FoProvisionBySupplyTypeId,
+} from "@/lib/estimates/fo-provision";
 import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
@@ -508,6 +513,7 @@ export function useEstimateEditorState({
 
   const itemsRef = useRef<EditorEstimateItem[]>([]);
   const versionRef = useRef<EstimateVersionView | null>(null);
+  const foProvisionsRef = useRef<FoProvisionBySupplyTypeId>(new Map());
   const loadedReadIdentityRef = useRef<{
     actorId: string;
     tenantId: string;
@@ -632,6 +638,15 @@ export function useEstimateEditorState({
     [savedSettings, settings, v3Settings?.isDirty]
   );
 
+  // TI-534 : une ligne v3 recouverte d'un type FO en attente (brouillon local, rechargement) reprend la provision de
+  // ce type, comme l'écriture la redérivera. Lu dans les références : le premier chargement recouvre ses lignes avant
+  // que la version et les types FO ne soient dans l'état.
+  const deriveBufferedItem = useCallback(
+    (source: EditorEstimateItem, merged: EditorEstimateItem) => withBufferedFoProvision(source, merged,
+      foProvisionsRef.current, resolveEditorEngineContext(versionRef.current).isV3),
+    []
+  );
+
   const syncController = useEstimateEditorSyncController({
     routeVersionId: resolvedVersionId,
     activeVersion: version
@@ -658,6 +673,7 @@ export function useEstimateEditorState({
     getVersionSnapshot,
     getPersistedTotals,
     replaceItems: setItems,
+    deriveBufferedItem,
     applyRestoredDraft,
     applyVersionFlushResult,
     setTotalsOutOfSync,
@@ -855,6 +871,7 @@ export function useEstimateEditorState({
           data.versionZeroSummary ?? null,
           { autoOpen: shouldAutoOpenVersionZero }
         );
+        foProvisionsRef.current = foProvisionsBySupplyType(data.supplyTypes ?? []);
         setItems(initialLoadHandlersRef.current.applyPendingBufferedUpdatesToItems(normalizedItems));
         setCategories(data.categories ?? []);
         setSupplyTypes(data.supplyTypes ?? []);
@@ -1154,13 +1171,7 @@ export function useEstimateEditorState({
   }, [supplyTypes]);
 
   // TI-534 : provision FO par type, pour redériver celle d'une ligne v3 dont le type FO change.
-  const foProvisionBySupplyTypeId = useMemo(() => {
-    const map = new Map<string, number>();
-    supplyTypes.forEach((supplyType) => {
-      map.set(supplyType.id.toLowerCase(), Number(supplyType.default_fo_provision));
-    });
-    return map;
-  }, [supplyTypes]);
+  const foProvisionBySupplyTypeId = useMemo(() => foProvisionsBySupplyType(supplyTypes), [supplyTypes]);
 
   const supplyTypeIdByLowerName = useMemo(() => {
     const map = new Map<string, string>();

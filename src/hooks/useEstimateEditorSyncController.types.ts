@@ -61,6 +61,11 @@ export type EstimateEditorSyncControllerInput = {
   getVersionSnapshot: () => EstimateVersionRow | null;
   getPersistedTotals: () => EstimateTotals | null;
   replaceItems: (items: EditorEstimateItem[]) => void;
+  /**
+   * TI-534 : complète une ligne serveur recouverte de ses saisies en attente (brouillon local, rechargement) avec ce
+   * que l'écriture en dérive, comme la provision FO d'un type FO changé ; absente, la ligne recouverte telle quelle.
+   */
+  deriveBufferedItem?: (source: EditorEstimateItem, merged: EditorEstimateItem) => EditorEstimateItem;
   applyRestoredDraft: (
     draft: EstimateEditorConflictDraft
   ) => RestoredDraftApplication;

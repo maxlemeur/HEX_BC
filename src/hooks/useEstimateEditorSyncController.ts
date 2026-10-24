@@ -82,6 +82,7 @@ export function useEstimateEditorSyncController({
   getVersionSnapshot,
   getPersistedTotals,
   replaceItems,
+  deriveBufferedItem,
   applyRestoredDraft,
   applyVersionFlushResult,
   setTotalsOutOfSync,
@@ -111,6 +112,7 @@ export function useEstimateEditorSyncController({
   const pendingBufferedUpdateCountRef = useRef(0);
   const hasPendingTotalsSaveRef = useRef(false);
   const savePendingSettingsRef = useRef(savePendingSettings);
+  const deriveBufferedItemRef = useRef(deriveBufferedItem);
   const isFlushingBufferedUpdatesRef = useRef(false);
   const flushCompletionRef = useRef<Promise<void> | null>(null);
   const activeFlushIdRef = useRef(0);
@@ -166,7 +168,8 @@ export function useEstimateEditorSyncController({
 
   useLayoutEffect(() => {
     savePendingSettingsRef.current = savePendingSettings;
-  }, [savePendingSettings]);
+    deriveBufferedItemRef.current = deriveBufferedItem;
+  }, [deriveBufferedItem, savePendingSettings]);
 
   const updateHasPendingTotalsSave = useCallback((value: boolean) => {
     hasPendingTotalsSaveRef.current = value;
@@ -348,10 +351,8 @@ export function useEstimateEditorSyncController({
     );
     pruneSyncedBufferedUpdates();
 
-    return applyBufferedUpdatesToItems(
-      sourceItemsWithStableClientKeys,
-      serializeBufferedUpdates(pendingItemUpdatesRef.current)
-    );
+    return applyBufferedUpdatesToItems(sourceItemsWithStableClientKeys,
+      serializeBufferedUpdates(pendingItemUpdatesRef.current), deriveBufferedItemRef.current);
   }, [pruneSyncedBufferedUpdates]);
 
   useEffect(() => {
@@ -362,11 +363,8 @@ export function useEstimateEditorSyncController({
         readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(routeVersionId);
       if (!draft) return;
 
-      const rehydration = rehydrateBufferedUpdates(
-        itemsRef.current,
-        draft.buffered_updates,
-        pendingItemUpdatesRef.current
-      );
+      const rehydration = rehydrateBufferedUpdates(itemsRef.current, draft.buffered_updates,
+        pendingItemUpdatesRef.current, deriveBufferedItemRef.current);
       pendingBufferedUpdateCountRef.current = rehydration.pendingUpdateCount;
       setHasPendingBufferedUpdates(rehydration.hasPendingUpdates);
       replaceItems(rehydration.mergedItems);

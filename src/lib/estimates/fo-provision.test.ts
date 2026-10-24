@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FO_PROVISION,
   deriveFoProvision,
+  foProvisionsBySupplyType,
   supplyTypeChanged,
+  withBufferedFoProvision,
   withRederivedFoProvision,
 } from "@/lib/estimates/fo-provision";
 
@@ -37,5 +39,22 @@ describe("TI-534 FO provision mirror", () => {
     expect(withRederivedFoProvision(raccord, { ...raccord, supply_type_id: TUBE }, PROVISIONS).fo_provision).toBe(1.03);
     // An unknown line (no previous state) keeps what it carries.
     expect(withRederivedFoProvision(undefined, legacy, PROVISIONS)).toBe(legacy);
+  });
+
+  it("gives a v3 line recovered with a pending supply type the provision of that type, nothing else", () => {
+    const server = { item_type: "line", supply_type_id: RACCORD, fo_provision: 1.01 };
+    const recovered = { ...server, supply_type_id: TUBE };
+    expect(withBufferedFoProvision(server, recovered, PROVISIONS, true).fo_provision).toBe(1.03);
+    // Pending edits that keep the type keep the stored provision; a v1/v2 line or a section keeps 1.000.
+    expect(withBufferedFoProvision(server, { ...server, fo_provision: 1.01 }, PROVISIONS, true).fo_provision).toBe(1.01);
+    expect(withBufferedFoProvision({ ...server, fo_provision: 1 }, { ...recovered, fo_provision: 1 }, PROVISIONS, false))
+      .toEqual({ ...recovered, fo_provision: 1 });
+    const section = { item_type: "section", supply_type_id: null, fo_provision: 1 };
+    expect(withBufferedFoProvision(section, section, PROVISIONS, true)).toBe(section);
+  });
+
+  it("indexes the loaded supply types by lower-case id", () => {
+    expect(foProvisionsBySupplyType([{ id: TUBE.toUpperCase(), default_fo_provision: "1.030" }]))
+      .toEqual(new Map([[TUBE, 1.03]]));
   });
 });

@@ -43,6 +43,25 @@ export function withRederivedFoProvision<T extends { supply_type_id: string | nu
   return { ...next, fo_provision: deriveFoProvision(next.supply_type_id, provisions) };
 }
 
+/**
+ * Ligne serveur recouverte de ses saisies en attente (brouillon local, rechargement) : une ligne v3 dont elles changent
+ * le type FO reprend la provision de ce type, comme l'écriture la redérivera ; toute autre ligne reste telle quelle.
+ */
+export function withBufferedFoProvision<
+  T extends { item_type: string; supply_type_id: string | null; fo_provision?: number | null },
+>(source: T, merged: T, provisions: FoProvisionBySupplyTypeId, isV3: boolean): T {
+  return isV3 && merged.item_type === "line" ? withRederivedFoProvision(source, merged, provisions) : merged;
+}
+
+/** Provisions par type FO (identifiant en minuscules) des types chargés. */
+export function foProvisionsBySupplyType(
+  supplyTypes: Iterable<{ id: string; default_fo_provision: number | string }>
+): Map<string, number> {
+  const provisions = new Map<string, number>();
+  for (const supplyType of supplyTypes) provisions.set(supplyType.id.toLowerCase(), Number(supplyType.default_fo_provision));
+  return provisions;
+}
+
 /** Provisions des types FO cités, lues dans le locataire ; un type absent prend la valeur par défaut. */
 export async function loadSupplyTypeFoProvisions(
   supabase: SupabaseClient<Database>,
