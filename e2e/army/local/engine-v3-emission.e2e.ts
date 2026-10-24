@@ -76,7 +76,7 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 // exact par fichier.
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const UNIT_REQUIRED = "Une unité est requise sur chaque ligne chiffrée avant le gel.";
-// Raison de la fiche d'une v3 depuis la fusion de 2.6 et 2.7 : seul l'enregistrement comme modèle reste fermé (2.8).
+// Raison de la fiche d'une v3 entre la fusion de 2.6 et 2.7 et le lot 3.2 (entrée 3), qui ouvre le modèle : jamais affichée.
 const TEMPLATE_REASON = "Moteur de calcul 3 : l’enregistrement comme modèle n’est pas encore disponible pour ce devis.";
 const normalizeQuotes = (text: string | null | undefined) => (text ?? "").replace(/[\s  ]+/g, " ").replace(/[’']/g, "'").trim();
 /** La ligne unique de V3M05 dans un texte de document normalisé : « 1 u PU PT », TVA 20 % (base, montant), TTC. */
@@ -566,7 +566,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
     });
 
   // V3M-12 à V3M-14 : par l'écran, dans cette phase (le garde de la campagne critique refuse toute écriture …/status).
-  offerTest("V3M05 a v3 draft prepares its client PDF from its detail page and is issued from the editor; its issued detail page shows the valid seal, the original PDF and the status actions, keeps the template closed by name, and its printout keeps the CGV its copy sealed",
+  offerTest("V3M05 a v3 draft prepares its client PDF from its detail page and is issued from the editor; its issued detail page shows the valid seal, the original PDF and the status actions, offers the template, and its printout keeps the CGV its copy sealed",
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
       const { app, screen, browser, army } = ui;
       emissionFixture();
@@ -585,7 +585,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         await expect(actions).toBeVisible({ timeout: 30_000 });
         return actions;
       };
-      const templateClosed = async (actions: Awaited<ReturnType<typeof detailActions>>) => ({
+      const templateOffer = async (actions: Awaited<ReturnType<typeof detailActions>>) => ({
         template: await presence(actions.getByRole("button", "Sauvegarder comme modèle", { exact: true })),
         reason: normalizeQuotes(await actions.textContent()).includes(normalizeQuotes(TEMPLATE_REASON)),
       });
@@ -605,11 +605,11 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await app.open(`/dashboard/estimates/${ids.versionId}`);
       const draftActions = await detailActions();
       const draftMenu = { prepare: await presence(draftActions.getByRole("button", "Préparer le PDF", { exact: true })),
-        ...await templateClosed(draftActions), summary: await summaryCard() };
-      const expectedDraftMenu = { prepare: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true,
+        ...await templateOffer(draftActions), summary: await summaryCard() };
+      const expectedDraftMenu = { prepare: { present: true, enabled: true }, template: { present: true, enabled: true }, reason: false,
         summary: { heading: "Brouillon au moteur de calcul 3", closedClaim: false } };
       await record("draft-detail-actions", { versionId: ids.versionId, expected: expectedDraftMenu, actual: draftMenu });
-      expect.soft(draftMenu, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDraftMenu);
+      expect.soft(draftMenu, "the v3 draft detail page opens the PDF and the template").toEqual(expectedDraftMenu);
       await editorReady();
       const editorSend = await presence(screen.getByTestId("estimate-page-toolbar-send-button"));
       await record("editor-send-action", { versionId: ids.versionId, expected: { present: true, enabled: true }, actual: editorSend });
@@ -658,7 +658,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         computed_hash: sent.version.seal_hash, seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
 
       // V3M-14 : la fiche de la v3 émise dit son sceau, propose le PDF original et ses actions de statut ; « Marquer
-      // accepté » garde le sceau ; le modèle reste fermé par son nom.
+      // accepté » garde le sceau ; le modèle est proposé (lot 3.2, entrée 3).
       const sealOf = () => browser.evaluate(() => Array.from(document.querySelectorAll("[data-seal-state]"))
         .map((node) => node.getAttribute("data-seal-state")));
       const statusOf = () => browser.evaluate(() => {
@@ -676,10 +676,10 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const acceptBefore = await presence(accept);
       const issuedActions = await detailActions();
       const issuedDetail = { seal: await sealOf(), status: await statusOf(), accept: acceptBefore, summary: await summaryCard(),
-        download: await presence(issuedActions.getByRole("button", "Télécharger le PDF", { exact: true })), ...await templateClosed(issuedActions) };
+        download: await presence(issuedActions.getByRole("button", "Télécharger le PDF", { exact: true })), ...await templateOffer(issuedActions) };
       const expectedIssuedDetail = { seal: ["valid"], status: "Envoyé", accept: { present: true, enabled: true },
         summary: { heading: "Devis émis au moteur de calcul 3", closedClaim: false },
-        download: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true };
+        download: { present: true, enabled: true }, template: { present: true, enabled: true }, reason: false };
       await record("issued-detail", { versionId: ids.versionId, expected: expectedIssuedDetail, actual: issuedDetail });
       expect(issuedDetail).toEqual(expectedIssuedDetail);
       await browser.keyboard.press("Escape");

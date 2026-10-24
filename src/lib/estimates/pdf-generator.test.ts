@@ -388,6 +388,65 @@ function createSupabasePdfMock(input?: PdfMockInput) {
     throw new Error(`Unexpected table: ${table}`);
   });
 
+  const callRpc = async (functionName: string, args: Record<string, unknown>) => {
+    if (functionName === "begin_estimate_pdf_generation") {
+      documentState.value = {
+        ...(documentState.value ?? {}),
+        status: "processing",
+        last_error: null,
+      };
+      return {
+        data: {
+          generation_token: GENERATION_TOKEN,
+          generation_purpose: args.p_purpose,
+          generation_dispatch_id: args.p_dispatch_id,
+          generation_content_revision: input?.contentRevision ?? 1,
+        },
+        error: null,
+      };
+    }
+
+    if (functionName === "publish_estimate_pdf_generation") {
+      if (!input?.publishError) {
+        documentState.value = {
+          ...(documentState.value ?? {}),
+          status: "ready",
+          file_path: String(args.p_file_path),
+          sha256_hash: String(args.p_sha256_hash),
+          file_size_bytes: Number(args.p_file_size_bytes),
+          generated_at: String(args.p_generated_at),
+          last_error: null,
+          published_content_revision: input?.contentRevision ?? 1,
+          published_purpose: "manual",
+        };
+      }
+      return {
+        data: input?.publishError
+          ? null
+          : {
+              status: "ready",
+              file_path: args.p_file_path,
+              sha256_hash: args.p_sha256_hash,
+            },
+        error: input?.publishError ?? null,
+      };
+    }
+
+    if (functionName === "fail_estimate_pdf_generation") {
+      documentState.value = {
+        ...(documentState.value ?? {}),
+        status: "failed",
+        last_error: String(args.p_error_message),
+      };
+      return {
+        data: { status: "failed", last_error: args.p_error_message },
+        error: null,
+      };
+    }
+
+    throw new Error(`Unexpected RPC: ${functionName}`);
+  };
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -402,64 +461,9 @@ function createSupabasePdfMock(input?: PdfMockInput) {
         createSignedUrl,
       })),
     },
-    rpc: vi.fn(async (functionName: string, args: Record<string, unknown>) => {
-      if (functionName === "begin_estimate_pdf_generation") {
-        documentState.value = {
-          ...(documentState.value ?? {}),
-          status: "processing",
-          last_error: null,
-        };
-        return {
-          data: {
-            generation_token: GENERATION_TOKEN,
-            generation_purpose: args.p_purpose,
-            generation_dispatch_id: args.p_dispatch_id,
-            generation_content_revision: input?.contentRevision ?? 1,
-          },
-          error: null,
-        };
-      }
-
-      if (functionName === "publish_estimate_pdf_generation") {
-        if (!input?.publishError) {
-          documentState.value = {
-            ...(documentState.value ?? {}),
-            status: "ready",
-            file_path: String(args.p_file_path),
-            sha256_hash: String(args.p_sha256_hash),
-            file_size_bytes: Number(args.p_file_size_bytes),
-            generated_at: String(args.p_generated_at),
-            last_error: null,
-            published_content_revision: input?.contentRevision ?? 1,
-            published_purpose: "manual",
-          };
-        }
-        return {
-          data: input?.publishError
-            ? null
-            : {
-                status: "ready",
-                file_path: args.p_file_path,
-                sha256_hash: args.p_sha256_hash,
-              },
-          error: input?.publishError ?? null,
-        };
-      }
-
-      if (functionName === "fail_estimate_pdf_generation") {
-        documentState.value = {
-          ...(documentState.value ?? {}),
-          status: "failed",
-          last_error: String(args.p_error_message),
-        };
-        return {
-          data: { status: "failed", last_error: args.p_error_message },
-          error: null,
-        };
-      }
-
-      throw new Error(`Unexpected RPC: ${functionName}`);
-    }),
+    // The version's items (readAllEstimateItems) come from the items builder; other functions from callRpc.
+    rpc: vi.fn((functionName: string, args: Record<string, unknown>) =>
+      functionName === "read_estimate_version_items" ? itemsBuilder : callRpc(functionName, args)),
     __mocks: {
       upload,
       createSignedUrl,

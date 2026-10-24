@@ -185,8 +185,8 @@ async function resolveSealIntegrity(
 /**
  * Lot 2 : fiche d'une v3 en lecture (2.6), brouillon ou émise depuis 2.7. Totaux stockés (vérifiés à
  * chaque sauvegarde, D12, figés à l'émission), TVA par taux, lignes. Comme une v1/v2 : sceau vérifié,
- * actions de statut et d'envoi, PDF et impression du document client (contrat client 2) ; seul
- * l'enregistrement comme modèle reste fermé, jusqu'en 2.8.
+ * actions de statut et d'envoi, PDF et impression du document client (contrat client 2), et depuis le
+ * lot 3.2 l'enregistrement comme modèle (copie v3 de M6).
  */
 async function renderEstimateV3Detail(input: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -236,7 +236,7 @@ async function renderEstimateV3Detail(input: {
               <PrinterIcon aria-hidden="true" />
               Imprimer
             </Link>
-            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} closedEngineV3Template />
+            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} />
             {input.canEditVersion ? (
               <Link className={buttonVariants({ variant: "primary", size: "md" })} href={`/dashboard/estimates/${versionId}/edit`}>
                 <PencilIcon aria-hidden="true" />

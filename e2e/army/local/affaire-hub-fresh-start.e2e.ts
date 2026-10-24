@@ -14,7 +14,7 @@ import { switchToExpertMode } from "./engine-v3-editor-support";
 // Défaillances observables, écrites avant la correction :
 //  H1  Une V1 chiffrée suivie d'une V2 vierge (« Créer directement ») remet le hub à son démarrage
 //      (`isAffaireFreshStartState`) : ni résumé financier, ni chronologie, ni registre, ni approbation.
-//  H2  Même démarrage quand la V2 vierge est une v3 : l'avis « … moteur de calcul 3 : V2. » n'apparaît pas.
+//  H2  Même démarrage quand la V2 vierge est une v3 : l'avis de sa marge indisponible (« … : V2. ») n'apparaît pas.
 // Gardes : sans ligne dans aucune version, le démarrage reste, même avec deux versions (HFS03) ; hors démarrage,
 // l'analyse de marge ne lit toujours que la version courante (H3, option C écartée) et le bandeau « Affaire neuve »
 // suit les seuls documents (H4, non tranché). Propriétaire dédié par parcours (politique 2 explicite), en mode
@@ -25,7 +25,7 @@ const capturing = { tags: ["critical", "local", "affaire-hub", "fresh-start"], t
 const HUB_CARDS = ["Résumé financier", "Analyse de marge", "Versions", "Registre hypothèses & pièces manquantes", "Approbation"] as const;
 /** The full hub of a v1/v2 current version without a line: its margin analysis is empty, hence no card (H3). */
 const WITHOUT_MARGIN = HUB_CARDS.filter((title) => title !== "Analyse de marge");
-const V3_NOTICE_V2 = "Évolution de la marge indisponible pour le moteur de calcul 3 : V2.";
+const V3_NOTICE_V2 = "Marge indisponible pour V2 : aucun déboursé calculable.";
 
 /** One supply line at 2 × 100,00 € in a section of the V1, by the items API (v2). */
 const pricedLine = (army: ArmyState) => ({

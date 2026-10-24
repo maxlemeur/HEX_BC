@@ -93,12 +93,11 @@ function createSupabaseGatingMock(input: {
   supplierPricesBuilder.eq.mockReturnValue(supplierPricesBuilder);
 
   return {
+    rpc: vi.fn((functionName: string) => {
+      if (functionName === "read_estimate_version_items") return estimateItemsBuilder;
+      throw new Error(`Unexpected function: ${functionName}`);
+    }),
     from: vi.fn((table: string) => {
-      if (table === "estimate_items") {
-        return {
-          select: vi.fn(() => estimateItemsBuilder),
-        };
-      }
       if (table === "margin_tiers") {
         return {
           select: vi.fn(() => marginTiersBuilder),
