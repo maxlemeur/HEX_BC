@@ -46,7 +46,8 @@ export default async function AffaireTakeoffPage({ params }: Props) {
     fetchAffaireProjectBasic(projectId),
     fetchProjectVersionList(projectId),
     fetchPlanSetsForProject(projectId),
-    fetchAffaireHubSummary(projectId),
+    // Lot 3.2 : le métré n'affiche pas la marge, il ne recalcule pas un brouillon v3 pour elle.
+    fetchAffaireHubSummary(projectId, { liveV3Margin: false }),
     fetchAffaireHubPlansSummary(projectId),
   ]);
 

@@ -37,6 +37,9 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 //  R2      Les refus nommés de M6 et les heures atelier / chantier n'ont aucune preuve sur le chemin de création.
 // Revue Codex (PR #57) :
 //  C1      Une v3 sans section (vierge) rend l'analyse vide : la carte disparaît, l'avis A16 avec elle.
+// Lot 3.2, entrée 4 (D-d revue, décision du 24/10/2026) :
+//  L1      L'évolution de la marge ne trace aucune v3 (une affaire neuve n'a jamais de graphique), et le résumé
+//          financier dit « Indisponible » pour la marge d'un brouillon v3 sans gel, que la Direction calcule en direct.
 // Chaque parcours a son propriétaire dédié ; la politique 3 (1,30 / 1,20) est refermée à 2 en fin de parcours.
 const options = { session: "army", tags: ["critical", "local", "engine-v3", "creators"], timeout: 600_000 } as const;
 // Parcours qui capturent un état visible pour la pull request : sans la session de campagne restaurée, dont la saisie
@@ -521,7 +524,7 @@ async function seedSupplyLine(ui: Ui, versionId: string, title: string, engine: 
   await releaseVersion(ui.browser, versionId);
 }
 
-armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is unavailable for engine 3", capturing,
+armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on cost, a non-current v3 draft computed live, names a blank v3, and the hub shows the live net margin of the current v3 draft", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -531,36 +534,55 @@ armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is 
     await seedSupplyLine(ui, v2Id, `${army.runPrefix} V2`, 2);
     const policy = await openPolicy3(owner, army, "V3C10");
     try {
-      const v3Id = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} V3`);
-      await seedSupplyLine(ui, v3Id, `${army.runPrefix} V3`, 3);
+      // V3 vierge, sans déboursé ; V4 : PR 100,00 € × c_FO 1,30 = 130,00 € HT, déboursé 100,00 € ; V5 (courante) :
+      // c_FO 1,10, 110,00 € HT.
+      await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} V3 vierge`);
+      const v4Id = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} V4`);
+      await seedSupplyLine(ui, v4Id, `${army.runPrefix} V4`, 3);
+      const v5Id = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} V5`, { sale_coefficient_fo: 1.1, sale_coefficient_mo: 1.05 });
+      await seedSupplyLine(ui, v5Id, `${army.runPrefix} V5`, 3);
       const versions = await storedVersions(owner, anchor.projectId);
-      expect(versions.map((version) => [version.versionNumber, version.engine])).toEqual([[1, 2], [2, 2], [3, 3]]);
+      expect(versions.map((version) => [version.versionNumber, version.engine, version.totals[0]]))
+        .toEqual([[1, 2, 11500], [2, 2, 11000], [3, 3, 0], [4, 3, 13000], [5, 3, 11000]]);
       await switchToExpertMode(ui);
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
       await expect(screen.getByRole("heading", "Analyse de marge", { exact: true })).toBeVisible({ timeout: 60_000 });
       const read = await browser.evaluate(() => {
-        const heading = Array.from(document.querySelectorAll("h2")).find((node) => (node.textContent ?? "").trim() === "Analyse de marge");
+        const clean = (text: string | null | undefined) => (text ?? "").replace(/[\s\u00a0\u202f]+/g, " ").trim();
+        const heading = Array.from(document.querySelectorAll("h2")).find((node) => clean(node.textContent) === "Analyse de marge");
         const section = heading?.closest("section");
         const chart = section?.querySelector("svg[role=\"img\"]");
+        const labels = chart ? Array.from(chart.querySelectorAll("text")).map((node) => clean(node.textContent)) : null;
+        const applied = Array.from(document.querySelectorAll("#financial p")).find((node) => clean(node.textContent) === "Marge appliquée");
         return {
-          text: (section?.textContent ?? "").replace(/\s+/g, " ").trim(),
-          chartVersions: chart ? Array.from(chart.querySelectorAll("text")).map((node) => (node.textContent ?? "").trim())
-            .filter((label) => /^V\d+$/.test(label)) : null,
+          text: clean(section?.textContent),
+          chartVersions: labels ? labels.filter((label) => /^V\d+$/.test(label)) : null,
+          chartPercents: labels ? labels.filter((label) => /%$/.test(label)) : null,
+          notice: clean(section?.querySelector("[data-testid=\"margin-evolution-v3-notice\"]")?.textContent) || null,
+          applied: clean(applied?.parentElement?.textContent).replace(/^Marge appliquée ?/, ""),
         };
       });
-      // The notice sits under the chart, below the fold: centred, clear of the sticky workflow stepper.
       await browser.evaluate(() => {
-        document.querySelector("[data-testid=\"margin-evolution-v3-notice\"]")?.scrollIntoView({ block: "center" });
+        const heading = Array.from(document.querySelectorAll("h2")).find((node) => (node.textContent ?? "").trim() === "Analyse de marge");
+        heading?.closest("section")?.querySelector("svg[role=\"img\"]")?.scrollIntoView({ block: "center" });
         return true;
       });
-      await captureScreen(ui, army, "v3c10-margin-notice");
+      await captureScreen(ui, army, "v3c10-margin-chart");
       const observed = {
-        chartVersions: read.chartVersions,
-        notice: read.text.includes("Évolution de la marge indisponible pour le moteur de calcul 3 : V3."),
+        chartVersions: read.chartVersions, chartPercents: read.chartPercents,
+        // « Marge globale » de la carte (marge sur déboursé de V5) : le dernier point du graphique la reprend.
+        global: read.text.match(/Marge globale ?(-?\d+\.\d)%/)?.[1] ?? null,
+        notice: read.notice,
+        // Marque nette en direct du brouillon V5 sans gel : (110,00 − 100,00) / 110,00 = 909 pb.
+        applied: read.applied,
         policyUnchanged: samePolicy(await policySnapshot(owner), policy),
       };
       await recordEvidence(army, "v3c10", { owner, versions, read, observed });
-      expect(observed).toEqual({ chartVersions: ["V1", "V2"], notice: true, policyUnchanged: true });
+      expect(observed).toEqual({
+        chartVersions: ["V1", "V2", "V4", "V5"], chartPercents: ["15.0%", "10.0%", "30.0%", "10.0%"], global: "10.0",
+        notice: "Marge indisponible pour V3 : aucun déboursé calculable.",
+        applied: "9.1 %", policyUnchanged: true,
+      });
     } finally {
       await closePolicy(owner, army, "V3C10");
     }
@@ -584,7 +606,7 @@ async function readMarginCard(ui: Ui, projectId: string) {
   });
 }
 
-armyTest("V3C14 the hub margin card names a blank v3 without a section as unavailable for engine 3; a blank v2 still shows no card", capturing,
+armyTest("V3C14 the hub margin card names a blank v3 without a section as having no computable margin; a blank v2 still shows no card", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -612,7 +634,7 @@ armyTest("V3C14 the hub margin card names a blank v3 without a section as unavai
       await recordEvidence(army, "v3c14", { owner, linked, versions, observed });
       expect(observed).toEqual({
         versions: [[1, 2], [2, 3]], v3Items: 0, v2Only: null,
-        withV3: { notice: "Évolution de la marge indisponible pour le moteur de calcul 3 : V2.", kpis: false, chart: false },
+        withV3: { notice: "Marge indisponible pour V2 : aucun déboursé calculable.", kpis: false, chart: false },
         policyUnchanged: true,
       });
     } finally {
