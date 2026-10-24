@@ -62,6 +62,7 @@ function createLine(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
+    fo_provision: 1,
     h_mo: 1,
     h_mo_majoration: 1,
     k_mo: 1,

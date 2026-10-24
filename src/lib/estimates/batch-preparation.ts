@@ -9,6 +9,7 @@ import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/e
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
 } from "@/lib/estimates/estimate-placement-helpers";
+import { deriveFoProvision, supplyTypeChanged } from "@/lib/estimates/fo-provision";
 import {
   buildHierarchyIndex, clampMaxSectionDepth, getDefaultSectionTitleForLevel,
   isAncestorOrSelf, resolveSectionLevel, type HierarchyIndex,
@@ -153,6 +154,11 @@ export async function prepareEstimateBatch(input: {
   }
   const changedLineIds = new Set<string>();
   const checkedReferences = new Map<string, Promise<void>>();
+  // TI-534: the supply type provisions read by the reference checks, for the mirror of
+  // private.derive_estimate_item_fo_provision (1.000 on v1/v2 and on sections).
+  const supplyTypeProvisions = new Map<string, number>();
+  const foProvisionOf = (supplyTypeId: string | null) =>
+    perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions) : 1;
 
   function references(data: Partial<Item>) {
     const checks: Promise<void>[] = [];
@@ -170,6 +176,12 @@ export async function prepareEstimateBatch(input: {
               .eq("tenant_id", tenantId).eq("user_id", input.projectUserId).eq("id", id).maybeSingle();
             if (error) throw unavailable();
             if (!found) throw badRequest(`${field} invalide.`);
+          } else if (table === "supply_types") {
+            const { data: found, error } = await supabase.from("supply_types").select("id, default_fo_provision")
+              .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
+            if (error) throw unavailable();
+            if (!found) throw badRequest(`${field} invalide.`);
+            supplyTypeProvisions.set(found.id.toLowerCase(), Number(found.default_fo_provision));
           } else {
             const { data: found, error } = await supabase.from(table).select("id")
               .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
@@ -277,7 +289,7 @@ export async function prepareEstimateBatch(input: {
           parent_id: parentId, item_type: data.item_type, position,
           title: data.title ?? (isLine ? "Nouvelle ligne" : getDefaultSectionTitleForLevel((parentLevel ?? 0) + 1)),
           aid: data.aid ?? null, description: null, line_nature: null,
-          quantity: null, unit_price_ht_cents: null, tax_rate_bp: null, k_fo: null, h_mo: null,
+          quantity: null, unit_price_ht_cents: null, tax_rate_bp: null, k_fo: null, fo_provision: 1, h_mo: null,
           h_mo_majoration: 1, k_mo: null, labor_role_id: null, category_id: null,
           h_mo_atelier: null, k_mo_atelier: null, labor_role_atelier_id: null,
           h_mo_chantier: null, k_mo_chantier: null, labor_role_chantier_id: null,
@@ -300,6 +312,7 @@ export async function prepareEstimateBatch(input: {
         validateAid(item);
         validatePlacement(item);
         await references(item);
+        if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id);
         items.set(item.id, item);
         const sourceMetadata = suppliedMetadata.get(index);
         createdIds.push(sourceMetadata ? { index, id: item.id, source_metadata: sourceMetadata } : { index, id: item.id });
@@ -319,6 +332,7 @@ export async function prepareEstimateBatch(input: {
         for (const field of DERIVED_FIELDS) next[field] = current[field];
         if (next.item_type === "line") {
           next.line_nature = resolvePromotedEstimateLineNature(current, patch);
+          if (supplyTypeChanged(current.supply_type_id, next.supply_type_id)) next.fo_provision = foProvisionOf(next.supply_type_id);
           changedLineIds.add(next.id);
         }
         validatePlacement(next);

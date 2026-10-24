@@ -178,7 +178,7 @@ const totalsOf = (state: ArmyEstimate) => [state.version.total_ht_cents, state.v
 const CURRENCY_FORMATS = { EUR: "#,##0.00 \"€\"", USD: "\"$\"#,##0.00", GBP: "\"£\"#,##0.00" } as const;
 type Currency = keyof typeof CURRENCY_FORMATS;
 const dpgfHeader = (currency: Currency) => ["Type", "AID", "Désignation", "Quantité", "Unité", "Statut", "TVA (%)",
-  `Prix unitaire HT ${currency}`, "Type FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
+  `Prix unitaire HT ${currency}`, "Type FO", "Provision FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
   "h MO Atelier / unité", "K MO Atelier", "Rôle MO Atelier", "h MO Chantier / unité", "K MO Chantier", "Rôle MO Chantier",
   `PU vente HT ${currency}`, `Total HT brut ${currency}`];
 const FOOTER_FIELD = /^(Total HT brut|Remise commerciale|Arrondi commercial|Total HT net|TVA |Total TVA|Total TTC)/u;
@@ -492,7 +492,7 @@ async function downloadFrom(browser: Browser, url: RegExp, trigger: () => Promis
 }
 
 const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Type FO",
-  "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
+  "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
   "Total HT (EUR)", "TVA (%)"];
 // En-tête BDC V1.1 (bdc-export.ts) : inchangé et dans cet ordre pour toute version ; une v3 ajoute ses colonnes à la fin.
 const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Quantité", "Type FO", "PU FO HT EUR", "PR FO HT EUR", "K FO",

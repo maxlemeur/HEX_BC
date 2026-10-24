@@ -2357,7 +2357,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const { data: itemsData, error: itemsError } = await readAllRows(() => context.supabase
     .from("estimate_items")
     .select(
-      "id, parent_id, item_type, position, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, pu_ht_cents, labor_role_id, category_id, supply_type_id, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, unit_code, pricing_status, h_mo_per_unit, h_mo_atelier_per_unit, h_mo_chantier_per_unit",
+      "id, parent_id, item_type, position, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, fo_provision, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, pu_ht_cents, labor_role_id, category_id, supply_type_id, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, unit_code, pricing_status, h_mo_per_unit, h_mo_atelier_per_unit, h_mo_chantier_per_unit",
       { count: "exact" }
     )
     .eq("tenant_id", context.tenantId)

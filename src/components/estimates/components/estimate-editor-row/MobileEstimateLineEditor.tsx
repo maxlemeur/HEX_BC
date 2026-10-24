@@ -16,6 +16,8 @@ import {
 } from "@/components/estimates/v3/V3LineCells";
 import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
 import {
+  FO_PROVISION_CELL_TITLE,
+  formatFoProvision,
   formatMajorationPercentInput,
   parseAmountDraft,
   parseCoefficientDraft,
@@ -376,6 +378,14 @@ export function MobileEstimateLineEditor({
                   />
                 </Field>
               </div>
+              {isV3 ? (
+                <p className="text-xs text-[var(--slate-600)]" title={FO_PROVISION_CELL_TITLE}>
+                  {"Provision FO (automatique, selon le type) : "}
+                  <output aria-label={`Provision FO pour ${lineLabel}`} className="font-semibold tabular-nums">
+                    {formatFoProvision(item.fo_provision)}
+                  </output>
+                </p>
+              ) : null}
               <Field label="Majoration main d’œuvre (%)">
                 <DecimalDraftInput
                   className={inputClassName}

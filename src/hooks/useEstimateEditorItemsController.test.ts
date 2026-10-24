@@ -18,6 +18,8 @@ EditorEstimateItem,
 EstimateItem,
 EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import { withRederivedFoProvision } from "@/lib/estimates/fo-provision";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 
 const mocks = vi.hoisted(() => ({
   createEstimateItem: vi.fn(),
@@ -38,6 +40,7 @@ type HarnessProps = {
   initialItems: EditorEstimateItem[];
   isMutationBlocked?: boolean;
   reloadItemsResult?: EditorEstimateItem[];
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 function createDeferred<T>() {
@@ -133,6 +136,7 @@ function createItem(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
+    fo_provision: 1,
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,
@@ -249,6 +253,7 @@ function useItemsControllerHarness(
     enqueueItemUpdate: dependencies.enqueueItemUpdate,
     pushHistoryCommand: dependencies.pushHistoryCommand,
     reloadItems,
+    v3Writer: props.v3Writer,
   };
   const controller = useEstimateEditorItemsController(input);
 
@@ -284,6 +289,87 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorItemsController", () => {
+
+  describe("TI-534 FO provision on a v3", () => {
+    const TUBE = "8f9a1b2c-0000-4000-8000-000000000041";
+    const RACCORD = "8f9a1b2c-0000-4000-8000-000000000042";
+    const PROVISIONS = new Map([[TUBE, 1.03], [RACCORD, 1.01]]);
+
+    function createV3Writer(): EstimateV3EditorWriter {
+      return {
+        deleteItems: vi.fn().mockResolvedValue({ id: "version-1", updated_at: "token-after-delete" }),
+        updateItems: vi.fn().mockResolvedValue({ id: "version-1", updated_at: "token-after-update" }),
+        buildInsertPayload: vi.fn((versionId: string, item: EstimateItem) => ({ version_id: versionId, item_type: item.item_type, title: item.title })),
+        buildUpdatePayload: vi.fn((item: EstimateItem) => ({ title: item.title })),
+      };
+    }
+
+    // The editor state's mirror: a supply type change re-derives the provision against the current row.
+    function mirrorDependencies(currentItems: () => EditorEstimateItem[]) {
+      const dependencies = createDependencies();
+      dependencies.normalizePatchedItem.mockImplementation((item: EditorEstimateItem) =>
+        withRederivedFoProvision(currentItems().find((candidate) => candidate.id === item.id), item, PROVISIONS));
+      return dependencies;
+    }
+
+    it("starts a new line at 1.010 and keeps the provision of a type chosen before confirmation", async () => {
+      const deferred = createDeferred<EstimateItem>();
+      mocks.createEstimateItem.mockImplementationOnce(() => deferred.promise);
+      let current: () => EditorEstimateItem[] = () => [];
+      const { result } = renderController(
+        { version: createVersion({ calc_engine_version: 3 }), initialItems: [], v3Writer: createV3Writer() },
+        mirrorDependencies(() => current()),
+      );
+      current = () => result.current.items;
+
+      let createRequest!: Promise<void>;
+      act(() => {
+        createRequest = result.current.actions.addLine(null);
+      });
+      const tempId = findTempItem(result.current.items)?.id as string;
+      expect(findTempItem(result.current.items)?.fo_provision).toBe(1.01);
+
+      await act(async () => {
+        await result.current.actions.patchItem(tempId, { supply_type_id: TUBE }, { persist: true });
+      });
+      expect(findTempItem(result.current.items)?.fo_provision).toBe(1.03);
+
+      // The server row was created without a type (1.010); the queued patch makes it re-derive 1.030.
+      await act(async () => {
+        deferred.resolve(createItem("line-real", { fo_provision: 1.01, supply_type_id: null }));
+        await createRequest;
+      });
+      expect(result.current.items).toEqual([
+        expect.objectContaining({ id: "line-real", supply_type_id: TUBE, fo_provision: 1.03 }),
+      ]);
+    });
+
+    it("re-derives the provision when a supply type change is undone, as the writer does", async () => {
+      const legacy = createItem("line-legacy", { supply_type_id: TUBE, fo_provision: 1 });
+      let current: () => EditorEstimateItem[] = () => [];
+      const { result, dependencies } = renderController(
+        { version: createVersion({ calc_engine_version: 3 }), initialItems: [legacy], v3Writer: createV3Writer() },
+        mirrorDependencies(() => current()),
+      );
+      current = () => result.current.items;
+
+      await act(async () => {
+        await result.current.actions.patchItem(legacy.id, { k_fo: 1.2 }, { persist: true });
+      });
+      expect(result.current.items[0]).toMatchObject({ k_fo: 1.2, fo_provision: 1 });
+
+      await act(async () => {
+        await result.current.actions.patchItem(legacy.id, { supply_type_id: RACCORD }, { persist: true });
+      });
+      expect(result.current.items[0]).toMatchObject({ supply_type_id: RACCORD, fo_provision: 1.01 });
+
+      const command = dependencies.pushHistoryCommand.mock.calls.at(-1)?.[0] as EstimateEditorHistoryCommand;
+      await act(async () => {
+        await command.undo();
+      });
+      expect(result.current.items[0]).toMatchObject({ supply_type_id: TUBE, fo_provision: 1.03 });
+    });
+  });
 
   it("applies the refreshed version token before persisting edits queued during creation", async () => {
     const deferred = createDeferred<EstimateItem>();

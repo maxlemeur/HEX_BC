@@ -562,6 +562,7 @@ export type EstimateItemRecord = EstimateLineLike & {
   labor_role_chantier_id?: string | null;
   category_id: string | null;
   supply_type_id?: string | null;
+  fo_provision?: number | null;
   line_total_ht_cents: number | null;
   line_tax_cents: number | null;
   line_total_ttc_cents: number | null;

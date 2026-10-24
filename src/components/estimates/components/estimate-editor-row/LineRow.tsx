@@ -61,6 +61,8 @@ import {
   type LaborRole,
   type SupplierAlternative,
   formatCentsInput,
+  FO_PROVISION_CELL_TITLE,
+  formatFoProvision,
   formatNumberDisplay,
   getQualityFlagCellTarget,
   parseCoefficientDraft,
@@ -961,6 +963,17 @@ export function LineRow({
             onCommit={(id) => onPatchItem(item.id, { supply_type_id: id }, { persist: true })}
             disabled={isReadOnly}
           />
+        </div>
+      ) : null}
+      {v3Grid && (!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled) ? (
+        <div
+          data-estimate-column="fo_provision"
+          role="gridcell"
+          className="estimate-cell estimate-cell--readonly estimate-col--fo"
+          title={FO_PROVISION_CELL_TITLE}
+          data-testid="estimate-line-fo-provision"
+        >
+          <span>{formatFoProvision(item.fo_provision)}</span>
         </div>
       ) : null}
       {!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled ? (

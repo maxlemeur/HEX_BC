@@ -106,6 +106,7 @@ import {
   type EstimateVersionTotalsPatch,
   type LaborRole,
 } from "@/lib/estimates/editor-items";
+import { withRederivedFoProvision } from "@/lib/estimates/fo-provision";
 import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
@@ -1152,6 +1153,15 @@ export function useEstimateEditorState({
     return map;
   }, [supplyTypes]);
 
+  // TI-534 : provision FO par type, pour redériver celle d'une ligne v3 dont le type FO change.
+  const foProvisionBySupplyTypeId = useMemo(() => {
+    const map = new Map<string, number>();
+    supplyTypes.forEach((supplyType) => {
+      map.set(supplyType.id.toLowerCase(), Number(supplyType.default_fo_provision));
+    });
+    return map;
+  }, [supplyTypes]);
+
   const supplyTypeIdByLowerName = useMemo(() => {
     const map = new Map<string, string>();
     supplyTypes.forEach((supplyType) => {
@@ -1875,8 +1885,13 @@ export function useEstimateEditorState({
 
   const normalizePatchedItem = useCallback(
     (item: EditorEstimateItem) => {
-      // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3.
-      if (item.item_type !== "line" || isV3) return item;
+      if (item.item_type !== "line") return item;
+      if (isV3) {
+        // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3. Un changement de type
+        // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
+        const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
+        return withRederivedFoProvision(current, item, foProvisionBySupplyTypeId);
+      }
       const taxRate =
         item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
       let marginMultiplier = settings?.margin_multiplier ?? 1;
@@ -1913,6 +1928,7 @@ export function useEstimateEditorState({
     [
       calcEngineVersion,
       computeLineValuesWithLaborContext,
+      foProvisionBySupplyTypeId,
       getItemsSnapshot,
       isLaborSplitEnabled,
       isV3,
