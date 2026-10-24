@@ -52,6 +52,22 @@ générateur ni un nouvel attendu construit par le moteur de production.
 | Hydraulique fictive | 7 161 553 | 6 729 803 | 5 508 747 | 1.221658 |
 | Plomberie fictive | 5 974 745 | 5 614 445 | 4 595 840 | 1.221636 |
 
+TI-534 : une ligne v3 créée reçoit la provision FO de son type, 1,01 sans type ; les
+lignes importées n'ont pas de type FO. Le chiffrage créé par IO01 et IO03 vaut donc la même
+somme avec `PR_FO × 101/100` : `Σ Q × demi_supérieur((1313 × PR_FO + 1300 × MO) / 1000)`,
+puis 1 200 pour le coefficient MO, puis `Σ Q × demi_supérieur((1010 × PR_FO + 1000 × MO) / 1000)`.
+Ce sont les littéraux de `corpus.ts`. L'aperçu de l'import et `verify.ts` restent à la
+provision 1 : ils contrôlent la lecture du classeur, pas le chiffrage créé.
+
+| Lot (chiffrage créé, provision 1,01) | HT classeur (c) | HT offre (c) | Coût (c) | Coefficient réalisé |
+| --- | ---: | ---: | ---: | --- |
+| Hydraulique fictive | 7 176 891 | 6 745 141 | 5 520 631 | 1.221806 |
+| Plomberie fictive | 5 987 528 | 5 627 228 | 4 605 747 | 1.221784 |
+
+Chaque PU créé vaut le contrôle « Prix Unitaire » plus 1 % de la part FO de vente, à 1 c
+près (deux arrondis au demi-centime). Les oracles du corpus privé datent d'avant TI-534 :
+une campagne privée doit d'abord les rejouer avec les originaux.
+
 La comparaison des contrôles du classeur avec chaque PU conserve notamment les
 demi-centimes. Les prix sont fictifs aussi ; renommer les libellés des anciens
 documents n'aurait pas satisfait ce contrat.

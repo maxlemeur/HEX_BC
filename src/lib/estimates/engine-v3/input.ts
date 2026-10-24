@@ -23,6 +23,8 @@ import type { EstimateV3PricingStatus, EstimateV3RoundingMode } from "@/lib/esti
 
 const QUANTITY_BOUNDS = columnBounds(12, 3);
 const COST_COEFFICIENT_BOUNDS = columnBounds(12, 3);
+/** TI-534 : provision FO, `numeric(4,3)` comme `estimate_items.fo_provision`. */
+const FO_PROVISION_BOUNDS = columnBounds(4, 3);
 const MAJORATION_BOUNDS = columnBounds(12, 4);
 const HOURS_PER_UNIT_BOUNDS = columnBounds(12, 4);
 const SALE_COEFFICIENT_BOUNDS: DecimalBounds = {
@@ -69,6 +71,8 @@ export type NormalizedV3Line = {
   taxRateBp: bigint;
   quantity: Decimal;
   unitPriceCents: Decimal;
+  /** TI-534 : FO_u = P × provision FO × K FO. */
+  foProvision: Decimal;
   kFo: Decimal;
   hoursPerUnit: Decimal | null;
   hoursAtelierPerUnit: Decimal | null;
@@ -201,6 +205,7 @@ function normalizeLine(raw: Bag, path: string, id: string, mode: DecimalReadMode
     taxRateBp: requiredDecimal(raw, "tax_rate_bp", path, BASIS_POINTS_BOUNDS, mode).units,
     quantity: optionalDecimal(raw, "quantity", path, QUANTITY_BOUNDS, mode) ?? DECIMAL_ZERO,
     unitPriceCents: optionalDecimal(raw, "unit_price_ht_cents", path, INTEGER_BOUNDS, mode) ?? DECIMAL_ZERO,
+    foProvision: optionalDecimal(raw, "fo_provision", path, FO_PROVISION_BOUNDS, mode) ?? DECIMAL_ONE,
     kFo: optionalDecimal(raw, "k_fo", path, COST_COEFFICIENT_BOUNDS, mode) ?? DECIMAL_ONE,
     hoursPerUnit: optionalDecimal(raw, "h_mo_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),
     hoursAtelierPerUnit: optionalDecimal(raw, "h_mo_atelier_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),

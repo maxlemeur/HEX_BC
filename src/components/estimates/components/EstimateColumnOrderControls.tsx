@@ -2,8 +2,13 @@
 
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { IconButton } from "@/components/ui/icon-button";
-import { ESTIMATE_COLUMN_GROUPS, ESTIMATE_COLUMN_LABELS } from "@/hooks/useEstimateColumnOrder";
+import {
+  ESTIMATE_COLUMN_GROUPS,
+  ESTIMATE_COLUMN_LABELS,
+  ESTIMATE_V3_ONLY_COLUMN_IDS,
+} from "@/hooks/useEstimateColumnOrder";
 import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
 
 type Props = {
@@ -13,6 +18,8 @@ type Props = {
 };
 
 export function EstimateColumnOrderControls({ order, isLaborSplitEnabled, onMoveColumn }: Props) {
+  // TI-534 : une v1/v2 n'a pas de colonne « Provision FO ».
+  const isV3 = useEstimateV3Grid() !== null;
   const applicableGroups = ESTIMATE_COLUMN_GROUPS.filter((group) => {
     if (group[0] === "designation") return false;
     const splitGroup = group[0] === "labor_hours_workshop" || group[0] === "labor_hours_site";
@@ -27,7 +34,7 @@ export function EstimateColumnOrderControls({ order, isLaborSplitEnabled, onMove
         La désignation reste fixe. Les groupes de calcul restent réunis.
       </p>
       {applicableGroups.map((group) => {
-        const columns = order.filter((id) => group.includes(id));
+        const columns = order.filter((id) => group.includes(id) && (isV3 || !ESTIMATE_V3_ONLY_COLUMN_IDS.has(id)));
         return (
           <div key={group[0]} className="border-t border-border py-1">
             {columns.map((id, index) => (

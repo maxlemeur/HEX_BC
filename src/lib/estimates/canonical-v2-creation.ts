@@ -21,11 +21,12 @@ import {
   usesPerUnitLabor,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import { badRequest, internalError } from "@/lib/estimates/errors";
+import { badRequest, internalError, mapSupabaseError } from "@/lib/estimates/errors";
 import {
   assertTemplateLaborRolesOwnedForV3,
   templateHoursWithoutQuantityMessage,
 } from "@/lib/estimates/estimate-template-helpers";
+import { deriveFoProvision, loadSupplyTypeFoProvisions } from "@/lib/estimates/fo-provision";
 import {
   buildHierarchyIndex,
   DEFAULT_MAX_SECTION_DEPTH,
@@ -1018,10 +1019,15 @@ export async function persistCanonicalEstimateV2(
       // Ligne sans TVA (modèle) : celle de la version, comme le déclencheur v3 et l'insertion M6.
       const v3Items = sourceResult.items.map((item) =>
         item.item_type === "line" && item.tax_rate_bp == null ? { ...item, tax_rate_bp: versionPayload.tax_rate_bp } : item);
+      // TI-534 : provision FO que le déclencheur donne à chaque ligne créée, selon son type FO.
+      const { provisions: foProvisions, error: foProvisionError } = await loadSupplyTypeFoProvisions(
+        input.supabase, input.tenantId, v3Items.map((item) => item.supply_type_id));
+      if (foProvisionError) throw mapSupabaseError(foProvisionError, "Impossible de lire les types de fourniture.");
       const lineItems = v3Items
         .filter((item) => item.item_type === "line")
         .map((item) => ({
           ...toCalculationItem(item),
+          fo_provision: deriveFoProvision(item.supply_type_id, foProvisions),
           unit_code: item.unit_code ?? null,
           pricing_status: item.pricing_status ?? "priced",
           h_mo_per_unit: item.h_mo_per_unit ?? null,

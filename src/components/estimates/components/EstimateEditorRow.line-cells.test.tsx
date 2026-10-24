@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorRow } from "@/components/estimates/components/EstimateEditorRow";
 import { EstimateColumnOrderContext } from "@/components/estimates/context/EstimateColumnOrderContext";
+import { EstimateV3GridProvider } from "@/components/estimates/v3/V3LineCells";
 import { DEFAULT_ESTIMATE_COLUMN_ORDER, normalizeEstimateColumnOrder } from "@/hooks/useEstimateColumnOrder";
 import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
 import type { Database } from "@/types/database";
@@ -169,8 +170,9 @@ function renderRow(isLaborSplitEnabled: boolean, order: readonly EstimateColumnI
 function renderRowWithItem(
   item: EstimateItem,
   laborRateCents = 4500,
+  options: { v3?: boolean } = {},
 ) {
-  return render(
+  const row = (
     <EstimateEditorRow
       versionId="version-1"
       estimateCurrency="EUR"
@@ -205,9 +207,28 @@ function renderRowWithItem(
       isLaborSplitEnabled={false}
     />
   );
+  return render(
+    options.v3 ? <EstimateV3GridProvider value={{ lines: new Map() }}>{row}</EstimateV3GridProvider> : row
+  );
 }
 
 describe("EstimateEditorRow line cells", () => {
+  it("shows the stored FO provision before K FO on a v3 grid only (TI-534)", () => {
+    const item = createItem({ fo_provision: 1.03, supply_type_id: "type-tube" } as Partial<EstimateItem>);
+    const v1 = renderRowWithItem(item);
+    expect(v1.container.querySelector('[data-estimate-column="fo_provision"]')).toBeNull();
+    v1.unmount();
+
+    const v3 = renderRowWithItem(item, 4500, { v3: true });
+    const cells = [...v3.container.querySelectorAll("[data-estimate-column]")]
+      .map((cell) => cell.getAttribute("data-estimate-column"));
+    expect(cells.indexOf("fo_provision")).toBe(cells.indexOf("k_fo") - 1);
+    const provision = within(v3.container).getByTestId("estimate-line-fo-provision");
+    expect(provision).toHaveTextContent("1,03");
+    expect(provision.getAttribute("title")).toContain("avant le K FO");
+    expect(provision.querySelector("input")).toBeNull();
+  });
+
   it("keeps actual line cells in the configured column order for standard and split labor", () => {
     const order = normalizeEstimateColumnOrder(["k_fo", "supply_price", "supply_type", "labor_role", "labor_hours", "k_mo", "labor_role_workshop", "labor_hours_workshop"]);
     const standard = renderRow(false, order);

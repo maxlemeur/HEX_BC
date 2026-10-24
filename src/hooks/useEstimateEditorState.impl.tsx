@@ -107,6 +107,13 @@ import {
   type LaborRole,
 } from "@/lib/estimates/editor-items";
 import {
+  foProvisionsBySupplyType,
+  withBufferedFoProvision,
+  withRederivedFoProvision,
+  withServerFoProvisions,
+  type FoProvisionBySupplyTypeId,
+} from "@/lib/estimates/fo-provision";
+import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
 } from "@/lib/estimate-editor-virtualization";
@@ -120,6 +127,7 @@ import {
   duplicateEstimateSection,
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
+  type EstimateBatchOperationResult,
   type EstimateEditorData,
   fetchEstimateItemsForVersion,
   fetchEstimateSuggestionLearnings,
@@ -507,6 +515,7 @@ export function useEstimateEditorState({
 
   const itemsRef = useRef<EditorEstimateItem[]>([]);
   const versionRef = useRef<EstimateVersionView | null>(null);
+  const foProvisionsRef = useRef<FoProvisionBySupplyTypeId>(new Map());
   const loadedReadIdentityRef = useRef<{
     actorId: string;
     tenantId: string;
@@ -590,11 +599,13 @@ export function useEstimateEditorState({
       totalsPatch,
       updatedAt,
       contentRevision,
+      results,
     }: {
       versionId: string;
       totalsPatch: EstimateVersionTotalsPatch | undefined;
       updatedAt: string;
       contentRevision?: number;
+      results?: readonly EstimateBatchOperationResult[];
     }) => {
       setVersion((previous) =>
         previous?.id === versionId &&
@@ -616,6 +627,8 @@ export function useEstimateEditorState({
           ...(contentRevision !== undefined ? { content_revision: contentRevision } : {}),
         };
       }
+      // TI-534 : la provision FO stockée par le lot fait foi pour une ligne dont le type FO n'a pas changé depuis.
+      if (results?.length && versionRef.current?.id === versionId) setItems((previous) => withServerFoProvisions(previous, results));
     },
     []
   );
@@ -629,6 +642,15 @@ export function useEstimateEditorState({
   const hasUnsavedSettings = useMemo(
     () => haveEstimateSettingsChanged(settings, savedSettings) || Boolean(v3Settings?.isDirty),
     [savedSettings, settings, v3Settings?.isDirty]
+  );
+
+  // TI-534 : une ligne v3 recouverte d'un type FO en attente (brouillon local, rechargement) reprend la provision de
+  // ce type, comme l'écriture la redérivera. Lu dans les références : le premier chargement recouvre ses lignes avant
+  // que la version et les types FO ne soient dans l'état.
+  const deriveBufferedItem = useCallback(
+    (source: EditorEstimateItem, merged: EditorEstimateItem) => withBufferedFoProvision(source, merged,
+      foProvisionsRef.current, resolveEditorEngineContext(versionRef.current).isV3),
+    []
   );
 
   const syncController = useEstimateEditorSyncController({
@@ -657,6 +679,7 @@ export function useEstimateEditorState({
     getVersionSnapshot,
     getPersistedTotals,
     replaceItems: setItems,
+    deriveBufferedItem,
     applyRestoredDraft,
     applyVersionFlushResult,
     setTotalsOutOfSync,
@@ -854,6 +877,7 @@ export function useEstimateEditorState({
           data.versionZeroSummary ?? null,
           { autoOpen: shouldAutoOpenVersionZero }
         );
+        foProvisionsRef.current = foProvisionsBySupplyType(data.supplyTypes ?? []);
         setItems(initialLoadHandlersRef.current.applyPendingBufferedUpdatesToItems(normalizedItems));
         setCategories(data.categories ?? []);
         setSupplyTypes(data.supplyTypes ?? []);
@@ -1151,6 +1175,9 @@ export function useEstimateEditorState({
     });
     return map;
   }, [supplyTypes]);
+
+  // TI-534 : provision FO par type, pour redériver celle d'une ligne v3 dont le type FO change.
+  const foProvisionBySupplyTypeId = useMemo(() => foProvisionsBySupplyType(supplyTypes), [supplyTypes]);
 
   const supplyTypeIdByLowerName = useMemo(() => {
     const map = new Map<string, string>();
@@ -1875,8 +1902,13 @@ export function useEstimateEditorState({
 
   const normalizePatchedItem = useCallback(
     (item: EditorEstimateItem) => {
-      // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3.
-      if (item.item_type !== "line" || isV3) return item;
+      if (item.item_type !== "line") return item;
+      if (isV3) {
+        // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3. Un changement de type
+        // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
+        const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
+        return withRederivedFoProvision(current, item, foProvisionBySupplyTypeId);
+      }
       const taxRate =
         item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
       let marginMultiplier = settings?.margin_multiplier ?? 1;
@@ -1913,6 +1945,7 @@ export function useEstimateEditorState({
     [
       calcEngineVersion,
       computeLineValuesWithLaborContext,
+      foProvisionBySupplyTypeId,
       getItemsSnapshot,
       isLaborSplitEnabled,
       isV3,

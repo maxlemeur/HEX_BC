@@ -8,7 +8,9 @@
 //   by amount or rate (capped or not), commercial rounding down, sections, clone lines that tie in
 //   the allocations, upper-case ids;
 // - named edge cases where both engines must refuse with the same code (input or overflow),
-//   some written as raw JSON text (number literals beyond a double, decimal strings, exponents).
+//   some written as raw JSON text (number literals beyond a double, decimal strings, exponents);
+// - TI-534: an FO provision on 60 % of the random lines, drawn from a second generator so the
+//   other draws (and the cases above) stay those of the seed, and its own edge cases.
 // Both sides read the same canonical JSON text: the TS adapter parses it at the source of each
 // number literal, the SQL twin reads it as jsonb.
 
@@ -275,9 +277,35 @@ function edgeCases(): Array<[string, ParityCase["input"]]> {
   ];
 }
 
+/** TI-534: FO provisions of the editor (1.010, 1.030), neutral 1 and random ones within the column, numeric(4,3). */
+function randomFoProvision(random: Random) {
+  return maybe(random, 0.6, () => (random() < 0.7 ? pick(random, [1, 1.01, 1.03, 1.5]) : scaled(int(random, 9_999), 3)));
+}
+
+/** TI-534: the FO provision read by both engines (absent or null = 1, at most 3 decimals, within [0, 9.999]). */
+function foProvisionEdgeCases(): Array<[string, RawText]> {
+  const marker = "__LITERAL__";
+  const lineWith = (overrides: Record<string, unknown>, literal?: string): RawText => ({
+    params: JSON.stringify(EDGE_PARAMS),
+    items: JSON.stringify([{ ...EDGE_LINE, unit_price_ht_cents: 1000, ...overrides }]).replace(`"${marker}"`, literal ?? `"${marker}"`),
+  });
+  return [
+    ["FO provision 1.03 with k_fo 2 (FO = P x provision x k_fo)", lineWith({ fo_provision: 1.03, k_fo: 2 })],
+    ["FO provision null reads as 1", lineWith({ fo_provision: null })],
+    ["FO provision on a half-cent", lineWith({ fo_provision: 1.005, unit_price_ht_cents: 100 })],
+    ["FO provision at the column maximum", lineWith({ fo_provision: 9.999 })],
+    ["FO provision with 4 decimals", lineWith({ fo_provision: 1.0001 })],
+    ["negative FO provision", lineWith({ fo_provision: -1 })],
+    ["FO provision beyond numeric(4,3)", lineWith({ fo_provision: 10 })],
+    ["FO provision written as a decimal string", lineWith({ fo_provision: marker }, '"1.01"')],
+  ];
+}
+
 /** Every case, in a stable order, with consecutive ids from 1. */
 export function generateParityCases(seed = DEFAULT_PARITY_SEED): ParityCase[] {
   const random = mulberry32(seed);
+  const provisionRandom = mulberry32(seed + 534);
+  const withFoProvision = (line: Record<string, unknown>) => ({ ...line, fo_provision: randomFoProvision(provisionRandom) });
   const cases: ParityCase[] = [];
   const push = (family: ParityCase["family"], label: string, input: ParityCase["input"], raw?: RawText) =>
     cases.push({
@@ -290,14 +318,23 @@ export function generateParityCases(seed = DEFAULT_PARITY_SEED): ParityCase[] {
   for (let n = 0; n < PARITY_LINE_COUNT; n += 1) {
     push("line", `line ${n + 1}`, {
       params: randomParams(random, "line"),
-      items: [randomLine(random, uuid(random), null, "line")],
+      items: [withFoProvision(randomLine(random, uuid(random), null, "line"))],
     });
   }
   for (let n = 0; n < PARITY_ESTIMATE_COUNT; n += 1) {
-    push("estimate", `estimate ${n + 1}`, randomEstimate(random));
+    const estimate = randomEstimate(random);
+    // A clone line keeps the provision of its model, as it keeps its other columns.
+    const provisions = new Map<string, unknown>();
+    const items = estimate.items.map((item) => {
+      if (item.item_type !== "line") return item;
+      const signature = JSON.stringify({ ...item, id: null, parent_id: null });
+      if (!provisions.has(signature)) provisions.set(signature, randomFoProvision(provisionRandom));
+      return { ...item, fo_provision: provisions.get(signature) };
+    });
+    push("estimate", `estimate ${n + 1}`, { params: estimate.params, items });
   }
   for (const [label, input] of edgeCases()) push("edge", label, input);
-  for (const [label, raw] of rawEdgeCases()) {
+  for (const [label, raw] of [...rawEdgeCases(), ...foProvisionEdgeCases()]) {
     push("edge", label, { params: JSON.parse(raw.params), items: JSON.parse(raw.items) }, raw);
   }
   return cases;
@@ -312,16 +349,19 @@ const pow10 = (scale: number) => BigInt(`1${"0".repeat(scale)}`);
 
 /** True when FO_u × c_FO + MO_u × c_MO (without the split) ends exactly on a half-cent. */
 function endsOnHalfCent(item: Record<string, unknown>, params: Record<string, unknown>) {
-  // FO term at scale 0 + 3 + 4 = 7, MO term at scale 4 + 4 + 0 + 3 + 4 = 15; both brought to 18.
+  // FO term at scale 0 + 3 + 3 + 4 = 10, MO term at scale 4 + 4 + 0 + 3 + 4 = 15; both brought to 18.
   const fo =
-    decimalUnits(item.unit_price_ht_cents, 0) * decimalUnits(item.k_fo ?? 1, 3) * decimalUnits(params.sale_coefficient_fo, 4);
+    decimalUnits(item.unit_price_ht_cents, 0) *
+    decimalUnits(item.fo_provision ?? 1, 3) *
+    decimalUnits(item.k_fo ?? 1, 3) *
+    decimalUnits(params.sale_coefficient_fo, 4);
   const mo =
     decimalUnits(item.h_mo_majoration ?? 1, 4) *
     decimalUnits(item.h_mo_per_unit, 4) *
     decimalUnits(item.labor_rate_cents, 0) *
     decimalUnits(item.k_mo ?? 1, 3) *
     decimalUnits(params.sale_coefficient_mo, 4);
-  const value = fo * pow10(11) + mo * pow10(3);
+  const value = fo * pow10(8) + mo * pow10(3);
   return (value % pow10(18)) * BigInt(2) === pow10(18);
 }
 
@@ -342,6 +382,9 @@ export function describeParityCoverage(cases: ParityCase[], outcomes: ParityOutc
         add("priced lines whose exact unit sale amount ends on a half-cent");
       }
       if (String(line.id) !== String(line.id).toLowerCase()) add("upper-case ids");
+      if (line.fo_provision !== null && line.fo_provision !== undefined && line.fo_provision !== 1) {
+        add("lines with an FO provision other than 1");
+      }
     }
     if (params.reverse_charge) add("reverse charge");
     if (params.rounding_mode === "down") add("commercial rounding down");

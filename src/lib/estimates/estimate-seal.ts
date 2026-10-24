@@ -93,6 +93,8 @@ type EstimateSealCanonicalItem = Pick<
   | "line_tax_cents"
   | "line_total_ttc_cents"
 > & {
+  /** TI-534 : provision FO d'une ligne v3, présente seulement si elle n'est pas neutre (charge 6 inchangée sinon). */
+  fo_provision?: number;
   line_nature?: EstimateItemRow["line_nature"];
   parent_id?: string | null;
   description?: string | null;
@@ -381,6 +383,8 @@ function buildEngineV3SealPayload(input: {
     unit_price_ht_cents: item.unit_price_ht_cents,
     tax_rate_bp: item.tax_rate_bp,
     k_fo: item.k_fo,
+    // TI-534 : une ligne sans provision (antérieure, ou 1,000) garde l'empreinte d'avant la provision.
+    ...(Number(item.fo_provision ?? 1) !== 1 ? { fo_provision: Number(item.fo_provision) } : {}),
     h_mo: item.h_mo,
     h_mo_majoration: item.h_mo_majoration,
     k_mo: item.k_mo,

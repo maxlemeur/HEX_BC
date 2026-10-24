@@ -402,9 +402,10 @@ armyTest("LEGCAT04 real stale catalogue alternatives and the nonoptimal supplier
     const after = await readEstimate(ui.browser, ids.versionId);
     expect(after.items.find((item) => item.id === line.id)).toMatchObject({
       product_id: product.id, selected_supplier_price_id: seededOffers[1].id, unit_price_ht_cents: 1200,
-      quantity: 3, unit_code: "u", line_total_ht_cents: 4680,
+      // 3 × 12,00 € × 1,01 (FO provision of an untyped v3 line, TI-534) × 1,30.
+      quantity: 3, unit_code: "u", line_total_ht_cents: 4728,
     });
-    expect(after.version.total_ht_cents).toBe(4680);
+    expect(after.version.total_ht_cents).toBe(4728);
     await row.getByRole("button", `Changer d’offre pour ${designation}`, { exact: true }).click();
     await expect(costlier.getByRole("button", "Offre retenue", { exact: true })).toBeDisabled();
     await expect(cheaper.getByText("Meilleur prix", { exact: true })).toBeVisible();

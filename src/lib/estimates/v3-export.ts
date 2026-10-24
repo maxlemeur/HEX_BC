@@ -278,6 +278,8 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     { header: "TVA (%)", key: "tva", width: 10 },
     { header: `Prix unitaire HT ${currency}`, key: "prix_unitaire_ht_eur", width: 22 },
     { header: "Type FO", key: "type_fo", width: 18 },
+    // TI-534 : provision FO stockée de la ligne, appliquée au prix avant K FO. Une réimportation la redérive du type.
+    { header: "Provision FO", key: "provision_fo", width: 14 },
     { header: "K FO", key: "k_fo", width: 10 },
     { header: "h MO / unité", key: "h_mo_per_unit", width: 14 },
     { header: "K MO", key: "k_mo", width: 10 },
@@ -309,13 +311,14 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     addRow([
       "line", aid, designation, item.quantity ?? null, line.unitCode ?? "", status,
       rate(line.taxRateBp), priced ? euros(item.unit_price_ht_cents) : status,
-      item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "", item.k_fo ?? 1,
+      item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "", Number(item.fo_provision ?? 1),
+      item.k_fo ?? 1,
       hours(item.h_mo_per_unit), item.k_mo ?? 1, priced ? majorationCoefficientToPercent(item.h_mo_majoration ?? 1) : null,
       role(item.labor_role_id), item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
       hours(item.h_mo_atelier_per_unit), item.k_mo_atelier ?? null, role(item.labor_role_atelier_id),
       hours(item.h_mo_chantier_per_unit), item.k_mo_chantier ?? null, role(item.labor_role_chantier_id),
       priced ? euros(line.unitSaleHtCents) : null, priced ? euros(line.saleHtCents) : status,
-    ], { currency: priced ? [8, 22, 23] : [] });
+    ], { currency: priced ? [8, 23, 24] : [] });
   }
   sheet.commit();
 

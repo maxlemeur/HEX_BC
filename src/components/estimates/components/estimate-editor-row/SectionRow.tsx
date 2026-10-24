@@ -5,6 +5,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { Popover } from "@/components/ui-legacy/Popover";
 
 import { type SectionTotals, UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-calculations";
@@ -149,6 +150,8 @@ export function SectionRow({
   setNodeRef,
   treeConnectorMeta,
 }: SectionRowProps) {
+  // TI-534 : la grille v3 a une colonne « Provision FO » devant le K FO.
+  const isV3 = useEstimateV3Grid() !== null;
   const defaultSectionTitle = getDefaultSectionTitleForLevel(sectionLevel ?? 1);
   const shouldSelectTitleOnInteraction = item.title === defaultSectionTitle;
   const supplyTypeTotals = sectionTotals?.supplyTypeFoTotalsCents ?? {};
@@ -356,6 +359,7 @@ export function SectionRow({
       {isLaborSplitEnabled ? (
         <>
           <div />
+          {isV3 ? <div /> : null}
           <div />
           <div />
           <div className="estimate-section-total-cell estimate-section-total-cell--mo">
@@ -372,6 +376,7 @@ export function SectionRow({
       ) : (
         <>
           {(!visibleColumns || visibleColumns.has("supply_type")) ? <div /> : null}
+          {isV3 && (!visibleColumns || visibleColumns.has("k_fo")) ? <div /> : null}
           {(!visibleColumns || visibleColumns.has("k_fo")) ? <div /> : null}
           <div className="estimate-section-total-cell estimate-section-total-cell--mo">
             MO {formatCurrency(sectionTotals?.moTotalCents ?? 0, estimateCurrency)}

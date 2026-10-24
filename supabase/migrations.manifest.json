@@ -269,6 +269,7 @@
     "20261023222150_chatgpt_local_takeoff_execution.sql": "2f210d212cfd5f4245f997aeca08e2ba3e54cb68768f00f87381d83a09aaaf28",
     "20261023230340_allow_takeoff_pdf_uploads.sql": "dce5177f9cc9217a9585eeeb253fa97d756577e0e637b41f55d26969c7c842a9",
     "20261024000936_google_drive_pending_copy_recovery.sql": "6227ca74a8ff01d798da88053b064b945960c3a3b6a13bdc62485390bb05609e",
-    "20261024130000_read_estimate_version_items.sql": "17ebd15328b232e6ddc1107664eb793926a6424925188f9ecfacddaa5018ba35"
+    "20261024130000_read_estimate_version_items.sql": "17ebd15328b232e6ddc1107664eb793926a6424925188f9ecfacddaa5018ba35",
+    "20261024142907_estimate_fo_provision.sql": "bff5a97596e1555829b0f6a0ff8c95d2463a437bca0f9d4cb0f71be5999cf2b8"
   }
 }

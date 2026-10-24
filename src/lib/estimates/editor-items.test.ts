@@ -29,6 +29,7 @@ function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
     unit_price_ht_cents: 1250,
     tax_rate_bp: 2000,
     k_fo: 1.1,
+    fo_provision: 1,
     h_mo: 2.5,
     h_mo_majoration: 1.2,
     k_mo: 1.05,

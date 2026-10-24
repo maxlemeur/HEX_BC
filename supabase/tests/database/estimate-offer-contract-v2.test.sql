@@ -273,6 +273,11 @@ values
   ('a3270000-0000-4000-8000-000000000020', pg_temp.fx('tenant_a'), 'a3270000-0000-4000-8000-000000000001', 'Tuyauteur', 4000, true, 1),
   ('a3270000-0000-4000-8000-000000000021', pg_temp.fx('tenant_a'), 'a3270000-0000-4000-8000-000000000001', 'Tuyauteur bis', 4000, true, 2);
 
+-- TI-534 : les montants de l'oracle du §5 précèdent la provision FO ; ses lignes portent un type FO neutre
+-- (provision 1,000), donc FO_u = P × K FO.
+insert into public.supply_types (id, tenant_id, code, name, default_fo_provision)
+values ('a3270000-0000-4000-8000-000000000040', pg_temp.fx('tenant_a'), 'fixture_neutre', 'Type FO neutre (fixture)', 1.000);
+
 -- Témoins v1 et v2 sans ligne, insérés avant la politique 3 (aucun montant à figer).
 select is(
   array[
@@ -351,6 +356,7 @@ as $$
       'id', pg_temp.c2_item(p_version, line.ord), 'parent_id', pg_temp.c2_item(p_version, 0), 'item_type', 'line',
       'position', line.ord, 'title', 'O' || line.ord, 'quantity', line.quantity, 'unit_price_ht_cents', line.pr,
       'tax_rate_bp', split.rate, 'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1, 'labor_role_id', p_role,
+      'supply_type_id', 'a3270000-0000-4000-8000-000000000040',
       'h_mo_per_unit', line.hu, 'unit_code', line.unit, 'pricing_status', 'priced', 'pu_ht_cents', line.pu,
       'line_total_ht_cents', split.net, 'line_tax_cents', split.tax, 'line_total_ttc_cents', split.net + split.tax
     ) order by line.ord)

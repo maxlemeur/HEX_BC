@@ -113,17 +113,17 @@ async function patchSettings(ui: Ui, label: string, draft: V3Draft, patch: Recor
 
 // V3X01 — lignes du brouillon : deux lignes chiffrées « fourniture seule », une ligne chiffrée avec main-d'oeuvre
 // (P3, V3X-07 : la ligne X de V3X02) et trois lignes non chiffrées avec déboursé et heures, valorisables par le rôle
-// « Tuyauteur » (40 €/h). Politique 3 : c_FO 1,30, c_MO 1,20. Brut 26,00 + 19,50 + 135,00 = 180,50 € ; TVA 20 % 36,10 ;
-// TTC 216,60.
+// « Tuyauteur » (40 €/h). Politique 3 : c_FO 1,30, c_MO 1,20 ; provision FO 1,01 des lignes sans type FO (TI-534).
+// Brut 26,26 + 19,71 + 135,40 = 181,37 € ; TVA 20 % 36,27 ; TTC 217,64.
 const ROUND_TRIP = [
-  { ref: "P1", status: "priced", unit: "u", quantity: 2, prFo: 1000, hPerUnit: 0, pu: 1300, gross: 2600 },
-  { ref: "P2", status: "priced", unit: "ml", quantity: 3, prFo: 500, hPerUnit: 0, pu: 650, gross: 1950 },
-  { ref: "P3", status: "priced", unit: "ml", quantity: 2, prFo: 1500, hPerUnit: 1, pu: 6750, gross: 13500 },
+  { ref: "P1", status: "priced", unit: "u", quantity: 2, prFo: 1000, hPerUnit: 0, pu: 1313, gross: 2626 },
+  { ref: "P2", status: "priced", unit: "ml", quantity: 3, prFo: 500, hPerUnit: 0, pu: 657, gross: 1971 },
+  { ref: "P3", status: "priced", unit: "ml", quantity: 2, prFo: 1500, hPerUnit: 1, pu: 6770, gross: 13540 },
   { ref: "N1", status: "included", unit: "u", quantity: 3, prFo: 5000, hPerUnit: 2, pu: null, gross: 0 },
   { ref: "N2", status: "out_of_scope", unit: "ml", quantity: 4, prFo: 2500, hPerUnit: 0.5, pu: null, gross: 0 },
   { ref: "N3", status: "for_memory", unit: "u", quantity: 1, prFo: 9900, hPerUnit: 1, pu: null, gross: 0 },
 ] as const;
-const ROUND_TRIP_TOTALS = [18050, 3610, 21660];
+const ROUND_TRIP_TOTALS = [18137, 3627, 21764];
 // Réimport dans la v2 neutre (marge 1, K 1, rôle choisi 40 €/h) : PR FO × Q + h/u × Q × 40 € par ligne chiffrée,
 // soit 20,00 + 15,00 + (30,00 + 2 h × 40,00) = 145,00 € ; TVA 20 % 29,00 ; TTC 174,00.
 const IMPORTED_TOTALS = [14500, 2900, 17400];
@@ -178,7 +178,7 @@ const totalsOf = (state: ArmyEstimate) => [state.version.total_ht_cents, state.v
 const CURRENCY_FORMATS = { EUR: "#,##0.00 \"€\"", USD: "\"$\"#,##0.00", GBP: "\"£\"#,##0.00" } as const;
 type Currency = keyof typeof CURRENCY_FORMATS;
 const dpgfHeader = (currency: Currency) => ["Type", "AID", "Désignation", "Quantité", "Unité", "Statut", "TVA (%)",
-  `Prix unitaire HT ${currency}`, "Type FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
+  `Prix unitaire HT ${currency}`, "Type FO", "Provision FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
   "h MO Atelier / unité", "K MO Atelier", "Rôle MO Atelier", "h MO Chantier / unité", "K MO Chantier", "Rôle MO Chantier",
   `PU vente HT ${currency}`, `Total HT brut ${currency}`];
 const FOOTER_FIELD = /^(Total HT brut|Remise commerciale|Arrondi commercial|Total HT net|TVA |Total TVA|Total TTC)/u;
@@ -412,11 +412,11 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const ui: Ui = { app, screen, browser };
       const record = (label: string, data: unknown) => recordEvidence(army, `v3x02-${label}`, data);
       const draft = await prepareV3Draft(ui, army, "V3X02");
-      // 2 ml × (15,00 × 1,30 + 1 h × 40,00 × 1,20) = 2 × 67,50 = 135,00 € ; remise 10 % : net 121,50, TVA 24,30, TTC 145,80.
+      // 2 ml × (15,00 × 1,01 × 1,30 + 1 h × 40,00 × 1,20) = 2 × 67,70 = 135,40 € ; remise 10 % : net 121,86, TVA 24,37, TTC 146,23.
       await seedLines(ui, army, draft, "v3x02", [withLabor(`${army.runPrefix} X`, "ml", 2, 1500, "priced", 1, draft.tuyauteurId)]);
       await patchSettings(ui, "discount", draft, { discount_amount_cents: null, discount_bp: 1000 }, record);
       const settled = await readEstimate(browser, draft.versionId);
-      expect([settled.version.calc_engine_version, settled.version.currency, ...totalsOf(settled)]).toEqual([3, "EUR", 12150, 2430, 14580]);
+      expect([settled.version.calc_engine_version, settled.version.currency, ...totalsOf(settled)]).toEqual([3, "EUR", 12186, 2437, 14623]);
       const actual: Record<string, unknown> = {};
       for (const currency of ["EUR", "USD", "GBP"] as const) {
         if (currency !== "EUR") await patchSettings(ui, currency.toLowerCase(), draft, { currency }, record);
@@ -428,7 +428,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
           dpgf: { sha256: dpgf.sha256, bytes: dpgf.bytes.length }, actual: actual[currency] });
       }
       const expected = Object.fromEntries((["EUR", "USD", "GBP"] as const).map((currency) =>
-        [currency, { currency, totals: [12150, 2430, 14580], ...expectedCurrencyFacts(currency) }]));
+        [currency, { currency, totals: [12186, 2437, 14623], ...expectedCurrencyFacts(currency) }]));
       await record("currency-formats", { versionId: draft.versionId, projectId: draft.projectId, expected, actual });
       expect(actual).toEqual(expected);
     });
@@ -492,7 +492,7 @@ async function downloadFrom(browser: Browser, url: RegExp, trigger: () => Promis
 }
 
 const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Type FO",
-  "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
+  "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
   "Total HT (EUR)", "TVA (%)"];
 // En-tête BDC V1.1 (bdc-export.ts) : inchangé et dans cet ordre pour toute version ; une v3 ajoute ses colonnes à la fin.
 const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Quantité", "Type FO", "PU FO HT EUR", "PR FO HT EUR", "K FO",
@@ -500,9 +500,10 @@ const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Qu
   "Fournisseur 1 Nom", "Fournisseur 1 Prix EUR", "Fournisseur 1 Ref", "Fournisseur 1 URL", "Fournisseur 2 Nom", "Fournisseur 2 Prix EUR",
   "Fournisseur 2 Ref", "Fournisseur 2 URL", "Fournisseur 3 Nom", "Fournisseur 3 Prix EUR", "Fournisseur 3 Ref", "Fournisseur 3 URL", "Ref interne"];
 const BDC_V3_COLUMNS = ["Statut", "h MO / unité", "PU vente HT EUR"];
-// Brut FO et MO de vente par ligne (c_FO 1,30, c_MO 1,20, Tuyauteur 40 €/h) ; lignes non chiffrées à 0.
+// Brut FO et MO de vente par ligne (provision FO 1,01, c_FO 1,30, c_MO 1,20, Tuyauteur 40 €/h ; MO = brut − FO, l'arrondi du
+// PU y reste) ; lignes non chiffrées à 0.
 const ROUND_TRIP_SPLIT: Record<(typeof ROUND_TRIP)[number]["ref"], { fo: number; mo: number }> = {
-  P1: { fo: 2600, mo: 0 }, P2: { fo: 1950, mo: 0 }, P3: { fo: 3900, mo: 9600 }, N1: { fo: 0, mo: 0 }, N2: { fo: 0, mo: 0 }, N3: { fo: 0, mo: 0 },
+  P1: { fo: 2626, mo: 0 }, P2: { fo: 1971, mo: 0 }, P3: { fo: 3939, mo: 9601 }, N1: { fo: 0, mo: 0 }, N2: { fo: 0, mo: 0 }, N3: { fo: 0, mo: 0 },
 };
 
 /**
@@ -564,7 +565,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, ...ROUND_TRIP_TOTALS]);
       const standard = await exportWorkbook(browser, draft.versionId, "standard");
       const footer = standardFooter(standard);
-      expect(footer.map(([, amount]) => amount), "standard v3 footer: gross, net, VAT 20 %, TTC").toEqual([180.5, 180.5, 36.1, 216.6]);
+      expect(footer.map(([, amount]) => amount), "standard v3 footer: gross, net, VAT 20 %, TTC").toEqual([181.37, 181.37, 36.27, 217.64]);
 
       await openV3Editor(ui, army, draft, "v3x03");
       await waitForDraftLease(ui);
@@ -584,10 +585,10 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         const priced = line.status === "priced";
         const label = STATUS_LABELS[line.status];
         return [draft.sectionTitle, posteOf(title(line.ref)), line.ref === "P1" ? "'=1+1" : title(line.ref), line.unit, String(line.quantity), label,
-          priced ? String(line.prFo / 100) : label, "", "", "", "", "1", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
+          priced ? String(line.prFo / 100) : label, "", "", "", "", "1.01", "1", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
           line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20"];
       };
-      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, ""];
+      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, ""];
       const actual = {
         status: csv.status, filename: /\.csv$/i.test(csv.filename), bom: csv.bytes.subarray(0, 3).toString("hex"),
         header: rows[0] ?? null,
@@ -665,7 +666,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         lines: Object.fromEntries(ROUND_TRIP.map((line) => [line.ref, expectedBdcLine(line, line.ref === "P2" ? supplier : null)])),
         refInterne: Object.fromEntries(ROUND_TRIP.map((line, index) => [line.ref, seeded[index].id])),
         // Σ des bruts = brut du document ; FO + MO = brut sur chaque ligne (V3X-14 : aucune remise dans les lignes).
-        sums: { fo: 2600 + 1950 + 3900, mo: 9600, ht: ROUND_TRIP_TOTALS[0] },
+        sums: { fo: 2626 + 1971 + 3939, mo: 9601, ht: ROUND_TRIP_TOTALS[0] },
         resume: [["Moteur de calcul", 3], ["Montants", "Aperçu du brouillon (non figé)"], ["Coefficient de vente FO", 1.3],
           ["Coefficient de vente MO", 1.2], ...standardFooter(standard)],
       };
@@ -683,7 +684,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const subset = ROUND_TRIP.filter((line) => line.ref === "P3" || line.ref === "N1");
       await seedLines(ui, army, draft, "v3x05", ROUND_TRIP_LINES(draft, title, subset));
       const settled = await readEstimate(browser, draft.versionId);
-      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 13500, 2700, 16200]);
+      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 13540, 2708, 16248]);
 
       await app.open(`/dashboard/affaires/${draft.projectId}`);
       const zone = screen.getByTestId("affaire-finish-line-bdc");
@@ -709,7 +710,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const expected = {
         filename: true, header: [...BDC_V11_HEADER, ...BDC_V3_COLUMNS],
         lines: Object.fromEntries(subset.map((line) => [line.ref, expectedBdcLine(line, null)])),
-        sums: { fo: 3900, mo: 9600, ht: 13500 },
+        sums: { fo: 3939, mo: 9601, ht: 13540 },
       };
       await record("hub-bdc", { projectId: draft.projectId, versionId: draft.versionId, filename: file.suggestedFilename, path: absolutePath,
         bytes: bytes.length, sha256: digest(bytes), expected, actual });
@@ -795,12 +796,12 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       await record("split-flag", { tenantId: draft.owner.tenantId, status: flag.status, ok: flag.body.ok, error: flag.body.error ?? null });
       expect([flag.status, flag.body.ok]).toEqual([200, true]);
       const role = draft.tuyauteurId;
-      // c_FO 1,30, c_MO 1,20, Tuyauteur 40 €/h, sans majoration.
+      // Provision FO 1,01 (sans type FO), c_FO 1,30, c_MO 1,20, Tuyauteur 40 €/h, sans majoration.
       // S1 ventilée : 1 h atelier (K 1,5) + 1 h chantier (K 1) ; h/u, rôle et K MO de la ligne (3 h) ignorés par le moteur.
-      //    PU = 10,00 × 1,30 + (60,00 + 40,00) × 1,20 = 133,00 ; Q 2 : brut 266,00, FO 26,00, MO 240,00 ; K MO pondéré 1,25.
-      // S2 rôle atelier seul : ventilée sans heures (uses_split), MO 0. PU = 20,00 × 1,30 = 26,00 ; Q 1 : brut 26,00.
-      // P1 sans ventilation : PU = 5,00 × 1,30 + 40,00 × 1,20 = 54,50 ; Q 3 : brut 163,50, FO 19,50, MO 144,00.
-      // Brut 455,50 ; TVA 20 % 91,10 ; TTC 546,60.
+      //    PU = 10,00 × 1,01 × 1,30 + (60,00 + 40,00) × 1,20 = 133,13 ; Q 2 : brut 266,26, FO 26,26, MO 240,00 ; K MO pondéré 1,25.
+      // S2 rôle atelier seul : ventilée sans heures (uses_split), MO 0. PU = 20,00 × 1,01 × 1,30 = 26,26 ; Q 1 : brut 26,26.
+      // P1 sans ventilation : PU = 5,00 × 1,01 × 1,30 + 40,00 × 1,20 = 54,57 ; Q 3 : brut 163,71, FO 19,70, MO 144,01.
+      // Brut 456,23 ; TVA 20 % 91,25 ; TTC 547,48.
       const lines = [
         { ...withLabor(title("S1"), "u", 2, 1000, "priced", 3, role), h_mo_atelier_per_unit: 1, k_mo_atelier: 1.5, labor_role_atelier_id: role,
           h_mo_chantier_per_unit: 1, k_mo_chantier: 1, labor_role_chantier_id: role },
@@ -809,7 +810,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       ];
       await seedLines(ui, army, draft, "v3x07", lines);
       const settled = await readEstimate(browser, draft.versionId);
-      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 45550, 9110, 54660]);
+      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 45623, 9125, 54748]);
       const standard = await exportWorkbook(browser, draft.versionId, "standard");
       const posteOf = (lineTitle: string) => String(standard.sheets.Devis?.rows.find((row) =>
         normalized(row.cells["Désignation"]?.value) === lineTitle)?.cells.Poste?.value ?? "");
@@ -821,16 +822,16 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       // Ligne ventilée : h/u, rôle et K MO de la ligne vides (le moteur ne les lit pas), colonnes atelier/chantier remplies.
       const csvLine = (ref: string, unit: string, quantity: number, pr: number, legacy: [string, string, string], pu: number, gross: number,
         split: string[]) => [draft.sectionTitle, posteOf(title(ref)), title(ref), unit, String(quantity), "Chiffrée", String(pr), "", "", "", "",
-        "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", ...split];
-      const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 17 ? value : ""));
+        "1.01", "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", ...split];
+      const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 18 ? value : ""));
       const csvActual = { status: csv.status, error: csv.error, header: rows[0] ?? null,
         lines: rows.slice(1, 4).map((row) => row.map((cell) => normalized(cell))),
         footer: rows.slice(4).map((row) => row.map((cell) => normalized(cell))) };
       const csvExpected = { status: 200, error: null, header,
         lines: [
-          csvLine("S1", "u", 2, 10, ["", "", ""], 133, 266, ["1", "Tuyauteur", "1.5", "1", "Tuyauteur", "1"]),
-          csvLine("S2", "ml", 1, 20, ["", "", ""], 26, 26, ["", "Tuyauteur", "1", "", "", "1"]),
-          csvLine("P1", "u", 3, 5, ["1", "Tuyauteur", "1"], 54.5, 163.5, ["", "", "", "", "", ""]),
+          csvLine("S1", "u", 2, 10, ["", "", ""], 133.13, 266.26, ["1", "Tuyauteur", "1.5", "1", "Tuyauteur", "1"]),
+          csvLine("S2", "ml", 1, 20, ["", "", ""], 26.26, 26.26, ["", "Tuyauteur", "1", "", "", "1"]),
+          csvLine("P1", "u", 3, 5, ["1", "Tuyauteur", "1"], 54.57, 163.71, ["", "", "", "", "", ""]),
         ],
         footer: [footerRow("Moteur de calcul", "3"), footerRow("Montants", "Aperçu du brouillon (non figé)"),
           ...standardFooter(standard).map(([label, amount]) => footerRow(label, String(amount)))] };
@@ -847,11 +848,11 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const bdcActual = { status: bdc.status, error: bdc.error, header: view?.header ?? null, lines: view?.lines ?? null, sums: view?.sums ?? null };
       const bdcExpected = { status: 200, error: null, header: [...BDC_V11_HEADER, ...BDC_V3_COLUMNS],
         lines: {
-          S1: bdcLine("u", 2, 10, 1.25, "Atelier: Tuyauteur / Chantier: Tuyauteur", 26, 240, 2, 133),
-          S2: bdcLine("ml", 1, 20, 1, "Atelier: Tuyauteur", 26, 0, 0, 26),
-          P1: bdcLine("u", 3, 5, 1, "Tuyauteur", 19.5, 144, 1, 54.5),
+          S1: bdcLine("u", 2, 10, 1.25, "Atelier: Tuyauteur / Chantier: Tuyauteur", 26.26, 240, 2, 133.13),
+          S2: bdcLine("ml", 1, 20, 1, "Atelier: Tuyauteur", 26.26, 0, 0, 26.26),
+          P1: bdcLine("u", 3, 5, 1, "Tuyauteur", 19.7, 144.01, 1, 54.57),
         },
-        sums: { fo: 2600 + 2600 + 1950, mo: 24000 + 14400, ht: 45550 } };
+        sums: { fo: 2626 + 2626 + 1970, mo: 24000 + 14401, ht: 45623 } };
       await record("exports", { versionId: draft.versionId, projectId: draft.projectId,
         csv: { sha256: csv.sha256, bytes: csv.bytes.length, expected: csvExpected, actual: csvActual },
         bdc: { sha256: bdc.sha256, bytes: bdc.bytes.length, expected: bdcExpected, actual: bdcActual },
