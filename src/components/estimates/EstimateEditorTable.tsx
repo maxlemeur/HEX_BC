@@ -1292,12 +1292,14 @@ export function EstimateEditorTable({
     return map;
   }, [laborRoles]);
 
+  // A draft typed while a new line still had its temporary id stays under that id, its client key: the
+  // created line takes it back instead of its stored value (the creation answers after a version re-read).
   const mergedUnitDrafts = useMemo(() => {
     const next = { ...unitDrafts };
     items.forEach((item) => {
       if (item.item_type !== "line") return;
       if (next[item.id] === undefined) {
-        next[item.id] = item.description ?? "";
+        next[item.id] = unitDrafts[getEstimateEditorItemClientKey(item)] ?? item.description ?? "";
       }
     });
     return next;
@@ -1310,9 +1312,9 @@ export function EstimateEditorTable({
     items.forEach((item) => {
       if (item.item_type !== "line") return;
       if (next[item.id] !== undefined) return;
-      next[item.id] = item.supply_type_id
+      next[item.id] = supplyTypeDrafts[getEstimateEditorItemClientKey(item)] ?? (item.supply_type_id
         ? (supplyTypeById.get(item.supply_type_id)?.name ?? "")
-        : "";
+        : "");
     });
     return next;
   }, [items, supplyTypeById, supplyTypeDrafts]);
