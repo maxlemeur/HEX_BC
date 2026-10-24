@@ -145,7 +145,12 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
   await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-  await screen.getByLabel("Fichier source", { exact: true }).setInputFiles(csv);
+  // The file input stays disabled until the form hydrates; a file set earlier is lost.
+  const source = screen.getByLabel("Fichier source", { exact: true });
+  await expect(source).toBeEnabled();
+  await source.setInputFiles(csv);
+  await expect(screen.getByText(path.basename(csv), { exact: true })).toBeVisible();
+  await expect(screen.getByRole("button", "Lancer l'extraction", { exact: true })).toBeEnabled();
   const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
     screen.getByRole("button", "Lancer l'extraction", { exact: true }).tap()]);
   expect(created.status).toBe(201);
@@ -187,7 +192,10 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   const truth = JSON.parse(await readFile(path.resolve("e2e/fixtures/takeoff/army-chatgpt-plan.expected.json"), "utf8"));
   expect(createHash("sha256").update(await readFile(file)).digest("hex")).toBe(truth.sha256);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-  await screen.getByLabel("Fichier source", { exact: true }).setInputFiles(file);
+  const source = screen.getByLabel("Fichier source", { exact: true });
+  await expect(source).toBeEnabled();
+  await source.setInputFiles(file);
+  await expect(screen.getByText(path.basename(file), { exact: true })).toBeVisible();
   await screen.getByRole("radio", /Niveau C/).check();
   const picker = screen.getByLabel("Fournisseur IA", { exact: true });
   await expect(picker).toBeVisible();

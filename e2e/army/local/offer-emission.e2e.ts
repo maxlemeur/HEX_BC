@@ -237,12 +237,20 @@ async function prepare(ui: OfferUi, caseId: string) {
   await ui.browser.keyboard.press("Control+s");
   await expect.poll(async () => totals((await readEstimate(ui.browser, ids.versionId)).version), { timeout: 45000 }).toEqual([2000, 400, 2400]);
   await expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(À jour|Sauvegardé)$/);
+  // The totals prove quantity and price only. Wait for the typed unit too (a v1/v2 line keeps it in
+  // description, a v3 line in unit_code), so a lost unit fails here rather than in the PDF text.
+  const persistedUnit = (estimate: Awaited<ReturnType<typeof readEstimate>>) => {
+    const saved = estimate.items.find((item) => item.id === line.data.item.id);
+    return saved?.unit_code ?? saved?.description ?? null;
+  };
+  await expect.poll(async () => persistedUnit(await readEstimate(ui.browser, ids.versionId)), { timeout: 15000 })
+    .toBe("u");
   const baseline = await readEstimate(ui.browser, ids.versionId);
   // Full owner API rows contain private costs/roles. Retain only the commercial
   // witness here, including when a later public-portal privacy assertion fails.
   await recordOfferEvidence(ui.army, `${caseId}-prepared`, { ids, originalName,
     versionStatus: baseline.version.status, totals: totals(baseline.version),
-    lineId: line.data.item.id, lineTitle: title, quantity: 1, unit: "u" });
+    lineId: line.data.item.id, lineTitle: title, quantity: 1, unit: persistedUnit(baseline) });
   await ui.app.open(`/dashboard/estimates/${ids.versionId}`);
   await expect(ui.screen.getByRole("button", "Envoyer par email", { exact: true })).toBeVisible();
   if (caseId !== "OF0L" && !caseId.startsWith("PDFL")) {
