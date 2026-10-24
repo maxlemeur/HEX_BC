@@ -31,6 +31,7 @@ type DropzoneState =
 type IntakeDropzoneProps = {
   projectId: string;
   onUploadComplete: (uploadId: string) => void;
+  onRefresh?: () => void;
   compact?: boolean;
   hideSurface?: boolean;
 };
@@ -123,6 +124,7 @@ function validateFile(file: File): string | null {
 export function IntakeDropzone({
   projectId,
   onUploadComplete,
+  onRefresh,
   compact = false,
   hideSurface = false,
 }: IntakeDropzoneProps) {
@@ -248,7 +250,7 @@ export function IntakeDropzone({
         hiddenSurface={hideSurface}
       />
 
-      <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={onUploadComplete} />
+      <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={onUploadComplete} onRefresh={onRefresh} />
 
       {/* Client-side validation errors */}
       {clientErrors.length > 0 && (

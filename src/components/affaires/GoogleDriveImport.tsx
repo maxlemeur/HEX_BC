@@ -10,8 +10,8 @@ async function responseData<T>(response: Response): Promise<T> {
   if (!response.ok || !payload.ok) throw new Error(payload.error?.message ?? "Google Drive est indisponible.");
   return payload.data as T;
 }
-export function GoogleDriveImport({ projectId, onUploadComplete }: {
-  projectId: string; onUploadComplete: (uploadId: string) => void;
+export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
+  projectId: string; onUploadComplete: (uploadId: string) => void; onRefresh?: () => void;
 }) {
   const endpoint = `/api/affaires/${projectId}/intake/google-drive`;
   const [open, setOpen] = useState(false);
@@ -80,9 +80,13 @@ export function GoogleDriveImport({ projectId, onUploadComplete }: {
     }));
     if (!mounted.current || controller.current?.signal.aborted) return;
     // Preserve successful results when only failures are retried.
-    setResults((prior) => [...prior.filter((result) => !data.results.some((item) => item.fileId === result.fileId)), ...data.results]);
+    const merged = [...results.filter((result) => !data.results.some((item) => item.fileId === result.fileId)), ...data.results];
+    setResults(merged);
     setSelected(files.filter((file) => data.results.some((result) => result.fileId === file.id && result.status === "failed")));
-    data.uploads.forEach((uploadId) => onUploadComplete(uploadId));
+    // A completed upload closes the intake dropzone and unmounts this panel. While a failure
+    // remains, only refresh the workspace so its message, selection and connection stay here.
+    if (merged.some((result) => result.status === "failed")) onRefresh?.();
+    else data.uploads.forEach((uploadId) => onUploadComplete(uploadId));
     setState(await responseData<State>(await fetch(endpoint, { cache: "no-store", signal: controller.current?.signal })));
   }
   const filesById = new Map(listing?.files.map((file) => [file.id, file]));

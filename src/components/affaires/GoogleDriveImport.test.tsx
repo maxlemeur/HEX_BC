@@ -24,6 +24,7 @@ async function connect() {
 }
 describe("GoogleDriveImport (identity and API simulated)", () => {
   const onUploadComplete = vi.fn();
+  const onRefresh = vi.fn();
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => {
       if (!options?.body) return response(state);
@@ -32,7 +33,7 @@ describe("GoogleDriveImport (identity and API simulated)", () => {
       return response({ results: [{ fileId: "plan_demo", name: "plan.pdf", status: "imported", message: "Copie importée." }], uploads: ["upload_demo"] });
     }));
     vi.mocked(connectGoogleDrive).mockReset().mockResolvedValue({ token: "fictitious-memory-token", expiresAt: Date.now() + 60_000 });
-    onUploadComplete.mockClear();
+    onUploadComplete.mockClear(); onRefresh.mockClear();
   });
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
   it("makes no request while closed and exposes the disabled configuration without contacting Google", async () => {
@@ -45,7 +46,7 @@ describe("GoogleDriveImport (identity and API simulated)", () => {
     expect(connectGoogleDrive).not.toHaveBeenCalled();
   });
   it("requires folder connection, compatible selection and explicit confirmation", async () => {
-    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} />);
+    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} onRefresh={onRefresh} />);
     await connect();
     expect(screen.getByText("Destination :", { exact: false })).toHaveTextContent("Affaire fictive");
     const checkboxes = screen.getAllByRole("checkbox");
@@ -55,9 +56,34 @@ describe("GoogleDriveImport (identity and API simulated)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirmer et importer les copies" }));
     await screen.findByText("plan.pdf : Copie importée.");
     expect(onUploadComplete).toHaveBeenCalledWith("upload_demo");
+    expect(onRefresh).not.toHaveBeenCalled();
     const requests = vi.mocked(fetch).mock.calls;
     expect(requests.every(([url]) => !String(url).includes("fictitious-memory-token"))).toBe(true);
     expect(document.body.textContent).not.toContain("fictitious-memory-token");
+  });
+  it("keeps the panel open on a partial failure and only refreshes the workspace", async () => {
+    const cctp = { id: "cctp_demo", name: "cctp.pdf", mimeType: "application/pdf", size: "5", version: "1" };
+    let imports = 0;
+    vi.mocked(fetch).mockImplementation(async (_url: unknown, options?: RequestInit) => {
+      if (!options?.body) return response(state);
+      if (JSON.parse(String(options.body)).action === "list") return response({ listing: { ...listing, files: [listing.files[0], cctp] } });
+      if (++imports > 1) return response({ results: [{ fileId: "cctp_demo", name: "cctp.pdf", status: "imported", message: "Copie importée." }], uploads: ["upload_retry"] });
+      return response({ results: [{ fileId: "plan_demo", name: "plan.pdf", status: "imported", message: "Copie importée." },
+        { fileId: "cctp_demo", name: "cctp.pdf", status: "failed", message: "Copie non finalisée. Reprenez cette pièce." }], uploads: ["upload_demo"] });
+    });
+    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} onRefresh={onRefresh} />);
+    await connect();
+    for (const checkbox of screen.getAllByRole("checkbox")) await userEvent.click(checkbox);
+    await userEvent.click(screen.getByRole("button", { name: "Confirmer et importer les copies" }));
+    expect(await screen.findByText("cctp.pdf : Copie non finalisée. Reprenez cette pièce.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reprendre les pièces en échec sélectionnées" })).toBeEnabled();
+    // A completed upload makes IntakeWorkspace close the dropzone, which unmounts this panel.
+    expect(onUploadComplete).not.toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Reprendre les pièces en échec sélectionnées" }));
+    await screen.findByText("cctp.pdf : Copie importée.");
+    expect(onUploadComplete).toHaveBeenCalledWith("upload_retry");
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
   it("cancels selection without an import", async () => {
     render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} />);
