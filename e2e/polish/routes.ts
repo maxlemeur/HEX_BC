@@ -182,6 +182,7 @@ export const POLISH_ROUTES: PolishRoute[] = [
   },
   { id: "admin-flags", path: "/dashboard/admin/flags", heading: "Fonctionnalités", tags: ["admin"] },
   { id: "admin-currencies", path: "/dashboard/admin/currencies", heading: "Taux de change", tags: ["admin"] },
+  { id: "admin-calc-policy", path: "/dashboard/admin/calc-policy", heading: "Calcul des devis", tags: ["admin"] },
   {
     id: "admin-suggestion-learning",
     path: "/dashboard/admin/suggestion-learning",
