@@ -23,6 +23,7 @@ import {
 import {
   batchEstimateOperations,
   bulkUpdateEstimateItems,
+  type EstimateBatchOperationResult,
   isEstimateApiError,
 } from "@/lib/estimates/client";
 import {
@@ -757,6 +758,7 @@ export function useEstimateEditorSyncController({
       data: toEngineItemWrite(entry.updates, versionSnapshot),
     }));
     let lineBatchCommitted = false;
+    let committedLineResults: readonly EstimateBatchOperationResult[] = [];
     let committedLineVersionToken: string | null = null;
     let committedLineContentRevision: number | undefined;
 
@@ -791,6 +793,7 @@ export function useEstimateEditorSyncController({
         }
 
         lineBatchCommitted = true;
+        committedLineResults = batchResult.results;
         nextVersionToken = batchResult.versionToken.updated_at;
         const acknowledgedVersion: EditorMutationToken =
           batchResult.currentVersionToken?.updated_at === nextVersionToken
@@ -827,12 +830,8 @@ export function useEstimateEditorSyncController({
         mergeSyncedItemPayload(entry.id, entry.updates);
       });
       pruneSyncedBufferedUpdates();
-      applyVersionFlushResult({
-        versionId: flushVersionId,
-        totalsPatch: savedVersionTotalsPatch,
-        updatedAt: nextVersionToken,
-        ...(nextContentRevision === undefined ? {} : { contentRevision: nextContentRevision }),
-      });
+      applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: savedVersionTotalsPatch, updatedAt: nextVersionToken,
+        results: committedLineResults, ...(nextContentRevision === undefined ? {} : { contentRevision: nextContentRevision }) });
       // Une sauvegarde réussie invalide les anciens messages de navigation ou
       // de synchronisation. Sans ce reset, le ruban peut afficher « Sauvegardé »
       // tout en conservant une alerte rouge devenue fausse.
@@ -876,12 +875,9 @@ export function useEstimateEditorSyncController({
           mergeSyncedItemPayload(entry.id, entry.updates);
         });
         pruneSyncedBufferedUpdates();
-        applyVersionFlushResult({
-          versionId: flushVersionId,
-          totalsPatch: undefined,
-          updatedAt: committedLineVersionToken,
-          ...(committedLineContentRevision === undefined ? {} : { contentRevision: committedLineContentRevision }),
-        });
+        applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: undefined, updatedAt: committedLineVersionToken,
+          results: committedLineResults,
+          ...(committedLineContentRevision === undefined ? {} : { contentRevision: committedLineContentRevision }) });
         updateHasPendingTotalsSave(Boolean(versionTotalsPatch));
         clearHistory();
       } else {

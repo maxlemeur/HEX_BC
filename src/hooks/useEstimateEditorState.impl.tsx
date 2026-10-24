@@ -110,6 +110,7 @@ import {
   foProvisionsBySupplyType,
   withBufferedFoProvision,
   withRederivedFoProvision,
+  withServerFoProvisions,
   type FoProvisionBySupplyTypeId,
 } from "@/lib/estimates/fo-provision";
 import {
@@ -126,6 +127,7 @@ import {
   duplicateEstimateSection,
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
+  type EstimateBatchOperationResult,
   type EstimateEditorData,
   fetchEstimateItemsForVersion,
   fetchEstimateSuggestionLearnings,
@@ -597,11 +599,13 @@ export function useEstimateEditorState({
       totalsPatch,
       updatedAt,
       contentRevision,
+      results,
     }: {
       versionId: string;
       totalsPatch: EstimateVersionTotalsPatch | undefined;
       updatedAt: string;
       contentRevision?: number;
+      results?: readonly EstimateBatchOperationResult[];
     }) => {
       setVersion((previous) =>
         previous?.id === versionId &&
@@ -623,6 +627,8 @@ export function useEstimateEditorState({
           ...(contentRevision !== undefined ? { content_revision: contentRevision } : {}),
         };
       }
+      // TI-534 : la provision FO stockée par le lot fait foi pour une ligne dont le type FO n'a pas changé depuis.
+      if (results?.length && versionRef.current?.id === versionId) setItems((previous) => withServerFoProvisions(previous, results));
     },
     []
   );

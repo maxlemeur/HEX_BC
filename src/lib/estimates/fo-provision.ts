@@ -10,6 +10,7 @@
  */
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
+import type { EstimateBatchOperationResult } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 
 /** Provision d'une ligne v3 sans type FO (ou d'un type inconnu du locataire). */
@@ -57,6 +58,43 @@ export function withBufferedFoProvision<
   T extends { item_type: string; supply_type_id: string | null; fo_provision?: number | null },
 >(source: T, merged: T, provisions: FoProvisionBySupplyTypeId, isV3: boolean): T {
   return isV3 && merged.item_type === "line" ? withRederivedFoProvision(source, merged, provisions) : merged;
+}
+
+/**
+ * Après un lot validé, une ligne de l'éditeur reprend la provision FO que le serveur a stockée tant que son type FO
+ * n'a pas changé depuis : la file fusionne les saisies d'une ligne, et un aller-retour de type (Tube → Raccord → Tube)
+ * part au serveur sans changement de type, qui garde la provision stockée quand l'éditeur l'avait redérivée en chemin.
+ * Rend `items` tel quel quand rien ne change.
+ */
+export function withServerFoProvisions<
+  T extends { id: string; item_type: string; supply_type_id: string | null; fo_provision?: number | null },
+>(items: T[], results: readonly EstimateBatchOperationResult[]): T[] {
+  const stored = new Map(results.flatMap((result) => {
+    const row = storedFoProvision(result);
+    return row ? [[row.id, row] as const] : [];
+  }));
+  if (stored.size === 0) return items;
+  let changed = false;
+  const next = items.map((item) => {
+    const row = stored.get(item.id);
+    if (!row || item.item_type !== "line" || item.fo_provision === row.fo_provision ||
+      supplyTypeChanged(item.supply_type_id, row.supply_type_id)) return item;
+    changed = true;
+    return { ...item, fo_provision: row.fo_provision };
+  });
+  return changed ? next : items;
+}
+
+type StoredFoProvision = { id: string; supply_type_id: string | null; fo_provision: number };
+
+/** Ligne qu'une mise à jour validée rend (`data.item`, la ligne stockée), réduite à son type et sa provision FO. */
+function storedFoProvision(result: EstimateBatchOperationResult): StoredFoProvision | null {
+  if (result.status !== "ok" || result.op !== "update") return null;
+  const row = (result.data as { item?: Partial<Record<keyof StoredFoProvision, unknown>> | null } | undefined)?.item;
+  const provision = Number(row?.fo_provision);
+  return row && typeof row.id === "string" && row.fo_provision != null && Number.isFinite(provision)
+    ? { id: row.id, supply_type_id: typeof row.supply_type_id === "string" ? row.supply_type_id : null, fo_provision: provision }
+    : null;
 }
 
 /** Provisions par type FO (identifiant en minuscules) des types chargés. */

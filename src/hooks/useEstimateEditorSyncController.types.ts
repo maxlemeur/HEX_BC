@@ -4,7 +4,7 @@ import type { EstimateSettingsState } from "@/components/estimates/EstimateSetti
 import type { EditorConflictDraft } from "@/lib/estimates/editor-drafts";
 import type { AutoSaveResult, AutoSaveStatus } from "@/hooks/useAutoSave";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import type { ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client";
+import type { EstimateBatchOperationResult, ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client";
 import type {
   EditorEstimateItem,
   EstimateItem,
@@ -74,6 +74,8 @@ export type EstimateEditorSyncControllerInput = {
     totalsPatch: EstimateVersionTotalsPatch | undefined;
     updatedAt: string;
     contentRevision?: number;
+    /** TI-534 : résultats du lot de lignes validé, dont les lignes stockées (provision FO comprise). */
+    results?: readonly EstimateBatchOperationResult[];
   }) => void;
   setTotalsOutOfSync: (value: boolean) => void;
   clearHistory: () => void;

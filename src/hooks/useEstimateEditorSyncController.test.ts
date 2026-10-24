@@ -636,6 +636,22 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(result.current.state.conflict).toBeNull();
   });
 
+  it("hands the committed line results to the editor so it can take the stored FO provisions (TI-534)", async () => {
+    const committed = createBatchResult("627ef080-0001-4000-8000-000000000001", "token-batch");
+    committed.results = [{ index: 0, op: "update", status: "ok", itemId: "line-1" }];
+    mocks.batchEstimateOperations.mockResolvedValueOnce(committed);
+    const input = createInput();
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => result.current.actions.enqueueItemUpdate("line-1", { supply_type_id: null }));
+    await act(async () => {
+      await result.current.actions.flushBufferedItemUpdates();
+    });
+    expect(input.applyVersionFlushResult).toHaveBeenCalledWith(expect.objectContaining({
+      updatedAt: "token-batch", results: committed.results,
+    }));
+  });
+
   it("keeps buffered edits when a deletion fails", async () => {
     const { result } = renderHook(() => useEstimateEditorSyncController(createInput()));
     await settleDeferredEffects();

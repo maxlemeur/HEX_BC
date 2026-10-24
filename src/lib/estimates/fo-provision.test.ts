@@ -7,6 +7,7 @@ import {
   supplyTypeChanged,
   withBufferedFoProvision,
   withRederivedFoProvision,
+  withServerFoProvisions,
 } from "@/lib/estimates/fo-provision";
 
 const TUBE = "8f9a1b2c-0000-4000-8000-000000000041";
@@ -55,6 +56,30 @@ describe("TI-534 FO provision mirror", () => {
       .toEqual({ ...recovered, fo_provision: 1 });
     const section = { item_type: "section", supply_type_id: null, fo_provision: 1 };
     expect(withBufferedFoProvision(section, section, PROVISIONS, true)).toBe(section);
+  });
+
+  it("takes the provision the server stored for a line whose type has not changed since the batch", () => {
+    // Tube -> Raccord -> Tube coalesced in the queue: the server saw no type change and kept the legacy 1.000.
+    const roundTrip = { id: "line-1", item_type: "line", supply_type_id: TUBE, fo_provision: 1.03 };
+    const retyped = { id: "line-2", item_type: "line", supply_type_id: RACCORD, fo_provision: 1.01 };
+    const section = { id: "section-1", item_type: "section", supply_type_id: null, fo_provision: 1 };
+    const items = [roundTrip, retyped, section];
+    const stored = (index: number, item: unknown) => ({ index, op: "update" as const, status: "ok" as const, data: { item } });
+    const results = [
+      stored(0, { id: "line-1", supply_type_id: TUBE.toUpperCase(), fo_provision: "1.000" }),
+      // Retyped locally while the batch was in flight: its next write re-derives it, the editor keeps its own.
+      stored(1, { id: "line-2", supply_type_id: TUBE, fo_provision: 1 }),
+      stored(2, { id: "section-1", supply_type_id: null, fo_provision: 1.01 }),
+    ];
+    expect(withServerFoProvisions(items, results)).toEqual([{ ...roundTrip, fo_provision: 1 }, retyped, section]);
+    // Nothing to change, or nothing stored (an error, a deleted line, another operation): the same array.
+    const settled = [{ ...roundTrip, fo_provision: 1 }];
+    expect(withServerFoProvisions(settled, results.slice(0, 1))).toBe(settled);
+    expect(withServerFoProvisions(items, [
+      { index: 0, op: "update", status: "error", code: "X", message: "refused" },
+      { index: 1, op: "update", status: "ok", data: { item: null, deleted_in_batch: true } },
+      { index: 2, op: "delete", status: "ok", data: { deleted_id: "line-1" } },
+    ])).toBe(items);
   });
 
   it("indexes the loaded supply types by lower-case id", () => {
