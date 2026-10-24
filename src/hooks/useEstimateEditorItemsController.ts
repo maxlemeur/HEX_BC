@@ -36,6 +36,7 @@ import {
   type EstimateVersionRow,
   type LaborSplitItemFields,
 } from "@/lib/estimates/editor-items";
+import { DEFAULT_FO_PROVISION, supplyTypeChanged } from "@/lib/estimates/fo-provision";
 import { resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import {
   markTempItemsRemoved,
@@ -514,6 +515,8 @@ export function useEstimateEditorItemsController({
         lineTaxCents: lineValues.taxLineCents,
         lineTotalTtcCents: lineValues.ttcLineCents,
         isLaborSplitEnabled,
+        // TI-534 : une ligne v3 sans type FO reçoit 1,010 du serveur.
+        foProvision: v3Writer ? DEFAULT_FO_PROVISION : 1,
       });
       setItems((previous) => [...previous, optimisticLine]);
 
@@ -577,16 +580,20 @@ export function useEstimateEditorItemsController({
         const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
         queuedPatchesByTempIdRef.current.delete(tempId);
         setItems((previous) =>
-          previous.map((item) =>
-            item.id === tempId
-              ? (reconcileCreatedItemWithLocalDraft(
-                  created,
-                  buildItemUpdatePayload(item),
-                  queuedPatch,
-                  item._clientKey ?? tempId
-                ) as EditorEstimateItem)
-              : item
-          )
+          previous.map((item) => {
+            if (item.id !== tempId) return item;
+            const reconciled = reconcileCreatedItemWithLocalDraft(
+              created,
+              buildItemUpdatePayload(item),
+              queuedPatch,
+              item._clientKey ?? tempId
+            ) as EditorEstimateItem;
+            // TI-534 : le type FO choisi avant la confirmation part avec le correctif en file, que le serveur
+            // redérive ; la provision locale de la ligne provisoire est déjà celle de ce type.
+            return v3Writer && supplyTypeChanged(created.supply_type_id, reconciled.supply_type_id)
+              ? { ...reconciled, fo_provision: item.fo_provision }
+              : reconciled;
+          })
         );
         if (queuedPatch) enqueueItemUpdate(created.id, queuedPatch);
 
@@ -668,6 +675,7 @@ export function useEstimateEditorItemsController({
       setItems,
       setTotalsOutOfSync,
       settings,
+      v3Writer,
       version,
     ]
   );
@@ -867,12 +875,17 @@ export function useEstimateEditorItemsController({
 
       enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
       setTotalsOutOfSync(false);
+      // TI-534 : en v3, une ligne rétablie (annuler, rétablir) qui change de type FO en redérive la provision, et garde
+      // sinon celle de la ligne en place, côté serveur comme ici.
+      const restoreLine = (item: EditorEstimateItem) =>
+        v3Writer && item.item_type === "line" ? normalizePatchedItem(item) : item;
       pushHistoryCommand({
         label: "patch-item",
         undo: async () => {
+          const restoredItem = restoreLine(previousItem);
           setItems((previous) =>
             previous.map((item) =>
-              item.id === itemId ? previousItem : item
+              item.id === itemId ? restoredItem : item
             )
           );
           enqueueItemUpdate(
@@ -882,8 +895,9 @@ export function useEstimateEditorItemsController({
           setTotalsOutOfSync(false);
         },
         redo: async () => {
+          const redoneItem = restoreLine(updated);
           setItems((previous) =>
-            previous.map((item) => (item.id === itemId ? updated : item))
+            previous.map((item) => (item.id === itemId ? redoneItem : item))
           );
           enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
           setTotalsOutOfSync(false);
@@ -901,6 +915,7 @@ export function useEstimateEditorItemsController({
       reportError,
       setItems,
       setTotalsOutOfSync,
+      v3Writer,
       version?.id,
     ]
   );

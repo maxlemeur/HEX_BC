@@ -41,12 +41,19 @@ export function serializeBufferedUpdates<T extends UpdatePayload>(
   }));
 }
 
+/**
+ * `deriveItem` completes an item rebuilt from its buffered inputs with what the server derives from them on write
+ * (TI-534: the FO provision of a changed supply type), from the item as it was before the overlay.
+ */
+export type BufferedItemDerivation<TItem> = (source: TItem, merged: TItem) => TItem;
+
 export function applyBufferedUpdatesToItems<
   TItem extends IdentifiedRecord,
   TUpdate extends UpdatePayload,
 >(
   sourceItems: TItem[],
-  bufferedUpdates: BufferedUpdate<TUpdate>[]
+  bufferedUpdates: BufferedUpdate<TUpdate>[],
+  deriveItem?: BufferedItemDerivation<TItem>
 ) {
   if (sourceItems.length === 0 || bufferedUpdates.length === 0) {
     return sourceItems;
@@ -61,10 +68,11 @@ export function applyBufferedUpdatesToItems<
     const updates = updatesById.get(item.id);
     if (!updates) return item;
     changed = true;
-    return {
+    const merged = {
       ...item,
       ...updates,
     } as TItem;
+    return deriveItem ? deriveItem(item, merged) : merged;
   });
 
   return changed ? nextItems : sourceItems;
@@ -76,7 +84,8 @@ export function rehydrateBufferedUpdates<
 >(
   sourceItems: TItem[],
   draftBufferedUpdates: BufferedUpdate<TUpdate>[],
-  buffer: Map<string, TUpdate>
+  buffer: Map<string, TUpdate>,
+  deriveItem?: BufferedItemDerivation<TItem>
 ) {
   buffer.clear();
   draftBufferedUpdates.forEach((entry) => {
@@ -86,7 +95,7 @@ export function rehydrateBufferedUpdates<
   const normalizedBufferedUpdates = serializeBufferedUpdates(buffer);
   const pendingUpdateCount = buffer.size;
   return {
-    mergedItems: applyBufferedUpdatesToItems(sourceItems, normalizedBufferedUpdates),
+    mergedItems: applyBufferedUpdatesToItems(sourceItems, normalizedBufferedUpdates, deriveItem),
     normalizedBufferedUpdates,
     pendingUpdateCount,
     hasPendingUpdates: pendingUpdateCount > 0,

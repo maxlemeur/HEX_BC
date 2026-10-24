@@ -351,7 +351,7 @@ function styleWorksheetHeader(worksheet: WorksheetLike, engineV3 = false) {
     // formule indicative V1.1.
     applyHeaderFill(headerRow, 32, 34, "FF0F766E");
     const notes: Array<[number, string]> = [
-      [16, "Moteur 3 : brut FO du document (Q × PR FO × K FO × coefficient de vente FO, réparti sur le brut de ligne)"],
+      [16, "Moteur 3 : brut FO du document (Q × PR FO × provision FO × K FO × coefficient de vente FO, réparti sur le brut de ligne)"],
       [17, "Moteur 3 : brut MO du document (brut de ligne − brut FO)"],
       [18, "Moteur 3 : brut de ligne du document (Q × PU vente), avant remise commerciale"],
     ];

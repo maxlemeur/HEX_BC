@@ -4,7 +4,7 @@ import type { EstimateSettingsState } from "@/components/estimates/EstimateSetti
 import type { EditorConflictDraft } from "@/lib/estimates/editor-drafts";
 import type { AutoSaveResult, AutoSaveStatus } from "@/hooks/useAutoSave";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import type { ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client";
+import type { EstimateBatchOperationResult, ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client";
 import type {
   EditorEstimateItem,
   EstimateItem,
@@ -61,6 +61,11 @@ export type EstimateEditorSyncControllerInput = {
   getVersionSnapshot: () => EstimateVersionRow | null;
   getPersistedTotals: () => EstimateTotals | null;
   replaceItems: (items: EditorEstimateItem[]) => void;
+  /**
+   * TI-534 : complète une ligne serveur recouverte de ses saisies en attente (brouillon local, rechargement) avec ce
+   * que l'écriture en dérive, comme la provision FO d'un type FO changé ; absente, la ligne recouverte telle quelle.
+   */
+  deriveBufferedItem?: (source: EditorEstimateItem, merged: EditorEstimateItem) => EditorEstimateItem;
   applyRestoredDraft: (
     draft: EstimateEditorConflictDraft
   ) => RestoredDraftApplication;
@@ -69,6 +74,8 @@ export type EstimateEditorSyncControllerInput = {
     totalsPatch: EstimateVersionTotalsPatch | undefined;
     updatedAt: string;
     contentRevision?: number;
+    /** TI-534 : résultats du lot de lignes validé, dont les lignes stockées (provision FO comprise). */
+    results?: readonly EstimateBatchOperationResult[];
   }) => void;
   setTotalsOutOfSync: (value: boolean) => void;
   clearHistory: () => void;

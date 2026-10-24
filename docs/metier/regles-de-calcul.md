@@ -1,6 +1,6 @@
 # Règles de calcul
 
-Contrat relu sur le code le 23 octobre 2026. Le moteur est épinglé sur chaque
+Contrat relu sur le code le 24 octobre 2026. Le moteur est épinglé sur chaque
 version de devis. Toute modification doit préserver les résultats des versions
 historiques et les montants déjà émis. Les migrations ordonnées définissent le
 schéma ; `supabase/schema.sql` est seulement un pointeur.
@@ -56,12 +56,30 @@ Pour une ligne `priced`, avec `Q` la quantité, `P` le prix d'achat FO en centim
 `h` les heures par unité et `t` le taux horaire :
 
 ```text
-FO_unitaire = P × k_fo
+FO_unitaire = P × provision_FO × k_fo
 MO_unitaire = h_mo_majoration × h × t × k_mo
 PU_vente = arrondi(FO_unitaire × coefficient_FO + MO_unitaire × coefficient_MO)
 brut_ligne = arrondi(Q × PU_vente)
 déboursé_ligne = arrondi(Q × (FO_unitaire + MO_unitaire))
 ```
+
+La **provision FO** (TI-534 : pertes, chutes, transport des tubes) est stockée
+sur la ligne (`estimate_items.fo_provision`, 3 décimales, entre 1 et 2). Une ligne
+v3 la reçoit à sa création depuis son type FO (`supply_types.default_fo_provision`) :
+1,030 pour les types FO Tube, Calorifuge et Isolant (valeurs posées par la
+migration), 1,010 pour tout autre type, pour un type créé ensuite et pour une
+ligne sans type. Un changement de type FO la redérive ; aucune
+autre écriture ne la touche, si bien que sauvegarde, réouverture, duplication et
+copie ne la cumulent jamais. Modifier la valeur d'un type ne change aucune ligne
+existante. Les lignes antérieures, les sections et les lignes v1/v2 gardent 1,000 :
+aucun montant existant ne change. Le déclencheur
+`private.derive_estimate_item_fo_provision` pose la valeur ; les projections
+calculées avant l'écriture (lot, création atomique, création de devis, éditeur)
+appliquent le même miroir ([fo-provision.ts](../../src/lib/estimates/fo-provision.ts)).
+La provision fait partie de l'entrée canonique et du gel ; elle figure dans les
+exports DPGF (« Données ») et CSV, avant K FO. Le contrôle D11 de l'import
+compare le PU du classeur à la lecture de ses colonnes, avant provision : il
+vérifie l'interprétation du fichier, pas le prix créé.
 
 Si la ventilation atelier/chantier est activée et renseignée, la MO unitaire
 additionne les deux couples heures/taux/coefficient avant la majoration. Une
@@ -89,7 +107,8 @@ Sources d'autorité : [line.ts](../../src/lib/estimates/engine-v3/line.ts),
 [breakdown.ts](../../src/lib/estimates/engine-v3/breakdown.ts),
 [discount.ts](../../src/lib/estimates/engine-v3/discount.ts),
 [tax.ts](../../src/lib/estimates/engine-v3/tax.ts),
-[jumeau SQL](../../supabase/migrations/20261017134443_estimate_engine_v3_functions_and_units.sql).
+[jumeau SQL](../../supabase/migrations/20261017134443_estimate_engine_v3_functions_and_units.sql),
+[provision FO](../../supabase/migrations/20261024142907_estimate_fo_provision.sql).
 
 ## Compatibilité des moteurs 1 et 2
 

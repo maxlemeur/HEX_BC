@@ -72,6 +72,36 @@ describe("estimate editor responsive grid", () => {
     });
   });
 
+  it("ajoute la provision FO devant le K FO sur une v3 seulement (TI-534)", () => {
+    const withKFo = new Set<ColumnKey>(["k_fo"]);
+    expect(
+      toCustomProperties(resolveEstimateEditorGridStyle(withKFo, false))?.["--estimate-grid-desktop"],
+    ).toBe("minmax(300px, 3fr) 64px 54px 88px 56px 56px 88px 100px 42px");
+    expect(
+      toCustomProperties(
+        resolveEstimateEditorGridStyle(withKFo, false, {}, undefined, true),
+      ),
+    ).toMatchObject({
+      "--estimate-grid-desktop":
+        "minmax(300px, 3fr) 64px 54px 88px 64px 56px 56px 88px 100px 42px",
+      "--estimate-desktop-min-width": "912px",
+    });
+    // Sans K FO affiché, pas de provision non plus.
+    expect(
+      toCustomProperties(
+        resolveEstimateEditorGridStyle(new Set<ColumnKey>(), false, {}, undefined, true),
+      )?.["--estimate-grid-desktop"],
+    ).toBe("minmax(300px, 3fr) 64px 54px 88px 56px 88px 100px 42px");
+    // En MO éclatée, les colonnes de coût sont forcées : la provision aussi.
+    expect(
+      toCustomProperties(
+        resolveEstimateEditorGridStyle(ALL_OPTIONAL_COLUMNS, true, {}, undefined, true),
+      )?.["--estimate-grid-desktop"],
+    ).toBe(
+      "minmax(300px, 3fr) 64px 54px 88px 112px 64px 60px 96px 72px 104px 60px 72px 104px 60px 88px 100px 42px",
+    );
+  });
+
   it("insère le sous-détail de prix entre la main-d'œuvre et la vente", () => {
     const withMargin = toCustomProperties(
       resolveEstimateEditorGridStyle(

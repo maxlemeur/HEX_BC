@@ -50,6 +50,27 @@ describe("bulk-buffer helpers", () => {
     ]);
   });
 
+  it("completes each overlaid item with what its write derives, from the item before the overlay", () => {
+    const items = [
+      { id: "item-1", supply_type_id: "raccord", fo_provision: 1.01 },
+      { id: "item-2", supply_type_id: "raccord", fo_provision: 1.01 },
+    ];
+    const provisions: Record<string, number> = { raccord: 1.01, tube: 1.03 };
+    const derive = (source: (typeof items)[number], merged: (typeof items)[number]) =>
+      source.supply_type_id === merged.supply_type_id ? merged : { ...merged, fo_provision: provisions[merged.supply_type_id] };
+
+    expect(applyBufferedUpdatesToItems(items, [{ id: "item-1", updates: { supply_type_id: "tube" } }], derive)).toEqual([
+      { id: "item-1", supply_type_id: "tube", fo_provision: 1.03 },
+      { id: "item-2", supply_type_id: "raccord", fo_provision: 1.01 },
+    ]);
+    const pending = new Map<string, Record<string, unknown>>();
+    expect(rehydrateBufferedUpdates(items, [{ id: "item-2", updates: { supply_type_id: "tube" } }], pending, derive)
+      .mergedItems).toEqual([
+      { id: "item-1", supply_type_id: "raccord", fo_provision: 1.01 },
+      { id: "item-2", supply_type_id: "tube", fo_provision: 1.03 },
+    ]);
+  });
+
   it("rehydrates autosave draft into buffer and item state", () => {
     const initialItems = [{ id: "item-1", title: "Serveur", quantity: 1 }];
     const pending = new Map<string, Record<string, unknown>>();

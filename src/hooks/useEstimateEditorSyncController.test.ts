@@ -11,6 +11,7 @@ import {
 } from "@/hooks/useEstimateEditorSyncController.types";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { runEstimateEditorMutation } from "@/lib/estimates/editor-mutations";
+import { withRederivedFoProvision } from "@/lib/estimates/fo-provision";
 import type {
   EstimateItem,
   EstimateVersionRow,
@@ -157,6 +158,7 @@ function createItem(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
+    fo_provision: 1,
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,
@@ -634,6 +636,22 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(result.current.state.conflict).toBeNull();
   });
 
+  it("hands the committed line results to the editor so it can take the stored FO provisions (TI-534)", async () => {
+    const committed = createBatchResult("627ef080-0001-4000-8000-000000000001", "token-batch");
+    committed.results = [{ index: 0, op: "update", status: "ok", itemId: "line-1" }];
+    mocks.batchEstimateOperations.mockResolvedValueOnce(committed);
+    const input = createInput();
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => result.current.actions.enqueueItemUpdate("line-1", { supply_type_id: null }));
+    await act(async () => {
+      await result.current.actions.flushBufferedItemUpdates();
+    });
+    expect(input.applyVersionFlushResult).toHaveBeenCalledWith(expect.objectContaining({
+      updatedAt: "token-batch", results: committed.results,
+    }));
+  });
+
   it("keeps buffered edits when a deletion fails", async () => {
     const { result } = renderHook(() => useEstimateEditorSyncController(createInput()));
     await settleDeferredEffects();
@@ -711,6 +729,34 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(result.current.actions.overlayPendingUpdates(input.items)).toEqual([
       expect.objectContaining({ title: "Titre local", quantity: 3 }),
     ]);
+  });
+
+  it("gives a recovered v3 line whose Type FO is pending the provision of that type (TI-534)", async () => {
+    window.localStorage.setItem(
+      `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`,
+      JSON.stringify({
+        buffered_updates: [{ id: "line-1", updates: { supply_type_id: "627ef080-0004-4000-8000-00000000000a" } }],
+        saved_at: "2026-07-15T09:00:00.000Z",
+      })
+    );
+    const provisions = new Map([
+      ["627ef080-0004-4000-8000-00000000000a", 1.03],
+      ["627ef080-0004-4000-8000-00000000000b", 1.01],
+    ]);
+    const input = createInput({
+      items: [createItem("line-1", { supply_type_id: "627ef080-0004-4000-8000-00000000000b", fo_provision: 1.01 })],
+      deriveBufferedItem: (source, merged) => withRederivedFoProvision(source, merged, provisions),
+    });
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+
+    await waitFor(() => {
+      expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
+    });
+
+    const recovered = { id: "line-1", supply_type_id: "627ef080-0004-4000-8000-00000000000a", fo_provision: 1.03 };
+    expect(input.replaceItems).toHaveBeenCalledWith([expect.objectContaining(recovered)]);
+    // Rechargement : la ligne serveur garde l'ancien type, la saisie en attente le remplace avec sa provision.
+    expect(result.current.actions.overlayPendingUpdates(input.items)).toEqual([expect.objectContaining(recovered)]);
   });
 
   it("merges repeated edits, persists them and schedules autosave", async () => {
