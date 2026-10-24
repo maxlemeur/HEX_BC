@@ -2449,7 +2449,10 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     laborSplitEnabled: isLaborSplitEnabled,
   });
   if (v3Analysis) {
-    v3Totals.set(currentVersion.id, { saleCents: v3Analysis.global.saleCents, costCents: v3Analysis.global.costCents });
+    // Une version courante émise garde son gel frais (lu ci-dessus) ou reste sans point, comme les autres versions.
+    if (currentVersion.status === "draft" && !v3Totals.has(currentVersion.id)) {
+      v3Totals.set(currentVersion.id, { saleCents: v3Analysis.global.saleCents, costCents: v3Analysis.global.costCents });
+    }
     return {
       ...v3Analysis,
       versionEvolution: buildMarginVersionEvolution(versions, v3Totals),

@@ -4228,6 +4228,40 @@ describe("affaires hub v3 margin (lot 3.2)", () => {
     expect(result?.versionEvolution.map((point) => point.versionNumber)).toEqual([1, 3, 5]);
     expect(result?.versionEvolutionUnavailableV3).toEqual([2, 4]);
   });
+
+  it("charts a current issued v3 at its fresh freeze, never at live tariffs, and names it without one", async () => {
+    // Calculée en direct, la ligne donnerait 13 000 / 10 000, soit 30 % ; le gel dit 11 000 / 10 000, soit 10 %.
+    const sectionId = "bbbbbbbb-bbbb-4bbb-8bbb-000000000030";
+    const currentItems = [
+      { id: sectionId, version_id: "ev-2", parent_id: null, item_type: "section", position: 1, title: "Lot", description: null },
+      { ...v3Line("bbbbbbbb-bbbb-4bbb-8bbb-000000000031", "ev-2"), parent_id: sectionId },
+    ];
+    const frozen = v3Version("ev-2", 2, {
+      status: "sent",
+      total_ht_cents: 11_000,
+      content_revision: 2,
+      calc_snapshot_content_revision: 2,
+      calc_snapshot_context: { engine: 3, cost_subtotal_cents: 10_000 },
+    });
+    const contextFor = (current: Record<string, unknown>) => createHubContext({
+      tableScenarios: {
+        estimate_projects: [{ maybeSingle: { data: project, error: null } }],
+        estimate_versions: [{ limit: { data: [v2Version("ev-1", 1, 1.15), current], error: null } }],
+        estimate_items: [{ limit: { data: currentItems, error: null } }],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(contextFor(frozen) as never);
+    const issued = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+    expect(issued?.versionEvolution.map((point) => [point.versionNumber, Number(point.marginPercent.toFixed(1))]))
+      .toEqual([[1, 15], [2, 10]]);
+    expect(issued?.versionEvolutionUnavailableV3).toBeUndefined();
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(contextFor(v3Version("ev-2", 2, { status: "sent" })) as never);
+    const stale = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+    expect(stale?.versionEvolution.map((point) => point.versionNumber)).toEqual([1]);
+    expect(stale?.versionEvolutionUnavailableV3).toEqual([2]);
+  });
 });
 
 // Isolation exception: LEGCUR02 covers the real browser, persistence and UI.

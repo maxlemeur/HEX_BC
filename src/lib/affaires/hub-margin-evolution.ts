@@ -141,9 +141,10 @@ export async function readMarginLaborRates(context: AffaireContext, items: reado
 }
 
 /**
- * Lot 3.2 (entrée 4, D-d) : vente et déboursé des v3 de l'évolution autres que la version courante. Un gel v3 frais
- * fait foi ; un brouillon sans gel est calculé en direct par la façade, comme la version courante ; une v3 émise sans
- * gel frais reste sans point (jamais de tarif vivant pour une version émise).
+ * Lot 3.2 (entrée 4, D-d) : vente et déboursé des v3 de l'évolution. Un gel v3 frais fait foi, version courante
+ * comprise ; un brouillon antérieur sans gel est calculé en direct par la façade (celui de la version courante l'est
+ * par l'appelant, qui a déjà ses lignes) ; une v3 émise sans gel frais reste sans point (jamais de tarif vivant pour
+ * une version émise).
  */
 export async function readMarginEvolutionV3Totals(input: {
   context: AffaireContext;
@@ -155,11 +156,11 @@ export async function readMarginEvolutionV3Totals(input: {
   const liveDrafts: MarginAnalysisVersionRow[] = [];
   for (const version of input.versions) {
     const engine = resolveEstimateEngineVersionForDisplay(version);
-    if (version.id === input.currentVersionId || engine === null || !usesSaleCoefficients(engine)) continue;
+    if (engine === null || !usesSaleCoefficients(engine)) continue;
     const frozenCostCents = readFreshV3CostSubtotalCents(version);
     if (frozenCostCents !== null) {
       totals.set(version.id, { saleCents: toSafeInteger(version.total_ht_cents), costCents: frozenCostCents });
-    } else if (version.status === "draft") {
+    } else if (version.status === "draft" && version.id !== input.currentVersionId) {
       liveDrafts.push(version);
     }
   }
