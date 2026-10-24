@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "sourceBase": "d7e6d0255c327ffac5cff99f06fd2eeb0c5760ae",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande",
+    "account": "max"
+  },
+  "authorization": "Owner explicitly approved applying the PDF storage correction on shared MergeOne.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261023230340_allow_takeoff_pdf_uploads.sql",
+    "sha256": "dce5177f9cc9217a9585eeeb253fa97d756577e0e637b41f55d26969c7c842a9",
+    "appliedVersion": "20261023230907",
+    "appliedName": "20261023230340_allow_takeoff_pdf_uploads"
+  },
+  "catalogChecks": {
+    "pdfAccepted": true,
+    "previousFormatsPreserved": true,
+    "privateBucket": true,
+    "maximumBytes": 10485760,
+    "securityAdvisoryFindingsUnchanged": true
+  },
+  "realPlanPdfTest": {
+    "environment": "Browser, app, Storage and database on owned ephemeral local stack; live owner-authorized ChatGPT plan inference. Shared bucket catalog checked separately.",
+    "fixture": "e2e/fixtures/takeoff/army-chatgpt-plan.pdf",
+    "fixtureSha256": "1fd21dcc72a8d70ad49978ad6b7eb5c8226e6359d630e995f36ebed010332b3e",
+    "ids": {
+      "projectId": "5127491c-7d94-4326-9a26-ce6c406b209f",
+      "versionId": "e53c41aa-ab8e-4dd3-9e53-0c59566cd1c7"
+    },
+    "jobId": "199d33fa-9319-5b7a-8af2-ad4f540fa676",
+    "provider": "chatgpt",
+    "model": "gpt-6.1-sol",
+    "expected": [
+      {
+        "designationContains": "cuivre",
+        "quantity": 12.5,
+        "unit": "m"
+      },
+      {
+        "designationContains": "vanne",
+        "quantity": 4,
+        "unit": "u"
+      }
+    ],
+    "actual": [
+      {
+        "designation": "TC1 - Tuyauterie cuivre DN20",
+        "quantity": 12.5,
+        "unit": "m",
+        "sourcePage": 1
+      },
+      {
+        "designation": "Vannes d'isolement DN20 - repères V1 à V4",
+        "quantity": 4,
+        "unit": "u",
+        "sourcePage": 1
+      }
+    ],
+    "tokenCount": 1982,
+    "livePlanInference": true,
+    "geminiRequests": 0,
+    "inputKind": "pdf"
+  },
+  "validation": {
+    "sqlRls": "31 pgTAP files / 2107 assertions; 2 statement ceilings and behavioral RLS passed.",
+    "verifyPr": "Passed: 3479 node, 828 jsdom, 12 critical; 3 node tests and one node file remain skipped, not passed.",
+    "browser": "PDF final run: setup and PDF passed. Earlier run: setup, injected OAuth refusal and live CSV passed; initial PDF failures retained.",
+    "command": "npm run e2e:army:local -- --grep 'ChatGPT local: PDF'",
+    "runtime": {
+      "node": "26.12.1",
+      "supabaseCli": "2.121.0",
+      "e2e": "0.21.2",
+      "web": "0.15.2"
+    }
+  },
+  "proofRoot": "outputs/chatgpt-pdf-20261024",
+  "limits": [
+    "Fictional one-page PDF; this does not establish accuracy on complex real plans.",
+    "The live PDF used an owned isolated local backend, not the shared QA tenant.",
+    "No estimate lines applied and no hosted application deployment.",
+    "The Gemini option was tested through routing/UI tests; no live Gemini call was made."
+  ]
+}

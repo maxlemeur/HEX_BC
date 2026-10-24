@@ -266,6 +266,8 @@
     "20261022074859_close_takeoff_audit_forgery.sql": "27920655c1f764564d910103d5bb8eef6ab6747491391e01f9e7c4636d3cf24f",
     "20261022075204_bound_takeoff_job_admission.sql": "272502cd0fd58c7aae7cf97aa449b181db251ab17f023203166369f385c99774",
     "20261023132913_select_authorized_email_recovery.sql": "06acc76e161ab2cddf34078e0d540adc49f84e44321220eaee310620d14148b2",
-    "20261023222150_chatgpt_local_takeoff_execution.sql": "2f210d212cfd5f4245f997aeca08e2ba3e54cb68768f00f87381d83a09aaaf28"
+    "20261023222150_chatgpt_local_takeoff_execution.sql": "2f210d212cfd5f4245f997aeca08e2ba3e54cb68768f00f87381d83a09aaaf28",
+    "20261023230340_allow_takeoff_pdf_uploads.sql": "dce5177f9cc9217a9585eeeb253fa97d756577e0e637b41f55d26969c7c842a9",
+    "20261024000936_google_drive_pending_copy_recovery.sql": "6227ca74a8ff01d798da88053b064b945960c3a3b6a13bdc62485390bb05609e"
   }
 }

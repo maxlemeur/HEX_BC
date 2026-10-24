@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "sourceCommit": "2f5c4ebaee1286a6486f80b25afd589c37804520",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande",
+    "account": "max",
+    "environment": "Habitual shared MergeOne database; app and worker run locally on the Mac."
+  },
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261023222150_chatgpt_local_takeoff_execution.sql",
+    "sha256": "2f210d212cfd5f4245f997aeca08e2ba3e54cb68768f00f87381d83a09aaaf28",
+    "appliedVersion": "20261023223723",
+    "appliedName": "20261023222150_chatgpt_local_takeoff_execution",
+    "duplicateCheck": "Absent before application; one history entry verified afterwards.",
+    "previousCronSource": "Exactly matched the reviewed repository base before replacement."
+  },
+  "catalogChecks": {
+    "columnsPresent": true,
+    "constraintValidated": true,
+    "triggerEnabled": true,
+    "serviceRoleMayClaim": true,
+    "authenticatedMayClaim": false,
+    "anonMayClaim": false,
+    "sharedRecoveryExcludesLocalJobs": true,
+    "relatedSecurityAdvisoryFindings": 0
+  },
+  "sharedTest": {
+    "interface": "Real local HTTP API, shared QA tenant, Storage, local worker and live OpenAI Responses.",
+    "testData": "One fictional CSV line; no Nirvana or business documents.",
+    "tenantId": "a8d1292a-bfd1-4a44-9820-dc9536ecad25",
+    "estimateProjectId": "24d98889-859f-44c8-84ed-b8b411d8eb08",
+    "estimateVersionId": "4def4484-a0b3-4398-afdc-03f9fb865e09",
+    "calcEngine": 2,
+    "jobId": "fcbedaa2-1aeb-5ca5-a7f3-706cdec49d5a",
+    "status": "completed",
+    "executionProvider": "chatgpt_local",
+    "resultProvider": "chatgpt",
+    "model": "gpt-6.1-sol",
+    "quantity": 12.5,
+    "unit": "m",
+    "tokens": 1293,
+    "costCentsMeaning": "0 means no API-price estimate; the call consumes the ChatGPT plan limits.",
+    "durableHostReservation": true,
+    "estimateItemsUnchanged": true,
+    "initialAttempt": {
+      "status": 403,
+      "code": "TAKEOFF_MODULE_DISABLED",
+      "jobCreated": false
+    },
+    "fixturePreparation": "Temporarily enabled the existing QA module through the normal tenant-admin API, then restored its original disabled value.",
+    "temporaryPlanProfileRemoved": true,
+    "qaModuleRestored": true
+  },
+  "priorEvidence": {
+    "ownedLocalBrowserJourney": "Passed with the real plan: 12.5 m, 1329 tokens, one intercepted live OpenAI request; Gemini and Edge dispatch forbidden.",
+    "sqlRls": "30 pgTAP files / 2103 assertions plus RLS passed.",
+    "verifyPr": "Passed before application; application code unchanged."
+  },
+  "proofs": {
+    "localRoot": "outputs/chatgpt-takeoff-20261024",
+    "migration": "shared-migration-verification.json",
+    "test": "shared-api-takeoff.json",
+    "log": "shared-api-probe-final.log",
+    "priorQualification": "verification.json"
+  },
+  "limits": [
+    "Shared probe was API/worker validation, not a new browser journey or network-interception run.",
+    "Only CSV level A was tested against the real plan; PDF B/C remain covered by processor tests.",
+    "No estimate lines were applied, no real business documents processed, no hosted application deployment performed.",
+    "The QA job and fictional source/result are retained in the isolated QA tenant as evidence."
+  ]
+}

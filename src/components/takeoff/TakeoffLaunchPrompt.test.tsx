@@ -1,6 +1,9 @@
+vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: vi.fn().mockResolvedValue(null) }));
+import { loadChatGptConnection } from "@/app/dashboard/_actions/chatgpt";
 import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }));
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
 
@@ -9,7 +12,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
 }));
 
 vi.mock("@/components/ui-legacy/Toast", () => ({
-  useToast: () => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }),
+  useToast: () => toastMock,
 }));
 
 vi.mock("@/lib/estimates/client", () => ({
@@ -183,4 +186,14 @@ describe("TakeoffLaunchPrompt", () => {
 
     expect(duplicateEstimateVersionMock).toHaveBeenCalledTimes(1);
   });
+  it("uses the provider selected after the launch callback was first rendered", async () => {
+    vi.mocked(loadChatGptConnection).mockResolvedValueOnce({ enabled: true, selectedId: "profile", model: "plan-model", sharing: true, profiles: [] });
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
+    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
+    const picker = await screen.findByLabelText("Fournisseur IA");
+    fireEvent.change(picker, { target: { value: "gemini" } });
+    fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
+    await waitFor(() => expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "gemini" })));
+  });
+
 });

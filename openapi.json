@@ -784,6 +784,199 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake/google-drive": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Lire la disponibilité et les copies Google Drive de cette affaire",
+        "description": "Disponibilité OAuth et provenance des copies privées de cette affaire accessible.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireGoogleDriveProjectIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Parcourir un dossier ou confirmer des copies Drive",
+        "description": "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Jeton éphémère dans le corps JSON, jamais dans une URL. Aucun contenu téléchargé avant confirmation. Résultats par pièce et reprise par révision.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ImportAffaireGoogleDriveProjectIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Dossier personnel, au plus 20 pièces et 100 Mo par lot, 50 Mo par pièce. Origine identique requise.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAffaireGoogleDriveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/bulk-archive": {
       "post": {
         "tags": [
@@ -17051,7 +17244,7 @@
           "Takeoff"
         ],
         "summary": "Creer un job Takeoff",
-        "description": "Cree un job Takeoff niveau A a partir d'un upload CSV/XLS/XLSX et retourne le job pending.",
+        "description": "Cree un job Takeoff a partir d'un upload CSV/XLS/XLSX ou PDF et retourne le job pending.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -17064,7 +17257,7 @@
           }
         ],
         "requestBody": {
-          "description": "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id` et `level=A`.",
+          "description": "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto, chatgpt, gemini).",
           "required": true,
           "content": {
             "multipart/form-data": {
@@ -22583,6 +22776,100 @@
           },
           "file": {}
         }
+      },
+      "ReadAffaireGoogleDriveProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ImportAffaireGoogleDriveProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ImportAffaireGoogleDriveRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "list"
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "folderId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+              },
+              "pageToken": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": [
+              "action",
+              "token",
+              "folderId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "import"
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "folderId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+              },
+              "files": {
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "pattern": "^\\d+$"
+                    },
+                    "newVersion": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "action",
+              "token",
+              "folderId",
+              "files"
+            ],
+            "additionalProperties": false
+          }
+        ]
       },
       "BulkArchiveAffairesRequest": {
         "type": "object",
@@ -56875,7 +57162,19 @@
           },
           "level": {
             "type": "string",
-            "const": "A"
+            "enum": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "chatgpt",
+              "gemini"
+            ]
           }
         },
         "required": [

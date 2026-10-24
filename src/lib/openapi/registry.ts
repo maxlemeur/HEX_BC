@@ -1310,7 +1310,8 @@ const takeoffJobCreateDataSchema = z.object({
 const takeoffJobCreateFormDataSchema = z.object({
   file: z.any(),
   estimate_version_id: uuidSchema,
-  level: z.literal("A"),
+  level: z.enum(["A", "B", "C"]),
+  provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
 });
 const takeoffJobMetricsSchema = z.object({
   token_count: z.number().int().nullable(),
@@ -3425,7 +3426,7 @@ const generateEstimatePdfBody = jsonBody({
 const createTakeoffJobBody = multipartBody({
   name: "CreateTakeoffJobFormDataRequest",
   description:
-    "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id` et `level=A`.",
+    "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto, chatgpt, gemini).",
   schema: takeoffJobCreateFormDataSchema,
 });
 const applyTakeoffJobBody = jsonBody({
@@ -3690,7 +3691,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs",
     summary: "Creer un job Takeoff",
     description:
-      "Cree un job Takeoff niveau A a partir d'un upload CSV/XLS/XLSX et retourne le job pending.",
+      "Cree un job Takeoff a partir d'un upload CSV/XLS/XLSX ou PDF et retourne le job pending.",
     tags: ["Takeoff"],
     parameters: [idempotencyKeyHeaderParameter],
     requestBody: createTakeoffJobBody,

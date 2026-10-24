@@ -342,6 +342,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
 }
 
 function buildTakeoffRequest(input?: {
+  provider?: string;
   estimateVersionId?: string;
   level?: string;
   fileName?: string;
@@ -366,6 +367,7 @@ function buildTakeoffRequest(input?: {
   formData.append("file", file);
   formData.append("estimate_version_id", input?.estimateVersionId ?? ESTIMATE_VERSION_ID);
   formData.append("level", input?.level ?? "A");
+  if (input?.provider) formData.append("provider", input.provider);
 
   return new Request("http://localhost/api/takeoff/jobs", {
     method: "POST",
@@ -805,6 +807,29 @@ describe("POST /api/takeoff/jobs", () => {
         : secondContent
     );
     expect(supabase.__state.audits).toHaveLength(1);
+  });
+
+
+  it("rejects a malformed provider before uploading a source", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const response = await POST(buildTakeoffRequest({ provider: "unknown" }));
+    expect(response.status).toBe(400);
+    expect(supabase.__state.uploads).toHaveLength(0);
+    expect(triggerTakeoffJobProcessing).not.toHaveBeenCalled();
+  });
+
+  it("refuses reusing a job key after an explicit provider change", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const headers = { "idempotency-key": "provider-change" };
+    const first = await POST(buildTakeoffRequest({ headers }));
+    expect(first.status).toBe(201);
+    const second = await POST(buildTakeoffRequest({ headers, provider: "gemini" }));
+    expect(second.status).toBe(409);
+    expect((await second.json()).error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    expect(supabase.__state.uploads).toHaveLength(1);
+    expect(triggerTakeoffJobProcessing).toHaveBeenCalledTimes(1);
   });
 
   it("returns same job with same idempotency key and payload", async () => {

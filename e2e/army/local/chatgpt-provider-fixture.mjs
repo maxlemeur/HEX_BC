@@ -15,28 +15,37 @@ globalThis.fetch = async (input, init) => {
     throw new Error("ChatGPT probe forbids Gemini and Edge dispatch.");
   }
   if (url.origin !== "https://api.openai.com") return originalFetch(input, init);
+  const body = url.pathname === "/v1/responses" ? JSON.parse(init.body) : null;
+  const pdf = body?.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
+    .find(part => part.type === "input_file");
+  if (pdf) assert(pdf.file_data.startsWith("data:application/pdf;base64,JVBER"), "PDF must reach OpenAI inline.");
+  const sourceMatched = () => pdf || (JSON.stringify(body.input).includes("ARMY copper pipe") && JSON.stringify(body.input).includes("12.5"));
+  const transportEntry = (provider) => ({ provider, model: body.model, sourceMatched: true, ...(pdf ? { inputKind: "pdf" } : {}) });
   if (liveProbe) {
     assert(new Headers(init?.headers).get("authorization") === `Bearer ${liveProbe.accessToken}`, "Unexpected live plan credential.");
     assert(["/v1/models", "/v1/responses"].includes(url.pathname), "Unexpected OpenAI endpoint.");
     if (url.pathname === "/v1/models") return originalFetch(input, init);
-    const body = JSON.parse(init.body);
     assert(body.model === liveProbe.model && body.store === false && body.stream === true, "Invalid live plan request.");
-    const text = JSON.stringify(body.input);
-    assert(text.includes("ARMY copper pipe") && text.includes("12.5"), "Uploaded source must reach the plan request.");
-    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-live", model: body.model, sourceMatched: true }) + "\n");
+    assert(sourceMatched(), "Uploaded source must reach the plan request.");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(transportEntry("chatgpt-live")) + "\n");
     return originalFetch(input, init);
   }
   assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
   if (url.pathname === "/v1/models") return Response.json({ models: [{ slug: "army-plan-model", display_name: "ARMY plan model", visibility: "list" }] });
   assert.equal(url.pathname, "/v1/responses");
-  const body = JSON.parse(init.body);
   assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
-  const text = JSON.stringify(body.input);
-  assert(text.includes("ARMY copper pipe") && text.includes("12.5"), "Uploaded source must reach the plan request.");
+  assert(sourceMatched(), "Uploaded source must reach the plan request.");
   const data = { items: [{ designation: "ARMY copper pipe", quantity: 12.5, unit: "m", source_page: 1 }], warnings: [],
     metadata: { level: "A", prompt_version: "takeoff-a-v1", file_type: "csv", schema_version: "v1" } };
+  if (pdf) {
+    data.items = [
+      { designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.99, evidence: "Cotes 5,00 m et 7,50 m" },
+      { designation: "Vanne isolement DN20", quantity: 4, unit: "u", source_page: 1, confidence: 0.99, evidence: "Reperes V1 a V4" },
+    ];
+    data.metadata = { level: "C", prompt_version: "takeoff-c-v1", file_type: "pdf", schema_version: "v1" };
+  }
   const output = JSON.stringify(data);
-  await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", model: body.model, sourceMatched: true }) + "\n");
+  await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(transportEntry("chatgpt-fixture")) + "\n");
   return new Response([
     { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: output },
     { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },
