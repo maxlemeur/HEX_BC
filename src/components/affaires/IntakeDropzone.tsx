@@ -12,6 +12,7 @@ import {
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
 import { AffaireFileDropSurface } from "./AffaireFileDropSurface";
+import { GoogleDriveImport } from "./GoogleDriveImport";
 import { CheckIcon } from "lucide-react";
 
 type FileResult = {
@@ -246,6 +247,8 @@ export function IntakeDropzone({
         triggerId={projectId}
         hiddenSurface={hideSurface}
       />
+
+      <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={onUploadComplete} />
 
       {/* Client-side validation errors */}
       {clientErrors.length > 0 && (

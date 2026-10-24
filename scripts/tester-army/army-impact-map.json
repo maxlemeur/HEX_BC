@@ -18,6 +18,7 @@
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/intake-google-drive.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
       "e2e/army/critical/plan-center.e2e.ts",
@@ -740,6 +741,18 @@
       "journeys": [
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
+    },
+    {
+      "id": "google-drive-intake",
+      "paths": [
+        "src/lib/affaires/google-drive/**",
+        "src/components/affaires/GoogleDriveImport*",
+        "src/components/affaires/IntakeDropzone*",
+        "src/app/api/affaires/[projectId]/intake/google-drive/**",
+        "e2e/army/critical/google-drive-local-store.ts",
+        "e2e/fixtures/sample-plan.pdf"
+      ],
+      "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts"]
     },
     {
       "id": "intake-dossier",
