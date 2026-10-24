@@ -268,6 +268,7 @@
     "20261023132913_select_authorized_email_recovery.sql": "06acc76e161ab2cddf34078e0d540adc49f84e44321220eaee310620d14148b2",
     "20261023222150_chatgpt_local_takeoff_execution.sql": "2f210d212cfd5f4245f997aeca08e2ba3e54cb68768f00f87381d83a09aaaf28",
     "20261023230340_allow_takeoff_pdf_uploads.sql": "dce5177f9cc9217a9585eeeb253fa97d756577e0e637b41f55d26969c7c842a9",
+    "20261024000936_google_drive_pending_copy_recovery.sql": "6227ca74a8ff01d798da88053b064b945960c3a3b6a13bdc62485390bb05609e",
     "20261024092140_restrict_template_insert_execute.sql": "cd4df4fd49ec1f895906eae4031ece272f158e7e933e9e5ff39b1aa3c8fa124c"
   }
 }
