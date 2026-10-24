@@ -360,11 +360,11 @@ export function MarginAnalysisWidget({
               )}
             </>
           )}
-          {/* Sous-lot 2.10a (A16, D-d) : une v3 est nommée, jamais retirée sans le dire. */}
+          {/* Sous-lot 2.10a (A16, D-d), revu au lot 3.2 : une v3 sans déboursé calculable est nommée, jamais retirée sans le dire. */}
           {unavailableV3.length > 0 && (
             <p className="text-xs text-muted-foreground" data-testid="margin-evolution-v3-notice">
-              Évolution de la marge indisponible pour le moteur de calcul 3 :{" "}
-              {unavailableV3.map((versionNumber) => `V${versionNumber}`).join(", ")}.
+              Marge indisponible pour{" "}
+              {unavailableV3.map((versionNumber) => `V${versionNumber}`).join(", ")} : aucun déboursé calculable.
             </p>
           )}
         </div>

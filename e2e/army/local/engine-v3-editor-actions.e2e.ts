@@ -31,8 +31,9 @@ import { insertProjectMarginRule } from "./engine-v3-persistence-support";
 //          (revue Codex de la PR #44, F1) ;
 //  V3E10 — question de propagation de la TVA ouverte par Ctrl+S et par l'enregistrement à la fermeture du tiroir ;
 //  V3E11 — remise de 0 % enregistrée sans état « en attente » ; palier d'arrondi hors liste affiché tel qu'appliqué ;
-//          action modèle de la fiche fermée par son nom ; depuis la fusion de 2.7 (émission v3), le PDF y est ouvert
-//          (doc 2.7 §13 ; sa génération par la fiche est prouvée par V3M05) ;
+//          depuis la fusion de 2.7 (émission v3), le PDF de la fiche est ouvert (doc 2.7 §13 ; sa génération par la
+//          fiche est prouvée par V3M05) ; lot 3.2 (entrée 3) : la fiche enregistre la v3 comme modèle, avec ses unités,
+//          statuts et heures par unité (M6), au lieu de fermer l'action par un motif ;
 //  V3E15 — fusion de 2.7 : l'éditeur d'une v3 propose « Exporter Excel » et « Exporter DPGF » (routes serveur de 2.7,
 //          classeurs v3) ; « Exporter CSV » et « Exporter BDC V1.1 » y sont ouverts par 2.7b (D-a ; V3X03 à V3X05) ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
@@ -56,7 +57,7 @@ const chips = (totals: Totals, rate = "20", extra: string[] = []) => [
 ];
 const apostrophes = (text: string) => text.replace(/[’']/g, "'");
 // Messages nommés retenus par la revue (doc 2.6 §11.2).
-// Fusion de 2.7 : seul l'enregistrement comme modèle reste fermé (2.8) ; l'ancienne raison, qui nommait le PDF, disparaît.
+// Fusion de 2.7 : l'ancienne raison, qui nommait le PDF, disparaît ; lot 3.2 : celle du modèle aussi.
 const DETAIL_TEMPLATE_REASON = "Moteur de calcul 3 : l’enregistrement comme modèle n’est pas encore disponible pour ce devis.";
 const DETAIL_ACTIONS_REASON_2_6 = "Moteur de calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles";
 const UNIT_REFUSED = "Unité différente du devis";
@@ -803,7 +804,7 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     await recordEvidence(army, "v3e10-end", { versionId: draft.versionId, nativeDialogs: dialogs });
   });
 
-armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding step outside the list shows as applied, and the detail page opens the PDF and closes the template by name",
+armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding step outside the list shows as applied, and the detail page opens the PDF and saves the v3 as a template",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
@@ -855,8 +856,8 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     await recordEvidence(army, "v3e11-rounding-none", { versionId: draft.versionId, saved: afterNone, actual: await settingsOf() });
     expect(afterNone, "choosing « Aucun » after a stored 2,50 € step is saved").toBe(true);
 
-    // F26-30, revu à la fusion de 2.7 : la fiche d'un brouillon v3 propose le PDF (émission v3 de 2.7), pas le modèle
-    // (2.8) ; elle dit pourquoi le seul modèle reste fermé, sans plus nommer le PDF.
+    // F26-30, revu à la fusion de 2.7 puis au lot 3.2 (entrée 3) : la fiche d'un brouillon v3 propose le PDF (émission
+    // v3 de 2.7) et le modèle (M6), sans motif de fermeture.
     await app.open(`/dashboard/estimates/${draft.versionId}`);
     await screen.getByTestId("estimate-detail-more-actions").tap();
     const actions = browser.locator("[aria-label=\"Autres actions sur la version\"]");
@@ -871,10 +872,40 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
       reason: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_TEMPLATE_REASON)),
       pdfNamedClosed: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_ACTIONS_REASON_2_6)),
     };
-    const expectedDetail = { pdf: { present: true, enabled: true }, template: { present: true, enabled: false },
-      duplicate: { present: true, enabled: true }, reason: true, pdfNamedClosed: false };
+    const expectedDetail = { pdf: { present: true, enabled: true }, template: { present: true, enabled: true },
+      duplicate: { present: true, enabled: true }, reason: false, pdfNamedClosed: false };
     await recordEvidence(army, "v3e11-detail-actions", { versionId: draft.versionId, expected: expectedDetail, actual: detail, nativeDialogs: dialogs });
-    expect(detail, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDetail);
+    expect(detail, "the v3 draft detail page opens the PDF and the template").toEqual(expectedDetail);
+
+    // Lot 3.2 (entrée 3) : « Sauvegarder comme modèle » de la fiche enregistre la v3 ; le modèle garde l'unité, le statut,
+    // le PR et les heures par unité de X (M6), jamais une ligne v2 sans unité.
+    const templateName = `${army.runPrefix} V3E11 modèle`;
+    await actions.getByRole("button", "Sauvegarder comme modèle", { exact: true }).click();
+    const saveDialog = screen.getByRole("dialog", "Sauvegarder comme modèle", { exact: true });
+    await expect(saveDialog).toBeVisible({ timeout: 30_000 });
+    await saveDialog.getByLabel("Nom du modèle *", { exact: true }).fill(templateName);
+    const templatesEndpoint = new URL("/api/estimates/templates", app.baseUrl!).href;
+    const [saved] = await Promise.all([browser.waitForResponse(templatesEndpoint, { timeout: 60_000 }),
+      saveDialog.getByRole("button", "Enregistrer", { exact: true }).click()]);
+    const savedBody = await saved.json<Envelope<{ template: { id: string; name: string; source_version_id: string } }>>();
+    await expect(saveDialog).toBeHidden({ timeout: 30_000 });
+    const templateId = savedBody.data?.template?.id ?? null;
+    const stored = templateId ? await apiRequest<Envelope<{ template: { source_version_id: string; items: Array<Record<string, unknown>> } }>>(
+      browser, "GET", `/api/estimates/templates/${templateId}`) : null;
+    const storedLine = stored?.body.data?.template?.items?.find(item => item.item_type === "line") ?? null;
+    const templateView = {
+      response: [saved.status, savedBody.ok, savedBody.data?.template?.name ?? null, savedBody.data?.template?.source_version_id ?? null],
+      read: stored ? [stored.status, stored.body.ok] : null,
+      line: storedLine ? [storedLine.title, storedLine.unit_code, storedLine.pricing_status, storedLine.quantity !== null ? Number(storedLine.quantity) : null,
+        storedLine.unit_price_ht_cents, storedLine.h_mo_per_unit !== null ? Number(storedLine.h_mo_per_unit) : null] : null,
+    };
+    const expectedTemplate = {
+      response: [201, true, templateName, draft.versionId], read: [200, true],
+      line: [`${army.runPrefix} X`, "u", "priced", 1, 10010, 0],
+    };
+    await recordEvidence(army, "v3e11-detail-template", { versionId: draft.versionId, templateId, expected: expectedTemplate, actual: templateView,
+      stored: stored?.body ?? null, nativeDialogs: dialogs });
+    expect(templateView, "the v3 detail page saves the v3 as a template with its v3 line").toEqual(expectedTemplate);
   });
 
 armyTest("V3E15 the v3 editor offers the Excel, DPGF, CSV and BDC exports; Excel and DPGF stream the v3 workbooks",

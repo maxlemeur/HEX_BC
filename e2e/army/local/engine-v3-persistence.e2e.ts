@@ -36,7 +36,8 @@ import {
 //  V3P-12 Une v3 existante change de moteur ou de montant quand la politique change.
 // Revue du sous-lot (§10.5), sondes écrites rouges avant les correctifs :
 //  V3P-13 Des coefficients de vente fournis à la création sont retirés en silence (v3) ou ignorés (v2).
-//  V3P-14 Le hub d'affaire affiche pour une v3 la marge v2 (multiplicateur 1 → « 0.0 % »).
+//  V3P-14 Le hub d'affaire affiche pour une v3 la marge v2 (multiplicateur 1 → « 0.0 % ») ; depuis le lot 3.2
+//         (entrée 4), un brouillon v3 sans gel y montre « Indisponible » au lieu de sa marque nette en direct.
 //  V3P-15 La suppression directe d'une ligne v3 laisse ses six montants stockés périmés.
 //  V3P-16 Une ligne non chiffrée à un taux hors politique bloque le gel ; le lot ou le gel d'une copie
 //         déplace un centime de ses lignes.
@@ -126,7 +127,8 @@ const FOR_MEMORY_LINE = {
 // rouge les montre toutes ; aucune ne modifie un attendu de V3P-01 à V3P-12.
 const REVIEW_EXPECTED = {
   creationCoefficients: { response: [201, true], saleCoefficients: [1, 1.5] },
-  hubMargin: { unavailable: true, percent: false, coefficient: false },
+  // Marque nette en direct de S1 : ⌈(6 947 354 − 5 519 222) × 10 000 / 6 947 354⌋ = 2 056 pb (déboursé de FROZEN, sans remise).
+  hubMargin: { unavailable: false, percent: "20.6 %", coefficient: false },
   copyFreeze: {
     batch: [200, true, true],
     linesAfterBatch: [...expectedLines(S3_VAT10, 1000), FOR_MEMORY_LINE],
@@ -414,14 +416,16 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   await app.open(`/dashboard/affaires/${projectId}`);
   await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}/edit` }) ?? ""), { timeout: 30_000 })
     .toContain("69 473,54 €");
-  // V3P-14 : la marge du résumé financier d'une v3 n'est jamais la marge v2 (multiplicateur 1 → « 0.0 % »).
+  // V3P-14 : la marge du résumé financier d'une v3 n'est jamais la marge v2 (multiplicateur 1 → « 0.0 % ») ; celle du
+  // brouillon, sans gel, est sa marque nette en direct (lot 3.2, entrée 4).
   const hubMarginText = normalized(await browser.evaluate(() => {
     const label = Array.from(document.querySelectorAll("#financial p")).find(node => node.textContent?.trim() === "Marge appliquée");
     return label?.parentElement?.textContent ?? "";
   }));
   await recordEvidence(army, "v3p-hub-margin", { projectId, versionId: oracleId, actual: hubMarginText });
   review.hubMargin = {
-    unavailable: hubMarginText.includes("Indisponible"), percent: /\d %/.test(hubMarginText), coefficient: hubMarginText.includes("Coeff."),
+    unavailable: hubMarginText.includes("Indisponible"), percent: hubMarginText.match(/-?\d+\.\d %/)?.[0] ?? null,
+    coefficient: hubMarginText.includes("Coeff."),
   };
 
   // V3P-07 : S2 (montant), S3 (taux), sans intention dérivée.

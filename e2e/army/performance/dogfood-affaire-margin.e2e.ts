@@ -69,7 +69,7 @@ armyTest("dogfood remaining margin: an empty v3 keeps its exact notice and histo
     await app.open(`/dashboard/affaires/${projectId}`);
     await expect(screen.getByRole("heading", projectName, { exact: true })).toBeVisible();
     await expect(screen.getByRole("heading", "Résumé financier", { exact: true })).toBeVisible();
-    const notice = `Évolution de la marge indisponible pour le moteur de calcul 3 : V${Number(version.version_number)}.`;
+    const notice = `Marge indisponible pour V${Number(version.version_number)} : aucun déboursé calculable.`;
     await expect(screen.getByTestId("margin-evolution-v3-notice")).toHaveText(notice);
     await expect(browser.locator("#financial")).toContainText(/0,00\s*€/);
     const after = await readEstimate(browser, version.id);
