@@ -1435,6 +1435,10 @@ describe("affaires hub server", () => {
     });
     expect(summary.versionsCount).toBe(3);
     expect(summary.lineCount).toBe(42);
+    expect(context.supabase.rpc).toHaveBeenCalledWith("read_estimate_version_items",
+      { p_tenant_id: TENANT_ID, p_version_id: "v3" }, { count: "exact", head: true });
+    expect(context.supabase.rpc).toHaveBeenCalledWith("read_estimate_version_items",
+      { p_tenant_id: TENANT_ID, p_version_id: "v3" }, { count: "exact", get: true });
     expect(summary.currentVersion).toMatchObject({
       id: "v3",
       versionNumber: 3,

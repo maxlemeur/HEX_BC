@@ -25,11 +25,23 @@ values (current_setting('test.tenant_id')::uuid, '29300000-0000-4000-8000-000000
 select set_config('test.other_tenant_id', (select tenant_id::text from public.tenant_memberships
   where user_id = '29300000-0000-4000-8000-000000000005' limit 1), true);
 
--- V: 40 lines under one section; W: another version of the same affaire, 3 lines.
+-- V: 40 lines under one section; W: another version of the same affaire, 3 lines; X: 2 lines, then moved to an
+-- affaire of the owner in another tenant, a row the tenant triggers never write (they are disabled for the move).
 select pg_temp.cp29_version('29300000-0000-4000-8000-000000000111', 40, '29300000-0000-4000-8000-000000000001',
   '29300000-0000-4000-8000-000000000311') is not null as version_created;
 select pg_temp.cp29_version('29300000-0000-4000-8000-000000000112', 3, '29300000-0000-4000-8000-000000000001',
   '29300000-0000-4000-8000-000000000312') is not null as other_version_created;
+select pg_temp.cp29_version('29300000-0000-4000-8000-000000000113', 2, '29300000-0000-4000-8000-000000000001',
+  '29300000-0000-4000-8000-000000000313') is not null as moved_version_created;
+alter table public.estimate_projects disable trigger user;
+alter table public.estimate_versions disable trigger user;
+insert into public.estimate_projects (id, tenant_id, user_id, name) values
+  ('29300000-0000-4000-8000-000000000011', current_setting('test.other_tenant_id')::uuid,
+   '29300000-0000-4000-8000-000000000001', 'CP29 affaire of another tenant');
+update public.estimate_versions set project_id = '29300000-0000-4000-8000-000000000011'
+where id = '29300000-0000-4000-8000-000000000113';
+alter table public.estimate_versions enable trigger user;
+alter table public.estimate_projects enable trigger user;
 
 -- The items of (`p_tenant`, `p_version`) that `p_actor` reads through the function (`p_function`) or the table under
 -- its policy, as the API role PostgREST sets (`p_role`), with the platform admin claim when `p_platform_admin`.
@@ -94,6 +106,15 @@ from vi_actor;
 select is(pg_temp.vi_ids(actor, platform_admin, current_setting('test.tenant_id')::uuid, gen_random_uuid(), true),
   '{}'::uuid[], label || ': no item for an unknown version')
 from vi_actor;
+select is(pg_temp.vi_ids(actor, platform_admin, current_setting('test.tenant_id')::uuid,
+    '29300000-0000-4000-8000-000000000113', true),
+  pg_temp.vi_ids(actor, platform_admin, current_setting('test.tenant_id')::uuid,
+    '29300000-0000-4000-8000-000000000113', false),
+  label || ': the items of a version whose affaire is in another tenant are those the policy shows')
+from vi_actor;
+select is(cardinality(pg_temp.vi_ids('29300000-0000-4000-8000-000000000001', false,
+    current_setting('test.tenant_id')::uuid, '29300000-0000-4000-8000-000000000113', true)), 0,
+  'the owner reads no item of a version whose affaire is in another tenant');
 
 -- An inactive tenant: no member, nor the platform admin, reads its items.
 update public.tenants set is_active = false where id = current_setting('test.tenant_id')::uuid;

@@ -74,6 +74,8 @@ async function readItemPages(input: ItemsScope, filter?: { column: "id" | "paren
     const pages = await Promise.all(offsets.map(async start => {
       // The items of the version as its select policy shows them, checked once per statement: run per item when
       // Postgres's statistics predate a large version, the policy exceeded the 8 s statement timeout (57014).
+      // The function is not inlined, so each page reads the whole version before PostgREST filters and slices it:
+      // 35-50 ms per page of a 10 000-item version locally, against 22-28 ms from the table with fresh statistics.
       // supabase/migrations/20261024130000_read_estimate_version_items.sql.
       let query = input.supabase.rpc("read_estimate_version_items",
         { p_tenant_id: input.tenantId, p_version_id: input.versionId }, { count: "exact", get: true });
