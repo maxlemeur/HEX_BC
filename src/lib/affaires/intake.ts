@@ -89,11 +89,25 @@ export const affaireIntakeBriefBlockKeySchema = z.enum([
   "missing_elements",
 ]);
 
+// Zod >= 4.6 follows RFC 3339 and rejects datetimes without seconds, but a
+// model asked for an ISO 8601 deadline may still answer "2026-11-15T12:00Z".
+const MINUTE_PRECISION_DATETIME =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/i;
+
+function addMissingDatetimeSeconds(value: unknown) {
+  return typeof value === "string"
+    ? value.replace(MINUTE_PRECISION_DATETIME, "$1:00$2")
+    : value;
+}
+
 export const affaireIntakeExtractedMetadataSchema = z
   .object({
     projectName: z.string().trim().max(255).nullable(),
     clientName: z.string().trim().max(255).nullable(),
-    deadlineAt: z.string().datetime({ offset: true }).nullable(),
+    deadlineAt: z.preprocess(
+      addMissingDatetimeSeconds,
+      z.string().datetime({ offset: true }).nullable()
+    ),
     detectedLots: z.array(z.string().trim().min(1).max(160)).max(20),
     detectedVariants: z.array(z.string().trim().min(1).max(160)).max(20),
   })
