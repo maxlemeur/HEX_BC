@@ -379,10 +379,13 @@ armyTest("IO03 the plumbing OPTIMA lot imports into a v3 at its workbook prices 
 // The radar of V3E20 once answered 400/57014 (one statement over the API roles' 8 s timeout) on an otherwise
 // idle shard, and its call takes 8-14 s in CI while the same RLS read of ~2 000 lines takes tens of ms locally.
 // Sample what the database backends wait on during the call: wait events, blockers and statement heads only.
-async function sampleDatabaseWaits<T>(run: () => Promise<T>) {
+// Recorded whatever the call returns or throws, before any assertion on it, so a timed-out call keeps its samples.
+async function recordDatabaseWaits<T extends { status: number; body: { error?: unknown } }>(
+  army: ArmyState, label: string, run: () => Promise<T>) {
   const samples: { atMs: number; rows: string[] }[] = [];
   const started = Date.now();
   let done = false;
+  let outcome: unknown = null;
   const sampler = (async () => {
     while (!done) {
       const rows = await querySql(`SELECT concat_ws(' | ', backend_type, usename, state, wait_event_type, wait_event,
@@ -397,10 +400,16 @@ WHERE pid <> pg_catalog.pg_backend_pid() AND (state = 'active' OR wait_event_typ
     }
   })();
   try {
-    return { result: await run(), samples };
+    const response = await run();
+    outcome = { status: response.status, error: response.body.error ?? null };
+    return response;
+  } catch (error) {
+    outcome = { rejected: error instanceof Error ? error.message : String(error) };
+    throw error;
   } finally {
     done = true;
     await sampler;
+    await recordEvidence(army, label, { outcome, samples });
   }
 }
 
@@ -423,16 +432,14 @@ armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 
         }
         return counts;
       };
-      const { result: gating, samples: gatingWaits } = await sampleDatabaseWaits(() => apiRequest<Envelope<{
+      const gating = await recordDatabaseWaits(army, "v3e20-gating-database-waits", () => apiRequest<Envelope<{
         gating: { canSend: boolean; blockingFlags: GatingFlag[]; warningFlags: GatingFlag[] } }>>(
         browser, "GET", `/api/estimates/${versionId}/gating`));
       expect([gating.status, gating.body.ok]).toEqual([200, true]);
       const flags = [...gating.body.data.gating.blockingFlags, ...gating.body.data.gating.warningFlags];
       const takeoffJobId = await insertCompletedTakeoffJob(owner, versionId);
-      const { result: radar, samples: radarWaits } = await sampleDatabaseWaits(() => apiRequest<Envelope<{ items: RiskAlert[] }>>(
+      const radar = await recordDatabaseWaits(army, "v3e20-radar-database-waits", () => apiRequest<Envelope<{ items: RiskAlert[] }>>(
         browser, "GET", `/api/takeoff/jobs/${takeoffJobId}/risk-radar?version_id=${versionId}`));
-      await recordEvidence(army, "v3e20-database-waits", { versionId, takeoffJobId, gatingStatus: gating.status,
-        radarStatus: radar.status, radarError: radar.body.error ?? null, gatingWaits, radarWaits });
       const radarItems = radar.body.data?.items ?? [];
       const observed = {
         statusLines: statusLines.length,
