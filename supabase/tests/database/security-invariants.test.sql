@@ -939,5 +939,95 @@ select ok(
   'obsolete non-tenant mapping memory uniqueness remains absent'
 );
 
+-- Supabase advisor 0028. A SECURITY DEFINER function of public runs as its
+-- owner and is reachable through /rest/v1/rpc. No caller of the Data API is
+-- anonymous: the portal and the workers use the service role on the server.
+-- EXECUTE for PUBLIC or anon would let an unauthenticated request reach it.
+select ok(
+  not has_function_privilege('anon', procedure.oid, 'EXECUTE')
+    and not exists (
+      select 1
+      from aclexplode(coalesce(procedure.proacl, acldefault('f', procedure.proowner))) as grant_entry
+      where grant_entry.grantee = 0
+        and grant_entry.privilege_type = 'EXECUTE'
+    ),
+  format(
+    'PUBLIC and anon cannot execute security definer function public.%I(%s)',
+    procedure.proname,
+    pg_get_function_identity_arguments(procedure.oid)
+  )
+)
+from pg_proc as procedure
+join pg_namespace as namespace on namespace.oid = procedure.pronamespace
+where namespace.nspname = 'public'
+  and procedure.prosecdef;
+
+-- RLS policies evaluate these helpers as the signed-in caller, and the app
+-- calls cleanup_expired_draft_locks and current_tenant_id with the user's client.
+with signed_in_functions(signature) as (
+  values
+    ('public.can_access_affaire_intake_project(uuid,uuid)'),
+    ('public.can_access_takeoff_estimate_version(uuid,uuid)'),
+    ('public.can_access_takeoff_project(uuid,uuid)'),
+    ('public.can_bootstrap_tenant_membership(uuid,uuid,public.tenant_role)'),
+    ('public.can_read_affaire_intake_project(uuid,uuid)'),
+    ('public.cleanup_expired_draft_locks(uuid)'),
+    ('public.current_tenant_id()'),
+    ('public.has_tenant_role(uuid,public.tenant_role[])'),
+    ('public.is_tenant_member(uuid)'),
+    ('public.log_estimate_batch_audit(uuid,jsonb)')
+)
+select ok(
+  to_regprocedure(signed_in_functions.signature) is not null
+    and has_function_privilege('authenticated', to_regprocedure(signed_in_functions.signature), 'EXECUTE'),
+  format('authenticated keeps EXECUTE on %s', signed_in_functions.signature)
+)
+from signed_in_functions;
+
+-- Without a JWT, auth.uid() is null and cleanup_expired_draft_locks deleted
+-- the expired locks of every tenant, as the definer, past RLS.
+insert into auth.users (instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+  raw_app_meta_data,raw_user_meta_data,created_at,updated_at,confirmation_token,email_change,email_change_token_new,recovery_token)
+values ('00000000-0000-0000-0000-000000000000','33000000-0000-4000-8000-000000000001',
+  'authenticated','authenticated','lot33-draft-lock@example.test',crypt('test-password',gen_salt('bf')),now(),
+  '{"provider":"email","providers":["email"]}','{}',now(),now(),'','','','');
+select set_config('test.lot33_tenant',(select tenant_id::text from public.tenant_memberships
+  where user_id='33000000-0000-4000-8000-000000000001' and is_default),true);
+insert into public.estimate_projects(id,tenant_id,user_id,name) values
+  ('33000000-0000-4000-8000-000000000010',current_setting('test.lot33_tenant')::uuid,
+   '33000000-0000-4000-8000-000000000001','Lot 3.3 draft lock');
+insert into public.estimate_versions(id,tenant_id,project_id,version_number,calc_engine_version) values
+  ('33000000-0000-4000-8000-000000000011',current_setting('test.lot33_tenant')::uuid,
+   '33000000-0000-4000-8000-000000000010',1,2);
+insert into public.draft_locks(id,version_id,user_id,tenant_id,locked_at,expires_at,session_id) values
+  ('33000000-0000-4000-8000-000000000012','33000000-0000-4000-8000-000000000011',
+   '33000000-0000-4000-8000-000000000001',current_setting('test.lot33_tenant')::uuid,
+   now() - interval '2 hours',now() - interval '1 hour',gen_random_uuid());
+
+select set_config('request.jwt.claims','',true);
+set local role anon;
+select throws_ok(
+  'select public.cleanup_expired_draft_locks(null)',
+  '42501',
+  null,
+  'anon cannot run the draft lock cleanup'
+);
+reset role;
+select is(
+  (select count(*) from public.draft_locks where id='33000000-0000-4000-8000-000000000012'),
+  1::bigint,
+  'the expired draft lock survives an anonymous cleanup call'
+);
+
+select set_config('request.jwt.claims','{"sub":"33000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+set local role authenticated;
+select is(
+  public.cleanup_expired_draft_locks(current_setting('test.lot33_tenant')::uuid),
+  1,
+  'a tenant member still removes the expired draft lock of their tenant'
+);
+reset role;
+select set_config('request.jwt.claims','',true);
+
 select * from finish();
 rollback;
