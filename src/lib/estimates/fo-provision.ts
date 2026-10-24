@@ -2,7 +2,7 @@
  * TI-534, lot 1 - provision FO automatique d'une ligne du moteur 3 (pertes, chutes, petites fournitures) :
  * FO_unitaire = P × provision FO × K FO.
  *
- * Miroir du déclencheur `private.derive_estimate_item_fo_provision` (migration 20261024002500) : une ligne v3 créée
+ * Miroir du déclencheur `private.derive_estimate_item_fo_provision` (migration 20261024142907) : une ligne v3 créée
  * sans provision reçoit celle de son type FO (`supply_types.default_fo_provision` : 1,030 pour un tube ou un
  * calorifuge, 1,010 sinon), 1,010 sans type ; un changement de type FO la redérive. Une ligne v1/v2 et une section
  * gardent 1,000, comme toute ligne antérieure. Les projections calculées avant l'écriture (lot, création atomique,
