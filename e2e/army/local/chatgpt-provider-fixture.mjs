@@ -43,6 +43,8 @@ globalThis.fetch = async (input, init) => {
       { designation: "Vanne isolement DN20", quantity: 4, unit: "u", source_page: 1, confidence: 0.99, evidence: "Reperes V1 a V4" },
     ];
     data.metadata = { level: "C", prompt_version: "takeoff-c-v1", file_type: "pdf", schema_version: "v1" };
+    // Level C requires a global confidence besides the per-item one.
+    data.confidence = 0.99;
   }
   const output = JSON.stringify(data);
   await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(transportEntry("chatgpt-fixture")) + "\n");
