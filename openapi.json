@@ -54566,7 +54566,6 @@
           "signature_base64": {
             "type": "string",
             "maxLength": 700000,
-            "format": "starts_with",
             "pattern": "^data:image\\/png;base64,.*"
           }
         },

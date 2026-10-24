@@ -113,6 +113,20 @@ describe("generateOpenApiDocument", () => {
       ])
     );
 
+    // The portal signature prefix is enforced by `pattern`; Zod's internal
+    // check name must not leak as a non-standard `format`.
+    const portalAcceptSchema = document.components.schemas[
+      "AcceptPortalEstimateRequest"
+    ] as { properties?: Record<string, Record<string, unknown>> };
+    expect(portalAcceptSchema.properties?.signature_base64).toEqual({
+      type: "string",
+      maxLength: 700000,
+      pattern: "^data:image\\/png;base64,.*",
+    });
+    expect(JSON.stringify(document.components.schemas)).not.toMatch(
+      /"format":"(?:starts_with|ends_with|includes|lowercase|uppercase)"/
+    );
+
     const patchOperation = document.paths["/api/estimates/{versionId}"]?.patch as
       | Record<string, unknown>
       | undefined;
