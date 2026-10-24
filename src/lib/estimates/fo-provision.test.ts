@@ -37,6 +37,10 @@ describe("TI-534 FO provision mirror", () => {
     const raccord = withRederivedFoProvision(legacy, { ...legacy, supply_type_id: RACCORD }, PROVISIONS);
     expect(raccord.fo_provision).toBe(1.01);
     expect(withRederivedFoProvision(raccord, { ...raccord, supply_type_id: TUBE }, PROVISIONS).fo_provision).toBe(1.03);
+    // A restored state (undo, redo) that keeps the type keeps the live provision, not the one it carried.
+    const tube = { ...legacy, fo_provision: 1.03 };
+    expect(withRederivedFoProvision(tube, legacy, PROVISIONS)).toEqual({ ...legacy, fo_provision: 1.03 });
+    expect(withRederivedFoProvision(tube, tube, PROVISIONS)).toBe(tube);
     // An unknown line (no previous state) keeps what it carries.
     expect(withRederivedFoProvision(undefined, legacy, PROVISIONS)).toBe(legacy);
   });

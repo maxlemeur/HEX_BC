@@ -10,6 +10,8 @@ import type {
   EstimateItem,
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import { withRederivedFoProvision } from "@/lib/estimates/fo-provision";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 
 const clientMocks = vi.hoisted(() => ({
   bulkUpdateEstimateItems: vi.fn(),
@@ -133,6 +135,7 @@ type HarnessInput = {
   version?: EstimateVersionRow | null;
   isMutationBlocked?: boolean;
   isLaborSplitEnabled?: boolean;
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 function createHarness(input: HarnessInput = {}) {
@@ -211,6 +214,7 @@ function createHarness(input: HarnessInput = {}) {
       recreateItemsFromSnapshots,
       applySiblingOrder,
       reloadItems,
+      v3Writer: input.v3Writer,
     })
   );
 
@@ -431,6 +435,38 @@ describe("useEstimateEditorBulkController", () => {
         rows.map((row) => row.category_id)
       )
     ).toEqual([["category-new"], ["category-old"], ["category-new"]]);
+  });
+
+  it("keeps the live FO provision of a v3 line when a bulk edit is undone or redone (TI-534)", async () => {
+    const TUBE = "8f9a1b2c-0000-4000-8000-000000000041";
+    const legacy = createLine("line-1", { category_id: "category-old", supply_type_id: TUBE, fo_provision: 1 });
+    const v3Writer: EstimateV3EditorWriter = {
+      deleteItems: vi.fn(),
+      updateItems: vi.fn().mockResolvedValue({ id: "version-1", updated_at: "token-v3" }),
+      buildInsertPayload: vi.fn(),
+      buildUpdatePayload: vi.fn((item: EstimateItem) => ({ category_id: item.category_id })),
+    };
+    const harness = createHarness({ items: [legacy], version: createVersion({ calc_engine_version: 3 }), v3Writer });
+    harness.normalizeLine.mockImplementation((item) => withRederivedFoProvision(
+      harness.getItems().find((candidate) => candidate.id === item.id), item, new Map([[TUBE, 1.03]])));
+
+    await act(async () => {
+      await harness.result.current.actions.bulkSetCategory([legacy.id], "category-new");
+    });
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    // A Type FO change and its undo in between re-derived the tube's provision, on the server as in the editor.
+    act(() => {
+      harness.setItems((previous) => previous.map((item) => ({ ...item, fo_provision: 1.03 })));
+    });
+
+    await act(async () => {
+      await command.undo();
+    });
+    expect(harness.getItems()[0]).toMatchObject({ category_id: "category-old", fo_provision: 1.03 });
+    await act(async () => {
+      await command.redo();
+    });
+    expect(harness.getItems()[0]).toMatchObject({ category_id: "category-new", fo_provision: 1.03 });
   });
 
   it("sends the totals of the rows after each write with the action, its undo and its redo", async () => {

@@ -344,7 +344,7 @@ describe("useEstimateEditorItemsController", () => {
       ]);
     });
 
-    it("re-derives the provision when a supply type change is undone, as the writer does", async () => {
+    it("re-derives the provision when a supply type change is undone and keeps it through other undone edits, as the writer does", async () => {
       const legacy = createItem("line-legacy", { supply_type_id: TUBE, fo_provision: 1 });
       let current: () => EditorEstimateItem[] = () => [];
       const { result, dependencies } = renderController(
@@ -363,11 +363,22 @@ describe("useEstimateEditorItemsController", () => {
       });
       expect(result.current.items[0]).toMatchObject({ supply_type_id: RACCORD, fo_provision: 1.01 });
 
-      const command = dependencies.pushHistoryCommand.mock.calls.at(-1)?.[0] as EstimateEditorHistoryCommand;
+      const [kFoEdit, typeChange] = dependencies.pushHistoryCommand.mock.calls
+        .slice(-2).map(([command]) => command as EstimateEditorHistoryCommand);
       await act(async () => {
-        await command.undo();
+        await typeChange.undo();
       });
       expect(result.current.items[0]).toMatchObject({ supply_type_id: TUBE, fo_provision: 1.03 });
+
+      // Undoing or redoing an edit that keeps the type keeps the live provision, not the one its snapshot carried.
+      await act(async () => {
+        await kFoEdit.undo();
+      });
+      expect(result.current.items[0]).toMatchObject({ k_fo: legacy.k_fo, fo_provision: 1.03 });
+      await act(async () => {
+        await kFoEdit.redo();
+      });
+      expect(result.current.items[0]).toMatchObject({ k_fo: 1.2, fo_provision: 1.03 });
     });
   });
 

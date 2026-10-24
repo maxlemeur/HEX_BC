@@ -875,14 +875,14 @@ export function useEstimateEditorItemsController({
 
       enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
       setTotalsOutOfSync(false);
+      // TI-534 : en v3, une ligne rétablie (annuler, rétablir) qui change de type FO en redérive la provision, et garde
+      // sinon celle de la ligne en place, côté serveur comme ici.
+      const restoreLine = (item: EditorEstimateItem) =>
+        v3Writer && item.item_type === "line" ? normalizePatchedItem(item) : item;
       pushHistoryCommand({
         label: "patch-item",
         undo: async () => {
-          // TI-534 : en v3, revenir au type FO précédent redérive sa provision, côté serveur comme ici.
-          const restoredItem =
-            v3Writer && previousItem.item_type === "line"
-              ? normalizePatchedItem(previousItem)
-              : previousItem;
+          const restoredItem = restoreLine(previousItem);
           setItems((previous) =>
             previous.map((item) =>
               item.id === itemId ? restoredItem : item
@@ -895,8 +895,9 @@ export function useEstimateEditorItemsController({
           setTotalsOutOfSync(false);
         },
         redo: async () => {
+          const redoneItem = restoreLine(updated);
           setItems((previous) =>
-            previous.map((item) => (item.id === itemId ? updated : item))
+            previous.map((item) => (item.id === itemId ? redoneItem : item))
           );
           enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
           setTotalsOutOfSync(false);

@@ -32,15 +32,21 @@ export function supplyTypeChanged(previous: string | null | undefined, next: str
 
 /**
  * Miroir local du déclencheur pour une ligne v3 de l'éditeur : un correctif qui change le type FO redérive la
- * provision depuis le type, tout autre correctif garde la provision stockée (une ligne antérieure garde 1,000).
+ * provision depuis le type, tout autre correctif garde la provision de la ligne en place (une ligne antérieure garde
+ * 1,000), même quand il rétablit un état antérieur (annuler, rétablir) qui portait une autre provision.
  */
 export function withRederivedFoProvision<T extends { supply_type_id: string | null; fo_provision?: number | null }>(
-  previous: Pick<T, "supply_type_id"> | undefined,
+  previous: Pick<T, "supply_type_id" | "fo_provision"> | undefined,
   next: T,
   provisions: FoProvisionBySupplyTypeId
 ): T {
-  if (!previous || !supplyTypeChanged(previous.supply_type_id, next.supply_type_id)) return next;
-  return { ...next, fo_provision: deriveFoProvision(next.supply_type_id, provisions) };
+  if (!previous) return next;
+  if (supplyTypeChanged(previous.supply_type_id, next.supply_type_id)) {
+    return { ...next, fo_provision: deriveFoProvision(next.supply_type_id, provisions) };
+  }
+  return previous.fo_provision === undefined || previous.fo_provision === next.fo_provision
+    ? next
+    : { ...next, fo_provision: previous.fo_provision };
 }
 
 /**
