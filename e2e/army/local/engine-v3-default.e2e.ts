@@ -23,6 +23,12 @@ import { setTenantCalcPolicy, type V3Owner } from "./engine-v3-persistence-suppo
 // rester après. V3S01b (revue, ajouté après M8) couvre F210-11 par l'assistant. Chaque parcours tourne sur son
 // propre propriétaire (dedicated-owner.ts) : V3S01 et V3S01b sans ligne de politique (le défaut d'une entreprise
 // neuve), V3S02 en politique 2 explicite puis 3 par l'unique écrivain.
+//
+// Lot 3.2, entrée 5 (P-13) : l'administrateur d'une entreprise règle lui-même les coefficients de vente par défaut et
+// les taux de TVA autorisés ; le moteur des nouvelles versions reste le levier de l'équipe (service_role). Écrit rouge :
+//  F32-05a L'administration n'offre aucun écran pour ces défauts : seul service_role les écrit.
+//  F32-05b Un enregistrement change le moteur, écrit sans motif ni journal, accepte un coefficient hors ]0 ; 10], ou
+//          n'atteint pas le prochain devis v3 (assistant et création).
 const options = { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 240_000 } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NEUTRAL_VERSION = {
@@ -224,4 +230,89 @@ armyTest("V3S02 guard: a v2 duplicated while its tenant creates engine 3 stays a
     expect(sourceAfter, "the source keeps its status, revision and amounts").toEqual(sourceBefore);
     // Duplication reads no policy and writes none.
     expect(policyAfter).toEqual({ rows: 1, engine: 3, events: 2 });
+  });
+
+/** Policy row of the owner's tenant with its journal, read as the native owner (V3S03). */
+async function policyDetails(owner: V3Owner) {
+  const [row] = await querySql(`SELECT jsonb_build_object(
+  'engine', p.new_estimate_calc_engine, 'fo', p.default_sale_coefficient_fo::text, 'mo', p.default_sale_coefficient_mo::text,
+  'rates', to_jsonb(p.allowed_tax_rates_bp), 'reason', p.change_reason, 'updatedBy', p.updated_by,
+  'events', (SELECT coalesce(jsonb_agg(jsonb_build_object('changedBy', e.changed_by, 'reason', e.change_reason,
+    'previousEngine', e.previous_policy -> 'new_estimate_calc_engine', 'engine', e.new_policy -> 'new_estimate_calc_engine')
+    ORDER BY e.created_at), '[]'::jsonb) FROM public.tenant_calc_policy_events e WHERE e.tenant_id = p.tenant_id))
+FROM public.tenant_calc_policies p WHERE p.tenant_id = '${uuid(owner.tenantId)}' AND current_user = 'postgres';
+`);
+  return JSON.parse(row ?? "null") as {
+    engine: number; fo: string; mo: string; rates: number[]; reason: string; updatedBy: string;
+    events: Array<{ changedBy: string; reason: string; previousEngine: number | null; engine: number }>;
+  } | null;
+}
+
+armyTest("V3S03 an admin sets the default sale coefficients and VAT rates of new v3 estimates; the engine stays the team's", options,
+  async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    assertOwnedLocalBackend();
+    // A new tenant (no policy row, engine 3 since M8) whose owner is its admin.
+    const dedicated = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "V3S03", calcPolicy: "absent" });
+    const owner: V3Owner = { tenantId: dedicated.tenantId, userId: dedicated.userId };
+
+    // F32-05a: the administration hub leads to the tenant's calculation defaults.
+    await app.open("/dashboard/admin");
+    await screen.getByRole("link", /Calcul des devis/).click();
+    await expect(screen.getByRole("heading", "Calcul des devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const fo = screen.getByLabel("Coefficient de vente FO par défaut", { exact: true });
+    const mo = screen.getByLabel("Coefficient de vente MO par défaut", { exact: true });
+    const rates = screen.getByLabel("Taux de TVA autorisés", { exact: true });
+    const reason = screen.getByLabel("Motif du changement", { exact: true });
+    const engine = screen.getByTestId("tenant-calc-policy-engine");
+    const shownBefore = { fo: await inputValue(fo), mo: await inputValue(mo), rates: await inputValue(rates), engine: await engine.textContent() };
+    await recordEvidence(army, "v3s03-shown-before", { owner, actual: shownBefore });
+    expect(shownBefore).toEqual({ fo: "1,30", mo: "1,20", rates: "20 ; 10 ; 5,5 ; 2,1", engine: "Moteur 3 (coefficients de vente)" });
+
+    // F32-05b: a coefficient outside ]0 ; 10] is refused by name and nothing is written.
+    await fo.fill("12");
+    await reason.fill(`${army.runPrefix} V3S03 coefficient refusé`);
+    await screen.getByRole("button", "Enregistrer les réglages", { exact: true }).tap();
+    await expect(screen.getByText(/Coefficient de vente FO invalide/)).toBeVisible({ timeout: 30_000 });
+    expect(await policyDetails(owner), "a refused input writes no policy row").toBeNull();
+
+    // The admin's defaults: 1,35 / 1,25 and three rates, with a reason kept in the journal.
+    const changeReason = `${army.runPrefix} V3S03 coefficients de l'agence`;
+    await fo.fill("1,35");
+    await mo.fill("1,25");
+    await rates.fill("20 ; 10 ; 5,5");
+    await reason.fill(changeReason);
+    await screen.getByRole("button", "Enregistrer les réglages", { exact: true }).tap();
+    await expect(screen.getByText("Réglages enregistrés. Les coefficients valent pour les prochains devis, les taux de TVA dès le prochain gel d'un devis v3.", { exact: true }))
+      .toBeVisible({ timeout: 30_000 });
+    const stored = await policyDetails(owner);
+    const expectedPolicy = {
+      engine: 3, fo: "1.3500", mo: "1.2500", rates: [2000, 1000, 550], reason: changeReason, updatedBy: owner.userId,
+      events: [{ changedBy: owner.userId, reason: changeReason, previousEngine: null, engine: 3 }],
+    };
+    await recordEvidence(army, "v3s03-stored", { owner, expected: expectedPolicy, actual: stored });
+    expect(stored, "SQL read: the admin's defaults, engine 3 kept, one journal event").toEqual(expectedPolicy);
+
+    // A fresh page shows what is stored.
+    await app.open("/dashboard/admin/calc-policy");
+    await expect(screen.getByRole("heading", "Calcul des devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const shownAfter = { fo: await inputValue(fo), mo: await inputValue(mo), rates: await inputValue(rates) };
+    expect(shownAfter).toEqual({ fo: "1,35", mo: "1,25", rates: "20 ; 10 ; 5,5" });
+
+    // The next v3 estimate: the wizard offers the new defaults and a creation without coefficients stores them.
+    await openWizard(ui);
+    await fillProjectStep(ui, { projectName: `ARMY-L3-V3S03-W-${army.runPrefix}`, title: `${army.runPrefix} V3S03 assistant` });
+    await nextStep(ui);
+    const offered = await readPricingStep(ui);
+    expect([offered.saleCoefficientFo, offered.saleCoefficientMo]).toEqual(["1,35", "1,25"]);
+    const created = await apiRequest<Envelope<Created>>(browser, "POST", "/api/estimates", {
+      project: { name: `ARMY-L3-V3S03-${army.runPrefix}` },
+      version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} V3S03 v3`, expected_calc_engine_version: 3 },
+    });
+    expect([created.status, created.body.ok]).toEqual([201, true]);
+    ownEstimate(army, { projectId: created.body.data.project.id, versionId: created.body.data.version.id });
+    const versions = await storedVersions(created.body.data.project.id);
+    await recordEvidence(army, "v3s03-created", { owner, versions });
+    expect(versions.map(({ engine, coefficients }) => ({ engine, coefficients })))
+      .toEqual([{ engine: 3, coefficients: ["1.3500", "1.2500"] }]);
   });

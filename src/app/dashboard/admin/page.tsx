@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import {
   ArrowDownUpIcon,
   ArrowRightIcon,
+  CalculatorIcon,
   ChartLineIcon,
   CoinsIcon,
   FlagIcon,
@@ -96,10 +97,15 @@ export default async function AdminHubPage() {
           />
           <HubCard
             href="/dashboard/admin/currencies"
-            className="lg:col-span-2"
             icon={<CoinsIcon strokeWidth={1.75} />}
             title="Devises"
             description="Gestion des devises et des taux de change"
+          />
+          <HubCard
+            href="/dashboard/admin/calc-policy"
+            icon={<CalculatorIcon strokeWidth={1.75} />}
+            title="Calcul des devis"
+            description="Coefficients de vente par défaut et taux de TVA autorisés"
           />
         </HubSection>
 

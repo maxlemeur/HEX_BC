@@ -19,7 +19,18 @@ La transaction de création relit cette politique ; une attente client différen
 échoue avec `409 CONTEXT_CHANGED`. La duplication conserve le moteur de la source.
 Changer une politique ne convertit donc aucun devis existant.
 
+Le moteur des nouvelles versions reste réglé par l'équipe produit
+(`set_tenant_calc_policy`, service_role). Un administrateur de l'entreprise règle,
+depuis Administration › Calcul des devis, les coefficients FO et MO par défaut et
+les taux de TVA autorisés (`set_tenant_calc_defaults`), avec un motif journalisé ;
+le moteur en vigueur est réécrit tel quel, et le premier enregistrement crée une
+politique explicite au moteur 3. Les coefficients valent pour les prochains devis.
+Les taux sont relus à chaque gel d'un devis v3, brouillons en cours compris : un
+taux retiré bloque le gel des lignes qui l'utilisent
+(`ESTIMATE_V3_TAX_RATE_NOT_ALLOWED`).
+
 Sources : [politique](../../src/lib/estimates/calc-policy-server.ts),
+[réglages administrateur](../../supabase/migrations/20261024143116_tenant_calc_defaults_admin.sql),
 [création canonique](../../src/lib/estimates/canonical-v2-creation.ts),
 [bascule SQL](../../supabase/migrations/20261018183629_estimate_engine_v3_default.sql).
 Le nom historique `canonical-v2-creation` ne limite pas la façade au moteur 2.
