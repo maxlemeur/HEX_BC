@@ -50,13 +50,19 @@ export function resolveV3NetMarginBp(
   if (evidence && evidenceMatches(version, evidence)) {
     return computeEstimateV3NetMarginBp({ total_ht_cents: netHtCents, cost_subtotal_cents: evidence.cost_subtotal_cents });
   }
+  const costSubtotalCents = readFreshV3CostSubtotalCents(version);
+  if (costSubtotalCents === null) return null;
+  return computeEstimateV3NetMarginBp({ total_ht_cents: netHtCents, cost_subtotal_cents: costSubtotalCents });
+}
+
+/** Déboursé Σ D d'un gel v3 frais (lié à la révision courante), sinon `null`. */
+export function readFreshV3CostSubtotalCents(version: EffectiveMarginVersion): number | null {
   if (!hasFreshSnapshot(version)) return null;
   const context = version.calc_snapshot_context;
   if (!context || typeof context !== "object" || Array.isArray(context)) return null;
   const frozen = context as Record<string, unknown>;
   const costSubtotalCents = frozen.cost_subtotal_cents;
-  if (frozen.engine !== 3 || !isCents(costSubtotalCents)) return null;
-  return computeEstimateV3NetMarginBp({ total_ht_cents: netHtCents, cost_subtotal_cents: costSubtotalCents });
+  return frozen.engine === 3 && isCents(costSubtotalCents) ? costSubtotalCents : null;
 }
 
 function toPositiveMultiplier(value: unknown): number | null {

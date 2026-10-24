@@ -28,11 +28,16 @@ vi.mock("@/lib/affaires/intake-server", () => ({
   fetchAffaireIntakeWorkspace: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/v3-margin-evidence-server", () => ({
+  loadV3MarginEvidence: vi.fn(),
+}));
+
 import { ApiError } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
+import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import {
   getEstimateSendGating,
   getEstimateSupplierComparisons,
@@ -3936,6 +3941,292 @@ describe("affaires hub margin analysis", () => {
     expect(result?.global.costCents).toBe(80_000);
     expect(result?.global.saleCents).toBe(108_000);
     expect(result?.global.marginMultiplier).toBe(1.35);
+  });
+});
+
+// Lot 3.2 (entrée 4, D-d) : la carte et le résumé du hub montrent la marge des v3.
+// V3C10 et V3P01 couvrent le navigateur ; ici, les choix de lecture et de repli.
+describe("affaires hub v3 margin (lot 3.2)", () => {
+  const V3_UPDATED_AT = "2026-10-24T08:00:00+00:00";
+  const project = {
+    id: PROJECT_ID,
+    tenant_id: TENANT_ID,
+    user_id: USER_ID,
+    name: "Affaire v3",
+    reference: "AFF-V3",
+    client_name: "Client v3",
+    is_archived: false,
+  };
+
+  function v3DraftRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "v3-draft",
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      status: "draft",
+      total_ht_cents: 11_000,
+      margin_multiplier: 1,
+      updated_at: V3_UPDATED_AT,
+      calc_engine_version: 3,
+      content_revision: 4,
+      calc_snapshot_content_revision: null,
+      calc_snapshot_context: null,
+      ...overrides,
+    };
+  }
+
+  function summaryContext(currentVersion: Record<string, unknown>) {
+    return createHubContext({
+      tableScenarios: {
+        estimate_projects: [{ maybeSingle: { data: project, error: null } }],
+        estimate_versions: [
+          { limit: { data: null, count: 1, error: null } },
+          { maybeSingle: { data: currentVersion, error: null } },
+          { maybeSingle: { data: null, error: null } },
+        ],
+        estimate_items: [{ limit: { data: null, count: 1, error: null } }],
+      },
+    });
+  }
+
+  function v3Line(id: string, versionId: string) {
+    return {
+      id,
+      version_id: versionId,
+      parent_id: null,
+      item_type: "line",
+      position: 1,
+      title: "Ligne v3",
+      description: null,
+      quantity: 1,
+      unit_price_ht_cents: 10_000,
+      tax_rate_bp: 2_000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: 1,
+      k_mo: 1,
+      h_mo_atelier: null,
+      k_mo_atelier: null,
+      labor_role_atelier_id: null,
+      h_mo_chantier: null,
+      k_mo_chantier: null,
+      labor_role_chantier_id: null,
+      pu_ht_cents: 13_000,
+      labor_role_id: null,
+      category_id: null,
+      supply_type_id: null,
+      line_total_ht_cents: 13_000,
+      line_tax_cents: 2_600,
+      line_total_ttc_cents: 15_600,
+      unit_code: "u",
+      pricing_status: "priced",
+      h_mo_per_unit: 0,
+      h_mo_atelier_per_unit: null,
+      h_mo_chantier_per_unit: null,
+    };
+  }
+
+  const v2Version = (id: string, versionNumber: number, marginMultiplier: number) => ({
+    id,
+    project_id: PROJECT_ID,
+    version_number: versionNumber,
+    status: "sent",
+    total_ht_cents: 12_000,
+    margin_multiplier: marginMultiplier,
+    margin_mode: "fixed",
+    tax_rate_bp: 0,
+    discount_bp: 0,
+    discount_mode: "simple",
+    discount_steps: [],
+    global_coefficient: 1,
+    updated_at: V3_UPDATED_AT,
+    calc_engine_version: 2,
+  });
+
+  const v3Version = (id: string, versionNumber: number, overrides: Record<string, unknown>) => ({
+    id,
+    project_id: PROJECT_ID,
+    version_number: versionNumber,
+    total_ht_cents: 13_000,
+    margin_multiplier: 1,
+    margin_mode: "fixed",
+    tax_rate_bp: 2_000,
+    discount_bp: 0,
+    discount_amount_cents: null,
+    discount_mode: "simple",
+    discount_steps: [],
+    global_coefficient: 1,
+    updated_at: V3_UPDATED_AT,
+    calc_engine_version: 3,
+    rounding_mode: "none",
+    rounding_step_cents: 1,
+    contractor_role: "general_contractor",
+    sale_coefficient_fo: 1.3,
+    sale_coefficient_mo: 1,
+    content_revision: 1,
+    calc_snapshot_content_revision: null,
+    calc_snapshot_context: null,
+    ...overrides,
+  });
+
+  // V1 v2, V2 brouillon v3 sans gel, V3 v3 émise gelée, V4 v3 émise sans gel, V5 courante v2.
+  function evolutionVersions() {
+    return [
+      v2Version("ev-1", 1, 1.15),
+      v3Version("ev-2", 2, { status: "draft" }),
+      v3Version("ev-3", 3, {
+        status: "sent",
+        total_ht_cents: 11_000,
+        content_revision: 2,
+        calc_snapshot_content_revision: 2,
+        calc_snapshot_context: { engine: 3, cost_subtotal_cents: 10_000 },
+      }),
+      v3Version("ev-4", 4, { status: "sent" }),
+      { ...v2Version("ev-5", 5, 1.2), status: "draft" },
+    ];
+  }
+
+  const v2CurrentItems = [
+    { id: "s1", parent_id: null, item_type: "section", position: 1, title: "Section 1", description: null },
+    {
+      ...v3Line("l1", "ev-5"),
+      parent_id: "s1",
+      unit_price_ht_cents: 10_000,
+      tax_rate_bp: 0,
+      pu_ht_cents: 12_000,
+      line_total_ht_cents: 12_000,
+      line_tax_cents: 0,
+      line_total_ttc_cents: 12_000,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(loadV3MarginEvidence).mockReset();
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 0,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
+    });
+  });
+
+  it("shows the live net markup of a v3 draft from its matching evidence", async () => {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(summaryContext(v3DraftRow()) as never);
+    vi.mocked(loadV3MarginEvidence).mockResolvedValue({
+      source: "authenticated_live",
+      version: {
+        id: "v3-draft",
+        tenant_id: TENANT_ID,
+        project_id: PROJECT_ID,
+        status: "draft",
+        content_revision: 4,
+        updated_at: V3_UPDATED_AT,
+      },
+      net_ht_cents: 11_000,
+      cost_subtotal_cents: 10_000,
+    });
+
+    const summary = await fetchAffaireHubSummary(PROJECT_ID);
+
+    expect(vi.mocked(loadV3MarginEvidence)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(loadV3MarginEvidence).mock.calls[0]?.[0]).toMatchObject({
+      tenantId: TENANT_ID,
+      projectUserId: USER_ID,
+      authorizedVersion: {
+        id: "v3-draft",
+        project_id: PROJECT_ID,
+        status: "draft",
+        updated_at: V3_UPDATED_AT,
+        content_revision: 4,
+        total_ht_cents: 11_000,
+        calc_engine_version: 3,
+      },
+    });
+    // ⌊(2(N−D)·10 000 + N) / 2N⌋ = 909 pb pour N = 11 000, D = 10 000.
+    expect(summary.currentVersion).toMatchObject({ marginMultiplier: null, marginPercent: 9.09 });
+  });
+
+  it("keeps the margin unavailable, never 0, when the live evidence fails or does not match", async () => {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(summaryContext(v3DraftRow()) as never);
+    vi.mocked(loadV3MarginEvidence).mockRejectedValueOnce(new Error("57014"));
+    expect((await fetchAffaireHubSummary(PROJECT_ID)).currentVersion?.marginPercent).toBeNull();
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(summaryContext(v3DraftRow()) as never);
+    vi.mocked(loadV3MarginEvidence).mockResolvedValueOnce({
+      source: "authenticated_live",
+      version: {
+        id: "v3-draft",
+        tenant_id: TENANT_ID,
+        project_id: PROJECT_ID,
+        status: "draft",
+        content_revision: 5,
+        updated_at: V3_UPDATED_AT,
+      },
+      net_ht_cents: 11_000,
+      cost_subtotal_cents: 10_000,
+    });
+    expect((await fetchAffaireHubSummary(PROJECT_ID)).currentVersion?.marginPercent).toBeNull();
+  });
+
+  it("skips the live recalculation for a blank v3 draft, a fresh freeze and the takeoff page", async () => {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(summaryContext(v3DraftRow({ total_ht_cents: 0 })) as never);
+    expect((await fetchAffaireHubSummary(PROJECT_ID)).currentVersion?.marginPercent).toBeNull();
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(summaryContext(v3DraftRow({
+      calc_snapshot_content_revision: 4,
+      calc_snapshot_context: { engine: 3, cost_subtotal_cents: 10_000 },
+    })) as never);
+    expect((await fetchAffaireHubSummary(PROJECT_ID)).currentVersion?.marginPercent).toBe(9.09);
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(summaryContext(v3DraftRow()) as never);
+    expect((await fetchAffaireHubSummary(PROJECT_ID, { liveV3Margin: false })).currentVersion?.marginPercent).toBeNull();
+
+    expect(vi.mocked(loadV3MarginEvidence)).not.toHaveBeenCalled();
+  });
+
+  it("charts v3 versions at their margin on cost and names those without a cost", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [{ maybeSingle: { data: project, error: null } }],
+        estimate_versions: [{ limit: { data: evolutionVersions(), error: null } }],
+        estimate_items: [
+          { limit: { data: v2CurrentItems, error: null } },
+          // Le moteur 3 exige des identifiants de ligne uuid.
+          { limit: { data: [v3Line("bbbbbbbb-bbbb-4bbb-8bbb-000000000021", "ev-2")], error: null } },
+        ],
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+
+    expect(result?.versionEvolution.map((point) => [point.versionNumber, Number(point.marginPercent.toFixed(1))]))
+      .toEqual([[1, 15], [2, 30], [3, 10], [5, 20]]);
+    expect(result?.versionEvolutionUnavailableV3).toEqual([4]);
+  });
+
+  it("keeps the card when an earlier v3 draft cannot be read, and names that draft", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [{ maybeSingle: { data: project, error: null } }],
+        estimate_versions: [{ limit: { data: evolutionVersions(), error: null } }],
+        estimate_items: [
+          { limit: { data: v2CurrentItems, error: null } },
+          { limit: { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } } },
+        ],
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+
+    expect(result?.global.saleCents).toBe(12_000);
+    expect(result?.versionEvolution.map((point) => point.versionNumber)).toEqual([1, 3, 5]);
+    expect(result?.versionEvolutionUnavailableV3).toEqual([2, 4]);
   });
 });
 

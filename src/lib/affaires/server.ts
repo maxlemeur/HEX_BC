@@ -9,17 +9,25 @@ import {
   computeEstimateBreakdown,
   computeStoredDiscountCents,
   type DiscountMode,
-  type EstimateItemRecord,
   type MarginMode,
 } from "@/lib/estimate-calculations";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { computeV3MarginAnalysis } from "@/lib/affaires/margin-analysis-v3";
+import {
+  buildMarginVersionEvolution,
+  MARGIN_ANALYSIS_ITEM_COLUMNS,
+  marginEvolutionV3Notice,
+  readMarginEvolutionV3Totals,
+  readMarginLaborRates,
+  type MarginAnalysisItem,
+  type MarginAnalysisVersionRow,
+} from "@/lib/affaires/hub-margin-evolution";
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
 import { usesSaleCoefficients, type EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
-import type { EstimateV3LineRecord } from "@/lib/estimates/v3-persistence";
+import { loadV3MarginEvidence, type V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   listEstimateProjectVersions,
@@ -151,6 +159,7 @@ type AffaireHubProjectRow = Pick<
 type AffaireHubVersionRow = Pick<
   EstimateVersionRow,
   | "id"
+  | "tenant_id"
   | "project_id"
   | "version_number"
   | "status"
@@ -163,9 +172,9 @@ type AffaireHubVersionRow = Pick<
   | "calc_snapshot_context"
 >;
 
-/** Colonnes lues par le hub pour une version (marge v1/v2, marque nette d'un gel v3 frais). */
+/** Colonnes lues par le hub pour une version (marge v1/v2, marque nette d'un gel v3 frais ou de sa preuve vivante). */
 const AFFAIRE_HUB_VERSION_COLUMNS =
-  "id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context";
+  "id, tenant_id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context";
 
 type AffaireHubDpgfImportRow = Pick<
   DpgfImportRow,
@@ -201,7 +210,7 @@ export type AffaireHubVersionSummary = {
   totalHtCents: number;
   /** Multiplicateur de marge v1/v2 ; `null` pour une v3 (marge fixe à 1, coefficients de vente). */
   marginMultiplier: number | null;
-  /** Marge v1/v2, marque nette d'un gel v3 frais ; `null` = indisponible, jamais 0 par défaut. */
+  /** Marge v1/v2, marque nette v3 (gel frais ou brouillon en direct) ; `null` = indisponible, jamais 0 par défaut. */
   marginPercent: number | null;
   updatedAt: string;
   /** Sous-lot 2.10a (N3) : moteur de la version, `null` s'il est illisible (entrées du métré et de la structure IA). */
@@ -660,7 +669,7 @@ function normalizeHubTimelinePage(page: number | undefined): number {
   return Math.trunc(page);
 }
 
-function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersionSummary {
+function toAffaireHubVersionSummary(row: AffaireHubVersionRow, v3Evidence?: V3MarginEvidence | null): AffaireHubVersionSummary {
   const engine = resolveEstimateEngineVersionForDisplay(row);
   const base = {
     id: row.id,
@@ -672,9 +681,10 @@ function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersio
     calcEngineVersion: engine,
   };
   // Lot 2, sous-lot 2.5 (revue, V3P-14) : une v3 a une marge fixe à 1 ; sa marge est la marque nette d'un gel
-  // frais (comme la file d'approbation), sinon indisponible, jamais « 0.0 % ». Moteur illisible : indisponible.
+  // frais (comme la file d'approbation) ou, depuis le lot 3.2, de la preuve vivante d'un brouillon ; sinon
+  // indisponible, jamais « 0.0 % ». Moteur illisible : indisponible.
   if (engine === null || usesSaleCoefficients(engine)) {
-    const netMarginBp = engine === null ? null : resolveV3NetMarginBp(row);
+    const netMarginBp = engine === null ? null : resolveV3NetMarginBp(row, v3Evidence);
     return { ...base, marginMultiplier: null, marginPercent: netMarginBp === null ? null : netMarginBp / 100 };
   }
   const marginMultiplier = Number.isFinite(row.margin_multiplier)
@@ -686,6 +696,52 @@ function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersio
     marginMultiplier,
     marginPercent: (marginMultiplier - 1) * 100,
   };
+}
+
+/**
+ * Lot 3.2 (entrée 4, D-d) : preuve vivante de la marque nette d'un brouillon v3 sans gel frais, comme la Direction
+ * (`resolveDirectionMarginBp`) ; `null` (indisponible) si le calcul course. Une seule fois par rendu pour une même
+ * révision : le résumé et sa relecture après les contrôles d'approbation la partagent.
+ */
+const loadAffaireHubV3MarginEvidence = cache(async (
+  context: AffaireContext,
+  projectUserId: string,
+  versionId: string,
+  projectId: string,
+  updatedAt: string,
+  contentRevision: number,
+  totalHtCents: number,
+  calcEngineVersion: number,
+): Promise<V3MarginEvidence | null> => {
+  try {
+    return await loadV3MarginEvidence({
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+      projectUserId,
+      authorizedVersion: {
+        id: versionId, project_id: projectId, status: "draft", updated_at: updatedAt,
+        content_revision: contentRevision, total_ht_cents: totalHtCents, calc_engine_version: calcEngineVersion,
+      },
+    });
+  } catch {
+    return null;
+  }
+});
+
+async function toAffaireHubVersionSummaryWithLiveMargin(
+  context: AffaireContext,
+  project: AffaireHubProjectRow,
+  row: AffaireHubVersionRow
+): Promise<AffaireHubVersionSummary> {
+  const engine = resolveEstimateEngineVersionForDisplay(row);
+  // Un brouillon v3 à 0 € HT n'a pas de marque nette (`computeEstimateV3NetMarginBp`) : aucun recalcul pour rien.
+  if (engine === null || !usesSaleCoefficients(engine) || row.status !== "draft" || row.total_ht_cents === 0
+    || resolveV3NetMarginBp(row) !== null) {
+    return toAffaireHubVersionSummary(row);
+  }
+  const evidence = await loadAffaireHubV3MarginEvidence(context, project.user_id, row.id, row.project_id,
+    row.updated_at, row.content_revision, row.total_ht_cents, engine);
+  return toAffaireHubVersionSummary(row, evidence);
 }
 
 export function buildAffaireHubReadinessSnapshot(input: {
@@ -931,7 +987,8 @@ const readAffaireHubCurrentVersion = cache(async (context: AffaireContext, proje
 
 async function fetchAffaireHubSummaryWithContext(
   context: AffaireContext,
-  project: AffaireHubProjectRow
+  project: AffaireHubProjectRow,
+  options: { liveV3Margin?: boolean } = {}
 ): Promise<AffaireHubSummaryResult> {
   const [versionsCountResult, currentVersionResult, acceptedVersionResult] = await Promise.all([
     context.supabase
@@ -976,6 +1033,13 @@ async function fetchAffaireHubSummaryWithContext(
 
   const currentVersion = (currentVersionResult.data ?? null) as AffaireHubVersionRow | null;
   const acceptedVersion = (acceptedVersionResult.data ?? null) as AffaireHubVersionRow | null;
+  // Lot 3.2 (entrée 4) : la marque nette en direct d'un brouillon v3 se calcule pendant les lectures suivantes ;
+  // sa preuve absorbe ses erreurs, la promesse ne rejette pas.
+  const currentVersionSummaryPromise = !currentVersion
+    ? Promise.resolve(null)
+    : options.liveV3Margin === false
+      ? Promise.resolve(toAffaireHubVersionSummary(currentVersion))
+      : toAffaireHubVersionSummaryWithLiveMargin(context, project, currentVersion);
 
   let lineCount = 0;
   let hubReadiness: AffaireHubReadinessResult | null = null;
@@ -1121,7 +1185,7 @@ async function fetchAffaireHubSummaryWithContext(
       clientName: project.client_name,
       siteAddress: project.site_address ?? null,
     },
-    currentVersion: currentVersion ? toAffaireHubVersionSummary(currentVersion) : null,
+    currentVersion: await currentVersionSummaryPromise,
     acceptedVersion: acceptedVersion ? toAffaireHubVersionSummary(acceptedVersion) : null,
     versionsCount,
     lineCount,
@@ -2158,15 +2222,16 @@ export async function fetchAffaireHubCurrentVersionAfterApproval(
   if ((result.data?.id ?? null) !== expectedVersionId) {
     throw conflict("La version courante de l’affaire a changé. Rechargez la page avant de préparer l’envoi.", undefined, "VERSION_CONFLICT");
   }
-  return result.data ? toAffaireHubVersionSummary(result.data) : null;
+  return result.data ? toAffaireHubVersionSummaryWithLiveMargin(context, project, result.data) : null;
 }
 
 export async function fetchAffaireHubSummary(
-  projectId: string
+  projectId: string,
+  options: { liveV3Margin?: boolean } = {}
 ): Promise<AffaireHubSummaryResult> {
   const context = await getAuthenticatedContext();
   const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-  return fetchAffaireHubSummaryWithContext(context, project);
+  return fetchAffaireHubSummaryWithContext(context, project, options);
 }
 
 export async function fetchAffaireHubTimeline(
@@ -2272,62 +2337,6 @@ export async function fetchAffaireHubInitialData(
 /*  Margin Analysis                                                     */
 /* ------------------------------------------------------------------ */
 
-type MarginAnalysisVersionRow = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "version_number"
-  | "status"
-  | "total_ht_cents"
-  | "margin_multiplier"
-  | "margin_mode"
-  | "tax_rate_bp"
-  | "discount_bp"
-  | "discount_amount_cents"
-  | "discount_mode"
-  | "discount_steps"
-  | "global_coefficient"
-  | "updated_at"
-  | "calc_engine_version"
-  | "rounding_mode"
-  | "rounding_step_cents"
-  | "contractor_role"
-  | "sale_coefficient_fo"
-  | "sale_coefficient_mo"
->;
-
-function buildMarginVersionEvolution(versions: MarginAnalysisVersionRow[]): MarginVersionPoint[] {
-  // Lot 2, sous-lot 2.5 (revue, V3P-14) : la marge v2 d'une v3 (multiplicateur 1) vaudrait 0 % ; sa marque
-  // nette ne se compare pas à une marge v2. Une v3 (ou un moteur illisible) est absente de l'évolution.
-  return versions.flatMap((v) => {
-    const engine = resolveEstimateEngineVersionForDisplay(v);
-    if (engine === null || usesSaleCoefficients(engine)) return [];
-    const mm = Number.isFinite(v.margin_multiplier) ? v.margin_multiplier : 1;
-    return [{
-      versionNumber: toSafeInteger(v.version_number),
-      versionId: v.id,
-      status: v.status,
-      marginMultiplier: mm,
-      marginPercent: (mm - 1) * 100,
-      totalHtCents: toSafeInteger(v.total_ht_cents),
-    }];
-  });
-}
-
-/**
- * Sous-lot 2.10a (A16, D-d) : versions en moteur 3 retirées de l'évolution, nommées à l'utilisateur. Rendu aussi
- * quand l'analyse ne se calcule pas (revue Codex de la PR #57) : `null` seulement sans v3.
- */
-function marginEvolutionV3Notice(versions: MarginAnalysisVersionRow[]): AffaireHubMarginV3Notice | null {
-  const versionNumbers = versions
-    .filter((v) => {
-      const engine = resolveEstimateEngineVersionForDisplay(v);
-      return engine !== null && usesSaleCoefficients(engine);
-    })
-    .map((v) => toSafeInteger(v.version_number));
-  return versionNumbers.length > 0 ? { versionEvolutionUnavailableV3: versionNumbers } : null;
-}
-
 async function fetchAffaireHubMarginAnalysisWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
@@ -2336,7 +2345,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const { data: versionsData, error: versionsError } = await readAllRows(() => context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, updated_at, calc_engine_version, rounding_mode, rounding_step_cents, contractor_role, sale_coefficient_fo, sale_coefficient_mo",
+      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, updated_at, calc_engine_version, rounding_mode, rounding_step_cents, contractor_role, sale_coefficient_fo, sale_coefficient_mo, content_revision, calc_snapshot_content_revision, calc_snapshot_context",
       { count: "exact" }
     )
     .eq("tenant_id", context.tenantId)
@@ -2356,10 +2365,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   // 3. Fetch all items for current version
   const { data: itemsData, error: itemsError } = await readAllRows(() => context.supabase
     .from("estimate_items")
-    .select(
-      "id, parent_id, item_type, position, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, pu_ht_cents, labor_role_id, category_id, supply_type_id, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, unit_code, pricing_status, h_mo_per_unit, h_mo_atelier_per_unit, h_mo_chantier_per_unit",
-      { count: "exact" }
-    )
+    .select(MARGIN_ANALYSIS_ITEM_COLUMNS, { count: "exact" })
     .eq("tenant_id", context.tenantId)
     .eq("version_id", currentVersion.id));
 
@@ -2367,33 +2373,11 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     throw mapSupabaseError(itemsError, "Impossible de charger les lignes pour l'analyse de marge.");
   }
 
-  const items = (itemsData ?? []) as Array<EstimateItemRecord & EstimateV3LineRecord>;
-  if (items.length === 0) return marginEvolutionV3Notice(versions);
+  const items = (itemsData ?? []) as MarginAnalysisItem[];
+  if (items.length === 0) return marginEvolutionV3Notice([currentVersion]);
 
   // 4. Fetch labor roles for rate lookup
-  const laborRoleIds = new Set<string>();
-  for (const item of items) {
-    if (item.labor_role_id) laborRoleIds.add(item.labor_role_id);
-    if (item.labor_role_atelier_id) laborRoleIds.add(item.labor_role_atelier_id);
-    if (item.labor_role_chantier_id) laborRoleIds.add(item.labor_role_chantier_id);
-  }
-
-  const laborRateById = new Map<string, number>();
-  if (laborRoleIds.size > 0) {
-    const { data: rolesData, error: rolesError } = await context.supabase
-      .from("labor_roles")
-      .select("id, hourly_rate_cents")
-      .eq("tenant_id", context.tenantId)
-      .in("id", [...laborRoleIds]);
-
-    if (rolesError) {
-      throw mapSupabaseError(rolesError, "Impossible de charger les rôles main d'oeuvre.");
-    }
-
-    for (const role of rolesData ?? []) {
-      laborRateById.set(role.id, role.hourly_rate_cents ?? 0);
-    }
-  }
+  const laborRateById = await readMarginLaborRates(context, items);
 
   // 5. Identify root sections
   const rootSections = items.filter(
@@ -2401,7 +2385,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   );
   const rootSectionIds = rootSections.map((s) => s.id);
 
-  if (rootSectionIds.length === 0) return marginEvolutionV3Notice(versions);
+  if (rootSectionIds.length === 0) return marginEvolutionV3Notice([currentVersion]);
 
   const marginMultiplier = Number.isFinite(currentVersion.margin_multiplier)
     ? currentVersion.margin_multiplier
@@ -2448,18 +2432,28 @@ async function fetchAffaireHubMarginAnalysisWithContext(
 
   // Lot 2, sous-lot 2.5 (F19) : une v3 est analysée par la façade (moteur 3), jamais en v2 supposée.
   const currentEngine = resolveEstimateEngineVersionForDisplay(currentVersion);
-  if (currentEngine !== null && usesSaleCoefficients(currentEngine)) {
-    const v3Analysis = computeV3MarginAnalysis({
-      version: currentVersion,
-      items,
-      laborRatesById: laborRateById,
-      laborSplitEnabled: isLaborSplitEnabled,
-    });
-    if (!v3Analysis) return marginEvolutionV3Notice(versions);
+  const currentIsV3 = currentEngine !== null && usesSaleCoefficients(currentEngine);
+  const v3Analysis = currentIsV3
+    ? computeV3MarginAnalysis({
+        version: currentVersion,
+        items,
+        laborRatesById: laborRateById,
+        laborSplitEnabled: isLaborSplitEnabled,
+      })
+    : null;
+  if (currentIsV3 && !v3Analysis) return marginEvolutionV3Notice([currentVersion]);
+  const v3Totals = await readMarginEvolutionV3Totals({
+    context,
+    versions,
+    currentVersionId: currentVersion.id,
+    laborSplitEnabled: isLaborSplitEnabled,
+  });
+  if (v3Analysis) {
+    v3Totals.set(currentVersion.id, { saleCents: v3Analysis.global.saleCents, costCents: v3Analysis.global.costCents });
     return {
       ...v3Analysis,
-      versionEvolution: buildMarginVersionEvolution(versions),
-      ...marginEvolutionV3Notice(versions),
+      versionEvolution: buildMarginVersionEvolution(versions, v3Totals),
+      ...marginEvolutionV3Notice(versions, v3Totals),
       currentVersionId: currentVersion.id,
     };
   }
@@ -2547,7 +2541,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     });
 
   // 9. Build version evolution
-  const versionEvolution = buildMarginVersionEvolution(versions);
+  const versionEvolution = buildMarginVersionEvolution(versions, v3Totals);
 
   return {
     global: {
@@ -2561,7 +2555,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     },
     sections,
     versionEvolution,
-    ...marginEvolutionV3Notice(versions),
+    ...marginEvolutionV3Notice(versions, v3Totals),
     currentVersionId: currentVersion.id,
   };
 }
