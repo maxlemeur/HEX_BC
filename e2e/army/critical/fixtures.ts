@@ -199,9 +199,16 @@ export async function apiRequest<T = unknown>(
 }
 
 export async function readEstimate(browser: Browser, versionId: string): Promise<ArmyEstimate> {
-  const response = await apiRequest<ApiEnvelope<{ version: ArmyVersion; items: ArmyItem[] }>>(
+  const read = () => apiRequest<ApiEnvelope<{ version: ArmyVersion; items: ArmyItem[] }>>(
     browser, "GET", `/api/estimates/${versionId}`
   );
+  let response = await read();
+  // The read refuses a version that changed while it paginated (409 VERSION_CONFLICT).
+  // When the editor saves at the same moment, read again; a lasting conflict still fails.
+  for (let attempt = 1; attempt < 5 && response.status === 409 && response.body.error?.code === "VERSION_CONFLICT"; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    response = await read();
+  }
   expect(response.status).toBe(200);
   expect(response.body.ok).toBe(true);
   const { version, items } = response.body.data;

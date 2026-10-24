@@ -106,9 +106,13 @@ function fakeSupabase(versions: Map<string, VersionState>) {
     return builder;
   };
   // The v1/v2 copies write through public.copy_estimate_items_atomic (docs/testing/copy-large-v2.md): a write is an insert too.
-  const rpc = async (name: string, args: unknown) => {
+  // Their reads go through public.read_estimate_version_items, served as a read of the version's items.
+  const rpc = (name: string, args: Record<string, unknown>) => {
+    if (name === "read_estimate_version_items") {
+      return from("estimate_items").eq("tenant_id", args.p_tenant_id).eq("version_id", args.p_version_id);
+    }
     inserts.push({ rpc: name, args });
-    return { data: null, error: null };
+    return Promise.resolve({ data: null, error: null });
   };
   return { client: { from, rpc }, inserts };
 }

@@ -2464,11 +2464,12 @@ async function listTakeoffDpgfEstimateItems(input: {
   tenantId: string;
   versionId: string;
 }) {
+  // One access check per statement, not one per item: supabase/migrations/20261024130000_read_estimate_version_items.sql.
+  // PostgREST orders a function's rows by the selected columns only: created_at is selected for the order.
   const { data, error } = await readAllRows(() => input.supabase
-    .from("estimate_items" as never)
-    .select(ESTIMATE_DPGF_COMPARE_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
+    .rpc("read_estimate_version_items" as never,
+      { p_tenant_id: input.tenantId, p_version_id: input.versionId } as never, { count: "exact", get: true })
+    .select(`${ESTIMATE_DPGF_COMPARE_SELECT}, created_at` as never)
     .eq("item_type" as never, "line" as never)
     .order("position" as never, { ascending: true })
     .order("created_at" as never, { ascending: true })
@@ -2844,11 +2845,12 @@ async function listEstimateRiskItems(input: {
   tenantId: string;
   versionId: string;
 }) {
+  // One access check per statement, not one per item: supabase/migrations/20261024130000_read_estimate_version_items.sql.
+  // PostgREST orders a function's rows by the selected columns only: position and created_at are selected for the order.
   const { data, error } = await readAllRows(() => input.supabase
-    .from("estimate_items" as never)
-    .select(ESTIMATE_RISK_ITEMS_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
+    .rpc("read_estimate_version_items" as never,
+      { p_tenant_id: input.tenantId, p_version_id: input.versionId } as never, { count: "exact", get: true })
+    .select(`${ESTIMATE_RISK_ITEMS_SELECT}, position, created_at` as never)
     .order("position" as never, { ascending: true })
     .order("created_at" as never, { ascending: true })
     .order("id" as never, { ascending: true }));
