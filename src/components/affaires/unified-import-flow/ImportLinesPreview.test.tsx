@@ -52,6 +52,7 @@ describe("2.8 import preview into a v3", () => {
 
     expect(screen.getByText("Coefficients du classeur proposés : FO 1,3 · MO 1,3")).toBeTruthy();
     expect(screen.getByText("Aucun écart supérieur à 0,5 c avec « Prix Unitaire »")).toBeTruthy();
+    expect(screen.getByText(/^Provision FO 1,01 ajoutée à la création \(lignes sans type FO\)/)).toBeTruthy();
     expect(screen.getByText("Heures MO : heures par unité (h/u)")).toBeTruthy();
     expect(screen.queryByText(/taux horaire du classeur .* rôle choisi/i)).toBeNull();
   });

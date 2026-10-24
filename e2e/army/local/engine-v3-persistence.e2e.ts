@@ -61,29 +61,30 @@ const NEUTRAL_VERSION = {
   currency: "EUR", contractor_role: "principal",
 } as const;
 
-// §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20. Les PU, bruts et le déboursé sont
-// ceux de la conception ; h_mo = arrondi(Q × h/u, 3) (D4).
+// §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20 ; h_mo = arrondi(Q × h/u, 3) (D4). TI-534 : une ligne
+// créée sans type FO reçoit la provision FO 1,01 (FO_unitaire = P × 1,01 × k_fo) ; PU, bruts, déboursé et gel
+// ci-dessous l'appliquent (moteur pur 2.4, rejoué le 24/10/2026). À provision 1, ce sont ceux de la conception.
 const ORACLE = [
-  { ref: "O1", unit: "ml", quantity: 20, prFo: 5466, hPerUnit: 1.991, hMo: 39.82, pu: 16663, gross: 333260 },
-  { ref: "O2", unit: "u", quantity: 3, prFo: 9563, hPerUnit: 1.75, hMo: 5.25, pu: 20832, gross: 62496 },
-  { ref: "O3", unit: "m2", quantity: 21, prFo: 5850, hPerUnit: 0, hMo: 0, pu: 7605, gross: 159705 },
-  { ref: "O4", unit: "ml", quantity: 1139, prFo: 302, hPerUnit: 0.2, hMo: 227.8, pu: 1353, gross: 1541067 },
-  { ref: "O5", unit: "u", quantity: 1, prFo: 2000, hPerUnit: 6, hMo: 6, pu: 31400, gross: 31400 },
-  { ref: "O6", unit: "ml", quantity: 282, prFo: 9186, hPerUnit: 0.998, hMo: 281.436, pu: 16732, gross: 4718424 },
-  { ref: "O7", unit: "ml", quantity: 8, prFo: 883, hPerUnit: 1.3, hMo: 10.4, pu: 7388, gross: 59104 },
+  { ref: "O1", unit: "ml", quantity: 20, prFo: 5466, hPerUnit: 1.991, hMo: 39.82, pu: 16734, gross: 334680 },
+  { ref: "O2", unit: "u", quantity: 3, prFo: 9563, hPerUnit: 1.75, hMo: 5.25, pu: 20956, gross: 62868 },
+  { ref: "O3", unit: "m2", quantity: 21, prFo: 5850, hPerUnit: 0, hMo: 0, pu: 7681, gross: 161301 },
+  { ref: "O4", unit: "ml", quantity: 1139, prFo: 302, hPerUnit: 0.2, hMo: 227.8, pu: 1357, gross: 1545623 },
+  { ref: "O5", unit: "u", quantity: 1, prFo: 2000, hPerUnit: 6, hMo: 6, pu: 31426, gross: 31426 },
+  { ref: "O6", unit: "ml", quantity: 282, prFo: 9186, hPerUnit: 0.998, hMo: 281.436, pu: 16852, gross: 4752264 },
+  { ref: "O7", unit: "ml", quantity: 8, prFo: 883, hPerUnit: 1.3, hMo: 10.4, pu: 7399, gross: 59192 },
 ] as const;
 const GROSS = ORACLE.map(line => line.gross);
-// Totaux S1 à S3 : §5.2. Répartitions par ligne (plus grand reste, D13) et état TVA 10 % :
+// Totaux S1 à S3 : §5.2, à provision FO 1,01. Répartitions par ligne (plus grand reste, D13) et état TVA 10 % :
 // moteur pur 2.4 (computeEstimateV3Breakdown sur oracleInput), dont les totaux égalent §5.2.
-const S1 = { totals: [6905456, 1381091, 8286547], nets: GROSS, taxes: [66652, 12499, 31941, 308213, 6280, 943685, 11821] };
-const S2 = { totals: [6905355, 1381071, 8286426], nets: [333255, 62495, 159703, 1541044, 31400, 4718355, 59103], taxes: [66651, 12499, 31941, 308209, 6280, 943671, 11820] };
-const S3 = { totals: [6214910, 1242982, 7457892], nets: [299934, 56246, 143735, 1386960, 28260, 4246581, 53194], taxes: [59987, 11249, 28747, 277392, 5652, 849316, 10639] };
-const S3_VAT10 = { totals: [6214910, 621491, 6836401], nets: S3.nets, taxes: [29993, 5625, 14374, 138696, 2826, 424658, 5319] };
+const S1 = { totals: [6947354, 1389471, 8336825], nets: GROSS, taxes: [66936, 12574, 32260, 309125, 6285, 950453, 11838] };
+const S2 = { totals: [6947253, 1389451, 8336704], nets: [334675, 62867, 161299, 1545600, 31426, 4752195, 59191], taxes: [66935, 12574, 32260, 309120, 6285, 950439, 11838] };
+const S3 = { totals: [6252619, 1250524, 7503143], nets: [301212, 56581, 145171, 1391061, 28283, 4277038, 53273], taxes: [60242, 11316, 29034, 278212, 5657, 855408, 10655] };
+const S3_VAT10 = { totals: [6252619, 625262, 6877881], nets: S3.nets, taxes: [30121, 5658, 14517, 139106, 2828, 427704, 5328] };
 const FROZEN = {
-  costSubtotalCents: 5487177, netMarginBp: 1171, realizedSaleCoefficient: 1.132624,
-  grossFo: [142119, 37296, 159705, 447304, 2600, 3367547, 9183],
-  netFo: [127907, 33566, 143735, 402574, 2340, 3030792, 8265],
-  netMo: [172027, 22680, 0, 984386, 25920, 1215789, 44929],
+  costSubtotalCents: 5519222, netMarginBp: 1173, realizedSaleCoefficient: 1.132881,
+  grossFo: [143540, 37668, 161301, 451801, 2626, 3401341, 9275],
+  netFo: [129186, 33901, 145171, 406621, 2363, 3061207, 8348],
+  netMo: [172026, 22680, 0, 984440, 25920, 1215831, 44925],
 };
 
 const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
@@ -387,10 +388,10 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   await recordEvidence(army, "v3p-batch-oracle-created", { versionId: oracleId, expected: createdExpected, actual: createdByTitle });
   expect(createdByTitle).toEqual(createdExpected);
   const s1 = await alignWithFixtureIdOrder(browser, army, oracleId, oracleLines);
-  await recordEvidence(army, "v3p-s1", { versionId: oracleId, expected: { version: { ...emptyV3, gross: 6905456, totals: S1.totals }, lines: expectedLines(S1, 2000) },
+  await recordEvidence(army, "v3p-s1", { versionId: oracleId, expected: { version: { ...emptyV3, gross: 6947354, totals: S1.totals }, lines: expectedLines(S1, 2000) },
     actual: { version: v3Version(s1), lines: lineItems(s1).map(lineView) } });
   expect(lineItems(s1).map(lineView)).toEqual(expectedLines(S1, 2000));
-  expect(v3Version(s1)).toEqual({ ...emptyV3, gross: 6905456, totals: S1.totals });
+  expect(v3Version(s1)).toEqual({ ...emptyV3, gross: 6947354, totals: S1.totals });
 
   // V3P-06, réécrit en 2.6 (doc 2.6 §1.4, F26-15) : l'éditeur v3 s'ouvre sur la v3 persistée, sans le
   // bandeau du moteur 3 de 2.1, et l'ouvrir ne la réécrit pas (ni normalisation v2, ni total client).
@@ -412,7 +413,7 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   // (/dashboard/estimates redirige vers /dashboard/affaires depuis next.config.ts, §10.2).
   await app.open(`/dashboard/affaires/${projectId}`);
   await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}/edit` }) ?? ""), { timeout: 30_000 })
-    .toContain("69 054,56 €");
+    .toContain("69 473,54 €");
   // V3P-14 : la marge du résumé financier d'une v3 n'est jamais la marge v2 (multiplicateur 1 → « 0.0 % »).
   const hubMarginText = normalized(await browser.evaluate(() => {
     const label = Array.from(document.querySelectorAll("#financial p")).find(node => node.textContent?.trim() === "Marge appliquée");
@@ -425,15 +426,15 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
 
   // V3P-07 : S2 (montant), S3 (taux), sans intention dérivée.
   const s2 = await saveSettings(browser, army, oracleId, "s2", { discount_amount_cents: 101, discount_bp: 0 });
-  expect(v3Version(s2)).toEqual({ ...emptyV3, discount: { mode: "simple", bp: 0, amountCents: 101 }, gross: 6905456, applied: 101, totals: S2.totals });
+  expect(v3Version(s2)).toEqual({ ...emptyV3, discount: { mode: "simple", bp: 0, amountCents: 101 }, gross: 6947354, applied: 101, totals: S2.totals });
   expect(lineItems(s2).map(lineView)).toEqual(expectedLines(S2, 2000));
   const s3 = await saveSettings(browser, army, oracleId, "s3", { discount_amount_cents: null, discount_bp: 1000 });
-  expect(v3Version(s3)).toEqual({ ...emptyV3, discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 6905456, applied: 690546, totals: S3.totals });
+  expect(v3Version(s3)).toEqual({ ...emptyV3, discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 6947354, applied: 694735, totals: S3.totals });
   expect(lineItems(s3).map(lineView)).toEqual(expectedLines(S3, 2000));
 
   // V3P-08 : TVA 10 % appliquée à toutes les lignes, dans la même sauvegarde.
   const vat10 = await saveSettings(browser, army, oracleId, "vat10", { tax_rate_bp: 1000, apply_tax_rate_to_lines: true });
-  expect(v3Version(vat10)).toEqual({ ...emptyV3, discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 6905456, applied: 690546, taxRateBp: 1000, totals: S3_VAT10.totals });
+  expect(v3Version(vat10)).toEqual({ ...emptyV3, discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 6947354, applied: 694735, taxRateBp: 1000, totals: S3_VAT10.totals });
   expect(lineItems(vat10).map(lineView)).toEqual(expectedLines(S3_VAT10, 1000));
 
   // V3P-07 (EUHIST) : PR 200 c, 10 %, c_FO de 1 à 2 ; la remise suit le brut, discount_bp reste 1 000.
@@ -441,12 +442,12 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
     line_nature: "supply_only", title: `${army.runPrefix} EUHIST`, description: "u", unit_code: "u", pricing_status: "priced",
     quantity: 1, unit_price_ht_cents: 200, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual",
   }]);
-  expect(lineItems(euhistLines).map(item => [item.pu_ht_cents, item.line_total_ht_cents])).toEqual([[260, 260]]);
+  expect(lineItems(euhistLines).map(item => [item.pu_ht_cents, item.line_total_ht_cents])).toEqual([[263, 263]]);
   const euhistAt1 = await saveSettings(browser, army, euhistId, "euhist-c1", { sale_coefficient_fo: 1, discount_bp: 1000 });
-  expect(v3Version(euhistAt1)).toEqual({ ...emptyV3, saleCoefficients: [1, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 200, applied: 20, totals: [180, 36, 216] });
+  expect(v3Version(euhistAt1)).toEqual({ ...emptyV3, saleCoefficients: [1, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 202, applied: 20, totals: [182, 36, 218] });
   const euhistAt2 = await saveSettings(browser, army, euhistId, "euhist-c2", { sale_coefficient_fo: 2 });
-  expect(v3Version(euhistAt2)).toEqual({ ...emptyV3, saleCoefficients: [2, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 400, applied: 40, totals: [360, 72, 432] });
-  expect(lineItems(euhistAt2).map(item => [item.pu_ht_cents, item.line_total_ht_cents, item.line_tax_cents])).toEqual([[400, 360, 72]]);
+  expect(v3Version(euhistAt2)).toEqual({ ...emptyV3, saleCoefficients: [2, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 404, applied: 40, totals: [364, 73, 437] });
+  expect(lineItems(euhistAt2).map(item => [item.pu_ht_cents, item.line_total_ht_cents, item.line_tax_cents])).toEqual([[404, 364, 73]]);
 
   // V3P-09 : gel d'approbation v3, marque nette de la règle, puis file d'approbation à l'écran.
   const ruleId = await insertProjectMarginRule(owner, projectId, 1500);
@@ -471,19 +472,19 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   expect(Number(frozen.version.calc_snapshot_content_revision)).toBe(Number(frozen.version.content_revision));
   expect(frozen.version.calc_snapshot_context).toMatchObject({
     engine: 3, sale_coefficients: { fo: 1.3, mo: 1.2 },
-    discount: { kind: "rate", requested_cents: null, rate_bp: 1000, base_cents: 6905456, applied_cents: 690546 },
+    discount: { kind: "rate", requested_cents: null, rate_bp: 1000, base_cents: 6947354, applied_cents: 694735 },
     commercial_rounding: { mode: "none", step_cents: 1, applied_cents: 0 },
     cost_subtotal_cents: FROZEN.costSubtotalCents, realized_sale_coefficient: FROZEN.realizedSaleCoefficient,
-    tax_breakdown: [{ rate_bp: 1000, base_cents: 6214910, tax_cents: 621491 }],
+    tax_breakdown: [{ rate_bp: 1000, base_cents: 6252619, tax_cents: 625262 }],
   });
   expect(frozen.version.calc_snapshot_context).not.toHaveProperty("effective_margin_multiplier");
   expect(frozenLines.map(item => [item.snapshot_pu_ht_cents, item.snapshot_gross_ht_cents, item.snapshot_gross_fo_ht_cents, item.snapshot_fo_ht_cents, item.snapshot_mo_ht_cents]))
     .toEqual(ORACLE.map((line, index) => [line.pu, line.gross, FROZEN.grossFo[index], FROZEN.netFo[index], FROZEN.netMo[index]]));
   await app.open("/dashboard/approvals");
   await expect.poll(async () => normalized(await visibleRowText(browser, { heading: projectName }) ?? ""), { timeout: 30_000 })
-    .toContain("62 149,10 € HT");
+    .toContain("62 526,19 € HT");
   const card = normalized(await visibleRowText(browser, { heading: projectName }) ?? "");
-  await recordEvidence(army, "v3p-approval-queue", { projectName, expected: ["62 149,10 € HT", "Marge 11.7 %"], actual: card });
+  await recordEvidence(army, "v3p-approval-queue", { projectName, expected: ["62 526,19 € HT", "Marge 11.7 %"], actual: card });
   expect(card).toContain("Marge 11.7 %");
 
   // V3P-10 : duplication sous politique 2 : la copie reste une v3, aux mêmes colonnes et montants.
