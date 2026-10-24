@@ -11,6 +11,7 @@ export type EstimateColumnId =
   | "supply_price"
   | "supplier"
   | "supply_type"
+  | "fo_provision"
   | "k_fo"
   | "labor_hours"
   | "h_mo_majoration"
@@ -38,6 +39,7 @@ const COLUMN_IDS = new Set<EstimateColumnId>([
   "supply_price",
   "supplier",
   "supply_type",
+  "fo_provision",
   "k_fo",
   "labor_hours",
   "h_mo_majoration",

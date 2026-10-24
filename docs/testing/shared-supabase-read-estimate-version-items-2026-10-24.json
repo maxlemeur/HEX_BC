@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "sourceCommit": "922f1cf",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's standing authorization (24/10) to apply merged repository migrations to shared Supabase.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261024130000_read_estimate_version_items.sql",
+    "bytes": 3805,
+    "sha256": "17ebd15328b232e6ddc1107664eb793926a6424925188f9ecfacddaa5018ba35",
+    "appliedVersion": "20261024151245",
+    "appliedName": "20261024130000_read_estimate_version_items",
+    "appliedAtUtc": "2026-10-24T15:12:45Z",
+    "storedStatementSha256Matches": true,
+    "appliedBy": "Same Supabase account, outside this thread, between the 14:28Z preflight and the 15:45Z planned application; no second application attempted."
+  },
+  "preflight": {
+    "atUtc": "2026-10-24T14:28Z",
+    "historyRows": 319,
+    "lastVersion": "20261024112810",
+    "nameAbsent": true,
+    "functionAbsent": true,
+    "prerequisites": [
+      "public.is_tenant_member(uuid)",
+      "public.has_tenant_role(uuid,tenant_role[])",
+      "auth.uid()",
+      "tenant_role admin/director"
+    ]
+  },
+  "catalogChecks": {
+    "function": "public.read_estimate_version_items(uuid,uuid)",
+    "returns": "SETOF estimate_items",
+    "securityDefiner": true,
+    "volatility": "stable",
+    "searchPath": "",
+    "owner": "postgres",
+    "comment": true,
+    "bodyMd5Lf": "5150bcfd606f7c2230af5af6aacfba21",
+    "bodyMatchesSource": true,
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "anonExecute": false,
+    "publicExecute": false
+  },
+  "history": {
+    "rowsBefore": 319,
+    "rowsAfter": 320,
+    "priorRowsFingerprint": "9e4e185b92b208883709ccf21a06a92a",
+    "priorRowsUnchanged": true
+  },
+  "catalog": {
+    "scope": [
+      "public",
+      "private",
+      "storage"
+    ],
+    "functions": {
+      "before": 446,
+      "after": 447,
+      "added": [
+        "public.read_estimate_version_items(uuid,uuid)"
+      ]
+    },
+    "policies": {
+      "before": 378,
+      "after": 378
+    },
+    "relations": {
+      "before": 132,
+      "after": 132
+    }
+  },
+  "securityAdvisors": {
+    "added": [
+      "authenticated_security_definer_function_executable: public.read_estimate_version_items"
+    ],
+    "removed": [],
+    "anonSecurityDefinerExecutable": 18,
+    "authenticatedSecurityDefinerExecutable": 67,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1
+  },
+  "limits": [
+    "No call of the function or application journey on shared, no deployment."
+  ]
+}

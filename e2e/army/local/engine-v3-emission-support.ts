@@ -23,19 +23,20 @@ export const NEUTRAL_V3_VERSION = {
   currency: "EUR", contractor_role: "principal", validite_jours: 30,
 } as const;
 
-// §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20 (coefficients de la politique).
+// §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20 (coefficients de la politique). TI-534 : lignes sans type
+// FO, provision FO 1,01 (FO_unitaire = P × 1,01 × k_fo) ; PU et PT ci-dessous l'appliquent (moteur pur 2.4).
 export const ORACLE = [
-  { ref: "O1", unit: "ml", symbol: "ml", quantity: 20, prFo: 5466, hPerUnit: 1.991, pu: 16663, gross: 333260 },
-  { ref: "O2", unit: "u", symbol: "u", quantity: 3, prFo: 9563, hPerUnit: 1.75, pu: 20832, gross: 62496 },
-  { ref: "O3", unit: "m2", symbol: "m²", quantity: 21, prFo: 5850, hPerUnit: 0, pu: 7605, gross: 159705 },
-  { ref: "O4", unit: "ml", symbol: "ml", quantity: 1139, prFo: 302, hPerUnit: 0.2, pu: 1353, gross: 1541067 },
-  { ref: "O5", unit: "u", symbol: "u", quantity: 1, prFo: 2000, hPerUnit: 6, pu: 31400, gross: 31400 },
-  { ref: "O6", unit: "ml", symbol: "ml", quantity: 282, prFo: 9186, hPerUnit: 0.998, pu: 16732, gross: 4718424 },
-  { ref: "O7", unit: "ml", symbol: "ml", quantity: 8, prFo: 883, hPerUnit: 1.3, pu: 7388, gross: 59104 },
+  { ref: "O1", unit: "ml", symbol: "ml", quantity: 20, prFo: 5466, hPerUnit: 1.991, pu: 16734, gross: 334680 },
+  { ref: "O2", unit: "u", symbol: "u", quantity: 3, prFo: 9563, hPerUnit: 1.75, pu: 20956, gross: 62868 },
+  { ref: "O3", unit: "m2", symbol: "m²", quantity: 21, prFo: 5850, hPerUnit: 0, pu: 7681, gross: 161301 },
+  { ref: "O4", unit: "ml", symbol: "ml", quantity: 1139, prFo: 302, hPerUnit: 0.2, pu: 1357, gross: 1545623 },
+  { ref: "O5", unit: "u", symbol: "u", quantity: 1, prFo: 2000, hPerUnit: 6, pu: 31426, gross: 31426 },
+  { ref: "O6", unit: "ml", symbol: "ml", quantity: 282, prFo: 9186, hPerUnit: 0.998, pu: 16852, gross: 4752264 },
+  { ref: "O7", unit: "ml", symbol: "ml", quantity: 8, prFo: 883, hPerUnit: 1.3, pu: 7399, gross: 59192 },
 ] as const;
 if (ORACLE.some((line) => line.gross !== Math.round(line.quantity * line.pu))) throw new Error("Oracle: PT must equal ⌈Q × PU⌋.");
 
-// §5.2 : S2 (remise 1,01 €, TVA 20 %) et S5 (S2, O1–O3 à 10 %, O4–O7 à 20 %).
+// §5.2, à provision FO 1,01 : S2 (remise 1,01 €, TVA 20 %) et S5 (S2, O1–O3 à 10 %, O4–O7 à 20 %).
 export type Scenario = {
   name: "S2" | "S5";
   rates: readonly number[];
@@ -43,14 +44,14 @@ export type Scenario = {
   taxByRate: ReadonlyArray<{ rateBp: number; label: string; base: number; tax: number }>;
 };
 export const S2: Scenario = {
-  name: "S2", rates: [2000, 2000, 2000, 2000, 2000, 2000, 2000], totals: [6905355, 1381071, 8286426],
-  taxByRate: [{ rateBp: 2000, label: "20", base: 6905355, tax: 1381071 }],
+  name: "S2", rates: [2000, 2000, 2000, 2000, 2000, 2000, 2000], totals: [6947253, 1389451, 8336704],
+  taxByRate: [{ rateBp: 2000, label: "20", base: 6947253, tax: 1389451 }],
 };
 export const S5: Scenario = {
-  name: "S5", rates: [1000, 1000, 1000, 2000, 2000, 2000, 2000], totals: [6905355, 1325525, 8230880],
-  taxByRate: [{ rateBp: 1000, label: "10", base: 555453, tax: 55545 }, { rateBp: 2000, label: "20", base: 6349902, tax: 1269980 }],
+  name: "S5", rates: [1000, 1000, 1000, 2000, 2000, 2000, 2000], totals: [6947253, 1333566, 8280819],
+  taxByRate: [{ rateBp: 1000, label: "10", base: 558841, tax: 55884 }, { rateBp: 2000, label: "20", base: 6388412, tax: 1277682 }],
 };
-export const GROSS = 6905456;
+export const GROSS = 6947354;
 export const DISCOUNT = 101;
 for (const scenario of [S2, S5]) {
   const tax = scenario.taxByRate.reduce((sum, rate) => sum + rate.tax, 0);
@@ -65,7 +66,7 @@ const digest = (value: Buffer | string) => createHash("sha256").update(value).di
 /** Espaces (fines, insécables, retours) ramenés à une espace ; aucun autre caractère n'est touché. */
 export const normalizeText = (value: string) => value.replace(/[\s  ]+/gu, " ").trim();
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-/** Montant en euros tel qu'imprimé en fr-FR, espaces normalisées : 333260 → « 3 332,60 ». */
+/** Montant en euros tel qu'imprimé en fr-FR, espaces normalisées : 334680 → « 3 346,80 ». */
 export function euros(cents: number) {
   const whole = Math.trunc(cents / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/gu, " ");
   return `${whole},${String(cents % 100).padStart(2, "0")}`;

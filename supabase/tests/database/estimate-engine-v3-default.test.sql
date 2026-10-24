@@ -219,7 +219,8 @@ as $$
     'global_coefficient', 1, 'tax_rate_bp', 2000, 'rounding_mode', 'none', 'rounding_step_cents', 1,
     'max_section_depth', 3, 'contractor_role', 'principal', 'calc_engine_version', 3,
     'gross_ht_cents', p_pu, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0,
-    'total_ht_cents', p_pu, 'total_tax_cents', p_pu / 5, 'total_ttc_cents', p_pu + p_pu / 5
+    'total_ht_cents', p_pu, 'total_tax_cents', round(p_pu * 0.2)::integer,
+    'total_ttc_cents', p_pu + round(p_pu * 0.2)::integer
   )
 $$;
 
@@ -235,7 +236,7 @@ as $$
       'item_type', 'line', 'position', 1, 'title', 'L1', 'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1,
       'pricing_status', 'priced', 'quantity', 1, 'unit_price_ht_cents', 1000, 'tax_rate_bp', 2000,
       'h_mo_per_unit', 0, 'unit_code', 'u', 'pu_ht_cents', p_pu, 'line_total_ht_cents', p_pu,
-      'line_tax_cents', p_pu / 5, 'line_total_ttc_cents', p_pu + p_pu / 5)
+      'line_tax_cents', round(p_pu * 0.2)::integer, 'line_total_ttc_cents', p_pu + round(p_pu * 0.2)::integer)
   )
 $$;
 
@@ -265,13 +266,14 @@ select is(
 
 -- ---------------------------------------------------------------------------
 -- F210-01: absent policy + expectation 3, no coefficients -> v3 at 1,3000 / 1,2000 (red before M8).
+-- The line has no supply type, so it takes the default FO provision 1,010 (TI-534): PU = 1000 × 1,010 × c_FO.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.def_try(array[
     'set local role service_role',
     pg_temp.def_create_sql(1,
-      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000101', 'Défaut absent v3', 1300),
-      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000101', 1300))
+      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000101', 'Défaut absent v3', 1313),
+      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000101', 1313))
   ]),
   'ok',
   'F210-01 without a policy row, a creation expecting engine 3 succeeds'
@@ -281,7 +283,7 @@ select is(
   (select concat_ws('|', calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents,
      total_ht_cents, total_tax_cents, total_ttc_cents)
    from public.estimate_versions where id = 'a32a0000-0000-4000-8000-000000000101'),
-  '3|1.3000|1.2000|1300|1300|260|1560',
+  '3|1.3000|1.2000|1313|1313|263|1576',
   'F210-01 the absent policy gives engine 3 with the documented defaults 1,30 FO and 1,20 MO (P-02)'
 );
 
@@ -357,8 +359,8 @@ select is(
   pg_temp.def_probe(array[
     'set local role service_role',
     pg_temp.def_create_sql(2,
-      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000202', 'Attente 3 sous 2', 1300),
-      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000202', 1300))
+      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000202', 'Attente 3 sous 2', 1313),
+      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000202', 1313))
   ]),
   '40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED',
   'F210-05 under an explicit row 2, a creation expecting engine 3 is refused'
@@ -377,8 +379,8 @@ select is(
   pg_temp.def_try(array[
     'set local role service_role',
     pg_temp.def_create_sql(3,
-      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000301', 'Politique 3 explicite', 1100),
-      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000301', 1100))
+      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000301', 'Politique 3 explicite', 1111),
+      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000301', 1111))
   ]),
   'ok',
   'F210-06 under an explicit row 3, a creation expecting engine 3 succeeds'
@@ -387,7 +389,7 @@ select is(
 select is(
   (select concat_ws('|', calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, total_ht_cents)
    from public.estimate_versions where id = 'a32a0000-0000-4000-8000-000000000301'),
-  '3|1.1000|1.0500|1100',
+  '3|1.1000|1.0500|1111',
   'F210-06 an explicit row 3 keeps its own coefficients (1,10 / 1,05)'
 );
 

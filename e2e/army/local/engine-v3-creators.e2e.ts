@@ -237,8 +237,9 @@ armyTest("V3C04 the wizard instantiates two v2 templates as v3s equal to their M
         };
         expected[entry.label] = {
           status: 201, code: null, expectation: 3, versionsAdded: 1, settings: V3_BLANK, sameAsOracle: true,
-          // Tube : 10,00 € × FO 1,30 + 0,5 h/u × 40 €/h × MO 1,20 = 37,00 € par unité, 5 h du modèle gardées.
-          tube: [3700, 37000], convertedLines: [[titles.collier, 1, 0.9]], droppedSettings: entry.dropped, reportMissing: [],
+          // Tube, sans type FO (provision 1,01, TI-534) : 10,00 € × 1,01 × FO 1,30 + 0,5 h/u × 40 €/h × MO 1,20 = 37,13 € par
+          // unité, 5 h du modèle gardées.
+          tube: [3713, 37130], convertedLines: [[titles.collier, 1, 0.9]], droppedSettings: entry.dropped, reportMissing: [],
         };
         await recordEvidence(army, `v3c04-${entry.label}`, { outcome, created, facts, oracleFacts, report, observed: observed[entry.label] });
       }
@@ -263,8 +264,8 @@ armyTest("V3C05 the wizard instantiates a template saved from a v3 at its own 1,
         { sale_coefficient_fo: 1.1, sale_coefficient_mo: 1.05 });
       await seedV3TemplateLines(ui, army, sourceId, roleId);
       const sourceFacts = estimateFacts(await readEstimate(browser, sourceId));
-      // Tube : 10,00 € × FO 1,10 + 0,5 h/u × 40 €/h × MO 1,05 = 32,00 € par unité.
-      expect(sourceFacts.lines.filter((line) => line.title === titles.tube).map((line) => [line.pu, line.net])).toEqual([[3200, 32000]]);
+      // Tube, sans type FO (provision 1,01, TI-534) : 10,00 € × 1,01 × FO 1,10 + 0,5 h/u × 40 €/h × MO 1,05 = 32,11 € par unité.
+      expect(sourceFacts.lines.filter((line) => line.title === titles.tube).map((line) => [line.pu, line.net])).toEqual([[3211, 32110]]);
       const templateId = await saveTemplate(ui, army, sourceId, `${army.runPrefix} modele v3`);
       const before = await storedVersions(owner, anchor.projectId);
       await openWizard(ui, anchor.projectId);
@@ -336,9 +337,9 @@ armyTest("V3C06 the wizard's default linked DPGF source creates a v3 through the
       expect(observed).toEqual({
         creationMode: "linked_dpgf_source", status: 201, code: null, expectation: 3, versionsAdded: 1, settings: V3_BLANK,
         sections: [`Import DPGF - ${linked.filename}`],
-        // PR FO × FO 1,30 : 12,50 € → 16,25 € (« m » → ml) ; 65,00 € → 84,50 €.
-        lines: [[linked.lines.robinet, "u", "priced", 1, 6500, null, 8450, 8450, 1690], [linked.lines.tube, "ml", "priced", 2, 1250, null, 1625, 3250, 650]],
-        totals: [11700, 2340, 14040], provenance: true, policyUnchanged: true,
+        // PR FO × provision 1,01 (sans type FO, TI-534) × FO 1,30 : 12,50 € → 16,41 € (« m » → ml) ; 65,00 € → 85,35 €.
+        lines: [[linked.lines.robinet, "u", "priced", 1, 6500, null, 8535, 8535, 1707], [linked.lines.tube, "ml", "priced", 2, 1250, null, 1641, 3282, 656]],
+        totals: [11817, 2363, 14180], provenance: true, policyUnchanged: true,
       });
     } finally {
       await closePolicy(owner, army, "V3C06");
@@ -534,8 +535,8 @@ armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on 
     await seedSupplyLine(ui, v2Id, `${army.runPrefix} V2`, 2);
     const policy = await openPolicy3(owner, army, "V3C10");
     try {
-      // V3 vierge, sans déboursé ; V4 : PR 100,00 € × c_FO 1,30 = 130,00 € HT, déboursé 100,00 € ; V5 (courante) :
-      // c_FO 1,10, 110,00 € HT.
+      // V3 vierge, sans déboursé ; V4 : PR 100,00 € × 1,01 (provision FO sans type, TI-534) × c_FO 1,30 = 131,30 € HT,
+      // déboursé 101,00 € ; V5 (courante) : c_FO 1,10, 111,10 € HT.
       await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} V3 vierge`);
       const v4Id = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} V4`);
       await seedSupplyLine(ui, v4Id, `${army.runPrefix} V4`, 3);
@@ -543,7 +544,7 @@ armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on 
       await seedSupplyLine(ui, v5Id, `${army.runPrefix} V5`, 3);
       const versions = await storedVersions(owner, anchor.projectId);
       expect(versions.map((version) => [version.versionNumber, version.engine, version.totals[0]]))
-        .toEqual([[1, 2, 11500], [2, 2, 11000], [3, 3, 0], [4, 3, 13000], [5, 3, 11000]]);
+        .toEqual([[1, 2, 11500], [2, 2, 11000], [3, 3, 0], [4, 3, 13130], [5, 3, 11110]]);
       await switchToExpertMode(ui);
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
       await expect(screen.getByRole("heading", "Analyse de marge", { exact: true })).toBeVisible({ timeout: 60_000 });
@@ -573,7 +574,7 @@ armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on 
         // « Marge globale » de la carte (marge sur déboursé de V5) : le dernier point du graphique la reprend.
         global: read.text.match(/Marge globale ?(-?\d+\.\d)%/)?.[1] ?? null,
         notice: read.notice,
-        // Marque nette en direct du brouillon V5 sans gel : (110,00 − 100,00) / 110,00 = 909 pb.
+        // Marque nette en direct du brouillon V5 sans gel : (111,10 − 101,00) / 111,10 = 909 pb.
         applied: read.applied,
         policyUnchanged: samePolicy(await policySnapshot(owner), policy),
       };
@@ -858,9 +859,9 @@ armyTest("V3C13 creating from a template refuses by name hours without quantity 
       expect(observed).toEqual({
         q0: [400, false, "ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY", true], q0Written: { named: 0, counts: q0Before },
         split: [201, true, [], []], splitSettings: [V3_BLANK],
-        // h/u = arrondi(h / 3, 4) : 1 ; atelier 0,3333 ; chantier 0,6667. PU = 10,00 € × FO 1,30
-        // + (0,3333 h × 40 € + 0,6667 h × 50 €) × MO 1,20 = 13,00 + 56,0004 → 69,00 € ; 3 u → 207,00 €.
-        splitLines: [[titles.split, "u", 3, 1, 0.3333, 0.6667, tuyauteur, soudeur, 6900, 20700]],
+        // h/u = arrondi(h / 3, 4) : 1 ; atelier 0,3333 ; chantier 0,6667. PU = 10,00 € × 1,01 (provision FO) × FO 1,30
+        // + (0,3333 h × 40 € + 0,6667 h × 50 €) × MO 1,20 = 13,13 + 56,0004 → 69,13 € ; 3 u → 207,39 €.
+        splitLines: [[titles.split, "u", 3, 1, 0.3333, 0.6667, tuyauteur, soudeur, 6913, 20739]],
         sameAsOracle: true, oracleConverted: [],
         role: [400, false, "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED", null], roleWritten: { named: 0, counts: roleBefore },
         policyUnchanged: true,

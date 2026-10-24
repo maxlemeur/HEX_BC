@@ -200,7 +200,8 @@ export function EstimateEditorTableChrome({
   currency = "EUR",
 }: EstimateEditorTableChromeProps) {
   // Lot 2, sous-lot 2.6 : en v3, les heures se saisissent par unité (D4).
-  const hoursSuffix = useEstimateV3Grid() ? " / u" : "";
+  const isV3 = useEstimateV3Grid() !== null;
+  const hoursSuffix = isV3 ? " / u" : "";
   const columnResizeHandlers = {
     onColumnResizeStart,
     onColumnResizeKeyDown,
@@ -406,6 +407,15 @@ export function EstimateEditorTableChrome({
                     className="estimate-col--fo"
                     {...columnResizeHandlers}
                   />
+                  {isV3 ? (
+                    <ResizableColumnHeader
+                      columnId="fo_provision"
+                      label="Provision FO"
+                      allowWrap
+                      className="estimate-col--fo"
+                      {...columnResizeHandlers}
+                    />
+                  ) : null}
                   <ResizableColumnHeader
                     columnId="k_fo"
                     label="K FO"
@@ -468,6 +478,15 @@ export function EstimateEditorTableChrome({
                     <ResizableColumnHeader
                       columnId="supply_type"
                       label="Type FO"
+                      className="estimate-col--fo"
+                      {...columnResizeHandlers}
+                    />
+                  ) : null}
+                  {isV3 && visibleColumns.has("k_fo") ? (
+                    <ResizableColumnHeader
+                      columnId="fo_provision"
+                      label="Provision FO"
+                      allowWrap
                       className="estimate-col--fo"
                       {...columnResizeHandlers}
                     />
@@ -600,6 +619,7 @@ export function EstimateEditorTableChrome({
                   {formatCurrency(grandTotals.foTotal, currency)}
                 </div>
                 {(isLaborSplitEnabled || visibleColumns.has("supply_type")) ? <div data-estimate-column="supply_type" /> : null}
+                {isV3 && (isLaborSplitEnabled || visibleColumns.has("k_fo")) ? <div data-estimate-column="fo_provision" /> : null}
                 {(isLaborSplitEnabled || visibleColumns.has("k_fo")) ? <div data-estimate-column="k_fo" /> : null}
                 {visibleColumns.has("supplier") ? <div data-estimate-column="supplier" /> : null}
                 {isLaborSplitEnabled ? (

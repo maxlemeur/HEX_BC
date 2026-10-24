@@ -36,6 +36,8 @@ export type EstimateV3ItemInput = {
   quantity: V3Numeric | null;
   unit_price_ht_cents: V3Numeric | null;
   k_fo: V3Numeric | null;
+  /** TI-534 : provision FO de la ligne, `numeric(4,3)` ; absente ou nulle = 1 (comme le jumeau SQL). */
+  fo_provision?: V3Numeric | null;
   h_mo_per_unit: V3Numeric | null;
   h_mo_atelier_per_unit: V3Numeric | null;
   h_mo_chantier_per_unit: V3Numeric | null;

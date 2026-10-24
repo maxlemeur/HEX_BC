@@ -606,8 +606,9 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       return { table: "estimate_items", ...(v3 ? { writer: owned.versionId } : {}), row: { ...common, id: entry.id,
         version_id: owned.versionId, parent_id: owned.sectionId,
         item_type: "line", line_nature: "supply_only", position: index + 1, title: entry.title,
-        // A v3 line carries its unit in unit_code and its hours per unit (M4); description stays empty.
-        ...(v3 ? { description: null, unit_code: entry.unit, h_mo_per_unit: 0 } : { description: entry.unit }),
+        // A v3 line carries its unit in unit_code and its hours per unit (M4); description stays empty. TI-534: its FO
+        // provision is 1,000 (a line that predates it), so the stored PU stays the offer price these journeys expect.
+        ...(v3 ? { description: null, unit_code: entry.unit, h_mo_per_unit: 0, fo_provision: 1 } : { description: entry.unit }),
         quantity, unit_price_ht_cents: price, tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1,
         ...(entry.product_id ? { product_id: entry.product_id } : {}),
         ...(entry.selected_supplier_price_id ? { selected_supplier_price_id: entry.selected_supplier_price_id } : {}),

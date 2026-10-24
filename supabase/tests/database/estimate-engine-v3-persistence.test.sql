@@ -73,7 +73,7 @@ $try$;
 -- Identités (constantes) :
 --   ...8000-000000000001 propriétaire (engineer, entreprise A) ; ...002 administrateur de A
 --   (relecteur, auteur de la politique) ; ...003 membre d'une autre entreprise (B) ;
---   ...010 projet ; ...020 rôle « Tuyauteur » 40 €/h du propriétaire ; ...030 règle d'approbation.
+--   ...010 projet ; ...020 rôle « Tuyauteur » 40 €/h du propriétaire ; ...030 règle d'approbation ; ...040 type FO neutre (TI-534).
 --   Versions : ...100 témoin v2 (sans politique) ; ...110 S1 ; ...120 S2 ; ...130 S3 ;
 --   ...140 T-MARG ; ...150 unité manquante ; ...160 taux non autorisé ; ...170 EUHIST ;
 --   ...180 heures par unité ; ...190 brouillon de sonde ; ...1a0 coefficients par défaut ;
@@ -285,7 +285,8 @@ as $$
     jsonb_build_object(
       'id', pg_temp.v3_item(p_version, 1), 'parent_id', pg_temp.v3_item(p_version, 0),
       'item_type', 'line', 'position', 1, 'title', 'L1',
-      'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1, 'pricing_status', 'priced'
+      'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1, 'pricing_status', 'priced',
+      'supply_type_id', 'a3250000-0000-4000-8000-000000000040'
     ) || p_line
   )
 $$;
@@ -350,6 +351,7 @@ as $$
       'unit_price_ht_cents', line.pr,
       'tax_rate_bp', 2000,
       'k_fo', 1,
+      'supply_type_id', 'a3250000-0000-4000-8000-000000000040',
       'h_mo_majoration', 1,
       'k_mo', 1,
       'labor_role_id', 'a3250000-0000-4000-8000-000000000020',
@@ -712,6 +714,17 @@ values (
   4000,
   true,
   1
+);
+
+-- TI-534 : les montants des oracles du §5 précèdent la provision FO. Leurs lignes portent un type FO neutre
+-- (provision 1,000), donc FO_u = P × K FO ; la provision elle-même est couverte par estimate-fo-provision.test.sql.
+insert into public.supply_types (id, tenant_id, code, name, default_fo_provision)
+values (
+  'a3250000-0000-4000-8000-000000000040',
+  pg_temp.fx('tenant_a'),
+  'fixture_neutre',
+  'Type FO neutre (fixture)',
+  1.000
 );
 
 insert into public.estimate_rules (id, tenant_id, rule_type, scope_type, threshold_value, action, is_active)

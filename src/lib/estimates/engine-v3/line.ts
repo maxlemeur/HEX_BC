@@ -1,7 +1,7 @@
 /**
  * Lot 2, sous-lot 2.4 - calcul brut d'une ligne v3 (conception §4, étapes 1 à 5).
  *
- * FO_u = P × k_fo ; MO_u = maj × h × t × k_mo (ou maj × (h_at × t_at × k_at + h_ch × t_ch × k_ch)
+ * FO_u = P × provision FO × k_fo (TI-534) ; MO_u = maj × h × t × k_mo (ou maj × (h_at × t_at × k_at + h_ch × t_ch × k_ch)
  * avec la ventilation) ; PU = ⌈FO_u × c_FO + MO_u × c_MO⌋ (un seul arrondi) ; B = ⌈Q × PU⌋ ;
  * FO/MO bruts = répartition exacte de B ; D = ⌈Q × (FO_u + MO_u)⌋ ; h_mo* = arrondi(Q × h/u, 3).
  * Une ligne non chiffrée contribue 0 partout (quantité effective 0, PU nul).
@@ -103,7 +103,7 @@ export function computeV3LineGross(
     };
   }
 
-  const foUnit = multiply(line.unitPriceCents, line.kFo);
+  const foUnit = multiply(multiply(line.unitPriceCents, line.foProvision), line.kFo);
   const atelierUnit = laborProduct(line.hoursAtelierPerUnit, line.laborRateAtelierCents, line.kMoAtelier);
   const chantierUnit = laborProduct(line.hoursChantierPerUnit, line.laborRateChantierCents, line.kMoChantier);
   const moUnit = laborSplit

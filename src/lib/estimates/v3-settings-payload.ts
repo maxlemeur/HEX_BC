@@ -412,6 +412,8 @@ export type EstimateV3PreviewLine = {
   unit_price_ht_cents: Numeric;
   tax_rate_bp: number | null;
   k_fo: Numeric;
+  /** TI-534 : provision FO stockée de la ligne. */
+  fo_provision?: Numeric;
   h_mo_majoration?: Numeric;
   k_mo: Numeric;
   k_mo_atelier?: Numeric;
@@ -468,6 +470,7 @@ export function buildEstimateV3PreviewInput(input: {
       quantity: toNumeric(line.quantity),
       unit_price_ht_cents: toNumeric(line.unit_price_ht_cents),
       k_fo: toNumeric(line.k_fo),
+      fo_provision: toNumeric(line.fo_provision),
       h_mo_per_unit: toNumeric(line.h_mo_per_unit),
       h_mo_atelier_per_unit: toNumeric(line.h_mo_atelier_per_unit),
       h_mo_chantier_per_unit: toNumeric(line.h_mo_chantier_per_unit),

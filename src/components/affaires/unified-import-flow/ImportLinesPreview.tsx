@@ -391,6 +391,13 @@ export function ImportLinesPreview({
               {`Aucun écart supérieur à ${formatDecimal(unitPriceChecks.toleranceCents)} c avec « Prix Unitaire »`}
             </p>
           ) : null}
+          {/* TI-534 : le contrôle lit le classeur à provision 1 ; les lignes créées, sans type FO, reçoivent 1,01. */}
+          {isV3 ? (
+            <p className="mt-1 text-muted-foreground">
+              Provision FO 1,01 ajoutée à la création (lignes sans type FO) : chaque prix unitaire créé dépasse
+              « Prix Unitaire » de 1 % de sa part fourniture.
+            </p>
+          ) : null}
           {unitPriceChecks.outOfTolerance.length > 0 ? (
             <ul className="mt-1 list-inside list-disc text-foreground-secondary">
               {unitPriceChecks.outOfTolerance.map((check) => (

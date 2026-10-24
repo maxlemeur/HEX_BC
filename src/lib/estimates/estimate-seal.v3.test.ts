@@ -88,7 +88,7 @@ function baseItem(overrides: Partial<ItemRow>): ItemRow {
     id: fixtureLineId(1), created_at: "2026-10-17T08:00:00.000Z", updated_at: "2026-10-17T08:00:00.000Z",
     tenant_id: ID.tenant, version_id: ID.version, parent_id: null, item_type: "line", line_nature: "supply_and_labor",
     position: 0, title: "Ligne", aid: null, description: null, quantity: null, unit_price_ht_cents: null, tax_rate_bp: 2000,
-    k_fo: null, h_mo: null, h_mo_majoration: 1, k_mo: null, h_mo_atelier: null, k_mo_atelier: null,
+    k_fo: null, fo_provision: 1, h_mo: null, h_mo_majoration: 1, k_mo: null, h_mo_atelier: null, k_mo_atelier: null,
     labor_role_atelier_id: null, h_mo_chantier: null, k_mo_chantier: null, labor_role_chantier_id: null,
     pu_ht_cents: null, labor_role_id: null, category_id: null, supply_type_id: null, product_id: null,
     selected_supplier_price_id: null, source_provider: null, source_job_id: null, source_file_name: null,

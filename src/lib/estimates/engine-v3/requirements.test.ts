@@ -46,6 +46,7 @@ const CANONICAL_NUMERIC_KEYS = new Set([
   "rounding_step_cents",
   "quantity",
   "unit_price_ht_cents",
+  "fo_provision",
   "k_fo",
   "h_mo_per_unit",
   "h_mo_atelier_per_unit",
@@ -395,6 +396,60 @@ describe("labour split atelier / chantier (same trigger as v2)", () => {
   });
 });
 
+// TI-534 : provision FO de ligne (pertes, chutes, petites fournitures), distincte de K FO. Attendus calculés à la main.
+describe("TI-534 FO provision (FO_u = P x provision FO x k_fo)", () => {
+  it("a tube at 1.030: Q 10, P 1 000, c_FO 1.3 -> PU 1 339, total 13 390, cost 10 300", () => {
+    const [line] = computeEstimateV3Breakdown(
+      v3Input([v3Line(1, { quantity: 10, unit_price_ht_cents: 1000, fo_provision: "1.03" })], { sale_coefficient_fo: "1.3" })
+    ).lines;
+    expect(line.pu_ht_cents).toBe(1339);
+    expect(line.gross_ht_cents).toBe(13390);
+    expect(line.gross_fo_ht_cents).toBe(13390);
+    expect(line.cost_ht_cents).toBe(10300);
+  });
+
+  it("multiplies with k_fo: P 1 000 x 1.010 x 1.5 = 1 515", () => {
+    const [line] = computeEstimateV3Breakdown(
+      v3Input([v3Line(1, { unit_price_ht_cents: 1000, fo_provision: "1.01", k_fo: "1.5" })])
+    ).lines;
+    expect(line.pu_ht_cents).toBe(1515);
+  });
+
+  it("leaves labour untouched: FO 1 000 x 1.030 + MO 0.5 h x 4 000 = PU 3 030 (MO 2 000)", () => {
+    const [line] = computeEstimateV3Breakdown(
+      v3Input([
+        v3Line(1, { unit_price_ht_cents: 1000, fo_provision: "1.03", h_mo_per_unit: "0.5", labor_rate_cents: 4000 }),
+      ])
+    ).lines;
+    expect(line.pu_ht_cents).toBe(3030);
+    expect(line.gross_fo_ht_cents).toBe(1030);
+    expect(line.gross_mo_ht_cents).toBe(2000);
+  });
+
+  it("rounds once, on the unit sale price: P 100 x 1.005 x c_FO 1.3 = 130.65 -> PU 131", () => {
+    const [line] = computeEstimateV3Breakdown(
+      v3Input([v3Line(1, { unit_price_ht_cents: 100, fo_provision: "1.005" })], { sale_coefficient_fo: "1.3" })
+    ).lines;
+    expect(line.pu_ht_cents).toBe(131);
+  });
+
+  it("reads an absent or null provision as 1, the provision of every line that predates it", () => {
+    const pu = (fo_provision?: EstimateV3Input["items"][number]["fo_provision"]) =>
+      computeEstimateV3Breakdown(
+        v3Input([v3Line(1, { unit_price_ht_cents: 1000, ...(fo_provision === undefined ? {} : { fo_provision }) })])
+      ).lines[0].pu_ht_cents;
+    expect([pu(), pu(null), pu(1)]).toEqual([1000, 1000, 1000]);
+  });
+
+  it("goes through the canonical adapter like the SQL twin (a JSON number, never a string)", () => {
+    const input = v3Input([v3Line(1, { unit_price_ht_cents: 1000, fo_provision: 1.03 })]);
+    expect(computeEstimateV3Canonical(JSON.stringify(input)).lines[0].pu_ht_cents).toBe(1030);
+    expect(thrown(() => computeEstimateV3Canonical(canonicalJsonWith(input, "line", "fo_provision", '"1.03"')))).toMatchObject({
+      code: "ESTIMATE_V3_INPUT_INVALID",
+    });
+  });
+});
+
 describe("input parsing edge cases (named refusal, never 0, never float drift)", () => {
   const invalid: Array<[string, EstimateV3Input]> = [
     ["a quantity with 4 decimals", supplyLineInput("1.0005", 100)],
@@ -413,6 +468,9 @@ describe("input parsing edge cases (named refusal, never 0, never float drift)",
     ["a line without tax rate", v3Input([v3Line(1, { tax_rate_bp: null })])],
     ["an unknown pricing status", v3Input([v3Line(1, { pricing_status: "free" as never })])],
     ["hours per unit with 5 decimals", v3Input([v3Line(1, { h_mo_per_unit: "0.00001" })])],
+    ["an FO provision with 4 decimals", v3Input([v3Line(1, { fo_provision: "1.0001" })])],
+    ["a negative FO provision", v3Input([v3Line(1, { fo_provision: -1 })])],
+    ["an FO provision beyond numeric(4,3)", v3Input([v3Line(1, { fo_provision: 10 })])],
     ["a line id that is not a uuid", v3Input([v3Line(1, { id: "line-1" })])],
     ["a duplicated line id", v3Input([v3Line(1), v3Line(1)])],
   ];
