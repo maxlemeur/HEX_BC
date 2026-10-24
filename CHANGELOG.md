@@ -1,5 +1,79 @@
 # Changelog
 
+## [0.6.0](https://github.com/maxlemeur/HEX_BC/compare/v0.5.1...v0.6.0) (2026-10-24)
+
+
+### Features
+
+* **affaires:** import Google Drive files into affaire intake (TI-652) ([981b5c2](https://github.com/maxlemeur/HEX_BC/commit/981b5c2f5bd946b2cffc8b9673499082b6deaaee))
+* **affaires:** import Google Drive files into affaire intake (TI-652) ([4352acd](https://github.com/maxlemeur/HEX_BC/commit/4352acd5c8938fbd8b7ace7a64da31753f042ced))
+* **affaires:** open v3 templates and show v3 hub margins (lot 3.2) ([aea69b5](https://github.com/maxlemeur/HEX_BC/commit/aea69b57e4606fc9c72423cf246a51f669a61825))
+* **affaires:** open v3 templates and show v3 hub margins (lot 3.2) ([6f62a44](https://github.com/maxlemeur/HEX_BC/commit/6f62a448ac9a700ebab14ab0a06527b6274fda80))
+* **ai:** connect local ChatGPT plan to AI workflows ([76107d0](https://github.com/maxlemeur/HEX_BC/commit/76107d0ceb8af9df542319445b626e815e906f12))
+* **estimates:** add the automatic FO provision to engine 3 lines (TI-534) ([d6bf94b](https://github.com/maxlemeur/HEX_BC/commit/d6bf94b59fa4d7ddd741f907c2aa6a6e3fd85dab))
+* **estimates:** automatic FO provision on engine 3 lines (TI-534, lot 1) ([f293ea5](https://github.com/maxlemeur/HEX_BC/commit/f293ea5eae3d7ad473464739c115168b67e6f190))
+* **takeoff:** choose AI provider and verify real PDF extraction ([354c18a](https://github.com/maxlemeur/HEX_BC/commit/354c18ada009ead41b22ab2cceac852a077af229))
+* **takeoff:** use local ChatGPT plan for extraction ([2f5c4eb](https://github.com/maxlemeur/HEX_BC/commit/2f5c4ebaee1286a6486f80b25afd589c37804520))
+* **ui:** animate import completion and takeoff steps ([b412c2a](https://github.com/maxlemeur/HEX_BC/commit/b412c2a3d1169f1bad894796561cd6c3748ee4cd))
+
+
+### Bug Fixes
+
+* **affaires:** accept intake deadlines given to the minute ([5c5e718](https://github.com/maxlemeur/HEX_BC/commit/5c5e718fde0259a2e9bc7454c369a3615a4bb703))
+* **affaires:** chart a current issued v3 at its frozen margin ([a0ca443](https://github.com/maxlemeur/HEX_BC/commit/a0ca4431be1acfb8d9ae940203639be7fc177ffa))
+* **affaires:** import a Drive selection as one intake upload (TI-652) ([acfdcf9](https://github.com/maxlemeur/HEX_BC/commit/acfdcf9ebc3206f2a0d2a9ce6a363442465de046))
+* **affaires:** keep the Drive panel open after a partial import failure (TI-652) ([9c882ed](https://github.com/maxlemeur/HEX_BC/commit/9c882eda930773b06d124a00daa80d6b8b80f57f))
+* **ai:** repair local ChatGPT sign-in and streamed replies ([0c4a941](https://github.com/maxlemeur/HEX_BC/commit/0c4a941a9ada2f5ca56273bef16d67ce8e6295a3))
+* **auth:** secure session refresh and restrict membership lookup ([b6a5fad](https://github.com/maxlemeur/HEX_BC/commit/b6a5fad9afdbc9ae6d6bdd56651f61e77feb07a4))
+* **backup:** activate encrypted exports with dedicated role ([d5d9dfa](https://github.com/maxlemeur/HEX_BC/commit/d5d9dfa952d0d3e1bc82c9b107d94ccf2fbe3bca))
+* **ci:** read the RLS matrix report from an explicit Vitest file ([c6825a8](https://github.com/maxlemeur/HEX_BC/commit/c6825a88b25dc0f60bf9992018632743e83a6246))
+* **ci:** update native Supabase runtime and port allocation ([e0002bc](https://github.com/maxlemeur/HEX_BC/commit/e0002bc890812c4cb649f661346e41d20f7cf5e2))
+* **dashboard:** avoid financial reads for recent metadata ([ec3cb48](https://github.com/maxlemeur/HEX_BC/commit/ec3cb48e39218d9639b5749ba4aa2cc7c476a147))
+* **deps:** update undici and postal-mime past the new audit advisories ([78ce02d](https://github.com/maxlemeur/HEX_BC/commit/78ce02d4d56f1c8d3a14b5e7799b336d29e9533d))
+* **deps:** update undici and postal-mime past the new audit advisories ([ae33e71](https://github.com/maxlemeur/HEX_BC/commit/ae33e71dd101ae787a484f616c0114f360e12130))
+* **deps:** update undici and postal-mime past the new audit advisories ([69f7db0](https://github.com/maxlemeur/HEX_BC/commit/69f7db0ed00a04a5782148a09081938639d0c603))
+* **e2e:** avoid blocking macOS supervisor inspection ([9a98331](https://github.com/maxlemeur/HEX_BC/commit/9a983312cb382c1a7b20755c23181e5f90aa4cf1))
+* **e2e:** preserve worker diagnostics and supervisor isolation ([b40008c](https://github.com/maxlemeur/HEX_BC/commit/b40008c154ffb707c8e8fac07bab2f9f10ecaa0a))
+* **e2e:** qualify business fixtures and hydration boundaries ([39d84ec](https://github.com/maxlemeur/HEX_BC/commit/39d84ec9ba21fb6020f84be2da7d5c8ec68ee958))
+* **e2e:** retain browser diagnostics and count native stacks once ([97142b2](https://github.com/maxlemeur/HEX_BC/commit/97142b252c82f9cb4b3265578f591fab457a71a9))
+* **editor:** cancel abandoned suggestion learning reads ([b1db089](https://github.com/maxlemeur/HEX_BC/commit/b1db089bb68e8045a370e6f1e79dbd561baf710b))
+* **editor:** recover deleted rows before completing undo ([#87](https://github.com/maxlemeur/HEX_BC/issues/87)) ([1fc25fa](https://github.com/maxlemeur/HEX_BC/commit/1fc25fa983ae0b134bbf1b6ea27cc0e496318765))
+* **editor:** stop reporting learning reads cancelled by a reload ([74b758a](https://github.com/maxlemeur/HEX_BC/commit/74b758a8d9b084783b5b5be1fe6467d167af7404))
+* **estimates:** check version item access once per read, not per item ([922f1cf](https://github.com/maxlemeur/HEX_BC/commit/922f1cfb8507a5ff1c7d3d4c6d7b4d6b1b07e163))
+* **estimates:** check version item access once per read, not per item ([0186a51](https://github.com/maxlemeur/HEX_BC/commit/0186a512cefd15d36d1ab6bed699488e04ceec9d))
+* **estimates:** keep a unit typed before a new line gets its id ([285d934](https://github.com/maxlemeur/HEX_BC/commit/285d9345fdb578b900b9ff06a38a7f21aca363d8))
+* **estimates:** keep the live FO provision when undoing unrelated edits ([8a49074](https://github.com/maxlemeur/HEX_BC/commit/8a4907452a516e2d23ce28eef8ca9fe7bbb014b6))
+* **estimates:** re-derive the FO provision of recovered Type FO edits ([63bdfda](https://github.com/maxlemeur/HEX_BC/commit/63bdfda79a66863b3bdfe0b1e6633036b6e48915))
+* **estimates:** take the stored FO provision back after a buffered save ([6d4b1a9](https://github.com/maxlemeur/HEX_BC/commit/6d4b1a9ec8348173e9071ab67b47fa1db171d33d))
+* **exports:** deliver PDFs and avoid impossible supplier lookups ([2f41de4](https://github.com/maxlemeur/HEX_BC/commit/2f41de4db5ba3d3e27ec1ff95eff724744fbc532))
+* **lot3-3.1:** keep the source order of a selected sub-section ([7dcc2ff](https://github.com/maxlemeur/HEX_BC/commit/7dcc2ff704b470830e3f7899851a4f4e1257cabf))
+* **openapi:** drop Zod check names leaked as JSON Schema formats ([70a5cca](https://github.com/maxlemeur/HEX_BC/commit/70a5cca81f394c3db91593e6d4d8aaa6272d628a))
+* **operations:** harden backup and email recovery ([d4d467e](https://github.com/maxlemeur/HEX_BC/commit/d4d467e8a0976797ae6a9f7717c4ea13efa47ee2))
+* **pdf:** avoid stale connections after CPU rendering ([c13999f](https://github.com/maxlemeur/HEX_BC/commit/c13999f25fbd0fe54019b02571cceed9b1b6c13a))
+* **pdf:** include runtime fonts in production functions ([bee0163](https://github.com/maxlemeur/HEX_BC/commit/bee01639bb23d61d258dfc588b7d4b4937fcd9b4))
+* **perf:** eliminate remaining bulk CSV catalogue queries ([11bb9b9](https://github.com/maxlemeur/HEX_BC/commit/11bb9b9a64d1071c07f02076ee65de3242d500a0))
+* **performance:** remove editor stalls and paginate orders ([cf4b6a0](https://github.com/maxlemeur/HEX_BC/commit/cf4b6a08d23708acdb0d0d6f6c73325fbb7b6bb9))
+* **perf:** paginate large PDFs once and load full hub structure ([f1aa485](https://github.com/maxlemeur/HEX_BC/commit/f1aa485004accb02c381b32bea0dc41d90797964))
+* **perf:** scope estimate provenance reads to the version ([2159f1b](https://github.com/maxlemeur/HEX_BC/commit/2159f1b22b00cfc86db59304fac740ff8e7e414c))
+* **security:** harden takeoff, CSV exports and backups ([1914b78](https://github.com/maxlemeur/HEX_BC/commit/1914b7800607d322e728b74c38930e11802eac64))
+* **security:** recover CSV and takeoff admission protections ([9c2a811](https://github.com/maxlemeur/HEX_BC/commit/9c2a811873234a8b83dbf1f796e5f02a812328ee))
+* **security:** revoke anonymous execute on security definer functions ([d8715ed](https://github.com/maxlemeur/HEX_BC/commit/d8715edcdc137f1c2d80990badc9d8581a2c079a))
+* **security:** revoke anonymous execute on security definer functions ([9579aad](https://github.com/maxlemeur/HEX_BC/commit/9579aadc373dd0f9d16881410533e5af75d7b967))
+* **security:** revoke public execute on template insertion ([1499ac0](https://github.com/maxlemeur/HEX_BC/commit/1499ac0897bd9ccdd32ddb9eef413aa237812736))
+* **security:** revoke public execute on template insertion ([a8b813f](https://github.com/maxlemeur/HEX_BC/commit/a8b813f7c24c709197eb4167bc2ce6a6c5106c4a))
+* **security:** update Node and Next.js patches ([85d476f](https://github.com/maxlemeur/HEX_BC/commit/85d476ff4ce59c6f46d036749a56f23e4f8adbc3))
+* **takeoff:** reuse comparison sources for the risk radar ([898bc56](https://github.com/maxlemeur/HEX_BC/commit/898bc566f87c9b5072656c1cea582b5e633e3530))
+* **takeoff:** select the columns the DPGF and risk reads order by ([6c62c9e](https://github.com/maxlemeur/HEX_BC/commit/6c62c9ea638587c424c9eb7946796a0b12fb8a59))
+* **takeoff:** show recovery only for eligible jobs ([6796836](https://github.com/maxlemeur/HEX_BC/commit/67968363ae2f83af6534379a7ff30cc72e6dfafd))
+* **testing:** preserve validated fixture environment ([9ee18ca](https://github.com/maxlemeur/HEX_BC/commit/9ee18ca8187d1e4f76e8b196be90d85e2fa1334b))
+* zod 4.6 follow-ups for OpenAPI formats and intake deadlines ([83530a1](https://github.com/maxlemeur/HEX_BC/commit/83530a171fd4e532438e5e1222a49beed3ec9245))
+
+
+### Performance Improvements
+
+* **exports:** bound concurrent reads for large estimates ([77340b1](https://github.com/maxlemeur/HEX_BC/commit/77340b18c12f56a017ec099e00546349591c5504))
+* **lot3-3.1:** write v3 copies in one insert and read only the copied subtrees ([994195d](https://github.com/maxlemeur/HEX_BC/commit/994195d6996a2e260659d7836acf0a43ceeecb97))
+
 ## [0.5.1](https://github.com/maxlemeur/HEX_BC/compare/v0.5.0...v0.5.1) (2026-10-19)
 
 
