@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -77,6 +78,33 @@ export async function uploadSamplePlan(ui: Ui, army: ArmyState, planSet: PlanSet
   expect((await readPlanSets(ui.browser, planSet.project_id))[0]).toMatchObject({ id: planSet.id, file_count: 1 });
   await recordEvidence(army, "plan-uploaded", { planSetId: planSet.id, status: uploaded.status, file: files[0] });
   return files[0];
+}
+
+// Plan names whose sanitized Storage key collides (R+1 and R-1 both store Plan-R-1.pdf):
+// each file keeps its own Storage object and shows the name it was uploaded under.
+export async function uploadPlansUnderNames(ui: Ui, army: ArmyState, planSet: PlanSet, names: string[]) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "army-plan-names-"));
+  try {
+    const paths = await Promise.all(names.map(async (name) => {
+      const target = path.join(directory, name);
+      await copyFile(path.resolve("e2e/fixtures/sample-plan.pdf"), target);
+      return target;
+    }));
+    await ui.browser.locator("input[type='file'][accept*='pdf']").first().setInputFiles(paths);
+    for (const name of names) {
+      await expect(ui.screen.getByRole("button", `Supprimer ${name}`, { exact: true })).toBeVisible({ timeout: 60_000 });
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  type StoredPlanFile = PlanFile & { file_path: string; metadata: Record<string, unknown> };
+  const result = await apiRequest<Envelope<{ plan_files: StoredPlanFile[] }>>(ui.browser, "GET",
+    `/api/takeoff/plan-sets/${planSet.id}/files?include_download_url=false`);
+  expect([result.status, result.body.ok]).toEqual([200, true]);
+  const files = result.body.data.plan_files.map(({ id, file_name, file_path, metadata }) =>
+    ({ id, file_name, file_path, original_file_name: metadata.original_file_name }));
+  await recordEvidence(army, "plans-uploaded-under-names", { planSetId: planSet.id, names, files });
+  return files;
 }
 
 export async function duplicateHubVersion(browser: Browser, army: ArmyState, source: OwnedEstimate) {

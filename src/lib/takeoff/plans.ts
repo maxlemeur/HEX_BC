@@ -15,6 +15,7 @@ import {
 } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { withPlanFileOriginalName } from "@/lib/takeoff/plan-file-display-name";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -1219,7 +1220,7 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
         file_size_bytes: input.file_size_bytes,
         page_count: input.page_count ?? null,
         file_hash: input.file_hash,
-        metadata: input.metadata,
+        metadata: withPlanFileOriginalName(input.metadata, input.file_name),
         created_by: userId,
       } as never
     )
