@@ -178,15 +178,26 @@ SELECT count(*) FROM public.estimate_rules WHERE id = '${ruleId}' AND scope_id =
   return ruleId;
 }
 
+/** A reviewed takeoff item of a job fixture: a fixed designation, a quantity and the unit read on the plan. */
+export type TakeoffItemFixture = { designation: string; quantity: number; unit: string };
+
+const TAKEOFF_FIXTURE_TEXT = /^[\p{L}\p{N} +\-./]{1,80}$/u;
+
 /**
  * A completed takeoff job of an owned v3 (review of 2.5, §10.5): the worker state cannot be forged by an
- * operator and the dedicated owner has no plan to upload. Only the job row is written, for a version of
- * the owned affaire whose engine is 3; the application is then asked to apply it through its API.
+ * operator and the dedicated owner has no plan to upload. The job row, and its reviewed items when given
+ * (M2 v0.1, in this order), are written for a version of the owned affaire whose engine is 3; the
+ * application is then asked to apply it through its API.
  */
-export async function insertCompletedTakeoffJob(owner: V3Owner, versionId: string) {
+export async function insertCompletedTakeoffJob(owner: V3Owner, versionId: string, items: readonly TakeoffItemFixture[] = []) {
   assertOwner(owner);
-  if (!UUID.test(versionId)) throw new Error("Invalid takeoff job fixture input.");
+  if (!UUID.test(versionId) || items.length > 20 || items.some((item) => !TAKEOFF_FIXTURE_TEXT.test(item.designation) ||
+    !TAKEOFF_FIXTURE_TEXT.test(item.unit) || !Number.isFinite(item.quantity) || item.quantity <= 0 || item.quantity > 1_000_000)) {
+    throw new Error("Invalid takeoff job fixture input.");
+  }
   const jobId = randomUUID();
+  const itemRows = items.map((item, index) =>
+    `('${item.designation}', ${item.quantity}::numeric, '${item.unit}', ${index + 1})`).join(",\n  ");
   const output = await querySql(`BEGIN;
 ${ownerGuard(owner, delimiter())}
 INSERT INTO public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, source_file_type,
@@ -194,10 +205,20 @@ INSERT INTO public.takeoff_jobs (id, tenant_id, estimate_version_id, level, stat
 SELECT '${jobId}'::uuid, v.tenant_id, v.id, 'A', 'completed', 'ARMY-v3p.csv', 'text/csv', 512, 'v1', now(), now()
 FROM public.estimate_versions v JOIN public.estimate_projects p ON p.id = v.project_id AND p.tenant_id = v.tenant_id
 WHERE v.id = '${versionId}' AND v.tenant_id = '${owner.tenantId}' AND p.user_id = '${owner.userId}' AND v.calc_engine_version = 3;
-COMMIT;
+${items.length === 0 ? "" : `INSERT INTO public.takeoff_items (tenant_id, job_id, designation, quantity, unit, confidence, evidence,
+  source_file_name, source_page, created_at)
+SELECT job.tenant_id, job.id, item.designation, item.quantity, item.unit, 0.95, 'ARMY v3p', 'ARMY-v3p.csv', 1,
+  now() + item.rank * interval '1 second'
+FROM public.takeoff_jobs job
+CROSS JOIN (VALUES
+  ${itemRows}
+) AS item(designation, quantity, unit, rank)
+WHERE job.id = '${jobId}';
+`}COMMIT;
 SELECT count(*) FROM public.takeoff_jobs WHERE id = '${jobId}' AND estimate_version_id = '${versionId}';
+SELECT count(*) FROM public.takeoff_items WHERE job_id = '${jobId}';
 `);
-  if (output.at(-1) !== "1") throw new Error("The owned v3 takeoff job was not persisted.");
+  if (output.at(-2) !== "1" || output.at(-1) !== String(items.length)) throw new Error("The owned v3 takeoff job was not persisted.");
   return jobId;
 }
 

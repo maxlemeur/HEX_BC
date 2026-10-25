@@ -3737,8 +3737,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         ],
       },
       "409": {
-        description:
-          "Conflit metier ou de concurrence. TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED : la version cible est en moteur de calcul 3, qui ne recoit pas de metre (P-19) ; refuse avant tout depot, aucun job n'est cree (sous-lot 2.10a).",
+        description: "Conflit metier ou de concurrence.",
         contents: [
           {
             contentType: "application/json",
@@ -4063,7 +4062,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/apply",
     summary: "Appliquer un job Takeoff",
     description:
-      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session.",
+      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items).",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter, estimateDraftLockSessionHeaderParameter],
     requestBody: applyTakeoffJobBody,

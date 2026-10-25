@@ -32,6 +32,7 @@ export const NEUTRAL_VERSION = {
   currency: "EUR", contractor_role: "principal",
 } as const;
 export const ENGINE_UNAVAILABLE = "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";
+// Motif du refus du métré sur une v3, retiré par M2 v0.1 : V3C08 vérifie qu'il n'est plus affiché.
 export const TAKEOFF_V3_REASON = "Le métré ne s'applique pas à un devis en moteur de calcul 3.";
 export const EDITOR_URL = /\/dashboard\/estimates\/([0-9a-f-]{36})\/edit(?:[?#].*)?$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

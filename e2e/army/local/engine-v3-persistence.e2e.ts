@@ -42,6 +42,9 @@ import {
 //  V3P-16 Une ligne non chiffrée à un taux hors politique bloque le gel ; le lot ou le gel d'une copie
 //         déplace un centime de ses lignes.
 //  V3P-17 Le métré appliqué à une v3 n'est pas refusé par son nom (TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED).
+//         Depuis M2 v0.1 (métré sur le moteur 3) : il est appliqué par l'écrivain v3 (unité du référentiel,
+//         statut d'une mention, prix d'achat 0, provenance), sans changer une ligne ni un total existants,
+//         et son rejeu n'ajoute rien.
 // Revue Codex de la PR #33 (§10.6) : la suppression directe d'une ligne v3 hors contrat d'écrivain est refusée en SQL
 // (pgTAP F25-25) ; ce que ce refus ne doit pas casser dans l'application :
 //  V3P-18 Le lot ne supprime plus une ligne v3 (ou son pied ne suit pas les lignes restantes), ou la suppression
@@ -123,6 +126,9 @@ const sameStamp = (left: ArmyEstimate, right: ArmyEstimate) => JSON.stringify(st
 const FOR_MEMORY_LINE = {
   unit: "u", status: "for_memory", quantity: 1, prFo: 500, hPerUnit: 0, hMo: 0, pu: null, net: 0, tax: 0, ttc: 0, taxRateBp: 1960,
 };
+// V3P-17 (M2 v0.1) : une ligne de métré naît sans prix ni heures (heures par unité non renseignées),
+// rattachée à son job ; sa TVA est celle de la version.
+const TAKEOFF_LINE = { prFo: 0, hPerUnit: null, hMo: 0, net: 0, tax: 0, ttc: 0, provider: "takeoff", linked: true };
 // Revue (§10.5) : relevées à leur place, assertées ensemble en fin de parcours, pour qu'une seule exécution
 // rouge les montre toutes ; aucune ne modifie un attendu de V3P-01 à V3P-12.
 const REVIEW_EXPECTED = {
@@ -137,7 +143,13 @@ const REVIEW_EXPECTED = {
     totals: S3_VAT10.totals,
     frozenLines: [...expectedLines(S3_VAT10, 1000), FOR_MEMORY_LINE],
   },
-  takeoff: { response: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"], unchanged: true },
+  takeoff: {
+    response: [200, null, 2, 0], replay: [409, "CONFLICT"], existingUnchanged: true, totalsUnchanged: true, replayAddsNothing: true,
+    lines: [
+      { ...TAKEOFF_LINE, title: "ARMY Tube cuivre 22", unit: "ml", status: "priced", quantity: 12.5, pu: 0 },
+      { ...TAKEOFF_LINE, title: "ARMY Robinetterie existante", unit: null, status: "for_memory", quantity: 1, pu: null },
+    ],
+  },
   directDelete: { response: [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"], unchanged: true },
   v2Coefficient: { response: [400, false, "ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED"], created: 0 },
   batchDelete: { response: [200, true, true], lines: 0, totals: [0, 0, 0], footer: [0, 0, 0] },
@@ -572,15 +584,47 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   await recordEvidence(army, "v3p-copy-freeze", { copyId, memoRequest, memoBatch, copySubmitted, actual: review.copyFreeze,
     context: copyFrozen.version.calc_snapshot_context });
 
-  // V3P-17 : le métré sur une v3 est refusé par son nom, avant tout calcul, et n'écrit rien (EUHIST).
+  // V3P-17 (M2 v0.1) : le métré revu s'applique à la section d'EUHIST par l'écrivain v3 (« m » → ml, « PM » → pour mémoire) ;
+  // la ligne existante et les totaux ne bougent pas, et le rejeu du même job est refusé sans rien ajouter.
   await retakeLease(browser, euhistId);
   const euhistBeforeProbes = await readEstimate(browser, euhistId);
-  const takeoffJobId = await insertCompletedTakeoffJob(owner, euhistId);
-  const takeoff = await apiRequest<{ ok?: boolean; error?: { code?: string } }>(browser, "POST", `/api/takeoff/jobs/${takeoffJobId}/apply`,
-    { strategy: "append" });
+  const euhistSection = euhistBeforeProbes.items.find(item => item.item_type === "section")!;
+  const takeoffJobId = await insertCompletedTakeoffJob(owner, euhistId, [
+    { designation: "ARMY Tube cuivre 22", quantity: 12.5, unit: "m" },
+    { designation: "ARMY Robinetterie existante", quantity: 1, unit: "PM" },
+  ]);
+  type ApplyEnvelope = { ok?: boolean; data?: { summary?: { created_count?: number; updated_count?: number } }; error?: { code?: string } };
+  const applyBody = { strategy: "append", target_section_id: euhistSection.id };
+  // L'application vérifie que la page détient le bail du brouillon : elle présente la session de ce bail, comme l'éditeur.
+  const leaseSession = await browser.evaluate((versionId) => {
+    const scope = globalThis as typeof globalThis & { __miaouffrageEstimateDraftLockSessions?: Map<string, string> };
+    return scope.__miaouffrageEstimateDraftLockSessions?.get(versionId) ??
+      sessionStorage.getItem(`__miaouffrageEstimateDraftLockSession:${versionId}`);
+  }, euhistId);
+  if (!leaseSession) throw new Error("V3P-17 needs the draft lease session of EUHIST.");
+  const leaseHeaders = { "x-estimate-draft-lock-session-id": leaseSession };
+  const takeoff = await apiRequest<ApplyEnvelope>(browser, "POST", `/api/takeoff/jobs/${takeoffJobId}/apply`, applyBody, leaseHeaders);
   const euhistAfterTakeoff = await readEstimate(browser, euhistId);
-  review.takeoff = { response: [takeoff.status, takeoff.body.error?.code ?? null], unchanged: sameStamp(euhistAfterTakeoff, euhistBeforeProbes) };
-  await recordEvidence(army, "v3p-takeoff", { versionId: euhistId, takeoffJobId, response: takeoff, actual: review.takeoff });
+  const replay = await apiRequest<ApplyEnvelope>(browser, "POST", `/api/takeoff/jobs/${takeoffJobId}/apply`, applyBody, leaseHeaders);
+  const euhistAfterReplay = await readEstimate(browser, euhistId);
+  const existingIds = new Set(lineItems(euhistBeforeProbes).map(item => item.id));
+  const takeoffLines = lineItems(euhistAfterTakeoff).filter(item => !existingIds.has(item.id));
+  review.takeoff = {
+    response: [takeoff.status, takeoff.body.error?.code ?? null, takeoff.body.data?.summary?.created_count ?? null,
+      takeoff.body.data?.summary?.updated_count ?? null],
+    replay: [replay.status, replay.body.error?.code ?? null],
+    existingUnchanged: JSON.stringify(lineItems(euhistAfterTakeoff).filter(item => existingIds.has(item.id)).map(lineView)) ===
+      JSON.stringify(lineItems(euhistBeforeProbes).map(lineView)),
+    totalsUnchanged: JSON.stringify(totals(euhistAfterTakeoff)) === JSON.stringify(totals(euhistBeforeProbes)),
+    replayAddsNothing: sameStamp(euhistAfterReplay, euhistAfterTakeoff),
+    lines: takeoffLines.map(item => {
+      const { taxRateBp, ...view } = lineView(item);
+      return { ...view, title: item.title, provider: item.source_provider ?? null,
+        linked: item.parent_id === euhistSection.id && item.source_job_id === takeoffJobId && taxRateBp === euhistBeforeProbes.version.tax_rate_bp };
+    }),
+  };
+  await recordEvidence(army, "v3p-takeoff", { versionId: euhistId, takeoffJobId, response: takeoff, replay,
+    lines: takeoffLines.map(lineView), actual: review.takeoff });
 
   // V3P-15 : la suppression directe d'une ligne v3 (DELETE …/items) ne recalcule rien : refus nommé, rien d'écrit.
   const euhistBeforeDelete = await readEstimate(browser, euhistId);

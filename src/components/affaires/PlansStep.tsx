@@ -22,7 +22,6 @@ import {
   hasDefaultImportPlanSetMarker,
 } from "@/lib/takeoff/default-import-plan-set";
 import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
-import type { EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 import { CheckIcon, CircleCheckBigIcon, FileIcon, LinkIcon, PackageIcon, SearchIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -32,8 +31,6 @@ import { cn } from "@/lib/utils";
 type PlansStepProps = {
   projectId: string;
   versionId: string;
-  /** Sous-lot 2.10a (N3) : 3 pour une v3 créée par l'import, qui ne reçoit pas de métré. */
-  versionCalcEngineVersion?: EstimateEngineVersion | null;
   onSkip: () => void;
   onContinue: () => void;
   /** When true, show a success banner above the plans step. */
@@ -109,7 +106,6 @@ function sumFileSizes(fileSizes: number[]) {
 export function PlansStep({
   projectId,
   versionId,
-  versionCalcEngineVersion = null,
   onSkip,
   onContinue,
   showSuccessBanner = false,
@@ -395,7 +391,6 @@ export function PlansStep({
                   projectId={projectId}
                   versionId={versionId}
                   versionLabel="Brouillon en cours"
-                  targetCalcEngineVersion={versionCalcEngineVersion}
                   planSetId={planSet.id}
                   planSetName={planSet.name}
                   planFileCount={uploadedCount + (initialCountsRef.current?.fileCount ?? 0)}

@@ -28,7 +28,6 @@ vi.mock("@/lib/auth/tenant-context", () => ({
 }));
 
 vi.mock("@/lib/takeoff/server", () => ({
-  assertTakeoffSourceVersionSupported: vi.fn(),
   createTakeoffJobFromPlanSet: createTakeoffJobFromPlanSetMock,
 }));
 
