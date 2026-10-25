@@ -4,7 +4,8 @@
 --   T1 a caller other than service_role runs it, or reads or widens the lists;
 --   T2 it reaches an unlisted tenant, a non-draft version, a recent edit or a retained affaire;
 --   T3 a dry run deletes, the limit is ignored, or the cascade stops on the immutable intake journal;
---   T4 one failing delete stops the others or leaves the journal switch on.
+--   T4 one failing delete stops the others or leaves the journal switch on;
+--   T5 an edit committed after the candidate query started is purged anyway.
 -- Identities: ...8000-0000000000NN; owner 1 of the listed tenant A, owner 2 of the unlisted tenant B.
 -- Fixtures rolled back at the end.
 
@@ -139,6 +140,12 @@ select ok(
 );
 
 select ok(
+  not has_function_privilege(role_name, 'private.test_data_project_is_stale(uuid,integer)', 'EXECUTE'),
+  format('T1: %s cannot run the eligibility helper', role_name)
+)
+from unnest(array['anon', 'authenticated', 'service_role']) as role_name;
+
+select ok(
   not has_table_privilege(role_name, list_name, privilege_name),
   format('T1: %s has no %s on %s', role_name, privilege_name, list_name)
 )
@@ -253,6 +260,69 @@ select results_eq(
 select is_empty('select * from public.purge_test_tenant_drafts(false, 200)', 'T3: a last run has nothing left');
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- T5: the purge asks again before each delete. Deleting ...19 edits the version of ...1a, as a concurrent edit that
+-- commits after the candidate query started would; ...1a was selected on its old age and must stay.
+-- ---------------------------------------------------------------------------
+insert into public.estimate_projects (id, tenant_id, user_id, name, created_at, updated_at)
+select fixture.id, pg_temp.fx('tenant_a'), 'e57d0000-0000-4000-8000-000000000001', fixture.name, fixture.at, fixture.at
+from (
+  values
+    ('e57d0000-0000-4000-8000-000000000019'::uuid, 'ARMY purge first of two', now() - interval '40 days'),
+    ('e57d0000-0000-4000-8000-00000000001a'::uuid, 'ARMY purge edited meanwhile', now() - interval '35 days')
+) as fixture(id, name, at);
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version,
+  created_at, updated_at)
+select fixture.id, project.tenant_id, project.id, 1, 'draft', 2, project.created_at, project.created_at
+from (
+  values
+    ('e57d0000-0000-4000-8000-000000000029'::uuid, 'e57d0000-0000-4000-8000-000000000019'::uuid),
+    ('e57d0000-0000-4000-8000-00000000002a'::uuid, 'e57d0000-0000-4000-8000-00000000001a'::uuid)
+) as fixture(id, project_id)
+join public.estimate_projects as project on project.id = fixture.project_id;
+
+create function purge_fixture.edit_next_affaire()
+returns trigger
+language plpgsql
+as $$
+begin
+  update public.estimate_versions set updated_at = now() where id = 'e57d0000-0000-4000-8000-00000000002a';
+  return old;
+end;
+$$;
+create trigger purge_fixture_edit_next_affaire
+after delete on public.estimate_projects
+for each row
+when (old.id = 'e57d0000-0000-4000-8000-000000000019')
+execute function purge_fixture.edit_next_affaire();
+
+set local role service_role;
+select results_eq(
+  'select project_id, outcome from public.purge_test_tenant_drafts(true, 200)',
+  $$ values
+    ('e57d0000-0000-4000-8000-000000000019'::uuid, 'eligible'::text),
+    ('e57d0000-0000-4000-8000-00000000001a'::uuid, 'eligible'::text) $$,
+  'T5: both old drafts are candidates'
+);
+select results_eq(
+  'select project_id, outcome from public.purge_test_tenant_drafts(false, 200)',
+  $$ values ('e57d0000-0000-4000-8000-000000000019'::uuid, 'deleted'::text) $$,
+  'T5: the affaire edited after the candidate query is not deleted'
+);
+reset role;
+select ok(
+  exists (
+    select 1 from public.estimate_projects
+    where id = 'e57d0000-0000-4000-8000-00000000001a' and updated_at = created_at
+  )
+    and exists (
+      select 1 from public.estimate_versions
+      where id = 'e57d0000-0000-4000-8000-00000000002a' and updated_at > created_at
+    ),
+  'T5: only its version changed, so the candidate query still returned the affaire'
+);
+drop trigger purge_fixture_edit_next_affaire on public.estimate_projects;
+
 select set_eq(
   $$ select id from public.estimate_projects where id::text like 'e57d0000-%' $$,
   $$ values
@@ -260,7 +330,8 @@ select set_eq(
     ('e57d0000-0000-4000-8000-000000000013'::uuid),
     ('e57d0000-0000-4000-8000-000000000014'::uuid),
     ('e57d0000-0000-4000-8000-000000000015'::uuid),
-    ('e57d0000-0000-4000-8000-000000000016'::uuid) $$,
+    ('e57d0000-0000-4000-8000-000000000016'::uuid),
+    ('e57d0000-0000-4000-8000-00000000001a'::uuid) $$,
   'T2: retained, sent, new, recently edited and unlisted affaires all remain'
 );
 

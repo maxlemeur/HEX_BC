@@ -34,6 +34,36 @@ from (
 ) as seed(id, label)
 join public.tenants as tenant on tenant.id = seed.id;
 
+-- True when every version of the affaire is a draft and neither it nor its
+-- versions changed within the retention. It reads with the calling statement's
+-- snapshot, so the purge asks again in a new statement before each delete.
+create function private.test_data_project_is_stale(p_project_id uuid, p_retention_days integer)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.estimate_projects as p
+    where p.id = p_project_id
+      and greatest(p.created_at, p.updated_at)
+        < statement_timestamp() - make_interval(days => p_retention_days)
+      and not exists (
+        select 1
+        from public.estimate_versions as v
+        where v.project_id = p.id
+          and (
+            v.status <> 'draft'
+            or v.updated_at >= statement_timestamp() - make_interval(days => p_retention_days)
+          )
+      )
+  )
+$$;
+
+revoke all on function private.test_data_project_is_stale(uuid, integer)
+  from public, anon, authenticated, service_role;
+
 -- Deletes the affaires of the listed tenants whose versions are all drafts and
 -- untouched for the tenant's retention, archived ones included, oldest first,
 -- at most p_limit per call. A dry run returns the same rows as 'eligible' and
@@ -66,20 +96,10 @@ begin
   end if;
 
   for candidate in
-    select p.id, p.tenant_id
+    select p.id, p.tenant_id, listed.retention_days
     from public.estimate_projects as p
     join private.test_data_tenants as listed on listed.tenant_id = p.tenant_id
-    where greatest(p.created_at, p.updated_at)
-        < statement_timestamp() - make_interval(days => listed.retention_days)
-      and not exists (
-        select 1
-        from public.estimate_versions as v
-        where v.project_id = p.id
-          and (
-            v.status <> 'draft'
-            or v.updated_at >= statement_timestamp() - make_interval(days => listed.retention_days)
-          )
-      )
+    where private.test_data_project_is_stale(p.id, listed.retention_days)
       and not exists (
         select 1
         from private.test_data_retained_projects as kept
@@ -100,6 +120,12 @@ begin
     end if;
 
     begin
+      -- An edit that committed after the candidate query started keeps its
+      -- affaire: lock the versions, then ask again with a fresh snapshot.
+      perform 1 from public.estimate_versions as v where v.project_id = candidate.id for update;
+      if not private.test_data_project_is_stale(candidate.id, candidate.retention_days) then
+        continue;
+      end if;
       perform set_config('app.bulk_delete_draft_affaires', 'on', true);
       delete from public.estimate_projects as p
       where p.id = candidate.id
