@@ -121,7 +121,19 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   expect(reopened.confirmed_at).toBeNull();
   expect(reopened.received_pieces.filter((entry: string) => entry.includes(plan.file_name))).toEqual([]);
   expect(await readPlanFiles(browser, sets[0].id)).toEqual([]);
+
+  // Deleting the principal CCTP while another CCTP remains hands it the principal role.
+  const remainingCctp = (await documents()).find((doc) => doc.file_name === fixtures[2].name)!;
+  const primaryRow = browser.locator(`[aria-label="Intake dossier affaire"] tr[data-document-id="${ambiguous.id}"]`);
+  await primaryRow.getByRole("button", `Détails de ${ambiguous.file_name}`, { exact: true }).click();
+  await screen.getByRole("dialog", "Document et provenance", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
+  await screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
+  await expect(primaryRow).toHaveCount(0);
+  expect((await documents()).find((doc) => doc.id === ambiguous.id)).toMatchObject({ upload_status: "rejected", document_priority: "secondary", storage_path: null });
+  const primaryCctp = (await documents()).filter((doc) => doc.document_kind === "cctp" && doc.document_priority === "primary").map((doc) => doc.id);
+  expect(primaryCctp).toEqual([remainingCctp.id]);
   await recordEvidence(army, "INT01-dossier-complete", { ids, documents: await documents(), planSetId: sets[0].id, plans, brief: persisted.data,
     afterPlanDeletion: { deletedDocumentId: plan.id, plansGap: await plansGap(), brief: reopened },
-    uploadedBytesVerified: true, emptyFileRejected: true, boundary: "Real upload, Storage, heuristic fallback, manual classification/primary, brief confirmation and last-plan deletion. External AI disabled by owned campaign." });
+    afterPrimaryCctpDeletion: { deletedDocumentId: ambiguous.id, primaryCctp },
+    uploadedBytesVerified: true, emptyFileRejected: true, boundary: "Real upload, Storage, heuristic fallback, manual classification/primary, brief confirmation, last-plan and principal-CCTP deletion. External AI disabled by owned campaign." });
 });

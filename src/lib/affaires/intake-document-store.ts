@@ -38,7 +38,9 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     throw new DriveStoreError(409, "Une suppression est en cours. Réessayez dans deux minutes si elle a été interrompue.");
   }
   const token = randomUUID();
-  const reservation = await database.from("affaire_intake_documents" as never).update({ deletion_token: token, deletion_started_at: new Date(now).toISOString() } as never)
+  // The reserved piece leaves the principal role at once, so the refresh can promote its
+  // successor under the one-principal-per-kind index.
+  const reservation = await database.from("affaire_intake_documents" as never).update({ deletion_token: token, deletion_started_at: new Date(now).toISOString(), document_priority: "secondary" } as never)
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId)
     .is("deleted_at", null).eq("updated_at", document.updated_at).select("id");
   if (reservation.error || !(reservation.data as unknown[])?.length) {

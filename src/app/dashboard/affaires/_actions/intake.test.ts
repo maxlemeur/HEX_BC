@@ -50,6 +50,15 @@ describe("deleteAffaireIntakeDocument", () => {
     });
   });
 
+  it("restores a principal for the released piece's kind when the deletion is interrupted", async () => {
+    deleteIntakeDocumentCopyMock.mockRejectedValue(new Error("Fichier retiré du stockage ; actualisation du dossier interrompue. Reprenez la suppression."));
+
+    await expect(deleteAffaireIntakeDocument({ projectId: PROJECT_ID, documentId: DOCUMENT_ID })).rejects.toThrow("Reprenez la suppression");
+
+    expect(syncAffaireIntakeDocumentPrioritiesMock).toHaveBeenCalledExactlyOnceWith({ supabase: "owner-client", projectId: PROJECT_ID });
+    expect(refreshAffaireIntakeFromActiveDocumentsMock).not.toHaveBeenCalled();
+  });
+
   it("leaves the brief and register alone after removing a rejected piece", async () => {
     deletingWith({ uploadId: "upload-1", wasUploaded: false });
 

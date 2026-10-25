@@ -48,14 +48,15 @@ describe("deleteIntakeDocumentCopy", () => {
     await deleteIntakeDocumentCopy(f.access, "document");
     expect(f.remove).toHaveBeenCalledTimes(2);
   });
-  it("refreshes the derived state once the bytes are gone, while the piece is still reserved", async () => {
+  it("refreshes the derived state once the bytes are gone, while the piece is still reserved and no longer principal", async () => {
     const f = fixture();
+    const document = Object.assign(f.document, { document_priority: "primary" });
     const seen: unknown[] = [];
     const refresh = vi.fn(async (removed: { uploadId: string; wasUploaded: boolean }) => {
-      seen.push({ removed, bytes: f.bytes.size, deletedAt: f.document.deleted_at, reserved: Boolean(f.document.deletion_token) });
+      seen.push({ removed, bytes: f.bytes.size, deletedAt: document.deleted_at, reserved: Boolean(document.deletion_token), priority: document.document_priority });
     });
     await deleteIntakeDocumentCopy(f.access, "document", refresh);
-    expect(seen).toEqual([{ removed: { uploadId: "upload", wasUploaded: true }, bytes: 0, deletedAt: null, reserved: true }]);
+    expect(seen).toEqual([{ removed: { uploadId: "upload", wasUploaded: true }, bytes: 0, deletedAt: null, reserved: true, priority: "secondary" }]);
     expect(f.document.deleted_at).toBeTruthy();
     // A replay on the tombstone, e.g. from a stale tab, does not refresh again.
     await deleteIntakeDocumentCopy(f.access, "document", refresh);
