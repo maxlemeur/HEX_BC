@@ -16,11 +16,21 @@ async function responseData<T>(response: Response): Promise<T> {
   return payload.data as T;
 }
 function fileSize(file: DriveFile) { return file.size ? `${(Number(file.size) / 1024 / 1024).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} Mo` : "Taille inconnue"; }
-export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
-  projectId: string; onUploadComplete: (uploadId: string) => void; onRefresh?: () => void;
+const OPEN_EVENT = "affaire-open-google-drive-import";
+/** Opens the affaire's mounted import dialog from another surface, which may unmount once copies arrive. */
+export function openGoogleDriveImport(projectId: string) {
+  document.dispatchEvent(new CustomEvent<{ projectId: string }>(OPEN_EVENT, { detail: { projectId } }));
+}
+export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, showTrigger = true }: {
+  projectId: string; onUploadComplete: (uploadId: string) => void; onRefresh?: () => void; showTrigger?: boolean;
 }) {
   const endpoint = `/api/affaires/${projectId}/intake/google-drive`;
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const openFor = (event: Event) => { if ((event as CustomEvent<{ projectId: string }>).detail?.projectId === projectId) setOpen(true); };
+    document.addEventListener(OPEN_EVENT, openFor);
+    return () => document.removeEventListener(OPEN_EVENT, openFor);
+  }, [projectId]);
   const [state, setState] = useState<State>();
   const [identityReady, setIdentityReady] = useState(false);
   const [listing, setListing] = useState<DriveListing>();
@@ -136,7 +146,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
       : [...prior, { id: file.id, version: file.version!, newVersion: false, file, folderId: listing.folder.id, folderName: listing.folder.name }]);
   }
   return <>
-    <button type="button" className="btn btn-primary mt-3 gap-2" onClick={() => setOpen(true)}><HardDriveIcon size={16} aria-hidden="true" />Ajouter depuis Google Drive</button>
+    {showTrigger && <button type="button" className="btn btn-primary mt-3 gap-2" onClick={() => setOpen(true)}><HardDriveIcon size={16} aria-hidden="true" />Ajouter depuis Google Drive</button>}
     <Dialog open={open} onOpenChange={(value) => { if (!value) close(); }}>
       <DialogContent size="xl" showCloseButton={!busy} className="gap-0 overflow-hidden p-0 sm:p-0">
         <DialogHeader className="p-5 sm:p-6"><DialogTitle className="flex items-center gap-3"><HardDriveIcon className="text-primary" aria-hidden="true" />Ajouter depuis Google Drive</DialogTitle><DialogDescription>Choisissez vos fichiers, puis conservez une copie dans l’affaire.</DialogDescription></DialogHeader>

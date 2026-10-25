@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/affaires/google-drive/identity", () => ({
   prepareGoogleIdentity: vi.fn().mockResolvedValue(undefined), connectGoogleDrive: vi.fn(), revokeGoogleDrive: vi.fn().mockResolvedValue(undefined),
 }));
-import { GoogleDriveImport } from "./GoogleDriveImport";
+import { act } from "react";
+import { GoogleDriveImport, openGoogleDriveImport } from "./GoogleDriveImport";
 import { connectGoogleDrive, revokeGoogleDrive } from "@/lib/affaires/google-drive/identity";
 
 const state = { enabled: true, clientId: "fictitious-client", tenantId: "tenant_demo", projectName: "Affaire fictive", history: [] };
@@ -185,6 +186,16 @@ describe("GoogleDriveImport (identity and API simulated)", () => {
     expect(imports).toHaveLength(1);
     expect(imports[0].files).toEqual([expect.objectContaining({ id: "plan_demo", folderId: listing.folder.id }), expect.objectContaining({ id: cctp.id, folderId: child.id })]);
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+  it("opens without its own trigger only when another surface asks for this affaire", async () => {
+    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} showTrigger={false} />);
+    expect(screen.queryByRole("button", { name: "Ajouter depuis Google Drive" })).toBeNull();
+    act(() => openGoogleDriveImport("other_project"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    act(() => openGoogleDriveImport("project_demo"));
+    expect(await screen.findByRole("dialog", { name: "Ajouter depuis Google Drive" })).toBeVisible();
+    expect(await screen.findByText("Destination :", { exact: false })).toHaveTextContent("Affaire fictive");
   });
 
 });

@@ -32,7 +32,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
     return result.data;
   };
   await app.open(`/dashboard/affaires/${ids.projectId}`);
-  await expect(screen.getByText("Déposez vos pièces ici", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toBeVisible();
   const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
   await upload.setInputFiles(empty);
   await expect(screen.getByText('"vide.csv" est vide.', { exact: true })).toBeVisible();

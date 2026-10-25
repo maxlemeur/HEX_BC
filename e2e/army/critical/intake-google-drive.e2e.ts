@@ -13,7 +13,8 @@ armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and imports
   const { army, app, screen, browser } = ui;
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV01`, title: "Dossier fictif Drive" }, army);
   await app.open(`/dashboard/affaires/${ids.projectId}`);
-  await screen.getByText("Ajouter depuis Google Drive", { exact: true }).click();
+  // A fresh affaire offers Drive beside the computer in its next step.
+  await screen.getByRole("button", "Choisir dans Drive", { exact: true }).click();
   await expect(screen.getByText("Connexion réelle en attente de validation OAuth pour ce POC. Aucun accès Google activé.", { exact: true })).toBeVisible();
   await expect(screen.getByRole("button", "Connecter Google Drive", { exact: true })).toHaveCount(0);
   const blocked = await browser.evaluate(async (projectId) => {
@@ -26,7 +27,7 @@ armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and imports
   }, ids.projectId);
   expect(blocked).toEqual({ status: 503, code: "DRIVE_DISABLED" });
   await browser.reload();
-  await screen.getByText("Ajouter depuis Google Drive", { exact: true }).click();
+  await screen.getByRole("button", "Choisir dans Drive", { exact: true }).click();
   await expect(screen.getByText("Copies Google Drive et versions importées", { exact: true })).toHaveCount(0);
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
   await recordEvidence(army, "DRV01-drive-disabled", { ids, blocked, scope: "Real local HTTP/UI only; no Google access, OAuth or imported copy." });

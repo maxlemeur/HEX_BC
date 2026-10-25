@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import {
+  AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL,
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
 } from "@/lib/affaires/intake";
@@ -125,7 +126,7 @@ export function AffaireFileDropSurface({
                   : "Déposez votre dossier d'appel d'offres ici"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              PDF, images, Excel, Word — {AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL} max par fichier
+              {AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL} — {AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL} max par fichier
             </p>
             {!compact ? (
               <p className="mt-1.5 text-xs font-medium text-primary">

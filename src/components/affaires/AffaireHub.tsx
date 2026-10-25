@@ -905,6 +905,7 @@ export function AffaireHub({
                         versionZeroSummary={versionZeroSummary}
                         takeoffEnabled={takeoffEnabled}
                         plansSummary={plansSummary}
+                        freshStart={isFreshStartState}
                         pendingAction={pendingAction}
                         onDuplicate={() => void handleDuplicate()}
                         onCreateVariant={() => void handleCreateVariant()}

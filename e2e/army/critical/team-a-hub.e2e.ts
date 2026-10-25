@@ -17,12 +17,17 @@ armyTest("HUB02 a fresh affaire keeps its manual path without requiring a DPGF",
   expect(before.items).toEqual([]);
   expect(before.project.name).toBe(projectName);
   await app.open(`/dashboard/affaires/${estimate.projectId}`);
-  await expect(screen.getByText("Déposez vos pièces ici", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Étape 1 sur 6 · Dossier", { exact: true })).toBeVisible();
+  // Both sources sit side by side in the next step: no separate Drive block, no export of the empty V1 in the header.
+  await expect(screen.getByRole("button", "Sélectionner les fichiers depuis l'ordinateur", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("button", "Choisir dans Drive", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("button", "Ajouter depuis Google Drive", { exact: true })).toHaveCount(0);
+  await expect(screen.getByRole("link", "Exporter", { exact: true })).toHaveCount(0);
   const manualLink = screen.getByRole("link", "Continuer en manuel", { exact: true });
   const editorPath = `/dashboard/estimates/${estimate.versionId}/edit?entry=manual`;
   await expect(manualLink).toHaveAttribute("href", editorPath);
-  await expect(screen.getByText("Le mode manuel reste disponible", { exact: true })).toBeVisible();
-  await expect(screen.getByText("Vous pouvez ouvrir le devis sans DPGF et compléter la structure plus tard.", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Pas de DPGF ? Ouvrez le devis et complétez la structure plus tard.", { exact: true })).toBeVisible();
   await manualLink.click();
   await expect(browser).toHaveURL(editorPath);
   await expect(screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
@@ -30,7 +35,7 @@ armyTest("HUB02 a fresh affaire keeps its manual path without requiring a DPGF",
   await recordEvidence(army, "HUB02-manual-path", { estimate, projectName, editorPath, emptyBefore: true, emptyAfter: true });
 });
 
-const UPLOAD_CARD_TEXT = "Déposez vos pièces ici";
+const UPLOAD_CARD_TEXT = "Ajoutez le dossier de consultation";
 type RevealProbe = {
   heldReveals: number;
   hydratedAtMs: number | null;
