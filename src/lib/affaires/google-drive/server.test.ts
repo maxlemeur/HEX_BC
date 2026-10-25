@@ -69,6 +69,26 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     await persistDriveCopy(backend.access as never, file, history.source, lotUploadId());
     expect(completions()).toHaveLength(2);
   });
+  it("lets an administrator restore the owner's deleted copy and keeps the owner's import provenance", async () => {
+    await request();
+    const documentId = driveCopyId("tenant_demo", "project_demo", "plan_demo", "1");
+    const document = backend.rows("affaire_intake_documents").get(documentId)!;
+    const oldPath = document.storage_path;
+    // Tombstone as written by the verified deletion, its private object removed.
+    backend.objects.clear();
+    Object.assign(document, { deleted_at: new Date().toISOString(), storage_path: null, upload_status: "rejected", document_priority: "secondary" });
+    backend.access.context.userId = "admin_demo";
+    const restored = await request();
+    expect(restored.results[0]).toMatchObject({ status: "imported", documentId });
+    expect(document).toMatchObject({ created_by: "admin_demo", deleted_at: null, upload_status: "uploaded" });
+    expect(document.storage_path).not.toBe(oldPath);
+    expect(await backend.objects.get(String(document.storage_path))?.text()).toBe("plans");
+    const events = [...backend.rows("affaire_intake_events").values()].filter((event) => event.document_id === documentId);
+    expect(events.filter((event) => event.event_type === "upload.created")).toEqual([
+      expect.objectContaining({ actor_user_id: "user_demo", after_payload: { drive: expect.objectContaining({ importedBy: "user_demo" }) } })]);
+    expect(events.filter((event) => event.event_type === "document.uploaded").map((event) => event.actor_user_id)).toEqual(["user_demo", "admin_demo"]);
+    expect((await driveState("project_demo")).history.map((entry) => entry.documentId)).toEqual([documentId]);
+  });
   it("keeps partial successes and retries only the failed copy", async () => {
     backend.failStorage.add("cctp-fictif.txt");
     const first = await request([selection(), selection("cctp_demo")]);

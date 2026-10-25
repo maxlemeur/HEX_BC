@@ -66,6 +66,9 @@ export function memoryBackend() {
   }
   const upload = vi.fn(async (path: string, file: File) => {
     if (failStorage.has(file.name)) return { error: { message: "simulated_storage_failure" } };
+    // Storage insert RLS: only the created_by of the document holding this exact path may store it.
+    const document = [...rows("affaire_intake_documents").values()].find((row) => row.storage_path === path);
+    if (document?.created_by !== access.context.userId) return { error: { message: "new row violates row-level security policy" } };
     if (objects.has(path)) return { error: { message: "duplicate" } };
     objects.set(path, file);
     return { error: null };

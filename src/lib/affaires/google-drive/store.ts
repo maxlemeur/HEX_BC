@@ -141,8 +141,9 @@ export async function persistDriveCopy(access: Access, file: File, source: Drive
   if (existing?.deleted_at) {
     const storagePath = buildAffaireIntakeStoragePath({ tenantId: context.tenantId, projectId: project.id,
       uploadId: existing.upload_id, documentId: id, fileName: `${randomUUID()}-${file.name}` });
+    // Storage RLS admits only created_by: the restorer (owner or admin) stores this generation; provenance stays in the events.
     const restored = await context.supabase.from("affaire_intake_documents" as never).update({
-      deleted_at: null, storage_path: storagePath, upload_status: "pending", classification_status: "queued",
+      created_by: context.userId, deleted_at: null, storage_path: storagePath, upload_status: "pending", classification_status: "queued",
       rejection_reason: null, issues: [],
     } as never).eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", id).eq("deleted_at", existing.deleted_at).is("deletion_token", null);
     if (restored.error) throw internalError("Impossible de préparer une nouvelle copie du document supprimé.");
