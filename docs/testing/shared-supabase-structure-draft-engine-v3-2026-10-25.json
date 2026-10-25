@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "sourceCommit": "3c9e861",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's standing authorization to apply merged repository migrations to the shared Supabase.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261025163000_structure_draft_apply_engine_v3.sql",
+    "pullRequest": 114,
+    "bytes": 8943,
+    "lines": 268,
+    "sha256": "b285119e254ab5e9817dadfc664e54d39a8c915134522bbacbedabef5d59da9f",
+    "appliedVersion": "20261025181423",
+    "appliedName": "20261025163000_structure_draft_apply_engine_v3",
+    "appliedAtUtc": "2026-10-25T18:14:23Z",
+    "storedStatements": 1,
+    "storedStatementSha256Matches": true,
+    "appliedBy": "Claude, MCP apply_migration with the exact file SQL"
+  },
+  "history": {
+    "rowsBefore": 332,
+    "rowsAfter": 333,
+    "rowsForName": 1,
+    "previous": "takeoff_apply_engine_v3 (20261025155612)"
+  },
+  "function": {
+    "signature": "public.apply_estimate_structure_draft(uuid,uuid,uuid,jsonb,jsonb,jsonb,timestamptz)",
+    "before": {
+      "securityDefiner": false,
+      "searchPath": "public",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "bodyMd5": "0bee1f25f8aea24aa8c878f58c11b6e7",
+      "comment": false
+    },
+    "after": {
+      "securityDefiner": false,
+      "searchPath": "public",
+      "volatility": "volatile",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": true,
+      "serviceRoleExecute": true,
+      "bodyMd5": "ae9800d9678f167b4566b5cda95bb4b4",
+      "bodyMatchesSource": true,
+      "bodyHasV3WriterContract": true,
+      "bodyCallsCompleteEntryForWriter": true,
+      "commentMatchesMigration": true
+    }
+  },
+  "catalogCounts": {
+    "publicSecurityDefinerExecutableByAnon": 0,
+    "publicSecurityDefinerExecutableByAuthenticated": 70,
+    "note": "Same counts as before; the replaced function stays SECURITY INVOKER. No table, RLS policy or grant changed."
+  },
+  "limits": [
+    "No call of the function on shared and no deployment; production stays at 7255d1d."
+  ]
+}
