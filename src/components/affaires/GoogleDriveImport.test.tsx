@@ -61,6 +61,52 @@ describe("GoogleDriveImport (identity and API simulated)", () => {
     expect(requests.every(([url]) => !String(url).includes("fictitious-memory-token"))).toBe(true);
     expect(document.body.textContent).not.toContain("fictitious-memory-token");
   });
+  it("shows the folder being browsed, announces loading and lets users return to its parent without importing", async () => {
+    const folder = { id: "child_demo", name: "Archives", mimeType: "application/vnd.google-apps.folder", parents: [listing.folder.id] };
+    let finishNavigation: (result: Response) => void = () => { throw new Error("Navigation not started"); };
+    vi.mocked(fetch).mockImplementation(async (_url: unknown, options?: RequestInit) => {
+      if (!options?.body) return response(state);
+      const request = JSON.parse(String(options.body));
+      if (request.folderId === folder.id) return new Promise<Response>((resolve) => { finishNavigation = resolve; });
+      return response({ listing: { ...listing, files: [...listing.files, folder] } });
+    });
+    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} />);
+    await connect();
+    await userEvent.click(screen.getAllByRole("checkbox")[0]);
+    await userEvent.click(screen.getByRole("button", { name: "Ouvrir le dossier Archives" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Chargement du dossier…");
+    expect(screen.getByRole("heading", { name: "Dossier ouvert : Dossier fictif" })).toBeVisible();
+    finishNavigation(response({ listing: { ...listing, folder, files: [listing.files[0]] } }));
+    const heading = await screen.findByRole("heading", { name: "Dossier ouvert : Archives" });
+    expect(heading).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("Contenu affiché : 0 dossiers · 1 fichier.");
+    expect(screen.getByRole("button", { name: "Confirmer et importer les copies" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Retour au dossier parent" }));
+    expect(await screen.findByRole("heading", { name: "Dossier ouvert : Dossier fictif" })).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("Contenu affiché : 1 dossier · 2 fichiers.");
+    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => String(options?.body).includes('"action":"import"'))).toHaveLength(0);
+    expect(onUploadComplete).not.toHaveBeenCalled();
+  });
+  it("keeps the current folder and selection visible when opening another folder fails", async () => {
+    const folder = { id: "missing_demo", name: "Dossier inaccessible", mimeType: "application/vnd.google-apps.folder" };
+    vi.mocked(fetch).mockImplementation(async (_url: unknown, options?: RequestInit) => {
+      if (!options?.body) return response(state);
+      const request = JSON.parse(String(options.body));
+      if (request.folderId === folder.id) return new Response(JSON.stringify({ ok: false, error: { message: "Dossier inaccessible." } }), { status: 422 });
+      return response({ listing: { ...listing, files: [...listing.files, folder] } });
+    });
+    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} />);
+    await connect();
+    await userEvent.click(screen.getAllByRole("checkbox")[0]);
+    await userEvent.click(screen.getByRole("button", { name: "Ouvrir le dossier Dossier inaccessible" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Dossier inaccessible.");
+    expect(screen.getByRole("heading", { name: "Dossier ouvert : Dossier fictif" })).toBeVisible();
+    expect(screen.getAllByRole("checkbox")[0]).toBeChecked();
+    expect(screen.getByRole("button", { name: "Ouvrir le dossier Dossier inaccessible" })).toBeEnabled();
+    expect(screen.getByRole("status")).not.toHaveTextContent("Chargement du dossier…");
+    expect(onUploadComplete).not.toHaveBeenCalled();
+  });
   it("keeps the panel open on a partial failure and only refreshes the workspace", async () => {
     const cctp = { id: "cctp_demo", name: "cctp.pdf", mimeType: "application/pdf", size: "5", version: "1" };
     let imports = 0;

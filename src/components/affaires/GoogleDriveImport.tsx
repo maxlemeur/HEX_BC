@@ -23,6 +23,8 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
   const [results, setResults] = useState<DriveImportResult[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadingFolder, setLoadingFolder] = useState(false);
+  const folderHeading = useRef<HTMLHeadingElement>(null);
   const session = useRef<{ token: string; expiresAt: number } | undefined>(undefined);
   const controller = useRef<AbortController | undefined>(undefined);
   const generation = useRef(0);
@@ -31,6 +33,9 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
     mounted.current = true;
     return () => { mounted.current = false; session.current = undefined; controller.current?.abort(); };
   }, []);
+  useEffect(() => {
+    folderHeading.current?.focus();
+  }, [listing?.folder.id]);
   useEffect(() => {
     if (!open) return;
     const abort = new AbortController();
@@ -46,13 +51,18 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
     const actionController = controller.current;
     const active = session.current;
     if (!active || Date.now() >= active.expiresAt) throw new Error("Connexion expirée. Reconnectez Google Drive.");
-    const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
-      signal: controller.current?.signal, body: JSON.stringify({ action: "list", token: active.token,
-        folderId, ...(append && listing?.nextPageToken ? { pageToken: listing.nextPageToken } : {}) }) });
-    const data = await responseData<{ listing: DriveListing }>(response);
-    if (!mounted.current || actionController?.signal.aborted || actionGeneration !== generation.current) return;
-    setListing((prior) => append && prior ? { ...data.listing, files: [...prior.files, ...data.listing.files] } : data.listing);
-    if (!append) { setSelected([]); setConnectedFolder(undefined); }
+    setLoadingFolder(true);
+    try {
+      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
+        signal: actionController?.signal, body: JSON.stringify({ action: "list", token: active.token,
+          folderId, ...(append && listing?.nextPageToken ? { pageToken: listing.nextPageToken } : {}) }) });
+      const data = await responseData<{ listing: DriveListing }>(response);
+      if (!mounted.current || actionController?.signal.aborted || actionGeneration !== generation.current) return;
+      setListing((prior) => append && prior ? { ...data.listing, files: [...prior.files, ...data.listing.files] } : data.listing);
+      if (!append) { setSelected([]); setConnectedFolder(undefined); }
+    } finally {
+      if (mounted.current && actionGeneration === generation.current) setLoadingFolder(false);
+    }
   }
   async function run(action: () => Promise<void>) {
     const current = generation.current;
@@ -67,7 +77,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
     const token = session.current?.token;
     session.current = undefined;
     controller.current?.abort();
-    setListing(undefined); setConnectedFolder(undefined); setSelected([]); setBusy(false);
+    setListing(undefined); setConnectedFolder(undefined); setSelected([]); setBusy(false); setLoadingFolder(false);
     setMessage("Connexion fermée. Les copies déjà importées restent dans l'affaire. Une copie en cours de stockage peut avoir été conservée.");
     if (token) { try { await revokeGoogleDrive(token); } catch (error) { if (mounted.current) setMessage((error as Error).message); } }
   }
@@ -91,6 +101,9 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
   }
   const filesById = new Map(listing?.files.map((file) => [file.id, file]));
   const bytes = selected.reduce((sum, file) => sum + Number(filesById.get(file.id)?.size ?? 0), 0);
+  const parentFolderId = listing?.folder.parents?.[0];
+  const folderCount = listing?.files.filter((file) => file.mimeType === DRIVE_FOLDER_MIME).length ?? 0;
+  const fileCount = (listing?.files.length ?? 0) - folderCount;
   const selectionValid = selected.length > 0 && selected.length <= DRIVE_MAX_FILES && bytes <= DRIVE_MAX_BATCH_BYTES;
   function toggle(file: DriveFile) {
     setSelected((prior) => prior.some((item) => item.id === file.id) ? prior.filter((item) => item.id !== file.id)
@@ -118,17 +131,24 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
         <p>Compte : {listing.account.displayName} ({listing.account.emailAddress})</p>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void run(() => loadFolder("root"))}>Mon Drive</button>
+          {parentFolderId && <button type="button" className="btn btn-secondary" disabled={busy}
+            onClick={() => void run(() => loadFolder(parentFolderId))}>Retour au dossier parent</button>}
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void run(() => loadFolder(listing.folder.id))}>Actualiser le dossier</button>
           <button type="button" className="btn btn-secondary" onClick={() => void disconnect()}>Déconnecter et révoquer</button>
         </div>
-        <p>Dossier : <strong>{listing.folder.name}</strong></p>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <h3 ref={folderHeading} tabIndex={-1} className="font-semibold">Dossier ouvert : {listing.folder.name}</h3>
+          <p role="status" className="mt-1 text-sm text-slate-600">{loadingFolder ? "Chargement du dossier…" :
+            `Contenu affiché : ${folderCount} ${folderCount === 1 ? "dossier" : "dossiers"} · ${fileCount} ${fileCount === 1 ? "fichier" : "fichiers"}.`}</p>
+        </div>
+        <p className="text-sm text-slate-600">Ouvrir un dossier affiche son contenu ici. Pour sélectionner ses fichiers à copier, cliquez sur « Connecter ce dossier ».</p>
         <button type="button" className="btn btn-secondary" disabled={busy || connectedFolder === listing.folder.id} onClick={() => {
           setConnectedFolder(listing.folder.id); setSelected([]); setResults([]);
         }}>{connectedFolder === listing.folder.id ? "Dossier connecté" : "Connecter ce dossier"}</button>
-        <ul className="space-y-2" aria-label="Pièces du dossier Google Drive">
+        <ul className="space-y-2" aria-label="Pièces du dossier Google Drive" aria-busy={loadingFolder}>
           {listing.files.map((file) => {
             if (file.mimeType === DRIVE_FOLDER_MIME && !file.driveId) return <li key={file.id}>
-              <button type="button" className="underline" disabled={busy} onClick={() => void run(() => loadFolder(file.id))}>Ouvrir {file.name}</button>
+              <button type="button" className="text-left underline" disabled={busy} onClick={() => void run(() => loadFolder(file.id))}>Ouvrir le dossier {file.name}</button>
             </li>;
             const rejection = driveFileRejection(file);
             const choice = selected.find((item) => item.id === file.id);
@@ -149,7 +169,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh }: {
         <p>{selected.length} pièce(s) · {(bytes / 1024 / 1024).toFixed(2)} Mo sélectionnés pour {state?.projectName}.</p>
         {(selected.length > DRIVE_MAX_FILES || bytes > DRIVE_MAX_BATCH_BYTES) && <p role="alert">Réduisez le lot à 20 pièces et 100 Mo.</p>}
         <button type="button" className="btn btn-primary" disabled={busy || !selectionValid || connectedFolder !== listing.folder.id}
-          onClick={() => void run(() => importSelection())}>{busy ? "Opération en cours…" : "Confirmer et importer les copies"}</button>
+          onClick={() => void run(() => importSelection())}>{busy && !loadingFolder ? "Opération en cours…" : "Confirmer et importer les copies"}</button>
         <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setSelected([]); setResults([]); }}>Annuler la sélection</button>
       </>}
       {message && <p role="alert">{message}</p>}
