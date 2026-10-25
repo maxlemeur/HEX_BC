@@ -189,32 +189,72 @@ export function WorkspaceGlobalNavigation() {
                 );
               }
 
+              const toggleMenu = () =>
+                setOpenGroupKey((current) =>
+                  current === group.key ? null : group.key
+                );
+              // A group led by its own page (Affaires) opens that page in one click;
+              // the chevron beside it (or ArrowDown) still lists the group's other pages.
+              const homeItem =
+                group.items[0].label === group.label ? group.items[0] : null;
+
               return (
                 <div key={group.key} className="production-ribbon__global-group">
-                  <button
-                    ref={(element) => {
-                      if (element) triggerRefs.current.set(group.key, element);
-                    }}
-                    type="button"
-                    role="menuitem"
-                    className={topLevelClass}
-                    data-active={active ? "true" : undefined}
-                    aria-haspopup="menu"
-                    aria-expanded={isOpen}
-                    aria-controls={`production-global-menu-${group.key}`}
-                    tabIndex={index === defaultTabStop ? 0 : -1}
-                    onClick={() =>
-                      setOpenGroupKey((current) =>
-                        current === group.key ? null : group.key
-                      )
-                    }
-                    onKeyDown={(event) =>
-                      handleTopLevelKeyDown(event, index, group)
-                    }
-                  >
-                    {topLevelLabel}
-                    <ChevronDownIcon aria-hidden="true" size={12} />
-                  </button>
+                  {homeItem ? (
+                    <span className="production-ribbon__global-split">
+                      <Link
+                        ref={(element) => {
+                          if (element) triggerRefs.current.set(group.key, element);
+                        }}
+                        href={homeItem.href}
+                        role="menuitem"
+                        className={topLevelClass}
+                        data-active={active ? "true" : undefined}
+                        aria-current={active ? "page" : undefined}
+                        tabIndex={index === defaultTabStop ? 0 : -1}
+                        onKeyDown={(event) =>
+                          handleTopLevelKeyDown(event, index, group)
+                        }
+                      >
+                        {topLevelLabel}
+                      </Link>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={`${topLevelClass} production-ribbon__global-toggle`}
+                        data-active={active ? "true" : undefined}
+                        aria-label={`Autres pages ${topLevelLabel}`}
+                        aria-haspopup="menu"
+                        aria-expanded={isOpen}
+                        aria-controls={`production-global-menu-${group.key}`}
+                        tabIndex={-1}
+                        onClick={toggleMenu}
+                      >
+                        <ChevronDownIcon aria-hidden="true" size={12} />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      ref={(element) => {
+                        if (element) triggerRefs.current.set(group.key, element);
+                      }}
+                      type="button"
+                      role="menuitem"
+                      className={topLevelClass}
+                      data-active={active ? "true" : undefined}
+                      aria-haspopup="menu"
+                      aria-expanded={isOpen}
+                      aria-controls={`production-global-menu-${group.key}`}
+                      tabIndex={index === defaultTabStop ? 0 : -1}
+                      onClick={toggleMenu}
+                      onKeyDown={(event) =>
+                        handleTopLevelKeyDown(event, index, group)
+                      }
+                    >
+                      {topLevelLabel}
+                      <ChevronDownIcon aria-hidden="true" size={12} />
+                    </button>
+                  )}
 
                   {isOpen ? (
                     <div

@@ -645,7 +645,19 @@ export function EstimateEditorToolbar({
     <ProductionRibbonHeader
       breadcrumbs={breadcrumbs}
       title="Éditer le chiffrage"
-      description={projectName ? `${projectName} · V${versionNumber}` : `Version ${versionNumber}`}
+      description={
+        projectName && projectId ? (
+          <>
+            <Link
+              href={`/dashboard/affaires/${projectId}`}
+              className="font-medium text-foreground-secondary underline-offset-2 hover:text-primary hover:underline"
+            >
+              {projectName}
+            </Link>
+            {` · V${versionNumber}`}
+          </>
+        ) : projectName ? `${projectName} · V${versionNumber}` : `Version ${versionNumber}`
+      }
       metrics={summaryNode}
       testId="estimate-page-toolbar"
       titleTestId="estimate-page-toolbar-title"

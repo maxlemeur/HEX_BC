@@ -156,6 +156,29 @@ describe("DashboardShell universal topbar navigation", () => {
     expect(screen.queryByRole("menu", { name: "Affaires" })).toBeNull();
   });
 
+  it("opens the affaires list in one click and keeps its other pages behind the chevron", async () => {
+    const user = userEvent.setup();
+    render(
+      <DashboardShell
+        appBuildId={null}
+        appVersion="1.2.3"
+        displayName="Jean Dupont"
+      >
+        <div>Contenu</div>
+      </DashboardShell>
+    );
+
+    expect(screen.getByRole("menuitem", { name: "Affaires" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires",
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Autres pages Affaires" }));
+    const affairesMenu = await screen.findByRole("menu", { name: "Affaires" });
+    expect(
+      within(affairesMenu).getByRole("menuitem", { name: "Métrés" }),
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1/takeoff");
+  });
+
   it("opens an accessible overlay menu, traps focus and restores it on Escape", async () => {
     const user = userEvent.setup();
     render(

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
@@ -14,12 +14,14 @@ function renderToolbar(
     isAutoSaveEnabled?: boolean;
     hasPendingChanges?: boolean;
     isSaveNowDisabled?: boolean;
+    projectId?: string;
   }
 ) {
   const onAutoSaveEnabledChange = vi.fn();
   const onSaveNow = vi.fn();
   render(
     <EstimateEditorToolbar
+      projectId={options?.projectId}
       projectName="358 LLG LT"
       versionNumber={1}
       status="draft"
@@ -142,5 +144,17 @@ describe("EstimateEditorToolbar page actions", () => {
       screen.getByRole("menuitem", { name: /Sauvegarder maintenant/ })
     );
     expect(onSaveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("links the affaire named beside the title back to its page", () => {
+    renderToolbar(undefined, { projectId: "project-1" });
+
+    const identity = screen.getByText(
+      (_, element) => element?.tagName === "P" && element.textContent === "358 LLG LT · V1",
+    );
+    expect(within(identity).getByRole("link", { name: "358 LLG LT" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1",
+    );
   });
 });
