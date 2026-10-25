@@ -2286,9 +2286,8 @@ export async function generateEstimateStructureDraft(
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
+  // Lot 3.2, entrée 2 (P-14) : la génération n'écrit qu'une preview, sur tout moteur.
   const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
-  // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
-  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -2721,8 +2720,9 @@ export async function applyEstimateStructureDraft(
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
-  // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
-  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
+  // Lot 3.2, entrée 2 (P-14) : une v3 s'applique par la même fonction atomique, sous le contrat d'écrivain v3
+  // (20261025163000) ; jamais par l'écriture directe de secours.
+  const isV3 = usesPerUnitLabor(resolveEstimateEngineVersion(version));
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -2804,12 +2804,13 @@ export async function applyEstimateStructureDraft(
   const existingSections = buildExistingSections(existingItems);
   const sectionById = new Map(existingSections.map((section) => [section.id, section] as const));
   const existingSectionsByParent = buildExistingSectionsByParent(existingSections);
+  // Après le dernier élément du parent, ligne ou section : les deux partagent les positions d'un parent.
   const nextPositionByParent = new Map<string, number>();
-  existingSections.forEach((section) => {
-    const key = section.parent_id ?? ROOT_PARENT_KEY;
+  existingItems.forEach((item) => {
+    const key = item.parent_id ?? ROOT_PARENT_KEY;
     const current = nextPositionByParent.get(key) ?? 0;
-    if (section.position > current) {
-      nextPositionByParent.set(key, section.position);
+    if (item.position > current) {
+      nextPositionByParent.set(key, item.position);
     }
   });
 
@@ -3040,6 +3041,12 @@ export async function applyEstimateStructureDraft(
 
   if (applyRpcError) {
     throwEstimateStructureDraftApplyRpcErrorIfNeeded(applyRpcError);
+    // Une base sans 20261025163000 refuse la v3 hors contrat d'écrivain, et une v3 n'écrit jamais par le secours non
+    // atomique : même refus nommé qu'avant le lot 3.2.
+    if (isV3 && ((applyRpcError.message ?? "").includes("ESTIMATE_V3_WRITER_NOT_SUPPORTED") ||
+      isApplyEstimateStructureDraftRpcMissing(applyRpcError))) {
+      throw new EstimateEngineUnavailableError();
+    }
     if (isApplyEstimateStructureDraftRpcMissing(applyRpcError)) {
       console.warn(
         "apply_estimate_structure_draft RPC missing from schema cache, using non-atomic fallback."

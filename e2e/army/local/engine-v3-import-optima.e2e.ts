@@ -781,36 +781,129 @@ armyTest("IO07 sections enter a v3 from a v2 (converted, listed) and from a v3 (
     }
   });
 
-// Règle 8 (P-14) : structure IA et version zéro sont refusées dans une v3 avec le message nommé, avant toute
-// lecture de brouillon ou appel d'IA ; rien n'est écrit. La mise à jour groupée directe l'est déjà (2.5).
-armyTest("IO08 AI structure and version zero are refused by name in a v3, nothing written", options,
+/**
+ * Lot 3.2, entrée 2 : les nœuds d'une preview de structure IA générée, posés en SQL comme la génération les écrit
+ * (l'IA est coupée en recette) : le lot existant et son sous-lot fusionnés, un sous-sous-lot créé, un lot neuf.
+ */
+async function seedStructureNodes(draftId: string, sectionId: string, subSectionId: string, prefix: string) {
+  if (![draftId, sectionId, subSectionId].every((id) => UUID.test(id)) || !/^[A-Za-z0-9 .-]{1,120}$/.test(prefix)) {
+    throw new Error("Invalid structure draft input.");
+  }
+  const ids = { merge: randomUUID(), subMerge: randomUUID(), child: randomUUID(), root: randomUUID() };
+  const output = await querySql(`BEGIN;
+INSERT INTO public.estimate_structure_draft_nodes (id, tenant_id, draft_id, parent_node_id, order_index, hierarchy_level, label,
+  normalized_label, confidence, default_action, duplicate_match_item_id)
+SELECT n.id, d.tenant_id, d.id, n.parent_id, n.order_index, n.level, n.label, lower(n.label), 0.8, n.action, n.match_id
+FROM public.estimate_structure_drafts d
+CROSS JOIN (VALUES
+  ('${ids.merge}'::uuid, NULL::uuid, 100, 1, '${prefix} lot IA', 'merge', '${sectionId}'::uuid),
+  ('${ids.subMerge}'::uuid, '${ids.merge}'::uuid, 0, 2, '${prefix} sous-lot', 'merge', '${subSectionId}'::uuid),
+  ('${ids.child}'::uuid, '${ids.subMerge}'::uuid, 0, 3, '${prefix} réseau IA', 'create', NULL::uuid),
+  ('${ids.root}'::uuid, NULL::uuid, 101, 1, '${prefix} lot neuf IA', 'create', NULL::uuid)
+) AS n(id, parent_id, order_index, level, label, action, match_id)
+WHERE d.id = '${draftId}'::uuid AND d.status = 'pending';
+COMMIT;
+SELECT count(*) FROM public.estimate_structure_draft_nodes
+WHERE draft_id = '${draftId}'::uuid AND id IN ('${ids.merge}', '${ids.subMerge}', '${ids.child}', '${ids.root}');
+`);
+  if (output.at(-1) !== "4") throw new Error("The structure draft nodes were not persisted.");
+  return ids;
+}
+
+// Lot 3.2, entrée 2 (P-14, recommandation suivie le 24/10/2026) : une v3 génère sa preview de structure IA et l'applique
+// sous le contrat d'écrivain (20261025163000). Seules des sections entrent : lignes, montants et totaux restent ceux
+// d'avant, la révision de contenu avance, une section créée se place après la dernière ligne de son parent. La version
+// zéro reste refusée par son nom (TI-582), sans écriture.
+armyTest("IO08 an AI structure preview applies to a v3: a section renamed, sections added after the lines, amounts unchanged; version zero still refused", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    const { owner, projectId } = await prepareV3Owner(ui, army, "p14");
+    const { owner, projectId, roleId } = await prepareV3Owner(ui, army, "p14");
     try {
       const versionId = await blankV3(ui, army, projectId, "p14");
+      const sectionId = await seedV3Section(browser, army, versionId, roleId);
       const before = await readEstimate(browser, versionId);
-      const draftId = randomUUID();
-      const nodeId = randomUUID();
+      const subSectionId = before.items.find((item) => item.item_type === "section" && item.parent_id === sectionId)!.id;
+      const [revisionBefore] = await querySql(`SELECT content_revision FROM public.estimate_versions WHERE id = '${versionId}'::uuid;\n`);
+      const generated = await apiRequest<Envelope<{ draft_id: string; version_id: string }>>(browser, "POST",
+        `/api/estimates/${versionId}/structure-drafts`, { strategy: "hybrid" });
+      const generation = [generated.status, generated.body.ok, generated.body.error?.code ?? null];
+      await recordEvidence(army, "io-p14-generate", { versionId, generation, data: generated.body.data ?? null });
+      expect(generation).toEqual([201, true, null]);
+      const draftId = generated.body.data.draft_id;
+      const nodes = await seedStructureNodes(draftId, sectionId, subSectionId, army.runPrefix);
+      const renamed = `${army.runPrefix} lot renommé IA`;
+      const body = { mode: "merge_existing", selected_root_node_ids: [nodes.merge, nodes.root],
+        overrides: [{ node_id: nodes.merge, action: "merge", merge_into_item_id: sectionId, rename_to: renamed }] };
+      type Applied = { created_count: number; merged_count: number; skipped_count: number; created_item_ids: string[]; merged_item_ids: string[] };
+      const applied = await apiRequest<Envelope<Applied>>(browser, "POST", `/api/estimates/${versionId}/structure-drafts/${draftId}/apply`, body);
+      const replay = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/structure-drafts/${draftId}/apply`, body);
+      const after = await readEstimate(browser, versionId);
+      const [revisionAfter, draftStatus] = await querySql(`SELECT content_revision FROM public.estimate_versions WHERE id = '${versionId}'::uuid;
+SELECT status FROM public.estimate_structure_drafts WHERE id = '${draftId}'::uuid;
+`);
       const probes = {
-        structureGenerate: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/structure-drafts`, {}),
-        structureApply: await apiRequest<Envelope<unknown>>(browser, "POST",
-          `/api/estimates/${versionId}/structure-drafts/${draftId}/apply`, { mode: "merge_existing", selected_root_node_ids: [nodeId] }),
         versionZeroGenerate: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/version-zero-drafts`, {}),
         versionZeroMaterialize: await apiRequest<Envelope<unknown>>(browser, "POST",
-          `/api/estimates/${versionId}/version-zero-drafts/${draftId}/materialize`, {}),
+          `/api/estimates/${versionId}/version-zero-drafts/${randomUUID()}/materialize`, {}),
       };
-      const after = await readEstimate(browser, versionId);
+      const settled = await readEstimate(browser, versionId);
+      const byId = new Map(after.items.map((item) => [item.id, item] as const));
+      const parents = new Map<string | null, string>([[null, "root"], [sectionId, "lot"], [subSectionId, "sous-lot"]]);
+      const section = (item: ArmyItem | undefined) => item ? [item.item_type, parents.get(item.parent_id) ?? item.parent_id, item.position, item.title, field(item, "source_provider"), field(item, "source_file_name"), num(item.line_total_ht_cents)] : null;
+      const provenance = (item: ArmyItem | undefined) => {
+        const meta = (item ? field(item, "source_metadata") : null) as { kind?: string; applications?: Array<Record<string, unknown>> } | null;
+        return meta ? [meta.kind ?? null, ...(meta.applications ?? []).map((entry) => [entry.draft_id === draftId, entry.draft_node_id, entry.applied_action])] : null;
+      };
+      const createdIds = applied.body.data?.created_item_ids ?? [];
+      const child = createdIds.map((id) => byId.get(id)).find((item) => item?.parent_id === subSectionId);
+      const root = createdIds.map((id) => byId.get(id)).find((item) => item?.parent_id === null);
+      const linesOf = (state: ArmyEstimate) => state.items.filter((item) => item.item_type === "line")
+        .map((item) => [item.id, item.parent_id, item.position, ...v3LineInputs(item)]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      const totals = (state: ArmyEstimate) => [state.version.total_ht_cents, state.version.total_tax_cents, state.version.total_ttc_cents];
       const observed = {
-        responses: Object.fromEntries(Object.entries(probes).map(([name, response]) =>
+        applied: [applied.status, applied.body.ok, applied.body.error?.code ?? null, applied.body.data?.created_count ?? null,
+          applied.body.data?.merged_count ?? null, applied.body.data?.skipped_count ?? null, applied.body.data?.merged_item_ids ?? null],
+        replay: [replay.status, replay.body.ok, replay.body.error?.code ?? null],
+        draftStatus,
+        merged: section(byId.get(sectionId)),
+        mergedProvenance: provenance(byId.get(sectionId)),
+        subMerged: section(byId.get(subSectionId)),
+        subMergedProvenance: provenance(byId.get(subSectionId)),
+        child: section(child),
+        childProvenance: provenance(child),
+        root: section(root),
+        rootProvenance: provenance(root),
+        itemCount: after.items.length - before.items.length,
+        linesUnchanged: JSON.stringify(linesOf(after)) === JSON.stringify(linesOf(before)),
+        totalsUnchanged: JSON.stringify(totals(after)) === JSON.stringify(totals(before)) && Number(before.version.total_ht_cents) > 0,
+        revisionAdvanced: Number(revisionAfter) > Number(revisionBefore),
+        versionZero: Object.fromEntries(Object.entries(probes).map(([name, response]) =>
           [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
-        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at,
+        versionZeroUnchanged: settled.items.length === after.items.length && settled.version.updated_at === after.version.updated_at,
       };
-      await recordEvidence(army, "io-p14", { versionId, observed });
+      await recordEvidence(army, "io-p14", { versionId, draftId, nodes, observed, before: subtreeShape(before, sectionId),
+        after: subtreeShape(after, sectionId) });
       const refused = [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"];
       expect(observed).toEqual({
-        responses: { structureGenerate: refused, structureApply: refused, versionZeroGenerate: refused, versionZeroMaterialize: refused },
-        unchanged: true,
+        applied: [201, true, null, 2, 2, 0, [sectionId, subSectionId]],
+        replay: [409, false, "ESTIMATE_STRUCTURE_DRAFT_NOT_PENDING"],
+        draftStatus: "applied",
+        merged: ["section", "root", 1, renamed, "ai_structure", "Structure IA", null],
+        mergedProvenance: ["ai_structure", [true, nodes.merge, "merge"]],
+        // Fusionné sans renommage : titre et source d'origine (saisie du lot) gardés, provenance IA à la lecture.
+        subMerged: ["section", "lot", 3, `${army.runPrefix} sous-lot`, "manual", "Structure IA", null],
+        subMergedProvenance: ["ai_structure", [true, nodes.subMerge, "merge"]],
+        // Après le coude (1) : lignes et sections partagent les positions d'un parent.
+        child: ["section", "sous-lot", 2, `${army.runPrefix} réseau IA`, "ai_structure", "Structure IA", null],
+        childProvenance: ["ai_structure", [true, nodes.child, "create"]],
+        root: ["section", "root", 2, `${army.runPrefix} lot neuf IA`, "ai_structure", "Structure IA", null],
+        rootProvenance: ["ai_structure", [true, nodes.root, "create"]],
+        itemCount: 2,
+        linesUnchanged: true,
+        totalsUnchanged: true,
+        revisionAdvanced: true,
+        versionZero: { versionZeroGenerate: refused, versionZeroMaterialize: refused },
+        versionZeroUnchanged: true,
       });
     } finally {
       await closePolicy(owner, army, "p14");

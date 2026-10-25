@@ -115,7 +115,6 @@ export function EstimateEditorCommandBar({
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
-  estimateStructureDraftUnavailableReason = null,
   onOpenGeneratedOuvrageDialog,
   onExpandAllSections,
   onCollapseAllSections,
@@ -380,30 +379,20 @@ export function EstimateEditorCommandBar({
                 </div>
               ) : null}
               {onOpenEstimateStructureDraftDialog ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="md"
-                    className={PANEL_ITEM_CLASS}
-                    onClick={() => {
-                      insertClose();
-                      onOpenEstimateStructureDraftDialog();
-                    }}
-                    disabled={meta.isReadOnly || estimateStructureDraftUnavailableReason !== null}
-                    aria-describedby={estimateStructureDraftUnavailableReason !== null
-                      ? "estimate-editor-structure-draft-unavailable" : undefined}
-                    data-testid="estimate-editor-open-structure-draft-button"
-                  >
-                    Proposer une structure avec l’IA
-                  </Button>
-                  {/* Sous-lot 2.10a (N3, D-g) : refus nommé avant toute génération (P-14). */}
-                  {estimateStructureDraftUnavailableReason !== null ? (
-                    <p id="estimate-editor-structure-draft-unavailable" className="px-3 pb-2 text-xs text-muted-foreground">
-                      {estimateStructureDraftUnavailableReason}
-                    </p>
-                  ) : null}
-                </>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="md"
+                  className={PANEL_ITEM_CLASS}
+                  onClick={() => {
+                    insertClose();
+                    onOpenEstimateStructureDraftDialog();
+                  }}
+                  disabled={meta.isReadOnly}
+                  data-testid="estimate-editor-open-structure-draft-button"
+                >
+                  Proposer une structure avec l’IA
+                </Button>
               ) : null}
               {onOpenGeneratedOuvrageDialog ? (
                 <Button

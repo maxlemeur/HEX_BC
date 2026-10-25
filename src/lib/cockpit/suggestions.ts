@@ -13,7 +13,6 @@ import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
-import { usesSaleCoefficients, type EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 
 export type CockpitIntent =
@@ -70,8 +69,7 @@ export type ComputeCockpitSuggestionsInput = {
     "uploadId" | "documents" | "missingPieces" | "readiness" | "briefDraft"
   > | null;
   versionZeroSummary: Pick<VersionZeroDraftSummary, "canGenerate" | "activeDraft"> | null;
-  // Sous-lot 2.10a (N3, D-g) : une v3 ne reçoit pas de structure IA (P-14), qui n'est donc pas proposée.
-  currentVersion: { id: string; status: string; calcEngineVersion?: EstimateEngineVersion | null } | null;
+  currentVersion: { id: string; status: string } | null;
   structureMode?: Pick<
     EstimateStructureModeSummary,
     | "mode"
@@ -363,7 +361,6 @@ export function computeCockpitSuggestions(
 
   if (
     currentVersion?.status === "draft" &&
-    !(currentVersion.calcEngineVersion && usesSaleCoefficients(currentVersion.calcEngineVersion)) &&
     lineCount === 0 &&
     !versionZeroSummary?.activeDraft &&
     !versionZeroSummary?.canGenerate &&
