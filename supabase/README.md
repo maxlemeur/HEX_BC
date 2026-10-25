@@ -83,7 +83,8 @@ Puis appliquer uniquement les migrations manquantes autorisées dans l'ordre,
 avec leur SQL exact ; contrôler ensuite l'historique, les objets ciblés et les
 advisors de sécurité. Une preuve locale ne prouve pas cette application.
 La [préparation du lot 3.3](../docs/testing/lot-3-3-shared-consolidation-2026-10-25.md)
-distingue les migrations qualifiées localement de leur application encore en attente.
+conserve sa qualification locale ; le [reçu d'application](../docs/testing/shared-supabase-lot-3-3-2026-10-25.md)
+rapporte les contrôles réellement exécutés sur le partagé.
 
 Les quatre versions historiques `20260222`, `20260304`, `20260305`, `20260306`
 peuvent manquer dans les historiques distants anciens alors que leurs effets

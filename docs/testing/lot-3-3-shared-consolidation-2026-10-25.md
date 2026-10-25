@@ -1,9 +1,11 @@
-# Lot 3.3 — préparé et validé, application partagée en attente
+# Lot 3.3 — préparation et qualification de la consolidation
 
-Code : `cdb1adf1`, base `7a23e63a`. **Les trois migrations ne sont pas appliquées
-au partagé.** Le contrôle d'approbation automatique a refusé `apply_migration`
-avant exécution, faute d'autorisation distincte pour l'action distante. Aucun
-déploiement n'a eu lieu.
+Code : `cdb1adf1`, base `7a23e63a`. **Les trois migrations sont maintenant
+appliquées et vérifiées sur le partagé** : voir le [reçu du 25 octobre](shared-supabase-lot-3-3-2026-10-25.md).
+La première demande avait été refusée avant exécution faute d'autorisation distante
+distincte ; le porteur a ensuite explicitement autorisé les trois applications.
+Aucun déploiement de l'application n'a eu lieu. Le préflight et la qualification
+locale ci-dessous restent des preuves datées de préparation.
 
 ## Changements prêts
 
@@ -98,10 +100,11 @@ Preuves locales : `outputs/lot-3-3-database-types-attempt4.log`,
 de campagne sous `outputs/lot-3-3-qa/`. Ces résultats ne qualifient pas une base
 hébergée après migration ni un déploiement de l'application.
 
-## Application après autorisation distincte
+## Application partagée
 
-Relire cible, historique et objets ; appliquer les trois fichiers exacts de
-`cdb1adf1`, dans l'ordre avec apply_migration. Pas de db push ni de rejeu ancien.
-Contrôler ensuite les noms/hashes enregistrés, corps, ACL, triggers, conservation
-de l'historique et advisor 0028 ; enregistrer un reçu distinct. Le réglage Auth
-reste conditionné à l'offre ; le déploiement reste une action séparée.
+Les trois fichiers exacts de `cdb1adf1` ont été appliqués dans l'ordre avec
+apply_migration, après relecture de la cible, de l'historique et des objets.
+Pas de db push ni de rejeu ancien. Le [reçu distinct](shared-supabase-lot-3-3-2026-10-25.md)
+rapporte les versions/hashes, corps, ACL, triggers, historique et advisor 0028,
+ainsi que les sondes annulées sur le partagé. Le réglage Auth reste conditionné
+à l'offre ; le déploiement reste une action séparée.

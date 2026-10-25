@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "project": {
+    "id": "ijropnynpwjbllievrip",
+    "name": "bon_de_commande",
+    "status": "ACTIVE_HEALTHY"
+  },
+  "authorization": "Explicit user authorization in this chat to apply all three migrations on the shared bon_de_commande project and verify the result.",
+  "sourceCommit": "cdb1adf1",
+  "applied": true,
+  "application": "Supabase MCP apply_migration; exact committed SQL; no db push; one successful execution per migration",
+  "migrations": [
+    {
+      "name": "20261025112108_consolidate_shared_catalog",
+      "sha256": "279f2ccd20dbbdc38a5ca2848faceb9870aeab65735e5e297abc0e8482792ca5",
+      "version": "20261025115246",
+      "statement_count": 1,
+      "file": "supabase/migrations/20261025112108_consolidate_shared_catalog.sql",
+      "bytes": 5504
+    },
+    {
+      "name": "20261025112109_restrict_public_function_execution",
+      "sha256": "133b8680b37b9fa61daca8cec89f37ef9d1a91d8f15be52a3ab99efb7047858b",
+      "version": "20261025115301",
+      "statement_count": 1,
+      "file": "supabase/migrations/20261025112109_restrict_public_function_execution.sql",
+      "bytes": 2199
+    },
+    {
+      "name": "20261025112146_reconcile_shared_migration_history",
+      "sha256": "596ca1ce0f0b826f7abef5fa7d937382a2dd0054470d87135ed921bce3e9736a",
+      "version": "20261025115317",
+      "statement_count": 1,
+      "file": "supabase/migrations/20261025112146_reconcile_shared_migration_history.sql",
+      "bytes": 2563
+    }
+  ],
+  "history": {
+    "before": 324,
+    "after": 330,
+    "allPreviousRowsUnchanged": true,
+    "duplicatesPreserved": true,
+    "reconciled": [
+      {
+        "name": "20260714120000_preserve_assembly_cost_details",
+        "version": "20260714120000",
+        "statements": [
+          "-- Lot 3.3 history reconciliation only; original SQL NOT executed. Source SHA-256: 6c8e3467bd46558ddc73f12f2dc79b756ff894ea78511d6f5cba198510970afe. Superseded by add_assembly_supply_type and estimate_engine_v3_entry_paths; protect_takeoff_replace_with_recovery is empty."
+        ]
+      },
+      {
+        "name": "20260714134334_use_assembly_cost_coefficients",
+        "version": "20260714134334",
+        "statements": [
+          "-- Lot 3.3 history reconciliation only; original SQL NOT executed. Source SHA-256: 8f867b2aad533a7d9bf8cf3851489e8cb3c5f4b55637f9f8a14a0d7a2e467c34. Superseded by add_assembly_supply_type and estimate_engine_v3_entry_paths; protect_takeoff_replace_with_recovery is empty."
+        ]
+      },
+      {
+        "name": "20260718014058_protect_takeoff_replace_with_recovery",
+        "version": "20260718014058",
+        "statements": [
+          "-- Lot 3.3 history reconciliation only; original SQL NOT executed. Source SHA-256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. Superseded by add_assembly_supply_type and estimate_engine_v3_entry_paths; protect_takeoff_replace_with_recovery is empty."
+        ]
+      }
+    ]
+  },
+  "functions": {
+    "before": 337,
+    "after": 337,
+    "anonBefore": 99,
+    "anonAfter": 0,
+    "publicExecuteAfter": 0,
+    "bodiesMatchCommittedSource": [
+      {
+        "name": "guard_estimate_approvals_insert",
+        "body_md5": "6d939b71a1ac54260d7fc89b8a2b025f"
+      },
+      {
+        "name": "assign_estimate_explanations_scope",
+        "body_md5": "8d6b47ce57af72d57decfc967d52b80d"
+      },
+      {
+        "name": "set_estimate_explanation_source_scope_defaults",
+        "body_md5": "0862865ffd9cc30047ed7f842d47bdbb"
+      },
+      {
+        "name": "get_takeoff_secret",
+        "body_md5": "f4fcbfe578a31dc8bfea4ff091e10ef4"
+      }
+    ],
+    "signedAccessChanges": [
+      {
+        "signature": "insert_estimate_template_into_version(uuid,uuid,uuid)",
+        "authenticated": true,
+        "service_role": false
+      },
+      {
+        "signature": "insert_estimate_assembly_into_version(uuid,uuid,uuid)",
+        "authenticated": true,
+        "service_role": false
+      },
+      {
+        "signature": "insert_estimate_template_with_receipt(uuid,uuid,uuid)",
+        "authenticated": true,
+        "service_role": false
+      },
+      {
+        "signature": "insert_estimate_assembly_with_receipt(uuid,uuid,uuid)",
+        "authenticated": true,
+        "service_role": false
+      }
+    ],
+    "unexpectedChanges": []
+  },
+  "defaults": {
+    "creator": "postgres",
+    "globalAndPublicAnonymousGrantsRemoved": true,
+    "authenticatedAndServiceDefaultsPreserved": true,
+    "managedOtherDefaultsUnchanged": true
+  },
+  "advisors": {
+    "before": [
+      {
+        "name": "rls_enabled_no_policy",
+        "count": 19
+      },
+      {
+        "name": "anon_security_definer_function_executable",
+        "count": 2
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "count": 70
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "count": 1
+      }
+    ],
+    "after": [
+      {
+        "name": "rls_enabled_no_policy",
+        "count": 19,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "count": 69,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "count": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+      }
+    ],
+    "anonymousSecurityDefinerCountAfter": 0
+  },
+  "triggers": [
+    {
+      "name": "guard_estimate_approvals_insert_trigger",
+      "table": "estimate_approvals",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER guard_estimate_approvals_insert_trigger BEFORE INSERT ON public.estimate_approvals FOR EACH ROW EXECUTE FUNCTION guard_estimate_approvals_insert()"
+    },
+    {
+      "name": "set_estimate_explanation_source_scope_defaults",
+      "table": "estimate_explanation_sources",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER set_estimate_explanation_source_scope_defaults BEFORE INSERT OR UPDATE ON public.estimate_explanation_sources FOR EACH ROW EXECUTE FUNCTION set_estimate_explanation_source_scope_defaults()"
+    },
+    {
+      "name": "set_estimate_explanations_scope",
+      "table": "estimate_explanations",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER set_estimate_explanations_scope BEFORE INSERT OR UPDATE ON public.estimate_explanations FOR EACH ROW EXECUTE FUNCTION assign_estimate_explanations_scope()"
+    },
+    {
+      "name": "set_estimate_explanations_updated_at",
+      "table": "estimate_explanations",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER set_estimate_explanations_updated_at BEFORE UPDATE ON public.estimate_explanations FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    }
+  ],
+  "behavioralChecks": {
+    "rolled_back": true,
+    "approval_rejections": 3,
+    "anonymous_rpc_denial": true,
+    "service_vault_null_probe": true,
+    "service_insertion_denials": 4,
+    "authenticated_vault_denial": true
+  },
+  "businessData": {
+    "tables": {
+      "estimate_approvals": {
+        "md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "count": 0
+      },
+      "estimate_explanations": {
+        "md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "count": 0
+      },
+      "estimate_explanation_sources": {
+        "md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "count": 0
+      }
+    },
+    "preflightPostMigrationAndPostRollbackIdentical": true
+  },
+  "limitations": [
+    "No hosted UI journey or HTTP RPC campaign executed; local journey evidence is preserved in the preparation report.",
+    "No real Vault secret read; service-role positive probe used a null name.",
+    "Leaked-password protection remains unavailable on the current Free plan.",
+    "Managed supabase_admin function defaults unchanged.",
+    "No application deployment."
+  ]
+}
