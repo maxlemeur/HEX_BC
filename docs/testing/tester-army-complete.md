@@ -51,7 +51,7 @@ Le worker s'exécute dans un sous-processus local contrôlé : l'acheminement Ed
 la réponse d'un vrai modèle ne sont pas qualifiés. Le collecteur email reste local,
 sur destinataires `.invalid` ; aucune livraison réelle n'est revendiquée.
 La largeur mobile ne constitue pas une preuve Safari, iOS natif ou appareil physique.
-Les screenshots après saisie de mot de passe restent protégés par le SDK.
+Les screenshots après saisie d'un secret restent autorisés : les champs sécurisés sont masqués.
 
 La ligne achats héritée à unité NULL est une restauration synthétique locale
 identifiée comme telle ; elle ne prétend pas provenir d'une ancienne production.

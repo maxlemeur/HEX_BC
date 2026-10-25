@@ -6,6 +6,7 @@ import { test, type Browser } from "@e2e-dev/web";
 import { expect } from "e2e";
 
 import { isOwnedLoopback, requiredFixturePath } from "./owned-business-inputs";
+import { relativeOutputPath } from "./sdk-results";
 
 import { readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 
@@ -143,19 +144,9 @@ test("source reference UI prepares and confirms A then B with exact PDF bytes an
   expect(a.fileName).toBe(b.fileName); expect(a.sha256 === b.sha256).toBe(false);
   const army = { runPrefix: `${fixture.prefix}-vertical-${randomUUID()}`, projectName: fixture.prefix, ownedEstimates: [{ projectId: fixture.projectId, versionId: fixture.versionId }] };
   const evidence = (label: string, data: unknown) => recordEvidence(army, label, data);
-  let screenshotDenied = false;
   async function capture(label: string) {
     const dom = await browser.evaluate(() => ({ pathname: location.pathname, title: document.querySelector("h1")?.textContent ?? null, regions: Array.from(document.querySelectorAll("section[aria-label]")).map((region) => ({ label: region.getAttribute("aria-label"), text: (region.textContent ?? "").replace(/\s+/g, " ").trim() })) }));
-    let pixels: { status: string; file?: string; code?: string };
-    if (screenshotDenied) pixels = { status: "unavailable", code: "POLICY_DENIED_ALREADY_OBSERVED" };
-    else {
-      try { pixels = { status: "captured", file: await app.screenshot(label) }; }
-      catch (error) {
-        const code = typeof error === "object" && error && "code" in error ? String(error.code) : "SCREENSHOT_UNAVAILABLE";
-        pixels = { status: "unavailable", code };
-        screenshotDenied = code === "POLICY_DENIED";
-      }
-    }
+    const pixels = { status: "captured", file: await relativeOutputPath(await app.screenshot(label)) };
     await evidence(`source-ui-${label}`, { dom, pixels });
   }
   await restrictCriticalBrowser(browser, app);

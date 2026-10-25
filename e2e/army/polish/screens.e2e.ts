@@ -7,6 +7,7 @@ import { expect } from "e2e";
 
 import { POLISH_VIEWPORTS, resolveRoutePath } from "../../polish/routes";
 import { recordEvidence } from "../critical/fixtures";
+import { relativeOutputPath } from "../local/sdk-results";
 import { fixtureEvidence, installWriteGuard, polishState, routeFixtures, selectedRoutes, verifyFixtures, type RecordedWrite } from "./support";
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
@@ -89,9 +90,7 @@ for (const route of selected) {
           return audit.violations.filter(rule => rule.impact === "critical" || rule.impact === "serious")
             .map(rule => ({ id: rule.id, impact: rule.impact ?? "unknown", nodes: rule.nodes.length, target: String(rule.nodes[0]?.target?.[0] ?? "") }));
         }, route.axeExclude ?? []);
-        const screenshot = route.auth === "anon"
-          ? await app.screenshot(`polish-${route.id}-${viewport.name}`)
-          : "unavailable-authenticated-secret-policy";
+        const screenshot = await relativeOutputPath(await app.screenshot(`polish-${route.id}-${viewport.name}`));
         const finalUrl = new URL(await browser.url());
         results.push({
           viewport: viewport.name, status: response.status,
@@ -102,7 +101,7 @@ for (const route of selected) {
         await recordEvidence(army, "polish-results", {
           selectedRoutes: selected.map(item => item.id), route: { ...route, heading: String(route.heading) },
           fixtures: fixtureEvidence(fixtures), results,
-          screenshotScope: "Anonymous viewport only; authenticated capture forbidden by the SDK.",
+          screenshotScope: "Every viewport; secure fields stay masked after a secret fill.",
         });
       }
       for (const result of results) {
