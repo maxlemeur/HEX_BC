@@ -30,7 +30,7 @@ taux retiré bloque le gel des lignes qui l'utilisent
 (`ESTIMATE_V3_TAX_RATE_NOT_ALLOWED`).
 
 Sources : [politique](../../src/lib/estimates/calc-policy-server.ts),
-[réglages administrateur](../../supabase/migrations/20261025112000_tenant_calc_defaults_admin.sql),
+[réglages administrateur](../../supabase/migrations/20261025115010_tenant_calc_defaults_admin.sql),
 [création canonique](../../src/lib/estimates/canonical-v2-creation.ts),
 [bascule SQL](../../supabase/migrations/20261018183629_estimate_engine_v3_default.sql).
 Le nom historique `canonical-v2-creation` ne limite pas la façade au moteur 2.
