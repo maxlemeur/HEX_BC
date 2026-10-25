@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-24",
+  "sourceCommit": "d8715ed",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's standing authorization (24/10) to apply merged repository migrations to shared Supabase; 20261024142907 tied to the deployment of main, owner's go at 16:30Z.",
+  "migrations": [
+    {
+      "repositoryFile": "supabase/migrations/20261024153743_restrict_template_insert_execute.sql",
+      "pullRequest": 95,
+      "extractedFrom": "1499ac08",
+      "bytes": 569,
+      "sha256": "cd4df4fd49ec1f895906eae4031ece272f158e7e933e9e5ff39b1aa3c8fa124c",
+      "appliedVersion": "20261024163049",
+      "appliedName": "20261024153743_restrict_template_insert_execute",
+      "appliedAtUtc": "2026-10-24T16:30:49Z",
+      "storedStatementSha256Matches": true,
+      "appliedFrom": "Owner's Mac session"
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261024153906_restrict_anon_security_definer_execute.sql",
+      "pullRequest": 97,
+      "extractedFrom": "d8715edc",
+      "bytes": 2181,
+      "sha256": "fea36ebe8a395d65755a5ee9d39598af5a485928cb96831078b13b23ffefe7f7",
+      "appliedVersion": "20261024170050",
+      "appliedName": "20261024153906_restrict_anon_security_definer_execute",
+      "appliedAtUtc": "2026-10-24T17:00:50Z",
+      "storedStatementSha256Matches": true,
+      "appliedFrom": "Cloud thread, after a refusal before execution on the Mac session in auto mode"
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261024142907_estimate_fo_provision.sql",
+      "pullRequest": 92,
+      "extractedFrom": "f293ea5e",
+      "bytes": 27680,
+      "sha256": "bff5a97596e1555829b0f6a0ff8c95d2463a437bca0f9d4cb0f71be5999cf2b8",
+      "appliedVersion": "20261024170214",
+      "appliedName": "20261024142907_estimate_fo_provision",
+      "appliedAtUtc": "2026-10-24T17:02:14Z",
+      "storedStatementSha256Matches": true,
+      "appliedFrom": "Cloud thread; the call returned 42701 column already exists while the history row carries 17:02:14, most likely a connector retry after a first successful execution. One application, one history row."
+    }
+  ],
+  "preflight": {
+    "historyRows": 320,
+    "lastVersion": "20261024151245",
+    "namesAbsent": true,
+    "templateInsertAcl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "anonSecurityDefinerTargets": 16,
+    "publicGrantTargets": 15,
+    "anonOrPublicPoliciesUsingTargets": 0,
+    "foProvisionObjectsAbsent": true,
+    "supplyTypes": 7,
+    "supplyTypesTo1030": 2,
+    "estimateItems": 3380,
+    "v3Versions": 17
+  },
+  "history": {
+    "rowsBefore": 320,
+    "rowsAfter": 323,
+    "priorRowsFingerprint": "b0f1320b04942a95028306efa4e72268",
+    "priorRowsUnchanged": true
+  },
+  "privileges": {
+    "functions": 17,
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "anonExecute": false,
+    "publicExecute": false,
+    "authenticatedExecute": true,
+    "serviceRoleExecute": true,
+    "templateInsertBodyMd5": "8bf2070fec1c8fbbdf6ad881ca9208a4",
+    "templateInsertBodyUnchanged": true
+  },
+  "foProvision": {
+    "supplyTypesDefaultColumn": "numeric(4,3) not null default 1.010",
+    "estimateItemsColumn": "numeric(4,3) nullable, no default",
+    "constraintsValidated": [
+      "supply_types_default_fo_provision_check",
+      "estimate_items_fo_provision_check"
+    ],
+    "supplyTypesAt1030": [
+      "tube",
+      "calorifuge"
+    ],
+    "supplyTypesAt1010": 5,
+    "estimateItemsAt1000": 3380,
+    "deriveFunction": {
+      "name": "private.derive_estimate_item_fo_provision()",
+      "securityDefiner": true,
+      "searchPath": "",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}"
+    },
+    "trigger": "ad_derive_estimate_item_fo_provision BEFORE INSERT OR UPDATE ON public.estimate_items, enabled",
+    "replacedFunctionsReadFoProvision": [
+      "private.estimate_v3_read_item(jsonb)",
+      "private.estimate_v3_canonical_input(uuid)",
+      "public.duplicate_estimate_version_without_product_id(uuid,boolean)"
+    ]
+  },
+  "securityAdvisors": {
+    "anonSecurityDefinerExecutable": {
+      "before": 18,
+      "after": 2,
+      "remaining": [
+        "public.set_estimate_explanation_scope_defaults()",
+        "public.set_estimate_explanation_source_scope_defaults()"
+      ]
+    },
+    "authenticatedSecurityDefinerExecutable": 67,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1
+  },
+  "limits": [
+    "No business call of the changed functions on shared and no deployment in this receipt.",
+    "Deployed code before these migrations: 0cdfdb0; deployment of d8715ed done separately by the owner."
+  ]
+}
