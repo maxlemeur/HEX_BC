@@ -188,6 +188,25 @@ describe("executeEstimateBatch", () => {
     expect(db.rows).toEqual(before);
   });
 
+  // Lot 3.2, entrée 1 : la conversion ligne ↔ section d'une v3 supprime puis recrée l'élément à la même place.
+  it("accepts a batch that frees a place before recreating an item there, and refuses the reverse order", async () => {
+    db.version.max_section_depth = 2;
+    const conversion: BatchOperationInput[] = [
+      { op: "delete", id: ITEM_ID },
+      { op: "create", data: { item_type: "section", parent_id: SECTION_ID, position: 1, title: "Ligne" } },
+    ];
+    expect(await executeEstimateBatch(VERSION_ID, conversion, { ...OPTIONS, dryRun: true })).toMatchObject({
+      committed: false, results: [
+        { index: 0, op: "delete", status: "ok", data: { dry_run: true } },
+        { index: 1, op: "create", status: "ok", data: { dry_run: true } },
+      ] });
+    expect(await executeEstimateBatch(VERSION_ID, [conversion[1], conversion[0]], { ...OPTIONS, dryRun: true }))
+      .toMatchObject({ committed: false, results: [
+        { index: 0, op: "create", status: "error", message: "Cette position est déjà occupée." },
+      ] });
+    expect(db.commit).not.toHaveBeenCalled();
+  });
+
   it("propagates optimistic concurrency conflicts from the read precheck", async () => {
     db.version.updated_at = NEXT_TOKEN;
     await expect(executeEstimateBatch(VERSION_ID, [{ op: "delete", id: ITEM_ID }], OPTIONS))

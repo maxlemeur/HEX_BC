@@ -80,7 +80,7 @@ import {
   resolveEditorQualityItems,
 } from "@/lib/estimates/editor-engine";
 import {
-  ESTIMATE_V3_EDITOR_WRITER, recomputeEstimateV3AfterLaborRate,
+  convertEstimateV3Items, ESTIMATE_V3_EDITOR_WRITER, recomputeEstimateV3AfterLaborRate,
 } from "@/lib/estimates/v3-editor-writer";
 import {
   buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
@@ -2493,11 +2493,14 @@ export function useEstimateEditorState({
     ensureGroupedActionCanProceed,
     pushHistoryCommand,
     reloadItems: reloadItemsForStructuralMutation,
+    convertV3Items: isV3 ? convertEstimateV3Items : undefined,
+    clearHistory: clearUndoRedoHistory,
   });
   const {
     insertAssembly: handleInsertAssembly,
     insertTemplate: handleInsertTemplate,
     duplicateSection: handleDuplicateSection,
+    convertItems: handleConvertItems,
   } = structureController.actions;
 
   const handleDuplicateSectionToVersion = useCallback<
@@ -2654,6 +2657,8 @@ export function useEstimateEditorState({
       sectionDuplicateTargets,
       onDuplicateSection: handleDuplicateSection,
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
+      // Lot 3.2, entrée 1 (D-b) : v3, conversion ligne ↔ section par un lot de l'écrivain v3.
+      onConvertItems: isV3 ? handleConvertItems : undefined,
       onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
       onOpenEstimateStructureDraftDialog: handleOpenEstimateStructureDraftDialog,
       // Sous-lot 2.10a (N3, D-g) : la structure IA d'une v3 est refusée à la génération (P-14) ; dit avant.
@@ -2713,6 +2718,7 @@ export function useEstimateEditorState({
       handleInsertTemplate,
       handleDuplicateSection,
       handleDuplicateSectionToVersion,
+      handleConvertItems,
       handleOpenImportFromEstimateDialog,
       handleOpenEstimateStructureDraftDialog,
       handleOpenGeneratedOuvrageDialog,

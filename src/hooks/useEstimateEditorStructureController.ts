@@ -25,7 +25,10 @@ import type {
   EstimateItem,
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import { waitForEstimateEditorMutations } from "@/lib/estimates/editor-mutations";
 import { refreshVersionTokenAfterAssemblyInsert } from "@/lib/estimates/editor-version-refresh";
+import type { EstimateV3ItemConversionTarget } from "@/lib/estimates/v3-editor";
+import type { convertEstimateV3Items } from "@/lib/estimates/v3-editor-writer";
 import {
   applyOptimisticTemplateInsertion,
   collectSubtreeItemIds,
@@ -52,7 +55,7 @@ type EstimateEditorStructureControllerInput = {
   highlightItems?: (itemIds: readonly string[]) => void;
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
-  applyVersionToken: (updatedAt: string) => void;
+  applyVersionToken: (updatedAt: string, contentRevision?: number) => void;
   handleVersionConflict: (
     error: unknown,
     options?: { persistDraft?: boolean }
@@ -60,6 +63,10 @@ type EstimateEditorStructureControllerInput = {
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
   pushHistoryCommand: (command: EstimateEditorHistoryCommand) => void;
   reloadItems: () => Promise<void>;
+  /** Lot 3.2, entrée 1 : conversion ligne ↔ section d'une v3 par l'écrivain de lot ; absent en v1/v2. */
+  convertV3Items?: typeof convertEstimateV3Items;
+  /** Vide l'historique d'annulation, dont les commandes visent les anciens identifiants d'une conversion. */
+  clearHistory?: () => void;
 };
 
 export function useEstimateEditorStructureController({
@@ -78,6 +85,8 @@ export function useEstimateEditorStructureController({
   ensureGroupedActionCanProceed,
   pushHistoryCommand,
   reloadItems,
+  convertV3Items,
+  clearHistory,
 }: EstimateEditorStructureControllerInput) {
   const routeVersionIdRef = useRef(routeVersionId);
   const routeGenerationRef = useRef(0);
@@ -639,9 +648,94 @@ export function useEstimateEditorStructureController({
     ]
   );
 
+  // Lot 3.2, entrée 1 (D-b) : un lot de l'écrivain v3 supprime puis recrée les éléments à la même place ; la grille
+  // est relue pour prendre les nouveaux identifiants. Rend `true` une fois le lot validé.
+  const convertItems = useCallback(
+    async (itemIds: readonly string[], target: EstimateV3ItemConversionTarget) => {
+      if (!convertV3Items) return false;
+      const mutationScope = await beginMutation(
+        target === "section" ? "convertir en section" : "convertir en ligne"
+      );
+      if (!mutationScope) return false;
+      const targetVersionId = mutationScope.version.id;
+      const convertedIds = new Set(itemIds);
+      let removedItems: EditorEstimateItem[] = [];
+      let committed = false;
+
+      try {
+        try {
+          // Les déplacements encore en file doivent aboutir avant de lire la place des éléments.
+          await waitForEstimateEditorMutations(targetVersionId);
+          if (!isCurrentMutation(mutationScope)) return false;
+          const snapshot = getItemsSnapshot();
+          removedItems = snapshot.filter((item) => convertedIds.has(item.id));
+          // Les éléments quittent la grille pendant le lot : aucune saisie ne vise plus leur ancien identifiant.
+          setItems((previous) => previous.filter((item) => !convertedIds.has(item.id)));
+          const versionToken = await convertV3Items(
+            targetVersionId,
+            getVersionSnapshot()?.updated_at ?? mutationScope.version.updated_at,
+            snapshot,
+            itemIds,
+            target
+          );
+          committed = true;
+          // L'annulation viserait les anciens identifiants.
+          clearHistory?.();
+          if (!isCurrentMutation(mutationScope)) return true;
+          applyVersionToken(versionToken.updated_at, versionToken.content_revision);
+          await reloadItems();
+          if (!isCurrentMutation(mutationScope)) return true;
+          setTotalsOutOfSync(false);
+          return true;
+        } catch (error) {
+          if (!isCurrentMutation(mutationScope)) return committed;
+          if (committed) {
+            setTotalsOutOfSync(true);
+            reportError(
+              "La conversion est enregistrée, mais la grille n'a pas pu être relue. Rechargez le devis sans reconvertir."
+            );
+            return true;
+          }
+          setItems((previous) => [
+            ...previous.filter((item) => !convertedIds.has(item.id)),
+            ...removedItems,
+          ]);
+          if (!handleVersionConflict(error, { persistDraft: true })) {
+            reportError(
+              resolveErrorMessage(
+                error instanceof Error
+                  ? error.message
+                  : "Impossible de convertir l'élément."
+              )
+            );
+          }
+          return false;
+        }
+      } finally {
+        finishMutation(mutationScope);
+      }
+    },
+    [
+      applyVersionToken,
+      beginMutation,
+      clearHistory,
+      convertV3Items,
+      finishMutation,
+      getItemsSnapshot,
+      getVersionSnapshot,
+      handleVersionConflict,
+      isCurrentMutation,
+      reloadItems,
+      reportError,
+      resolveErrorMessage,
+      setItems,
+      setTotalsOutOfSync,
+    ]
+  );
+
   const actions = useMemo(
-    () => ({ insertAssembly, insertTemplate, duplicateSection }),
-    [duplicateSection, insertAssembly, insertTemplate]
+    () => ({ insertAssembly, insertTemplate, duplicateSection, convertItems }),
+    [convertItems, duplicateSection, insertAssembly, insertTemplate]
   );
 
   return { actions };

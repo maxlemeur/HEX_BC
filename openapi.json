@@ -4623,7 +4623,7 @@
           "Estimate Items"
         ],
         "summary": "Modifier un item",
-        "description": "Met a jour une ligne ou section existante. Moteur 3 (2.8b) : la conversion ligne <-> section (item_type) est refusee, 409 ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE, rien n'est ecrit.",
+        "description": "Met a jour une ligne ou section existante. Moteur 3 (2.8b) : la conversion ligne <-> section (item_type) est refusee, 409 ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE, rien n'est ecrit ; elle passe par POST /api/estimates/{versionId}/batch, qui supprime l'element puis le recree a la meme place dans un seul lot (lot 3.2).",
         "parameters": [
           {
             "name": "versionId",

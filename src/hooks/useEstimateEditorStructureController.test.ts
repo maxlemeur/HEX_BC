@@ -76,11 +76,13 @@ function createHarness(input?: {
   version?: EstimateVersionRow | null;
   isMutationBlocked?: boolean;
   conflictHandled?: boolean;
+  convertV3Items?: Parameters<typeof useEstimateEditorStructureController>[0]["convertV3Items"];
 }) {
   let items = input?.items ?? [];
   let version =
     input && "version" in input ? (input.version ?? null) : createVersion();
   const applyVersionToken = vi.fn();
+  const clearHistory = vi.fn();
   const ensureGroupedActionCanProceed = vi.fn().mockResolvedValue(true);
   const handleVersionConflict = vi
     .fn()
@@ -115,12 +117,15 @@ function createHarness(input?: {
       ensureGroupedActionCanProceed,
       pushHistoryCommand,
       reloadItems,
+      convertV3Items: input?.convertV3Items,
+      clearHistory,
     })
   );
 
   return {
     ...rendered,
     applyVersionToken,
+    clearHistory,
     ensureGroupedActionCanProceed,
     getItems: () => items,
     handleVersionConflict,
@@ -485,5 +490,58 @@ describe("useEstimateEditorStructureController route races", () => {
     expect(harness.setTotalsOutOfSync).not.toHaveBeenCalled();
     expect(harness.applyVersionToken).not.toHaveBeenCalled();
     expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
+  });
+});
+
+describe("useEstimateEditorStructureController v3 conversion (lot 3.2, entrée 1)", () => {
+  it("commits one v3 batch, rereads the grid for the new ids and applies the batch token", async () => {
+    const lines = [createItem("line-a"), createItem("line-b", { position: 2 })];
+    const convertV3Items = vi.fn().mockResolvedValue({ id: "version-1", updated_at: "token-converted", content_revision: 3 });
+    const harness = createHarness({ items: lines, convertV3Items });
+
+    let committed: boolean | undefined;
+    await act(async () => {
+      committed = await harness.result.current.actions.convertItems(["line-a", "line-b"], "section");
+    });
+
+    expect(committed).toBe(true);
+    expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledWith("convertir en section");
+    expect(convertV3Items).toHaveBeenCalledWith("version-1", "token-initial", lines, ["line-a", "line-b"], "section");
+    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
+    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
+    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-converted", 3);
+    expect(harness.clearHistory).toHaveBeenCalledTimes(1);
+    expect(harness.reportError).toHaveBeenLastCalledWith(null);
+  });
+
+  it("reports a refused batch by its message and keeps the grid as it was", async () => {
+    const convertV3Items = vi.fn().mockRejectedValue(new Error("La section contient des lignes ou des sous-sections."));
+    const section = createItem("section-a", { item_type: "section" });
+    const harness = createHarness({ items: [section], convertV3Items });
+
+    let committed: boolean | undefined;
+    await act(async () => {
+      committed = await harness.result.current.actions.convertItems(["section-a"], "line");
+    });
+
+    expect(committed).toBe(false);
+    expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledWith("convertir en ligne");
+    expect(harness.reportError).toHaveBeenLastCalledWith("public:La section contient des lignes ou des sous-sections.");
+    expect(harness.getItems()).toEqual([section]);
+    expect(harness.reloadItems).not.toHaveBeenCalled();
+    expect(harness.applyVersionToken).not.toHaveBeenCalled();
+    expect(harness.clearHistory).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing on a v1/v2 version, which keeps its direct conversion", async () => {
+    const harness = createHarness({ items: [createItem("line-a")] });
+
+    let committed: boolean | undefined;
+    await act(async () => {
+      committed = await harness.result.current.actions.convertItems(["line-a"], "section");
+    });
+
+    expect(committed).toBe(false);
+    expect(harness.ensureGroupedActionCanProceed).not.toHaveBeenCalled();
   });
 });

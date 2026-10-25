@@ -18,7 +18,9 @@ import type { EstimateItem, EstimateItemInsertPayload, EstimateItemUpdatePayload
 import {
   buildEstimateV3ItemInsertPayload,
   buildEstimateV3ItemUpdatePayload,
+  planEstimateV3ItemConversion,
   toEstimateV3ItemWrite,
+  type EstimateV3ItemConversionTarget,
 } from "@/lib/estimates/v3-editor";
 
 /** Un lot v3 validé : jeton de version acquitté (avec sa révision de contenu) ; sinon, l'erreur nommée du lot. */
@@ -53,6 +55,23 @@ export function writeEstimateV3ItemUpdates(
   return commitEstimateV3Operations(versionId, updatedAt,
     updates.map((entry) => ({ op: "update" as const, id: entry.id, data: toEstimateV3ItemWrite(entry.updates) })),
     "Impossible d'enregistrer les lignes.");
+}
+
+/**
+ * Lot 3.2, entrée 1 (D-b) : conversion ligne ↔ section en un seul lot, atomique, qui supprime puis recrée chaque
+ * élément à la même place (`planEstimateV3ItemConversion`) ; une règle non tenue est refusée avant tout envoi.
+ */
+export async function convertEstimateV3Items(
+  versionId: string,
+  updatedAt: string,
+  items: readonly EstimateItem[],
+  itemIds: readonly string[],
+  target: EstimateV3ItemConversionTarget
+): Promise<EstimateVersionToken> {
+  const plan = planEstimateV3ItemConversion(versionId, items, itemIds, target);
+  if (!plan.ok) throw new Error(plan.message);
+  return commitEstimateV3Operations(versionId, updatedAt, plan.operations,
+    target === "section" ? "Impossible de convertir la ligne en section." : "Impossible de convertir la section en ligne.");
 }
 
 /**
