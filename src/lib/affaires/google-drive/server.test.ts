@@ -208,6 +208,17 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     await expect(request()).rejects.toThrow("cross-tenant denied");
     expect(google.fetchMock).not.toHaveBeenCalled(); expect(backend.objects.size).toBe(0);
   });
+  it("fails only the pieces of a folder that became unavailable in a multi-folder lot", async () => {
+    google.files.set("folder_trashed", { id: "folder_trashed", name: "Dossier supprimé", mimeType: "application/vnd.google-apps.folder", trashed: true });
+    google.files.get("cctp_demo")!.parents = ["folder_trashed"];
+    const lot = [selection(), { ...selection("cctp_demo"), folderId: "folder_trashed" }];
+    const result = await request(lot);
+    expect(result.results.map(({ fileId, status }) => [fileId, status])).toEqual([["plan_demo", "imported"], ["cctp_demo", "failed"]]);
+    expect(result.results[1].message).toContain("dossier personnel Google Drive accessible");
+    expect(result.uploads).toEqual([lotUploadId(lot)]);
+    expect(backend.objects.size).toBe(1);
+    expect(backend.rows("affaire_intake_documents").size).toBe(1);
+  });
   it("rejects a valid file from another folder", async () => {
     google.files.get("plan_demo")!.parents = ["other_folder"];
     expect((await request()).results[0]).toMatchObject({ status: "failed", message: expect.stringContaining("extérieure") });
@@ -215,7 +226,8 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
   });
   it("does not start new content reads after cancellation", async () => {
     const abort = new AbortController(); abort.abort();
-    await expect(executeDriveRequest("project_demo", { action: "import", token: "fiction", folderId: "folder_demo", files: [selection()] }, abort.signal)).rejects.toThrow();
+    await expect(executeDriveRequest("project_demo", { action: "import", token: "fiction", folderId: "folder_demo", files: [selection()] }, abort.signal))
+      .rejects.toMatchObject({ name: "ApiError", code: "DRIVE_NETWORK" });
     expect(backend.objects.size).toBe(0);
   });
   it("does not contact Google when disabled", async () => {

@@ -4,7 +4,8 @@ Le dossier d’affaire présente les pièces dans un tableau filtrable et recher
 Le détail donne le dossier et le fichier Drive d’origine, la révision, la date,
 l’auteur de l’import et l’empreinte SHA-256. Le parcours Drive permet de naviguer
 entre les dossiers, de conserver une sélection et de confirmer un lot unique.
-Les résultats restent visibles par pièce, y compris en cas d’échec partiel.
+Les résultats restent visibles par pièce, y compris en cas d’échec partiel ;
+un dossier source devenu indisponible ne fait échouer que ses propres pièces.
 
 La confirmation importe automatiquement une copie privée dans `affaire-intake`.
 Une sélection seule ne transfère aucun fichier. Une même révision ne crée pas

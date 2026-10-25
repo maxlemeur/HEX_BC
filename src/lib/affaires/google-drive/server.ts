@@ -32,13 +32,20 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
   const reader = new GoogleDriveReader(request.token, signal);
   if (request.action === "list") return { listing: await reader.list(request.folderId, request.pageToken), results: [], uploads: [] };
   if (new Set(request.files.map((file) => file.id)).size !== request.files.length) throw badRequest("Une pièce ne peut être sélectionnée qu'une fois.");
-  const folders = new Map(await Promise.all([...new Set(request.files.map((file) => file.folderId ?? request.folderId))]
-    .map(async (id) => [id, await reader.folder(id)] as const)));
+  // An unavailable folder fails only its own pieces; the other folders of the lot still copy.
+  type FolderLookup = { folder: Awaited<ReturnType<GoogleDriveReader["folder"]>> } | { error: unknown };
+  const folders = new Map<string, FolderLookup>(await Promise.all([...new Set(request.files.map((file) => file.folderId ?? request.folderId))]
+    .map(async (id) => {
+      try { return [id, { folder: await reader.folder(id) }] as const; }
+      catch (error) { return [id, { error }] as const; }
+    })));
   // Validate the cumulative size BEFORE downloading any selected content.
   const metadata = await Promise.all(request.files.map(async (selection) => {
     try { return { selection, file: await reader.file(selection.id) }; }
     catch (error) { return { selection, error }; }
   }));
+  // Lookups no longer reject the lot, so cancellation keeps the provider's interrupted-connection error.
+  if (signal.aborted) throw badRequest("Connexion Drive interrompue. Reconnectez-vous puis reprenez les échecs.", undefined, "DRIVE_NETWORK");
   if (metadata.reduce((sum, item) => sum + (item.file ? Number(item.file.size ?? 0) : 0), 0) > DRIVE_MAX_BATCH_BYTES) {
     throw badRequest("Le lot sélectionné dépasse 100 Mo. Réduisez la sélection.");
   }
@@ -53,7 +60,9 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
       signal.throwIfAborted();
       if ("error" in item) throw item.error;
       const { file, selection } = item;
-      const folder = folders.get(selection.folderId ?? request.folderId)!;
+      const lookup = folders.get(selection.folderId ?? request.folderId)!;
+      if ("error" in lookup) throw lookup.error;
+      const { folder } = lookup;
       const rejection = driveFileRejection(file);
       if (rejection) throw badRequest(rejection);
       if (file.version !== selection.version) throw badRequest("Pièce modifiée depuis la sélection. Actualisez le dossier.");
