@@ -3030,9 +3030,30 @@ function createTemplateInsertSupabaseMock(input?: {
       labor_role_id: null,
     },
   ];
-  const rpc = vi.fn().mockResolvedValue({
-    data: rpcData,
-    error: input?.rpcError ?? null,
+  const rpc = vi.fn((functionName: string) => {
+    if (functionName === "read_estimate_template_items") {
+      const items = input?.templateItems ?? defaultTemplateItems;
+      // Unit tests replace readAllRows with a fixture that awaits the query.
+      // The builder is thenable so that await sees the rows; range covers the real pager.
+      const result = { data: items, error: null, count: items.length };
+      const builder = {
+        eq: vi.fn(),
+        order: vi.fn(),
+        range: vi.fn(),
+        then: (
+          onFulfilled: (value: typeof result) => unknown,
+          onRejected?: (reason: unknown) => unknown,
+        ) => Promise.resolve(result).then(onFulfilled, onRejected),
+      };
+      builder.eq.mockReturnValue(builder);
+      builder.order.mockReturnValue(builder);
+      builder.range.mockResolvedValue(result);
+      return builder;
+    }
+    return Promise.resolve({
+      data: rpcData,
+      error: input?.rpcError ?? null,
+    });
   });
 
   const estimateItemsSelectIn = vi.fn().mockResolvedValue({
@@ -3144,7 +3165,7 @@ describe("estimate templates insertion", () => {
     await expect(
       insertTemplateIntoVersion({ templateId: TEMPLATE_ID, versionId: VERSION_ID })
     ).rejects.toMatchObject({ status: 400, code: "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED" });
-    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalledWith("insert_estimate_template_with_receipt", expect.anything());
   });
 
   it("rejects template insertion when a root line is not under a section leaf", async () => {
@@ -3171,7 +3192,7 @@ describe("estimate templates insertion", () => {
       code: "BAD_REQUEST",
       message: "Une ligne doit être ajoutée sous une section.",
     });
-    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalledWith("insert_estimate_template_with_receipt", expect.anything());
   });
 
   it("rejects insertion when adding a root section would exceed max depth", async () => {
@@ -3224,7 +3245,7 @@ describe("estimate templates insertion", () => {
       code: "BAD_REQUEST",
       message: "Impossible de créer ce niveau: profondeur max 3.",
     });
-    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalledWith("insert_estimate_template_with_receipt", expect.anything());
   });
 });
 
