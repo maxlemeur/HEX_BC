@@ -9,7 +9,7 @@ import { useEstimatePreferenceKey, useEstimatePreferenceStorage } from "@/hooks/
 export const ESTIMATE_COLUMN_GROUPS: readonly (readonly EstimateColumnId[])[] = [
   ["designation"],
   ["quantity", "unit"],
-  ["supply_price", "supply_type", "k_fo", "supplier"],
+  ["supply_price", "supply_type", "fo_provision", "k_fo", "supplier"],
   ["labor_hours", "h_mo_majoration", "labor_role", "k_mo"],
   ["labor_hours_workshop", "labor_role_workshop", "k_mo_workshop"],
   ["labor_hours_site", "labor_role_site", "k_mo_site"],
@@ -18,6 +18,10 @@ export const ESTIMATE_COLUMN_GROUPS: readonly (readonly EstimateColumnId[])[] = 
 ];
 
 export const DEFAULT_ESTIMATE_COLUMN_ORDER = ESTIMATE_COLUMN_GROUPS.flat();
+
+/** TI-534 : colonnes propres au moteur 3, absentes de la grille d'une v1/v2. */
+export const ESTIMATE_V3_ONLY_COLUMN_IDS: ReadonlySet<EstimateColumnId> = new Set<EstimateColumnId>(["fo_provision"]);
+const NO_HIDDEN_COLUMNS: ReadonlySet<EstimateColumnId> = new Set<EstimateColumnId>();
 
 export const SPREADSHEET_ESTIMATE_COLUMN_IDS: Record<string, EstimateColumnId> = {
   title: "designation", quantity: "quantity", unit: "unit", unit_price: "supply_price",
@@ -32,7 +36,7 @@ export const SPREADSHEET_ESTIMATE_COLUMN_IDS: Record<string, EstimateColumnId> =
 
 export const ESTIMATE_COLUMN_LABELS: Record<EstimateColumnId, string> = {
   designation: "Désignation", quantity: "Quantité", unit: "Unité",
-  supply_price: "Prix FO", supply_type: "Type FO", k_fo: "K FO",
+  supply_price: "Prix FO", supply_type: "Type FO", fo_provision: "Provision FO", k_fo: "K FO",
   supplier: "Fournisseur",
   labor_hours: "Heures MO", h_mo_majoration: "Majoration MO",
   labor_role: "Type MO", k_mo: "K MO",
@@ -61,14 +65,21 @@ function parseOrder(raw: string | null) {
 export function useEstimateColumnOrder() {
   const key = useEstimatePreferenceKey("est-col-order-v1");
   const [order, setOrder] = useEstimatePreferenceStorage(key, parseOrder);
-  const moveColumn = useCallback((id: EstimateColumnId, direction: -1 | 1) => {
+  // A hidden column (one the grid does not show) is stepped over: the move swaps with the next shown neighbor.
+  const moveColumn = useCallback((
+    id: EstimateColumnId,
+    direction: -1 | 1,
+    hiddenIds: ReadonlySet<EstimateColumnId> = NO_HIDDEN_COLUMNS,
+  ) => {
     setOrder((current) => {
       const group = ESTIMATE_COLUMN_GROUPS.find((columns) => columns.includes(id));
       const index = current.indexOf(id);
-      const target = current[index + direction];
+      let targetIndex = index + direction;
+      while (current[targetIndex] && hiddenIds.has(current[targetIndex])) targetIndex += direction;
+      const target = current[targetIndex];
       if (!group || !target || !group.includes(target)) return current;
       const next = [...current];
-      [next[index], next[index + direction]] = [next[index + direction], next[index]];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
       return next;
     });
   }, [setOrder]);

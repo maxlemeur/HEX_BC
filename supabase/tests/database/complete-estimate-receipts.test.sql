@@ -73,5 +73,11 @@ select results_eq(
 reset role;
 select ok(not has_function_privilege('anon','public.insert_estimate_template_with_receipt(uuid,uuid,uuid)','execute'),'anon cannot call template writer');
 select ok(not has_function_privilege('anon','public.insert_estimate_assembly_with_receipt(uuid,uuid,uuid)','execute'),'anon cannot call assembly writer');
+-- The UI never calls insert_estimate_template_into_version as anon, so a journey cannot see this grant.
+-- The authenticated insert above is the legitimate path. These four facts mirror the assembly writer.
+select ok(not has_function_privilege('anon','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'anon cannot execute template insertion');
+select ok(not has_function_privilege('public','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'public cannot execute template insertion');
+select ok(has_function_privilege('authenticated','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'authenticated can execute template insertion');
+select ok(has_function_privilege('service_role','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'service_role keeps execute on template insertion');
 select finish();
 rollback;

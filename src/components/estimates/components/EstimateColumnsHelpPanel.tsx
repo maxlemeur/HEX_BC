@@ -206,6 +206,7 @@ const HELP_SECTIONS_V3: HelpSection[] = [
     items: [
       { label: "PR FO", description: V3_TIP["PR FO"], kind: "Saisie" },
       { label: "Type FO", description: COLUMN_HEADER_TOOLTIPS["Type FO"], kind: "Saisie" },
+      { label: "Provision FO", description: V3_TIP["Provision FO"], kind: "Calculé" },
       { label: "K FO", description: V3_TIP["K FO"], kind: "Saisie" },
     ],
   },
@@ -353,16 +354,16 @@ export function EstimateColumnsHelpPanel() {
               {isV3 ? (
                 <>
                   <p className="mt-3 font-mono text-sm leading-6 text-primary-foreground">
-                    100 € × 1,20 × 1,30 + 1 h × 100 % × 1,10 × 50 € × 1,20 = 222,00 €
+                    100 € × 1,03 × 1,20 × 1,30 + 1 h × 100 % × 1,10 × 50 € × 1,20 = 226,68 €
                   </p>
                   <p className="mt-2 text-xs leading-5 text-primary-foreground">
-                    Ici : PR FO 100 €, K FO 1,20, coefficient de vente FO 1,30, 1 h MO / u à
-                    50 €/h, majoration 100 %, K MO 1,10 et coefficient de vente MO 1,20 : le PU
-                    est arrondi au centime une seule fois.
+                    Ici : un tube à PR FO 100 €, provision FO 1,03, K FO 1,20, coefficient de vente
+                    FO 1,30, 1 h MO / u à 50 €/h, majoration 100 %, K MO 1,10 et coefficient de
+                    vente MO 1,20 : le PU est arrondi au centime une seule fois.
                   </p>
                   <p className="mt-2 text-xs leading-5 text-primary-foreground">
                     Les heures étant par unité, une Qté de 2 double la fourniture et la main
-                    d’œuvre : h MO total = 2 h et prix total = 2 × 222,00 € = 444,00 €.
+                    d’œuvre : h MO total = 2 h et prix total = 2 × 226,68 € = 453,36 €.
                   </p>
                 </>
               ) : (

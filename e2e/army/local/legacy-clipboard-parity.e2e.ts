@@ -186,13 +186,14 @@ armyTest("LEGCLIP01 real clipboard Ctrl+C and Ctrl+V preserve all v3 TSV fields 
     const copiedLine = lines.find((item) => item.id !== draft.seed.id)!;
     expect(inputs(original)).toEqual(inputs(draft.before.items.find((item) => item.id === draft.seed.id)!));
     expect(inputs(copiedLine)).toEqual(inputs(original));
-    expect(amounts(draft.before.items.find((item) => item.id === draft.seed.id)!)).toEqual([4063, 813, 4876]);
+    expect(amounts(draft.before.items.find((item) => item.id === draft.seed.id)!)).toEqual([4103, 821, 4924]);
     // V3 rounds VAT once for the full rate group, then allocates its remainder
     // by ascending UUID. A copied row preserves inputs, not the old allocation:
-    // 20% of 8126 rounds to 1625, so two independently rounded 813s are wrong.
+    // 20% of 8206 rounds to 1641, so two independently rounded 821s are wrong.
+    // Both rows carry the 1.01 FO provision of an untyped v3 line (TI-534).
     const byUuid = [...lines].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
-    expect(byUuid.map(amounts)).toEqual([[4063, 813, 4876], [4063, 812, 4875]]);
-    expect(after.version).toMatchObject({ total_ht_cents: 8126, total_tax_cents: 1625, total_ttc_cents: 9751,
+    expect(byUuid.map(amounts)).toEqual([[4103, 821, 4924], [4103, 820, 4923]]);
+    expect(after.version).toMatchObject({ total_ht_cents: 8206, total_tax_cents: 1641, total_ttc_cents: 9847,
       discount_bp: 0, rounding_mode: "none", rounding_adjustment_cents: 0, sale_coefficient_fo: 1.3 });
     expect(lines.reduce((sum, item) => sum + item.line_tax_cents!, 0)).toBe(after.version.total_tax_cents);
     await recordEvidence(army, "legacy-clipboard-real-copy", {

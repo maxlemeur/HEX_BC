@@ -91,7 +91,8 @@ values
   ('public.duplicate_estimate_version_without_product_id', 'duplication (M4) : une v3 se duplique par le contrat duplicate_source_v3 sous contrat d''écrivain ; v1/v2 inchangées (P-15)'),
   ('public.freeze_estimate_v3_snapshot', 'gel v3 (M4) : refuse tout moteur autre que 3'),
   ('private.estimate_v3_canonical_input', 'entrées canoniques v3 (M4) : refuse tout moteur autre que 3'),
-  ('private.derive_estimate_item_v3_columns', 'dérivation des heures et du taux d''une ligne v3 (M4) : sans effet hors moteur 3');
+  ('private.derive_estimate_item_v3_columns', 'dérivation des heures et du taux d''une ligne v3 (M4) : sans effet hors moteur 3'),
+  ('private.derive_estimate_item_fo_provision', 'provision FO d''une ligne v3 (TI-534) : dérivée du type FO en moteur 3, 1,000 imposé hors moteur 3');
 
 select is(
   array(
@@ -420,7 +421,8 @@ begin
     line_total_ht_cents,
     line_tax_cents,
     line_total_ttc_cents,
-    h_mo_per_unit
+    h_mo_per_unit,
+    fo_provision
   )
   select
     entry.id,
@@ -444,7 +446,8 @@ begin
     case when entry.item_type = 'line' then 2000 end,
     case when entry.item_type = 'line' then 400 end,
     case when entry.item_type = 'line' then 2400 end,
-    case when entry.item_type = 'line' then coalesce(entry.h_mo, 0) / 2 end
+    case when entry.item_type = 'line' then coalesce(entry.h_mo, 0) / 2 end,
+    1 -- TI-534 : provision neutre, les montants figés de ces lignes sont ceux de FO = P × K FO
   from public.estimate_versions version
   cross join jsonb_to_recordset(p_items) as entry(
     id uuid,

@@ -1395,6 +1395,7 @@ describe("enrichEstimateItemsWithAiStructureProvenance", () => {
           unit_price_ht_cents: null,
           tax_rate_bp: null,
           k_fo: null,
+          fo_provision: 1,
           h_mo: null,
           h_mo_majoration: 1,
           k_mo: null,

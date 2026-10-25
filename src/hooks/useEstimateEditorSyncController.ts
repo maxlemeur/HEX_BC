@@ -23,6 +23,7 @@ import {
 import {
   batchEstimateOperations,
   bulkUpdateEstimateItems,
+  type EstimateBatchOperationResult,
   isEstimateApiError,
 } from "@/lib/estimates/client";
 import {
@@ -82,6 +83,7 @@ export function useEstimateEditorSyncController({
   getVersionSnapshot,
   getPersistedTotals,
   replaceItems,
+  deriveBufferedItem,
   applyRestoredDraft,
   applyVersionFlushResult,
   setTotalsOutOfSync,
@@ -111,6 +113,7 @@ export function useEstimateEditorSyncController({
   const pendingBufferedUpdateCountRef = useRef(0);
   const hasPendingTotalsSaveRef = useRef(false);
   const savePendingSettingsRef = useRef(savePendingSettings);
+  const deriveBufferedItemRef = useRef(deriveBufferedItem);
   const isFlushingBufferedUpdatesRef = useRef(false);
   const flushCompletionRef = useRef<Promise<void> | null>(null);
   const activeFlushIdRef = useRef(0);
@@ -166,7 +169,8 @@ export function useEstimateEditorSyncController({
 
   useLayoutEffect(() => {
     savePendingSettingsRef.current = savePendingSettings;
-  }, [savePendingSettings]);
+    deriveBufferedItemRef.current = deriveBufferedItem;
+  }, [deriveBufferedItem, savePendingSettings]);
 
   const updateHasPendingTotalsSave = useCallback((value: boolean) => {
     hasPendingTotalsSaveRef.current = value;
@@ -348,10 +352,8 @@ export function useEstimateEditorSyncController({
     );
     pruneSyncedBufferedUpdates();
 
-    return applyBufferedUpdatesToItems(
-      sourceItemsWithStableClientKeys,
-      serializeBufferedUpdates(pendingItemUpdatesRef.current)
-    );
+    return applyBufferedUpdatesToItems(sourceItemsWithStableClientKeys,
+      serializeBufferedUpdates(pendingItemUpdatesRef.current), deriveBufferedItemRef.current);
   }, [pruneSyncedBufferedUpdates]);
 
   useEffect(() => {
@@ -362,11 +364,8 @@ export function useEstimateEditorSyncController({
         readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(routeVersionId);
       if (!draft) return;
 
-      const rehydration = rehydrateBufferedUpdates(
-        itemsRef.current,
-        draft.buffered_updates,
-        pendingItemUpdatesRef.current
-      );
+      const rehydration = rehydrateBufferedUpdates(itemsRef.current, draft.buffered_updates,
+        pendingItemUpdatesRef.current, deriveBufferedItemRef.current);
       pendingBufferedUpdateCountRef.current = rehydration.pendingUpdateCount;
       setHasPendingBufferedUpdates(rehydration.hasPendingUpdates);
       replaceItems(rehydration.mergedItems);
@@ -759,6 +758,7 @@ export function useEstimateEditorSyncController({
       data: toEngineItemWrite(entry.updates, versionSnapshot),
     }));
     let lineBatchCommitted = false;
+    let committedLineResults: readonly EstimateBatchOperationResult[] = [];
     let committedLineVersionToken: string | null = null;
     let committedLineContentRevision: number | undefined;
 
@@ -793,6 +793,7 @@ export function useEstimateEditorSyncController({
         }
 
         lineBatchCommitted = true;
+        committedLineResults = batchResult.results;
         nextVersionToken = batchResult.versionToken.updated_at;
         const acknowledgedVersion: EditorMutationToken =
           batchResult.currentVersionToken?.updated_at === nextVersionToken
@@ -829,12 +830,8 @@ export function useEstimateEditorSyncController({
         mergeSyncedItemPayload(entry.id, entry.updates);
       });
       pruneSyncedBufferedUpdates();
-      applyVersionFlushResult({
-        versionId: flushVersionId,
-        totalsPatch: savedVersionTotalsPatch,
-        updatedAt: nextVersionToken,
-        ...(nextContentRevision === undefined ? {} : { contentRevision: nextContentRevision }),
-      });
+      applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: savedVersionTotalsPatch, updatedAt: nextVersionToken,
+        results: committedLineResults, ...(nextContentRevision === undefined ? {} : { contentRevision: nextContentRevision }) });
       // Une sauvegarde réussie invalide les anciens messages de navigation ou
       // de synchronisation. Sans ce reset, le ruban peut afficher « Sauvegardé »
       // tout en conservant une alerte rouge devenue fausse.
@@ -878,12 +875,9 @@ export function useEstimateEditorSyncController({
           mergeSyncedItemPayload(entry.id, entry.updates);
         });
         pruneSyncedBufferedUpdates();
-        applyVersionFlushResult({
-          versionId: flushVersionId,
-          totalsPatch: undefined,
-          updatedAt: committedLineVersionToken,
-          ...(committedLineContentRevision === undefined ? {} : { contentRevision: committedLineContentRevision }),
-        });
+        applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: undefined, updatedAt: committedLineVersionToken,
+          results: committedLineResults,
+          ...(committedLineContentRevision === undefined ? {} : { contentRevision: committedLineContentRevision }) });
         updateHasPendingTotalsSave(Boolean(versionTotalsPatch));
         clearHistory();
       } else {

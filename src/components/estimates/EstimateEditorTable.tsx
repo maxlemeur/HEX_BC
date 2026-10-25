@@ -88,7 +88,12 @@ import {
   type EstimateColumnWidths,
   useEstimateColumnWidths,
 } from "@/hooks/useEstimateColumnWidths";
-import { useEstimateColumnOrder, DEFAULT_ESTIMATE_COLUMN_ORDER, SPREADSHEET_ESTIMATE_COLUMN_IDS } from "@/hooks/useEstimateColumnOrder";
+import {
+  useEstimateColumnOrder,
+  DEFAULT_ESTIMATE_COLUMN_ORDER,
+  ESTIMATE_V3_ONLY_COLUMN_IDS,
+  SPREADSHEET_ESTIMATE_COLUMN_IDS,
+} from "@/hooks/useEstimateColumnOrder";
 import { EstimateColumnOrderContext } from "@/components/estimates/context/EstimateColumnOrderContext";
 import { useEstimateSectionVisibility } from "@/components/estimates/hooks/useEstimateSectionVisibility";
 import { useIsMobileViewport } from "@/hooks/useIsTablet";
@@ -753,6 +758,7 @@ export function resolveEstimateEditorGridStyle(
   isLaborSplitEnabled: boolean,
   customWidths: Readonly<EstimateColumnWidths> = {},
   order: readonly EstimateColumnId[] = DEFAULT_ESTIMATE_COLUMN_ORDER,
+  isV3 = false,
 ): CSSProperties | undefined {
   const columnIds: EstimateColumnId[] = [];
   const desktopColumns: string[] = [];
@@ -809,6 +815,7 @@ export function resolveEstimateEditorGridStyle(
     // la fonction retournait `undefined` et laissait le CSS statique decider.
     // Ce second regime empechait toute colonne optionnelle en mode split.
     pushFixed("supply_type", 112, 100); // Type FO
+    if (isV3) pushFixed("fo_provision", 64, 60); // Provision FO (TI-534)
     pushFixed("k_fo", 60, 56); // K FO
     addOptionalColumn("supplier", 180, 160);
     pushFixed("h_mo_majoration", 96, 88); // Majoration MO
@@ -820,6 +827,8 @@ export function resolveEstimateEditorGridStyle(
     pushFixed("k_mo_site", 60, 56); // K MO chantier
   } else {
     addOptionalColumn("supply_type", 112, 100);
+    // TI-534 : la provision FO d'une ligne v3 s'affiche avec son K FO.
+    if (isV3 && visibleColumns.has("k_fo")) pushFixed("fo_provision", 64, 60);
     addOptionalColumn("k_fo", 56, 56);
     addOptionalColumn("supplier", 180, 160);
     pushFixed("labor_hours", 56, 56); // h MO
@@ -1081,6 +1090,9 @@ export function EstimateEditorTable({
     [collapsedSectionIds, getVisibleItems]
   );
   const hasVisibleRowsForRender = getVisibleItemsForRender(null).length > 0;
+  // Lot 2, sous-lot 2.6 (revue) : une ligne v3 a son unité dans unit_code (copie, association d'article).
+  const v3Grid = useEstimateV3Grid();
+  const isV3Grid = v3Grid !== null;
   const dynamicGridStyle = useMemo(
     () =>
       resolveEstimateEditorGridStyle(
@@ -1088,8 +1100,15 @@ export function EstimateEditorTable({
         isLaborSplitEnabled,
         customColumnWidths,
         columnOrder.order,
+        isV3Grid,
       ),
-    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled, columnOrder.order],
+    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled, columnOrder.order, isV3Grid],
+  );
+  const moveColumnInOrder = columnOrder.moveColumn;
+  const handleMoveColumn = useCallback(
+    (id: EstimateColumnId, direction: -1 | 1) =>
+      moveColumnInOrder(id, direction, isV3Grid ? undefined : ESTIMATE_V3_ONLY_COLUMN_IDS),
+    [isV3Grid, moveColumnInOrder],
   );
 
   const handleColumnResizeStart = useCallback(
@@ -1186,18 +1205,19 @@ export function EstimateEditorTable({
       (viewportVisibleColumns.has("marge") ? 1 : 0) +
       (viewportVisibleColumns.has("marque") ? 1 : 0);
     if (isLaborSplitEnabled) {
+      const provisionSpan = isV3Grid ? 1 : 0;
       return {
         foStart,
-        foSpan: 3 + supplierSpan,
-        moStart: 7 + supplierSpan,
+        foSpan: 3 + supplierSpan + provisionSpan,
+        moStart: 7 + supplierSpan + provisionSpan,
         moSpan: 7,
-        puStart: 14 + supplierSpan + priceBreakdownSpan,
+        puStart: 14 + supplierSpan + provisionSpan + priceBreakdownSpan,
       };
     }
     const foSpan =
       1 + supplierSpan +
       (viewportVisibleColumns.has("supply_type") ? 1 : 0) +
-      (viewportVisibleColumns.has("k_fo") ? 1 : 0);
+      (viewportVisibleColumns.has("k_fo") ? (isV3Grid ? 2 : 1) : 0);
     const moStart = foStart + foSpan;
     const moSpan =
       1 +
@@ -1206,7 +1226,7 @@ export function EstimateEditorTable({
       (viewportVisibleColumns.has("k_mo") ? 1 : 0);
     const puStart = moStart + moSpan + priceBreakdownSpan;
     return { foStart, foSpan, moStart, moSpan, puStart };
-  }, [viewportVisibleColumns, isLaborSplitEnabled]);
+  }, [viewportVisibleColumns, isLaborSplitEnabled, isV3Grid]);
 
   const hasPendingCreateItems = useMemo(
     () => items.some((item) => isPendingCreateItem(item)),
@@ -1272,19 +1292,19 @@ export function EstimateEditorTable({
     return map;
   }, [laborRoles]);
 
+  // A draft typed while a new line still had its temporary id stays under that id, its client key: the
+  // created line takes it back instead of its stored value (the creation answers after a version re-read).
   const mergedUnitDrafts = useMemo(() => {
     const next = { ...unitDrafts };
     items.forEach((item) => {
       if (item.item_type !== "line") return;
       if (next[item.id] === undefined) {
-        next[item.id] = item.description ?? "";
+        next[item.id] = unitDrafts[getEstimateEditorItemClientKey(item)] ?? item.description ?? "";
       }
     });
     return next;
   }, [items, unitDrafts]);
 
-  // Lot 2, sous-lot 2.6 (revue) : une ligne v3 a son unité dans unit_code (copie, association d'article).
-  const v3Grid = useEstimateV3Grid();
   const clipboardUnitDrafts = useEstimateV3UnitDrafts(items, mergedUnitDrafts);
 
   const mergedSupplyTypeDrafts = useMemo(() => {
@@ -1292,9 +1312,9 @@ export function EstimateEditorTable({
     items.forEach((item) => {
       if (item.item_type !== "line") return;
       if (next[item.id] !== undefined) return;
-      next[item.id] = item.supply_type_id
+      next[item.id] = supplyTypeDrafts[getEstimateEditorItemClientKey(item)] ?? (item.supply_type_id
         ? (supplyTypeById.get(item.supply_type_id)?.name ?? "")
-        : "";
+        : "");
     });
     return next;
   }, [items, supplyTypeById, supplyTypeDrafts]);
@@ -2507,7 +2527,7 @@ export function EstimateEditorTable({
                 allAdvancedColumns={columnVisibility.allAdvancedColumns}
                 columnLabels={columnVisibility.columnLabels}
                 columnOrder={columnOrder.order}
-                onMoveColumn={columnOrder.moveColumn}
+                onMoveColumn={handleMoveColumn}
                 onResetColumns={() => {
                   columnVisibility.resetColumns();
                   resetColumnWidths();

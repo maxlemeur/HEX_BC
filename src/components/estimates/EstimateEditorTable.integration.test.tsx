@@ -47,9 +47,11 @@ vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
     treeConnectorMeta,
     visibleColumns,
     onOpenMobileEditor,
+    unitValue,
   }: {
     item: EstimateItem;
     estimateCurrency: string;
+    unitValue?: string;
     visibleColumns?: ReadonlySet<string>;
     onOpenMobileEditor?: (itemId: string) => void;
     treeConnectorMeta?: {
@@ -65,6 +67,7 @@ vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
       treeConnectorMeta={treeConnectorMeta}
       visibleColumns={visibleColumns}
       onOpenMobileEditor={onOpenMobileEditor}
+      unitValue={unitValue}
     />
   ),
 }));
@@ -75,9 +78,11 @@ function MockRow({
   treeConnectorMeta,
   onOpenMobileEditor,
   visibleColumns,
+  unitValue,
 }: {
   item: EstimateItem;
   estimateCurrency: string;
+  unitValue?: string;
   visibleColumns?: ReadonlySet<string>;
   onOpenMobileEditor?: (itemId: string) => void;
   treeConnectorMeta?: {
@@ -87,7 +92,7 @@ function MockRow({
     hasVisibleChildren: boolean;
   };
 }) {
-  const { onDeleteItem, onPatchItem, onLineSelectionInteraction } =
+  const { onDeleteItem, onPatchItem, onLineSelectionInteraction, onUnitChange, onUnitCommit } =
     useEstimateEditorRowActions();
 
   return (
@@ -109,6 +114,14 @@ function MockRow({
     >
       <span>Currency {estimateCurrency}</span>
       <input aria-label={`Title ${item.id}`} value={item.title} readOnly />
+      {unitValue === undefined ? null : (
+        <input
+          aria-label={`Unit ${item.id}`}
+          value={unitValue}
+          onChange={(event) => onUnitChange(item.id, event.target.value)}
+          onBlur={() => onUnitCommit(item.id)}
+        />
+      )}
       <button
         type="button"
         onClick={() =>
@@ -469,6 +482,21 @@ describe("EstimateEditorTable integration", () => {
       screen.getByRole("textbox", { name: "Title line-real" }),
     ).toBe(titleInput);
     expect(titleInput).toHaveFocus();
+  });
+
+  it("keeps a unit typed on an optimistic line once its id is reconciled", () => {
+    const clientKey = "tmp:line-client";
+    const { onPatchItem, rerenderItems } = renderEstimateEditorTable({
+      items: [createItem({ id: clientKey, _clientKey: clientKey, description: null })],
+    });
+
+    fireEvent.change(screen.getByRole("textbox", { name: `Unit ${clientKey}` }), { target: { value: "u" } });
+    rerenderItems([createItem({ id: "line-real", _clientKey: clientKey, description: null })]);
+    const unitInput = screen.getByRole("textbox", { name: "Unit line-real" });
+    fireEvent.blur(unitInput);
+
+    expect(unitInput).toHaveValue("u");
+    expect(onPatchItem).toHaveBeenCalledWith("line-real", { description: "u" }, { persist: true });
   });
 
   it("applies bulk majoration on selected rows", async () => {

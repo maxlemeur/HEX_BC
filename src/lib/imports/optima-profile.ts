@@ -75,6 +75,8 @@ const EDITOR_EXPORT_PROFILE: DeclaredProfile = {
     { header: "Quantité", target: "quantity" },
     { header: "Prix unitaire HT (EUR)", target: "unit_price_ht" },
     { header: "Type FO", target: "supply_type" },
+    // TI-534: the v3 CSV states the stored FO provision; a re-import derives it again from the type.
+    { header: "Provision FO", target: null },
     { header: "K FO", target: null },
     { header: "h MO", target: "labor_hours" },
     { header: "Majoration MO (%)", target: "h_mo_majoration_percent" },
@@ -140,6 +142,7 @@ const DPGF_V3_EXPORT_PROFILE: DeclaredProfile = {
     { header: "TVA (%)", target: null },
     ...perCurrency("Prix unitaire HT", "unit_price_ht"),
     { header: "Type FO", target: "supply_type" },
+    { header: "Provision FO", target: null },
     { header: "K FO", target: null },
     { header: "h MO / unité", target: "labor_hours_per_unit" },
     { header: "K MO", target: null },

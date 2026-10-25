@@ -21,11 +21,11 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 // écrites avant le code :
 //  V3M-01 Une v3 ne peut pas être émise (refus ESTIMATE_ENGINE_UNAVAILABLE ou ESTIMATE_V3_EMISSION_NOT_READY) :
 //         premier rouge attendu avant M5 et le TS de 2.7.
-//  V3M-02 Le PDF émis imprime d'autres montants que le §5 : une ligne dont PT ≠ ⌈Q × PU⌋ (O1 20 ml
-//         166,63 / 3 332,60, O4 1 139 ml 13,53 / 15 410,67), un net de ligne au lieu du brut,
-//         pas de ligne « Remise commerciale −1,01 € », un « Total HT net » ≠ 69 053,55.
-//  V3M-03 La TVA imprimée n'est pas calculée par taux sur la base nette (S2 : 20 % 69 053,55 /
-//         13 810,71 ; S5 : 10 % 5 554,53 / 555,45 et 20 % 63 499,02 / 12 699,80, TTC 82 308,80).
+//  V3M-02 Le PDF émis imprime d'autres montants que le §5 (provision FO 1,01, TI-534) : une ligne dont PT ≠ ⌈Q × PU⌋
+//         (O1 20 ml 167,34 / 3 346,80, O4 1 139 ml 13,57 / 15 456,23), un net de ligne au lieu du brut,
+//         pas de ligne « Remise commerciale −1,01 € », un « Total HT net » ≠ 69 472,53.
+//  V3M-03 La TVA imprimée n'est pas calculée par taux sur la base nette (S2 : 20 % 69 472,53 /
+//         13 894,51 ; S5 : 10 % 5 588,41 / 558,84 et 20 % 63 884,12 / 12 776,82, TTC 82 808,19).
 //  V3M-04 Le sceau d'une v3 n'est pas marqué 5, n'est pas lié au contrat 2 et à la charge 6, ou ne se
 //         vérifie pas ; le PDF joint n'est pas le document stocké.
 //  V3M-05 L'impression, le portail ou les exports XLSX et DPGF montrent d'autres PU, PT, remise ou
@@ -47,7 +47,7 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 // Ajoutés à la fusion de 2.6 (docs/testing/estimate-engine-v3-2.7.md §13), la fiche et l'éditeur v3 de 2.6
 // ayant fermé jusqu'en 2.7 ce que 2.7 ouvre :
 //  V3M-12 La fiche d'un brouillon v3 garde « Préparer le PDF » désactivé (raison de 2.6), ou le PDF préparé par
-//         sa fenêtre n'est pas le document client v3 (« 1 u 13,00 € 13,00 € », TVA 20 % 13,00 / 2,60, TTC 15,60).
+//         sa fenêtre n'est pas le document client v3 (« 1 u 13,13 € 13,13 € », TVA 20 % 13,13 / 2,63, TTC 15,76).
 //  V3M-13 L'éditeur d'une v3 n'offre pas « Envoyer », ou son émission manuelle ne scelle pas la v3 (marqueur 5,
 //         contrat 2, charge 6).
 //  V3M-14 La fiche d'une v3 émise dit « Non scellé », ne propose ni le PDF original ni « Marquer accepté »,
@@ -81,9 +81,9 @@ const TEMPLATE_REASON = "Moteur de calcul 3 : l’enregistrement comme modèle n
 const normalizeQuotes = (text: string | null | undefined) => (text ?? "").replace(/[\s  ]+/g, " ").replace(/[’']/g, "'").trim();
 /** La ligne unique de V3M05 dans un texte de document normalisé : « 1 u PU PT », TVA 20 % (base, montant), TTC. */
 const oneLineDocument = (text: string) => ({
-  line: /(?:^| )1 u (?:[^€]{0,40} )?13,00 ?€(?: [^€]{0,40})? 13,00 ?€/u.test(text),
-  tax: /TVA 20 ?%(?: [^€]{0,60})? (?:13,00 ?€(?: [^€]{0,40})? 2,60 ?€|2,60 ?€(?: [^€]{0,40})? 13,00 ?€)/u.test(text),
-  ttc: /TTC(?: [^€]{0,30})? 15,60 ?€/u.test(text),
+  line: /(?:^| )1 u (?:[^€]{0,40} )?13,13 ?€(?: [^€]{0,40})? 13,13 ?€/u.test(text),
+  tax: /TVA 20 ?%(?: [^€]{0,60})? (?:13,13 ?€(?: [^€]{0,40})? 2,63 ?€|2,63 ?€(?: [^€]{0,40})? 13,13 ?€)/u.test(text),
+  ttc: /TTC(?: [^€]{0,30})? 15,76 ?€/u.test(text),
 });
 const ONE_LINE_DOCUMENT = { line: true, tax: true, ttc: true };
 /**
@@ -463,7 +463,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
     });
 
   // V3M-10 : la règle d'approbation de l'affaire de la fixture (5 000 € HT, portée « client ») s'applique à S2
-  // (69 053,55 € HT) ; l'administrateur de l'entreprise approuve, puis la v3 est émise sous le contrat 2.
+  // (69 472,53 € HT) ; l'administrateur de l'entreprise approuve, puis la v3 est émise sous le contrat 2.
   offerTest("V3M03 a v3 above its approval threshold is approved, then issued under client contract 2 and payload 6 with its approval intact",
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
       const { app, browser, army } = ui;
@@ -574,9 +574,10 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await app.open("/dashboard/affaires");
       await expectOfferGuardInstalled(record);
       const ids = await createV3(browser, army, record, "V3M05");
-      // 1 u, PR FO 10,00 €, c_FO 1,30 : PU 13,00 €, HT 13,00 €, TVA 20 % 2,60 €, TTC 15,60 € (sous toute règle d'approbation).
+      // 1 u, PR FO 10,00 €, provision FO 1,01, c_FO 1,30 : PU 13,13 €, HT 13,13 €, TVA 20 % 2,63 €, TTC 15,76 € (sous toute
+      // règle d'approbation).
       const settled = await settleOneLineV3(browser, army, record, "V3M05", ids, { unitCode: "u", pricingStatus: "priced" });
-      expect([settled.version.total_ht_cents, settled.version.total_tax_cents, settled.version.total_ttc_cents]).toEqual([1300, 260, 1560]);
+      expect([settled.version.total_ht_cents, settled.version.total_tax_cents, settled.version.total_ttc_cents]).toEqual([1313, 263, 1576]);
       // The API lease of this document goes back: the PDF dialog of the detail page and the editor take their own.
       expect((await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
       const detailActions = async () => {
@@ -651,7 +652,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const sentSeal = await verifySeal(browser, ids.versionId);
       const issued = { response: emission.status, version: [sent.version.status, sent.version.seal_payload_version,
         sent.version.total_ht_cents, sent.version.total_tax_cents, sent.version.total_ttc_cents] };
-      const expectedIssued = { response: 200, version: ["sent", 5, 1300, 260, 1560] };
+      const expectedIssued = { response: 200, version: ["sent", 5, 1313, 263, 1576] };
       await record("editor-issued", { versionId: ids.versionId, expected: expectedIssued, actual: issued, verified: sentSeal });
       expect(issued).toEqual(expectedIssued);
       expect(sentSeal).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: sent.version.seal_hash,
@@ -775,7 +776,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         { label: "Total HT brut", emphasis: "detail", banner: false, strong: false },
         { label: "Remise commerciale", emphasis: "detail", banner: false, strong: false },
         { label: "Total HT net", emphasis: "net", banner: true, strong: true },
-        { label: "TVA 20 % sur 69 053,55 €", emphasis: "detail", banner: false, strong: false },
+        { label: "TVA 20 % sur 69 472,53 €", emphasis: "detail", banner: false, strong: false },
         { label: "Total TTC", emphasis: "payable", banner: false, strong: true },
       ];
       await printIdentity(ui, ids.versionId, emails);
