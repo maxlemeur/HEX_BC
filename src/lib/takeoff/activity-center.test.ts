@@ -144,6 +144,8 @@ function createSupabaseMock(input?: {
     item_type: "line" | "section";
     tenant_id: string;
   }>;
+  jobPatches?: Record<string, QueryRow>;
+  planFilePatches?: Record<string, QueryRow>;
 }) {
   const versions = [
     {
@@ -243,6 +245,9 @@ function createSupabaseMock(input?: {
       tenant_id: TENANT_ID,
     },
   ];
+
+  for (const job of takeoffJobs) Object.assign(job, input?.jobPatches?.[job.id]);
+  for (const file of planFiles) Object.assign(file, input?.planFilePatches?.[file.plan_set_id]);
 
   const reviewDecisions = [
     { takeoff_job_id: JOB_A_ID, tenant_id: TENANT_ID },
@@ -439,6 +444,39 @@ describe("listActivityCenterJobs", () => {
         versionLabel: "V3",
         statusRaw: "review_required",
       }),
+    ]);
+  });
+
+  // M1b : un job de jeu de plans porte le libellé d'origine (« CVC A (R+1).pdf ») et son jeu ; le
+  // fichier garde le nom nettoyé pour Storage, partagé par R+1 et R-1. Le jeu du job fait foi.
+  it("resolves a plan-set job by its plan set, never by the sanitized file name", async () => {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+      supabase: createSupabaseMock({
+        jobPatches: {
+          [JOB_A_ID]: { plan_set_id: PLAN_SET_A_ID, source_file_name: "CVC A (R+1).pdf" },
+          [JOB_B_ID]: { plan_set_id: PLAN_SET_B_ID, source_file_name: "CVC-A-R-1-.pdf" },
+        },
+        planFilePatches: { [PLAN_SET_A_ID]: { file_name: "CVC-A-R-1-.pdf" } },
+      }) as never,
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+
+    const filtered = await listActivityCenterJobs({
+      project_id: PROJECT_ID,
+      planSetId: PLAN_SET_A_ID,
+      limit: 20,
+      offset: 0,
+    });
+    expect(filtered.jobs.map((job) => [job.jobId, job.planSetLabel])).toEqual([
+      [JOB_A_ID, "Plans architecte - Lot CVC"],
+    ]);
+
+    const all = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
+    expect(all.jobs.map((job) => [job.jobId, job.planSetLabel])).toEqual([
+      [JOB_A_ID, "Plans architecte - Lot CVC"],
+      [JOB_B_ID, "Plans execution - Lot CVC"],
+      [JOB_C_ID, null],
     ]);
   });
 

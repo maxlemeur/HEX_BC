@@ -10,6 +10,7 @@ import {
   listTakeoffJobs,
   retryTakeoffJob,
 } from "@/lib/takeoff/client";
+import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import {
   TAKEOFF_JOB_MAX_RETRY_COUNT,
   type TakeoffJobListPeriod,
@@ -316,14 +317,12 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                         return false;
                       }
 
-                      const candidateFileName =
-                        candidate.source_file_name?.trim().toLowerCase() ?? "";
-                      const currentFileName =
-                        job.source_file_name?.trim().toLowerCase() ?? "";
-
+                      // Même document (jeu de plans, sinon fichier téléversé), comme la
+                      // comparaison serveur : jamais par nom nettoyé.
+                      const documentKey = takeoffCompareDocumentKey(job);
                       return (
-                        candidateFileName.length > 0 &&
-                        candidateFileName === currentFileName
+                        documentKey !== null &&
+                        takeoffCompareDocumentKey(candidate) === documentKey
                       );
                     });
                     const compareEnabled =

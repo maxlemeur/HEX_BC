@@ -20,6 +20,8 @@ export { listTakeoffJobs, getTakeoffJobDetails } from "./job-read-server";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createHash, randomUUID } from "node:crypto";
 import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
+import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
+import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import {
   assertTakeoffOperatorActionRole,
   parseWithSchema,
@@ -641,7 +643,7 @@ async function resolvePlanSetSourceFile(input: {
 }) {
   const { data, error } = await readAllRows(() => input.supabase
     .from("plan_files" as never)
-    .select("file_path, file_name, file_type, file_size_bytes, page_count, id" as never, { count: "exact" })
+    .select("file_path, file_name, file_type, file_size_bytes, page_count, id, metadata" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("plan_set_id" as never, input.planSetId as never)
     .order("created_at" as never, { ascending: true }));
@@ -650,13 +652,27 @@ async function resolvePlanSetSourceFile(input: {
     throw mapSupabaseError(error, "Impossible de charger les fichiers du jeu de plans.");
   }
 
-  const planFiles = (data ?? []) as Array<{
+  const planFiles = ((data ?? []) as Array<{
     file_path?: string | null;
     file_name?: string | null;
     file_type?: string | null;
     file_size_bytes?: number | null;
     page_count?: number | null;
-  }>;
+    metadata?: unknown;
+  }>).map((planFile) => ({
+    ...planFile,
+    // M1b : le libellé d'origine (M1a), pas la clé Storage nettoyée, nomme le job et ses fichiers.
+    source_label:
+      typeof planFile.file_name === "string" && planFile.file_name.trim().length > 0
+        ? getPlanFileDisplayName({
+            file_name: planFile.file_name.trim(),
+            metadata:
+              planFile.metadata && typeof planFile.metadata === "object" && !Array.isArray(planFile.metadata)
+                ? (planFile.metadata as Record<string, unknown>)
+                : null,
+          })
+        : null,
+  }));
 
   if (planFiles.length === 0) {
     throw new TakeoffError({
@@ -698,10 +714,7 @@ async function resolvePlanSetSourceFile(input: {
     typeof firstPlanFile?.file_path === "string" && firstPlanFile.file_path.trim().length > 0
       ? firstPlanFile.file_path.trim()
       : null;
-  const sourceFileName =
-    typeof firstPlanFile?.file_name === "string" && firstPlanFile.file_name.trim().length > 0
-      ? firstPlanFile.file_name.trim()
-      : `plan-set-${input.planSetId}.pdf`;
+  const sourceFileName = firstPlanFile?.source_label ?? `plan-set-${input.planSetId}.pdf`;
   const sourceFileType =
     typeof firstPlanFile?.file_type === "string" && firstPlanFile.file_type.trim().length > 0
       ? firstPlanFile.file_type.trim()
@@ -3688,12 +3701,6 @@ async function syncTakeoffRiskRadarProjection(input: {
   };
 }
 
-function normalizeSourceFileNameForCompare(value: string | null): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed.toLowerCase() : null;
-}
-
 export async function compareTakeoffJobs(
   baseJobId: string,
   input: CompareTakeoffJobsQuery
@@ -3738,16 +3745,14 @@ export async function compareTakeoffJobs(
     }),
   ]);
 
-  const baseSourceFileName = normalizeSourceFileNameForCompare(baseJob.source_file_name);
-  const otherSourceFileName = normalizeSourceFileNameForCompare(
-    otherJob.source_file_name
-  );
+  const baseDocumentKey = takeoffCompareDocumentKey(baseJob);
+  const otherDocumentKey = takeoffCompareDocumentKey(otherJob);
 
   if (
     baseJob.estimate_version_id !== otherJob.estimate_version_id ||
-    !baseSourceFileName ||
-    !otherSourceFileName ||
-    baseSourceFileName !== otherSourceFileName
+    !baseDocumentKey ||
+    !otherDocumentKey ||
+    baseDocumentKey !== otherDocumentKey
   ) {
     throw new TakeoffError({
       status: 409,
@@ -6454,7 +6459,7 @@ export async function createTakeoffJobFromPlanSet(input: {
   });
   const planSetClassification = classifyTakeoffPlanSetSource({
     files: sourceFile.planFiles.map((planFile) => ({
-      file_name: planFile.file_name ?? `plan-set-${input.planSetId}.pdf`,
+      file_name: planFile.source_label ?? `plan-set-${input.planSetId}.pdf`,
       file_type: planFile.file_type ?? "application/pdf",
       page_count:
         typeof planFile.page_count === "number" ? planFile.page_count : null,

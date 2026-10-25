@@ -76,6 +76,7 @@ import { toUnitToken } from "@/lib/takeoff/units";
 import {
   loadTakeoffSource,
   type DownloadedTakeoffFile,
+  type TakeoffSourceDocumentRef,
 } from "@/lib/takeoff/source-loader";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
@@ -540,10 +541,34 @@ function dedupeLevelBTables(tables: TakeoffExchange["tables"]) {
   return deduped.length > 0 ? deduped : undefined;
 }
 
-function normalizeTakeoffExchange(input: {
-  exchange: TakeoffExchange;
+type TakeoffSourceProvenance = {
   sourceFileName: string | null;
+  sourceDocument?: TakeoffSourceDocumentRef;
   sourceFileNamesByPage?: readonly string[];
+  sourceDocumentsByPage?: readonly TakeoffSourceDocumentRef[];
+};
+
+/**
+ * Provenance connue du chargeur (M1b) : le libellé d'origine et la référence durable du document
+ * source, unique ou page par page pour un jeu multi-fichiers. Un jeu multi-fichiers n'a pas de
+ * nom de source unique : seule la page d'un item désigne son fichier.
+ */
+function takeoffSourceProvenance(
+  job: { source_file_name: string | null },
+  sourceFile: DownloadedTakeoffFile
+): TakeoffSourceProvenance {
+  return {
+    sourceFileName: sourceFile.sourceFileNamesByPage
+      ? null
+      : normalizeNullableText(sourceFile.fileName) ?? normalizeNullableText(job.source_file_name),
+    sourceDocument: sourceFile.sourceDocument,
+    sourceFileNamesByPage: sourceFile.sourceFileNamesByPage,
+    sourceDocumentsByPage: sourceFile.sourceDocumentsByPage,
+  };
+}
+
+function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
+  exchange: TakeoffExchange;
   parseWarnings: TakeoffWarning[];
 }): {
   exchange: TakeoffExchange;
@@ -561,14 +586,43 @@ function normalizeTakeoffExchange(input: {
   const pageItemCounters = new Map<number, number>();
 
   input.exchange.items.forEach((item, index) => {
+    const pageIndex =
+      item.source_page === undefined || item.source_page === null ? null : item.source_page - 1;
     const pageMappedSourceFileName =
-      item.source_page === undefined || item.source_page === null || !input.sourceFileNamesByPage
+      pageIndex === null || !input.sourceFileNamesByPage
         ? null
-        : input.sourceFileNamesByPage[item.source_page - 1] ?? null;
-    const sourceFileName =
-      normalizeNullableText(item.source_file) ??
-      normalizeNullableText(pageMappedSourceFileName) ??
-      input.sourceFileName;
+        : input.sourceFileNamesByPage[pageIndex] ?? null;
+    const pageMappedSourceDocument =
+      pageIndex === null || !input.sourceDocumentsByPage
+        ? null
+        : input.sourceDocumentsByPage[pageIndex] ?? null;
+    // M1b : le document que le chargeur connaît (page d'un jeu de plans, ou source unique
+    // référencée) l'emporte sur le source_file du fournisseur, qui n'est souvent qu'un écho de
+    // l'indice du prompt ; la valeur du fournisseur reste une preuve brute dans les métadonnées.
+    const providerSourceFile = normalizeNullableText(item.source_file);
+    const canonicalSourceFileName = input.sourceFileNamesByPage
+      ? normalizeNullableText(pageMappedSourceFileName)
+      : input.sourceDocument
+        ? input.sourceFileName
+        : null;
+    const sourceDocument = input.sourceFileNamesByPage
+      ? pageMappedSourceDocument
+      : input.sourceDocument ?? null;
+    // Dans un jeu multi-fichiers, le fournisseur ne voit que le PDF fusionné : sans page connue,
+    // l'item n'est attribué à aucun fichier plutôt qu'au premier ou au nom interne du PDF fusionné.
+    const sourceFileName = input.sourceFileNamesByPage
+      ? canonicalSourceFileName
+      : canonicalSourceFileName ?? providerSourceFile ?? input.sourceFileName;
+    if (input.sourceFileNamesByPage && pageIndex !== null && pageMappedSourceFileName === null) {
+      extraWarnings.push(
+        warning({
+          code: "SOURCE_PAGE_OUT_OF_RANGE",
+          message: `Page ${item.source_page} hors du jeu de plans (${input.sourceFileNamesByPage.length} pages) : aucun fichier source attribué.`,
+          severity: "warning",
+          itemIndex: index,
+        })
+      );
+    }
     const normalizedUnit = normalizeTakeoffUnit({
       unit: item.unit,
       itemIndex: index,
@@ -611,6 +665,10 @@ function normalizeTakeoffExchange(input: {
         original_unit: item.unit,
         normalized_unit: normalizedItem.unit,
         source_file: sourceFileName,
+        ...(sourceDocument ? { source_document: sourceDocument } : {}),
+        ...(providerSourceFile && providerSourceFile !== sourceFileName
+          ? { provider_source_file: providerSourceFile }
+          : {}),
         ...(tableMeta != null
           ? { table_index: tableMeta.table_index, row_index: tableMeta.row_index }
           : {}),
@@ -2416,8 +2474,7 @@ async function processLevelCGeminiChunks(input: {
   const merged = mergeTakeoffChunkExchanges(chunkExchanges);
   const normalized = normalizeTakeoffExchange({
     exchange: merged.exchange,
-    sourceFileName: normalizeNullableText(input.job.source_file_name),
-    sourceFileNamesByPage: input.sourceFile.sourceFileNamesByPage,
+    ...takeoffSourceProvenance(input.job, input.sourceFile),
     parseWarnings: [],
   });
   const tablesCount = normalized.exchange.tables?.length ?? 0;
@@ -2864,8 +2921,7 @@ async function processLevelBGeminiChunks(input: {
   });
   const normalized = normalizeTakeoffExchange({
     exchange: strictMergedExchange,
-    sourceFileName: normalizeNullableText(input.job.source_file_name),
-    sourceFileNamesByPage: input.sourceFile.sourceFileNamesByPage,
+    ...takeoffSourceProvenance(input.job, input.sourceFile),
     parseWarnings: [],
   });
   const tablesCount = normalized.exchange.tables?.length ?? 0;
@@ -3021,8 +3077,7 @@ async function executeStructuredTakeoffRun(input: {
   const strictExchange = TakeoffExchangeSchema.parse(geminiResult.data);
   const normalized = normalizeTakeoffExchange({
     exchange: strictExchange,
-    sourceFileName: normalizeNullableText(input.job.source_file_name),
-    sourceFileNamesByPage: input.sourceFile.sourceFileNamesByPage,
+    ...takeoffSourceProvenance(input.job, input.sourceFile),
     parseWarnings: preparedLevelInput.parseWarnings,
   });
   const tablesCount = normalized.exchange.tables?.length ?? 0;
@@ -4002,8 +4057,7 @@ export async function reconcileTakeoffBatchJob(
     const strictExchange = TakeoffExchangeSchema.parse(pollResult.data);
     const normalized = normalizeTakeoffExchange({
       exchange: strictExchange,
-      sourceFileName: normalizeNullableText(job.source_file_name),
-      sourceFileNamesByPage: sourceFile.sourceFileNamesByPage,
+      ...takeoffSourceProvenance(job, sourceFile),
       parseWarnings: preparedLevelInput.parseWarnings,
     });
     const levelAResult: StructuredTakeoffRunResult = {

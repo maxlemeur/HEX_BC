@@ -43,6 +43,7 @@ function createJob(overrides: Partial<TakeoffJobSummary> = {}): TakeoffJobSummar
     source_file_name: overrides.source_file_name ?? "niveau-a.csv",
     source_file_type: overrides.source_file_type ?? "text/csv",
     source_file_size_bytes: overrides.source_file_size_bytes ?? 1024,
+    plan_set_id: overrides.plan_set_id ?? null,
     prompt_version: overrides.prompt_version ?? "takeoff-a-v1",
     schema_version: overrides.schema_version ?? "v1",
     model: overrides.model ?? "gemini-3-flash-preview",
@@ -135,6 +136,35 @@ describe("TakeoffJobList", () => {
     expect((await screen.findAllByText("niveau-a.csv")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Relancer" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Annuler" })).not.toBeInTheDocument();
+  });
+
+  // M1b : « Plan R+1.pdf » et « Plan R-1.pdf » ont le même nom nettoyé ; la comparaison suit le
+  // jeu de plans, ou le libellé d'un fichier téléversé, comme le serveur.
+  it("offers to compare jobs of the same document only", async () => {
+    const planSetId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const otherPlanSetId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const done = { status: "completed" as const, error_code: null, error_message: null };
+    vi.mocked(listTakeoffJobs).mockResolvedValue(
+      createResponse([
+        createJob({ ...done, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", plan_set_id: planSetId, source_file_name: "Plan R+1.pdf" }),
+        createJob({ ...done, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", plan_set_id: planSetId, source_file_name: "Plan-R-1.pdf" }),
+        createJob({ ...done, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", plan_set_id: otherPlanSetId, source_file_name: "Plan-R-1.pdf" }),
+        createJob({ ...done, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4", source_file_name: "Plan R+1.pdf" }),
+      ])
+    );
+
+    renderTakeoffJobList();
+
+    const links = await screen.findAllByRole("link", { name: "Comparer" });
+    expect(
+      links.map((link) => {
+        const href = new URL(link.getAttribute("href") ?? "", "http://localhost");
+        return [href.pathname.split("/").at(-2), href.searchParams.get("compareWith")];
+      })
+    ).toEqual([
+      ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"],
+      ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"],
+    ]);
   });
 
   it("renders a dedicated message for 403/404 errors", async () => {

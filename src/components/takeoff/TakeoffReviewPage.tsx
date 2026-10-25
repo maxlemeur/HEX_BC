@@ -83,6 +83,7 @@ import {
   listTakeoffJobs,
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
+import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import {
@@ -323,6 +324,7 @@ export default function TakeoffReviewPage({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jobFileName, setJobFileName] = useState<string | null>(null);
+  const [jobPlanSetId, setJobPlanSetId] = useState<string | null>(null);
   const [jobLevel, setJobLevel] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [jobVersionNumber, setJobVersionNumber] = useState<number | null>(null);
@@ -405,6 +407,7 @@ export default function TakeoffReviewPage({
         }
 
         setJobFileName(firstPage.job.source_file_name);
+        setJobPlanSetId(firstPage.job.plan_set_id ?? null);
         setJobLevel(firstPage.job.level);
         setJobStatus(firstPage.job.status);
         setJobVersionNumber(firstPage.job.version_number ?? null);
@@ -457,7 +460,11 @@ export default function TakeoffReviewPage({
     const abortController = new AbortController();
 
     async function loadCompareCandidates() {
-      if (!jobFileName) {
+      const documentKey = takeoffCompareDocumentKey({
+        plan_set_id: jobPlanSetId,
+        source_file_name: jobFileName,
+      });
+      if (!documentKey) {
         setCompareCandidates([]);
         return;
       }
@@ -487,16 +494,10 @@ export default function TakeoffReviewPage({
           nextOffset += response.jobs.length;
         }
 
-        const normalizedSourceFileName = jobFileName.trim().toLowerCase();
         const filteredCandidates = jobs.filter((job) => {
           if (job.id === jobId) return false;
           if (job.status !== "completed" && job.status !== "applied") return false;
-          const candidateSourceFileName =
-            job.source_file_name?.trim().toLowerCase() ?? "";
-          return (
-            candidateSourceFileName.length > 0 &&
-            candidateSourceFileName === normalizedSourceFileName
-          );
+          return takeoffCompareDocumentKey(job) === documentKey;
         });
 
         setCompareCandidates(filteredCandidates);
@@ -513,7 +514,7 @@ export default function TakeoffReviewPage({
       canceled = true;
       abortController.abort();
     };
-  }, [jobFileName, jobId, versionId]);
+  }, [jobFileName, jobPlanSetId, jobId, versionId]);
 
   // ---- Compare loading
   useEffect(() => {

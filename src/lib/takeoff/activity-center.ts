@@ -51,6 +51,7 @@ type SupabaseClient = Awaited<ReturnType<typeof getAuthenticatedContext>>["supab
 type JobRow = {
   id: string;
   estimate_version_id: string;
+  plan_set_id: string | null;
   source_file_name: string | null;
   source_file_type: string | null;
   level: string;
@@ -85,6 +86,12 @@ type PlanSourceCandidate = ResolvedJobSource & {
   estimateVersionId: string | null;
   fileCreatedAt: string;
   planSetCreatedAt: string;
+};
+
+type PlanSources = {
+  byPlanSetId: Map<string, ResolvedJobSource>;
+  // Rapprochement par nom de fichier, pour les jobs sans plan_set_id seulement.
+  candidatesByFileName: Map<string, PlanSourceCandidate[]>;
 };
 
 async function resolveVersionIdsForProject(
@@ -227,7 +234,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
+          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       filterOpts
@@ -266,7 +273,7 @@ async function resolvePlanSourceCandidatesForProject(
   supabase: SupabaseClient,
   tenantId: string,
   projectId: string
-): Promise<Map<string, PlanSourceCandidate[]>> {
+): Promise<PlanSources> {
   const { data: planSetsData, error: planSetsError } = await supabase
     .from("plan_sets" as never)
     .select("id, name, metadata, estimate_version_id, created_at" as never)
@@ -289,10 +296,23 @@ async function resolvePlanSourceCandidatesForProject(
   }>;
 
   if (planSets.length === 0) {
-    return new Map();
+    return { byPlanSetId: new Map(), candidatesByFileName: new Map() };
   }
 
   const planSetById = new Map(planSets.map((planSet) => [planSet.id, planSet]));
+  const byPlanSetId = new Map<string, ResolvedJobSource>(
+    planSets.map((planSet) => [
+      planSet.id,
+      {
+        planSetId: planSet.id,
+        planSetLabel: planSet.name,
+        lotLabel: resolveActivityCenterLotLabel({
+          name: planSet.name,
+          metadata: planSet.metadata,
+        }),
+      },
+    ])
+  );
   const { data: planFilesData, error: planFilesError } = await supabase
     .from("plan_files" as never)
     .select("plan_set_id, file_name, created_at" as never)
@@ -341,24 +361,35 @@ async function resolvePlanSourceCandidatesForProject(
     candidatesByFileName.set(fileKey, candidates);
   }
 
-  return candidatesByFileName;
+  return { byPlanSetId, candidatesByFileName };
 }
 
 function resolveJobSource(
   input: {
-    candidatesByFileName: Map<string, PlanSourceCandidate[]>;
+    planSources: PlanSources;
+    jobPlanSetId: string | null;
     sourceFileName: string | null;
     estimateVersionId: string;
     lot?: string | null;
     planSetId?: string | null;
   }
 ): ResolvedJobSource | null {
+  // Un job de jeu de plans porte son jeu : son nom (libellé d'origine depuis M1b) n'est jamais
+  // comparé au nom nettoyé des fichiers, où « Plan R+1.pdf » et « Plan R-1.pdf » se confondent.
+  if (input.jobPlanSetId) {
+    const source = input.planSources.byPlanSetId.get(input.jobPlanSetId) ?? null;
+    if (!source) return null;
+    if (input.planSetId && source.planSetId !== input.planSetId) return null;
+    if (input.lot && source.lotLabel !== input.lot) return null;
+    return source;
+  }
+
   const fileKey = toNormalizedSourceFileKey(input.sourceFileName);
   if (!fileKey) {
     return null;
   }
 
-  const candidates = input.candidatesByFileName.get(fileKey) ?? [];
+  const candidates = input.planSources.candidatesByFileName.get(fileKey) ?? [];
   if (candidates.length === 0) {
     return null;
   }
@@ -682,7 +713,7 @@ export async function listActivityCenterJobs(
   };
 
   // 3. Resolve all matching rows first so source filters and counters stay global.
-  const [allRows, planSourceCandidatesByFileName] = await Promise.all([
+  const [allRows, planSources] = await Promise.all([
     listMatchingJobs(supabase, tenantId, baseFilterOpts),
     resolvePlanSourceCandidatesForProject(supabase, tenantId, input.project_id),
   ]);
@@ -691,7 +722,8 @@ export async function listActivityCenterJobs(
     allRows.map((row) => [
       row.id,
       resolveJobSource({
-        candidatesByFileName: planSourceCandidatesByFileName,
+        planSources,
+        jobPlanSetId: row.plan_set_id ?? null,
         sourceFileName: row.source_file_name,
         estimateVersionId: row.estimate_version_id,
         lot: input.lot,

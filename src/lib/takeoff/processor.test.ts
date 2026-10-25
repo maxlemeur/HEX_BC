@@ -940,11 +940,13 @@ function createTakeoffProcessorSupabaseMock(
 
     const then: QueryThen<
       Array<{
+        id: string;
         file_path: string | null;
         file_name: string | null;
         file_type: string | null;
         file_size_bytes: number;
         page_count: number | null;
+        metadata: Record<string, unknown>;
       }>
     > = (onfulfilled, onrejected) => {
       const data = state.planFiles
@@ -961,11 +963,13 @@ function createTakeoffProcessorSupabaseMock(
           return true;
         })
         .map((planFile) => ({
+          id: planFile.id,
           file_path: planFile.file_path,
           file_name: planFile.file_name,
           file_type: planFile.file_type,
           file_size_bytes: planFile.file_size_bytes,
           page_count: planFile.page_count,
+          metadata: planFile.metadata,
         }));
 
       return Promise.resolve({
@@ -1313,6 +1317,40 @@ function createTakeoffProcessorSupabaseMock(
 }
 
 describe("processLevelA", () => {
+  // M1b : le fichier téléversé nomme la source ; une feuille citée par le fournisseur dans
+  // source_file n'est pas un fichier et reste une preuve brute.
+  it("keeps the uploaded file over a sheet name given as source_file", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(
+        buildTakeoffExchange([
+          { designation: "Tableau secours", quantity: 3, unit: "u", source_page: 1,
+            source_file: "Feuil1", confidence: 0.93, evidence: "Ligne 2" },
+        ]),
+        { model: "gemini-3.1-flash-lite-preview", promptVersion: "takeoff-a-v1" }
+      )
+    );
+
+    const result = await processLevelA(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(mock.state.takeoffItems).toEqual([
+      expect.objectContaining({
+        source_file_name: "niveau-a.csv",
+        metadata: expect.objectContaining({
+          source_document: { kind: "job_upload", job_id: JOB_ID },
+          provider_source_file: "Feuil1",
+        }),
+      }),
+    ]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -2221,6 +2259,86 @@ describe("processLevelB", () => {
     });
   });
 
+  // M1b : le libellé d'origine du job (et non le reste du chemin <empreinte>-<uuid>-<nom nettoyé>)
+  // nomme la source dans le prompt, les items et le résultat ; la référence durable est le
+  // fichier téléversé du job, et le source_file du fournisseur reste une preuve brute.
+  it("carries the original label and the upload reference to the prompt, the items and the result", async () => {
+    const uploadUuid = "0f0e0d0c-0b0a-4908-8706-050403020100";
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "Plan R+1.pdf",
+        source_file_path: `${TENANT_ID}/${JOB_ID}/${"c".repeat(64)}-${uploadUuid}-Plan-R-1.pdf`,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: await createPdfArrayBuffer(1),
+        mimeType: "application/pdf",
+      },
+    });
+    const exchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Tube cuivre 22",
+          quantity: 12.5,
+          unit: "m",
+          source_page: 1,
+          source_file: `${uploadUuid}-Plan-R-1.pdf`,
+          confidence: 0.9,
+          evidence: "Plan R+1",
+        },
+        {
+          designation: "Coude cuivre",
+          quantity: 4,
+          unit: "u",
+          source_page: 1,
+          confidence: 0.9,
+          evidence: "Plan R+1",
+        },
+      ],
+      [],
+      { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" }
+    );
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" })
+    );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    const prompt = String(callGemini.mock.calls[0]?.[0]?.prompt);
+    expect(prompt).toContain("- source: Plan R+1.pdf");
+    expect(prompt).not.toContain(uploadUuid);
+    expect(mock.state.takeoffItems).toEqual([
+      expect.objectContaining({
+        designation: "Tube cuivre 22",
+        source_file_name: "Plan R+1.pdf",
+        metadata: expect.objectContaining({
+          source_file: "Plan R+1.pdf",
+          source_document: { kind: "job_upload", job_id: JOB_ID },
+          provider_source_file: `${uploadUuid}-Plan-R-1.pdf`,
+        }),
+      }),
+      expect.objectContaining({
+        designation: "Coude cuivre",
+        source_file_name: "Plan R+1.pdf",
+        metadata: expect.objectContaining({
+          source_document: { kind: "job_upload", job_id: JOB_ID },
+        }),
+      }),
+    ]);
+    expect(mock.state.takeoffItems[1]?.metadata).not.toHaveProperty("provider_source_file");
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      source_file_name: "Plan R+1.pdf",
+    });
+  });
+
   it("supports multi-page table extraction and keeps source page metadata", async () => {
     const pdfBytes = await createPdfArrayBuffer(4);
     const mock = createTakeoffProcessorSupabaseMock({
@@ -2515,6 +2633,93 @@ describe("processLevelB", () => {
       secondPlanPath,
     ]);
     expect(callGemini).not.toHaveBeenCalled();
+  });
+
+  // M1b : dans un jeu multi-fichiers, le fichier de chaque page (libellé d'origine et référence)
+  // l'emporte sur le source_file du fournisseur, qui ne voit que le PDF fusionné.
+  it("keeps the page's plan file over the provider's source_file in a multi-PDF plan set", async () => {
+    const planSetId = "55555555-5555-4555-8555-555555555555";
+    const upperPath = `${TENANT_ID}/${planSetId}/f1/Plan-R-1.pdf`;
+    const lowerPath = `${TENANT_ID}/${planSetId}/f2/Plan-R-1.pdf`;
+    const upperId = "88888888-8888-4888-8888-888888888881";
+    const lowerId = "88888888-8888-4888-8888-888888888882";
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        plan_set_id: planSetId,
+        source_file_name: "Plan R+1.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: { TAKEOFF_C_MAX_PDF_PAGES: "3" },
+      planFiles: [
+        { id: upperId, plan_set_id: planSetId, file_path: upperPath, file_name: "Plan-R-1.pdf",
+          file_type: "application/pdf", page_count: 1, metadata: { original_file_name: "Plan R+1.pdf" } },
+        { id: lowerId, plan_set_id: planSetId, file_path: lowerPath, file_name: "Plan-R-1.pdf",
+          file_type: "application/pdf", page_count: 1, metadata: { original_file_name: "Plan R-1.pdf" } },
+      ],
+      planFileDownloads: {
+        [upperPath]: { bytes: await createPdfArrayBuffer(1), mimeType: "application/pdf" },
+        [lowerPath]: { bytes: await createPdfArrayBuffer(1), mimeType: "application/pdf" },
+      },
+    });
+    const exchange = buildTakeoffExchange(
+      [
+        { designation: "Réseau R+1", quantity: 10, unit: "m", source_page: 1,
+          source_file: `plan-set-${planSetId}.pdf`, confidence: 0.9, evidence: "Page 1" },
+        { designation: "Réseau R-1", quantity: 8, unit: "m", source_page: 2,
+          source_file: `plan-set-${planSetId}.pdf`, confidence: 0.9, evidence: "Page 2" },
+        { designation: "Nourrice", quantity: 1, unit: "u",
+          source_file: `plan-set-${planSetId}.pdf`, confidence: 0.9, evidence: "Sans page" },
+        { designation: "Vanne", quantity: 2, unit: "u", source_page: 3,
+          source_file: `plan-set-${planSetId}.pdf`, confidence: 0.9, evidence: "Page 3" },
+      ],
+      [],
+      { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" }
+    );
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" })
+    );
+
+    await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(mock.state.takeoffItems).toEqual([
+      expect.objectContaining({
+        designation: "Réseau R+1",
+        source_file_name: "Plan R+1.pdf",
+        metadata: expect.objectContaining({
+          source_document: { kind: "plan_file", plan_file_id: upperId },
+          provider_source_file: `plan-set-${planSetId}.pdf`,
+        }),
+      }),
+      expect.objectContaining({
+        designation: "Réseau R-1",
+        source_file_name: "Plan R-1.pdf",
+        metadata: expect.objectContaining({
+          source_document: { kind: "plan_file", plan_file_id: lowerId },
+          provider_source_file: `plan-set-${planSetId}.pdf`,
+        }),
+      }),
+      // Sans page, aucun fichier du jeu n'est désigné : ni le premier, ni le PDF fusionné.
+      expect.objectContaining({
+        designation: "Nourrice",
+        source_file_name: null,
+        metadata: expect.objectContaining({ provider_source_file: `plan-set-${planSetId}.pdf` }),
+      }),
+      // Une page hors du PDF fusionné ne désigne aucun fichier, et le dit.
+      expect.objectContaining({ designation: "Vanne", source_file_name: null, source_page: 3 }),
+    ]);
+    expect(mock.state.takeoffItems[2]?.metadata).not.toHaveProperty("source_document");
+    expect(mock.state.takeoffItems[3]?.metadata).not.toHaveProperty("source_document");
+    expect(mock.state.takeoffResults[0]?.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "SOURCE_PAGE_OUT_OF_RANGE", item_index: 3 })])
+    );
   });
 
   it("preserves per-file source names and page counts across a multi-PDF rerun", async () => {
@@ -3567,6 +3772,71 @@ describe("processLevelB", () => {
 describe("processLevelC", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // M1b : chaque morceau d'un jeu de plans d'un seul fichier est annoncé sous le libellé d'origine ;
+  // l'écho « <libellé> | chunk i/n | pages a-b » du fournisseur reste une preuve brute.
+  it("names every chunk of a single-file plan set by its original label and file reference", async () => {
+    const planSetId = "55555555-5555-4555-8555-555555555555";
+    const planFileId = "88888888-8888-4888-8888-888888888881";
+    const planPath = `${TENANT_ID}/${planSetId}/f1/Plan-R-1.pdf`;
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        plan_set_id: planSetId,
+        source_file_name: "Plan R+1.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      planFiles: [
+        { id: planFileId, plan_set_id: planSetId, file_path: planPath, file_name: "Plan-R-1.pdf",
+          file_type: "application/pdf", page_count: 24, metadata: { original_file_name: "Plan R+1.pdf" } },
+      ],
+      planFileDownloads: {
+        [planPath]: { bytes: await createPdfArrayBuffer(24), mimeType: "application/pdf" },
+      },
+    });
+    const chunkExchange = (index: number): TakeoffExchange => ({
+      items: [
+        { designation: `Réseau ${index}`, quantity: index, unit: "m", source_page: 1,
+          source_file: `Plan R+1.pdf | chunk ${index}/3`, confidence: 0.9, evidence: `Chunk ${index}` },
+      ],
+      warnings: [],
+      metadata: { level: "C", prompt_version: "takeoff-c-v1", file_type: "application/pdf", schema_version: "v1" },
+      confidence: 0.9,
+    });
+    const callGemini = vi.fn();
+    for (const index of [1, 2, 3]) {
+      callGemini.mockResolvedValueOnce(
+        buildGeminiResult(chunkExchange(index), { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-c-v1" })
+      );
+    }
+
+    const result = await processLevelC(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result).toMatchObject({ status: "completed", chunksCount: 3 });
+    const prompts = callGemini.mock.calls.map((call) => String(call[0]?.prompt));
+    expect(prompts.map((prompt) => /- source: (.*)/.exec(prompt)?.[1])).toEqual([
+      expect.stringMatching(/^Plan R\+1\.pdf \| chunk 1\/3 \| pages /),
+      expect.stringMatching(/^Plan R\+1\.pdf \| chunk 2\/3 \| pages /),
+      expect.stringMatching(/^Plan R\+1\.pdf \| chunk 3\/3 \| pages /),
+    ]);
+    expect(mock.state.takeoffItems).toHaveLength(3);
+    for (const [index, item] of mock.state.takeoffItems.entries()) {
+      expect(item).toMatchObject({
+        source_file_name: "Plan R+1.pdf",
+        metadata: {
+          source_document: { kind: "plan_file", plan_file_id: planFileId },
+          provider_source_file: `Plan R+1.pdf | chunk ${index + 1}/3`,
+        },
+      });
+    }
   });
 
   it("chunks large PDFs, merges duplicates, and persists chunk metrics", async () => {

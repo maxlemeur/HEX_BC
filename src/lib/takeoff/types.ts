@@ -128,6 +128,8 @@ export type TakeoffJobSummary = {
   source_file_name: string | null;
   source_file_type: string | null;
   source_file_size_bytes: number | null;
+  /** Jeu de plans source, référence durable du document (M1b) ; null pour un fichier téléversé. */
+  plan_set_id?: string | null;
   prompt_version: string | null;
   schema_version: string | null;
   model: string | null;
