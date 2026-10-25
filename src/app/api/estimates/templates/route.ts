@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     const query = listEstimateTemplatesQuerySchema.parse({
       search: searchParams.get("search"),
       limit: parsePositiveInt(searchParams.get("limit")) ?? 10,
-      order: searchParams.get("order"),
+      order: searchParams.get("order") ?? undefined,
     });
 
     const data = await listEstimateTemplates(query);
