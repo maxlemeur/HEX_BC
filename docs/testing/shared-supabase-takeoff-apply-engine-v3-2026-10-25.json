@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "sourceCommit": "c7ad760",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Applied by the owner under his standing authorization for merged repository migrations.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261025134000_takeoff_apply_engine_v3.sql",
+    "pullRequest": 110,
+    "bytes": 36048,
+    "lines": 1009,
+    "sha256": "d4ff12ea3c6b30526aec54c0e7e24016005dc00bbb0903e699ff925bd9d7da18",
+    "appliedVersion": "20261025155612",
+    "appliedName": "takeoff_apply_engine_v3",
+    "appliedAtUtc": "2026-10-25T15:56:12Z",
+    "storedStatements": 1,
+    "storedStatementSha256Matches": true,
+    "appliedBy": "Owner, outside this thread",
+    "earlierAttempts": [
+      "2026-10-25T15:01Z Claude, connector confirmation timed out, nothing applied",
+      "2026-10-25T15:40Z Claude, connector confirmation timed out, nothing applied"
+    ]
+  },
+  "history": {
+    "rowsBefore": 331,
+    "rowsAfter": 332,
+    "rowsForName": 1,
+    "previous": "20261025115010_tenant_calc_defaults_admin (20261025135027)"
+  },
+  "before": {
+    "takeoffApplyV3LinesExists": false,
+    "applyTakeoffJobAtomicBodyMd5": "3c6f54bf650065cf1504f1e397787fd3",
+    "applyTakeoffJobAtomicAcl": "{postgres=X/postgres,service_role=X/postgres}"
+  },
+  "checkedAtUtc": "2026-10-25T16:21Z",
+  "functions": [
+    {
+      "signature": "private.takeoff_apply_v3_lines(uuid,text,uuid)",
+      "securityDefiner": false,
+      "searchPath": "",
+      "volatility": "volatile",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false,
+      "serviceRoleExecute": false,
+      "bodyMd5": "79a6b4c917686c783990f232628fa431",
+      "bodyMatchesSource": true,
+      "commentMentionsM2": true
+    },
+    {
+      "signature": "public.apply_takeoff_job_atomic(uuid,text,uuid,jsonb)",
+      "securityDefiner": true,
+      "searchPath": "pg_catalog",
+      "volatility": "volatile",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false,
+      "serviceRoleExecute": true,
+      "bodyMd5": "2f2182de717946f355b88c953cfd340b",
+      "bodyMatchesSource": true,
+      "commentMentionsM2": true
+    }
+  ],
+  "securityAdvisors": {
+    "anonSecurityDefinerExecutable": 0,
+    "authenticatedSecurityDefinerExecutable": 70,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1,
+    "note": "Unchanged since the #101 receipt; neither function of this migration is in the authenticated findings."
+  },
+  "limits": [
+    "No before/after catalog fingerprint: applied outside this thread, state checked afterwards.",
+    "No call of the functions on shared and no deployment; production stays at 7255d1d."
+  ]
+}
