@@ -80,7 +80,9 @@ values
   ('public.materialize_estimate_assembly_tree', 'branche v3 : h/u = h / quantité par défaut exact à 4 décimales, refus nommés (M6)'),
   ('public.insert_estimate_assembly_into_version', 'branche v3 sous contrat d''écrivain, montants par le pont d''entrée (M6)'),
   ('public.estimate_v3_complete_entry_for_writer', 'pont d''entrée (M6) : refuse tout moteur autre que 3'),
-  ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19)'),
+  ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19), que l''application du métré n''y envoie plus (M2 v0.1)'),
+  ('public.apply_takeoff_job_atomic', 'métré M2 v0.1 : v1/v2 inchangés ; une v3 (brouillon seulement) passe par private.takeoff_apply_v3_lines sous contrat d''écrivain, montants par le pont d''entrée'),
+  ('private.takeoff_apply_v3_lines', 'métré M2 v0.1 : refuse tout moteur autre que 3 et toute version autre que celle du contrat d''écrivain'),
   ('public.guard_estimate_item_engine_columns', 'contrat d''écrivain v3 sur les lignes (M1)'),
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
   ('private.calc_engine_freezes_snapshot', 'prédicat d''héritage de la gouvernance v2 (M1)'),
@@ -1572,9 +1574,14 @@ select is(
          'a3210000-0000-4000-8000-000000000201',
          '[{"item_id":"a3210000-0000-4000-8000-000000000406","source_order":0,"rule_id":null,"action":"set_price","designation":"Tube cuivre","unit_price_cents":2500,"category_id":null,"assembly_id":null}]'::jsonb
        )$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 a takeoff job cannot be applied to a v3 (apply then recalculation)'
+  ],
+  $a$select format('%s|%s',
+       (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101'
+          and title = 'Tube cuivre' and unit_code = 'ml' and pricing_status = 'priced' and quantity = 2
+          and unit_price_ht_cents = 2500 and source_provider = 'takeoff'),
+       coalesce(nullif(current_setting('miaouffrage.estimate_v3_writer', true), ''), 'closed'))$a$),
+  'ok:1|closed',
+  'F-SQL-10 a takeoff job enters a v3 under its writer contract, closed after the call (M2 v0.1)'
 );
 
 select is(

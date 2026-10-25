@@ -45,16 +45,14 @@ import {
   mapSupabaseError,
   unprocessableEntity,
 } from "@/lib/estimates/errors";
+import { describeV3EntryRefusal } from "@/lib/estimates/assemblies-server";
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
-import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { inspectSourceReferencePdf, SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
-import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { TAKEOFF_ENGINE_V3_UNSUPPORTED_MESSAGE } from "@/lib/takeoff/engine-support";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -1108,6 +1106,55 @@ async function revokeTakeoffDpgfApplyAuthorization(input: {
   }
 }
 
+type TakeoffV3UnresolvedUnit = {
+  takeoff_item_id: string | null;
+  designation: string;
+  unit: string | null;
+};
+
+const takeoffV3UnresolvedUnitsDetailSchema = z.object({
+  items: z.array(
+    z.object({
+      takeoff_item_id: z.string().nullable().optional(),
+      designation: z.string().nullable().optional(),
+      unit: z.string().nullable().optional(),
+    })
+  ),
+});
+
+/** Les items dont l'unité n'a pas de code dans le référentiel, tels que la migration M2 les nomme (détail JSON). */
+function parseTakeoffV3UnresolvedUnits(detail: string | null | undefined): TakeoffV3UnresolvedUnit[] {
+  if (!detail) return [];
+  try {
+    const parsed = takeoffV3UnresolvedUnitsDetailSchema.safeParse(JSON.parse(detail));
+    if (!parsed.success) return [];
+    return parsed.data.items.map((item) => ({
+      takeoff_item_id: item.takeoff_item_id ?? null,
+      designation: item.designation?.trim() || "Item sans désignation",
+      unit: item.unit ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+const TAKEOFF_V3_UNRESOLVED_UNITS_NAMED = 5;
+
+function takeoffV3UnresolvedUnitsMessage(items: TakeoffV3UnresolvedUnit[]) {
+  const advice =
+    "Corrigez l’unité dans la revue (par exemple ml, m2, u, ens ou PM) ou excluez l’item, puis appliquez à nouveau.";
+  if (items.length === 0) {
+    return `Une unité du métré est inconnue du devis moteur 3. ${advice}`;
+  }
+  const named = items
+    .slice(0, TAKEOFF_V3_UNRESOLVED_UNITS_NAMED)
+    .map((item) => `« ${item.designation} » (${item.unit?.trim() ? item.unit.trim() : "sans unité"})`)
+    .join(", ");
+  const others = items.length - TAKEOFF_V3_UNRESOLVED_UNITS_NAMED;
+  const more = others > 0 ? ` et ${others} autre${others > 1 ? "s" : ""}` : "";
+  return `Unité inconnue du devis moteur 3 pour ${named}${more}. ${advice}`;
+}
+
 function mapApplyTakeoffRpcError(
   error: ApplyTakeoffRpcError,
   input: { jobId: string }
@@ -1138,6 +1185,118 @@ function mapApplyTakeoffRpcError(
       details: {
         ...details,
         guard: "atomic_apply_unavailable",
+      },
+      retryable: true,
+      jobId: input.jobId,
+    });
+  }
+
+  // Métré M2 v0.1 : refus nommés de l'application à un brouillon du moteur 3.
+  if (error.message === "TAKEOFF_V3_UNIT_UNRESOLVED") {
+    const items = parseTakeoffV3UnresolvedUnits(error.details);
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      message: takeoffV3UnresolvedUnitsMessage(items),
+      details: {
+        ...details,
+        guard: "v3_unit_unresolved",
+        items,
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (error.message === "TAKEOFF_TARGET_VERSION_DRAFT_REQUIRED") {
+    return new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Ce devis n’est plus un brouillon : le métré ne peut plus s’y appliquer. Créez un brouillon depuis cette version, puis relancez le métré sur ce brouillon.",
+      details: {
+        ...details,
+        guard: "target_version_draft_required",
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  const v3EntryRefusal = describeV3EntryRefusal(error);
+  if (v3EntryRefusal) {
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      message: v3EntryRefusal.message,
+      details: {
+        ...details,
+        guard: "v3_entry_refusal",
+        refusal: v3EntryRefusal.code,
+        title: v3EntryRefusal.title,
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (error.message === "ESTIMATE_V3_WRITER_NOT_SUPPORTED") {
+    return new TakeoffError({
+      status: 503,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message:
+        "L’application du métré à un devis moteur 3 n’est pas encore disponible. Réessayez après la mise à jour du service.",
+      details: {
+        ...details,
+        guard: "v3_apply_unavailable",
+      },
+      retryable: true,
+      jobId: input.jobId,
+    });
+  }
+
+  // Refus du moteur 3 au calcul des lignes : rien n'est appliqué, la revue reste corrigeable.
+  if (error.message === "ESTIMATE_V3_INPUT_INVALID" || error.message === "ESTIMATE_AMOUNT_OVERFLOW") {
+    const overflow = error.message === "ESTIMATE_AMOUNT_OVERFLOW";
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      message: overflow
+        ? "Avec ce métré, un montant du devis moteur 3 dépasserait la limite autorisée : rien n’a été appliqué. Vérifiez les quantités dans la revue, puis appliquez à nouveau."
+        : "Une quantité ou un prix du métré ne peut pas être chiffré par le devis moteur 3 (valeur négative, illisible ou trop précise) : rien n’a été appliqué. Corrigez-le dans la revue, puis appliquez à nouveau.",
+      details: {
+        ...details,
+        guard: overflow ? "v3_amount_overflow" : "v3_input_invalid",
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (error.message === "ESTIMATE_V3_PROJECTION_MISMATCH") {
+    return new TakeoffError({
+      status: 500,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message:
+        "Le calcul moteur 3 du devis ne concorde pas après ce métré : rien n’a été appliqué. Signalez-le avant d’appliquer à nouveau.",
+      details: {
+        ...details,
+        guard: "v3_projection_mismatch",
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (error.code === "57014") {
+    return new TakeoffError({
+      status: 503,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message:
+        "L’application du métré a pris trop de temps et a été annulée : rien n’a été appliqué. Réessayez dans un instant.",
+      details: {
+        ...details,
+        guard: "statement_timeout",
       },
       retryable: true,
       jobId: input.jobId,
@@ -5426,46 +5585,6 @@ async function logTakeoffMappingApplyAuditEvents(input: {
   }
 }
 
-/**
- * Lot 2, sous-lot 2.5 (D16, P-19) : le métré est hors V1 pour le moteur 3. Le contrat d'écrivain
- * SQL le refuse déjà (`ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ; ce refus nommé le dit avant tout calcul.
- */
-async function assertTakeoffTargetEngineSupported(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionId: string;
-  jobId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("estimate_versions")
-    .select("id, calc_engine_version")
-    .eq("tenant_id", input.tenantId)
-    .eq("id", input.versionId)
-    .maybeSingle();
-  if (error) {
-    throw toTakeoffError(error, {
-      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      fallbackMessage: "Impossible de vérifier le moteur de calcul du devis cible.",
-      jobId: input.jobId,
-    });
-  }
-  if (data && usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
-    throw takeoffEngineV3Unsupported(input.versionId, input.jobId);
-  }
-}
-
-/** Refus nommé du métré sur une v3 (P-19), à l'application comme à la création d'une tâche (2.10a). */
-function takeoffEngineV3Unsupported(versionId: string, jobId?: string) {
-  return new TakeoffError({
-    status: 409,
-    code: TakeoffErrorCode.TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED,
-    message: TAKEOFF_ENGINE_V3_UNSUPPORTED_MESSAGE,
-    details: { estimate_version_id: versionId, calc_engine_version: 3 },
-    retryable: false,
-    jobId,
-  });
-}
-
 export async function applyTakeoffJob(
   jobId: string,
   body: unknown
@@ -5518,13 +5637,6 @@ export async function applyTakeoffJob(
       userId,
       estimateVersionId: jobRow.estimate_version_id,
     };
-
-    await assertTakeoffTargetEngineSupported({
-      supabase,
-      tenantId,
-      versionId: jobRow.estimate_version_id,
-      jobId: normalizedJobId,
-    });
 
     if (jobRow.status !== "completed") {
       throw new TakeoffError({
@@ -5828,26 +5940,10 @@ async function assertEstimateVersionAccessibleAsDraft(input: TakeoffTargetVersio
   assertDraftStatus(version.status);
 }
 
-/**
- * Sous-lot 2.10a (revue, N3, D-f) : « Créer un brouillon depuis V… » copie d'abord sa source, et la copie garde son
- * moteur (P-15). Une source v3 est refusée avant la copie, avec le refus de la création d'une tâche ; sinon la copie
- * v3 restait dans l'affaire. Mêmes contrôles d'accès que la cible ; le statut de la source est libre.
- */
-export async function assertTakeoffSourceVersionSupported(sourceVersionId: string) {
-  const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
-  await assertEstimateVersionAccessibleForTakeoff({
-    supabase,
-    tenantId,
-    userId,
-    tenantRole,
-    estimateVersionId: sourceVersionId,
-  });
-}
-
 async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTargetVersionAccess) {
   const { data, error } = await input.supabase
     .from("estimate_versions")
-    .select("id, status, calc_engine_version, estimate_projects!inner(tenant_id, user_id)")
+    .select("id, status, estimate_projects!inner(tenant_id, user_id)")
     .eq("id", input.estimateVersionId)
     .eq("tenant_id", input.tenantId)
     .single();
@@ -5887,11 +5983,6 @@ async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTargetVer
       message: "Accès interdit aux ressources de ce tenant.",
       retryable: false,
     });
-  }
-
-  // Sous-lot 2.10a (N3, D-f) : le refus de l'application (P-19) dit avant tout dépôt ni analyse.
-  if (usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
-    throw takeoffEngineV3Unsupported(input.estimateVersionId);
   }
 
   return data;

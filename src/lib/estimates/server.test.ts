@@ -128,6 +128,7 @@ function createSupabaseMock(input: {
   draftLockUserId?: string | null;
   draftLockSessionId?: string | null;
   rejectExclusionsColumn?: boolean;
+  calcEngineVersion?: 1 | 2 | 3;
 }) {
   const tenantMembershipBuilder = {
     eq: vi.fn(),
@@ -181,7 +182,7 @@ function createSupabaseMock(input: {
       total_ht_cents: 0,
       total_tax_cents: 0,
       total_ttc_cents: 0,
-      calc_engine_version: 1,
+      calc_engine_version: input.calcEngineVersion ?? 1,
       calc_snapshot_content_revision: null,
       calc_snapshot_context: null,
       snapshot_content_hash: null,
@@ -669,6 +670,41 @@ describe("bulkUpdateEstimateItems regressions", () => {
     });
 
     expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("answers an empty call on a v3 draft once the lock is checked, without resolving its engine", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: { data: null, error: null },
+      calcEngineVersion: 3,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(VERSION_ID, [], VERSION_UPDATED_AT)
+    ).resolves.toEqual({
+      updated_count: 0,
+      version: { id: VERSION_ID, updated_at: VERSION_UPDATED_AT },
+    });
+    await expect(
+      bulkUpdateEstimateItems(VERSION_ID, [{ id: ITEM_ID_1, title: "Ligne 1" }], VERSION_UPDATED_AT)
+    ).rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE" });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("checks the lock of an empty call on a v3 draft", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: { data: null, error: null },
+      calcEngineVersion: 3,
+      draftLockSessionId: OTHER_LOCK_SESSION_ID,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(VERSION_ID, [], VERSION_UPDATED_AT)
+    ).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
   });
 
   it("rejects writes from another page owned by the same user", async () => {

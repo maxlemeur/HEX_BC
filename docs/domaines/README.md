@@ -72,8 +72,10 @@ Sources : [référence](../../src/lib/estimates/source-reference-orchestration.t
 Le métré (`takeoff`) extrait des quantités de plans, puis les soumet à revue et
 application contrôlée. Son activation dépend du tenant et des paramètres
 d'environnement ; les niveaux A/B/C sont des modes d'extraction, pas une
-garantie de justesse. **La cible v3 est actuellement refusée** avant lancement
-et application. Voir [engine-support.ts](../../src/lib/takeoff/engine-support.ts),
+garantie de justesse. Une cible v3 reçoit le métré comme une v2 : à
+l'application, l'unité de chaque item passe par le référentiel des unités (une
+unité inconnue refuse l'application, items nommés) et les montants sont ceux du
+moteur 3 (migration `20261025134000_takeoff_apply_engine_v3`). Voir
 [feature-flags.ts](../../src/lib/takeoff/feature-flags.ts),
 [server.ts](../../src/lib/takeoff/server.ts) et
 [processor.ts](../../src/lib/takeoff/processor.ts).

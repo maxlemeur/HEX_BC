@@ -31,7 +31,6 @@ import {
   fetchAffaireHubPlansSummary,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
-import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
   APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
@@ -381,7 +380,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       projectVersions={projectVersions.map((version) => ({
         id: version.id,
         versionNumber: version.version_number,
-        calcEngineVersion: resolveEstimateEngineVersionForDisplay(version),
       }))}
       sectionErrors={sectionErrors}
       justCreated={justCreated}

@@ -34,6 +34,8 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 //          rend la même v2 qu'avant la bascule.
 // Revue (§9) :
 //  R1      Le métré lancé depuis une source v3 copie d'abord cette source (P-15), puis la copie est refusée.
+// M2 v0.1 (métré sur le moteur 3, 25/10/2026) : F12 et R1 ne se corrigent plus par un refus. Une v3 reçoit le métré
+// comme une v2 (proposition, dialogue, API) et une source v3 est copiée en v3 avant l'analyse (V3C08).
 //  R2      Les refus nommés de M6 et les heures atelier / chantier n'ont aucune preuve sur le chemin de création.
 // Revue Codex (PR #57) :
 //  C1      Une v3 sans section (vierge) rend l'analyse vide : la carte disparaît, l'avis A16 avec elle.
@@ -373,7 +375,7 @@ armyTest("V3C07 « Créer l'affaire » from the onboarding creates the affaire a
 
 /* ---------- N3 : métré, structure IA, version zéro ---------- */
 
-armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis starts, nothing written", capturing,
+armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and a v3 source is copied as a v3", capturing,
   async ({ app, screen, browser, army }) => {
     requireLocalPlansBackend();
     if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("V3C08 requires the campaign's worker-blocking server guard.");
@@ -382,6 +384,7 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
     const anchor = await createV2Affaire(ui, army, `ARMY-L2-V3C08-${army.runPrefix}`);
     const policy = await openPolicy3(owner, army, "V3C08");
     let jobs: ReturnType<typeof ownedTakeoffJobs> | null = null;
+    let copyJobs: ReturnType<typeof ownedTakeoffJobs> | null = null;
     try {
       const versionId = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} cible metre v3`);
       const estimate = { projectId: anchor.projectId, versionId };
@@ -412,7 +415,7 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
       const reasonShown = (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0;
       const launchEnabled = await dialog.getByRole("button", "Analyser maintenant", { exact: true }).isEnabled();
       await captureScreen(ui, army, "v3c08-takeoff-dialog");
-      // Entrée de l'API (fichier de métré niveau A) : refus nommé avant tout dépôt.
+      // Entrée de l'API (fichier de métré niveau A) : la tâche est créée sur la v3 ; le garde de campagne retient le worker.
       const api = await browser.evaluate(async (input) => {
         const form = new FormData();
         form.set("file", new File([input.csv], input.name, { type: "text/csv" }));
@@ -423,31 +426,38 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
         try { body = await response.json(); } catch { body = null; }
         return { status: response.status, code: body?.error?.code ?? null, message: body?.error?.message ?? null };
       }, { csv: "designation;quantity;unit\nBloc beton;12;u", name: `${army.runPrefix}-metre.csv`, versionId });
-      // R1 : action serveur « Créer un brouillon depuis V… » du hub, appelée sur la v3 hors du bouton désactivé. Sa
-      // copie garderait le moteur 3 (P-15) : la source est refusée avant la copie, aucune version n'est insérée,
-      // même retirée ensuite (journal d'audit).
-      const before = { versions: (await storedVersions(owner, anchor.projectId)).length,
-        inserts: await versionInsertsLogged(owner, anchor.projectId) };
+      // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
+      // l'analyse du jeu de plans est lancée sur elle (niveau B).
+      const versionsBefore = await storedVersions(owner, anchor.projectId);
+      const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
       const action = await callServerAction(browser, await serverActionId("launchTakeoffFromSourceVersionPlanSet"),
         { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B" });
+      const versionsAfter = await storedVersions(owner, anchor.projectId);
+      const copy = versionsAfter.find((version) => !versionsBefore.some((known) => known.id === version.id)) ?? null;
+      if (copy) {
+        ownEstimate(army, { projectId: anchor.projectId, versionId: copy.id });
+        copyJobs = ownedTakeoffJobs(browser, { projectId: anchor.projectId, versionId: copy.id });
+      }
       const fromSource = { status: action.status, masked: action.digest !== null,
-        versionsAdded: (await storedVersions(owner, anchor.projectId)).length - before.versions,
-        versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - before.inserts };
+        versionsAdded: versionsAfter.length - versionsBefore.length,
+        versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - insertsBefore,
+        copyEngine: copy?.engine ?? null, copyJobLevels: copyJobs ? (await copyJobs.list()).map((job) => job.level) : [] };
       const written = await jobs.list();
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
-        api: [api.status, api.code], fromSource, jobs: written.length,
+        api: [api.status, api.code], fromSource, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, written, observed });
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, copyId: copy?.id ?? null, written, observed });
       expect(observed).toEqual({
-        proposal: { targetsV3: true, reasonShown: true, launchEnabled: false },
-        dialog: { targetIsV3: true, reasonShown: true, launchEnabled: false },
-        api: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"],
-        fromSource: { status: 500, masked: true, versionsAdded: 0, versionsInserted: 0 },
-        jobs: 0, policyUnchanged: true,
+        proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },
+        dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },
+        api: [201, null],
+        fromSource: { status: 200, masked: false, versionsAdded: 1, versionsInserted: 1, copyEngine: 3, copyJobLevels: ["B"] },
+        jobLevels: ["A"], policyUnchanged: true,
       });
     } finally {
       try {
         if (jobs) await jobs.cancel();
+        if (copyJobs) await copyJobs.cancel();
       } finally {
         await closePolicy(owner, army, "V3C08");
       }

@@ -521,6 +521,152 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
+  // Métré M2 v0.1 : les refus nommés de l'écrivain v3 arrivent à l'opérateur avec leur cause.
+  const unresolvedUnitItem = (index: number) => ({
+    takeoff_item_id: `00000000-0000-4000-8000-00000000000${index}`,
+    designation: `Tube acier ${index}`,
+    unit: "barre",
+  });
+
+  it.each([
+    {
+      name: "an unknown unit names its items and keeps the job reviewable",
+      rpcError: {
+        code: "22023",
+        message: "TAKEOFF_V3_UNIT_UNRESOLVED",
+        details: JSON.stringify({ items: [unresolvedUnitItem(1), { ...unresolvedUnitItem(2), unit: null }] }),
+      },
+      expected: {
+        status: 422,
+        code: "VALIDATION_ERROR",
+        retryable: false,
+        message:
+          "Unité inconnue du devis moteur 3 pour « Tube acier 1 » (barre), « Tube acier 2 » (sans unité). Corrigez l’unité dans la revue (par exemple ml, m2, u, ens ou PM) ou excluez l’item, puis appliquez à nouveau.",
+        details: {
+          guard: "v3_unit_unresolved",
+          items: [unresolvedUnitItem(1), { ...unresolvedUnitItem(2), unit: null }],
+        },
+      },
+    },
+    {
+      name: "a long list of unknown units names five items and counts the others",
+      rpcError: {
+        code: "22023",
+        message: "TAKEOFF_V3_UNIT_UNRESOLVED",
+        details: JSON.stringify({ items: [1, 2, 3, 4, 5, 6, 7].map(unresolvedUnitItem) }),
+      },
+      expected: {
+        status: 422,
+        message: expect.stringMatching(/« Tube acier 5 » \(barre\) et 2 autres\. Corrigez/),
+      },
+    },
+    {
+      name: "an unreadable unit detail still gives the action to take",
+      rpcError: { code: "22023", message: "TAKEOFF_V3_UNIT_UNRESOLVED", details: "not json" },
+      expected: {
+        status: 422,
+        message: expect.stringMatching(/^Une unité du métré est inconnue du devis moteur 3\. Corrigez l’unité/),
+        details: { guard: "v3_unit_unresolved", items: [] },
+      },
+    },
+    {
+      name: "a target that is no longer a draft is a named conflict",
+      rpcError: { code: "P0001", message: "TAKEOFF_TARGET_VERSION_DRAFT_REQUIRED" },
+      expected: {
+        status: 409,
+        code: "CONFLICT",
+        retryable: false,
+        details: { guard: "target_version_draft_required" },
+      },
+    },
+    {
+      name: "an assembly component with hours but no quantity is named",
+      rpcError: { code: "22023", message: "ESTIMATE_V3_ASSEMBLY_HOURS_WITHOUT_QUANTITY", details: "Pose collecteur" },
+      expected: {
+        status: 422,
+        code: "VALIDATION_ERROR",
+        message: expect.stringContaining("Le composant « Pose collecteur » porte des heures sans quantité par défaut"),
+        details: {
+          guard: "v3_entry_refusal",
+          refusal: "ESTIMATE_V3_ASSEMBLY_HOURS_WITHOUT_QUANTITY",
+          title: "Pose collecteur",
+        },
+      },
+    },
+    {
+      name: "a database without the v3 writer asks to retry after the update",
+      rpcError: { code: "0A000", message: "ESTIMATE_V3_WRITER_NOT_SUPPORTED" },
+      expected: {
+        status: 503,
+        code: "INTERNAL_ERROR",
+        retryable: true,
+        details: { guard: "v3_apply_unavailable" },
+      },
+    },
+    {
+      name: "an unreadable quantity or price is named, nothing to retry",
+      rpcError: { code: "22023", message: "ESTIMATE_V3_INPUT_INVALID" },
+      expected: {
+        status: 422,
+        code: "VALIDATION_ERROR",
+        retryable: false,
+        message: expect.stringContaining("ne peut pas être chiffré par le devis moteur 3"),
+        details: { guard: "v3_input_invalid" },
+      },
+    },
+    {
+      name: "an amount beyond the limit is named",
+      rpcError: { code: "22003", message: "ESTIMATE_AMOUNT_OVERFLOW" },
+      expected: {
+        status: 422,
+        code: "VALIDATION_ERROR",
+        retryable: false,
+        details: { guard: "v3_amount_overflow" },
+      },
+    },
+    {
+      name: "a v3 projection mismatch is an internal error, not a retry",
+      rpcError: { code: "22023", message: "ESTIMATE_V3_PROJECTION_MISMATCH" },
+      expected: {
+        status: 500,
+        code: "INTERNAL_ERROR",
+        retryable: false,
+        details: { guard: "v3_projection_mismatch" },
+      },
+    },
+    {
+      name: "a statement timeout asks to retry",
+      rpcError: { code: "57014", message: "canceling statement due to statement timeout" },
+      expected: {
+        status: 503,
+        code: "INTERNAL_ERROR",
+        retryable: true,
+        details: { guard: "statement_timeout" },
+      },
+    },
+  ])("maps the v3 writer refusal: $name", async ({ rpcError, expected }) => {
+    const supabase = createSupabaseMock({ rpcError });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject(expected);
+
+    expect(supabase.__state.job.status).toBe("completed");
+    expect(supabase.__state.auditActions).toEqual([
+      "takeoff.apply.started",
+      "takeoff.apply.failed",
+    ]);
+  });
+
   it("turns an expired DPGF authorization into an actionable retry", async () => {
     const supabase = createSupabaseMock({
       rpcError: {

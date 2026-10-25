@@ -1925,7 +1925,9 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
--- F25-16 : métré sur une v3 refusé par le contrat d'écrivain (P-19), rien d'écrit.
+-- F25-16 : un métré s'applique à une v3 par son écrivain (métré M2 v0.1, 20261025134000) : ligne v3,
+-- unité du référentiel, prix de mapping, provenance. Les cas détaillés sont dans
+-- takeoff-apply-engine-v3.test.sql.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.v3_try(array[
@@ -1955,9 +1957,10 @@ select is(
          'a3250000-0000-4000-8001-000000000180',
          '[{"item_id":"a3250000-0000-4000-8000-000000000302","source_order":0,"rule_id":null,"action":"set_price","designation":"Tube cuivre","unit_price_cents":2500,"category_id":null,"assembly_id":null}]'::jsonb
        )$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F25-16 a takeoff job cannot be applied to a v3 created by the canonical path'
+  ], $a$select concat_ws('|', item.unit_code, item.pricing_status, item.unit_price_ht_cents, item.source_provider)
+       from public.estimate_items item where item.source_job_id = 'a3250000-0000-4000-8000-000000000301'$a$),
+  'ok:ml|priced|2500|takeoff',
+  'F25-16 a takeoff job applies to a v3 created by the canonical path, through the v3 writer'
 );
 
 -- ---------------------------------------------------------------------------

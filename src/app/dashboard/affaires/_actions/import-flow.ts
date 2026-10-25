@@ -73,8 +73,6 @@ export type ConfirmUnifiedImportFlowResult = {
   redirectTo: string | null;
   takeoffCarryOver: TakeoffCarryOverStatus | null;
   totals: ImportFlowCreationTotals | null;
-  /** Sous-lot 2.10a (N3) : 3 quand la version créée est une v3, pour l'étape des plans qui suit ; absent sinon. */
-  calcEngineVersion?: 3;
   stats: {
     totalRows: number;
     validRows: number;
@@ -621,7 +619,6 @@ export async function confirmUnifiedImportFlow(
       totalTaxCents: createdVersion.version.total_tax_cents,
       totalTtcCents: createdVersion.version.total_ttc_cents,
     },
-    ...(saleCoefficients ? { calcEngineVersion: 3 as const } : {}),
     stats,
   };
 }

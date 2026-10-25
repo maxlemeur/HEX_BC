@@ -4229,6 +4229,18 @@ export async function bulkUpdateEstimateItems(
   });
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
+  // Nothing to write: the checks above are the whole call (the takeoff apply uses it
+  // as its lock check), so it answers before resolving the engine, v3 included.
+  if (input.length === 0 && !versionPatch) {
+    return {
+      updated_count: 0,
+      version: {
+        id: version.id,
+        updated_at: version.updated_at,
+      },
+    };
+  }
+
   // A structural mutation can commit before the editor refreshes its rows.
   // Reconcile v2 totals from those persisted rows, never its stale footer.
   const shouldProjectDraft = isUnifiedEngine(resolveCalcEngineVersion(version)) &&
@@ -4267,16 +4279,6 @@ export async function bulkUpdateEstimateItems(
     });
     (item as { aid?: string | null }).aid = nextAid;
   });
-
-  if (updatesPayload.length === 0 && !versionPatch) {
-    return {
-      updated_count: 0,
-      version: {
-        id: version.id,
-        updated_at: version.updated_at,
-      },
-    };
-  }
 
   const supplierPriceIdsToValidate = new Set<string | null>();
   const productIdsToValidate = new Set<string | null>();

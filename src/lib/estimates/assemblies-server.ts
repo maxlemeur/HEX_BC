@@ -604,11 +604,17 @@ const V3_ENTRY_REFUSALS: Record<string, (title: string) => string> = {
     `Les heures du composant « ${title} » divisées par sa quantité par défaut ne tombent pas juste à quatre décimales : un chiffrage moteur 3 les stockerait arrondies. Ajustez ses heures ou sa quantité par défaut dans l'ouvrage.`,
 };
 
-function throwNamedV3EntryRefusal(error: { message?: string | null; details?: string | null }) {
+/** Le refus nommé d'une erreur SQL de M6, ou `null` pour une autre erreur ; partagé avec l'application d'un métré (M2). */
+export function describeV3EntryRefusal(error: { message?: string | null; details?: string | null }) {
   const describe = error.message ? V3_ENTRY_REFUSALS[error.message] : undefined;
-  if (!describe) return;
+  if (!describe) return null;
   const title = error.details?.trim() || "sans titre";
-  throw badRequest(describe(title), { title }, error.message!);
+  return { code: error.message!, title, message: describe(title) };
+}
+
+function throwNamedV3EntryRefusal(error: { message?: string | null; details?: string | null }) {
+  const refusal = describeV3EntryRefusal(error);
+  if (refusal) throw badRequest(refusal.message, { title: refusal.title }, refusal.code);
 }
 
 /**
