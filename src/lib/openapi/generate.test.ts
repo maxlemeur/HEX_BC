@@ -245,12 +245,13 @@ describe("generateOpenApiDocument", () => {
   });
 
   it("keeps only infrastructure exclusions", () => {
-    expect(openApiRouteExclusions).toHaveLength(6);
+    expect(openApiRouteExclusions).toHaveLength(7);
     expect(openApiRouteExclusions.map((entry) => entry.path)).toEqual([
       "/api/docs",
       "/api/docs/swagger-ui/{asset}",
       "/api/internal/takeoff/process-job",
       "/api/internal/workflows/recover",
+      "/api/internal/test-data/purge",
       "/api/takeoff/metrics/stats",
       "/api/health",
     ]);

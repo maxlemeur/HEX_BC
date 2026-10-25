@@ -46,7 +46,10 @@ La navigation sur listes reste en lecture ; le profil affaire autorise les
 projections d'approbation et événements d'audit de sa seule fixture. Une lecture
 du hub n'est donc pas supposée sans effet en base. Le reçu conservé dans
 `.e2e/army/performance/fixtures/affaire.json` lie la fixture à son backend ; ne
-pas supprimer ce reçu pour créer silencieusement une nouvelle référence.
+pas supprimer ce reçu pour créer silencieusement une nouvelle référence. Sur le
+Supabase partagé, la purge hebdomadaire supprime cette affaire après la rétention
+de son tenant de test, sauf si elle est listée dans
+`private.test_data_retained_projects` ([Données de test](../../supabase/README.md#données-de-test)).
 
 ## Interprétation et preuves
 

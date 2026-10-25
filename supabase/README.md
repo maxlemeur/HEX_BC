@@ -99,6 +99,37 @@ Le [réglage Vercel](../vercel.json) désactive les déploiements Git. Avant une
 publication autorisée, appliquer ses migrations requises ; avec des données
 moteur 3, ne pas revenir à une application antérieure à leur prise en charge.
 
+## Données de test
+
+Les parcours gardent les affaires qu'ils créent ; sur une pile possédée elles
+disparaissent avec elle. Sur le partagé, qui sert aussi la production, le
+[workflow de purge](../.github/workflows/purge-test-data.yml) appelle chaque lundi
+à 03:40 UTC `GET /api/internal/test-data/purge` via
+[`purge-test-data.mjs`](../scripts/purge-test-data.mjs), avec `CRON_SECRET`.
+La route exécute `public.purge_test_tenant_drafts` (service role uniquement) par
+lots de 25 pendant au plus 240 secondes ; chaque appel SQL s'arrête après
+4 secondes, sous le délai de 8 secondes des requêtes API. Un passage interrompu
+par son budget est repris la semaine suivante.
+
+- Seuls les tenants de `private.test_data_tenants` sont visés : leurs affaires
+  dont toutes les versions sont des brouillons non modifiés depuis la rétention
+  du tenant (7 jours par défaut) sont supprimées, archivées comprises, avec leurs
+  journaux d'intake. La suppression produit refuse, elle, une affaire archivée.
+- Une affaire de `private.test_data_retained_projects` est conservée, par exemple
+  la fixture du [benchmark affaire](../docs/testing/tester-army-performance.md).
+  Ces deux listes ne s'écrivent ni par l'API ni par l'application : migration
+  relue ou SQL du propriétaire.
+- Les objets Storage restent, comme pour la suppression produit ; leurs chemins
+  commencent par l'identifiant du tenant.
+- Un déclenchement manuel liste par défaut (`dry_run`) sans supprimer. Le job
+  échoue si une suppression échoue et n'affiche que des compteurs. Une affaire en
+  échec est reprise à chaque passage : chercher sa cause (avertissement
+  `purge_test_tenant_drafts failed` des logs Postgres), ou la lister parmi les
+  affaires conservées.
+- La planification ne tourne que si la variable GitHub `TEST_DATA_PURGE_ENABLED`
+  vaut `true`. La poser après l'application de la migration, le déploiement de la
+  route et la relecture d'un déclenchement manuel à blanc.
+
 ## Sauvegarde et restauration
 
 Le [workflow de sauvegarde](../.github/workflows/supabase-backup.yml) est

@@ -64,6 +64,14 @@ procedures. Prefer useful outcomes and proportionate verification to rigid scrip
 - The native Supabase runner owns and destroys an ephemeral local stack; do not
   point it at shared credentials or bypass its guards. For browser campaigns use
   a clean checkout without ambient `.env` files and dependencies inside its root.
+- Journeys keep the affaires they create. The shared Supabase is also production's:
+  run writing campaigns on an owned stack. A check that must write there uses only
+  the designated E2E account and its tenant « ARMY TesterArmy QA »; never sign up
+  another account or tenant there, ask the owner for the credentials instead.
+  `run-tester-army.mjs` refuses writing modes on a remote host unless the shell sets
+  `E2E_ARMY_SHARED_WRITE_HOST` to it for that run. Drafts of the tenants listed in
+  `private.test_data_tenants` are purged weekly after their retention (7 days);
+  list an affaire to keep in `private.test_data_retained_projects`.
 - Keep persistent task workspaces under `~/Projects/.workspaces/mergeone/`, reuse
   compatible package caches and keep canonical artifacts under `outputs/`.
   Reference native run artifacts rather than duplicating media. Before retiring

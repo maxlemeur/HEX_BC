@@ -31,6 +31,12 @@ export const openApiRouteExclusions = [
       "Endpoint de recuperation interne protege par secret, jamais destine aux clients de l'API publique.",
   },
   {
+    path: "/api/internal/test-data/purge",
+    methods: ["GET"],
+    reason:
+      "Purge hebdomadaire interne des brouillons de test, protegee par secret, jamais destinee aux clients de l'API publique.",
+  },
+  {
     path: "/api/takeoff/metrics/stats",
     methods: ["GET"],
     reason:
