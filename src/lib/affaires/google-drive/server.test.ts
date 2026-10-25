@@ -4,7 +4,7 @@ vi.mock("@/lib/affaires/intake-server", () => ({ requireAffaireProjectOwnerOrAdm
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { driveRequestSchema, DRIVE_MAX_BATCH_BYTES, DRIVE_MAX_FILES } from "./contracts";
 import { driveState, executeDriveRequest } from "./server";
-import { driveBatchUploadId, driveCopyId } from "./store";
+import { driveBatchUploadId, driveCopyId, persistDriveCopy } from "./store";
 import { fakeDrive, memoryBackend } from "./memory.test-utils";
 
 describe("Drive folder copies (Google and persistence simulated, no OAuth grants)", () => {
@@ -48,6 +48,26 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     expect(backend.queries.filter((query) => query.operation === "select").every((query) =>
       query.filters.some(([key, value]) => key === "tenant_id" && value === "tenant_demo") &&
       query.filters.some(([key, value]) => key === "project_id" && value === "project_demo"))).toBe(true);
+  });
+  it("concurrent restoration uses one storage generation and retries the same completed event", async () => {
+    await request();
+    const history = (await driveState("project_demo")).history[0];
+    const document = backend.rows("affaire_intake_documents").get(history.documentId)!;
+    const oldPath = document.storage_path;
+    backend.objects.clear();
+    Object.assign(document, { deleted_at: new Date().toISOString(), storage_path: null, upload_status: "rejected" });
+    const file = new File(["plans"], "plan-fictif.pdf", { type: "application/pdf" });
+    const results = await Promise.all([persistDriveCopy(backend.access as never, file, history.source, lotUploadId()), persistDriveCopy(backend.access as never, file, history.source, lotUploadId())]);
+    expect(results.every((result) => ["imported", "already_imported"].includes(result.status))).toBe(true);
+    expect(document.storage_path).not.toBe(oldPath);
+    expect(backend.objects.size).toBe(1);
+    expect(backend.objects.has(String(document.storage_path))).toBe(true);
+    const completions = () => [...backend.rows("affaire_intake_events").values()].filter((row) => row.event_type === "document.uploaded");
+    expect(completions()).toHaveLength(2);
+    // Lost final acknowledgement retains the generation and its completion identity.
+    document.upload_status = "pending";
+    await persistDriveCopy(backend.access as never, file, history.source, lotUploadId());
+    expect(completions()).toHaveLength(2);
   });
   it("keeps partial successes and retries only the failed copy", async () => {
     backend.failStorage.add("cctp-fictif.txt");

@@ -22849,6 +22849,10 @@
                     "newVersion": {
                       "default": false,
                       "type": "boolean"
+                    },
+                    "folderId": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,200}$"
                     }
                   },
                   "required": [

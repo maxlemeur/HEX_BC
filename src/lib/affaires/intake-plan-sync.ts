@@ -247,29 +247,29 @@ async function deleteSyncedPlanFiles(input: {
   files: PlanFileRow[];
 }) {
   if (input.files.length === 0) {
-    return;
+    return 0;
   }
 
-  const storagePaths = input.files.map((file) => file.file_path);
-  const { error: storageError } = await input.supabase.storage
-    .from(PLAN_FILES_BUCKET)
-    .remove(storagePaths);
-
-  if (storageError) {
-    throw storageError;
+  let removed = 0;
+  for (const file of input.files) {
+    // An older classifier snapshot cannot retire another import's eligible plan.
+    // The database reserves cleanup under a lock; metadata remains for Storage RLS.
+    const { data: path, error } = await input.supabase.rpc("delete_stale_intake_plan_file" as never,
+      { p_file_id: file.id } as never);
+    if (error) throw error;
+    if (typeof path !== "string") continue;
+    const { error: storageError } = await input.supabase.storage.from(PLAN_FILES_BUCKET).remove([path]);
+    if (storageError) throw storageError;
+    const remaining = await input.supabase.storage.from(PLAN_FILES_BUCKET).download(path);
+    const status = Number((remaining.error as { statusCode?: string; status?: number } | null)?.statusCode
+      ?? (remaining.error as { status?: number } | null)?.status);
+    if (remaining.data || !remaining.error || ![400, 404].includes(status)) throw new Error("Plan cleanup storage removal was not confirmed");
+    const { error: deleteError } = await input.supabase.from("plan_files" as never).delete()
+      .eq("id", file.id).contains("metadata", { intake_cleanup_pending: true });
+    if (deleteError) throw deleteError;
+    removed += 1;
   }
-
-  const { error: deleteError } = await input.supabase
-    .from("plan_files" as never)
-    .delete()
-    .in(
-      "id" as never,
-      input.files.map((file) => file.id) as never
-    );
-
-  if (deleteError) {
-    throw deleteError;
-  }
+  return removed;
 }
 
 async function createSyncedPlanFile(input: {
@@ -388,7 +388,7 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
   const syncedByDocumentId = new Map<string, PlanFileRow>();
   for (const file of syncedPlanFiles) {
     const intakeDocumentId = toIntakeDocumentId(file);
-    if (intakeDocumentId) {
+    if (intakeDocumentId && file.metadata.intake_cleanup_pending !== true) {
       syncedByDocumentId.set(intakeDocumentId, file);
     }
   }
@@ -396,10 +396,10 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
   const desiredDocumentIds = new Set(eligibleDocuments.map((document) => document.id));
   const staleFiles = syncedPlanFiles.filter((file) => {
     const intakeDocumentId = toIntakeDocumentId(file);
-    return intakeDocumentId !== null && !desiredDocumentIds.has(intakeDocumentId);
+    return intakeDocumentId !== null && (file.metadata.intake_cleanup_pending === true || !desiredDocumentIds.has(intakeDocumentId));
   });
 
-  await deleteSyncedPlanFiles({
+  const removedDocumentCount = await deleteSyncedPlanFiles({
     supabase: input.supabase,
     files: staleFiles,
   });
@@ -438,6 +438,6 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
 
   return {
     syncedDocumentCount,
-    removedDocumentCount: staleFiles.length,
+    removedDocumentCount,
   };
 }

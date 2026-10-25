@@ -32,7 +32,8 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
   const reader = new GoogleDriveReader(request.token, signal);
   if (request.action === "list") return { listing: await reader.list(request.folderId, request.pageToken), results: [], uploads: [] };
   if (new Set(request.files.map((file) => file.id)).size !== request.files.length) throw badRequest("Une pièce ne peut être sélectionnée qu'une fois.");
-  const folder = await reader.folder(request.folderId);
+  const folders = new Map(await Promise.all([...new Set(request.files.map((file) => file.folderId ?? request.folderId))]
+    .map(async (id) => [id, await reader.folder(id)] as const)));
   // Validate the cumulative size BEFORE downloading any selected content.
   const metadata = await Promise.all(request.files.map(async (selection) => {
     try { return { selection, file: await reader.file(selection.id) }; }
@@ -52,6 +53,7 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
       signal.throwIfAborted();
       if ("error" in item) throw item.error;
       const { file, selection } = item;
+      const folder = folders.get(selection.folderId ?? request.folderId)!;
       const rejection = driveFileRejection(file);
       if (rejection) throw badRequest(rejection);
       if (file.version !== selection.version) throw badRequest("Pièce modifiée depuis la sélection. Actualisez le dossier.");
@@ -76,7 +78,7 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
       const content = await reader.download(file, folder.id);
       signal.throwIfAborted();
       const copy = await persistDriveCopy(access, content.file, {
-        provider: "google_drive", folderId: folder.id, fileId: file.id, revision: file.version!,
+        provider: "google_drive", folderId: folder.id, folderName: folder.name, fileId: file.id, revision: file.version!,
         sourceName: file.name, sourceMimeType: file.mimeType, sourceModifiedTime: file.modifiedTime ?? null,
         sourceUrl: `https://drive.google.com/file/d/${file.id}/view`, sha256: content.sha256,
         importedAt: new Date().toISOString(), importedBy: access.context.userId,

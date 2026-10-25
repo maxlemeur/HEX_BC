@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
+import { requireAffaireProjectOwnerOrAdmin, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
 
 import {
   affaireIntakeDocumentKindSchema,
@@ -72,6 +74,16 @@ export async function setAffaireDocumentAsPrimary(
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
 
+  return result;
+}
+
+export async function deleteAffaireIntakeDocument(input: { projectId: string; documentId: string }) {
+  const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
+  const access = await requireAffaireProjectOwnerOrAdmin(parsed.projectId);
+  const result = await deleteIntakeDocumentCopy(access, parsed.documentId);
+  await syncAffaireIntakeDocumentPriorities({ supabase: access.context.supabase, projectId: parsed.projectId });
+  revalidatePath("/dashboard/affaires");
+  revalidatePath(`/dashboard/affaires/${parsed.projectId}`, "layout");
   return result;
 }
 

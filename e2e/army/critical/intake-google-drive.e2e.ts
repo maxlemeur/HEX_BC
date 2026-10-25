@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect } from "e2e";
 import { localClient } from "../takeoff/native-ui";
 import { localDriveStore } from "./google-drive-local-store";
+import { relativeOutputPath } from "../local/sdk-results";
 import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
 
 armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and imports no documents", {
@@ -97,7 +98,6 @@ armyTest("DRV02 fictional Drive copies persist in real private Storage with prov
     .update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 }).eq("project_id", ids.projectId);
   expect(classified.error).toBeNull();
   const openDriveHistory = async () => {
-    await screen.getByRole("button", "Ajouter DPGF", { exact: true }).click();
     await screen.getByText("Ajouter depuis Google Drive", { exact: true }).click();
     await screen.getByText("Copies Google Drive et versions importées", { exact: true }).click();
   };
@@ -108,7 +108,59 @@ armyTest("DRV02 fictional Drive copies persist in real private Storage with prov
   await openDriveHistory();
   await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(2);
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
+  const planSetId = randomUUID(), planFileId = randomUUID();
+  const planPath = `${project.data!.tenant_id}/${planSetId}/${planFileId}/${file.name}`;
+  expect((await client.from("plan_sets").insert({ id: planSetId, tenant_id: project.data!.tenant_id, project_id: ids.projectId, name: "Drive deletion fixture", created_by: userId })).error).toBeNull();
+  expect((await client.from("plan_files").insert({ id: planFileId, tenant_id: project.data!.tenant_id, plan_set_id: planSetId, file_path: planPath, file_name: file.name, file_type: file.type, file_size_bytes: file.size, created_by: userId, metadata: { source: "affaire-intake", intake_document_id: second.documentId, intake_storage_path: documents.data!.find((document) => document.id === second.documentId)!.storage_path } })).error).toBeNull();
+  expect((await client.storage.from("plan-files").upload(planPath, file, { contentType: file.type })).error).toBeNull();
+  // Settle the same owned fixture upload before exercising real UI deletion.
+  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
+  await browser.reload();
+  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(2);
+  await expect(screen.getByText("Dossier documentaire", { exact: false })).toBeVisible();
+  const settleMotion = async () => browser.evaluate(async () => {
+    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map((animation) => animation.finished.catch(() => undefined)));
+    return true;
+  });
+  await browser.evaluate(() => { document.querySelector("[data-document-id]")?.scrollIntoView({ block: "center" }); return true; });
+  await settleMotion();
+  const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-documents"));
+  await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).nth(1).click();
+  await screen.getByText("Provenance Google Drive", { exact: true }).click();
+  await expect(screen.getByText("Fichier source", { exact: true })).toBeVisible();
+  await settleMotion();
+  const provenanceScreenshot = await relativeOutputPath(await app.screenshot("TI652-document-provenance"));
+  await screen.getByRole("button", { name: "Supprimer la copie", exact: true }).click();
+  await screen.getByRole("button", { name: "Annuler", exact: true }).click();
+  expect((await client.from("affaire_intake_documents").select("deleted_at").eq("id", second.documentId).single()).data?.deleted_at).toBeNull();
+  await screen.getByRole("button", { name: "Supprimer la copie", exact: true }).click();
+  await screen.getByRole("button", { name: "Confirmer la suppression", exact: true }).click();
+  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
+  const tombstone = await client.from("affaire_intake_documents").select("deleted_at,storage_path,upload_status").eq("id", second.documentId).single();
+  expect(tombstone.data?.deleted_at).toBeTruthy();
+  expect(tombstone.data?.storage_path).toBeNull();
+  expect(tombstone.data?.upload_status).toBe("rejected");
+  const removedPath = documents.data!.find((document) => document.id === second.documentId)!.storage_path!;
+  expect((await client.storage.from("affaire-intake").download(removedPath)).data).toBeNull();
+  expect(await store.readDriveHistory(access)).toHaveLength(1);
+  expect((await client.storage.from("plan-files").download(planPath)).data).toBeNull();
+  expect((await client.from("plan_files").select("id").eq("id", planFileId)).data).toEqual([]);
+  await browser.reload();
+  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
+  // The original stored revision remains byte-identical; deletion is per copy.
+  const keptPath = documents.data!.find((document) => document.id === first.documentId)!.storage_path!;
+  expect((await client.storage.from("affaire-intake").download(keptPath)).error).toBeNull();
+  let foreignMessage = "";
+  try { await store.deleteIntakeDocumentCopy(wrongTenant, first.documentId); } catch (error) { foreignMessage = (error as Error).message; }
+  expect(foreignMessage).toBe("Document introuvable dans cette affaire. Actualisez le dossier.");
+  expect((await store.persistDriveCopy(access, file, { ...source, revision: "2" }, lot("2"))).status).toBe("imported");
+  expect(await store.readDriveHistory(access)).toHaveLength(2);
+  const restored = await client.from("affaire_intake_documents").select("storage_path").eq("id", second.documentId).single();
+  expect(restored.data!.storage_path === removedPath).toBe(false);
+  expect((await client.storage.from("affaire-intake").download(removedPath)).data).toBeNull();
+  expect((await client.storage.from("affaire-intake").download(restored.data!.storage_path!)).error).toBeNull();
   await recordEvidence(army, "DRV02-private-copy-provenance", { ids, documentIds: documents.data!.map((document) => document.id),
-    sha256, revisions: ["1", "2"], exactStoredBytesVerified: true, replayCreatesNoCopy: true,
+    dossierScreenshot, provenanceScreenshot, sha256, revisions: ["1", "2"], exactStoredBytesVerified: true, replayCreatesNoCopy: true, deletionConfirmedInStorageAndUi: true, reimportAfterDeletion: true,
     boundary: "Real local RLS, Storage and HTTP/UI provenance. Fictional source metadata; no Google or OAuth, no worker extraction (classification settled under owner RLS)." });
 });

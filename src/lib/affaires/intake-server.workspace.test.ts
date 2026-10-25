@@ -139,6 +139,7 @@ function createSupabaseMock(documents: unknown[]) {
             expect(value).toBe(PROJECT_ID);
             return builder;
           }),
+          is: vi.fn((column, value) => { expect(column).toBe("deleted_at"); expect(value).toBeNull(); return builder; }),
           order: vi.fn(() => builder),
           then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
             Promise.resolve(resolve({ data: documents, error: null })),
@@ -146,6 +147,11 @@ function createSupabaseMock(documents: unknown[]) {
 
         builder.select.mockReturnValue(builder);
 
+        return builder;
+      }
+
+      if (table === "affaire_intake_events") {
+        const builder = { select: vi.fn(() => builder), eq: vi.fn(() => builder), in: vi.fn(() => builder), contains: vi.fn(() => builder), order: vi.fn(() => builder), then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: [], error: null })) };
         return builder;
       }
 
