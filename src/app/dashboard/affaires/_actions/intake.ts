@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
-import { requireAffaireProjectOwnerOrAdmin, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
+import { refreshAffaireIntakeFromActiveDocuments, requireAffaireProjectOwnerOrAdmin, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
 
 import {
   affaireIntakeDocumentKindSchema,
@@ -82,6 +82,12 @@ export async function deleteAffaireIntakeDocument(input: { projectId: string; do
   const access = await requireAffaireProjectOwnerOrAdmin(parsed.projectId);
   const result = await deleteIntakeDocumentCopy(access, parsed.documentId);
   await syncAffaireIntakeDocumentPriorities({ supabase: access.context.supabase, projectId: parsed.projectId });
+  // Only an uploaded piece feeds the register, the synced plans and the brief. A rejected piece or
+  // a replay on the tombstone refreshes nothing, so later brief edits and confirmation stay.
+  if (result.removedUploadedPiece) {
+    await refreshAffaireIntakeFromActiveDocuments({ supabase: access.context.supabase, project: access.project,
+      uploadId: result.uploadId, actorUserId: access.context.userId });
+  }
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`, "layout");
   return result;

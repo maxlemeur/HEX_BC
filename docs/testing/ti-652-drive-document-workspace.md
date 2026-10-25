@@ -13,10 +13,13 @@ Le parcours DPGF existant garde sa prévisualisation, son mapping et sa confirma
 
 La suppression demande une confirmation et attend la fin du traitement du lot.
 Elle supprime les octets de la pièce et de ses copies de plans, vérifie leur absence,
-puis retire la pièce du dossier. L’original Drive et les lignes de chiffrage restent
-conservés. Les événements d’audit sont immuables : une ligne technique marquée
-supprimée subsiste sans chemin de stockage. Réimporter la même révision crée une
-nouvelle génération de stockage et une nouvelle provenance finale.
+puis retire la pièce du dossier. Si elle avait été importée, le registre des pièces
+manquantes et les plans synchronisés sont ensuite recalculés à partir des pièces restantes,
+comme après un reclassement, ainsi que le brief courant tant qu’il reste une pièce importée.
+L’original Drive et les lignes de chiffrage restent conservés. Les événements d’audit
+sont immuables : une ligne technique marquée supprimée subsiste sans chemin de stockage.
+Réimporter la même révision crée une nouvelle génération de stockage et une nouvelle
+provenance finale.
 
 Les opérations concurrentes utilisent une réservation avec reprise après deux
 minutes et un jeton de clôture. Les copies de plans vérifient en base la génération

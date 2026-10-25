@@ -40,13 +40,18 @@ function fixture() {
 describe("deleteIntakeDocumentCopy", () => {
   it("removes both private copies before marking the dossier document deleted; replay is harmless", async () => {
     const f = fixture();
-    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toEqual({ documentId: "document", deleted: true });
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toEqual({ documentId: "document", uploadId: "upload", deleted: true, removedUploadedPiece: true });
     expect(f.bytes.size).toBe(0);
     expect(f.document.deleted_at).toBeTruthy();
     expect(f.document.storage_path).toBeNull();
     expect(f.document.upload_status).toBe("rejected");
-    await deleteIntakeDocumentCopy(f.access, "document");
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toMatchObject({ removedUploadedPiece: false });
     expect(f.remove).toHaveBeenCalledTimes(2);
+  });
+  it("does not count a rejected piece as a removed upload, so its deletion refreshes nothing derived", async () => {
+    const f = fixture(); f.document.upload_status = "rejected";
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toMatchObject({ removedUploadedPiece: false });
+    expect(f.document.deleted_at).toBeTruthy();
   });
   it("keeps the document visible when Storage fails", async () => {
     const f = fixture(); f.fail();

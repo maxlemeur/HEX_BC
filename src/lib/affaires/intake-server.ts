@@ -3203,32 +3203,49 @@ export async function reclassifyAffaireDocument(input: {
     uploadId: document.upload_id,
   });
 
-  const { data: refreshedDocsData, error: refreshedDocsError } =
-    await readAllRows(() => context.supabase.from("affaire_intake_documents" as never)
-      .select(DOCUMENT_SELECT as never, { count: "exact" })
-      .eq("project_id", project.id).is("deleted_at", null).is("deletion_token", null)
-      .order("created_at", { ascending: true }).order("id", { ascending: true }));
-
-  if (refreshedDocsError) {
-    throw internalError(
-      "Impossible de recharger les documents intake après reclassification.",
-      refreshedDocsError
-    );
-  }
-
-  const refreshedDocuments = (refreshedDocsData ?? [])
-    .map(normalizeDocumentRow)
-    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
-
-  await refreshAffaireBriefFromDocuments({
+  await refreshAffaireIntakeFromActiveDocuments({
     supabase: context.supabase,
     project,
     uploadId: document.upload_id,
-    documents: refreshedDocuments,
     actorUserId: context.userId,
   });
 
   return { ok: true } as const;
+}
+
+// After a reclassification or a deletion, the register's missing pieces, the synced
+// plans and the current brief follow the remaining active pieces.
+export async function refreshAffaireIntakeFromActiveDocuments(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  project: AffaireProjectAccessRow;
+  uploadId: string;
+  actorUserId: string;
+}) {
+  const { data, error } = await resolveSupabaseQuery<{
+    data: unknown[];
+    error: unknown;
+  }>(
+    readAllRows(() => getAffaireIntakeSelectTable(input.supabase, "affaire_intake_documents")
+      .select(DOCUMENT_SELECT as never, { count: "exact" })
+      .eq("project_id", input.project.id).is("deleted_at", null).is("deletion_token", null)
+      .order("created_at", { ascending: true }).order("id", { ascending: true }))
+  );
+
+  if (error) {
+    throw internalError("Impossible de recharger les documents intake.", error);
+  }
+
+  const documents = (data ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+
+  await refreshAffaireBriefFromDocuments({
+    supabase: input.supabase,
+    project: input.project,
+    uploadId: input.uploadId,
+    documents,
+    actorUserId: input.actorUserId,
+  });
 }
 
 export async function setAffaireDocumentAsPrimary(input: {

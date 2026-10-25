@@ -99,6 +99,29 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   expect((await documents()).filter((doc) => doc.document_kind === "cctp" && doc.document_priority === "primary").map((doc) => doc.id)).toEqual([ambiguous.id]);
   expect(await readPlanFiles(browser, sets[0].id)).toEqual(plans);
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
+
+  // Deleting the last plan reopens its gap wherever the dossier is derived: the register's
+  // critical question, the synced plan set and the confirmed brief that listed it.
+  const plan = (await documents()).find((doc) => doc.file_name === fixtures[1].name)!;
+  const plansGap = async () => (await client.from("affaire_register_entries").select("severity,is_active")
+    .eq("project_id", ids.projectId).eq("kind", "missing_piece").eq("code", "missing_plans").eq("is_active", true)).data;
+  const readBrief = async () => (await client.from("affaire_briefs").select("status,confirmed_at,received_pieces")
+    .eq("project_id", ids.projectId).single()).data!;
+  expect(await plansGap()).toEqual([]);
+  expect((await readBrief()).received_pieces).toContain(`Plans · ${plan.file_name}`);
+  const planRow = browser.locator(`[aria-label="Intake dossier affaire"] tr[data-document-id="${plan.id}"]`);
+  await planRow.getByRole("button", `Détails de ${plan.file_name}`, { exact: true }).click();
+  await screen.getByRole("dialog", "Document et provenance", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
+  await screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
+  await expect(planRow).toHaveCount(0);
+  expect((await documents()).find((doc) => doc.id === plan.id)).toMatchObject({ upload_status: "rejected", storage_path: null });
+  await expect.poll(plansGap).toEqual([{ severity: "critical", is_active: true }]);
+  await expect.poll(async () => (await readBrief()).status).toBe("a_confirmer");
+  const reopened = await readBrief();
+  expect(reopened.confirmed_at).toBeNull();
+  expect(reopened.received_pieces.filter((entry: string) => entry.includes(plan.file_name))).toEqual([]);
+  expect(await readPlanFiles(browser, sets[0].id)).toEqual([]);
   await recordEvidence(army, "INT01-dossier-complete", { ids, documents: await documents(), planSetId: sets[0].id, plans, brief: persisted.data,
-    uploadedBytesVerified: true, emptyFileRejected: true, boundary: "Real upload, Storage, heuristic fallback, manual classification/primary and brief confirmation. External AI disabled by owned campaign." });
+    afterPlanDeletion: { deletedDocumentId: plan.id, plansGap: await plansGap(), brief: reopened },
+    uploadedBytesVerified: true, emptyFileRejected: true, boundary: "Real upload, Storage, heuristic fallback, manual classification/primary, brief confirmation and last-plan deletion. External AI disabled by owned campaign." });
 });

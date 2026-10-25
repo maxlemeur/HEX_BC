@@ -18,7 +18,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
   const document = lookup.data as { id: string; upload_id: string; storage_path: string | null;
     updated_at: string; deleted_at: string | null; deletion_token?: string | null; deletion_started_at?: string | null; upload_status: string; classification_status: string } | null;
   if (!document) throw new DriveStoreError(409, "Document introuvable dans cette affaire. Actualisez le dossier.");
-  if (document.deleted_at) return { documentId, deleted: true as const };
+  if (document.deleted_at) return { documentId, uploadId: document.upload_id, deleted: true as const, removedUploadedPiece: false };
 
   const upload = await database.from("affaire_intake_uploads" as never).select("status")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.upload_id).single();
@@ -76,7 +76,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     if (deleted.error || !(deleted.data as unknown[])?.length) {
       throw new DriveStoreError(500, "Fichier retiré du stockage ; actualisation du dossier interrompue. Reprenez la suppression.");
     }
-    return { documentId, deleted: true as const };
+    return { documentId, uploadId: document.upload_id, deleted: true as const, removedUploadedPiece: document.upload_status === "uploaded" };
   } catch (error) {
     const released = await database.from("affaire_intake_documents" as never).update({ deletion_token: null, deletion_started_at: null } as never)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token);
