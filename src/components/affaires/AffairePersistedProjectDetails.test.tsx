@@ -91,12 +91,9 @@ describe("AffairePersistedProjectDetails", () => {
       />
     );
 
-    expect(screen.getByTestId("project-toolbar").parentElement).toHaveClass(
-      "w-full",
-      "lg:w-auto",
-    );
-    expect(
-      screen.getByRole("heading", { name: "Affaire Alpha" }).closest("section"),
-    ).not.toHaveClass("overflow-hidden");
+    const header = screen.getByRole("heading", { name: "Affaire Alpha" }).closest("section");
+    expect(header).toContainElement(screen.getByTestId("project-toolbar"));
+    // The toolbar's menus and previews must not be clipped by the header.
+    expect(header).not.toHaveClass("overflow-hidden");
   });
 });

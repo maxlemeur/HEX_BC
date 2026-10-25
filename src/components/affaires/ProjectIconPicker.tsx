@@ -7,7 +7,7 @@ export type ProjectIconKey = "building" | "house" | "factory" | "office" | "reno
 export const PROJECT_ICONS: Record<ProjectIconKey, { label: string; path: string }> = {
   building: {
     label: "Immeuble",
-    path: "M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z",
+    path: "M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2 M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2 M10 6h4 M10 10h4 M10 14h4 M10 18h4",
   },
   house: {
     label: "Maison",
@@ -22,7 +22,7 @@ export const PROJECT_ICONS: Record<ProjectIconKey, { label: string; path: string
     path: "M3 21V3h18v18H3Z M7 7h2v2H7Z M7 11h2v2H7Z M7 15h2v2H7Z M11 7h2v2h-2Z M11 11h2v2h-2Z M11 15h2v2h-2Z M15 7h2v2h-2Z M15 11h2v2h-2Z M15 15h2v2h-2Z",
   },
   renovation: {
-    label: "Renovation",
+    label: "Rénovation",
     path: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z",
   },
 };

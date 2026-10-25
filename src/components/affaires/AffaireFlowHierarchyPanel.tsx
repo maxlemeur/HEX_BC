@@ -8,9 +8,7 @@ import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/int
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL,
   AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
-  AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
   isAffaireIntakePrimaryEligibleKind,
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
@@ -35,11 +33,10 @@ import {
   getReviewProbableCategories,
   sortReviewDocuments,
 } from "./AffaireFlowHierarchyPanel.review-logic";
-import { buildAffaireWorkflowSteps } from "./affaire-workflow";
-import { openGoogleDriveImport } from "./GoogleDriveImport";
+import { AffaireEmptyDossierStep } from "./AffaireEmptyDossierStep";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
-import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, HardDriveIcon, MailIcon, MonitorIcon, PanelsTopLeftIcon, PaperclipIcon } from "lucide-react";
+import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon } from "lucide-react";
 import { foldText } from "@/lib/text/fold";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -56,17 +53,6 @@ type IllustrationItem = {
   severityLabel?: string | null;
   severityToneClassName?: string | null;
 };
-
-// Without any document the dossier is the first unfinished step of the affaire's workflow.
-const EMPTY_DOSSIER_WORKFLOW = buildAffaireWorkflowSteps({
-  hasDocs: false,
-  briefConfirmed: false,
-  hasDpgf: false,
-  hasLines: false,
-  approvalStatus: null,
-  isSent: false,
-});
-const EMPTY_DOSSIER_STEP_LABEL = `Étape 1 sur ${EMPTY_DOSSIER_WORKFLOW.length} · ${EMPTY_DOSSIER_WORKFLOW[0].label}`;
 
 const WHY_TRIGGER_CLASS =
   "inline-flex size-6 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
@@ -1318,7 +1304,6 @@ function ResultCard({
 export function AffaireFlowHierarchyPanel(
   props: Readonly<AffaireFlowHierarchyPanelProps>,
 ) {
-  const [isEmptyUploadDragActive, setIsEmptyUploadDragActive] = useState(false);
   const model = buildAffaireFlowPanelModel(props);
   const manualEstimateHref = buildManualEstimateHref({
     projectId: props.projectId,
@@ -1337,149 +1322,8 @@ export function AffaireFlowHierarchyPanel(
     });
   };
 
-  const handleEmptyUploadDrop = (event: React.DragEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsEmptyUploadDragActive(false);
-
-    const files = Array.from(event.dataTransfer.files ?? []);
-    if (files.length === 0) return;
-
-    dispatchCockpitOpenSurface({
-      projectId: props.projectId,
-      actionId: "flow-empty-upload",
-      surfaceId: "intake-upload",
-      files,
-    });
-  };
-
-  return (
-    <section className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Prochaine étape
-          </p>
-          {model.showEmptyUploadCard || model.resultCard ? null : (
-            <>
-              <h2 className="mt-2 text-base font-semibold text-foreground text-balance">
-                {model.title}
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">{model.summary}</p>
-            </>
-          )}
-        </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          {model.showEmptyUploadCard ? (
-            <Badge variant="info">{EMPTY_DOSSIER_STEP_LABEL}</Badge>
-          ) : (
-            <>
-              <Badge variant={model.statusVariant} dot>
-                {model.statusLabel}
-              </Badge>
-              <Badge variant={readinessBadge.variant} dot>
-                {readinessBadge.label}
-              </Badge>
-            </>
-          )}
-        </div>
-      </div>
-
-      {model.showEmptyUploadCard ? (
-        <div className="mt-2">
-          <h2 className="text-base font-semibold text-foreground">
-            Ajoutez le dossier de consultation
-          </h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={handleOpenIntakeUpload}
-              onDragEnter={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setIsEmptyUploadDragActive(true);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                event.dataTransfer.dropEffect = "copy";
-              }}
-              onDragLeave={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (
-                  event.relatedTarget instanceof Node &&
-                  event.currentTarget.contains(event.relatedTarget)
-                ) {
-                  return;
-                }
-                setIsEmptyUploadDragActive(false);
-              }}
-              onDrop={handleEmptyUploadDrop}
-              className="group block h-full w-full rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              aria-label="Sélectionner les fichiers depuis l'ordinateur"
-            >
-              <span
-                className={cn(
-                  "flex h-full flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
-                  isEmptyUploadDragActive
-                    ? "border-primary bg-primary/5"
-                    : "border-border-strong bg-surface group-hover:border-primary/50"
-                )}
-              >
-                <MonitorIcon className="size-6 text-muted-foreground" aria-hidden="true" />
-                <span className="mt-2 text-sm font-semibold text-foreground">
-                  Depuis l&apos;ordinateur
-                </span>
-                <span className="mt-1 text-sm text-muted-foreground">
-                  {isEmptyUploadDragActive
-                    ? "Relâchez pour importer vos pièces"
-                    : "Glissez les fichiers ici"}
-                </span>
-                <span className={cn(buttonVariants({ variant: "primary", size: "md" }), "mt-4")}>
-                  Sélectionner les fichiers
-                </span>
-              </span>
-            </button>
-            <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-surface px-4 py-6 text-center">
-              <HardDriveIcon className="size-6 text-muted-foreground" aria-hidden="true" />
-              <p className="mt-2 text-sm font-semibold text-foreground">Depuis Google Drive</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Copie dans l&apos;affaire, provenance conservée
-              </p>
-              <button
-                type="button"
-                onClick={() => openGoogleDriveImport(props.projectId)}
-                className={cn(buttonVariants({ variant: "outline", size: "md" }), "mt-4")}
-              >
-                Choisir dans Drive
-              </button>
-            </div>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL} · {AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL} max par fichier
-          </p>
-          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Pas de DPGF ? Ouvrez le devis et complétez la structure plus tard.
-            </p>
-            <Link href={manualEstimateHref} className={cn(buttonVariants({ variant: "outline", size: "md" }), "shrink-0")}>
-              Continuer en manuel
-            </Link>
-          </div>
-        </div>
-      ) : null}
-
-      {model.resultCard ? (
-        <ResultCard
-          projectId={props.projectId}
-          card={model.resultCard}
-          intakeWorkspace={props.intakeWorkspace}
-          onOpenIntakeUpload={handleOpenIntakeUpload}
-          onExecuteSuggestion={props.onExecuteSuggestion}
-        />
-      ) : null}
-
+  const followUps = (
+    <>
       {!model.resultCard && model.primaryAction ? (
         <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/5 p-4">
           <p className="text-sm font-medium text-foreground-secondary">
@@ -1548,6 +1392,59 @@ export function AffaireFlowHierarchyPanel(
           </div>
         </div>
       ) : null}
+    </>
+  );
+  const hasFollowUps =
+    (!model.resultCard && Boolean(model.primaryAction)) ||
+    model.blockers.length > 0 ||
+    model.aides.length > 0 ||
+    Boolean(model.legacyAction);
+
+  if (model.showEmptyUploadCard) {
+    return (
+      <AffaireEmptyDossierStep projectId={props.projectId} manualEstimateHref={manualEstimateHref}>
+        {hasFollowUps ? followUps : null}
+      </AffaireEmptyDossierStep>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Prochaine étape
+          </p>
+          {model.resultCard ? null : (
+            <>
+              <h2 className="mt-2 text-base font-semibold text-foreground text-balance">
+                {model.title}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{model.summary}</p>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge variant={model.statusVariant} dot>
+            {model.statusLabel}
+          </Badge>
+          <Badge variant={readinessBadge.variant} dot>
+            {readinessBadge.label}
+          </Badge>
+        </div>
+      </div>
+
+      {model.resultCard ? (
+        <ResultCard
+          projectId={props.projectId}
+          card={model.resultCard}
+          intakeWorkspace={props.intakeWorkspace}
+          onOpenIntakeUpload={handleOpenIntakeUpload}
+          onExecuteSuggestion={props.onExecuteSuggestion}
+        />
+      ) : null}
+
+      {followUps}
     </section>
   );
 }

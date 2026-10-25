@@ -137,6 +137,7 @@ export function IntakeWorkspace({
     parseBriefEntrySearchParam(searchParams.get(FOCUS_BRIEF_ENTRY_PARAM))
   );
   const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
   const isFilterActive = activeFilter === FILTER_A_REVOIR;
 
@@ -378,7 +379,7 @@ export function IntakeWorkspace({
   const shouldRenderEntryShell = entryMode && !hasDocuments;
   // Same condition as the flow panel's empty upload card, which then offers Google Drive itself.
   const driveOfferedByFlowPanel =
-    shouldRenderEntryShell && (workspace?.missingPieces.length ?? 0) === 0;
+    !hasDocuments && (workspace?.missingPieces.length ?? 0) === 0;
   const focusBannerTitle = focusBriefBlock
     ? AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS[focusBriefBlock]
     : null;
@@ -400,10 +401,12 @@ export function IntakeWorkspace({
 
   return (
     <section
+      ref={sectionRef}
+      tabIndex={-1}
       className={
         shouldRenderEntryShell
-          ? "animate-fade-in"
-          : "rounded-lg border border-border bg-surface shadow-card p-5 animate-fade-in"
+          ? "animate-fade-in outline-none"
+          : "rounded-lg border border-border bg-surface shadow-card p-5 animate-fade-in outline-none"
       }
       aria-label="Intake dossier affaire"
     >
@@ -456,7 +459,7 @@ export function IntakeWorkspace({
       {/* The dialog keeps its tree position when the first copies end the entry shell. */}
       <div className={driveOfferedByFlowPanel ? undefined : "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-subtle px-4 pb-3 pt-1"}>
         {driveOfferedByFlowPanel ? null : <div className="pt-2"><p className="text-sm font-semibold text-foreground">Vos documents Drive, réunis dans l’affaire</p><p className="mt-1 text-xs text-muted-foreground">Une copie enregistrée à l’import, avec son dossier source et sa provenance.</p></div>}
-        <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={handleUploadComplete} onRefresh={handleReclassified} showTrigger={!driveOfferedByFlowPanel} />
+        <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={handleUploadComplete} onRefresh={handleReclassified} showTrigger={!driveOfferedByFlowPanel} fallbackFocus={sectionRef} />
       </div>
 
       {/* Progress bar */}

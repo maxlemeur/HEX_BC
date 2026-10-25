@@ -21,13 +21,17 @@ const OPEN_EVENT = "affaire-open-google-drive-import";
 export function openGoogleDriveImport(projectId: string) {
   document.dispatchEvent(new CustomEvent<{ projectId: string }>(OPEN_EVENT, { detail: { projectId } }));
 }
-export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, showTrigger = true }: {
+export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, showTrigger = true, fallbackFocus }: {
   projectId: string; onUploadComplete: (uploadId: string) => void; onRefresh?: () => void; showTrigger?: boolean;
+  /** Receives focus on close when the control that opened the dialog left the page meanwhile. */
+  fallbackFocus?: React.RefObject<HTMLElement | null>;
 }) {
   const endpoint = `/api/affaires/${projectId}/intake/google-drive`;
   const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLElement | null>(null);
+  function openDialog() { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setOpen(true); }
   useEffect(() => {
-    const openFor = (event: Event) => { if ((event as CustomEvent<{ projectId: string }>).detail?.projectId === projectId) setOpen(true); };
+    const openFor = (event: Event) => { if ((event as CustomEvent<{ projectId: string }>).detail?.projectId === projectId) openDialog(); };
     document.addEventListener(OPEN_EVENT, openFor);
     return () => document.removeEventListener(OPEN_EVENT, openFor);
   }, [projectId]);
@@ -146,9 +150,9 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
       : [...prior, { id: file.id, version: file.version!, newVersion: false, file, folderId: listing.folder.id, folderName: listing.folder.name }]);
   }
   return <>
-    {showTrigger && <button type="button" className="btn btn-primary mt-3 gap-2" onClick={() => setOpen(true)}><HardDriveIcon size={16} aria-hidden="true" />Ajouter depuis Google Drive</button>}
+    {showTrigger && <button type="button" className="btn btn-primary mt-3 gap-2" onClick={openDialog}><HardDriveIcon size={16} aria-hidden="true" />Ajouter depuis Google Drive</button>}
     <Dialog open={open} onOpenChange={(value) => { if (!value) close(); }}>
-      <DialogContent size="xl" showCloseButton={!busy} className="gap-0 overflow-hidden p-0 sm:p-0">
+      <DialogContent size="xl" showCloseButton={!busy} className="gap-0 overflow-hidden p-0 sm:p-0" finalFocus={() => opener.current?.isConnected ? opener.current : fallbackFocus?.current ?? true}>
         <DialogHeader className="p-5 sm:p-6"><DialogTitle className="flex items-center gap-3"><HardDriveIcon className="text-primary" aria-hidden="true" />Ajouter depuis Google Drive</DialogTitle><DialogDescription>Choisissez vos fichiers, puis conservez une copie dans l’affaire.</DialogDescription></DialogHeader>
         <ol className="flex gap-5 border-b border-border px-5 text-xs sm:px-6" aria-label="Étapes de l’import">{["Sélectionner", "Vérifier l’import", "Résultat"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined} className={`flex items-center gap-2 border-b-2 py-3 ${step === index + 1 ? "border-primary font-semibold text-primary" : "border-transparent text-muted-foreground"}`}><span className="flex size-5 items-center justify-center rounded-full bg-muted text-micro">{step > index + 1 ? <CheckIcon size={12} aria-hidden="true" /> : index + 1}</span>{label}</li>)}</ol>
         <div className="min-h-0 overflow-y-auto">
