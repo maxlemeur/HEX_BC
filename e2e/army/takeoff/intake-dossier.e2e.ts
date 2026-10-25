@@ -54,16 +54,27 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   }
   const ambiguous = uploaded.find((doc) => doc.file_name.endsWith("-piece-a-classer.txt"))!;
   expect(ambiguous.document_kind).toBe("a_classer");
+  // The deep link highlights the piece's row in the dossier table; its actions live in the row's details dialog.
+  const row = browser.locator(`[aria-label="Intake dossier affaire"] tr[data-document-id="${ambiguous.id}"]`);
+  const openDetails = async () => {
+    await expect(row).toHaveAttribute("data-highlighted", "true");
+    await row.getByRole("button", `Détails de ${ambiguous.file_name}`, { exact: true }).click();
+    return screen.getByRole("dialog", "Document et provenance", { exact: true });
+  };
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${ambiguous.id}#intake`);
-  const card = browser.locator(`[aria-label="Intake dossier affaire"] [data-document-id="${ambiguous.id}"]`);
-  await card.getByRole("button", "Reclasser", { exact: true }).click();
-  await card.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "cctp" });
-  await card.getByRole("button", "Valider", { exact: true }).click();
+  let details = await openDetails();
+  await details.getByRole("button", "Reclasser", { exact: true }).click();
+  await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "cctp" });
+  await details.getByRole("button", "Valider", { exact: true }).click();
   await expect.poll(async () => (await documents()).find((doc) => doc.id === ambiguous.id)).toMatchObject({
     document_kind: "cctp", classification_status: "classified", classification_source: "manual",
   });
-  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${ambiguous.id}#intake`);
-  await card.getByRole("button", "Définir comme principal", { exact: true }).click();
+  // Reopening the same deep link is an in-page hash navigation that keeps the modal open: reload instead,
+  // which also shows the manual category after a fresh read.
+  await browser.reload();
+  details = await openDetails();
+  await expect(details.getByText("CCTP", { exact: true })).toBeVisible();
+  await details.getByRole("button", "Définir comme principal", { exact: true }).click();
   await expect.poll(async () => (await documents()).filter((doc) => doc.document_kind === "cctp" && doc.document_priority === "primary").map((doc) => doc.id)).toEqual([ambiguous.id]);
   const sets = await readPlanSets(browser, ids.projectId);
   expect(sets).toHaveLength(1);
