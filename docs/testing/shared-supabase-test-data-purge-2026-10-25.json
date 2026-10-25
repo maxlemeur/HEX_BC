@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "sourceCommit": "3ef4765",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's standing authorization to apply merged repository migrations to the shared Supabase; the connector's confirmation was accepted by the owner.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261025174800_test_tenant_draft_purge.sql",
+    "pullRequest": 116,
+    "bytes": 6278,
+    "lines": 151,
+    "sha256": "3d80b8b3bae4495acf295a9afa4c9047df21cc5a1e59a5fa6aaa8e84a055e408",
+    "appliedVersion": "20261025191547",
+    "appliedName": "20261025174800_test_tenant_draft_purge",
+    "appliedAtUtc": "2026-10-25T19:15:47Z",
+    "storedStatements": 1,
+    "storedStatementSha256Matches": true,
+    "appliedBy": "MCP apply_migration with the exact file SQL, after the owner confirmed the connector prompt"
+  },
+  "preflight": {
+    "checkedAtUtc": "2026-10-25T19:06:40Z",
+    "historyRows": 333,
+    "previous": "20261025163000_structure_draft_apply_engine_v3 (20261025181423)",
+    "objectsAbsent": true,
+    "seedTenants": [
+      { "tenantId": "a8d1292a-bfd1-4a44-9820-dc9536ecad25", "name": "ARMY TesterArmy QA", "members": 1, "memberDomain": "example.invalid", "affaires": 22, "nonDraftVersions": 0 },
+      { "tenantId": "d6012a69-16ad-4cf8-866e-9a37e2f22cb6", "name": "Espace personnel", "members": 1, "memberDomain": "example.test", "affaires": 5, "nonDraftVersions": 0 },
+      { "tenantId": "cba61ccf-d0d8-45d2-b298-d4f88117b120", "name": "Espace personnel", "members": 1, "memberDomain": "example.test", "affaires": 4, "nonDraftVersions": 0 }
+    ],
+    "affairesTotal": 39
+  },
+  "history": {
+    "rowsBefore": 333,
+    "rowsAfter": 334,
+    "rowsForName": 1,
+    "last": true
+  },
+  "tables": {
+    "private.test_data_tenants": {
+      "rls": true,
+      "policies": 0,
+      "acl": "{postgres=arwdDxtm/postgres}",
+      "anonAuthenticatedServiceRoleAccess": false,
+      "rows": 3,
+      "retentionDays": 7
+    },
+    "private.test_data_retained_projects": {
+      "rls": true,
+      "policies": 0,
+      "acl": "{postgres=arwdDxtm/postgres}",
+      "anonAuthenticatedServiceRoleAccess": false,
+      "rows": 0
+    }
+  },
+  "functions": {
+    "public.purge_test_tenant_drafts(boolean,integer)": {
+      "securityDefiner": true,
+      "searchPath": "\"\"",
+      "volatility": "volatile",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false,
+      "serviceRoleExecute": true,
+      "bodyMd5": "2fa6e8e12ba60cc7c2ad97e6408bf805",
+      "bodyMatchesSource": true
+    },
+    "private.test_data_project_is_stale(uuid,integer)": {
+      "securityDefiner": false,
+      "searchPath": "\"\"",
+      "volatility": "stable",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false,
+      "serviceRoleExecute": false,
+      "bodyMd5": "7e72f9bb1a92cc9dfa7ec6f0ef82f093",
+      "bodyMatchesSource": true
+    }
+  },
+  "catalogCounts": {
+    "publicSecurityDefinerExecutableByAnon": 0,
+    "publicSecurityDefinerExecutableByAuthenticated": 70,
+    "publicExecutableByAnon": 0,
+    "note": "Same SECURITY DEFINER counts as before; the new public function is executable by service_role only."
+  },
+  "advisors": {
+    "security": "No new WARN. The two new private tables join the existing INFO rls_enabled_no_policy list, as intended (server-only, no API access). The 70 authenticated SECURITY DEFINER warnings and leaked password protection are unchanged.",
+    "checkedAtUtc": "2026-10-25T19:27:11Z"
+  },
+  "dryRun": {
+    "atUtc": "2026-10-25T19:27:16Z",
+    "call": "public.purge_test_tenant_drafts(true, 1000)",
+    "eligible": [{ "tenantId": "a8d1292a-bfd1-4a44-9820-dc9536ecad25", "affaires": 20 }],
+    "deleted": 0,
+    "affairesTotalAfter": 39
+  },
+  "limits": [
+    "No real purge run: nothing was deleted.",
+    "No deployment in this receipt; the route and the workflow need main deployed.",
+    "The weekly schedule stays off until the repository variable TEST_DATA_PURGE_ENABLED is true."
+  ]
+}
