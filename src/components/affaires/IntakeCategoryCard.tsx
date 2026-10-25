@@ -164,7 +164,7 @@ export function IntakeCategoryCard({
             className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
           >
             <DownloadIcon aria-hidden="true" size={12} />
-            Lancer l&apos;import structure
+            Lancer l&apos;import structuré
           </button>
         </div>
       )}

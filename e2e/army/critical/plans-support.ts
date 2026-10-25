@@ -122,19 +122,39 @@ export async function markOwnedPlansAsIntake(army: ArmyState, estimate: OwnedEst
   const fixture = await localTakeoffFixture(army, estimate);
   expect(planSet.tenant_id).toBe(fixture.tenantId);
   const intakeDocumentId = randomUUID();
+  const intakeStoragePath = `e2e/intake/${file.id}.pdf`;
+  // An intake plan copy must point at a live classified plans document holding the same copy
+  // (guard_intake_plan_copy_lifecycle), so the provenance gets its source document first.
+  const user = await fixture.client.auth.getUser();
+  if (user.error || !user.data.user) throw new Error("Owned intake fixture user unavailable.");
+  const uploadId = randomUUID();
+  const now = new Date().toISOString();
+  const upload = await fixture.client.from("affaire_intake_uploads").insert({
+    id: uploadId, tenant_id: fixture.tenantId, project_id: estimate.projectId, created_by: user.data.user.id,
+    status: "ready", completed_at: now,
+  });
+  if (upload.error) throw new Error(`Owned intake upload failed: ${upload.error.code}`);
+  const source = await fixture.client.from("affaire_intake_documents").insert({
+    id: intakeDocumentId, tenant_id: fixture.tenantId, project_id: estimate.projectId, upload_id: uploadId,
+    created_by: user.data.user.id, storage_path: intakeStoragePath, file_name: file.file_name, mime_type: "application/pdf",
+    size_bytes: file.file_size_bytes, upload_status: "uploaded", classification_status: "classified", document_kind: "plans",
+    confidence: 0.95, issues: [], classification_source: "heuristic", classified_at: now,
+    extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
+  });
+  if (source.error) throw new Error(`Owned intake source document failed: ${source.error.code}`);
   const setMetadata = { source: "affaire-intake", default_import_plan_set: true, intake_document_id: intakeDocumentId };
   const set = await fixture.client.from("plan_sets").update({ metadata: setMetadata })
     .eq("id", planSet.id).eq("tenant_id", fixture.tenantId).eq("project_id", estimate.projectId).select("id, metadata").single();
   if (set.error) throw new Error(`Owned intake plan metadata failed: ${set.error.code}`);
   expect(set.data.metadata).toEqual(setMetadata);
   const fileMetadata = { source: "affaire-intake", intake_document_id: intakeDocumentId,
-    intake_storage_path: `e2e/intake/${file.id}.pdf` };
+    intake_storage_path: intakeStoragePath };
   const updatedFile = await fixture.client.from("plan_files").update({ metadata: fileMetadata })
     .eq("id", file.id).eq("tenant_id", fixture.tenantId).eq("plan_set_id", planSet.id).select("id, metadata").single();
   if (updatedFile.error) throw new Error(`Owned intake file metadata failed: ${updatedFile.error.code}`);
   expect(updatedFile.data.metadata).toEqual(fileMetadata);
-  await recordEvidence(army, "intake-plan-fixture", { estimate, planSetId: planSet.id, fileId: file.id, intakeDocumentId, setMetadata, fileMetadata,
-    fixtureBoundary: "Synthetic intake provenance on a real uploaded plan, matching the historical UI fixture." });
+  await recordEvidence(army, "intake-plan-fixture", { estimate, planSetId: planSet.id, fileId: file.id, uploadId, intakeDocumentId, setMetadata, fileMetadata,
+    fixtureBoundary: "Seeded intake upload and classified plans document as the provenance of a real uploaded plan; no classifier or sync job runs." });
 }
 
 export function ownedTakeoffJobs(browser: Browser, estimate: OwnedEstimate) {

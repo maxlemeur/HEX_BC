@@ -254,9 +254,9 @@ describe("VNEXT US-6.1 - import flow carry-over", { session: "army", tags: ["cri
 
     await page.goto(`/dashboard/affaires/${projectId}`);
     await expect(
-      page.getByRole("button", { name: /Lancer l'import structure/i })
+      page.getByRole("button", { name: /Lancer l'import structur[ée]/i })
     ).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: /Lancer l'import structure/i }).click();
+    await page.getByRole("button", { name: /Lancer l'import structur[ée]/i }).click();
 
     const uploadStep = page.getByText("Glissez-déposez votre fichier DPGF ici");
     await expect(uploadStep).toBeVisible();

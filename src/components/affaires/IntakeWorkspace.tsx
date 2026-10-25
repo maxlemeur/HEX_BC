@@ -26,7 +26,8 @@ import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentTable } from "./IntakeDocumentTable";
 import { GoogleDriveImport } from "./GoogleDriveImport";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
-import { CircleAlertIcon, CircleCheckBigIcon, FunnelIcon, PlusIcon, } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { CircleAlertIcon, CircleCheckBigIcon, DownloadIcon, FunnelIcon, PlusIcon, } from "lucide-react";
 
 type IntakeWorkspaceProps = {
   projectId: string;
@@ -564,6 +565,19 @@ export function IntakeWorkspace({
 
       {!isFilterActive && hasDocuments && <div className="mt-4 space-y-4">
         <IntakeDocumentTable documents={documents} projectId={projectId} onRefresh={handleReclassified} canManage={workspace?.canManageDocuments ?? false} focusDocumentId={focusDocumentId} />
+        {/* The classified DPGF's import stays in sight; the category cards below are collapsed. */}
+        {docsByCategory.has("dpgf") && !dpgfAlreadyImported && onBridgeDpgfImport ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Votre DPGF est prête à être importée</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Contrôlez ses colonnes et ses lignes avant de les ajouter au chiffrage.</p>
+            </div>
+            <button type="button" onClick={onBridgeDpgfImport} className={buttonVariants({ variant: "outline", size: "sm" })}>
+              <DownloadIcon aria-hidden="true" size={14} />
+              Lancer l&apos;import structuré
+            </button>
+          </div>
+        ) : null}
         <details className="rounded-lg border border-border p-3 text-xs"><summary className="cursor-pointer font-medium text-primary">Classement et actions métier</summary>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">{sortedCategories.map((cat) => <IntakeCategoryCard key={cat} category={cat} canManage={workspace?.canManageDocuments ?? false} documents={docsByCategory.get(cat)!} projectId={projectId} onReclassified={handleReclassified} onBridgeDpgfImport={cat === "dpgf" ? onBridgeDpgfImport : undefined} dpgfAlreadyImported={cat === "dpgf" ? dpgfAlreadyImported : undefined} plansSynced={cat === "plans" ? plansSynced : undefined} focusDocumentId={focusDocumentId} />)}</div>
         </details>
