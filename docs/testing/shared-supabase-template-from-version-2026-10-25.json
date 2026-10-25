@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "sourceCommit": "9e009ce",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Applied by the owner under his standing authorization for merged repository migrations.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261025094300_template_from_version_checked_once.sql",
+    "pullRequest": 105,
+    "bytes": 10634,
+    "sha256": "d4694944c622df715786e4e5a56d17bdf0916cc72f6b08a0d131be96224eb563",
+    "appliedVersion": "20261025111353",
+    "appliedName": "20261025094300_template_from_version_checked_once",
+    "appliedAtUtc": "2026-10-25T11:13:53Z",
+    "storedStatementSha256Matches": true,
+    "appliedBy": "Owner, outside this thread"
+  },
+  "checkedAtUtc": "2026-10-25T13:07Z",
+  "history": {
+    "rowsForName": 1,
+    "previous": "20261024142907_estimate_fo_provision (20261024170214)",
+    "next": "20261025112108_consolidate_shared_catalog (20261025115246)"
+  },
+  "functions": [
+    {
+      "signature": "public.create_estimate_template_from_version(uuid,text,text)",
+      "volatility": "volatile",
+      "bodyMd5": "bce44abcf62c04f5422b93cd74999695"
+    },
+    {
+      "signature": "public.read_estimate_template_items(uuid,uuid)",
+      "volatility": "stable",
+      "bodyMd5": "927ff7c25bdd799be4117378c98fdfef"
+    },
+    {
+      "signature": "public.count_estimate_template_lines(uuid,uuid[])",
+      "volatility": "stable",
+      "bodyMd5": "8b669996e7f34f71d81079823927caa5"
+    }
+  ],
+  "functionChecks": {
+    "securityDefiner": true,
+    "searchPath": "",
+    "owner": "postgres",
+    "comment": true,
+    "bodiesMatchSource": true,
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "anonExecute": false,
+    "publicExecute": false
+  },
+  "securityAdvisors": {
+    "anonSecurityDefinerExecutable": 0,
+    "authenticatedSecurityDefinerExecutable": 69,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1,
+    "note": "Read after lot 3.3; read_estimate_template_items and count_estimate_template_lines are among the authenticated findings."
+  },
+  "limits": [
+    "No preflight or before/after catalog fingerprint: applied outside this thread, state checked afterwards.",
+    "No call of the functions on shared and no deployment; production stays at d8715ed."
+  ]
+}
