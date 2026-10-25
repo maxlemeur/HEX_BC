@@ -704,6 +704,18 @@
       ]
     },
     {
+      "id": "tenant-calc-policy-admin",
+      "note": "Écran « Calcul des devis » de l'administration (lot 3.2, entrée 5) : V3S03 y arrive depuis le hub, y règle les défauts puis crée un devis v3.",
+      "paths": [
+        "src/app/dashboard/admin/page.tsx",
+        "src/app/dashboard/admin/calc-policy/**",
+        "src/app/dashboard/_actions/tenant-calc-policy.ts"
+      ],
+      "journeys": [
+        "e2e/army/local/engine-v3-default.e2e.ts"
+      ]
+    },
+    {
       "id": "legacy-parity-assemblies",
       "paths": [
         "src/app/dashboard/estimates/assemblies/**"

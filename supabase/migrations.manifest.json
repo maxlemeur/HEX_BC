@@ -276,6 +276,7 @@
     "20261025094300_template_from_version_checked_once.sql": "d4694944c622df715786e4e5a56d17bdf0916cc72f6b08a0d131be96224eb563",
     "20261025112108_consolidate_shared_catalog.sql": "279f2ccd20dbbdc38a5ca2848faceb9870aeab65735e5e297abc0e8482792ca5",
     "20261025112109_restrict_public_function_execution.sql": "133b8680b37b9fa61daca8cec89f37ef9d1a91d8f15be52a3ab99efb7047858b",
-    "20261025112146_reconcile_shared_migration_history.sql": "596ca1ce0f0b826f7abef5fa7d937382a2dd0054470d87135ed921bce3e9736a"
+    "20261025112146_reconcile_shared_migration_history.sql": "596ca1ce0f0b826f7abef5fa7d937382a2dd0054470d87135ed921bce3e9736a",
+    "20261025115010_tenant_calc_defaults_admin.sql": "af97469c23f3dcacf54f1802f04f9c36860e4c1e3fec6be0c3b2e2a071f91977"
   }
 }
