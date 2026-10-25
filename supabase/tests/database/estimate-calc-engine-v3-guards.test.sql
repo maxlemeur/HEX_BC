@@ -83,6 +83,7 @@ values
   ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19), que l''application du métré n''y envoie plus (M2 v0.1)'),
   ('public.apply_takeoff_job_atomic', 'métré M2 v0.1 : v1/v2 inchangés ; une v3 (brouillon seulement) passe par private.takeoff_apply_v3_lines sous contrat d''écrivain, montants par le pont d''entrée'),
   ('private.takeoff_apply_v3_lines', 'métré M2 v0.1 : refuse tout moteur autre que 3 et toute version autre que celle du contrat d''écrivain'),
+  ('public.apply_estimate_structure_draft', 'structure IA (lot 3.2, entrée 2) : v1/v2 inchangés ; une v3 écrit ses sections sous contrat d''écrivain, montants par le pont d''entrée'),
   ('public.guard_estimate_item_engine_columns', 'contrat d''écrivain v3 sur les lignes (M1)'),
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
   ('private.calc_engine_freezes_snapshot', 'prédicat d''héritage de la gouvernance v2 (M1)'),
@@ -1615,9 +1616,13 @@ select is(
          '[]'::jsonb,
          now()
        )$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 an AI structure draft cannot be applied to a v3'
+  ],
+  $a$select format('%s|%s',
+       (select count(*) from public.estimate_items where id = 'a3210000-0000-4000-8000-000000000590'
+          and version_id = 'a3210000-0000-4000-8000-000000000101' and item_type = 'section'),
+       coalesce(nullif(current_setting('miaouffrage.estimate_v3_writer', true), ''), 'closed'))$a$),
+  'ok:1|closed',
+  'F-SQL-10 an AI structure draft enters a v3 under its writer contract, closed after the call (lot 3.2, entrée 2)'
 );
 
 select is(

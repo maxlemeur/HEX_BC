@@ -1,0 +1,53 @@
+# Purge hebdomadaire des brouillons de test du Supabase partagé :
+# GET /api/internal/test-data/purge via scripts/purge-test-data.mjs. Seuls les
+# tenants de private.test_data_tenants sont visés, après leur rétention ; voir
+# supabase/README.md, section "Données de test". Un déclenchement manuel liste
+# par défaut sans rien supprimer. La planification reste inactive tant que la
+# variable TEST_DATA_PURGE_ENABLED ne vaut pas "true" : la poser après la
+# migration, le déploiement et un déclenchement manuel à blanc relu.
+# Production origin: secrets.HEX_APP_URL, else vars.APP_URL. Fail closed if both
+# are missing. Do not log CRON_SECRET.
+
+name: Purge Test Data
+
+on:
+  schedule:
+    - cron: "40 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Lister les affaires éligibles sans rien supprimer."
+        type: boolean
+        default: true
+
+concurrency:
+  group: purge-test-data
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    if: github.event_name == 'workflow_dispatch' || vars.TEST_DATA_PURGE_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # Counters only, never the response body. Failed deletions fail the job.
+      - name: Purge test drafts
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          HEX_APP_URL: ${{ secrets.HEX_APP_URL }}
+          APP_URL: ${{ vars.APP_URL }}
+          PURGE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+        run: node scripts/purge-test-data.mjs
