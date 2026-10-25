@@ -218,14 +218,73 @@ export function readEstimateV3LineMargin(line: EstimateV3LineResult | null): Est
   };
 }
 
-/* ---------- Association d'un article (revue de 2.6, F26-26, même contrat que F26-20) ---------- */
+/* ---------- Conversion ligne ↔ section (lot 3.2, entrée 1, D-b) ---------- */
 
 /**
- * Sous-lot 2.8b (A8, D-b) : la conversion ligne ↔ section n'a pas d'écrivain v3 ; désactivée avec ce motif dans
- * l'éditeur, refusée par le même message côté serveur (`ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE`).
+ * La route directe (`PATCH /items`) ne recalcule rien : elle refuse toujours la conversion d'une v3 par ce message
+ * (`ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE`), qui renvoie au lot de l'écrivain v3 que l'éditeur envoie.
  */
 export const ESTIMATE_V3_ITEM_CONVERSION_REASON =
-  "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
+  "Sur un devis au moteur de calcul 3, la conversion ligne ↔ section passe par un lot (POST /batch) qui supprime l’élément puis le recrée à la même place.";
+
+/** Ce que la confirmation dit avant d'envoyer le lot (la conversion change l'identifiant de l'élément). */
+export const ESTIMATE_V3_LINE_TO_SECTION_NOTICE =
+  "Chaque ligne est recréée en section vide à sa place : prix, quantité, unité, statut et heures ne sont pas gardés, " +
+  "ni ce qui est rattaché à la ligne (métré, justificatifs, détail d’import).";
+export const ESTIMATE_V3_SECTION_TO_LINE_NOTICE =
+  "La section est recréée en ligne à sa place, en fourniture seule, à Q 1 et PR FO 0, sans unité : saisissez-la avant " +
+  "le gel. Ce qui est rattaché à la section n’est pas gardé.";
+
+/** Deux opérations par élément, dans la limite d'un lot (`ESTIMATE_BATCH_MAX_OPERATIONS`, 1 000). */
+const ESTIMATE_V3_CONVERSION_MAX_ITEMS = 500;
+
+export type EstimateV3ItemConversionTarget = "section" | "line";
+
+export type EstimateV3ItemConversionOperation =
+  | { op: "delete"; id: string }
+  | { op: "create"; data: EstimateItemInsertPayload };
+
+/**
+ * Conversion d'une v3 en un seul lot atomique : chaque élément est supprimé puis recréé à la même place (même
+ * parent, position, titre, AID et source), avec un nouvel identifiant : ce qui est rattaché à l'ancien (métré,
+ * justificatifs, `source_metadata`) ne suit pas. Règles v1/v2 transposées : une ligne devenue section ne garde ni
+ * prix, ni quantité, ni unité, ni statut, ni heures ; seule une section vide, sous une section, devient une ligne, en
+ * fourniture seule, Q 1, PR FO 0 et sans unité (à saisir avant le gel). Le serveur vérifie la profondeur.
+ */
+export function planEstimateV3ItemConversion(
+  versionId: string,
+  items: readonly EstimateItem[],
+  itemIds: readonly string[],
+  target: EstimateV3ItemConversionTarget
+): { ok: true; operations: EstimateV3ItemConversionOperation[] } | { ok: false; message: string } {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const operations: EstimateV3ItemConversionOperation[] = [];
+  const ids = new Set(itemIds);
+  if (ids.size > ESTIMATE_V3_CONVERSION_MAX_ITEMS) {
+    return { ok: false, message: `Convertissez au plus ${ESTIMATE_V3_CONVERSION_MAX_ITEMS} éléments à la fois.` };
+  }
+  for (const id of ids) {
+    const item = itemById.get(id);
+    if (!item) return { ok: false, message: "Élément introuvable." };
+    if (item.item_type === target) {
+      return { ok: false, message: target === "section" ? "L’élément est déjà une section." : "L’élément est déjà une ligne." };
+    }
+    if (id.startsWith("tmp:")) return { ok: false, message: "L’élément est en cours d’enregistrement : réessayez dans un instant." };
+    if (target === "line" && items.some((child) => child.parent_id === id)) {
+      return { ok: false, message: "La section contient des lignes ou des sous-sections." };
+    }
+    if (target === "line" && !item.parent_id) return { ok: false, message: "Une ligne doit être ajoutée sous une section." };
+    const placement = { version_id: versionId, parent_id: item.parent_id ?? null, position: item.position, title: item.title,
+      aid: item.aid ?? null, source_provider: item.source_provider, source_file_name: item.source_file_name,
+      source_page: item.source_page };
+    operations.push({ op: "delete", id }, { op: "create", data: target === "section"
+      ? { ...placement, item_type: "section" }
+      : { ...placement, item_type: "line", quantity: 1, unit_price_ht_cents: 0, unit_code: null } });
+  }
+  return operations.length > 0 ? { ok: true, operations } : { ok: false, message: "Aucun élément à convertir." };
+}
+
+/* ---------- Association d'un article (revue de 2.6, F26-26, même contrat que F26-20) ---------- */
 
 /** Libellé du refus, celui de la comparaison fournisseurs et de la suggestion du catalogue. */
 export const ESTIMATE_V3_UNIT_MISMATCH_LABEL = "Unité différente du devis";

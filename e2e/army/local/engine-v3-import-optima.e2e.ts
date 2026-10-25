@@ -880,7 +880,8 @@ armyTest("IO09 a v3 refuses by name an inexact assembly and a template line with
 //  C4  Une copie perd `unit_code`, le statut ou les h/u, multiplie les heures par Q deux fois, ou écrit en plusieurs
 //      lots (écriture partielle).
 //  C5  Une section v2 entre dans une v3 sans conversion P-12 ni rapport ; une section v3 entre dans une v2 (D-e).
-//  C6  La conversion ligne ↔ section reste proposée sur une v3, puis échoue par un message générique (D-b).
+//  C6  La conversion ligne ↔ section reste proposée sur une v3, puis échoue par un message générique (D-b). Ouverte
+//      par le lot 3.2 (entrée 1) : voir IO12.
 //  C7  Une copie v1/v2 → v1/v2 change de montants.
 
 /** A linked DPGF of the owned affaire (A5): an import and its mapped rows, as the import mapping stores them. */
@@ -1145,7 +1146,15 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
     }
   });
 
-armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 editor and refused by name, nothing written", options,
+// Lot 3.2, entrée 1 (D-b) : la conversion ligne ↔ section d'une v3 passe par un lot de l'écrivain v3 qui supprime puis
+// recrée l'élément à la même place. Défaillances observables, écrites avant le code :
+//  K1  « Convertir en section » et « Convertir en ligne » restent désactivés sur une v3, avec le motif « supprimez
+//      l'élément puis recréez-le ».
+//  K2  Une ligne devenue section garde son montant dans les totaux, l'élément converti change de place, ou une sélection
+//      de lignes part en plusieurs lots.
+//  K3  Une section devenue ligne n'est pas une fourniture seule à Q 1 et PR FO 0, sans unité.
+//  K4  La route directe `PATCH /items` convertit une v3 sans recalcul (elle doit refuser par son nom, rien d'écrit).
+armyTest("IO12 line ↔ section conversion on a v3 runs as one batch in place with totals recomputed; the direct route still refuses by name", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const { owner, projectId, roleId } = await prepareV3Owner(ui, army, "conversion");
@@ -1154,10 +1163,16 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
       const sectionId = await seedV3Section(browser, army, versionId, roleId);
       let state = await readEstimate(browser, versionId);
       const empty = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${versionId}/items`,
-        { item_type: "section", position: 2, title: `${army.runPrefix} vide` }, { "if-match": state.version.updated_at });
+        { item_type: "section", parent_id: sectionId, position: 4, title: `${army.runPrefix} vide`, aid: "LOT.VID.01" },
+        { "if-match": state.version.updated_at });
       expect([empty.status, empty.body.ok]).toEqual([201, true]);
       state = await readEstimate(browser, versionId);
-      const tube = lineItems(state).find((line) => line.title === `${army.runPrefix} tube`)!;
+      const byTitle = (estimate: ArmyEstimate, title: string) => estimate.items.find((item) => item.title === `${army.runPrefix} ${title}`)!;
+      const tube = byTitle(state, "tube");
+      const provision = byTitle(state, "provision");
+      const coude = byTitle(state, "coude");
+      const kept = ["sous-lot", "coude"].map((title) => byTitle(state, title));
+      // K4: the direct route still refuses both conversions by name, before any write.
       const probes = {
         lineToSection: await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}/items`,
           { id: tube.id, item_type: "section" }, { "if-match": state.version.updated_at }),
@@ -1172,42 +1187,115 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
       await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
       const sectionTitle = browser.locator(`[data-estimate-item-id="${sectionId}"] [data-testid="estimate-section-title-input"]`);
       await expect(sectionTitle).toBeEnabled({ timeout: 150_000 });
+      const waitState = async (done: (estimate: ArmyEstimate) => boolean) => {
+        let latest = state;
+        await expect.poll(async () => done(latest = await readEstimate(browser, versionId)), { timeout: 60_000 }).toBe(true);
+        return latest;
+      };
+      const openSectionMenu = async (id: string) => {
+        await browser.evaluate((rowId) => {
+          const row = document.querySelector(`[data-estimate-item-id="${rowId}"]`);
+          if (!(row instanceof HTMLElement)) throw new Error("Section row missing.");
+          const box = row.getBoundingClientRect();
+          row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 10 }));
+          return true;
+        }, id);
+        const convert = browser.locator('[data-testid="estimate-section-context-convert-to-line-button"]');
+        await expect(convert).toBeVisible();
+        return convert;
+      };
+      // Every batch the editor sends from here on, by its operations.
+      const batches: string[][] = [];
+      await browser.route(`**/api/estimates/${versionId}/batch`, async (route) => {
+        if (route.request.method === "POST") {
+          const body = JSON.parse(route.request.postData ?? "{}") as { operations?: Array<{ op: string }> };
+          batches.push(body.operations?.map((operation) => operation.op) ?? []);
+        }
+        await route.fallback();
+      });
+
+      // K1, K2: the selected lines become empty sections at their places, through one batch.
+      for (const title of ["tube", "provision"]) {
+        await screen.getByLabel(`Sélectionner la ligne ${army.runPrefix} ${title}`, { exact: true }).check();
+      }
       await screen.getByRole("button", `Plus d'actions pour ${army.runPrefix} tube`, { exact: true }).tap();
-      const reason = "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
-      const lineConvert = screen.getByRole("menuitem", /^Convertir en section/);
-      await expect(lineConvert).toBeVisible();
-      // Revue 2.8b (F6) : l'entrée désactivée ne reçoit pas le survol (pointer-events: none), son motif est un texte visible.
-      const lineMenu = { disabled: await lineConvert.getAttribute("aria-disabled"), reason: await lineConvert.getAttribute("title"),
-        shown: await lineConvert.getByText(reason, { exact: true }).isVisible() };
+      const lineConvert = screen.getByRole("menuitem", "Convertir en section", { exact: true });
+      await expect(lineConvert).toBeEnabled();
+      await lineConvert.tap();
+      const toSection = screen.getByRole("alertdialog", "Convertir 2 lignes sélectionnées en sections ?", { exact: true });
+      await expect(toSection.getByText("Chaque ligne est recréée en section vide à sa place : prix, quantité, unité, statut et heures " +
+        "ne sont pas gardés, ni ce qui est rattaché à la ligne (métré, justificatifs, détail d’import).", { exact: true })).toBeVisible();
+      await toSection.getByRole("button", "Convertir", { exact: true }).tap();
+      await expect(toSection).toBeHidden();
+      const afterLine = await waitState((estimate) => !estimate.items.some((item) => item.id === tube.id || item.id === provision.id));
+      const tubeSection = afterLine.items.find((item) => item.parent_id === sectionId && item.position === 1)!;
+      const provisionSection = afterLine.items.find((item) => item.parent_id === sectionId && item.position === 2)!;
+      await expect(browser.locator(`[data-estimate-item-id="${tubeSection.id}"] [data-testid="estimate-section-title-input"]`))
+        .toHaveValue(`${army.runPrefix} tube`, { timeout: 30_000 });
+
+      // A section with children still cannot become a line (v1/v2 rule).
+      const parentConvert = await openSectionMenu(sectionId);
+      const parentMenu = { disabled: await parentConvert.isDisabled(), reason: await parentConvert.getAttribute("title") };
       await browser.keyboard.press("Escape");
-      await browser.evaluate((id) => {
-        const row = document.querySelector(`[data-estimate-item-id="${id}"]`);
-        if (!(row instanceof HTMLElement)) throw new Error("Section row missing.");
-        const box = row.getBoundingClientRect();
-        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 10 }));
-        return true;
-      }, empty.body.data.item.id);
-      const sectionConvert = browser.locator('[data-testid="estimate-section-context-convert-to-line-button"]');
-      await expect(sectionConvert).toBeVisible();
-      const sectionMenu = { disabled: await sectionConvert.isDisabled(), reason: await sectionConvert.getAttribute("title"),
-        shown: await sectionConvert.getByText(reason, { exact: true }).isVisible() };
-      const after = await readEstimate(browser, versionId);
+
+      // K1, K3: the empty section's menu converts it into a line at its place.
+      const sectionConvert = await openSectionMenu(empty.body.data.item.id);
+      await expect(sectionConvert).toBeEnabled();
+      await sectionConvert.tap();
+      const toLine = screen.getByRole("alertdialog", "Convertir cette section en ligne ?", { exact: true });
+      await expect(toLine.getByText("La section est recréée en ligne à sa place, en fourniture seule, à Q 1 et PR FO 0, sans " +
+        "unité : saisissez-la avant le gel. Ce qui est rattaché à la section n’est pas gardé.", { exact: true })).toBeVisible();
+      await toLine.getByRole("button", "Convertir", { exact: true }).tap();
+      await expect(toLine).toBeHidden();
+      const final = await waitState((estimate) => !estimate.items.some((item) => item.id === empty.body.data.item.id));
+      const emptyLine = final.items.find((item) => item.parent_id === sectionId && item.position === 4)!;
+      await expect(screen.getByRole("button", `Plus d'actions pour ${army.runPrefix} vide`, { exact: true })).toBeVisible({ timeout: 30_000 });
+
       const observed = {
         responses: Object.fromEntries(Object.entries(probes).map(([name, response]) =>
           [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
-        lineMenu,
-        sectionMenu,
-        unchanged: after.items.length === state.items.length && afterProbes.version.updated_at === state.version.updated_at &&
-          after.items.every((item) => state.items.some((previous) => previous.id === item.id && previous.item_type === item.item_type)),
+        directUnchanged: afterProbes.version.updated_at === state.version.updated_at && afterProbes.items.length === state.items.length &&
+          afterProbes.items.every((item) => state.items.some((previous) => previous.id === item.id && previous.item_type === item.item_type)),
+        totalsBefore: [Number(state.version.total_ht_cents), Number(tube.line_total_ht_cents) + Number(coude.line_total_ht_cents)],
+        lineToSection: {
+          type: tubeSection.item_type, title: tubeSection.title, newId: tubeSection.id !== tube.id,
+          children: afterLine.items.filter((item) => item.parent_id === tubeSection.id).length,
+          amounts: [tubeSection.quantity, tubeSection.unit_price_ht_cents, tubeSection.line_total_ht_cents, field(tubeSection, "unit_code")],
+          totalHt: Number(afterLine.version.total_ht_cents),
+        },
+        provisionSection: [provisionSection.item_type, provisionSection.title, provisionSection.id !== provision.id],
+        batches,
+        parentMenu,
+        sectionToLine: {
+          type: emptyLine.item_type, title: emptyLine.title, aid: field(emptyLine, "aid"), newId: emptyLine.id !== empty.body.data.item.id,
+          inputs: [num(emptyLine.quantity), num(emptyLine.unit_price_ht_cents), field(emptyLine, "unit_code"),
+            field(emptyLine, "pricing_status"), field(emptyLine, "line_nature"), num(field(emptyLine, "h_mo_per_unit") ?? 0)],
+          net: num(emptyLine.line_total_ht_cents),
+        },
+        // The rest of the version keeps its ids, places and amounts; the footer is the sum of the stored lines.
+        kept: kept.map((item) => final.items.some((after) => after.id === item.id && after.parent_id === item.parent_id &&
+          after.position === item.position && after.line_total_ht_cents === item.line_total_ht_cents)),
+        totalHt: [Number(final.version.total_ht_cents), final.items.filter((item) => item.item_type === "line")
+          .reduce((sum, item) => sum + Number(item.line_total_ht_cents ?? 0), 0)],
       };
-      await recordEvidence(army, "io-conversion-gate", { versionId, observed });
+      await recordEvidence(army, "io-conversion-batch", { versionId, observed });
       const refused = [409, false, "ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE"];
+      const coudeNet = Number(coude.line_total_ht_cents);
       expect(observed).toEqual({
         responses: { lineToSection: refused, sectionToLine: refused },
-        lineMenu: { disabled: "true", reason, shown: true },
-        sectionMenu: { disabled: true, reason, shown: true },
-        unchanged: true,
+        directUnchanged: true,
+        totalsBefore: [observed.totalsBefore[1], observed.totalsBefore[1]],
+        lineToSection: { type: "section", title: `${army.runPrefix} tube`, newId: true, children: 0,
+          amounts: [null, null, null, null], totalHt: coudeNet },
+        provisionSection: ["section", `${army.runPrefix} provision`, true],
+        batches: [["delete", "create", "delete", "create"], ["delete", "create"]],
+        parentMenu: { disabled: true, reason: "Conversion impossible: la section contient des enfants." },
+        sectionToLine: { type: "line", title: `${army.runPrefix} vide`, aid: "LOT.VID.01", newId: true,
+          inputs: [1, 0, null, "priced", "supply_only", 0], net: 0 },
+        kept: [true, true],
+        totalHt: [coudeNet, coudeNet],
       });
+      expect(coudeNet).toBeGreaterThan(0);
     } finally {
       await closePolicy(owner, army, "conversion");
     }

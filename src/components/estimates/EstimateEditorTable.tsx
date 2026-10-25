@@ -40,7 +40,7 @@ import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { resolveEstimateArticleSheetUnit, resolveEstimateRuleUnitPatch, resolveEstimateV3ArticleAssociation, resolveEstimateV3MobileLineMeta } from "@/lib/estimates/v3-editor";
+import { ESTIMATE_V3_LINE_TO_SECTION_NOTICE, ESTIMATE_V3_SECTION_TO_LINE_NOTICE, resolveEstimateArticleSheetUnit, resolveEstimateRuleUnitPatch, resolveEstimateV3ArticleAssociation, resolveEstimateV3MobileLineMeta } from "@/lib/estimates/v3-editor";
 import { useEstimateV3Grid, useEstimateV3UnitDrafts } from "@/components/estimates/v3/V3LineCells";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
@@ -258,6 +258,8 @@ type EstimateEditorTableProps = {
     sectionId: string;
     targetVersionId: string;
   }) => Promise<void>;
+  /** Lot 3.2, entrée 1 (D-b) : v3, conversion ligne ↔ section par un lot de l'écrivain v3 ; `true` une fois validée. */
+  onConvertItems?: (itemIds: readonly string[], target: "section" | "line") => Promise<boolean>;
   onPatchItem: (
     itemId: string,
     patch: ItemPatch,
@@ -908,6 +910,7 @@ export function EstimateEditorTable({
   sectionDuplicateTargets = EMPTY_SECTION_DUPLICATE_TARGETS,
   onDuplicateSection,
   onDuplicateSectionToVersion,
+  onConvertItems,
   onPatchItem,
   onTrackSuggestionCorrections,
   onApplyBulkMajoration,
@@ -1546,6 +1549,8 @@ export function EstimateEditorTable({
     (event: ReactMouseEvent<HTMLDivElement>) => {
       if (!hasSelectedLines) return;
       const target = event.target as HTMLElement;
+      // Un menu ouvert depuis une ligne est en portail : son clic remonte ici par React et vidait la sélection avant l'action.
+      if (!event.currentTarget.contains(target)) return;
       if (target.closest(".estimate-row")) return;
       clearLineSelection();
     },
@@ -1693,6 +1698,16 @@ export function EstimateEditorTable({
     [onPatchItem]
   );
 
+  // v3 : tous les éléments en un seul lot (lot 3.2, entrée 1), `false` sur un refus que le contrôleur signale ; v1/v2 : un par un.
+  const convertItemsInPlace = useCallback(
+    async (itemIds: readonly string[], target: "section" | "line") => {
+      if (onConvertItems) return onConvertItems(itemIds, target);
+      for (const itemId of itemIds) applyItemConversionResultLocally(await convertEstimateItemType(versionId, itemId, target));
+      return true;
+    },
+    [applyItemConversionResultLocally, onConvertItems, versionId]
+  );
+
   const handleConvertLineToSection = useCallback(
     async (lineId: string) => {
       if (isReadOnly || isItemConversionPending) return;
@@ -1714,6 +1729,7 @@ export function EstimateEditorTable({
           targetLineIds.length > 1
             ? `Convertir ${targetLineIds.length} lignes sélectionnées en sections ?`
             : "Convertir cette ligne en section ?",
+        ...(onConvertItems ? { description: ESTIMATE_V3_LINE_TO_SECTION_NOTICE } : {}),
         confirmLabel: "Convertir",
       });
       if (!confirmed) return;
@@ -1721,14 +1737,7 @@ export function EstimateEditorTable({
       closeSupplierComparisonContextMenu();
       setIsItemConversionPending(true);
       try {
-        for (const targetLineId of targetLineIds) {
-          const result = await convertEstimateItemType(
-            versionId,
-            targetLineId,
-            "section"
-          );
-          applyItemConversionResultLocally(result);
-        }
+        if (!(await convertItemsInPlace(targetLineIds, "section"))) return;
         if (targetLineIds.length > 1) {
           clearLineSelection();
         }
@@ -1742,16 +1751,16 @@ export function EstimateEditorTable({
       }
     },
     [
-      applyItemConversionResultLocally,
       clearLineSelection,
       closeSupplierComparisonContextMenu,
       confirm,
+      convertItemsInPlace,
       isItemConversionPending,
       isReadOnly,
       itemById,
+      onConvertItems,
       selectedLineIdList,
       toast,
-      versionId,
     ]
   );
 
@@ -1772,6 +1781,7 @@ export function EstimateEditorTable({
       }
       const confirmed = await confirm({
         title: "Convertir cette section en ligne ?",
+        ...(onConvertItems ? { description: ESTIMATE_V3_SECTION_TO_LINE_NOTICE } : {}),
         confirmLabel: "Convertir",
       });
       if (!confirmed) return;
@@ -1779,8 +1789,7 @@ export function EstimateEditorTable({
       closeSectionContextMenu();
       setIsItemConversionPending(true);
       try {
-        const result = await convertEstimateItemType(versionId, sectionId, "line");
-        applyItemConversionResultLocally(result);
+        await convertItemsInPlace([sectionId], "line");
       } catch (error) {
         toast.error({
           title: "Conversion impossible",
@@ -1791,15 +1800,15 @@ export function EstimateEditorTable({
       }
     },
     [
-      applyItemConversionResultLocally,
       closeSectionContextMenu,
       confirm,
+      convertItemsInPlace,
       isItemConversionPending,
       isReadOnly,
       itemById,
       itemsByParent,
+      onConvertItems,
       toast,
-      versionId,
     ]
   );
 

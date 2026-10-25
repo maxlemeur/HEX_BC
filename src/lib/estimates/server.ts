@@ -3793,7 +3793,8 @@ export async function updateEstimateItem(
     currentItem.item_type === "line" && targetItemType === "section";
   const isConvertingSectionToLine =
     currentItem.item_type === "section" && targetItemType === "line";
-  // Lot 2, sous-lot 2.8b (A8, D-b) : conversion ligne ↔ section refusée par son nom sur une v3, avant toute écriture.
+  // Lot 2, sous-lot 2.8b (A8, D-b) : cette route ne recalcule rien ; la conversion d'une v3 y reste refusée par son nom,
+  // avant toute écriture. Lot 3.2, entrée 1 : elle passe par un lot de l'écrivain v3 (suppression puis recréation).
   if ((isConvertingLineToSection || isConvertingSectionToLine) && usesPerUnitLabor(resolveEstimateEngineVersion(version))) {
     throw conflict(ESTIMATE_V3_ITEM_CONVERSION_REASON, undefined, "ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE");
   }
