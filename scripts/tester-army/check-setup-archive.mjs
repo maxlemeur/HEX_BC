@@ -108,6 +108,7 @@ async function fixture(name) {
   if (helperBytes) await writeFile(path.join(cwd, "scripts/tester-army/setup-failure-archive.mjs"), helperBytes);
   await cp(path.join(root, "scripts/tester-army/coverage-evidence.mjs"), path.join(cwd, "scripts/tester-army/coverage-evidence.mjs"));
   await cp(path.join(root, "scripts/tester-army/local-recipe-common.mjs"), path.join(cwd, "scripts/tester-army/local-recipe-common.mjs"));
+  await cp(path.join(root, "scripts/tester-army/shared-write-guard.mjs"), path.join(cwd, "scripts/tester-army/shared-write-guard.mjs"));
   await writeFile(path.join(cwd, "scripts/tester-army/coverage-profile.mjs"), 'export async function loadCoverageProfile(){if(process.env.E2E_ARMY_BASE_URL?.startsWith("invalid-"))throw new Error("profile setup failed for password "+process.env.E2E_LOGIN_PASSWORD);return {env:{},metadata:{scenarioSet:"harness-only",fixture:{scope:"no business/auth"}},evidence:[]};}\n');
   await mkdir(path.join(cwd, "node_modules/@next/env"), { recursive: true });
   await writeFile(path.join(cwd, "node_modules/@next/env/index.js"), "module.exports={loadEnvConfig(){}};\n");
@@ -270,6 +271,17 @@ await test("list-keeps-business-evidence", async f => {
   await mkdir(path.join(f.output, "artifacts/business"), { recursive: true }); await writeFile(path.join(f.output, "artifacts/business/keep.json"), '{"marker":"KEEP-BUSINESS"}\n');
   const run = await execute(f, "list", {}, "coverage-list"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "collected");
   assert.equal(await readFile(path.join(f.output, "artifacts/business/keep.json"), "utf8"), '{"marker":"KEEP-BUSINESS"}\n', "discovery must not clear business evidence");
+});
+// A writing mode on a remote Supabase needs the per-run acknowledgement of its
+// host (shared-write-guard.mjs); one that only a .env file supplies does not count.
+await test("shared-write-refusal", async f => {
+  const remote = { NEXT_PUBLIC_SUPABASE_URL: "https://shared-project.supabase.co", E2E_ALLOWED_SUPABASE_HOST: "shared-project.supabase.co" };
+  const refused = await execute(f, "critical-fresh", remote, "critical");
+  assert.notEqual(refused.exitCode, 0); assert.equal(refused.manifest.result.status, "evidence_unavailable");
+  assert.match(refused.manifest.result.error, /E2E_ARMY_SHARED_WRITE_HOST=shared-project\.supabase\.co/); assert.equal(refused.manifest.report, undefined);
+  await writeFile(path.join(f.cwd, "node_modules/@next/env/index.js"), 'module.exports={loadEnvConfig(){process.env.E2E_ARMY_SHARED_WRITE_HOST="shared-project.supabase.co";}};\n');
+  const fromEnvFile = await execute(f, "critical-fresh", remote, "critical");
+  assert.notEqual(fromEnvFile.exitCode, 0); assert.match(fromEnvFile.manifest.result.error, /never delete their data/);
 });
 // A browser cannot observe whether its wrapper records source changes. Copy a
 // real public input after the fixture Git commit, then mutate it in the real

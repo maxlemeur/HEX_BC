@@ -54,7 +54,12 @@ Les commandes directes `e2e:army:critical` et `e2e:army:full` n'amorcent pas la
 pile. Elles demandent un environnement explicitement préparé, un compte E2E et
 `E2E_ALLOWED_SUPABASE_HOST`. Préférer les commandes autonomes ci-dessus pour
 une vérification locale. Un environnement partagé requiert son propre périmètre
-autorisé de fixtures et d'écritures.
+autorisé de fixtures et d'écritures : sur un hôte distant, les modes qui créent
+des affaires (critical, full, development, polish, coverage, performance-affaire)
+sont refusés sans `E2E_ARMY_SHARED_WRITE_HOST=<hôte>` posé dans le shell pour ce
+lancement, et n'utilisent que le compte E2E désigné (voir `AGENTS.md`). La valeur
+lue dans un `.env` est ignorée ; ne pas l'exporter dans un profil de shell ni la
+passer par `node --env-file`, qui la rendraient permanente.
 
 ## Organisation et écriture des parcours
 

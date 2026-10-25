@@ -10,8 +10,11 @@ import { archiveSetupFailure, assertSetupPath, readSetupLogBaseline, readSetupLo
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
 import { localJourneyCoverageProblems } from "./tester-army/journey-preflight.mjs";
 import { prepareArmyTypeScriptConfig } from "./tester-army/local-recipe-common.mjs";
+import { SHARED_WRITE_ACKNOWLEDGEMENT, assertSharedWriteAcknowledged } from "./tester-army/shared-write-guard.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+// Read before loadEnvConfig: a shared-base write is acknowledged per run, never by a .env file.
+const sharedWriteAcknowledgement = process.env[SHARED_WRITE_ACKNOWLEDGEMENT];
 const requestedMode = process.argv[2] ?? "smoke";
 const full = requestedMode === "full" || requestedMode === "full-list";
 const development = requestedMode === "development" || requestedMode === "development-list";
@@ -271,7 +274,11 @@ try {
         supabase.search || supabase.hash || supabase.pathname !== "/" || (!loopback && supabase.port)) {
         throw new Error("Critical Supabase origin must exactly match E2E_ALLOWED_SUPABASE_HOST.");
       }
+      // Critical (full, development, polish), coverage and the affaire benchmark create affaires.
+      const writes = critical || coverage || affaire;
+      assertSharedWriteAcknowledged({ hostname: supabase.hostname, writes, acknowledgement: sharedWriteAcknowledgement });
       manifest.fixtures.supabaseHost = supabase.hostname;
+      if (writes && !loopback) manifest.fixtures.sharedWrites = { acknowledgedBy: SHARED_WRITE_ACKNOWLEDGEMENT, cleanup: "none by the run; old drafts of the test tenants are purged weekly" };
       if (critical && loopback) {
         const networkDirectory = path.join(root, ".e2e", "army", "coverage");
         await mkdir(networkDirectory, { recursive: true });

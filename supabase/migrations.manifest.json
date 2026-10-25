@@ -279,6 +279,7 @@
     "20261025112146_reconcile_shared_migration_history.sql": "596ca1ce0f0b826f7abef5fa7d937382a2dd0054470d87135ed921bce3e9736a",
     "20261025115010_tenant_calc_defaults_admin.sql": "af97469c23f3dcacf54f1802f04f9c36860e4c1e3fec6be0c3b2e2a071f91977",
     "20261025134000_takeoff_apply_engine_v3.sql": "d4ff12ea3c6b30526aec54c0e7e24016005dc00bbb0903e699ff925bd9d7da18",
-    "20261025163000_structure_draft_apply_engine_v3.sql": "b285119e254ab5e9817dadfc664e54d39a8c915134522bbacbedabef5d59da9f"
+    "20261025163000_structure_draft_apply_engine_v3.sql": "b285119e254ab5e9817dadfc664e54d39a8c915134522bbacbedabef5d59da9f",
+    "20261025174800_test_tenant_draft_purge.sql": "3d80b8b3bae4495acf295a9afa4c9047df21cc5a1e59a5fa6aaa8e84a055e408"
   }
 }
