@@ -213,7 +213,7 @@ export type AffaireHubVersionSummary = {
   /** Marge v1/v2, marque nette v3 (gel frais ou brouillon en direct) ; `null` = indisponible, jamais 0 par défaut. */
   marginPercent: number | null;
   updatedAt: string;
-  /** Sous-lot 2.10a (N3) : moteur de la version, `null` s'il est illisible (entrées du métré et de la structure IA). */
+  /** Sous-lot 2.10a (N3) : moteur de la version, `null` s'il est illisible (le métré et la structure IA l'ignorent depuis M2 et le lot 3.2). */
   calcEngineVersion?: EstimateEngineVersion | null;
 };
 

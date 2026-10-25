@@ -180,7 +180,7 @@ function createMembershipBuilder() {
   return builder;
 }
 
-function createVersionAccessBuilder() {
+function createVersionAccessBuilder(calcEngineVersion?: number) {
   const builder = {
     eq: vi.fn(),
     single: vi.fn(),
@@ -196,6 +196,7 @@ function createVersionAccessBuilder() {
         margin_multiplier: 1,
         tax_rate_bp: 2000,
         updated_at: "2026-03-06T09:00:00.000Z",
+        ...(calcEngineVersion === undefined ? {} : { calc_engine_version: calcEngineVersion }),
         estimate_projects: {
           id: PROJECT_ID,
           tenant_id: TENANT_ID,
@@ -414,7 +415,8 @@ function createEstimateItemsBuilder(
 }
 
 function createApplySupabaseMock(options?: {
-  estimateItems?: ReturnType<typeof buildEstimateSectionRow>[];
+  calcEngineVersion?: number;
+  estimateItems?: Array<ReturnType<typeof buildEstimateSectionRow> | Record<string, unknown>>;
   rpcResponse?: {
     data: unknown;
     error: {
@@ -425,11 +427,13 @@ function createApplySupabaseMock(options?: {
   };
 }) {
   const membershipBuilder = createMembershipBuilder();
-  const versionBuilder = createVersionAccessBuilder();
+  const versionBuilder = createVersionAccessBuilder(options?.calcEngineVersion);
   const draftLockBuilder = createDraftLockBuilder();
   const draftBuilder = createDraftBuilder();
   const draftNodesBuilder = createDraftNodesBuilder();
-  const estimateItemsBuilder = createEstimateItemsBuilder(options?.estimateItems);
+  const estimateItemsBuilder = createEstimateItemsBuilder(
+    options?.estimateItems as ReturnType<typeof buildEstimateSectionRow>[] | undefined
+  );
   const estimateItemsInsert = vi.fn().mockResolvedValue({ data: null, error: null });
   const estimateItemsUpdateEq = vi.fn();
   const estimateItemsUpdateBuilder = {
@@ -661,6 +665,7 @@ function createGenerateStructureSupabaseMock(options?: {
   projectNotes?: string | null;
   existingItems?: ReturnType<typeof buildEstimateSectionRow>[];
   leaseClaimed?: boolean;
+  calcEngineVersion?: number;
 }) {
   const membershipBuilder = createMembershipBuilder();
   const versionAccessBuilder = {
@@ -673,6 +678,7 @@ function createGenerateStructureSupabaseMock(options?: {
         margin_multiplier: 1,
         tax_rate_bp: 2000,
         updated_at: "2026-03-06T09:00:00.000Z",
+        ...(options?.calcEngineVersion === undefined ? {} : { calc_engine_version: options.calcEngineVersion }),
         estimate_projects: {
           id: PROJECT_ID,
           tenant_id: TENANT_ID,
@@ -926,6 +932,38 @@ describe("generateEstimateStructureDraft", () => {
       "acquire_estimate_ai_generation_lease",
       "complete_estimate_ai_generation_lease",
     ]);
+  });
+
+  it("generates a preview on a v3 draft, since generation writes only the preview (lot 3.2, entrée 2)", async () => {
+    const { supabase, draftNodesInsert } = createGenerateStructureSupabaseMock({
+      calcEngineVersion: 3,
+      cctpDocuments: [
+        {
+          id: "cctp-primary",
+          file_name: "cctp-principal.pdf",
+          document_priority: "primary",
+          extracted_metadata: {
+            projectName: null,
+            clientName: null,
+            deadlineAt: null,
+            detectedLots: ["Plomberie"],
+            detectedVariants: [],
+          },
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(callGeminiStructured).mockRejectedValueOnce(
+      new Error("Generation Gemini indisponible.")
+    );
+
+    const result = await generateEstimateStructureDraft(VERSION_ID, {
+      strategy: "hybrid",
+    });
+
+    expect(result.nodes.map((node) => [node.label, node.default_action])).toEqual([["Plomberie", "create"]]);
+    expect(draftNodesInsert).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a replayed generation before the Gemini provider sink", async () => {
@@ -1274,6 +1312,71 @@ describe("applyEstimateStructureDraft", () => {
         updated_at: expect.any(String),
       })
     );
+  });
+});
+
+describe("applyEstimateStructureDraft on a v3 (lot 3.2, entrée 2)", () => {
+  const input = { mode: "merge_existing" as const, selected_root_node_ids: [ROOT_NODE_ID], overrides: [] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("applies the preview through the same atomic RPC, which writes under the v3 writer contract", async () => {
+    const { supabase, rpc, estimateItemsInsert } = createApplySupabaseMock({ calcEngineVersion: 3 });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await applyEstimateStructureDraft(VERSION_ID, DRAFT_ID, input);
+
+    expect([result.created_count, result.merged_count]).toEqual([1, 1]);
+    expect(rpc).toHaveBeenCalledWith("apply_estimate_structure_draft", expect.objectContaining({
+      p_target_version_id: VERSION_ID,
+      p_created_items: [expect.objectContaining({ parent_id: EXISTING_SECTION_ID, item_type: "section", title: "Sous lot IA" })],
+    }));
+    expect(estimateItemsInsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps the named refusal on a base that still writes a v3 outside its writer contract", async () => {
+    const { supabase, estimateItemsInsert } = createApplySupabaseMock({
+      calcEngineVersion: 3,
+      rpcResponse: { data: null, error: { code: "0A000", message: "ESTIMATE_V3_WRITER_NOT_SUPPORTED" } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(applyEstimateStructureDraft(VERSION_ID, DRAFT_ID, input))
+      .rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE" });
+    expect(estimateItemsInsert).not.toHaveBeenCalled();
+  });
+
+  it("never falls back to direct writes on a v3 when the RPC is missing", async () => {
+    const { supabase, estimateItemsInsert, draftApplicationsInsert } = createApplySupabaseMock({
+      calcEngineVersion: 3,
+      rpcResponse: { data: null, error: { code: "PGRST202", message: "Could not find the function public.apply_estimate_structure_draft" } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(applyEstimateStructureDraft(VERSION_ID, DRAFT_ID, input))
+      .rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE", status: 409 });
+    expect(estimateItemsInsert).not.toHaveBeenCalled();
+    expect(draftApplicationsInsert).not.toHaveBeenCalled();
+  });
+
+  it("places a new section after the parent's last item, line or section", async () => {
+    const { supabase, rpc } = createApplySupabaseMock({
+      calcEngineVersion: 3,
+      estimateItems: [
+        buildEstimateSectionRow({ id: EXISTING_SECTION_ID, parentId: null, position: 1, title: "Lot cible" }),
+        { ...buildEstimateSectionRow({ id: OTHER_CHILD_SECTION_ID, parentId: EXISTING_SECTION_ID, position: 3, title: "Ligne" }),
+          item_type: "line" },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await applyEstimateStructureDraft(VERSION_ID, DRAFT_ID, input);
+
+    expect(rpc).toHaveBeenCalledWith("apply_estimate_structure_draft", expect.objectContaining({
+      p_created_items: [expect.objectContaining({ parent_id: EXISTING_SECTION_ID, position: 4 })],
+    }));
   });
 });
 

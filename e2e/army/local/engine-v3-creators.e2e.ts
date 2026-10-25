@@ -11,7 +11,7 @@ import {
   callServerAction, captureScreen, chooseRounding, chooseTemplate, chooseV2FixedMargin, closePolicy,
   createAffaireFromOnboarding, createLaborRole, createTuyauteur, createV2Affaire, createV2Version, createV3Version,
   estimateFacts, fillLabelled, fillProjectStep, insertTemplateOracle, instantiateTemplate, linkDpgfThroughHub, nextStep,
-  openPolicy3, openWizard, ownedProjectIdsNamed, pause, policySnapshot, readPricingStep, saveTemplate, seedV2Lines,
+  openPolicy3, openWizard, ownedProjectIdsNamed, policySnapshot, readPricingStep, saveTemplate, seedV2Lines,
   seedV2TemplateLines, seedV3TemplateLines, sentExpectation, sentVersion, serverActionId, signUpCreatorOwner,
   signUpTenantAdmin, storedVersions, submitWizard, takeLease, templateLines, tenantEstimateCounts, v3Settings,
   versionInsertsLogged, waitPageText,
@@ -36,6 +36,8 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 //  R1      Le métré lancé depuis une source v3 copie d'abord cette source (P-15), puis la copie est refusée.
 // M2 v0.1 (métré sur le moteur 3, 25/10/2026) : F12 et R1 ne se corrigent plus par un refus. Une v3 reçoit le métré
 // comme une v2 (proposition, dialogue, API) et une source v3 est copiée en v3 avant l'analyse (V3C08).
+// Lot 3.2, entrée 2 (structure IA sur le moteur 3, 25/10/2026) : F13 ne se corrige plus par un refus. L'assistant d'une
+// v3 s'ouvre, génère sa preview et l'applique sous le contrat d'écrivain (V3C09 ; application détaillée : IO08).
 //  R2      Les refus nommés de M6 et les heures atelier / chantier n'ont aucune preuve sur le chemin de création.
 // Revue Codex (PR #57) :
 //  C1      Une v3 sans section (vierge) rend l'analyse vide : la carte disparaît, l'avis A16 avec elle.
@@ -464,11 +466,20 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
     }
   });
 
-armyTest("V3C09 the AI structure is disabled with its reason on a v3 and its auto-open does nothing; no version-zero entry", capturing,
+armyTest("V3C09 the AI structure opens on a v3 without a reason, by its button and by its auto-open, and applies a lot of the affaire's history; no version-zero entry", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
     const anchor = await createV2Affaire(ui, army, `ARMY-L2-V3C09-${army.runPrefix}`);
+    // Lot 3.2, entrée 2 : l'historique de l'affaire est la source de la preview (l'IA est coupée en recette, repli
+    // heuristique) ; la v2 porte un lot que la v3 n'a pas.
+    const historic = `${army.runPrefix} chauffage IA`;
+    await takeLease(browser, anchor.versionId);
+    const anchorState = await readEstimate(browser, anchor.versionId);
+    const anchorSection = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchor.versionId}/items`,
+      { item_type: "section", position: 1, title: historic }, { "if-match": anchorState.version.updated_at });
+    expect([anchorSection.status, anchorSection.body.ok]).toEqual([201, true]);
+    await releaseVersion(browser, anchor.versionId);
     const policy = await openPolicy3(owner, army, "V3C09");
     try {
       const versionId = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} structure v3`);
@@ -492,19 +503,38 @@ armyTest("V3C09 the AI structure is disabled with its reason on a v3 and its aut
         const description = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ").replace(/\s+/g, " ").trim();
         return { disabled: node instanceof HTMLButtonElement ? node.disabled : null, description: description || null };
       });
-      await captureScreen(ui, army, "v3c09-structure-disabled");
+      await captureScreen(ui, army, "v3c09-structure-enabled");
       await browser.keyboard.press("Escape");
-      // Suggestion du hub (cockpit) : l'éditeur ouvert par ?openStructureDraft=1 ne doit pas ouvrir l'assistant.
+      // Suggestion du hub (cockpit) : l'éditeur ouvert par ?openStructureDraft=1 ouvre l'assistant, qui génère la preview.
       await app.open(`/dashboard/estimates/${versionId}/edit?openStructureDraft=1`);
       await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
-      await pause(5_000);
-      const autoOpened = (await screen.getByRole("dialog", "Structure IA", { exact: true }).count()) > 0;
+      const dialog = screen.getByRole("dialog", "Structure IA", { exact: true });
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+      const proceed = dialog.getByRole("button", "Continuer", { exact: true });
+      await expect.poll(() => proceed.isEnabled(), { timeout: 90_000 }).toBe(true);
+      const preview = { engineRefusal: (await dialog.getByText(ENGINE_UNAVAILABLE, { exact: false }).count()) > 0 };
+      await captureScreen(ui, army, "v3c09-structure-preview");
+      await proceed.tap();
+      const proposed = (await dialog.getByText(historic, { exact: true }).count()) > 0;
+      await proceed.tap();
+      await dialog.getByRole("button", "Appliquer la structure", { exact: true }).tap();
+      await expect(dialog.getByRole("heading", "Structure appliquée", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await captureScreen(ui, army, "v3c09-structure-applied");
+      await dialog.getByRole("button", "Fermer", { exact: true }).first().tap();
+      await expect(dialog).toBeHidden({ timeout: 30_000 });
+      const summary = (await screen.getByText("1 section(s) créée(s), 0 fusion(s), 0 ignoree(s).", { exact: true }).count()) > 0;
+      const stored = await readEstimate(browser, versionId);
+      const created = stored.items.filter((item) => item.title === historic);
       // TI-582 : la version zéro n'a aucune entrée d'interface, sur aucun moteur (refus d'API : IO08).
       const versionZeroEntries = await screen.getByRole("button", "Préparer un brouillon IA", { exact: true }).count();
-      const observed = { disabled: button.disabled, description: button.description, autoOpened, versionZeroEntries,
+      const observed = { disabled: button.disabled, description: button.description, ...preview, proposed, summary,
+        created: created.map((item) => [item.item_type, item.parent_id, item.position, field(item, "source_provider"),
+          (field(item, "source_metadata") as { kind?: string } | null)?.kind ?? null]),
+        engine: stored.version.calc_engine_version, itemCount: stored.items.length, versionZeroEntries,
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
       await recordEvidence(army, "v3c09", { owner, versionId, observed });
-      expect(observed).toEqual({ disabled: true, description: ENGINE_UNAVAILABLE, autoOpened: false, versionZeroEntries: 0, policyUnchanged: true });
+      expect(observed).toEqual({ disabled: false, description: null, engineRefusal: false, proposed: true, summary: true,
+        created: [["section", null, 2, "ai_structure", "ai_structure"]], engine: 3, itemCount: 2, versionZeroEntries: 0, policyUnchanged: true });
     } finally {
       await closePolicy(owner, army, "V3C09");
     }

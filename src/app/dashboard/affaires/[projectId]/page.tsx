@@ -357,7 +357,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       ? {
           id: effectiveSummary.currentVersion.id,
           status: effectiveSummary.currentVersion.status,
-          calcEngineVersion: effectiveSummary.currentVersion.calcEngineVersion ?? null,
         }
       : null,
     structureMode: effectiveSummary.structureMode ?? null,
