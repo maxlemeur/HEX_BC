@@ -56,6 +56,7 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "source_file_name",
   "source_file_type",
   "source_file_size_bytes",
+  "plan_set_id",
   "prompt_version",
   "schema_version",
   "model",
@@ -151,6 +152,7 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     source_file_name: z.string().nullable(),
     source_file_type: z.string().nullable(),
     source_file_size_bytes: z.number().int().nonnegative().nullable(),
+    plan_set_id: z.string().uuid().nullable().optional(),
     prompt_version: z.string().nullable(),
     schema_version: z.string().nullable(),
     model: z.string().nullable(),
@@ -206,6 +208,7 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     source_file_name: row.source_file_name,
     source_file_type: row.source_file_type,
     source_file_size_bytes: row.source_file_size_bytes,
+    plan_set_id: row.plan_set_id ?? null,
     prompt_version: row.prompt_version,
     schema_version: row.schema_version,
     model: row.model,
@@ -285,6 +288,7 @@ export type TakeoffJobDetailRow = {
   source_file_type: string | null;
   source_file_size_bytes: number | null;
   source_file_path: string | null;
+  plan_set_id?: string | null;
   prompt_version: string | null;
   schema_version: string | null;
   model: string | null;

@@ -174,12 +174,21 @@ export type TakeoffPromptRuntimeConfig = TakeoffLevelConfig & {
   prompt: string;
 };
 
+const PROMPT_CONTEXT_VALUE_MAX_LENGTH = 1000;
+
+// Une valeur de contexte tient sur sa ligne : un nom de fichier reçu (M1b) ne peut ni ajouter de
+// ligne au prompt (caractères de contrôle, sauts de ligne) ni l'allonger sans borne.
 function normalizeContextValue(value: string | undefined, fallback: string) {
   if (!value) {
     return fallback;
   }
 
-  const normalized = value.trim();
+  const normalized = Array.from(
+    value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ").trim()
+  )
+    .slice(0, PROMPT_CONTEXT_VALUE_MAX_LENGTH)
+    .join("")
+    .trim();
   return normalized.length > 0 ? normalized : fallback;
 }
 

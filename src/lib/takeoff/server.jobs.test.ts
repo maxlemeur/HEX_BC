@@ -57,6 +57,7 @@ type TakeoffJobStoredRow = {
   source_file_type: string | null;
   source_file_size_bytes: number | null;
   source_file_path: string | null;
+  plan_set_id?: string | null;
   prompt_version: string | null;
   schema_version: string | null;
   model: string | null;
@@ -154,6 +155,7 @@ function baseJob(
     source_file_path:
       input.source_file_path ??
       `${tenantId}/${id}/${"a".repeat(64)}-niveau-a.csv`,
+    plan_set_id: input.plan_set_id ?? null,
     prompt_version: input.prompt_version ?? "takeoff-a-v1",
     schema_version: input.schema_version ?? "v1",
     model: input.model ?? "gemini-3-flash-preview",
@@ -763,6 +765,34 @@ describe("takeoff job server helpers (TKF-009)", () => {
       offset: 1,
       total: 2,
     });
+  });
+
+  // M1b : la revue et la liste des jobs proposent une comparaison par référence de document
+  // (jeu de plans, sinon libellé du fichier téléversé) ; la liste et le détail doivent donc la rendre.
+  it("returns the plan set of a job in the list and the detail", async () => {
+    const planSetId = "77777777-7777-4777-8777-777777777790";
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({ id: JOB_ID, plan_set_id: planSetId, source_file_name: "Plan R+1.pdf" }),
+        baseJob({ id: JOB_ID_2, created_at: "2026-02-25T09:00:00.000Z" }),
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const list = await listTakeoffJobs({ estimate_version_id: VERSION_ID, limit: 10, offset: 0 });
+    expect(list.jobs.map((job) => [job.id, job.plan_set_id])).toEqual([
+      [JOB_ID, planSetId],
+      [JOB_ID_2, null],
+    ]);
+
+    const detail = await getTakeoffJobDetails(JOB_ID, { items_limit: 1, items_offset: 0 });
+    expect(detail.job.plan_set_id).toBe(planSetId);
+    expect(detail.job.source_file_name).toBe("Plan R+1.pdf");
   });
 
   it("retries only failed jobs and updates retry count", async () => {

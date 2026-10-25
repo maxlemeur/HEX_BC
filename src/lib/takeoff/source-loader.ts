@@ -11,6 +11,7 @@ import {
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
+import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import {
   inspectPlanSetResourceBudget,
   PLAN_SET_MAX_FILES,
@@ -23,11 +24,26 @@ type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
 export type TakeoffSourceLevel = "A" | "B" | "C";
 
+/**
+ * Référence durable d'un document source (M1b) : le fichier du jeu de plans, ou le fichier
+ * téléversé pour ce job. Elle identifie le document, jamais par son nom affiché ni par son nom
+ * nettoyé pour Storage (« Plan R+1.pdf » et « Plan R-1.pdf » y deviennent tous deux « Plan-R-1.pdf »).
+ */
+export type TakeoffSourceDocumentRef =
+  | { kind: "plan_file"; plan_file_id: string }
+  | { kind: "job_upload"; job_id: string };
+
 export type DownloadedTakeoffFile = {
+  /** Libellé d'origine du document (nom reçu), ou nom du PDF fusionné d'un jeu multi-fichiers. */
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  /** Document d'une source unique (fichier téléversé, ou jeu de plans d'un seul fichier). */
+  sourceDocument?: TakeoffSourceDocumentRef;
+  /** Libellé d'origine du fichier de chaque page d'un jeu multi-fichiers. */
   sourceFileNamesByPage?: string[];
+  /** Référence du fichier de chaque page d'un jeu multi-fichiers. */
+  sourceDocumentsByPage?: TakeoffSourceDocumentRef[];
   sourcePlanFilePageCounts?: Array<{
     filePath: string;
     pageCount: number;
@@ -57,6 +73,34 @@ function inferMimeTypeFromFilename(fileName: string) {
   if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
   if (lower.endsWith(".pdf")) return "application/pdf";
   return "application/octet-stream";
+}
+
+type PlanFileSourceRow = {
+  id?: string | null;
+  file_path?: string | null;
+  file_name?: string | null;
+  file_type?: string | null;
+  file_size_bytes?: number | null;
+  page_count?: number | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+// M1a garde le nom reçu dans plan_files.metadata ; file_name reste la clé Storage nettoyée.
+function getPlanFileSourceLabel(planFile: PlanFileSourceRow) {
+  const fileName = normalizeNullableText(planFile.file_name);
+  if (!fileName) return null;
+  return getPlanFileDisplayName({
+    file_name: fileName,
+    metadata:
+      planFile.metadata && typeof planFile.metadata === "object" && !Array.isArray(planFile.metadata)
+        ? planFile.metadata
+        : null,
+  });
+}
+
+function getPlanFileSourceRef(planFile: PlanFileSourceRow): TakeoffSourceDocumentRef | undefined {
+  const planFileId = normalizeNullableText(planFile.id);
+  return planFileId ? { kind: "plan_file", plan_file_id: planFileId } : undefined;
 }
 
 function getFileNameFromStoragePath(path: string, fallback: string) {
@@ -127,7 +171,7 @@ export async function loadTakeoffSource(input: {
     const { data: planFilesData, error: planFilesError } = await readAllRows(() => input.supabase
       .from("plan_files" as never)
       .select(
-        "file_path, file_name, file_type, file_size_bytes, page_count, id" as never,
+        "file_path, file_name, file_type, file_size_bytes, page_count, id, metadata" as never,
         { count: "exact" }
       )
       .eq("tenant_id" as never, input.job.tenant_id as never)
@@ -149,13 +193,7 @@ export async function loadTakeoffSource(input: {
       );
     }
 
-    const planFiles = (planFilesData ?? []) as Array<{
-      file_path?: string | null;
-      file_name?: string | null;
-      file_type?: string | null;
-      file_size_bytes?: number | null;
-      page_count?: number | null;
-    }>;
+    const planFiles = (planFilesData ?? []) as PlanFileSourceRow[];
 
     if (planFiles.length === 0) {
       throw new TakeoffError({
@@ -252,11 +290,13 @@ export async function loadTakeoffSource(input: {
       }
 
       const fileName =
-        normalizeNullableText(singleFile.file_name) ??
+        getPlanFileSourceLabel(singleFile) ??
         normalizeNullableText(input.job.source_file_name) ??
         "plan.pdf";
+      const sourceDocument = getPlanFileSourceRef(singleFile);
       return {
         fileName,
+        ...(sourceDocument ? { sourceDocument } : {}),
         mimeType:
           resolveTakeoffPdfMimeType({
             fileName,
@@ -272,6 +312,7 @@ export async function loadTakeoffSource(input: {
     const validatedSources: Array<{
       document: PDFDocument;
       fileName: string;
+      sourceDocument: TakeoffSourceDocumentRef | undefined;
       filePath: string;
       pageCount: number;
     }> = [];
@@ -368,8 +409,9 @@ export async function loadTakeoffSource(input: {
       validatedSources.push({
         document: sourcePdf,
         fileName:
-          normalizeNullableText(planFile.file_name) ??
+          getPlanFileSourceLabel(planFile) ??
           `plan-${validatedSources.length + 1}.pdf`,
+        sourceDocument: getPlanFileSourceRef(planFile),
         filePath: sourcePath,
         pageCount: sourcePdf.getPageCount(),
       });
@@ -378,6 +420,7 @@ export async function loadTakeoffSource(input: {
     // Delay allocation/copying until every object passes real byte/page budgets.
     const mergedPdf = await PDFDocument.create();
     const sourceFileNamesByPage: string[] = [];
+    const sourceDocumentsByPage: Array<TakeoffSourceDocumentRef | undefined> = [];
     for (const source of validatedSources) {
       const copiedPages = await mergedPdf.copyPages(
         source.document,
@@ -386,14 +429,21 @@ export async function loadTakeoffSource(input: {
       for (const copiedPage of copiedPages) {
         mergedPdf.addPage(copiedPage);
         sourceFileNamesByPage.push(source.fileName);
+        sourceDocumentsByPage.push(source.sourceDocument);
       }
     }
+    const everyPageReferenced = sourceDocumentsByPage.every(
+      (ref): ref is TakeoffSourceDocumentRef => ref !== undefined
+    );
 
     return {
       fileName: `plan-set-${planSetId}.pdf`,
       mimeType: "application/pdf",
       bytes: toArrayBuffer(await mergedPdf.save()),
       sourceFileNamesByPage,
+      ...(everyPageReferenced
+        ? { sourceDocumentsByPage: sourceDocumentsByPage as TakeoffSourceDocumentRef[] }
+        : {}),
       sourcePlanFilePageCounts: validatedSources.map((source) => ({
         filePath: source.filePath,
         pageCount: source.pageCount,
@@ -442,20 +492,22 @@ export async function loadTakeoffSource(input: {
     });
   }
 
-  const fallbackFileName =
-    normalizeNullableText(input.job.source_file_name) ?? "upload";
-  const fileName = getFileNameFromStoragePath(sourcePath, fallbackFileName);
+  // Le chemin est <empreinte>-<uuid>-<nom nettoyé> : il sert au type MIME, jamais de provenance.
+  // Le libellé transmis est le nom reçu à la création du job (M1b).
+  const jobFileName = normalizeNullableText(input.job.source_file_name);
+  const storageFileName = getFileNameFromStoragePath(sourcePath, jobFileName ?? "upload");
   const mimeType =
     resolveTakeoffPdfMimeType({
-      fileName,
+      fileName: storageFileName,
       mimeType:
         normalizeNullableText(data.type) ??
         normalizeNullableText(input.job.source_file_type),
-    }) ?? inferMimeTypeFromFilename(fileName);
+    }) ?? inferMimeTypeFromFilename(storageFileName);
 
   return {
-    fileName,
+    fileName: jobFileName?.normalize("NFC") ?? storageFileName,
     mimeType,
     bytes,
+    sourceDocument: { kind: "job_upload", job_id: input.job.id },
   };
 }

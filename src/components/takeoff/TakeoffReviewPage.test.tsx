@@ -94,6 +94,7 @@ import type {
 TakeoffDpgfComparisonResponse,
 TakeoffJobDetailResponse,
 TakeoffJobItem,
+TakeoffJobSummary,
 } from "@/lib/takeoff/types";
 
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
@@ -517,6 +518,47 @@ describe("TakeoffReviewPage", () => {
     ).toBeDefined();
     expect(screen.queryByText("Résumé des changements")).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  // M1b : « Plan R+1.pdf » et « Plan R-1.pdf » ont le même nom nettoyé. La revue propose les
+  // extractions du même jeu de plans, quel que soit leur nom, et jamais un autre document au même nom.
+  it("offers compare candidates of the same document only", async () => {
+    const planSetId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    mockUiMode("expert");
+    mockSearchParams = new URLSearchParams("view=compare");
+    const base = makeMockResponse([makeItem()]);
+    vi.mocked(fetchTakeoffJob).mockResolvedValue({
+      ...base,
+      job: { ...base.job, plan_set_id: planSetId, source_file_name: "Plan R+1.pdf" },
+    });
+    const candidate = (id: string, overrides: Partial<TakeoffJobSummary>) => ({
+      ...base.job,
+      id,
+      status: "completed" as const,
+      ...overrides,
+    });
+    vi.mocked(listTakeoffJobs).mockResolvedValue({
+      jobs: [
+        candidate("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", { plan_set_id: planSetId, source_file_name: "Plan-R-1.pdf" }),
+        candidate("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", {
+          plan_set_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+          source_file_name: "Plan R+1.pdf",
+        }),
+        candidate("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", { plan_set_id: null, source_file_name: "Plan R+1.pdf" }),
+      ],
+      counters: { total: 3, processing: 0, completed: 3, failed: 0, canceled: 0 },
+      pagination: { limit: 20, offset: 0, total: 3 },
+    });
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      const select = screen.getByLabelText("Extraction à comparer") as HTMLSelectElement;
+      expect(Array.from(select.options).map((option) => option.value)).toEqual([
+        "",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      ]);
+    });
   });
 
   it("blocks controlled apply from validation while DPGF exceptions remain unresolved", async () => {

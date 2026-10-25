@@ -26,6 +26,8 @@ const USER_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const JOB_ID = "44444444-4444-4444-8444-444444444444";
 const OTHER_JOB_ID = "55555555-5555-4555-8555-555555555555";
+const PLAN_SET_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+const OTHER_PLAN_SET_ID = "aaaaaaaa-0000-4000-8000-000000000002";
 
 type StoredJob = {
   id: string;
@@ -37,6 +39,7 @@ type StoredJob = {
   source_file_type: string | null;
   source_file_size_bytes: number | null;
   source_file_path: string | null;
+  plan_set_id?: string | null;
   prompt_version: string | null;
   schema_version: string | null;
   model: string | null;
@@ -271,6 +274,53 @@ describe("compareTakeoffJobs", () => {
       status: 409,
       code: "CONFLICT",
     });
+  });
+
+  // M1b : un même document se reconnaît à sa référence durable, jamais au nom nettoyé pour Storage
+  // (« Plan R+1.pdf » et « Plan R-1.pdf » y deviennent tous deux « Plan-R-1.pdf »).
+  it.each([
+    {
+      name: "R+1 and R-1 plan sets sharing the sanitized name Plan-R-1.pdf are not paired",
+      base: { plan_set_id: PLAN_SET_ID, source_file_name: "Plan-R-1.pdf" },
+      other: { plan_set_id: OTHER_PLAN_SET_ID, source_file_name: "Plan-R-1.pdf" },
+      paired: false,
+    },
+    {
+      name: "an uploaded file and a plan set with the same label are not paired",
+      base: { plan_set_id: null, source_file_name: "Plan R+1.pdf" },
+      other: { plan_set_id: PLAN_SET_ID, source_file_name: "Plan R+1.pdf" },
+      paired: false,
+    },
+    {
+      name: "two runs of the same plan set are paired whatever their first file label",
+      base: { plan_set_id: PLAN_SET_ID, source_file_name: "Plan R+1.pdf" },
+      other: { plan_set_id: PLAN_SET_ID, source_file_name: "Plan R+1 indice B.pdf" },
+      paired: true,
+    },
+    {
+      name: "two uploads are paired by their original label, NFC and case aside",
+      base: { plan_set_id: null, source_file_name: "Électricité R+1.pdf" },
+      other: { plan_set_id: null, source_file_name: "ÉLECTRICITÉ R+1.pdf".normalize("NFD") },
+      paired: true,
+    },
+  ])("pairs jobs by document reference: $name", async ({ base, other, paired }) => {
+    const supabase = createSupabaseMock({
+      jobs: [makeJob({ id: JOB_ID, ...base }), makeJob({ id: OTHER_JOB_ID, ...other })],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const comparison = compareTakeoffJobs(JOB_ID, parseCompareTakeoffJobsQuery({ with: OTHER_JOB_ID }));
+
+    if (paired) {
+      await expect(comparison).resolves.toMatchObject({ base_job_id: JOB_ID, other_job_id: OTHER_JOB_ID });
+    } else {
+      await expect(comparison).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+    }
   });
 
   it("returns 404 when target job is outside tenant scope", async () => {

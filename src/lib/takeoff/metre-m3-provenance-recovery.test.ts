@@ -260,7 +260,9 @@ describe("FUTUR — traçabilité et reprise (propositions, aucune règle figée
   it.todo("chaque item garde un lien stable vers son entrée d'extraction brute, à tous les niveaux");
   it.todo("une correction d'unité tient à jour, ou invalide explicitement, les métadonnées de normalisation");
   it.todo("une relance conserve le coût et les jetons des tentatives précédentes dans un journal de tentatives");
-  it.todo("M1b : le fichier de provenance connu par le système (page → fichier) n'est pas remplacé en silence par le source_file déclaré par l'IA ; la valeur IA reste une preuve brute");
+  // M1b, fait : le fichier connu par le système (page → fichier) l'emporte sur le source_file de l'IA,
+  // gardé en preuve brute (metadata.provider_source_file) ; voir processor.test.ts, « keeps the page's
+  // plan file over the provider's source_file… ».
   it.todo("M2, décision ouverte : unité non résolue ou ambiguë (m2j, lot, ens/fft, vide) — refus de la ligne avec diagnostic, sans écriture partielle, est la proposition à approuver");
   it.todo("M2, décision ouverte : prix ou temps absents — distinguer extraction terminée et ligne prête au chiffrage, sans zéro économique inventé");
 });

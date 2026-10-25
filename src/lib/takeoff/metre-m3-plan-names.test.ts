@@ -6,7 +6,8 @@ import { PDFDocument } from "pdf-lib";
 // les policies 20260305134000_v3_006 et plans.ts assertCanonicalPlanFileStoragePath exigent
 // file_name = nom de l'objet Storage. M1a garde à part le nom reçu, en NFC, dans
 // metadata.original_file_name (plan-file-display-name.ts), dérivé côté serveur.
-// Le chargeur du traitement transmet encore le nom nettoyé : c'est le lot M1b (`it.todo`).
+// M1b : le chargeur du traitement transmet ce libellé et une référence durable du document
+// (fichier du jeu de plans, ou fichier téléversé du job), jamais le nom nettoyé.
 
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
 
@@ -213,8 +214,8 @@ describe("synchronisation des plans du dossier d'affaire (intake)", () => {
   });
 });
 
-describe("chargeur de source du traitement (loadTakeoffSource) : inchangé jusqu'à M1b", () => {
-  it("téléversement direct : le nom transmis au traitement est le reste du chemin, pas le nom du job", async () => {
+describe("M1b — chargeur de source du traitement (loadTakeoffSource)", () => {
+  it("téléversement direct : le libellé du job est transmis, plus le résidu <uuid>-<nom nettoyé> du chemin", async () => {
     // Format réel du chemin (server.ts, création) : <empreinte 64 hex>-<uuid>-<nom nettoyé>.
     // Les tests du processeur utilisent <empreinte>-<nom> sans uuid : ce résidu n'y apparaît pas.
     const uuid = "0f0e0d0c-0b0a-4908-8706-050403020100";
@@ -229,14 +230,38 @@ describe("chargeur de source du traitement (loadTakeoffSource) : inchangé jusqu
 
     const source = await loadTakeoffSource({ supabase: fake.client as never, job: job as never, level: "B" });
 
-    expect(job.source_file_name).toBe("Plan R+1.pdf");
-    expect(source.fileName).toBe(`${uuid}-Plan-R-1.pdf`);
+    expect(source.fileName).toBe("Plan R+1.pdf");
+    expect(source.fileName).not.toContain(uuid);
+    expect(source.mimeType).toBe("application/pdf");
+    expect(source.sourceDocument).toEqual({ kind: "job_upload", job_id: M3_JOB_ID });
   });
 
-  it("jeu de plans multi-fichiers : deux pages issues de R+1 et R-1 portent le même nom de provenance", async () => {
+  it("téléversement direct sans type connu : le type vient du nom stocké, le libellé reste celui du job", async () => {
+    const uuid = "0f0e0d0c-0b0a-4908-8706-050403020100";
+    const job = takeoffJobRow({
+      status: "processing",
+      level: "A",
+      source_file_name: "Métré R+1",
+      source_file_type: null,
+      source_file_path: `${M3_TENANT_ID}/${M3_JOB_ID}/${"a".repeat(64)}-${uuid}-Metre-R-1.csv`,
+    });
+    const fake = createSupabaseFake({
+      storage: { "takeoff-files": async () => ({ data: new Blob(["designation;quantite\n"]), error: null }) },
+    });
+
+    const source = await loadTakeoffSource({ supabase: fake.client as never, job: job as never, level: "A" });
+
+    expect(source.mimeType).toBe("text/csv");
+    expect(source.fileName).toBe("Métré R+1");
+    expect(source.sourceDocument).toEqual({ kind: "job_upload", job_id: M3_JOB_ID });
+  });
+
+  it("jeu de plans multi-fichiers : les pages issues de R+1 et R-1 gardent leur libellé et leur fichier", async () => {
     const planFileRows = [
-      { id: "f1", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/f1/Plan-R-1.pdf`, file_name: "Plan-R-1.pdf" },
-      { id: "f2", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/f2/Plan-R-1.pdf`, file_name: "Plan-R-1.pdf" },
+      { id: "f1", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/f1/Plan-R-1.pdf`, file_name: "Plan-R-1.pdf",
+        metadata: { original_file_name: "Plan R+1.pdf" } },
+      { id: "f2", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/f2/Plan-R-1.pdf`, file_name: "Plan-R-1.pdf",
+        metadata: { original_file_name: "Plan R-1.pdf" } },
     ].map((row) => ({ ...row, file_type: "application/pdf", file_size_bytes: 2048, page_count: 1 }));
     const fake = createSupabaseFake({
       tables: { plan_files: () => ({ data: planFileRows, error: null, count: planFileRows.length }) },
@@ -247,7 +272,28 @@ describe("chargeur de source du traitement (loadTakeoffSource) : inchangé jusqu
     const source = await loadTakeoffSource({ supabase: fake.client as never, job: job as never, level: "B" });
 
     expect(source.fileName).toBe(`plan-set-${M3_PLAN_SET_ID}.pdf`);
-    expect(source.sourceFileNamesByPage).toEqual(["Plan-R-1.pdf", "Plan-R-1.pdf"]);
+    expect(source.sourceFileNamesByPage).toEqual(["Plan R+1.pdf", "Plan R-1.pdf"]);
+    expect(source.sourceDocumentsByPage).toEqual([
+      { kind: "plan_file", plan_file_id: "f1" },
+      { kind: "plan_file", plan_file_id: "f2" },
+    ]);
+  });
+
+  it("jeu de plans d'un seul fichier : son libellé et sa référence nomment la source", async () => {
+    const planFileRows = [
+      { id: "f1", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/f1/PLB-R-1-indice-B.pdf`, file_name: "PLB-R-1-indice-B.pdf",
+        metadata: { original_file_name: "PLB R+1 indice B.pdf" }, file_type: "application/pdf", file_size_bytes: 2048, page_count: 1 },
+    ];
+    const fake = createSupabaseFake({
+      tables: { plan_files: () => ({ data: planFileRows, error: null, count: planFileRows.length }) },
+      storage: { "plan-files": async () => ({ data: await createPdfBlob(), error: null }) },
+    });
+    const job = takeoffJobRow({ status: "processing", plan_set_id: M3_PLAN_SET_ID, source_file_path: null });
+
+    const source = await loadTakeoffSource({ supabase: fake.client as never, job: job as never, level: "B" });
+
+    expect(source.fileName).toBe("PLB R+1 indice B.pdf");
+    expect(source.sourceDocument).toEqual({ kind: "plan_file", plan_file_id: "f1" });
   });
 });
 
@@ -289,9 +335,32 @@ describe("M1a — libellé d'origine conservé, clé Storage inchangée", () => 
   });
 });
 
-describe("FUTUR M1b — continuité de provenance et identité (représentation non fixée)", () => {
-  it.todo("le libellé d'origine atteint le transport simulé (prompt), les items et les preuves, à côté de la référence source canonique");
-  it.todo("un job téléversé ne transmet plus le résidu <uuid>-<nom nettoyé> comme nom de provenance");
-  it.todo("l'identité de document vient d'une référence durable fichier/révision, pas du nom affiché ; un hash seul identifie des octets, pas une révision");
-  it.todo("comparaison de jobs : R+1 et R-1 ne sont jamais rapprochés automatiquement par leur nom nettoyé");
+// M1b — continuité de provenance et identité. Couvert ailleurs, avec le même contrat :
+// - prompt, items et résultat : processor.test.ts, « carries the original label and the upload
+//   reference… » (les preuves lisent source_file_name des items) ;
+// - résidu <uuid>-<nom nettoyé> : le premier test du chargeur ci-dessus ;
+// - comparaison de jobs par référence durable : server.compare.test.ts, « pairs jobs by document
+//   reference ».
+describe("M1b — identité de document", () => {
+  it("deux révisions déposées sous le même libellé restent deux documents : la référence est le fichier, pas le nom", async () => {
+    const planFileRows = [
+      { id: "rev-a", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/rev-a/Plan-R-1.pdf`, file_name: "Plan-R-1.pdf",
+        metadata: { original_file_name: "Plan R+1.pdf" } },
+      { id: "rev-b", file_path: `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/rev-b/Plan-R-1.pdf`, file_name: "Plan-R-1.pdf",
+        metadata: { original_file_name: "Plan R+1.pdf" } },
+    ].map((row) => ({ ...row, file_type: "application/pdf", file_size_bytes: 2048, page_count: 1 }));
+    const fake = createSupabaseFake({
+      tables: { plan_files: () => ({ data: planFileRows, error: null, count: planFileRows.length }) },
+      storage: { "plan-files": async () => ({ data: await createPdfBlob(), error: null }) },
+    });
+    const job = takeoffJobRow({ status: "processing", plan_set_id: M3_PLAN_SET_ID, source_file_path: null });
+
+    const source = await loadTakeoffSource({ supabase: fake.client as never, job: job as never, level: "B" });
+
+    expect(source.sourceFileNamesByPage).toEqual(["Plan R+1.pdf", "Plan R+1.pdf"]);
+    expect(source.sourceDocumentsByPage).toEqual([
+      { kind: "plan_file", plan_file_id: "rev-a" },
+      { kind: "plan_file", plan_file_id: "rev-b" },
+    ]);
+  });
 });

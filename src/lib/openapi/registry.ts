@@ -1326,6 +1326,7 @@ const takeoffJobSummarySchema = z.object({
   source_file_name: z.string().nullable(),
   source_file_type: z.string().nullable(),
   source_file_size_bytes: z.number().int().nullable(),
+  plan_set_id: uuidSchema.nullable().optional(),
   prompt_version: z.string().nullable(),
   schema_version: z.string().nullable(),
   model: z.string().nullable(),
