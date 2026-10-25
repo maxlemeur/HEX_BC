@@ -74,9 +74,9 @@ l’intention échouée par une nouvelle clé.
 Le lecteur `.e2e/source-coverage/http-staged/qualify-vertical.cjs` vérifiera le run
 terminal exact, les hashes, la chaîne de reprise, les observations natives, les
 PDF et les trois traces NFT incluant réellement `pdf-lib/dist/pdf-lib.min.js`.
-Les captures nommées sont tentées par l’API du runner ; un refus `POLICY_DENIED`
-est conservé et n’est pas contourné ni répété. Sans pixels, aucune revue visuelle
-n’est revendiquée, même si les assertions UI et les octets passent.
+Les captures nommées passent par `app.screenshot()`. Depuis e2e 0.21.3 une saisie
+de secret ne les refuse plus : les champs sécurisés sont masqués, et le chemin
+conservé reste relatif à la racine de sortie.
 
 Les droits complets, la modification de l’original, les autres points de faute,
 les bornes PDF extrêmes et une validation professionnelle du CCTP restent hors

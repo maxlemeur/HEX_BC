@@ -1160,13 +1160,14 @@ export async function instantiateCanonicalEstimateV2FromTemplate(
   }
   const template = templateData as EstimateTemplateRow;
 
+  // One access check per statement, not one per item.
+  // supabase/migrations/20261025094300_template_from_version_checked_once.sql.
   const { data: itemData, error: itemError } = await readAllRows(() => input.supabase
-    .from("estimate_template_items")
-    .select("*", { count: "exact" })
-    .eq("tenant_id", input.tenantId)
-    .eq("template_id", input.templateId)
-    .order("position", { ascending: true })
-    .order("id", { ascending: true }));
+    .rpc("read_estimate_template_items", {
+      p_tenant_id: input.tenantId,
+      p_template_id: input.templateId,
+    }, { count: "exact", get: true })
+    .order("position", { ascending: true }));
   if (itemError) {
     throw new Error("ESTIMATE_CANONICAL_V2_TEMPLATE_ITEMS_UNAVAILABLE", {
       cause: itemError,

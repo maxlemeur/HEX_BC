@@ -322,18 +322,6 @@ describe("persistCanonicalEstimateV2", () => {
     };
     templateBuilder.select.mockReturnValue(templateBuilder);
     templateBuilder.eq.mockReturnValue(templateBuilder);
-    const itemBuilder = {
-      select: vi.fn(),
-      eq: vi.fn(),
-      order: vi.fn(),
-    };
-    itemBuilder.select.mockReturnValue(itemBuilder);
-    itemBuilder.eq.mockReturnValue(itemBuilder);
-    itemBuilder.order.mockImplementation(() =>
-      itemBuilder.order.mock.calls.length === 1
-        ? itemBuilder
-        : Promise.resolve({ data: [templateItems[1], templateItems[0]], error: null })
-    );
     const projectBuilder = {
       select: vi.fn(),
       eq: vi.fn(),
@@ -361,11 +349,32 @@ describe("persistCanonicalEstimateV2", () => {
     const supabase = {
       from: vi.fn((table: string) => {
         if (table === "estimate_templates") return templateBuilder;
-        if (table === "estimate_template_items") return itemBuilder;
+        if (table === "estimate_template_items") {
+          throw new Error("template items are read through read_estimate_template_items");
+        }
         if (table === "estimate_projects") return projectBuilder;
         if (table === "estimate_versions") return latestVersionBuilder;
         if (table === "tenant_calc_policies") return absentCalcPolicyBuilder();
         throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn((functionName: string) => {
+        if (functionName !== "read_estimate_template_items") {
+          throw new Error(`Unexpected rpc: ${functionName}`);
+        }
+        const result = { data: templateItems, error: null, count: templateItems.length };
+        const builder = {
+          eq: vi.fn(),
+          order: vi.fn(),
+          range: vi.fn(),
+          then: (
+            onFulfilled: (value: typeof result) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) => Promise.resolve(result).then(onFulfilled, onRejected),
+        };
+        builder.eq.mockReturnValue(builder);
+        builder.order.mockReturnValue(builder);
+        builder.range.mockResolvedValue(result);
+        return builder;
       }),
     };
     mockSingleLineSnapshot({ ht: 2500, tax: 500, ttc: 3000 });

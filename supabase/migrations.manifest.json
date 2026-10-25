@@ -273,6 +273,7 @@
     "20261024142907_estimate_fo_provision.sql": "bff5a97596e1555829b0f6a0ff8c95d2463a437bca0f9d4cb0f71be5999cf2b8",
     "20261024153743_restrict_template_insert_execute.sql": "cd4df4fd49ec1f895906eae4031ece272f158e7e933e9e5ff39b1aa3c8fa124c",
     "20261024153906_restrict_anon_security_definer_execute.sql": "fea36ebe8a395d65755a5ee9d39598af5a485928cb96831078b13b23ffefe7f7",
-    "20261025092810_tenant_calc_defaults_admin.sql": "af97469c23f3dcacf54f1802f04f9c36860e4c1e3fec6be0c3b2e2a071f91977"
+    "20261025092810_tenant_calc_defaults_admin.sql": "af97469c23f3dcacf54f1802f04f9c36860e4c1e3fec6be0c3b2e2a071f91977",
+    "20261025094300_template_from_version_checked_once.sql": "d4694944c622df715786e4e5a56d17bdf0916cc72f6b08a0d131be96224eb563"
   }
 }

@@ -1,4 +1,4 @@
-import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { loadValidLaborRoleIdsForOwner } from "@/lib/estimates/estimate-assembly-helpers";
@@ -154,13 +154,16 @@ export async function loadEstimateTemplateItems(input: {
   tenantId: string;
   templateId: string;
 }) {
+  // One access check per statement, not one per item. A fresh version's statistics
+  // otherwise run the select policy per item and the page crosses the API roles'
+  // 8 s statement timeout (57014).
+  // supabase/migrations/20261025094300_template_from_version_checked_once.sql.
   const { data, error } = await readAllRows(() => input.supabase
-    .from("estimate_template_items")
-    .select("*", { count: "exact" })
-    .eq("tenant_id", input.tenantId)
-    .eq("template_id", input.templateId)
-    .order("position", { ascending: true })
-    .order("id", { ascending: true }));
+    .rpc("read_estimate_template_items", {
+      p_tenant_id: input.tenantId,
+      p_template_id: input.templateId,
+    }, { count: "exact", get: true })
+    .order("position", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes du template.");
@@ -180,19 +183,20 @@ export async function loadTemplateLineCountByTemplateId(input: {
     return counts;
   }
 
-  const { data, error } = await readAllRowsInChunks(input.templateIds, (pageIds) => input.supabase
-    .from("estimate_template_items")
-    .select("template_id, id", { count: "exact" })
-    .eq("tenant_id", input.tenantId)
-    .eq("item_type", "line")
-    .in("template_id", pageIds));
+  // The same once-per-statement check as the item read: counting every line of a
+  // 2 501-line template through the table policy is the statement that answered
+  // 57014 on PG1000.
+  const { data, error } = await input.supabase.rpc("count_estimate_template_lines", {
+    p_tenant_id: input.tenantId,
+    p_template_ids: input.templateIds,
+  });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le comptage des templates.");
   }
 
-  for (const row of (data ?? []) as Array<{ template_id: string }>) {
-    counts.set(row.template_id, (counts.get(row.template_id) ?? 0) + 1);
+  for (const row of data ?? []) {
+    counts.set(row.template_id, row.line_count);
   }
 
   return counts;
