@@ -80,14 +80,16 @@ export async function setAffaireDocumentAsPrimary(
 export async function deleteAffaireIntakeDocument(input: { projectId: string; documentId: string }) {
   const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
   const access = await requireAffaireProjectOwnerOrAdmin(parsed.projectId);
-  const result = await deleteIntakeDocumentCopy(access, parsed.documentId);
-  await syncAffaireIntakeDocumentPriorities({ supabase: access.context.supabase, projectId: parsed.projectId });
-  // Only an uploaded piece feeds the register, the synced plans and the brief. A rejected piece or
-  // a replay on the tombstone refreshes nothing, so later brief edits and confirmation stay.
-  if (result.removedUploadedPiece) {
-    await refreshAffaireIntakeFromActiveDocuments({ supabase: access.context.supabase, project: access.project,
-      uploadId: result.uploadId, actorUserId: access.context.userId });
-  }
+  // Runs before the tombstone, so a retry completes an interrupted refresh and a replay on an
+  // existing tombstone changes nothing, keeping later brief edits and confirmation.
+  const result = await deleteIntakeDocumentCopy(access, parsed.documentId, async ({ uploadId, wasUploaded }) => {
+    await syncAffaireIntakeDocumentPriorities({ supabase: access.context.supabase, projectId: parsed.projectId });
+    // Only an uploaded piece fed the register, the synced plans and the brief.
+    if (wasUploaded) {
+      await refreshAffaireIntakeFromActiveDocuments({ supabase: access.context.supabase, project: access.project,
+        uploadId, actorUserId: access.context.userId });
+    }
+  });
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`, "layout");
   return result;

@@ -7,9 +7,13 @@ import { DriveStoreError } from "@/lib/affaires/google-drive/store";
 import type { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 
 type Access = Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>;
+type DerivedStateRefresh = (removed: { uploadId: string; wasUploaded: boolean }) => Promise<void>;
 
 // No Next imports: exercised against the owned local RLS and Storage backend.
-export async function deleteIntakeDocumentCopy({ context, project }: Access, documentId: string) {
+// The caller's derived-state refresh runs once the bytes are gone, while the reservation still
+// hides the piece: a tombstone therefore means it completed, and an interrupted refresh releases
+// the reservation so that retrying the deletion runs it again.
+export async function deleteIntakeDocumentCopy({ context, project }: Access, documentId: string, refreshDerivedState?: DerivedStateRefresh) {
   const database = context.supabase;
   const lookup = await database.from("affaire_intake_documents" as never)
     .select("id,upload_id,updated_at,storage_path,deleted_at,deletion_token,deletion_started_at,upload_status,classification_status")
@@ -18,7 +22,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
   const document = lookup.data as { id: string; upload_id: string; storage_path: string | null;
     updated_at: string; deleted_at: string | null; deletion_token?: string | null; deletion_started_at?: string | null; upload_status: string; classification_status: string } | null;
   if (!document) throw new DriveStoreError(409, "Document introuvable dans cette affaire. Actualisez le dossier.");
-  if (document.deleted_at) return { documentId, uploadId: document.upload_id, deleted: true as const, removedUploadedPiece: false };
+  if (document.deleted_at) return { documentId, deleted: true as const };
 
   const upload = await database.from("affaire_intake_uploads" as never).select("status")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.upload_id).single();
@@ -67,6 +71,12 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
       if (deleted.error || !(deleted.data as unknown[])?.length) throw new DriveStoreError(500, "La copie du plan n’a pas pu être retirée.");
     }
     if (document.storage_path) await removeAndVerify(AFFAIRE_INTAKE_BUCKET, document.storage_path);
+    try {
+      await refreshDerivedState?.({ uploadId: document.upload_id, wasUploaded: document.upload_status === "uploaded" });
+    } catch (cause) {
+      console.error("Intake deletion refresh failed", { documentId, cause });
+      throw new DriveStoreError(500, "Fichier retiré du stockage ; actualisation du dossier interrompue. Reprenez la suppression.");
+    }
 
     const deleted = await database.from("affaire_intake_documents" as never).update({
       deleted_at: new Date().toISOString(), deletion_token: null, deletion_started_at: null, storage_path: null, upload_status: "rejected",
@@ -76,7 +86,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     if (deleted.error || !(deleted.data as unknown[])?.length) {
       throw new DriveStoreError(500, "Fichier retiré du stockage ; actualisation du dossier interrompue. Reprenez la suppression.");
     }
-    return { documentId, uploadId: document.upload_id, deleted: true as const, removedUploadedPiece: document.upload_status === "uploaded" };
+    return { documentId, deleted: true as const };
   } catch (error) {
     const released = await database.from("affaire_intake_documents" as never).update({ deletion_token: null, deletion_started_at: null } as never)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token);

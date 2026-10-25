@@ -26,23 +26,32 @@ import { deleteAffaireIntakeDocument } from "@/app/dashboard/affaires/_actions/i
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const DOCUMENT_ID = "22222222-2222-4222-8222-222222222222";
 
+// The store runs the refresh between the verified removal and the tombstone.
+function deletingWith(removed: { uploadId: string; wasUploaded: boolean }) {
+  deleteIntakeDocumentCopyMock.mockImplementation(async (_access, documentId, refresh) => {
+    await refresh(removed);
+    return { documentId, deleted: true };
+  });
+}
+
 describe("deleteAffaireIntakeDocument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("refreshes the register, synced plans and brief after removing an uploaded piece", async () => {
-    deleteIntakeDocumentCopyMock.mockResolvedValue({ documentId: DOCUMENT_ID, uploadId: "upload-1", deleted: true, removedUploadedPiece: true });
+    deletingWith({ uploadId: "upload-1", wasUploaded: true });
 
     await deleteAffaireIntakeDocument({ projectId: PROJECT_ID, documentId: DOCUMENT_ID });
 
+    expect(syncAffaireIntakeDocumentPrioritiesMock).toHaveBeenCalledExactlyOnceWith({ supabase: "owner-client", projectId: PROJECT_ID });
     expect(refreshAffaireIntakeFromActiveDocumentsMock).toHaveBeenCalledExactlyOnceWith({
       supabase: "owner-client", project: { id: PROJECT_ID }, uploadId: "upload-1", actorUserId: "user-1",
     });
   });
 
-  it("leaves the brief and register alone for a rejected piece or a replayed deletion", async () => {
-    deleteIntakeDocumentCopyMock.mockResolvedValue({ documentId: DOCUMENT_ID, uploadId: "upload-1", deleted: true, removedUploadedPiece: false });
+  it("leaves the brief and register alone after removing a rejected piece", async () => {
+    deletingWith({ uploadId: "upload-1", wasUploaded: false });
 
     await deleteAffaireIntakeDocument({ projectId: PROJECT_ID, documentId: DOCUMENT_ID });
 

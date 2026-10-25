@@ -40,18 +40,45 @@ function fixture() {
 describe("deleteIntakeDocumentCopy", () => {
   it("removes both private copies before marking the dossier document deleted; replay is harmless", async () => {
     const f = fixture();
-    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toEqual({ documentId: "document", uploadId: "upload", deleted: true, removedUploadedPiece: true });
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toEqual({ documentId: "document", deleted: true });
     expect(f.bytes.size).toBe(0);
     expect(f.document.deleted_at).toBeTruthy();
     expect(f.document.storage_path).toBeNull();
     expect(f.document.upload_status).toBe("rejected");
-    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toMatchObject({ removedUploadedPiece: false });
+    await deleteIntakeDocumentCopy(f.access, "document");
     expect(f.remove).toHaveBeenCalledTimes(2);
   });
-  it("does not count a rejected piece as a removed upload, so its deletion refreshes nothing derived", async () => {
-    const f = fixture(); f.document.upload_status = "rejected";
-    await expect(deleteIntakeDocumentCopy(f.access, "document")).resolves.toMatchObject({ removedUploadedPiece: false });
+  it("refreshes the derived state once the bytes are gone, while the piece is still reserved", async () => {
+    const f = fixture();
+    const seen: unknown[] = [];
+    const refresh = vi.fn(async (removed: { uploadId: string; wasUploaded: boolean }) => {
+      seen.push({ removed, bytes: f.bytes.size, deletedAt: f.document.deleted_at, reserved: Boolean(f.document.deletion_token) });
+    });
+    await deleteIntakeDocumentCopy(f.access, "document", refresh);
+    expect(seen).toEqual([{ removed: { uploadId: "upload", wasUploaded: true }, bytes: 0, deletedAt: null, reserved: true }]);
     expect(f.document.deleted_at).toBeTruthy();
+    // A replay on the tombstone, e.g. from a stale tab, does not refresh again.
+    await deleteIntakeDocumentCopy(f.access, "document", refresh);
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+  it("releases the piece when its refresh is interrupted, and a retry completes both", async () => {
+    const f = fixture();
+    const refresh = vi.fn().mockRejectedValueOnce(new Error("brief unavailable")).mockResolvedValue(undefined);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(deleteIntakeDocumentCopy(f.access, "document", refresh)).rejects.toThrow("actualisation du dossier interrompue. Reprenez la suppression");
+    expect(logged).toHaveBeenCalledOnce();
+    logged.mockRestore();
+    expect(f.document).toMatchObject({ deleted_at: null, deletion_token: null });
+    expect(f.bytes.size).toBe(0);
+    await expect(deleteIntakeDocumentCopy(f.access, "document", refresh)).resolves.toEqual({ documentId: "document", deleted: true });
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(f.document.deleted_at).toBeTruthy();
+  });
+  it("tells the refresh that a rejected piece fed nothing derived", async () => {
+    const f = fixture(); f.document.upload_status = "rejected";
+    const refresh = vi.fn(async () => {});
+    await deleteIntakeDocumentCopy(f.access, "document", refresh);
+    expect(refresh).toHaveBeenCalledWith({ uploadId: "upload", wasUploaded: false });
   });
   it("keeps the document visible when Storage fails", async () => {
     const f = fixture(); f.fail();

@@ -13,10 +13,11 @@ une seconde copie active. Une autre révision demande une confirmation explicite
 Le parcours DPGF existant garde sa prévisualisation, son mapping et sa confirmation.
 
 La suppression demande une confirmation et attend la fin du traitement du lot.
-Elle supprime les octets de la pièce et de ses copies de plans, vérifie leur absence,
-puis retire la pièce du dossier. Si elle avait été importée, le registre des pièces
-manquantes et les plans synchronisés sont ensuite recalculés à partir des pièces restantes,
-comme après un reclassement, ainsi que le brief courant tant qu’il reste une pièce importée.
+Elle supprime les octets de la pièce et de ses copies de plans et vérifie leur absence.
+Si la pièce avait été importée, le registre des pièces manquantes et les plans synchronisés
+sont alors recalculés à partir des pièces restantes, comme après un reclassement, ainsi que
+le brief courant tant qu’il reste une pièce importée. La pièce est ensuite retirée du
+dossier ; une mise à jour interrompue l’y laisse, et reprendre la suppression la termine.
 L’original Drive et les lignes de chiffrage restent conservés. Les événements d’audit
 sont immuables : une ligne technique marquée supprimée subsiste sans chemin de stockage.
 Réimporter la même révision crée une nouvelle génération de stockage et une nouvelle
