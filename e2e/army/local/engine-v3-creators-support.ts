@@ -12,6 +12,7 @@ import {
 import { querySql } from "./calculation-gate-support";
 import { signUpDedicatedOwner } from "./dedicated-owner";
 import { releaseVersion } from "./engine-v3-editor-support";
+import { relativeOutputPath } from "./sdk-results";
 // Aliased: the sign-up helper is not a React hook, whatever its name.
 import {
   readTenantCalcPolicy, setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner,
@@ -364,8 +365,8 @@ export async function callServerAction(browser: Browser, id: string, argument: R
 /* ---------- Captures ---------- */
 
 /**
- * A capture of a visible state for the pull request. Only a journey without the restored campaign session can
- * take one (the SDK withholds pixels after the sign-in fill); a refusal is recorded, never a failure.
+ * A capture of a visible state for the pull request. e2e 0.21.3 keeps the file after a secret fill
+ * and masks secure fields; the stored path stays relative to the output root.
  */
 export async function captureScreen(ui: Ui, army: ArmyState, label: string) {
   // Finite animations (dialog opening, menu closing) end first, within 3 s.
@@ -375,12 +376,7 @@ export async function captureScreen(ui: Ui, army: ArmyState, label: string) {
       new Promise((resolve) => setTimeout(resolve, 3_000))]);
     return true;
   });
-  let pixels: { status: string; file?: string; code?: string };
-  try {
-    pixels = { status: "captured", file: await ui.app.screenshot(label) };
-  } catch (error) {
-    pixels = { status: "unavailable", code: error && typeof error === "object" && "code" in error ? String(error.code) : "SCREENSHOT_UNAVAILABLE" };
-  }
+  const pixels = { status: "captured", file: await relativeOutputPath(await ui.app.screenshot(label)) };
   await recordEvidence(army, `${label}-capture`, pixels);
   return pixels;
 }
