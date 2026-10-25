@@ -1,3 +1,4 @@
+import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import type {
   PlanFileListItem,
   PlanSetListItem,
@@ -224,7 +225,7 @@ export function findPlanFileDuplicates(
       exactIdsByHash.set(normalizedHash, hashGroup);
     }
 
-    const signature = `${normalizeFileName(file.file_name)}::${file.file_size_bytes}`;
+    const signature = `${normalizeFileName(getPlanFileDisplayName(file))}::${file.file_size_bytes}`;
     const signatureGroup = possibleIdsBySignature.get(signature) ?? [];
     signatureGroup.push(file);
     possibleIdsBySignature.set(signature, signatureGroup);
@@ -238,7 +239,7 @@ export function findPlanFileDuplicates(
         kind: "exact",
         matchingFileNames: group
           .filter((candidate) => candidate.id !== file.id)
-          .map((candidate) => candidate.file_name),
+          .map((candidate) => getPlanFileDisplayName(candidate)),
       });
     }
   }
@@ -251,7 +252,7 @@ export function findPlanFileDuplicates(
         kind: "possible",
         matchingFileNames: group
           .filter((candidate) => candidate.id !== file.id)
-          .map((candidate) => candidate.file_name),
+          .map((candidate) => getPlanFileDisplayName(candidate)),
       });
     }
   }

@@ -13,6 +13,10 @@ import {
   DEFAULT_IMPORT_PLAN_SET_NAME,
   hasDefaultImportPlanSetMarker,
 } from "@/lib/takeoff/default-import-plan-set";
+import {
+  PLAN_FILE_ORIGINAL_NAME_KEY,
+  normalizePlanFileOriginalName,
+} from "@/lib/takeoff/plan-file-display-name";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import type { Database } from "@/types/database";
 
@@ -54,6 +58,7 @@ type IntakePlanFileMetadata = {
   intake_document_id: string;
   intake_upload_id: string;
   intake_storage_path: string;
+  [PLAN_FILE_ORIGINAL_NAME_KEY]?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -305,11 +310,13 @@ async function createSyncedPlanFile(input: {
     throw uploadError;
   }
 
+  const originalFileName = normalizePlanFileOriginalName(input.document.file_name);
   const metadata: IntakePlanFileMetadata = {
     source: "affaire-intake",
     intake_document_id: input.document.id,
     intake_upload_id: input.document.upload_id,
     intake_storage_path: input.document.storage_path,
+    ...(originalFileName ? { [PLAN_FILE_ORIGINAL_NAME_KEY]: originalFileName } : {}),
   };
 
   const { error: insertError } = await input.supabase
