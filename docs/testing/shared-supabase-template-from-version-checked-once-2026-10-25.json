@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "sourceCommit": "9e009ce",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's go on 25/10 to merge #105 and apply its migration to shared Supabase.",
+  "migrations": [
+    {
+      "repositoryFile": "supabase/migrations/20261025094300_template_from_version_checked_once.sql",
+      "pullRequest": 105,
+      "extractedFrom": "9e009ce1",
+      "bytes": 10634,
+      "sha256": "d4694944c622df715786e4e5a56d17bdf0916cc72f6b08a0d131be96224eb563",
+      "appliedVersion": "20261025111353",
+      "appliedName": "20261025094300_template_from_version_checked_once",
+      "appliedAtUtc": "2026-10-25T11:13:53Z",
+      "storedStatementSha256Matches": true,
+      "appliedFrom": "Cloud thread, single apply_migration call, answered success"
+    }
+  ],
+  "preflight": {
+    "historyRows": 323,
+    "lastVersion": "20261024170214",
+    "nameAbsent": true,
+    "repositoryMigrations": 273,
+    "otherPendingMigrations": 0,
+    "preexistingMissingByName": [
+      "20260714120000_preserve_assembly_cost_details",
+      "20260714134334_use_assembly_cost_coefficients",
+      "20260718014058_protect_takeoff_replace_with_recovery (empty)"
+    ],
+    "createTemplateFromVersion": {
+      "securityDefiner": false,
+      "proconfig": ["search_path=public"],
+      "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "bodyMd5": "c4b773a18a1e2545f55d9a4cdfb0ef80"
+    },
+    "newFunctionsAbsent": true
+  },
+  "history": {
+    "rowsBefore": 323,
+    "rowsAfter": 324,
+    "priorRowsFingerprint": "29ec2f108f466d9a5f850e7c7261c1f3",
+    "priorRowsFingerprintMethod": "md5(string_agg(version||name, ',' order by version))",
+    "priorRowsUnchanged": true
+  },
+  "functions": [
+    {
+      "name": "public.create_estimate_template_from_version(uuid,text,text)",
+      "securityDefiner": true,
+      "searchPath": "",
+      "volatility": "volatile",
+      "returns": "uuid",
+      "bodyMd5": "bce44abcf62c04f5422b93cd74999695"
+    },
+    {
+      "name": "public.read_estimate_template_items(uuid,uuid)",
+      "securityDefiner": true,
+      "searchPath": "",
+      "volatility": "stable",
+      "returns": "SETOF estimate_template_items",
+      "bodyMd5": "927ff7c25bdd799be4117378c98fdfef"
+    },
+    {
+      "name": "public.count_estimate_template_lines(uuid,uuid[])",
+      "securityDefiner": true,
+      "searchPath": "",
+      "volatility": "stable",
+      "returns": "TABLE(template_id uuid, line_count integer)",
+      "bodyMd5": "8b669996e7f34f71d81079823927caa5"
+    }
+  ],
+  "privileges": {
+    "owner": "postgres",
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "anonExecute": false,
+    "publicExecute": false,
+    "authenticatedExecute": true,
+    "serviceRoleExecute": true
+  },
+  "securityAdvisors": {
+    "authenticatedSecurityDefinerExecutable": {
+      "before": 67,
+      "after": 70,
+      "added": [
+        "public.count_estimate_template_lines(uuid,uuid[])",
+        "public.create_estimate_template_from_version(uuid,text,text)",
+        "public.read_estimate_template_items(uuid,uuid)"
+      ]
+    },
+    "anonSecurityDefinerExecutable": 2,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1
+  },
+  "performanceAdvisors": {
+    "unchanged": true,
+    "unindexedForeignKeys": 179,
+    "unusedIndex": 155,
+    "multiplePermissivePolicies": 4
+  },
+  "limits": [
+    "No business call of the changed functions on shared and no deployment in this receipt.",
+    "Deployment of main at 9e009ce done separately by the owner."
+  ]
+}
