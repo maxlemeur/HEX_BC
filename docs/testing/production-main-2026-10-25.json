@@ -1,0 +1,838 @@
+{
+  "schemaVersion": 1,
+  "observedAtUtc": "2026-10-25 14:22:22 UTC",
+  "initialDeployment": {
+    "id": "dpl_4JECVYTGDS2Ubg2vjjD7zMSnMttg",
+    "url": "https://hex-3uew0axw3-maximes-projects-1598be5f.vercel.app",
+    "productionUrl": "https://hex-bc.vercel.app",
+    "state": "READY",
+    "target": "production",
+    "commit": "c9e849350a54520e5f5f646efe94e1b90748efc9",
+    "branch": "main",
+    "createdAt": "2026-10-25T13:06:05.148Z",
+    "readyAt": "2026-10-25T13:09:50.757Z",
+    "aliases": [
+      "hex-bc.vercel.app",
+      "hex-bc-maximes-projects-1598be5f.vercel.app",
+      "hex-bc-git-main-maximes-projects-1598be5f.vercel.app"
+    ]
+  },
+  "finalDeployment": {
+    "id": "dpl_G9KHEXiP77x8tSYgwe4ayXwYzgq4",
+    "url": "https://hex-ndik74olc-maximes-projects-1598be5f.vercel.app",
+    "productionUrl": "https://hex-bc.vercel.app",
+    "state": "READY",
+    "target": "production",
+    "commit": "7255d1d260fe4bed5f0aca99322ab1f4595f3c12",
+    "branch": "main",
+    "createdAt": "2026-10-25T14:02:31.706Z",
+    "readyAt": "2026-10-25T14:06:31.360Z",
+    "aliases": [
+      "hex-bc.vercel.app",
+      "hex-bc-maximes-projects-1598be5f.vercel.app",
+      "hex-bc-git-main-maximes-projects-1598be5f.vercel.app"
+    ]
+  },
+  "sharedSupabasePrerequisites": {
+    "project": "bon_de_commande",
+    "projectId": "ijropnynpwjbllievrip",
+    "migrations": [
+      {
+        "name": "20261025094300_template_from_version_checked_once",
+        "sha256": "d4694944c622df715786e4e5a56d17bdf0916cc72f6b08a0d131be96224eb563"
+      },
+      {
+        "name": "20261025112108_consolidate_shared_catalog",
+        "sha256": "279f2ccd20dbbdc38a5ca2848faceb9870aeab65735e5e297abc0e8482792ca5"
+      },
+      {
+        "name": "20261025112109_restrict_public_function_execution",
+        "sha256": "133b8680b37b9fa61daca8cec89f37ef9d1a91d8f15be52a3ab99efb7047858b"
+      },
+      {
+        "name": "20261025112146_reconcile_shared_migration_history",
+        "sha256": "596ca1ce0f0b826f7abef5fa7d937382a2dd0054470d87135ed921bce3e9736a"
+      },
+      {
+        "name": "20261025115010_tenant_calc_defaults_admin",
+        "remoteVersion": "20261025135027",
+        "sha256": "af97469c23f3dcacf54f1802f04f9c36860e4c1e3fec6be0c3b2e2a071f91977",
+        "appliedByThisDeploymentTask": false,
+        "verifiedAlreadyPresent": true
+      }
+    ],
+    "anonymous_public_functions": 0
+  },
+  "ciFinal": {
+    "commit": "7255d1d260fe4bed5f0aca99322ab1f4595f3c12",
+    "checks": [
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121189108696",
+        "name": "army-critical",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327212/job/121187470184",
+        "name": "quality-gate",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327170/job/121187185306",
+        "name": "smoke",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186998099",
+        "name": "army-takeoff shard ${{ matrix.shard }}/${{ matrix.total }}",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186996773",
+        "name": "army-takeoff",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186996597",
+        "name": "army-critical shard 2/5",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186996561",
+        "name": "army-critical shard 1/5",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186996539",
+        "name": "army-critical shard 3/5",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186996537",
+        "name": "army-critical shard 5/5",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186996529",
+        "name": "army-critical shard 4/5",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327212/job/121186929524",
+        "name": "Tests",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327212/job/121186929508",
+        "name": "Statique",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327212/job/121186929299",
+        "name": "Build",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327213/job/121186929232",
+        "name": "release-please",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "details_url": "https://github.com/maxlemeur/HEX_BC/actions/runs/40199327239/job/121186929165",
+        "name": "army-critical selection",
+        "status": "completed"
+      }
+    ]
+  },
+  "qa": {
+    "node": "26.12.1",
+    "e2e": "0.21.3",
+    "@e2e-dev/web": "0.15.3",
+    "playwright": "1.64.1",
+    "workers": 1,
+    "retries": 0
+  },
+  "health": {
+    "status": "ACTIVE_HEALTHY",
+    "version": "17.11.0.003"
+  },
+  "observability": {
+    "deploymentId": "dpl_G9KHEXiP77x8tSYgwe4ayXwYzgq4",
+    "since": "2026-10-25T14:15:44Z",
+    "levels": [
+      "error",
+      "fatal"
+    ],
+    "matchedGroups": 0,
+    "scope": "bounded Vercel runtime-log count query, not a historical availability certificate",
+    "maintenanceObserved": {
+      "status": "UPGRADING",
+      "oldVersion": "17.6.1.063",
+      "newVersion": "17.11.0.003",
+      "healthyAtUtc": "2026-10-25T13:31:12Z",
+      "upstreamErrorAtUtc": "2026-10-25T13:23:57Z"
+    },
+    "earlierSqlTimeoutDiagnostic": "outputs/production-20261025/timeout-diagnostic.json",
+    "earlierSqlTimeoutCauseProven": false
+  },
+  "localVerification": {
+    "command": "npm run verify:pr",
+    "exitCode": 0,
+    "nodePassed": 3547,
+    "nodeSkipped": 3,
+    "jsdomPassed": 843,
+    "criticalCoveragePassed": 12,
+    "applicationFile": "src/app/api/estimates/templates/route.ts",
+    "applicationFileSha256": "4bc1703f696fbd42f7228ff5a191aecc54b0faca0429de8638634f52c64a3a31",
+    "evidence": "outputs/production-20261025/verify-pr.log",
+    "applicationCommit": "a993b19c488989909fa440d3223b4ebb2feceb00"
+  },
+  "retainedFixtures": {
+    "imports": [
+      {
+        "id": "f89468be-5603-406f-b263-484dcfe8200d",
+        "status": "completed",
+        "project_id": "af4be949-b3ca-46b3-be8b-4222e111b73e",
+        "storage_path": null,
+        "file_size_bytes": 115
+      },
+      {
+        "id": "3898fb94-7195-4ea2-a55b-eb14e4408381",
+        "status": "completed",
+        "project_id": "113d3653-708d-4de4-b8fb-a33e90dcc73f",
+        "storage_path": null,
+        "file_size_bytes": 115
+      },
+      {
+        "id": "954ef6d9-0252-4a78-ad86-2ad6f87e8bf4",
+        "status": "completed",
+        "project_id": "50ad5bdd-7fb3-459c-b415-8e245901f161",
+        "storage_path": null,
+        "file_size_bytes": 115
+      }
+    ],
+    "projects": [
+      {
+        "id": "113d3653-708d-4de4-b8fb-a33e90dcc73f",
+        "name": "ARMY-PROD-20261025-09e4f75e05-csv",
+        "tenant_id": "cba61ccf-d0d8-45d2-b298-d4f88117b120"
+      },
+      {
+        "id": "50ad5bdd-7fb3-459c-b415-8e245901f161",
+        "name": "ARMY-PROD-20261025-09e4f75e05-csv",
+        "tenant_id": "cba61ccf-d0d8-45d2-b298-d4f88117b120"
+      },
+      {
+        "id": "f50cca6c-5ee5-48be-92a8-07c88d9a5a77",
+        "name": "ARMY-PROD-20261025-09e4f75e05-pdf",
+        "tenant_id": "cba61ccf-d0d8-45d2-b298-d4f88117b120"
+      },
+      {
+        "id": "af4be949-b3ca-46b3-be8b-4222e111b73e",
+        "name": "ARMY-PROD-20261025-09e4f75e05-csv",
+        "tenant_id": "cba61ccf-d0d8-45d2-b298-d4f88117b120"
+      }
+    ],
+    "versions": [
+      {
+        "id": "4bb43456-b44a-4a01-be40-878b98510467",
+        "status": "draft",
+        "project_id": "113d3653-708d-4de4-b8fb-a33e90dcc73f",
+        "total_ht_cents": 0,
+        "total_ttc_cents": 0,
+        "content_revision": 1
+      },
+      {
+        "id": "e52bb911-9162-46c1-bc22-15cec0782ae2",
+        "status": "draft",
+        "project_id": "113d3653-708d-4de4-b8fb-a33e90dcc73f",
+        "total_ht_cents": 2626,
+        "total_ttc_cents": 3151,
+        "content_revision": 4
+      },
+      {
+        "id": "8c70d3f4-b9b3-463b-bb5f-0d94a1612904",
+        "status": "draft",
+        "project_id": "50ad5bdd-7fb3-459c-b415-8e245901f161",
+        "total_ht_cents": 0,
+        "total_ttc_cents": 0,
+        "content_revision": 1
+      },
+      {
+        "id": "ec495523-5c06-4343-a5cb-7aff54f0c611",
+        "status": "draft",
+        "project_id": "50ad5bdd-7fb3-459c-b415-8e245901f161",
+        "total_ht_cents": 2626,
+        "total_ttc_cents": 3151,
+        "content_revision": 4
+      },
+      {
+        "id": "67112d7c-bd5a-4d3a-a6de-97793ccfc22c",
+        "status": "draft",
+        "project_id": "af4be949-b3ca-46b3-be8b-4222e111b73e",
+        "total_ht_cents": 0,
+        "total_ttc_cents": 0,
+        "content_revision": 1
+      },
+      {
+        "id": "1ddedc9a-c68e-4bc7-90ef-4df9e5fd1c63",
+        "status": "draft",
+        "project_id": "af4be949-b3ca-46b3-be8b-4222e111b73e",
+        "total_ht_cents": 2626,
+        "total_ttc_cents": 3151,
+        "content_revision": 4
+      },
+      {
+        "id": "bb70b129-f29a-4c63-84bc-2d0ddee1746a",
+        "status": "draft",
+        "project_id": "f50cca6c-5ee5-48be-92a8-07c88d9a5a77",
+        "total_ht_cents": 26260,
+        "total_ttc_cents": 31512,
+        "content_revision": 8
+      }
+    ],
+    "documents": [
+      {
+        "status": "ready",
+        "version_id": "bb70b129-f29a-4c63-84bc-2d0ddee1746a",
+        "sha256_hash": "c2a809c108c798cfe5f7d73e04ba319a3429c2b872e2429a1231e38014bd6654",
+        "file_size_bytes": 40170,
+        "published_content_revision": 8
+      }
+    ],
+    "user_count": 1,
+    "tenant_policy": {
+      "fo": 1.3,
+      "mo": 1.2,
+      "rates": [
+        2000,
+        1000,
+        550,
+        210
+      ],
+      "engine": 3,
+      "events": 2
+    },
+    "templates_remaining": 0,
+    "assemblies_remaining": 0,
+    "anonymous_public_functions": 0
+  },
+  "worktree": {
+    "path": "/Users/timax/Projects/.workspaces/mergeone/production-20261025",
+    "state": "retired",
+    "recoveryReceipt": "outputs/production-20261025/workspace-recovery.md",
+    "temporaryRuntimeRemoved": true,
+    "applicationCommit": "7255d1d260fe4bed5f0aca99322ab1f4595f3c12"
+  },
+  "limitations": [
+    "Email delivery, portal tokens, approval decisions, AI workers and a real supplier order were not exercised.",
+    "The M1a plan-name change is covered by commit CI; an uploaded renamed plan was not replayed on the shared project.",
+    "PDF generation HTTP202 is from campaign2; PDF read, bytes and persisted hash were verified again on the latest build.",
+    "The signup proof is from campaign1; later campaigns reuse that fictional account.",
+    "The specific blocker/resource condition behind four 57014 cancellations in campaign6 was not captured. The isolated reproduction and remaining journeys passed afterwards."
+  ],
+  "productionCampaigns": [
+    {
+      "attempt": 1,
+      "id": "01a17332-03fd-72ab-9213-0ada193f5a21",
+      "status": "failed",
+      "exitCode": 1,
+      "startedAt": "2026-10-25T13:13:40.497Z",
+      "finishedAt": "2026-10-25T13:14:58.594Z",
+      "summary": {
+        "discovered": 7,
+        "selected": 7,
+        "executed": 3,
+        "passed": 2,
+        "failed": 1,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 4
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P00 anonymous access remains protected"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P01 isolated signup and real password login"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P02 wizard creation, v3 editing and reload persistence"
+          ],
+          "status": "failed"
+        },
+        {
+          "title": [
+            "P03 CSV import mapping, provenance and exact export"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P04 save a v3 template and insert it through the authenticated production API"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P05 PDF generation and downloaded bytes match the persisted document"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P06 library assembly inserts exact quantities and v3 amounts"
+          ],
+          "status": "skipped"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt1/native/report.json",
+      "applicationCommit": "c9e849350a54520e5f5f646efe94e1b90748efc9",
+      "command": "npx e2e run --config e2e.production.config.ts --max-failures 1",
+      "harnessSha256": null
+    },
+    {
+      "attempt": 2,
+      "id": "01a17337-c86f-7ac7-bfdc-076dda36d556",
+      "status": "failed",
+      "exitCode": 1,
+      "startedAt": "2026-10-25T13:19:58.238Z",
+      "finishedAt": "2026-10-25T13:24:33.881Z",
+      "summary": {
+        "discovered": 7,
+        "selected": 7,
+        "executed": 6,
+        "passed": 5,
+        "failed": 1,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 1
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P00 anonymous access remains protected"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P02 wizard creation, v3 editing and reload persistence"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P03 CSV import mapping, provenance and exact export"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P04 save a v3 template and insert it through the authenticated production API"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P05 PDF generation and downloaded bytes match the persisted document"
+          ],
+          "status": "failed"
+        },
+        {
+          "title": [
+            "P06 library assembly inserts exact quantities and v3 amounts"
+          ],
+          "status": "skipped"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt2/native/report.json",
+      "applicationCommit": "c9e849350a54520e5f5f646efe94e1b90748efc9",
+      "command": "npx e2e run --config e2e.production.config.ts --max-failures 1",
+      "harnessSha256": "016f54dab3ccc06cfd3c7fcce284f42ccd94d5c3d044a324e987b67c1aebe414"
+    },
+    {
+      "attempt": 3,
+      "id": "01a17342-4b1c-7217-bf54-281d3ace5086",
+      "status": "failed",
+      "exitCode": 1,
+      "startedAt": "2026-10-25T13:31:27.088Z",
+      "finishedAt": "2026-10-25T13:32:23.669Z",
+      "summary": {
+        "discovered": 8,
+        "selected": 4,
+        "executed": 4,
+        "passed": 3,
+        "failed": 1,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P05 resume generated PDF and verify downloaded bytes against the persisted document"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P06 library assembly inserts exact quantities and v3 amounts"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P07 authenticated main lists and real logout"
+          ],
+          "status": "failed"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt3/native/report.json",
+      "applicationCommit": "c9e849350a54520e5f5f646efe94e1b90748efc9",
+      "command": "npx e2e run --config e2e.production.config.ts --grep 'P05|P06|P07' --max-failures 1",
+      "harnessSha256": "b12ed1635cfc8c97ed06909949c3300696733e89d90ebf839267eee4ae685150"
+    },
+    {
+      "attempt": 4,
+      "id": "01a17343-f699-7f59-a187-1fccc65788c6",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-10-25T13:33:16.528Z",
+      "finishedAt": "2026-10-25T13:35:33.613Z",
+      "summary": {
+        "discovered": 8,
+        "selected": 5,
+        "executed": 5,
+        "passed": 5,
+        "failed": 0,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P02 wizard creation, v3 editing and reload persistence"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P03 CSV import mapping, provenance and exact export"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P04 save a v3 template and insert it through the authenticated production API"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P07 authenticated main lists and real logout"
+          ],
+          "status": "passed"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt4/native/report.json",
+      "applicationCommit": "c9e849350a54520e5f5f646efe94e1b90748efc9",
+      "command": "npx e2e run --config e2e.production.config.ts --grep 'P02|P03|P04|P07' --max-failures 1",
+      "harnessSha256": "2ad5e654946016b736ae3a69cb441c40a59d90b0eb59fc78a0a72878abcfe63c"
+    },
+    {
+      "attempt": 5,
+      "id": "01a17356-1ecd-77a7-b499-5b5097ca523f",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-10-25T13:53:06.610Z",
+      "finishedAt": "2026-10-25T13:53:44.280Z",
+      "summary": {
+        "discovered": 8,
+        "selected": 3,
+        "executed": 3,
+        "passed": 3,
+        "failed": 0,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P00 anonymous access remains protected"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P07 authenticated main lists and real logout"
+          ],
+          "status": "passed"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt5/native/report.json",
+      "applicationCommit": "a993b19c488989909fa440d3223b4ebb2feceb00",
+      "command": "PRODUCTION_RELEASE_COMMIT=a993b19c488989909fa440d3223b4ebb2feceb00 npx e2e run --config e2e.production.config.ts --grep 'P00|P07' --max-failures 1",
+      "harnessSha256": "e046341a578034f2102e55eabd4fad068b00868affc7cdb5fb174ca892ffaeac"
+    },
+    {
+      "attempt": 6,
+      "id": "01a17362-9a3e-7e5f-9619-2db9966b1307",
+      "status": "failed",
+      "exitCode": 1,
+      "startedAt": "2026-10-25T14:06:44.532Z",
+      "finishedAt": "2026-10-25T14:07:33.520Z",
+      "summary": {
+        "discovered": 9,
+        "selected": 9,
+        "executed": 3,
+        "passed": 2,
+        "failed": 1,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 6
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P00 anonymous access remains protected"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P02 wizard creation, v3 editing and reload persistence"
+          ],
+          "status": "failed"
+        },
+        {
+          "title": [
+            "P03 CSV import mapping, provenance and exact export"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P04 save a v3 template and insert it through the authenticated production API"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P05 resume generated PDF and verify downloaded bytes against the persisted document"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P06 library assembly inserts exact quantities and v3 amounts"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P08 tenant admin defaults persist, reach new v3 estimates and preserve existing amounts"
+          ],
+          "status": "skipped"
+        },
+        {
+          "title": [
+            "P07 authenticated main lists and real logout"
+          ],
+          "status": "skipped"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt6/native/report.json",
+      "applicationCommit": "7255d1d260fe4bed5f0aca99322ab1f4595f3c12",
+      "command": "PRODUCTION_RELEASE_COMMIT=7255d1d260fe4bed5f0aca99322ab1f4595f3c12 npx e2e run --config e2e.production.config.ts --max-failures 1",
+      "harnessSha256": "8854aa619d26267c2d35d09e9f469dce8cc595a0197cb24988a4ec38b58984df"
+    },
+    {
+      "attempt": 7,
+      "id": "01a1736a-d768-7245-96cb-2fdddcc68781",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-10-25T14:15:44.386Z",
+      "finishedAt": "2026-10-25T14:16:42.329Z",
+      "summary": {
+        "discovered": 9,
+        "selected": 2,
+        "executed": 2,
+        "passed": 2,
+        "failed": 0,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P02 wizard creation, v3 editing and reload persistence"
+          ],
+          "status": "passed"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt7/native/report.json",
+      "applicationCommit": "7255d1d260fe4bed5f0aca99322ab1f4595f3c12",
+      "command": "PRODUCTION_RELEASE_COMMIT=7255d1d260fe4bed5f0aca99322ab1f4595f3c12 npx e2e run --config e2e.production.config.ts --grep 'P02' --max-failures 1",
+      "harnessSha256": "d090d134573dd400bce757d4d5af836bc6dca6d3993a8a501dfa3819f5400bd4"
+    },
+    {
+      "attempt": 8,
+      "id": "01a1736c-9f61-744d-a7da-37e284f1579b",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-10-25T14:17:41.115Z",
+      "finishedAt": "2026-10-25T14:20:37.245Z",
+      "summary": {
+        "discovered": 9,
+        "selected": 7,
+        "executed": 7,
+        "passed": 7,
+        "failed": 0,
+        "interrupted": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "selectedResults": [
+        {
+          "title": [
+            "P01 real password login for the isolated test account"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P03 CSV import mapping, provenance and exact export"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P04 save a v3 template and insert it through the authenticated production API"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P05 resume generated PDF and verify downloaded bytes against the persisted document"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P06 library assembly inserts exact quantities and v3 amounts"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P08 tenant admin defaults persist, reach new v3 estimates and preserve existing amounts"
+          ],
+          "status": "passed"
+        },
+        {
+          "title": [
+            "P07 authenticated main lists and real logout"
+          ],
+          "status": "passed"
+        }
+      ],
+      "evidence": "outputs/production-20261025/attempt8/native/report.json",
+      "applicationCommit": "7255d1d260fe4bed5f0aca99322ab1f4595f3c12",
+      "command": "PRODUCTION_RELEASE_COMMIT=7255d1d260fe4bed5f0aca99322ab1f4595f3c12 npx e2e run --config e2e.production.config.ts --grep 'P03|P04|P05|P06|P08|P07' --max-failures 1",
+      "harnessSha256": "d090d134573dd400bce757d4d5af836bc6dca6d3993a8a501dfa3819f5400bd4"
+    }
+  ],
+  "finalProductionCommand": "PRODUCTION_RELEASE_COMMIT=7255d1d260fe4bed5f0aca99322ab1f4595f3c12 npx e2e run --config e2e.production.config.ts --grep 'P03|P04|P05|P06|P08|P07' --max-failures 1",
+  "harness": {
+    "e2e.production.config.ts": "3ffe66247eadc2adb620fbfd46853184c6c6525f4223177e9b401cd188720235",
+    "release.e2e.ts": "d090d134573dd400bce757d4d5af836bc6dca6d3993a8a501dfa3819f5400bd4",
+    "production-fixture.csv": "a7841f2afb7c1641924b571da3f9b4f90cdf0f7c8f3821c06e31c15febeb7096"
+  },
+  "fixtureCleanup": {
+    "projectsDeleted": 18,
+    "templatesRemaining": 0,
+    "assembliesRemaining": 0,
+    "finalTemplateProbeDeletedHttpStatus": 200,
+    "privateCredentialEvidenceIncluded": false,
+    "sessionsInDeliveredEvidence": false,
+    "tenantDefaultsRestored": true,
+    "retainedPolicyEvents": 2
+  },
+  "correctiveDeployment": {
+    "id": "dpl_2d4ixwkHGVHEJPoGZg99QsbTDG7r",
+    "url": "https://hex-55frfxkk9-maximes-projects-1598be5f.vercel.app",
+    "productionUrl": "https://hex-bc.vercel.app",
+    "state": "READY",
+    "target": "production",
+    "commit": "a993b19c488989909fa440d3223b4ebb2feceb00",
+    "branch": "main",
+    "createdAt": "2026-10-25T13:49:40.875Z",
+    "readyAt": "2026-10-25T13:51:45.581Z",
+    "aliases": [
+      "hex-bc.vercel.app",
+      "hex-bc-maximes-projects-1598be5f.vercel.app",
+      "hex-bc-git-main-maximes-projects-1598be5f.vercel.app"
+    ]
+  }
+}
