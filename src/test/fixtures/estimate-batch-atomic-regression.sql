@@ -422,6 +422,9 @@ begin
   end $f$;
   $helpers$;
 
+  -- Session-local probe helpers need explicit access after SET ROLE anon.
+  -- The mandatory abort rolls back these grants; product RPC ACLs stay closed.
+  grant execute on all functions in schema pg_temp to anon;
   foreach case_name in array array[
     'wfc01-late-operation-rollback','wfc01-success-v2','v1-untargeted-line-unchanged','v1-targeted-projection','section-default-v2','incomplete-labor-v1','incomplete-labor-v2','precision-storage-coercion','precision-overflow',
     'reorder-exact-permutation','reorder-incomplete-set','delete-cascade-commit','mixed-cascade-late-rollback','technical-aba','price-does-not-invalidate','update-then-delete-result','create-then-parent-delete','surviving-create-projection-still-required','late-footer-rollback','late-audit-rollback','late-receipt-rollback',

@@ -399,6 +399,9 @@ begin
     else raise exception 'Unknown generated case %',name; end case;
   end $f$;
   $helpers$;
+  -- Session-local probe helpers need explicit access after SET ROLE anon.
+  -- The mandatory abort rolls back these grants; product RPC ACLs stay closed.
+  grant execute on all functions in schema pg_temp to anon;
   foreach case_name in array array[
     'read-material-union','read-absent-token-null','finalize-existing','prepared-defaults-match-batch','finalize-fallback','partial-preserves-other-review-token','token-unrelated-fragment-unchanged','late-application','late-snapshot','late-draft','late-subdetail','late-receipt','late-fallback-rollback',
     'fallback-wrong-title','fallback-ascii-existing','component-cost-redistribution','component-coefficient-forgery','parent-cost-forgery','parent-majoration-forgery','labor-trace-duplicate','labor-hours-forgery','decimal-yield-hours',

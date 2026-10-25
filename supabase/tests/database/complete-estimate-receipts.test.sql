@@ -78,6 +78,8 @@ select ok(not has_function_privilege('anon','public.insert_estimate_assembly_wit
 select ok(not has_function_privilege('anon','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'anon cannot execute template insertion');
 select ok(not has_function_privilege('public','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'public cannot execute template insertion');
 select ok(has_function_privilege('authenticated','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'authenticated can execute template insertion');
-select ok(has_function_privilege('service_role','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'service_role keeps execute on template insertion');
+-- Lot 3.3 D3: these writers require a signed-in user; the authenticated
+-- insertions above remain the positive controls for both receipt wrappers.
+select ok(not has_function_privilege('service_role','public.insert_estimate_template_into_version(uuid,uuid,uuid)','execute'),'service_role cannot execute template insertion');
 select finish();
 rollback;

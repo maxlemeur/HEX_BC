@@ -164,7 +164,20 @@ begin
       perform pg_temp.ap_assert(not exists(select 1 from public.estimate_generated_ouvrage_applications a where a.estimate_item_id=(result->1->>'id')::uuid) and not exists(select 1 from public.estimate_generated_ouvrage_work_snapshots s where s.estimate_item_id=(result->1->>'id')::uuid),'Library reuse created direct generated application or snapshot');
       perform pg_temp.ap_assert(not exists(select 1 from private.estimate_source_coverage_links l where to_jsonb(l)::text like '%cfca0000-%'),'Library reuse invented CCTP coverage');
     when 'anonymous-refused' then
-      perform pg_temp.ap_actor(null,'anon'); perform pg_temp.ap_refusal('select pg_temp.ap_insert()', '42501');
+      -- Lot 3.3 removes PUBLIC's global default EXECUTE, including on pg_temp
+      -- helpers. Reach the actual product RPC and check its exact ACL refusal.
+      original:=pg_temp.ap_state();
+      perform pg_temp.ap_actor(null,'anon');
+      begin
+        perform public.insert_estimate_assembly_into_version(
+          'cfca0000-0000-4000-8000-000000000301',
+          'cfca0000-0000-4000-8000-000000001001',null);
+        raise exception 'Anonymous assembly insertion unexpectedly succeeded';
+      exception when insufficient_privilege then
+        if sqlerrm <> 'permission denied for function insert_estimate_assembly_into_version' then raise; end if;
+      end;
+      perform set_config('role','none',true);
+      perform pg_temp.ap_assert(original=pg_temp.ap_state(),'Anonymous refusal left partial rows');
     when 'viewer-owned-version-refused' then
       perform pg_temp.ap_actor(2); perform pg_temp.ap_refusal('select pg_temp.ap_insert(1001,304)', '42501');
     when 'outsider-refused' then

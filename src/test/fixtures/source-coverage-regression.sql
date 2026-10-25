@@ -301,6 +301,9 @@ begin
     end case;
   end $f$;
   $helpers$;
+  -- Session-local probe helpers need explicit access after SET ROLE anon.
+  -- The mandatory abort rolls back these grants; product RPC ACLs stay closed.
+  grant execute on all functions in schema pg_temp to anon;
   foreach case_name in array array['empty-no-write','acl','reader-rights','component-inclusion','stale-component','cascade-history','partial','unverified','citation-page','bad-target','register-invalidation','register-incompatible','line-aba','nontechnical','dimension-label-extent','requirement-aba','reference-B','replay','preview-stale','delete-reinsert','archive-reopen','history-immutable','source-metadata-loss-replay','role-replay','target-catalogue','financial-unchanged','unspecified','duplicate-target','citation-hash','event-atomic','revision-overflow','shared-dimension-version-delete','nondraft-replay','whole-parent-delete'] loop
     passed:=false; failure:=null;
     begin
