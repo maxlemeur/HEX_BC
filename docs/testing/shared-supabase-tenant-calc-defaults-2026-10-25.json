@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "sourceCommit": "7255d1d",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's standing authorization to apply merged repository migrations to the shared Supabase.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261025115010_tenant_calc_defaults_admin.sql",
+    "pullRequest": 101,
+    "bytes": 4382,
+    "sha256": "af97469c23f3dcacf54f1802f04f9c36860e4c1e3fec6be0c3b2e2a071f91977",
+    "appliedVersion": "20261025135027",
+    "appliedName": "20261025115010_tenant_calc_defaults_admin",
+    "appliedAtUtc": "2026-10-25T13:50:27Z",
+    "storedStatementSha256Matches": true,
+    "appliedBy": "Claude, MCP apply_migration with the exact file SQL"
+  },
+  "history": {
+    "rowsBefore": 330,
+    "rowsAfter": 331,
+    "rowsForName": 1,
+    "previous": "20261025112146_reconcile_shared_migration_history (20261025115317)"
+  },
+  "function": {
+    "signature": "public.set_tenant_calc_defaults(uuid,numeric,numeric,integer[],text)",
+    "securityDefiner": true,
+    "searchPath": "",
+    "volatility": "volatile",
+    "owner": "postgres",
+    "comment": true,
+    "bodyMd5": "9fa86c1840078dd48ab1388ca47e7299",
+    "bodyMatchesSource": true,
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "anonExecute": false,
+    "authenticatedExecute": true,
+    "serviceRoleExecute": true
+  },
+  "unchanged": {
+    "setTenantCalcPolicyAcl": "{postgres=X/postgres,service_role=X/postgres}"
+  },
+  "tableComment": {
+    "table": "public.tenant_calc_policies",
+    "matchesMigration": true
+  },
+  "securityAdvisors": {
+    "anonSecurityDefinerExecutable": 0,
+    "authenticatedSecurityDefinerExecutable": 70,
+    "authenticatedSecurityDefinerExecutableBefore": 69,
+    "rlsEnabledNoPolicy": 19,
+    "leakedPasswordProtection": 1,
+    "note": "The one new authenticated finding is set_tenant_calc_defaults, which checks the tenant admin role itself."
+  },
+  "limits": [
+    "No call of the function on shared and no deployment; production stays at d8715ed."
+  ]
+}
