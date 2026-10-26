@@ -8,6 +8,7 @@ function fixture() {
   let uploadStatus = "ready";
   let failRemoval = false;
   let silentRemoval = false;
+  let primaryTaken = false;
   const plans = [{ id: "plan", file_path: "plan-path" }];
   const remove = vi.fn(async (bucket: string, paths: string[]) => {
     if (failRemoval) return { error: new Error("Storage unavailable") };
@@ -27,6 +28,8 @@ function fixture() {
         if (filters.get("tenant_id") !== "tenant" || filters.get("project_id") !== "project") return { data: null, error: null };
         if ([...nullFilters].some((column) => (document as unknown as Record<string, unknown>)[column] != null)) return { data: [], error: null };
         if (filters.has("deletion_token") && filters.get("deletion_token") !== document.deletion_token) return { data: [], error: null };
+        // One principal per kind: another piece already holds the role.
+        if (primaryTaken && mutation?.document_priority === "primary") return { data: null, error: { code: "23505" } };
         if (mutation) { Object.assign(document, mutation); return { data: [{ id: document.id }], error: null }; }
         return { data: { ...document }, error: null };
       };
@@ -35,7 +38,7 @@ function fixture() {
     },
   };
   return { access: { context: { supabase, tenantId: "tenant", userId: "user" }, project: { id: "project" } } as unknown as Access,
-    document, bytes, remove, processing: () => { uploadStatus = "processing"; }, fail: () => { failRemoval = true; }, silent: () => { silentRemoval = true; } };
+    document, bytes, remove, processing: () => { uploadStatus = "processing"; }, fail: () => { failRemoval = true; }, silent: () => { silentRemoval = true; }, takePrimary: () => { primaryTaken = true; } };
 }
 describe("deleteIntakeDocumentCopy", () => {
   it("removes both private copies before marking the dossier document deleted; replay is harmless", async () => {
@@ -92,13 +95,27 @@ describe("deleteIntakeDocumentCopy", () => {
   });
   it("renews the reservation lease before the refresh", async () => {
     const f = fixture();
-    const tokens: unknown[] = [];
+    const leases: Array<{ token: unknown; startedAt: unknown }> = [];
     const original = f.remove.getMockImplementation()!;
-    f.remove.mockImplementation(async (bucket, paths) => { tokens.push(f.document.deletion_token); return original(bucket, paths); });
-    await deleteIntakeDocumentCopy(f.access, "document", async () => { tokens.push(f.document.deletion_token); });
-    expect(new Set(tokens.slice(0, -1)).size).toBe(1);
-    expect(tokens.at(-1)).not.toBe(tokens[0]);
+    f.remove.mockImplementation(async (bucket, paths) => {
+      // The removal outlived most of its lease.
+      f.document.deletion_started_at = new Date(Date.now() - 110_000).toISOString();
+      leases.push({ token: f.document.deletion_token, startedAt: f.document.deletion_started_at });
+      return original(bucket, paths);
+    });
+    await deleteIntakeDocumentCopy(f.access, "document", async () => {
+      leases.push({ token: f.document.deletion_token, startedAt: f.document.deletion_started_at });
+    });
+    const [reserved, , refreshing] = leases;
+    expect(refreshing.token).not.toBe(reserved.token);
+    expect(Date.now() - Date.parse(String(refreshing.startedAt))).toBeLessThan(10_000);
     expect(f.document.deleted_at).toBeTruthy();
+  });
+  it("releases an early failure as secondary when another piece already became principal", async () => {
+    const f = fixture(); f.fail(); f.takePrimary();
+    Object.assign(f.document, { document_priority: "primary" });
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).rejects.toThrow("Suppression du fichier interrompue");
+    expect(f.document).toMatchObject({ deleted_at: null, deletion_token: null, document_priority: "secondary" });
   });
   it("does not claim success when Storage silently keeps an object", async () => {
     const f = fixture(); f.silent();
