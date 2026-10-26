@@ -16,7 +16,7 @@ import { switchToExpertMode } from "./engine-v3-editor-support";
 //      (`isAffaireFreshStartState`) : ni résumé financier, ni chronologie, ni registre, ni approbation.
 //  H2  Même démarrage quand la V2 vierge est une v3 : l'avis de sa marge indisponible (« … : V2. ») n'apparaît pas.
 // Gardes : sans ligne dans aucune version, le démarrage reste, même avec deux versions (HFS03) ; hors démarrage,
-// l'analyse de marge ne lit toujours que la version courante (H3, option C écartée) et le bandeau « Affaire neuve »
+// l'analyse de marge ne lit toujours que la version courante (H3, option C écartée) et le badge « Étape 1 sur 6 · Dossier »
 // suit les seuls documents (H4, non tranché). Propriétaire dédié par parcours (politique 2 explicite), en mode
 // Expert, seul mode où le hub monte la carte de marge ; la politique 3 de HFS02 est refermée à 2 en fin de parcours.
 // Parcours qui capturent : sans la session de campagne restaurée (engine-v3-creators.e2e.ts), une sélection faite
@@ -35,14 +35,14 @@ const pricedLine = (army: ArmyState) => ({
 
 /**
  * The hub's cards, the margin card's content and the timeline's count (`null` for an absent card), plus its entry
- * facts: the « Affaire neuve » label, the header's « Éditer Vn » link and the manual path's target version.
+ * facts: the « Étape 1 sur 6 · Dossier » badge, the header's « Éditer Vn » link and the manual path's target version.
  */
 async function readHub(ui: Ui, projectId: string) {
   await ui.app.open(`/dashboard/affaires/${projectId}`);
   // One render decides the layout: the financial summary (full hub) or the manual path of the upload card. The
   // intake region is no signal: in the fresh start it is rendered empty, hence hidden.
   const summary = ui.screen.getByRole("heading", "Résumé financier", { exact: true });
-  const manual = ui.screen.getByRole("heading", "Le mode manuel reste disponible", { exact: true });
+  const manual = ui.screen.getByRole("link", "Continuer en manuel", { exact: true });
   await expect.poll(async () => (await summary.isVisible()) || (await manual.isVisible()), { timeout: 60_000 }).toBe(true);
   return ui.browser.evaluate((cards) => {
     const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -62,7 +62,7 @@ async function readHub(ui: Ui, projectId: string) {
       } : null,
       // The badge text runs into the first item (« 1 versionV1 … »): no word boundary after it.
       versionCount: versions ? (text(versions).match(/(\d+) versions?/)?.[1] ?? null) : null,
-      newAffaire: text(document.querySelector("main")).includes("Affaire neuve"),
+      newAffaire: text(document.querySelector("main")).includes("Étape 1 sur 6 · Dossier"),
       editLink: links.map((node) => text(node)).find((label) => /^Éditer V\d+$/.test(label)) ?? null,
       manualVersionId: manualLink?.getAttribute("href")?.match(/\/estimates\/([0-9a-f-]{36})\//i)?.[1] ?? null,
     };
@@ -75,7 +75,7 @@ type Versions = Awaited<ReturnType<typeof storedVersions>>;
 /** The pricing part of a hub read, asserted exactly. */
 const pricing = ({ cards, margin, versionCount, editLink }: HubRead) => ({ cards, margin, versionCount, editLink });
 
-/** A hub read with its entry facts: the « Affaire neuve » label and the version (1, 2) the manual path opens. */
+/** A hub read with its entry facts: the « Étape 1 sur 6 · Dossier » badge and the version (1, 2) the manual path opens. */
 const withEntry = (read: HubRead, versions: Versions) => ({
   ...pricing(read), newAffaire: read.newAffaire,
   manual: versions.find((version) => version.id === read.manualVersionId)?.versionNumber ?? null,

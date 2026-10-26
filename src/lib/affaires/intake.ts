@@ -3,6 +3,7 @@ import { z } from "zod";
 export const AFFAIRE_INTAKE_BUCKET = "affaire-intake";
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL = "50 Mo";
+export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML";
 
 export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "pdf",

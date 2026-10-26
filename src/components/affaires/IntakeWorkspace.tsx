@@ -23,8 +23,11 @@ import { IntakeDropzone } from "./IntakeDropzone";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import type { IntakeDocumentData } from "./IntakeDocumentCard";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
+import { IntakeDocumentTable } from "./IntakeDocumentTable";
+import { GoogleDriveImport } from "./GoogleDriveImport";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
-import { CircleAlertIcon, CircleCheckBigIcon, CircleIcon, FunnelIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { CircleAlertIcon, CircleCheckBigIcon, DownloadIcon, FunnelIcon, PlusIcon, } from "lucide-react";
 
 type IntakeWorkspaceProps = {
   projectId: string;
@@ -135,6 +138,7 @@ export function IntakeWorkspace({
     parseBriefEntrySearchParam(searchParams.get(FOCUS_BRIEF_ENTRY_PARAM))
   );
   const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
   const isFilterActive = activeFilter === FILTER_A_REVOIR;
 
@@ -300,7 +304,6 @@ export function IntakeWorkspace({
   const hasDocuments = documents.length > 0;
 
   // Grouped document lists
-  const processingDocs = useMemo(() => documents.filter(isDocumentProcessing), [documents]);
   const reviewDocs = useMemo(() => documents.filter(isDocumentNeedsReview), [documents]);
   const classifiedDocs = useMemo(
     () => documents.filter((d) => !isDocumentProcessing(d) && !isDocumentNeedsReview(d)),
@@ -375,6 +378,9 @@ export function IntakeWorkspace({
   }, [classifiedCount, needsReviewCount, processingCount]);
 
   const shouldRenderEntryShell = entryMode && !hasDocuments;
+  // Same condition as the flow panel's empty upload card, which then offers Google Drive itself.
+  const driveOfferedByFlowPanel =
+    !hasDocuments && (workspace?.missingPieces.length ?? 0) === 0;
   const focusBannerTitle = focusBriefBlock
     ? AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS[focusBriefBlock]
     : null;
@@ -396,10 +402,12 @@ export function IntakeWorkspace({
 
   return (
     <section
+      ref={sectionRef}
+      tabIndex={-1}
       className={
         shouldRenderEntryShell
-          ? "animate-fade-in"
-          : "rounded-lg border border-border bg-surface shadow-card p-5 animate-fade-in"
+          ? "animate-fade-in outline-none"
+          : "rounded-lg border border-border bg-surface shadow-card p-5 animate-fade-in outline-none"
       }
       aria-label="Intake dossier affaire"
     >
@@ -448,6 +456,12 @@ export function IntakeWorkspace({
           </div>
         </div>
       )}
+
+      {/* The dialog keeps its tree position when the first copies end the entry shell. */}
+      <div className={driveOfferedByFlowPanel ? undefined : "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-subtle px-4 pb-3 pt-1"}>
+        {driveOfferedByFlowPanel ? null : <div className="pt-2"><p className="text-sm font-semibold text-foreground">Vos documents Drive, réunis dans l’affaire</p><p className="mt-1 text-xs text-muted-foreground">Une copie enregistrée à l’import, avec son dossier source et sa provenance.</p></div>}
+        <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={handleUploadComplete} onRefresh={handleReclassified} showTrigger={!driveOfferedByFlowPanel} fallbackFocus={sectionRef} />
+      </div>
 
       {/* Progress bar */}
       {hasDocuments && (
@@ -549,80 +563,25 @@ export function IntakeWorkspace({
         </div>
       )}
 
-      {/* Grouped document sections */}
-      {!isFilterActive && hasDocuments && (
-        <>
-          {/* En cours d'analyse */}
-          {processingDocs.length > 0 && (
-            <section aria-label="Documents en cours d'analyse" className="mt-4">
-              <div className="flex items-center gap-2 rounded-lg bg-info-light border border-info-border px-3 py-2 mb-2">
-                <CircleIcon className="h-4 w-4 animate-spin shrink-0 text-info" aria-hidden="true" />
-                <h3 className="text-xs font-semibold text-info">En cours d&apos;analyse</h3>
-                <Badge variant="info">{processingDocs.length}</Badge>
-              </div>
-              <div className="space-y-2">
-                {processingDocs.map((doc) => (
-                  <IntakeDocumentCard
-                    key={doc.documentId}
-                    document={doc}
-                    projectId={projectId}
-                    onReclassified={handleReclassified}
-                    isEmphasized={focusDocumentId === doc.documentId}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* A confirmer */}
-          {reviewDocs.length > 0 && (
-            <section aria-label="Documents à confirmer" className="mt-4">
-              <div className="flex items-center gap-2 rounded-lg bg-warning-light border border-warning-border px-3 py-2 mb-2">
-                <TriangleAlertIcon className="shrink-0 text-warning" aria-hidden="true" size={16} />
-                <h3 className="text-xs font-semibold text-warning">À confirmer</h3>
-                <Badge variant="warning">{reviewDocs.length}</Badge>
-              </div>
-              <div className="space-y-2">
-                {reviewDocs.map((doc) => (
-                  <IntakeDocumentCard
-                    key={doc.documentId}
-                    document={doc}
-                    projectId={projectId}
-                    onReclassified={handleReclassified}
-                    isEmphasized={focusDocumentId === doc.documentId}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Category cards grid */}
-          {classifiedDocs.length > 0 && (
-            <section aria-label="Documents classés par catégorie" className="mt-4">
-              <div className="flex items-center gap-2 mb-2">
-                <CircleCheckBigIcon className="shrink-0 text-success" aria-hidden="true" size={16} />
-                <h3 className="text-xs font-semibold text-success">Valides</h3>
-                <Badge variant="success">{classifiedCount}</Badge>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {sortedCategories.map((cat) => (
-                  <IntakeCategoryCard
-                    key={cat}
-                    category={cat}
-                    documents={docsByCategory.get(cat)!}
-                    projectId={projectId}
-                    onReclassified={handleReclassified}
-                    onBridgeDpgfImport={cat === "dpgf" ? onBridgeDpgfImport : undefined}
-                    dpgfAlreadyImported={cat === "dpgf" ? dpgfAlreadyImported : undefined}
-                    plansSynced={cat === "plans" ? plansSynced : undefined}
-                    focusDocumentId={focusDocumentId}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </>
-      )}
+      {!isFilterActive && hasDocuments && <div className="mt-4 space-y-4">
+        <IntakeDocumentTable documents={documents} projectId={projectId} onRefresh={handleReclassified} canManage={workspace?.canManageDocuments ?? false} focusDocumentId={focusDocumentId} />
+        {/* The classified DPGF's import stays in sight; the category cards below are collapsed. */}
+        {docsByCategory.has("dpgf") && !dpgfAlreadyImported && onBridgeDpgfImport ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Votre DPGF est prête à être importée</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Contrôlez ses colonnes et ses lignes avant de les ajouter au chiffrage.</p>
+            </div>
+            <button type="button" onClick={onBridgeDpgfImport} className={buttonVariants({ variant: "outline", size: "sm" })}>
+              <DownloadIcon aria-hidden="true" size={14} />
+              Lancer l&apos;import structuré
+            </button>
+          </div>
+        ) : null}
+        <details className="rounded-lg border border-border p-3 text-xs"><summary className="cursor-pointer font-medium text-primary">Classement et actions métier</summary>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">{sortedCategories.map((cat) => <IntakeCategoryCard key={cat} category={cat} canManage={workspace?.canManageDocuments ?? false} documents={docsByCategory.get(cat)!} projectId={projectId} onReclassified={handleReclassified} onBridgeDpgfImport={cat === "dpgf" ? onBridgeDpgfImport : undefined} dpgfAlreadyImported={cat === "dpgf" ? dpgfAlreadyImported : undefined} plansSynced={cat === "plans" ? plansSynced : undefined} focusDocumentId={focusDocumentId} />)}</div>
+        </details>
+      </div>}
 
       {/* Filtered mode: show only review docs (same as before) */}
       {isFilterActive && filteredDocuments.length > 0 && (
@@ -630,6 +589,7 @@ export function IntakeWorkspace({
           {filteredDocuments.map((doc) => (
             <IntakeDocumentCard
               key={doc.documentId}
+              canManage={workspace?.canManageDocuments ?? false}
               document={doc}
               projectId={projectId}
               onReclassified={handleReclassified}

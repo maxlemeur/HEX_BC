@@ -423,6 +423,25 @@
   position: relative;
 }
 
+/* A page link and its menu chevron read as one item. */
+.production-ribbon__global-split {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.production-ribbon__global-split > .production-ribbon__global-item:first-child {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+  padding-right: 6px;
+}
+
+.production-ribbon__global-split > .production-ribbon__global-toggle {
+  min-width: 0;
+  padding-inline: 5px;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
 .production-ribbon__global-item {
   position: relative;
   display: inline-flex;

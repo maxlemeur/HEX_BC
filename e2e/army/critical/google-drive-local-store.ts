@@ -15,11 +15,11 @@ export async function localDriveStore(runPrefix: string) {
   const directory = path.resolve(".e2e/army/critical/artifacts/drive-store", runPrefix);
   await mkdir(directory, { recursive: true });
   const outfile = path.join(directory, "store.mjs");
-  const bundle = await build({ entryPoints: [path.resolve("src/lib/affaires/google-drive/store.ts")], outfile,
+  const bundle = await build({ stdin: { contents: 'export * from "./src/lib/affaires/google-drive/store"; export * from "./src/lib/affaires/intake-document-store";', resolveDir: process.cwd(), sourcefile: "owned-drive-store.ts" }, outfile,
     bundle: true, platform: "node", format: "esm", packages: "external", metafile: true,
     alias: { "server-only": path.resolve("node_modules/server-only/empty.js"), "@": path.resolve("src") } });
   const next = Object.entries(bundle.metafile.inputs).flatMap(([input, { imports }]) => imports
     .filter((entry) => entry.external && /^next(\/|$)/.test(entry.path)).map((entry) => `${input} -> ${entry.path}`));
   if (next.length) throw new Error(`Drive persistence boundary imports Next: ${next.join(", ")}`);
-  return await import(pathToFileURL(outfile).href) as typeof import("../../../src/lib/affaires/google-drive/store");
+  return await import(pathToFileURL(outfile).href) as typeof import("../../../src/lib/affaires/google-drive/store") & typeof import("../../../src/lib/affaires/intake-document-store");
 }

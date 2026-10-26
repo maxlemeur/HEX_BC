@@ -15,14 +15,19 @@ import {
 import {
   reclassifyAffaireDocument,
   setAffaireDocumentAsPrimary,
+  deleteAffaireIntakeDocument,
 } from "@/app/dashboard/affaires/_actions/intake";
-import { CircleAlertIcon, CircleIcon } from "lucide-react";
+import { CircleAlertIcon, CircleIcon, HardDriveIcon, Trash2Icon } from "lucide-react";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type IntakeDocumentData = {
   documentId: string;
   fileName: string;
+  driveSource?: DriveProvenance;
+  sizeBytes?: number;
   detectedCategory: AffaireIntakeDocumentKind;
   documentPriority?: AffaireIntakeDocumentPriority | null;
   confidence: number;
@@ -36,6 +41,7 @@ type IntakeDocumentCardProps = {
   onReclassified: () => void;
   compact?: boolean;
   isEmphasized?: boolean;
+  canManage?: boolean;
 };
 
 function getFileTypeIcon(fileName: string) {
@@ -99,11 +105,13 @@ export function IntakeDocumentCard({
   onReclassified,
   compact = false,
   isEmphasized = false,
+  canManage = true,
 }: IntakeDocumentCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(doc.detectedCategory);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isAmbiguous = doc.detectedCategory === "a_classer" || doc.confidence < 0.65;
   const isProcessing = doc.confidence === 0 && doc.detectedCategory === "a_classer" && doc.issues.length === 0;
@@ -332,6 +340,23 @@ export function IntakeDocumentCard({
           ))}
         </ul>
       )}
+      {doc.driveSource && <details className="mt-4 rounded-lg border border-border bg-surface-subtle p-3 text-xs">
+        <summary className="flex cursor-pointer items-center gap-2 font-medium text-primary"><HardDriveIcon size={14} aria-hidden="true" />Provenance Google Drive</summary>
+        <dl className="mt-3 grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-2 text-muted-foreground">
+          <dt>Fichier source</dt><dd className="break-all"><a href={doc.driveSource.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.sourceName}</a></dd>
+          <dt>Dossier source</dt><dd className="break-all"><a href={`https://drive.google.com/drive/folders/${doc.driveSource.folderId}`} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.folderName ?? doc.driveSource.folderId}</a></dd>
+          <dt>Révision</dt><dd>{doc.driveSource.revision}</dd><dt>Copié le</dt><dd>{new Date(doc.driveSource.importedAt).toLocaleString("fr-FR")}</dd>
+          <dt>Importé par</dt><dd className="break-all">{doc.driveSource.importedBy}</dd>
+          <dt>Empreinte</dt><dd className="break-all font-mono text-micro">{doc.driveSource.sha256}</dd>
+        </dl><p className="mt-3 text-muted-foreground">Cette copie est conservée dans l’affaire. Les changements dans Drive ne la modifient pas.</p>
+      </details>}
+      {canManage && <button type="button" className="mt-3 inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger/5" disabled={isPending || isProcessing} onClick={() => setConfirmDelete(true)}><Trash2Icon size={14} aria-hidden="true" />Supprimer la copie</button>}
+      <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!isPending) setConfirmDelete(open); }}>
+        <AlertDialogContent><AlertDialogTitle>Supprimer cette copie de l’affaire ?</AlertDialogTitle><AlertDialogDescription>Le fichier « {doc.fileName} » et ses copies dans les plans seront retirés du stockage de l’affaire. Le fichier d’origine dans Google Drive reste conservé. Les lignes de chiffrage et les références historiques existantes restent conservées.</AlertDialogDescription>
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          <AlertDialogFooter><button type="button" className="btn btn-secondary" disabled={isPending} onClick={() => setConfirmDelete(false)}>Annuler</button><button type="button" className="btn btn-primary" disabled={isPending} onClick={() => { setError(null); startTransition(async () => { try { await deleteAffaireIntakeDocument({ projectId, documentId: doc.documentId }); setConfirmDelete(false); onReclassified(); } catch (err) { setError(err instanceof Error ? err.message : "Suppression interrompue. Réessayez."); } }); }}>{isPending ? "Suppression…" : "Confirmer la suppression"}</button></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

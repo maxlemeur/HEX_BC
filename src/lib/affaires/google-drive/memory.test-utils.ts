@@ -27,6 +27,7 @@ export function memoryBackend() {
     insert(value: Row) { this.operation = "insert"; this.value = value; return this; }
     update(value: Row) { this.operation = "update"; this.value = value; return this; }
     eq(key: string, value: unknown) { this.filters.push([key, value]); return this; }
+    is(key: string, value: unknown) { this.filters.push([key, value]); return this; }
     in(key: string, values: unknown[]) { this.filters.push([key, { values }]); return this; }
     contains(key: string, value: unknown) { this.filters.push([key, { contains: value }]); return this; }
     order() { return this; }
@@ -48,9 +49,9 @@ export function memoryBackend() {
       let found = [...table.values()].filter((row) => this.filters.every(([key, value]) => {
         if (key === "affaire_intake_documents.upload_status") return rows("affaire_intake_documents").get(String(row.document_id))?.upload_status === value;
         if (typeof value === "object" && value !== null && "values" in value) return (value.values as unknown[]).includes(row[key]);
-        return typeof value === "object" && value !== null && "contains" in value ? contains(row[key], value.contains) : row[key] === value;
+        return typeof value === "object" && value !== null && "contains" in value ? contains(row[key], value.contains) : (value === null ? row[key] == null : row[key] === value);
       }));
-      if (this.operation === "update") { found.forEach((row) => Object.assign(row, this.value)); return { data: null, error: null }; }
+      if (this.operation === "update") { found.forEach((row) => Object.assign(row, this.value)); return { data: this.selection ? found : null, error: null }; }
       const count = found.length;
       found = found.slice(this.start, this.end + 1);
       // Honour projection, including the identity requirement of readAllRows.
@@ -65,6 +66,9 @@ export function memoryBackend() {
   }
   const upload = vi.fn(async (path: string, file: File) => {
     if (failStorage.has(file.name)) return { error: { message: "simulated_storage_failure" } };
+    // Storage insert RLS: only the created_by of the document holding this exact path may store it.
+    const document = [...rows("affaire_intake_documents").values()].find((row) => row.storage_path === path);
+    if (document?.created_by !== access.context.userId) return { error: { message: "new row violates row-level security policy" } };
     if (objects.has(path)) return { error: { message: "duplicate" } };
     objects.set(path, file);
     return { error: null };

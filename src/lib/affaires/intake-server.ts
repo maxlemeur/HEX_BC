@@ -69,6 +69,8 @@ import {
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
+import { readDriveHistory } from "@/lib/affaires/google-drive/store";
+import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
 import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
@@ -180,6 +182,7 @@ type AffaireIntakeSupabaseSelectQuery = PromiseLike<{ data: unknown[] | null; er
   order(column: string, options?: { ascending?: boolean }): AffaireIntakeSupabaseSelectQuery;
   range(from: number, to: number): AffaireIntakeSupabaseSelectQuery;
   eq: (column: string, value: string) => AffaireIntakeSupabaseSelectQuery;
+  is: (column: string, value: null) => AffaireIntakeSupabaseSelectQuery;
 };
 
 type AffaireIntakeSupabaseSelectTable = {
@@ -212,9 +215,12 @@ export type CreateAffaireIntakeUploadResult = {
 export type AffaireIntakeWorkspace = {
   projectId: string;
   uploadId: string | null;
+  canManageDocuments?: boolean;
   documents: Array<{
     documentId: string;
     fileName: string;
+    driveSource?: DriveProvenance;
+    sizeBytes?: number;
     detectedCategory: AffaireIntakeDocumentKind;
     classificationStatus?: AffaireIntakeClassificationStatus;
     classificationSource?: AffaireIntakeClassificationSource | null;
@@ -540,7 +546,7 @@ function buildDocumentPriorityMap(documents: AffaireIntakeDocumentRow[]) {
   return nextPriorityById;
 }
 
-async function syncAffaireIntakeDocumentPriorities(input: {
+export async function syncAffaireIntakeDocumentPriorities(input: {
   supabase: AffaireIntakeSupabaseClient;
   projectId: string;
 }) {
@@ -551,6 +557,7 @@ async function syncAffaireIntakeDocumentPriorities(input: {
     readAllRows(() => getAffaireIntakeSelectTable(input.supabase, "affaire_intake_documents")
       .select(DOCUMENT_SELECT as never, { count: "exact" })
       .eq("project_id", input.projectId)
+      .is("deleted_at", null).is("deletion_token", null)
       .order("created_at", { ascending: true }))
   );
 
@@ -2711,16 +2718,10 @@ async function processClaimedAffaireIntakeUpload(input: {
 
   const [{ data: refreshedDocsData, error: refreshedDocsError }, { data: projectData, error: projectError }] =
     await Promise.all([
-      resolveSupabaseQuery<{
-        data: unknown[];
-        error: unknown;
-      }>(
-        supabase
-          .from("affaire_intake_documents" as never)
-          .select(DOCUMENT_SELECT as never)
-          .eq("upload_id", upload.id)
-          .order("created_at", { ascending: true })
-      ),
+      readAllRows(() => supabase.from("affaire_intake_documents" as never)
+        .select(DOCUMENT_SELECT as never, { count: "exact" })
+        .eq("project_id", upload.project_id).is("deleted_at", null).is("deletion_token", null)
+        .order("created_at", { ascending: true }).order("id", { ascending: true })),
       resolveSupabaseQuery<{
         data: unknown;
         error: unknown;
@@ -2865,6 +2866,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       .from("affaire_intake_documents" as never)
       .select(DOCUMENT_SELECT as never, { count: "exact" })
       .eq("project_id", project.id)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .order("id", { ascending: true }))
   );
@@ -2883,9 +2885,12 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     supabase: context.supabase,
     projectId: project.id,
   });
+  const driveSources = new Map((await readDriveHistory({ context, project })).map((entry) => [entry.documentId, entry.source]));
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
+    driveSource: driveSources.get(document.id),
+    sizeBytes: document.size_bytes,
     detectedCategory: document.document_kind,
     classificationStatus: document.classification_status,
     classificationSource: document.classification_source,
@@ -2908,6 +2913,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   return {
     projectId: project.id,
     uploadId: upload.id,
+    canManageDocuments: project.user_id === context.userId || context.tenantRole === "admin",
     documents: workspaceDocuments,
     missingPieces,
     readiness: buildAffaireIntakeReadinessSnapshot({
@@ -3113,6 +3119,7 @@ export async function reclassifyAffaireDocument(input: {
       .from("affaire_intake_documents" as never)
       .select(DOCUMENT_SELECT as never)
       .eq("id", input.documentId)
+      .is("deleted_at", null).is("deletion_token", null)
       .eq("project_id", project.id)
       .maybeSingle()
   );
@@ -3196,38 +3203,49 @@ export async function reclassifyAffaireDocument(input: {
     uploadId: document.upload_id,
   });
 
-  const { data: refreshedDocsData, error: refreshedDocsError } =
-    await resolveSupabaseQuery<{
-      data: unknown[];
-      error: unknown;
-    }>(
-      context.supabase
-        .from("affaire_intake_documents" as never)
-        .select(DOCUMENT_SELECT as never)
-        .eq("upload_id", document.upload_id)
-        .order("created_at", { ascending: true })
-    );
-
-  if (refreshedDocsError) {
-    throw internalError(
-      "Impossible de recharger les documents intake après reclassification.",
-      refreshedDocsError
-    );
-  }
-
-  const refreshedDocuments = (refreshedDocsData ?? [])
-    .map(normalizeDocumentRow)
-    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
-
-  await refreshAffaireBriefFromDocuments({
+  await refreshAffaireIntakeFromActiveDocuments({
     supabase: context.supabase,
     project,
     uploadId: document.upload_id,
-    documents: refreshedDocuments,
     actorUserId: context.userId,
   });
 
   return { ok: true } as const;
+}
+
+// After a reclassification or a deletion, the register's missing pieces, the synced
+// plans and the current brief follow the remaining active pieces.
+export async function refreshAffaireIntakeFromActiveDocuments(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  project: AffaireProjectAccessRow;
+  uploadId: string;
+  actorUserId: string;
+}) {
+  const { data, error } = await resolveSupabaseQuery<{
+    data: unknown[];
+    error: unknown;
+  }>(
+    readAllRows(() => getAffaireIntakeSelectTable(input.supabase, "affaire_intake_documents")
+      .select(DOCUMENT_SELECT as never, { count: "exact" })
+      .eq("project_id", input.project.id).is("deleted_at", null).is("deletion_token", null)
+      .order("created_at", { ascending: true }).order("id", { ascending: true }))
+  );
+
+  if (error) {
+    throw internalError("Impossible de recharger les documents intake.", error);
+  }
+
+  const documents = (data ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+
+  await refreshAffaireBriefFromDocuments({
+    supabase: input.supabase,
+    project: input.project,
+    uploadId: input.uploadId,
+    documents,
+    actorUserId: input.actorUserId,
+  });
 }
 
 export async function setAffaireDocumentAsPrimary(input: {
@@ -3246,6 +3264,7 @@ export async function setAffaireDocumentAsPrimary(input: {
       .from("affaire_intake_documents" as never)
       .select(DOCUMENT_SELECT as never)
       .eq("id", input.documentId)
+      .is("deleted_at", null).is("deletion_token", null)
       .eq("project_id", project.id)
       .maybeSingle()
   );

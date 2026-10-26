@@ -25,6 +25,7 @@ export const driveSelectionSchema = z.object({
   id: driveIdSchema,
   version: z.string().regex(/^\d+$/),
   newVersion: z.boolean().default(false),
+  folderId: driveIdSchema.optional(),
 }).strict();
 export const driveRequestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list"), token: z.string().min(1).max(4096), folderId: driveIdSchema,
@@ -36,6 +37,7 @@ export type DriveSelection = z.infer<typeof driveSelectionSchema>;
 export type DriveRequest = z.infer<typeof driveRequestSchema>;
 export const driveProvenanceSchema = z.object({
   provider: z.literal("google_drive"), folderId: driveIdSchema, fileId: driveIdSchema,
+  folderName: z.string().max(255).optional(),
   sourceName: z.string().min(1).max(255), sourceMimeType: z.string().min(1).max(255),
   revision: z.string().regex(/^\d+$/), sourceModifiedTime: z.string().nullable(),
   sourceUrl: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/),

@@ -4,7 +4,7 @@ vi.mock("@/lib/affaires/intake-server", () => ({ requireAffaireProjectOwnerOrAdm
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { driveRequestSchema, DRIVE_MAX_BATCH_BYTES, DRIVE_MAX_FILES } from "./contracts";
 import { driveState, executeDriveRequest } from "./server";
-import { driveBatchUploadId, driveCopyId } from "./store";
+import { driveBatchUploadId, driveCopyId, persistDriveCopy } from "./store";
 import { fakeDrive, memoryBackend } from "./memory.test-utils";
 
 describe("Drive folder copies (Google and persistence simulated, no OAuth grants)", () => {
@@ -48,6 +48,46 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     expect(backend.queries.filter((query) => query.operation === "select").every((query) =>
       query.filters.some(([key, value]) => key === "tenant_id" && value === "tenant_demo") &&
       query.filters.some(([key, value]) => key === "project_id" && value === "project_demo"))).toBe(true);
+  });
+  it("concurrent restoration uses one storage generation and retries the same completed event", async () => {
+    await request();
+    const history = (await driveState("project_demo")).history[0];
+    const document = backend.rows("affaire_intake_documents").get(history.documentId)!;
+    const oldPath = document.storage_path;
+    backend.objects.clear();
+    Object.assign(document, { deleted_at: new Date().toISOString(), storage_path: null, upload_status: "rejected" });
+    const file = new File(["plans"], "plan-fictif.pdf", { type: "application/pdf" });
+    const results = await Promise.all([persistDriveCopy(backend.access as never, file, history.source, lotUploadId()), persistDriveCopy(backend.access as never, file, history.source, lotUploadId())]);
+    expect(results.every((result) => ["imported", "already_imported"].includes(result.status))).toBe(true);
+    expect(document.storage_path).not.toBe(oldPath);
+    expect(backend.objects.size).toBe(1);
+    expect(backend.objects.has(String(document.storage_path))).toBe(true);
+    const completions = () => [...backend.rows("affaire_intake_events").values()].filter((row) => row.event_type === "document.uploaded");
+    expect(completions()).toHaveLength(2);
+    // Lost final acknowledgement retains the generation and its completion identity.
+    document.upload_status = "pending";
+    await persistDriveCopy(backend.access as never, file, history.source, lotUploadId());
+    expect(completions()).toHaveLength(2);
+  });
+  it("lets an administrator restore the owner's deleted copy and keeps the owner's import provenance", async () => {
+    await request();
+    const documentId = driveCopyId("tenant_demo", "project_demo", "plan_demo", "1");
+    const document = backend.rows("affaire_intake_documents").get(documentId)!;
+    const oldPath = document.storage_path;
+    // Tombstone as written by the verified deletion, its private object removed.
+    backend.objects.clear();
+    Object.assign(document, { deleted_at: new Date().toISOString(), storage_path: null, upload_status: "rejected", document_priority: "secondary" });
+    backend.access.context.userId = "admin_demo";
+    const restored = await request();
+    expect(restored.results[0]).toMatchObject({ status: "imported", documentId });
+    expect(document).toMatchObject({ created_by: "admin_demo", deleted_at: null, upload_status: "uploaded" });
+    expect(document.storage_path).not.toBe(oldPath);
+    expect(await backend.objects.get(String(document.storage_path))?.text()).toBe("plans");
+    const events = [...backend.rows("affaire_intake_events").values()].filter((event) => event.document_id === documentId);
+    expect(events.filter((event) => event.event_type === "upload.created")).toEqual([
+      expect.objectContaining({ actor_user_id: "user_demo", after_payload: { drive: expect.objectContaining({ importedBy: "user_demo" }) } })]);
+    expect(events.filter((event) => event.event_type === "document.uploaded").map((event) => event.actor_user_id)).toEqual(["user_demo", "admin_demo"]);
+    expect((await driveState("project_demo")).history.map((entry) => entry.documentId)).toEqual([documentId]);
   });
   it("keeps partial successes and retries only the failed copy", async () => {
     backend.failStorage.add("cctp-fictif.txt");
@@ -188,6 +228,17 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
     await expect(request()).rejects.toThrow("cross-tenant denied");
     expect(google.fetchMock).not.toHaveBeenCalled(); expect(backend.objects.size).toBe(0);
   });
+  it("fails only the pieces of a folder that became unavailable in a multi-folder lot", async () => {
+    google.files.set("folder_trashed", { id: "folder_trashed", name: "Dossier supprimé", mimeType: "application/vnd.google-apps.folder", trashed: true });
+    google.files.get("cctp_demo")!.parents = ["folder_trashed"];
+    const lot = [selection(), { ...selection("cctp_demo"), folderId: "folder_trashed" }];
+    const result = await request(lot);
+    expect(result.results.map(({ fileId, status }) => [fileId, status])).toEqual([["plan_demo", "imported"], ["cctp_demo", "failed"]]);
+    expect(result.results[1].message).toContain("dossier personnel Google Drive accessible");
+    expect(result.uploads).toEqual([lotUploadId(lot)]);
+    expect(backend.objects.size).toBe(1);
+    expect(backend.rows("affaire_intake_documents").size).toBe(1);
+  });
   it("rejects a valid file from another folder", async () => {
     google.files.get("plan_demo")!.parents = ["other_folder"];
     expect((await request()).results[0]).toMatchObject({ status: "failed", message: expect.stringContaining("extérieure") });
@@ -195,7 +246,8 @@ describe("Drive folder copies (Google and persistence simulated, no OAuth grants
   });
   it("does not start new content reads after cancellation", async () => {
     const abort = new AbortController(); abort.abort();
-    await expect(executeDriveRequest("project_demo", { action: "import", token: "fiction", folderId: "folder_demo", files: [selection()] }, abort.signal)).rejects.toThrow();
+    await expect(executeDriveRequest("project_demo", { action: "import", token: "fiction", folderId: "folder_demo", files: [selection()] }, abort.signal))
+      .rejects.toMatchObject({ name: "ApiError", code: "DRIVE_NETWORK" });
     expect(backend.objects.size).toBe(0);
   });
   it("does not contact Google when disabled", async () => {

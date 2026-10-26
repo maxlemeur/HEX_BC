@@ -9,6 +9,7 @@ import {
   PanelsTopLeftIcon,
   PencilIcon,
   PlusIcon,
+  RulerIcon,
   SplitIcon,
 } from "lucide-react";
 
@@ -34,6 +35,7 @@ export function AffaireHubActionBar({
   versionZeroSummary,
   takeoffEnabled,
   plansSummary,
+  freshStart = false,
   pendingAction,
   onDuplicate,
   onCreateVariant,
@@ -43,6 +45,8 @@ export function AffaireHubActionBar({
   versionZeroSummary?: VersionZeroDraftSummary | null;
   takeoffEnabled?: boolean;
   plansSummary?: AffaireHubPlansSummaryData | null;
+  /** No document, DPGF or line yet: adding the dossier is the page's only primary action. */
+  freshStart?: boolean;
   pendingAction: "duplicate" | "variant" | null;
   onDuplicate: () => void;
   onCreateVariant: () => void;
@@ -57,17 +61,21 @@ export function AffaireHubActionBar({
     plansSummary &&
     plansSummary.planSetCount > 0 &&
     canLaunchNewTakeoffAnalysis(plansSummary.latestJob?.status);
+  const hasPlans = (plansSummary?.planSetCount ?? 0) > 0;
+  const takeoffHref = `/dashboard/affaires/${summary.project.id}/takeoff`;
+  const exportHref = `/dashboard/estimates/${currentVersion.id}/print`;
+  const showTakeoffInBar = takeoffEnabled && (!freshStart || hasPlans);
   const showVersionZero =
     currentVersion.status === "draft" &&
     isEstimateAiDraftEnabled() &&
     (versionZeroSummary?.activeDraft || versionZeroSummary?.canGenerate);
 
   return (
-    <div className="action-bar animate-fade-in stagger-1 max-sm:!grid max-sm:grid-cols-3 max-sm:gap-2 lg:flex-nowrap lg:justify-end">
-      {takeoffEnabled ? (
+    <div className={cn("action-bar animate-fade-in stagger-1 max-sm:!grid max-sm:gap-2 lg:flex-nowrap lg:justify-end", freshStart ? "max-sm:grid-cols-2" : "max-sm:grid-cols-3")}>
+      {showTakeoffInBar ? (
         <Link
-          href={`/dashboard/affaires/${summary.project.id}/takeoff`}
-          className={buttonVariants({ variant: "primary", size: "md", className: "col-span-3 min-h-11 w-full sm:min-h-9 sm:w-auto" })}
+          href={takeoffHref}
+          className={buttonVariants({ variant: freshStart ? "outline" : "primary", size: "md", className: "col-span-full min-h-11 w-full sm:min-h-9 sm:w-auto" })}
         >
           Ouvrir les métrés
         </Link>
@@ -76,7 +84,7 @@ export function AffaireHubActionBar({
       <Link
         href={`/dashboard/estimates/${currentVersion.id}/edit`}
         className={cn(
-          buttonVariants({ variant: takeoffEnabled ? "outline" : "primary", size: "md" }),
+          buttonVariants({ variant: takeoffEnabled || freshStart ? "outline" : "primary", size: "md" }),
           "min-h-11 sm:min-h-9",
           ACTION_CLASS
         )}
@@ -88,19 +96,21 @@ export function AffaireHubActionBar({
       {showVersionZero ? (
         <Link
           href={`/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`}
-          className={cn(buttonVariants({ variant: "outline", size: "md", className: "col-span-3 min-h-11 sm:min-h-9" }))}
+          className={cn(buttonVariants({ variant: "outline", size: "md", className: "col-span-full min-h-11 sm:min-h-9" }))}
         >
           {versionZeroSummary?.activeDraft ? "Revoir la V0 IA" : "Générer la V0"}
         </Link>
       ) : null}
 
-      <Link
-        href={`/dashboard/estimates/${currentVersion.id}/print`}
-        className={cn(buttonVariants({ variant: "outline", size: "md", className: cn("min-h-11 sm:min-h-9", ACTION_CLASS) }))}
-      >
-        <DownloadIcon aria-hidden="true" />
-        Exporter
-      </Link>
+      {freshStart ? null : (
+        <Link
+          href={exportHref}
+          className={cn(buttonVariants({ variant: "outline", size: "md", className: cn("min-h-11 sm:min-h-9", ACTION_CLASS) }))}
+        >
+          <DownloadIcon aria-hidden="true" />
+          Exporter
+        </Link>
+      )}
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -116,6 +126,18 @@ export function AffaireHubActionBar({
           Plus
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-auto min-w-52">
+          {takeoffEnabled && !showTakeoffInBar ? (
+            <DropdownMenuItem className="min-h-10 px-2" render={<Link href={takeoffHref} />}>
+              <RulerIcon aria-hidden="true" />
+              Ouvrir les métrés
+            </DropdownMenuItem>
+          ) : null}
+          {freshStart ? (
+            <DropdownMenuItem className="min-h-10 px-2" render={<Link href={exportHref} />}>
+              <DownloadIcon aria-hidden="true" />
+              Exporter
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             className="min-h-10 px-2"
             disabled={pendingAction !== null}

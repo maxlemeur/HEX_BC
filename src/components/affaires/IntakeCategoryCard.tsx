@@ -22,6 +22,7 @@ type IntakeCategoryCardProps = {
   // Plans-specific
   plansSynced?: boolean;
   focusDocumentId?: string | null;
+  canManage?: boolean;
 };
 
 const CATEGORY_ICONS: Record<AffaireIntakeDocumentKind, React.ReactNode> = {
@@ -82,6 +83,7 @@ export function IntakeCategoryCard({
   dpgfAlreadyImported,
   plansSynced,
   focusDocumentId = null,
+  canManage = true,
 }: IntakeCategoryCardProps) {
   const label = AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[category];
   const icon = CATEGORY_ICONS[category];
@@ -162,7 +164,7 @@ export function IntakeCategoryCard({
             className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
           >
             <DownloadIcon aria-hidden="true" size={12} />
-            Lancer l&apos;import structure
+            Lancer l&apos;import structuré
           </button>
         </div>
       )}
@@ -173,6 +175,7 @@ export function IntakeCategoryCard({
           {documents.map((doc) => (
             <IntakeDocumentCard
               key={doc.documentId}
+              canManage={canManage}
               document={doc}
               projectId={projectId}
               onReclassified={onReclassified}

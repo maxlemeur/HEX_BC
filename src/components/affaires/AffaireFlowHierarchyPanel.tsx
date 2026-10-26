@@ -33,9 +33,10 @@ import {
   getReviewProbableCategories,
   sortReviewDocuments,
 } from "./AffaireFlowHierarchyPanel.review-logic";
+import { AffaireEmptyDossierStep } from "./AffaireEmptyDossierStep";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
-import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon, UploadIcon } from "lucide-react";
+import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon } from "lucide-react";
 import { foldText } from "@/lib/text/fold";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -1303,7 +1304,6 @@ function ResultCard({
 export function AffaireFlowHierarchyPanel(
   props: Readonly<AffaireFlowHierarchyPanelProps>,
 ) {
-  const [isEmptyUploadDragActive, setIsEmptyUploadDragActive] = useState(false);
   const model = buildAffaireFlowPanelModel(props);
   const manualEstimateHref = buildManualEstimateHref({
     projectId: props.projectId,
@@ -1322,188 +1322,8 @@ export function AffaireFlowHierarchyPanel(
     });
   };
 
-  const handleEmptyUploadDrop = (event: React.DragEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsEmptyUploadDragActive(false);
-
-    const files = Array.from(event.dataTransfer.files ?? []);
-    if (files.length === 0) return;
-
-    dispatchCockpitOpenSurface({
-      projectId: props.projectId,
-      actionId: "flow-empty-upload",
-      surfaceId: "intake-upload",
-      files,
-    });
-  };
-
-  return (
-    <section className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Prochaine étape
-          </p>
-          {model.showEmptyUploadCard || model.resultCard ? null : (
-            <>
-              <h2 className="mt-2 text-base font-semibold text-foreground text-balance">
-                {model.title}
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">{model.summary}</p>
-            </>
-          )}
-        </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Badge variant={model.statusVariant} dot>
-            {model.statusLabel}
-          </Badge>
-          <Badge variant={readinessBadge.variant} dot>
-            {readinessBadge.label}
-          </Badge>
-        </div>
-      </div>
-
-      {model.showEmptyUploadCard ? (
-        <div className="mt-4 space-y-4">
-          <button
-            type="button"
-            onClick={handleOpenIntakeUpload}
-            onDragEnter={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setIsEmptyUploadDragActive(true);
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              event.dataTransfer.dropEffect = "copy";
-            }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (
-                event.relatedTarget instanceof Node &&
-                event.currentTarget.contains(event.relatedTarget)
-              ) {
-                return;
-              }
-              setIsEmptyUploadDragActive(false);
-            }}
-            onDrop={handleEmptyUploadDrop}
-            className="group block w-full text-left"
-            aria-label="Déposer les pièces pour lancer l'analyse"
-          >
-            <div className="relative overflow-hidden rounded-[1.5rem] border border-[#d5c6af] bg-[#e8dcc9] p-4 sm:p-6">
-              <div
-                className={`relative min-h-[20rem] overflow-hidden rounded-[1rem] border-2 border-dashed bg-foreground shadow-[0_24px_60px_rgba(15,23,42,0.28)] transition duration-300 sm:min-h-[24rem] ${
-                  isEmptyUploadDragActive
-                    ? "scale-[1.01] border-sky-300 ring-4 ring-sky-300/35"
-                    : "border-white/45 group-hover:scale-[1.01]"
-                }`}
-              >
-                <div
-                  className="absolute inset-0 opacity-45"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(rgba(255,255,255,0.24) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.24) 1px, transparent 1px)",
-                    backgroundSize: "24px 24px",
-                  }}
-                />
-                <svg
-                  viewBox="0 0 800 600"
-                  className="absolute inset-0 h-full w-full text-white/12"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M140 90h480v330H140z" />
-                  <path d="M230 150h160v140H230z" />
-                  <path d="M420 150h170" />
-                  <path d="M420 220h170" />
-                  <path d="M420 290c38 0 66 10 84 30" />
-                  <path d="M230 390h360" />
-                  <path d="M230 460h240" />
-                  <path d="M200 140v320" />
-                  <path d="M640 120v290" />
-                  <path d="M280 120v-28" />
-                  <path d="M560 120v-28" />
-                </svg>
-
-                <div className="relative z-10 flex min-h-[20rem] flex-col items-center justify-center px-6 py-8 text-center sm:min-h-[24rem]">
-                  <div className="mb-4 text-white/90 transition-transform duration-300 group-hover:scale-110">
-                    <UploadIcon className="h-16 w-16" strokeWidth="1.5" aria-hidden="true" />
-                  </div>
-
-                  <h3 className="max-w-3xl text-2xl font-bold text-white sm:text-4xl">
-                    {isEmptyUploadDragActive
-                      ? "Relachez pour importer vos pièces"
-                      : "Déposez vos pièces ici"}
-                  </h3>
-                  <p className="mt-3 text-sm font-medium text-sky-50 sm:text-lg">
-                    CCTP, DPGF, plans, courriers
-                  </p>
-
-                  <div className="mt-6">
-                    <span className={cn(buttonVariants({ variant: "outline", size: "md" }), "border-white/35 bg-white/15 text-white hover:bg-white/25")}>
-                      Sélectionner les fichiers
-                    </span>
-                  </div>
-                  <p className="mt-3 text-xs font-medium uppercase tracking-[0.14em] text-sky-50/88 sm:text-sm">
-                    PDF, images, Excel, Word - 50 Mo max par fichier
-                  </p>
-                </div>
-              </div>
-
-              <div className="pointer-events-none absolute right-1 top-5 z-20 h-6 w-28 rotate-45 rounded-sm border border-orange-500 bg-orange-400 px-1 py-0.5 opacity-90 shadow-lg sm:right-5 sm:top-10 sm:h-8 sm:w-44">
-                <div className="h-px w-full bg-orange-200 sm:h-[2px]" />
-                <div className="mt-1 flex justify-between px-2">
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <div key={`ruler-${index}`} className="h-2 w-px bg-orange-200 sm:h-3 sm:w-[2px]" />
-                  ))}
-                </div>
-                <div className="mt-1 h-px w-full bg-orange-200 sm:h-[2px]" />
-              </div>
-
-              <div className="pointer-events-none absolute bottom-7 left-2 z-20 flex h-4 w-24 -rotate-12 items-center rounded-full border border-yellow-500 bg-yellow-400 shadow-lg sm:bottom-10 sm:left-6 sm:h-5 sm:w-40">
-                <div className="h-full w-4 rounded-l-full bg-slate-800 sm:w-6" />
-                <div className="absolute top-[1px] h-px w-full bg-yellow-600/50 sm:top-[2px] sm:h-[2px]" />
-                <div className="absolute bottom-[1px] h-px w-full bg-yellow-600/50 sm:bottom-[2px] sm:h-[2px]" />
-                <div className="ml-auto h-full w-4 rounded-r-full border-l border-yellow-500 bg-pink-400 sm:w-6" />
-              </div>
-            </div>
-          </button>
-          <div className="rounded-2xl border border-border bg-surface p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Le mode manuel reste disponible
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Vous pouvez ouvrir le devis sans DPGF et compléter la structure plus tard.
-                </p>
-              </div>
-              <Link href={manualEstimateHref} className={cn(buttonVariants({ variant: "outline", size: "md" }), "shrink-0")}>
-                Continuer en manuel
-              </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {model.resultCard ? (
-        <ResultCard
-          projectId={props.projectId}
-          card={model.resultCard}
-          intakeWorkspace={props.intakeWorkspace}
-          onOpenIntakeUpload={handleOpenIntakeUpload}
-          onExecuteSuggestion={props.onExecuteSuggestion}
-        />
-      ) : null}
-
+  const followUps = (
+    <>
       {!model.resultCard && model.primaryAction ? (
         <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/5 p-4">
           <p className="text-sm font-medium text-foreground-secondary">
@@ -1572,6 +1392,59 @@ export function AffaireFlowHierarchyPanel(
           </div>
         </div>
       ) : null}
+    </>
+  );
+  const hasFollowUps =
+    (!model.resultCard && Boolean(model.primaryAction)) ||
+    model.blockers.length > 0 ||
+    model.aides.length > 0 ||
+    Boolean(model.legacyAction);
+
+  if (model.showEmptyUploadCard) {
+    return (
+      <AffaireEmptyDossierStep projectId={props.projectId} manualEstimateHref={manualEstimateHref}>
+        {hasFollowUps ? followUps : null}
+      </AffaireEmptyDossierStep>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Prochaine étape
+          </p>
+          {model.resultCard ? null : (
+            <>
+              <h2 className="mt-2 text-base font-semibold text-foreground text-balance">
+                {model.title}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{model.summary}</p>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge variant={model.statusVariant} dot>
+            {model.statusLabel}
+          </Badge>
+          <Badge variant={readinessBadge.variant} dot>
+            {readinessBadge.label}
+          </Badge>
+        </div>
+      </div>
+
+      {model.resultCard ? (
+        <ResultCard
+          projectId={props.projectId}
+          card={model.resultCard}
+          intakeWorkspace={props.intakeWorkspace}
+          onOpenIntakeUpload={handleOpenIntakeUpload}
+          onExecuteSuggestion={props.onExecuteSuggestion}
+        />
+      ) : null}
+
+      {followUps}
     </section>
   );
 }

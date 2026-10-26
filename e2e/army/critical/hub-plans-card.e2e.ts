@@ -12,7 +12,7 @@ armyTest("HUB03 a fresh affaire without plans hides the plans section and launch
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB03`, title: "ARMY hub sans plans" }, ui.army);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
-  await expect(ui.screen.getByText("Déposez vos pièces ici", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toBeVisible();
   await expect(ui.screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toHaveCount(0);
   await expect(ui.screen.getByRole("button", "Analyser les plans", { exact: true })).toHaveCount(0);
   await recordEvidence(ui.army, "HUB03-no-plans", { estimate, plansSection: false, launchButton: false });

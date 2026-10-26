@@ -106,6 +106,11 @@ function createHarness(input?: {
           return { error: null };
         }),
         delete: vi.fn(() => ({
+          eq: vi.fn((_column: string, id: string) => ({ contains: vi.fn(async () => {
+            const index = planFiles.findIndex((row) => row.id === id);
+            if (index >= 0) planFiles.splice(index, 1);
+            return { error: null };
+          }) })),
           in: vi.fn(async (_column: string, values: string[]) => {
             for (const id of values) {
               const index = planFiles.findIndex((row) => row.id === id);
@@ -135,6 +140,7 @@ function createHarness(input?: {
 
     if (bucket === "plan-files") {
       return {
+        download: vi.fn(async (path: string) => ({ data: planStorageFiles.get(path) ?? null, error: planStorageFiles.has(path) ? null : { statusCode: "404" } })),
         upload: vi.fn(async (path: string, blob: Blob) => {
           uploadedPaths.push(path);
           planStorageFiles.set(path, blob);
@@ -156,6 +162,12 @@ function createHarness(input?: {
   return {
     supabase: {
       from,
+      rpc: vi.fn(async (_name: string, { p_file_id }: { p_file_id: string }) => {
+        const index = planFiles.findIndex((row) => row.id === p_file_id);
+        if (index < 0) return { data: null, error: null };
+        planFiles[index].metadata.intake_cleanup_pending = true;
+        return { data: planFiles[index].file_path, error: null };
+      }),
       storage: {
         from: storageFrom,
       },

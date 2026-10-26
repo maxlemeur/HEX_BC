@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AFFAIRE_INTAKE_BUCKET, buildAffaireIntakeStoragePath, createEmptyAffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
 import { readAllRows } from "@/lib/supabase/read-all";
@@ -19,7 +19,7 @@ const internalError = (message: string) => new DriveStoreError(500, message);
 
 type Access = Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>;
 const documentSchema = z.object({ id: z.string(), upload_id: z.string(), upload_status: z.string(),
-  storage_path: z.string().nullable(), file_name: z.string(), classification_status: z.string() });
+  storage_path: z.string().nullable(), deleted_at: z.string().nullable().optional(), deletion_token: z.string().nullable().optional(), file_name: z.string(), classification_status: z.string() });
 
 // Stable keys are enforced by existing primary keys, including across processes.
 function driveStableId(parts: unknown[]) {
@@ -47,6 +47,7 @@ export async function readDriveHistory({ context, project }: Access): Promise<Dr
   const provenance = new Map(rows.filter((row) => row.event_type === "upload.created").map((row) => [row.id, row]));
   // Event metadata is untrusted. Bind it to the actual document, its parent and the immutable
   // provenance event: intake events are append-only, so the first written record is authoritative.
+  const seen = new Set<string>();
   return rows.flatMap((row) => {
     if (row.event_type !== "document.uploaded") return [];
     const payload = row.after_payload as { drive?: unknown } | null;
@@ -57,6 +58,8 @@ export async function readDriveHistory({ context, project }: Access): Promise<Dr
       row.upload_id !== parent.data.upload_id) return [];
     const created = provenance.get(driveCopyId(context.tenantId, project.id, parsed.data.fileId, parsed.data.revision, "provenance"));
     if (created?.document_id !== row.document_id || created.upload_id !== parent.data.upload_id) return [];
+    if (seen.has(row.document_id)) return [];
+    seen.add(row.document_id);
     return [{ documentId: row.document_id, uploadId: parent.data.upload_id,
       source: { ...parsed.data, sourceUrl: `https://drive.google.com/file/d/${parsed.data.fileId}/view` } }];
   });
@@ -75,12 +78,13 @@ export async function requeueDriveUpload(access: Access, uploadId: string) {
 // Verifies an imported copy and reports whether its classification must resume.
 export async function resumeDriveCopy(access: Access, history: DriveHistory) {
   const result = await access.context.supabase.from("affaire_intake_documents" as never)
-    .select("id,upload_id,upload_status,storage_path,file_name,classification_status")
+    .select("id,upload_id,upload_status,storage_path,deletion_token,file_name,classification_status")
     .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("id", history.documentId).single();
   const document = documentSchema.safeParse(result.data);
   if (result.error || !document.success || document.data.upload_id !== history.uploadId || document.data.upload_status !== "uploaded") {
     throw conflict("La copie a changé. Actualisez le dossier.");
   }
+  if (document.data.deletion_token) throw conflict("Suppression de cette copie en cours. Actualisez le dossier.");
   return document.data.classification_status === "queued";
 }
 
@@ -90,12 +94,13 @@ export async function persistDriveCopy(access: Access, file: File, source: Drive
   const eventId = driveCopyId(context.tenantId, project.id, source.fileId, source.revision, "provenance");
   const lookup = async () => {
     const result = await context.supabase.from("affaire_intake_documents" as never)
-      .select("id,upload_id,upload_status,storage_path,file_name,classification_status")
+      .select("id,upload_id,upload_status,storage_path,deleted_at,deletion_token,file_name,classification_status")
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", id).maybeSingle();
     if (result.error) throw internalError("Impossible de vérifier la copie Drive.");
     return result.data ? documentSchema.parse(result.data) : null;
   };
   let existing = await lookup();
+  if (existing?.deletion_token) throw conflict("Suppression de cette copie en cours. Actualisez le dossier.");
   if (!existing) {
     const upload = await context.supabase.from("affaire_intake_uploads" as never).insert({
       id: batchUploadId, project_id: project.id, created_by: context.userId, status: "failed",
@@ -113,7 +118,7 @@ export async function persistDriveCopy(access: Access, file: File, source: Drive
     if (insert.error && insert.error.code !== "23505") throw internalError("Impossible d'enregistrer la pièce Drive.");
     existing = await lookup();
   }
-  if (!existing?.storage_path) throw internalError("Copie Drive incomplète. Reprenez cette pièce.");
+  if (!existing) throw internalError("Copie Drive incomplète. Reprenez cette pièce.");
   // A resumed piece keeps the upload of the lot that first created it.
   const uploadId = existing.upload_id;
   // Required, immutable provenance is persisted before any content is stored.
@@ -133,6 +138,18 @@ export async function persistDriveCopy(access: Access, file: File, source: Drive
       throw conflict("La révision Drive a un contenu différent. Actualisez la sélection.");
     }
   }
+  if (existing?.deleted_at) {
+    const storagePath = buildAffaireIntakeStoragePath({ tenantId: context.tenantId, projectId: project.id,
+      uploadId: existing.upload_id, documentId: id, fileName: `${randomUUID()}-${file.name}` });
+    // Storage RLS admits only created_by: the restorer (owner or admin) stores this generation; provenance stays in the events.
+    const restored = await context.supabase.from("affaire_intake_documents" as never).update({
+      created_by: context.userId, deleted_at: null, storage_path: storagePath, upload_status: "pending", classification_status: "queued",
+      rejection_reason: null, issues: [],
+    } as never).eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", id).eq("deleted_at", existing.deleted_at).is("deletion_token", null);
+    if (restored.error) throw internalError("Impossible de préparer une nouvelle copie du document supprimé.");
+    existing = await lookup();
+  }
+  if (!existing?.storage_path) throw internalError("Copie Drive incomplète. Reprenez cette pièce.");
   if (existing.upload_status === "uploaded") {
     return { documentId: id, uploadId, status: "already_imported" as const,
       shouldProcess: existing.classification_status === "queued" };
@@ -149,7 +166,7 @@ export async function persistDriveCopy(access: Access, file: File, source: Drive
     }
   }
   const completedEvent = await context.supabase.from("affaire_intake_events" as never).insert({
-    id: driveCopyId(context.tenantId, project.id, source.fileId, source.revision, "completed"),
+    id: driveCopyId(context.tenantId, project.id, source.fileId, source.revision, `completed:${existing.storage_path}`),
     upload_id: uploadId, document_id: id, actor_user_id: context.userId, event_type: "document.uploaded",
     after_payload: { drive: { ...source, importedAt: new Date().toISOString() } },
   } as never);
@@ -158,7 +175,7 @@ export async function persistDriveCopy(access: Access, file: File, source: Drive
   }
   const final = await context.supabase.from("affaire_intake_documents" as never)
     .update({ upload_status: "uploaded" } as never).eq("tenant_id", context.tenantId)
-    .eq("project_id", project.id).eq("id", id);
-  if (final.error) throw internalError("Copie stockée, confirmation interrompue. Reprenez cette pièce.");
+    .eq("project_id", project.id).eq("id", id).eq("storage_path", existing.storage_path).is("deletion_token", null).select("id");
+  if (final.error || !((final.data ?? []) as unknown[]).length) throw internalError("Copie stockée, confirmation interrompue. Reprenez cette pièce.");
   return { documentId: id, uploadId, status: "imported" as const, shouldProcess: true };
 }

@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
+import { refreshAffaireIntakeFromActiveDocuments, requireAffaireProjectOwnerOrAdmin, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
 
 import {
   affaireIntakeDocumentKindSchema,
@@ -72,6 +74,36 @@ export async function setAffaireDocumentAsPrimary(
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
 
+  return result;
+}
+
+export async function deleteAffaireIntakeDocument(input: { projectId: string; documentId: string }) {
+  const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
+  const access = await requireAffaireProjectOwnerOrAdmin(parsed.projectId);
+  const syncPriorities = () => syncAffaireIntakeDocumentPriorities({ supabase: access.context.supabase, projectId: parsed.projectId });
+  let result: Awaited<ReturnType<typeof deleteIntakeDocumentCopy>>;
+  try {
+    // Runs before the tombstone, so a retry completes an interrupted refresh and a replay on an
+    // existing tombstone changes nothing, keeping later brief edits and confirmation.
+    result = await deleteIntakeDocumentCopy(access, parsed.documentId, async ({ uploadId, wasUploaded }) => {
+      await syncPriorities();
+      // Only an uploaded piece fed the register, the synced plans and the brief.
+      if (wasUploaded) {
+        await refreshAffaireIntakeFromActiveDocuments({ supabase: access.context.supabase, project: access.project,
+          uploadId, actorUserId: access.context.userId });
+      }
+    });
+  } catch (error) {
+    // The reservation demoted the piece: a released one must not leave its kind without a principal.
+    try {
+      await syncPriorities();
+    } catch (cause) {
+      console.error("Intake priority resync after an interrupted deletion failed", { projectId: parsed.projectId, cause });
+    }
+    throw error;
+  }
+  revalidatePath("/dashboard/affaires");
+  revalidatePath(`/dashboard/affaires/${parsed.projectId}`, "layout");
   return result;
 }
 
