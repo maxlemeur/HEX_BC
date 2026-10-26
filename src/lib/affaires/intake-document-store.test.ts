@@ -64,12 +64,14 @@ describe("deleteIntakeDocumentCopy", () => {
   });
   it("releases the piece when its refresh is interrupted, and a retry completes both", async () => {
     const f = fixture();
+    Object.assign(f.document, { document_priority: "primary" });
     const refresh = vi.fn().mockRejectedValueOnce(new Error("brief unavailable")).mockResolvedValue(undefined);
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(deleteIntakeDocumentCopy(f.access, "document", refresh)).rejects.toThrow("actualisation du dossier interrompue. Reprenez la suppression");
     expect(logged).toHaveBeenCalledOnce();
     logged.mockRestore();
-    expect(f.document).toMatchObject({ deleted_at: null, deletion_token: null });
+    // Its bytes are gone: it stays out of the principal role the refresh already handed on.
+    expect(f.document).toMatchObject({ deleted_at: null, deletion_token: null, document_priority: "secondary" });
     expect(f.bytes.size).toBe(0);
     await expect(deleteIntakeDocumentCopy(f.access, "document", refresh)).resolves.toEqual({ documentId: "document", deleted: true });
     expect(refresh).toHaveBeenCalledTimes(2);
@@ -81,12 +83,22 @@ describe("deleteIntakeDocumentCopy", () => {
     await deleteIntakeDocumentCopy(f.access, "document", refresh);
     expect(refresh).toHaveBeenCalledWith({ uploadId: "upload", wasUploaded: false });
   });
-  it("keeps the document visible when Storage fails", async () => {
+  it("keeps the document visible, and principal, when Storage fails", async () => {
     const f = fixture(); f.fail();
+    Object.assign(f.document, { document_priority: "primary" });
     await expect(deleteIntakeDocumentCopy(f.access, "document")).rejects.toThrow("Suppression du fichier interrompue");
-    expect(f.document.deleted_at).toBeNull();
-    expect(f.document.deletion_token).toBeNull();
+    expect(f.document).toMatchObject({ deleted_at: null, deletion_token: null, document_priority: "primary" });
     expect(f.bytes.size).toBe(2);
+  });
+  it("renews the reservation lease before the refresh", async () => {
+    const f = fixture();
+    const tokens: unknown[] = [];
+    const original = f.remove.getMockImplementation()!;
+    f.remove.mockImplementation(async (bucket, paths) => { tokens.push(f.document.deletion_token); return original(bucket, paths); });
+    await deleteIntakeDocumentCopy(f.access, "document", async () => { tokens.push(f.document.deletion_token); });
+    expect(new Set(tokens.slice(0, -1)).size).toBe(1);
+    expect(tokens.at(-1)).not.toBe(tokens[0]);
+    expect(f.document.deleted_at).toBeTruthy();
   });
   it("does not claim success when Storage silently keeps an object", async () => {
     const f = fixture(); f.silent();

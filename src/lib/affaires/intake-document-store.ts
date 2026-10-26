@@ -16,11 +16,11 @@ type DerivedStateRefresh = (removed: { uploadId: string; wasUploaded: boolean })
 export async function deleteIntakeDocumentCopy({ context, project }: Access, documentId: string, refreshDerivedState?: DerivedStateRefresh) {
   const database = context.supabase;
   const lookup = await database.from("affaire_intake_documents" as never)
-    .select("id,upload_id,updated_at,storage_path,deleted_at,deletion_token,deletion_started_at,upload_status,classification_status")
+    .select("id,upload_id,updated_at,storage_path,deleted_at,deletion_token,deletion_started_at,upload_status,classification_status,document_priority")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).maybeSingle();
   if (lookup.error) throw new DriveStoreError(500, "Impossible de charger le document à supprimer.");
   const document = lookup.data as { id: string; upload_id: string; storage_path: string | null;
-    updated_at: string; deleted_at: string | null; deletion_token?: string | null; deletion_started_at?: string | null; upload_status: string; classification_status: string } | null;
+    updated_at: string; deleted_at: string | null; deletion_token?: string | null; deletion_started_at?: string | null; upload_status: string; classification_status: string; document_priority: string } | null;
   if (!document) throw new DriveStoreError(409, "Document introuvable dans cette affaire. Actualisez le dossier.");
   if (document.deleted_at) return { documentId, deleted: true as const };
 
@@ -37,7 +37,8 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
   if (document.deletion_token && (!document.deletion_started_at || now - Date.parse(document.deletion_started_at) < 120_000)) {
     throw new DriveStoreError(409, "Une suppression est en cours. Réessayez dans deux minutes si elle a été interrompue.");
   }
-  const token = randomUUID();
+  let token = randomUUID();
+  let intakeRemoved = false;
   // The reserved piece leaves the principal role at once, so the refresh can promote its
   // successor under the one-principal-per-kind index.
   const reservation = await database.from("affaire_intake_documents" as never).update({ deletion_token: token, deletion_started_at: new Date(now).toISOString(), document_priority: "secondary" } as never)
@@ -73,6 +74,13 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
       if (deleted.error || !(deleted.data as unknown[])?.length) throw new DriveStoreError(500, "La copie du plan n’a pas pu être retirée.");
     }
     if (document.storage_path) await removeAndVerify(AFFAIRE_INTAKE_BUCKET, document.storage_path);
+    intakeRemoved = true;
+    // A reserved row only changes with its token: rotating it renews the lease for the refresh.
+    const renewed = randomUUID();
+    const lease = await database.from("affaire_intake_documents" as never).update({ deletion_token: renewed, deletion_started_at: new Date().toISOString() } as never)
+      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token).select("id");
+    if (lease.error || !(lease.data as unknown[])?.length) throw new DriveStoreError(409, "Une autre suppression a repris cette pièce. Actualisez le dossier.");
+    token = renewed;
     try {
       await refreshDerivedState?.({ uploadId: document.upload_id, wasUploaded: document.upload_status === "uploaded" });
     } catch (cause) {
@@ -90,8 +98,12 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     }
     return { documentId, deleted: true as const };
   } catch (error) {
-    const released = await database.from("affaire_intake_documents" as never).update({ deletion_token: null, deletion_started_at: null } as never)
+    const release = (restored: Record<string, unknown>) => database.from("affaire_intake_documents" as never).update({ deletion_token: null, deletion_started_at: null, ...restored } as never)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token);
+    // With its bytes still in place the piece keeps the principal role it had, unless a concurrent
+    // sync already gave that role to another piece (unique index): it is then released as secondary.
+    let released = await release(intakeRemoved ? {} : { document_priority: document.document_priority });
+    if (released.error && !intakeRemoved) released = await release({});
     if (released.error) throw new DriveStoreError(500, "Suppression interrompue ; réservation conservée. Actualisez le dossier avant une nouvelle tentative.");
     throw error;
   }
