@@ -96,7 +96,7 @@
     "motion": "^13.1.0",
     "next": "16.4.2",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "6.2.108",
+    "pdfjs-dist": "6.4.299",
     "postal-mime": "^4.1.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
