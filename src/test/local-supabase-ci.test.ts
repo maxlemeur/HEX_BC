@@ -570,7 +570,7 @@ describe("local Supabase CI", () => {
 
   it("stops after a reset failure and treats cleanup failure as fatal", async () => {
     const versionFailure = createDependencies({ cliVersionOutput: "2.120.0\nupdate notification" });
-    await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow("must be exactly 2.121.0");
+    await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow(`must be exactly ${PINNED_SUPABASE_CLI_VERSION}`);
     expect(versionFailure.dependencies.prepareProject).not.toHaveBeenCalled();
 
     const resetFailure = createDependencies({ failReset: true });

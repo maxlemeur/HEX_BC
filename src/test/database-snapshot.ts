@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { createLocalCiEnvironment, type SupabaseEnvironment } from "@/test/supabase-cli";
+import { createLocalCiEnvironment, PINNED_SUPABASE_POSTGRES_BUNDLE, type SupabaseEnvironment } from "@/test/supabase-cli";
 
 /**
  * Pre-migrated database snapshot for the owned native stack (opt-in through
@@ -193,12 +193,12 @@ export function lookUpDatabaseSnapshot(directory: string, key: string): Database
   }
 }
 
-/** Prefer CLI2.121's checksum-addressed archive to a coexisting legacy extraction. */
+/** Select the pinned CLI's bundle and prefer its checksum-addressed extraction. */
 export function resolveNativePostgresTools(homeDirectory = os.homedir()): NativePostgresTools {
   const cache = path.join(homeDirectory, ".supabase", "cache", "stack", "slim-services", "postgres");
   const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
   const archives = fs.readdirSync(cache, { withFileTypes: true }).flatMap((entry) => {
-    if (!entry.isDirectory()) return [];
+    if (!entry.isDirectory() || entry.name !== PINNED_SUPABASE_POSTGRES_BUNDLE) return [];
     const directory = path.join(cache, entry.name, platform);
     if (!fs.existsSync(directory)) return [];
     const addressed = fs.readdirSync(directory, { withFileTypes: true })

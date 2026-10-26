@@ -20,6 +20,7 @@ import {
   resolveNativePostgresTools,
   STACK_OWNED_SCHEMAS,
 } from "@/test/database-snapshot";
+import { PINNED_SUPABASE_POSTGRES_BUNDLE } from "@/test/supabase-cli";
 
 const temporaryDirectories: string[] = [];
 
@@ -83,7 +84,7 @@ describe("database snapshot", () => {
   it("uses the content-addressed native archive on a cold cache and keys its checksum", () => {
     const home = temporaryDirectory();
     const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-    const bundle = "17.11.0.004-r1", digest = "a".repeat(64);
+    const bundle = PINNED_SUPABASE_POSTGRES_BUNDLE, digest = "a".repeat(64);
     const directory = path.join(home, ".supabase/cache/stack/slim-services/postgres", bundle, platform, digest, "bin");
     fs.mkdirSync(directory, { recursive: true });
     for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(directory, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
@@ -94,6 +95,12 @@ describe("database snapshot", () => {
     fs.mkdirSync(legacy, { recursive: true });
     for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(legacy, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     expect(resolveNativePostgresTools(home).psql).toBe(path.join(directory, "psql"));
+    // Upgrading the CLI keeps shared caches. Another release's complete archive
+    // must neither block this run nor become its PostgreSQL client.
+    const older = path.join(home, ".supabase/cache/stack/slim-services/postgres/17.11.0.004-r1", platform, "c".repeat(64), "bin");
+    fs.mkdirSync(older, { recursive: true });
+    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(older, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(resolveNativePostgresTools(home).psql).toBe(path.join(directory, "psql"));
     const alternative = path.join(directory, "../../", "b".repeat(64), "bin");
     fs.mkdirSync(alternative, { recursive: true });
     for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(alternative, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
@@ -103,13 +110,22 @@ describe("database snapshot", () => {
   it("rejects an incomplete hashed archive instead of falling back to an old complete bundle", () => {
     const home = temporaryDirectory();
     const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-    const base = path.join(home, ".supabase/cache/stack/slim-services/postgres/17.11.0.004-r1", platform);
+    const base = path.join(home, ".supabase/cache/stack/slim-services/postgres", PINNED_SUPABASE_POSTGRES_BUNDLE, platform);
     for (const [directory, binaries] of [[path.join(base, "bin"), ["psql", "pg_dump", "pg_restore"]],
       [path.join(base, "a".repeat(64), "bin"), ["psql"]]] as const) {
       fs.mkdirSync(directory, { recursive: true });
       for (const name of binaries) fs.writeFileSync(path.join(directory, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     }
     expect(() => resolveNativePostgresTools(home)).toThrow();
+  });
+
+  it("refuses another CLI's complete archive when the pinned bundle is absent", () => {
+    const home = temporaryDirectory();
+    const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
+    const older = path.join(home, ".supabase/cache/stack/slim-services/postgres/17.11.0.004-r1", platform, "a".repeat(64), "bin");
+    fs.mkdirSync(older, { recursive: true });
+    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(older, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(() => resolveNativePostgresTools(home)).toThrow("exactly one PostgreSQL client (found 0 archives)");
   });
 
   it("is opt-in and accepts only an absolute real directory outside disposable workdirs", () => {

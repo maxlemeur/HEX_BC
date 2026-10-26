@@ -183,7 +183,12 @@ function assertNumericProvenance(lines: Json[], library: Json[], assemblyId: unk
 }
 export async function reuseNumeric(c: NumericContext, versionId: string, projectId: string) {
   const { ui, p } = c; ownEstimate(ui.army, { projectId, versionId });
-  await ui.app.open(`/dashboard/estimates/${versionId}/edit`); await expect(ui.screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+  const editPath = `/dashboard/estimates/${versionId}/edit`;
+  // The wizard already opened a fresh reuse estimate. Reopening that document
+  // can abandon its pending lease acquisition and conflict with its new session.
+  if (new URL(await ui.browser.url()).pathname !== editPath) await ui.app.open(editPath);
+  await expect(ui.browser).toHaveURL(editPath);
+  await expect(ui.screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
   expect(amounts((await readEstimate(ui.browser, versionId)).version)).toEqual([0, 0, 0]);
   const objects = await p.objects(); expect(objects.assemblies).toHaveLength(1); expect(objects.snapshots[0].assembly_id).toBe(objects.assemblies[0].id);
   const assembly = objects.assemblies[0], name = assembly.name; expect(typeof name).toBe("string");
