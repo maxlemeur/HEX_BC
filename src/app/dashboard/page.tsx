@@ -109,7 +109,6 @@ export default async function DashboardPage() {
                         href={`/dashboard/affaires/${item.projectId}`}
                         prefetch={false}
                         className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:px-5"
-                        aria-label={`Ouvrir l'affaire ${item.projectName}`}
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-foreground">

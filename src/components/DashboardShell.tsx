@@ -318,9 +318,9 @@ export function DashboardShell({
           href="/dashboard"
           prefetch={false}
           className="dashboard-global-topbar__brand"
-          aria-label={`TIMAX${tenantName ? ` — ${tenantName}` : ""} — Accueil`}
         >
           <TimaxWordmark tenantName={tenantName} tenantClassName="hidden xl:inline" />
+          <span className="sr-only"> — Accueil</span>
         </Link>
 
         <WorkspaceGlobalNavigation />
@@ -339,7 +339,7 @@ export function DashboardShell({
             href="/dashboard/profile"
             prefetch={false}
             className="dashboard-global-topbar__profile"
-            aria-label={`Ouvrir le profil de ${displayName || "Compte"}`}
+            aria-label={`${userInitials} — Ouvrir le profil de ${displayName || "Compte"}`}
             title={displayName || "Compte"}
           >
             {userInitials}

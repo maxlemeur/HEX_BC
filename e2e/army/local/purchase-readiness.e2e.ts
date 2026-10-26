@@ -118,13 +118,15 @@ async function surfaces(browser: Browser) {
 async function assertCounts(browser: Browser, army: ArmyState, label: string, counts: Counts, badge: string) {
   // A completed creation triggers another canonical preview. Wait for both UI
   // surfaces to finish that revalidation before reading their business values.
+  let observed!: Awaited<ReturnType<typeof surfaces>>;
   await expect.poll(async () => {
-    const current = await surfaces(browser);
-    return [current.card, current.panel].map((surface) => ({
+    observed = await surfaces(browser);
+    return [observed.card, observed.panel].map((surface) => ({
       badge: surface.badge, countsVisible: surface.text.includes(countText(counts)),
     }));
   }).toEqual([{ badge, countsVisible: true }, { badge, countsVisible: true }]);
-  const observed = await surfaces(browser);
+  // Assert and retain the snapshot that satisfied the poll: another read can
+  // land in a subsequent revalidation's transient "Vérification" state.
   await recordEvidence(army, label, { expected: { counts, text: countText(counts), badge }, observed });
   expect.soft(observed.headingCount).toBe(1);
   expect.soft(observed.cardTitle).toBe("Préparation des achats");
