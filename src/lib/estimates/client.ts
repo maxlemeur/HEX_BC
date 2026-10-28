@@ -1,3 +1,9 @@
+import { copyVersionSchema } from "@/lib/estimates/copy-response-contract";
+import {
+  parseSaveEstimateVersionResponse, parseEstimateItemWriteResponse, parseBulkUpdateEstimateItemsResponse,
+  parseEstimateStatusResponse, parseCreateEstimateResponse, parseEstimateVersionIdResponse,
+  parsePromoteEstimateVariantResponse, parseEstimateEventsResponse,
+} from "@/lib/estimates/write-response-contracts";
 import { parseEstimateItemDeleteResponse, parseEstimateItemsMoveResponse, parseEstimateItemsReorderResponse } from "@/lib/estimates/item-structure-contracts";
 import {
   toEstimateImportSourceClient, toEstimateImportSectionClient, toImportEstimateSectionsClient, toDuplicateSectionClient,
@@ -1077,25 +1083,6 @@ function extractEntity(payload: unknown, keys: string[]): JsonRecord | null {
   return null;
 }
 
-function extractString(payload: unknown, keys: string[]): string | null {
-  const root = getRootPayload(payload);
-
-  if (typeof root === "string") {
-    const trimmed = root.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  if (!isRecord(root)) return null;
-
-  for (const key of keys) {
-    const value = root[key];
-    const parsed = toStringValue(value);
-    if (parsed) return parsed;
-  }
-
-  return null;
-}
-
 function extractBoolean(payload: unknown, keys: string[]): boolean | null {
   const root = getRootPayload(payload);
 
@@ -2155,7 +2142,7 @@ async function requestJson<T>(
         throw scope.requireRead(async () => {
           const refreshed = parseEstimateEditorData(await requestJsonUncoordinated<unknown>(
             `/api/estimates/${target.versionId}`, { method: "GET" },
-            "Impossible de vérifier le résultat de l'action."
+            "Impossible de vérifier le résultat de l'action.", true
           ), target.versionId);
           return { version: { id: refreshed.version.id, updated_at: refreshed.version.updated_at,
             content_revision: refreshed.version.content_revision }, structural: true, needsReload: true };
@@ -2167,9 +2154,9 @@ async function requestJson<T>(
       const readVersion = async () => {
         const read = parseVersionToken(await requestJsonUncoordinated<unknown>(
           `/api/estimates/${target.versionId}`, { method: "GET" },
-          "Impossible de récupérer la version après l'action."
+          "Impossible de récupérer la version après l'action.", true
         ));
-        if (!read || read.id !== target.versionId || read.content_revision === undefined) throw new Error("Impossible de récupérer la révision du devis.");
+        if (!read || read.id.toLowerCase() !== target.versionId.toLowerCase() || read.content_revision === undefined) throw new Error("Impossible de récupérer la révision du devis.");
         return read;
       };
       let version = acknowledged;
@@ -2188,11 +2175,12 @@ async function requestJson<T>(
           version = acknowledged;
         }
       }
-      if (version.id !== target.versionId) throw new Error("La confirmation appartient à un autre devis.");
+      if (version.id.toLowerCase() !== target.versionId.toLowerCase()) throw new Error("La confirmation appartient à un autre devis.");
+      version = { ...version, id: target.versionId };
       mutationOptions.onAcknowledgedVersion?.(version);
       let totals: BulkUpdateEstimateVersionPatch | undefined;
       if (/^\/api\/estimates\/assemblies\/[^/]+\/insert(?:\?|$)/.test(path)) {
-        if (version.id !== target.versionId) throw new Error("La confirmation appartient à un autre devis.");
+        if (version.id.toLowerCase() !== target.versionId.toLowerCase()) throw new Error("La confirmation appartient à un autre devis.");
         const confirmed = isRecord(value) && isRecord(value.totals) ? value.totals : null;
         const totalHt = confirmed?.total_ht_cents, totalTax = confirmed?.total_tax_cents, totalTtc = confirmed?.total_ttc_cents;
         if (typeof totalHt !== "number" || !Number.isSafeInteger(totalHt) || totalHt < 0 || totalHt > MAX_CENTS ||
@@ -2751,54 +2739,6 @@ function parseEstimateItems(payload: unknown): EstimateItem[] {
   return rows as EstimateItem[];
 }
 
-function normalizeEstimateVersionEvent(value: unknown): EstimateVersionEvent | null {
-  if (!isRecord(value)) return null;
-
-  const id = toStringValue(value.id);
-  const estimateVersionId =
-    toStringValue(value.estimateVersionId) ??
-    toStringValue(value.estimate_version_id);
-  const eventType =
-    toStringValue(value.eventType) ??
-    toStringValue(value.event_type);
-  const occurredAt =
-    toStringValue(value.occurredAt) ??
-    toStringValue(value.occurred_at);
-  const createdAt =
-    toStringValue(value.createdAt) ??
-    toStringValue(value.created_at);
-
-  if (!id || !estimateVersionId || !eventType || !occurredAt || !createdAt) {
-    return null;
-  }
-
-  return {
-    id,
-    estimateVersionId,
-    eventType,
-    metadata: isRecord(value.metadata) ? value.metadata : {},
-    createdBy:
-      toStringValue(value.createdBy) ??
-      toStringValue(value.created_by) ??
-      null,
-    actorName:
-      toStringValue(value.actorName) ??
-      toStringValue(value.actor_name) ??
-      null,
-    occurredAt,
-    createdAt,
-  };
-}
-
-function parseEstimateVersionEvents(payload: unknown): EstimateVersionEvent[] {
-  const root = getRootPayload(payload);
-  const rows = pickArray(root, ["events", "items", "data"]);
-
-  return rows
-    .map((entry) => normalizeEstimateVersionEvent(entry))
-    .filter((entry): entry is EstimateVersionEvent => entry !== null);
-}
-
 function normalizeApprovalDecisionScope(
   value: unknown
 ): EstimateApprovalDecisionScope | null {
@@ -3016,25 +2956,18 @@ function parseEstimateApprovalDecisionJournal(
 
 function parseVersionToken(payload: unknown): EstimateVersionToken | null {
   const entity = extractEntity(payload, [
-    "version",
-    "estimateVersion",
-    "version_token",
-    "versionToken",
+    "version", "estimateVersion", "version_token", "versionToken",
   ]);
   if (!entity) return null;
 
-  const id = toStringValue(entity.id);
-  const updatedAt =
-    toStringValue(entity.updated_at) ?? toStringValue(entity.updatedAt);
-
-  if (!id || !updatedAt) return null;
-
-  return {
-    id,
-    updated_at: updatedAt,
-    ...(typeof entity.content_revision === "number" && Number.isSafeInteger(entity.content_revision) && entity.content_revision >= 0
-      ? { content_revision: entity.content_revision } : {}),
-  };
+  // Legacy endpoints may return only the token. Keep their field aliases,
+  // but never enrich or publish a revision from an invalid timestamp or UUID.
+  const parsed = copyVersionSchema.safeParse({
+    ...entity,
+    updated_at: hasOwnProperty(entity, "updated_at") ? entity.updated_at : entity.updatedAt,
+    content_revision: hasOwnProperty(entity, "content_revision") ? entity.content_revision : entity.contentRevision,
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 function parseEstimateTemplateSummaryEntity(
@@ -3720,7 +3653,7 @@ export async function createEstimate(
     };
   }
 
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     "/api/estimates",
     {
       method: "POST",
@@ -3729,52 +3662,26 @@ export async function createEstimate(
       },
       body: JSON.stringify(requestBody),
     },
-    "Impossible de créer le chiffrage."
+    "Impossible de créer le chiffrage.",
+    value => parseCreateEstimateResponse(value, projectId ?? undefined)
   );
 
-  const versionEntity = extractEntity(payload, ["version", "estimateVersion"]);
-  if (versionEntity && typeof versionEntity.id === "string") {
-    return versionEntity.id;
-  }
-
-  const versionId = extractString(payload, [
-    "versionId",
-    "version_id",
-    "estimateVersionId",
-    "id",
-  ]);
-
-  if (!versionId) {
-    throw new Error("Impossible de créer le chiffrage.");
-  }
-
-  return versionId;
+  return payload.version.id;
 }
 
 export async function duplicateEstimateVersion(
   versionId: string
 ): Promise<string> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/duplicate`,
     {
       method: "POST",
     },
-    "Impossible de dupliquer le chiffrage."
+    "Impossible de dupliquer le chiffrage.",
+    value => parseEstimateVersionIdResponse(value, versionId)
   );
 
-  const duplicatedVersionId = extractString(payload, [
-    "versionId",
-    "version_id",
-    "duplicatedVersionId",
-    "duplicated_version_id",
-    "id",
-  ]);
-
-  if (!duplicatedVersionId) {
-    throw new Error("Impossible de dupliquer le chiffrage.");
-  }
-
-  return duplicatedVersionId;
+  return payload.version_id;
 }
 
 export async function duplicateEstimateSection(
@@ -3803,58 +3710,31 @@ export async function duplicateEstimateSection(
 export async function createEstimateVariant(
   versionId: string
 ): Promise<string> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/variants`,
     {
       method: "POST",
     },
-    "Impossible de créer la variante."
+    "Impossible de créer la variante.",
+    value => parseEstimateVersionIdResponse(value, versionId)
   );
 
-  const variantVersionId = extractString(payload, [
-    "versionId",
-    "version_id",
-    "variantVersionId",
-    "variant_version_id",
-    "id",
-  ]);
-
-  if (!variantVersionId) {
-    throw new Error("Impossible de créer la variante.");
-  }
-
-  return variantVersionId;
+  return payload.version_id;
 }
 
 export async function promoteEstimateVariant(
   versionId: string
 ): Promise<string> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/variants`,
     {
       method: "PATCH",
     },
-    "Impossible de promouvoir la variante."
+    "Impossible de promouvoir la variante.",
+    value => parsePromoteEstimateVariantResponse(value, versionId)
   );
 
-  const promotedEntity = extractEntity(payload, ["version", "estimateVersion"]);
-  if (promotedEntity && typeof promotedEntity.id === "string") {
-    return promotedEntity.id;
-  }
-
-  const promotedVersionId = extractString(payload, [
-    "versionId",
-    "version_id",
-    "promotedVersionId",
-    "promoted_version_id",
-    "id",
-  ]);
-
-  if (!promotedVersionId) {
-    throw new Error("Impossible de promouvoir la variante.");
-  }
-
-  return promotedVersionId;
+  return payload.version.id;
 }
 
 export async function fetchEstimateEditorData(
@@ -3874,15 +3754,16 @@ export async function fetchEstimateEditorData(
 export async function fetchEstimateVersionEvents(
   versionId: string
 ): Promise<EstimateVersionEvent[]> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/events`,
     {
       method: "GET",
     },
-    "Impossible de charger les événements."
+    "Impossible de charger les événements.",
+    value => parseEstimateEventsResponse(value, versionId)
   );
 
-  return parseEstimateVersionEvents(payload);
+  return payload.events;
 }
 
 function buildApprovalJournalQuery(input?: {
@@ -4030,7 +3911,7 @@ export async function saveEstimateVersion(
   updatedAtToken: string,
   expectedContentRevision: number
 ): Promise<{ version: EstimateVersionRow; items: EstimateItem[] }> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}`,
     {
       method: "PATCH",
@@ -4044,18 +3925,11 @@ export async function saveEstimateVersion(
         expected_content_revision: expectedContentRevision,
       }),
     },
-    "Impossible de sauvegarder le chiffrage."
+    "Impossible de sauvegarder le chiffrage.",
+    value => parseSaveEstimateVersionResponse(value, versionId)
   );
 
-  const entity = extractEntity(payload, ["version", "estimateVersion"]);
-  const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : null;
-  if (!entity || entity.id !== versionId || !toStringValue(entity.updated_at) ||
-    typeof entity.content_revision !== "number" || !Number.isSafeInteger(entity.content_revision) || entity.content_revision < 0 ||
-    !items || items.some((item) => !isRecord(item) || typeof item.id !== "string" || item.version_id !== versionId) ||
-    new Set(items.map((item) => (item as Record<string, unknown>).id)).size !== items.length) {
-    throw new Error("La confirmation des paramètres est incomplète. Relisez le devis avant de reprendre.");
-  }
-  return { version: entity as EstimateVersionRow, items: items as EstimateItem[] };
+  return payload;
 }
 
 export async function bulkUpdateEstimateItems(
@@ -4077,7 +3951,7 @@ export async function bulkUpdateEstimateItems(
     };
   }
 
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/items/bulk`,
     {
       method: "POST",
@@ -4094,44 +3968,11 @@ export async function bulkUpdateEstimateItems(
         ...(versionPatch ? { version_patch: versionPatch } : {}),
       }),
     },
-    "Impossible de mettre à jour les lignes."
+    "Impossible de mettre à jour les lignes.",
+    value => parseBulkUpdateEstimateItemsResponse(value, versionId)
   );
 
-  const versionToken = parseVersionToken(payload);
-  if (!versionToken) {
-    throw new Error("Impossible de récupérer le jeton de version.");
-  }
-
-  const root = getRootPayload(payload);
-  const updatedCount =
-    (isRecord(root) ? toNumber(root.updated_count) : null) ?? updates.length;
-
-  let totals: BulkUpdateEstimateVersionPatch | undefined;
-  if (isRecord(root) && Object.prototype.hasOwnProperty.call(root, "totals")) {
-    const value = root.totals;
-    const totalHt = isRecord(value) ? value.total_ht_cents : undefined;
-    const totalTax = isRecord(value) ? value.total_tax_cents : undefined;
-    const totalTtc = isRecord(value) ? value.total_ttc_cents : undefined;
-    if (
-      typeof totalHt !== "number" || !Number.isSafeInteger(totalHt) || totalHt < 0 ||
-      typeof totalTax !== "number" || !Number.isSafeInteger(totalTax) || totalTax < 0 ||
-      typeof totalTtc !== "number" || !Number.isSafeInteger(totalTtc) || totalTtc < 0 ||
-      !Number.isSafeInteger(totalHt + totalTax) || totalHt + totalTax !== totalTtc
-    ) {
-      throw new Error("Les totaux confirmés par le serveur sont invalides. Rechargez le devis avant de réessayer.");
-    }
-    totals = {
-      total_ht_cents: totalHt,
-      total_tax_cents: totalTax,
-      total_ttc_cents: totalTtc,
-    };
-  }
-
-  return {
-    updatedCount,
-    versionToken,
-    ...(totals ? { totals } : {}),
-  };
+  return { updatedCount: payload.updated_count, versionToken: payload.version, ...(payload.totals ? { totals: payload.totals } : {}) };
 }
 
 // Lot 2, sous-lot 2.6 (revue) : colonnes de saisie d'une ligne v3 (D4, D9), transmises à la création.
@@ -4210,7 +4051,7 @@ export async function createEstimateItem(
   let acknowledgedVersion: EstimateVersionToken | undefined;
   const documentOwnsReceipt = options.documentOwnsReceipt === true && Boolean(options.onVersionToken);
 
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/items`,
     {
       method: "POST",
@@ -4220,27 +4061,19 @@ export async function createEstimateItem(
       body: JSON.stringify(body),
     },
     "Impossible d'ajouter la ligne.",
-    undefined,
+    value => parseEstimateItemWriteResponse(value, versionId),
     documentOwnsReceipt ? {
       deferVersionPublication: true,
       onAcknowledgedVersion: (version) => { acknowledgedVersion = version; },
     } : undefined
   );
 
-  const entity = extractEntity(payload, ["item", "estimateItem"]);
-  if (!entity) {
-    throw new Error("Impossible d'ajouter la ligne.");
-  }
-
   if (options.onVersionToken) {
-    const versionToken = acknowledgedVersion ?? parseVersionToken(payload);
-    if (!versionToken) {
-      throw new Error("Impossible de récupérer le jeton de version.");
-    }
+    const versionToken = acknowledgedVersion ?? payload.version;
     options.onVersionToken(versionToken);
   }
 
-  return entity as EstimateItem;
+  return payload.item;
 }
 
 export async function updateEstimateItem(
@@ -4248,7 +4081,7 @@ export async function updateEstimateItem(
   itemId: string,
   updates: Database["public"]["Tables"]["estimate_items"]["Update"]
 ): Promise<void> {
-  await requestJson<unknown>(
+  await requestJson(
     `/api/estimates/${versionId}/items`,
     {
       method: "PATCH",
@@ -4260,7 +4093,8 @@ export async function updateEstimateItem(
         ...updates,
       }),
     },
-    "Impossible de mettre à jour la ligne."
+    "Impossible de mettre à jour la ligne.",
+    value => parseEstimateItemWriteResponse(value, versionId, itemId)
   );
 }
 
@@ -4428,7 +4262,7 @@ export async function updateEstimateStatus(
   updatedAtToken: string,
   options: { force?: boolean } = {}
 ): Promise<EstimateVersionRow> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/status`,
     {
       method: "PATCH",
@@ -4442,15 +4276,11 @@ export async function updateEstimateStatus(
         force: options.force === true ? true : undefined,
       }),
     },
-    "Impossible de mettre à jour le statut."
+    "Impossible de mettre à jour le statut.",
+    value => parseEstimateStatusResponse(value, versionId, status)
   );
 
-  const entity = extractEntity(payload, ["version", "estimateVersion"]);
-  if (!entity || !toStringValue(entity.updated_at)) {
-    throw new Error("Impossible de récupérer la version mise à jour.");
-  }
-
-  return entity as EstimateVersionRow;
+  return payload.version;
 }
 
 export async function fetchEstimateSendGating(

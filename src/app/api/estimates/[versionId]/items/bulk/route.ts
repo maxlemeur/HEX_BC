@@ -1,3 +1,5 @@
+import { parseBulkUpdateEstimateItemsResponse } from "@/lib/estimates/write-response-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -51,7 +53,7 @@ export async function POST(
       token,
       body.version_patch
     );
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseBulkUpdateEstimateItemsResponse(data, versionId)));
   } catch (error) {
     return toErrorResponse(error);
   }

@@ -1,3 +1,6 @@
+import { estimateCreateResponseSchema, estimateStatusResponseSchema, estimateVersionIdResponseSchema, estimateVerifySealResponseSchema, estimateItemWriteResponseSchema, estimateBulkUpdateResponseSchema, estimateEventsResponseSchema, estimateSettingsResponseSchema, estimatePromoteVariantResponseSchema } from "@/lib/estimates/write-response-contracts";
+import { takeoffDpgfComparisonResponseSchema, takeoffDpgfComparisonViewSchema, takeoffDpgfComparisonEvidenceKindSchema, takeoffDpgfReviewDecisionSchema, takeoffDpgfReviewDecisionRecordSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
+import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
 import { estimateItemDeleteResponseSchema, estimateItemsMoveResponseSchema, estimateItemsReorderResponseSchema } from "@/lib/estimates/item-structure-contracts";
 import {
   takeoffPriceSuggestionResponseSchema as takeoffPriceSuggestionResponseDataSchema,
@@ -99,7 +102,7 @@ import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
 import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
-import { estimateItemV3ResponseFields, estimateVersionV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
+import { estimateItemV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 const uuidSchema = z.string().uuid("Identifiant invalide.");
@@ -261,61 +264,6 @@ const supplierAlternativeKindSchema = z.enum([
 ]);
 const changelogCacheStatusSchema = z.enum(["hit", "miss", "stale"]);
 
-const estimateProjectSchema = z
-  .object({
-    id: uuidSchema,
-    tenant_id: uuidSchema.optional(),
-    user_id: uuidSchema.optional(),
-    name: z.string(),
-    reference: z.string().nullable().optional(),
-    client_name: z.string().nullable().optional(),
-    site_address: z.string().max(1000).nullable().optional(),
-    notes: z.string().nullable().optional(),
-    is_archived: z.boolean().optional(),
-  })
-  .passthrough();
-
-const estimateVersionSchema = z
-  .object({
-    id: uuidSchema,
-    tenant_id: uuidSchema.optional(),
-    project_id: uuidSchema,
-    version_number: z.number().int(),
-    status: estimateStatusSchema,
-    title: z.string().nullable().optional(),
-    exclusions: z.string().nullable().optional(),
-    date_devis: z.string().optional(),
-    validite_jours: z.number().int().optional(),
-    margin_multiplier: z.number().optional(),
-    margin_mode: z.string().optional(),
-    currency: z.string().optional(),
-    margin_bp: z.number().int().optional(),
-    discount_bp: z.number().int().optional(),
-    discount_amount_cents: z.number().int().min(0).max(2147483647).nullable().optional(),
-    discount_mode: z.string().optional(),
-    discount_steps: z.array(z.number()).optional(),
-    global_coefficient: z.number().optional(),
-    tax_rate_bp: z.number().int().optional(),
-    rounding_mode: z.string().optional(),
-    rounding_step_cents: z.number().int().optional(),
-    calc_engine_version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    ...estimateVersionV3ResponseFields,
-    total_ht_cents: z.number().int().nullable().optional(),
-    total_tax_cents: z.number().int().nullable().optional(),
-    total_ttc_cents: z.number().int().nullable().optional(),
-    parent_version_id: uuidSchema.nullable().optional(),
-    variant_label: z.string().nullable().optional(),
-    seal_hash: z.string().nullable().optional(),
-    seal_payload_version: z.number().int().min(1).max(5).nullable().optional(),
-    updated_at: z.string().optional(),
-    created_at: z.string().optional(),
-    estimate_projects: z
-      .union([estimateProjectSchema, z.array(estimateProjectSchema)])
-      .nullable()
-      .optional(),
-  })
-  .passthrough();
-
 const estimateItemSchema = z
   .object({
     selected_supplier_details: z.object({
@@ -456,19 +404,6 @@ const suggestionLearningPurgeResultSchema = suggestionLearningStateSchema.extend
   deleted_count: z.number().int(),
   retention_months: z.number().int(),
 });
-
-const estimateVersionEventSchema = z
-  .object({
-    id: uuidSchema,
-    estimate_version_id: uuidSchema,
-    event_type: z.string(),
-    metadata: z.unknown(),
-    created_by: uuidSchema.nullable(),
-    actor_name: z.string().nullable(),
-    occurred_at: z.string(),
-    created_at: z.string(),
-  })
-  .passthrough();
 
 const estimateListItemSchema = z.object({
   project_id: uuidSchema,
@@ -931,7 +866,6 @@ const estimateAssemblyMemberSchema = z
   })
   .passthrough();
 
-
 const estimateAssemblyDetailSchema = estimateAssemblySummarySchema.extend({
   items: z.array(estimateAssemblyItemSchema),
   members: z.array(estimateAssemblyMemberSchema),
@@ -941,20 +875,13 @@ const estimateListDataSchema = z.object({
   items: z.array(estimateListItemSchema),
 });
 
-const estimateCreatedDataSchema = z.object({
-  project: estimateProjectSchema,
-  version: estimateVersionSchema,
-});
+const estimateCreatedDataSchema = estimateCreateResponseSchema;
 
-const estimateVersionDataSchema = z.object({
-  version: estimateVersionSchema,
-});
+const estimateVersionDataSchema = estimateStatusResponseSchema;
 
 const estimateVersionDetailsDataSchema = estimateEditorResponseSchema;
 
-const estimateVersionIdDataSchema = z.object({
-  version_id: uuidSchema,
-});
+const estimateVersionIdDataSchema = estimateVersionIdResponseSchema;
 
 const estimateSendDataSchema = z.object({
   message_id: z.string().nullable(),
@@ -964,20 +891,7 @@ const deletedIdDataSchema = z.object({
   deleted_id: uuidSchema,
 });
 
-const estimateVerifySealDataSchema = z.object({
-  valid: z.boolean(),
-  computed_hash: z.string(),
-  stored_hash: z.string().nullable(),
-  seal_payload_version: z.number().int().nullable().describe(
-    "Marqueur du sceau : 5 = sceau lié à l'offre (contrat client et PDF) ; 1 à 4 = sceau historique ; nul sans sceau."
-  ),
-  client_contract_version: z.union([z.literal(1), z.literal(2)]).nullable().describe(
-    "Marqueur 5 : contrat client 1 (moteurs 1 et 2) ou 2 (moteur 3) ; nul sinon."
-  ),
-  calc_payload_version: z.number().int().nullable().describe(
-    "Charge de calcul hachée : 4 (contrat 1) ou 6 (contrat 2, moteur 3) sous le marqueur 5, charge historique retrouvée sinon ; nulle si aucune."
-  ),
-});
+const estimateVerifySealDataSchema = estimateVerifySealResponseSchema;
 
 const estimateItemsDataSchema = z.object({
   items: z.array(estimateItemSchema),
@@ -1006,29 +920,14 @@ const estimateAssemblyPersistedInsertionFailureSchema = z.object({
   }),
 });
 
-const estimateItemDataSchema = z.object({
-  version: estimateVersionTokenSchema,
-  item: estimateItemSchema,
-});
+const estimateItemDataSchema = estimateItemWriteResponseSchema;
 
-const estimateItemCreatedDataSchema = estimateItemDataSchema.extend({
-  version: estimateVersionTokenSchema,
-});
+const estimateItemCreatedDataSchema = estimateItemWriteResponseSchema;
 
 const estimateItemsReorderDataSchema = estimateItemsReorderResponseSchema;
 const estimateItemsMoveDataSchema = estimateItemsMoveResponseSchema;
 
-const estimateItemsBulkDataSchema = z.object({
-  updated_count: z.number().int(),
-  version: estimateVersionTokenSchema,
-  totals: z.object({
-    total_ht_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-    total_tax_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-    total_ttc_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  }).describe(
-    "Totaux canoniques confirmes par le serveur apres une sauvegarde V2. Les trois montants sont des entiers surs non negatifs en centimes et total_ht_cents + total_tax_cents = total_ttc_cents. Ce bloc peut etre absent sur les anciens chemins V1 ou sans modification."
-  ).optional(),
-});
+const estimateItemsBulkDataSchema = estimateBulkUpdateResponseSchema;
 
 const estimateSupplierComparisonsDataSchema = z.object({
   stale_price_days: z.number().int().min(1).max(3650).describe(
@@ -1141,9 +1040,7 @@ const anomalyHistoryDataSchema = z.union([
   anomalyHistoryTrendDataSchema,
 ]);
 
-const estimateEventsDataSchema = z.object({
-  events: z.array(estimateVersionEventSchema),
-});
+const estimateEventsDataSchema = estimateEventsResponseSchema;
 
 const estimateGatingDataSchema = z.object({
   gating: estimateGatingSchema,
@@ -1529,93 +1426,7 @@ const takeoffJobCompareDataSchema = z.object({
   changed: z.array(takeoffDiffChangedEntrySchema),
   unchanged: z.array(takeoffDiffUnchangedEntrySchema),
 });
-const takeoffDpgfComparisonViewSchema = z.enum(["all", "exceptions_only"]);
-const takeoffDpgfComparisonEvidenceKindSchema = z.enum([
-  "fact",
-  "hypothesis",
-  "inference",
-]);
-const takeoffDpgfComparisonEvidenceTypeSchema = z.enum([
-  "dpgf",
-  "takeoff",
-  "plan_zone",
-  "formula",
-  "price_source",
-  "comment",
-]);
-const takeoffDpgfReviewStatusSchema = z.enum([
-  "reliable_match",
-  "to_confirm",
-  "significant_gap",
-  "unlinked",
-  "forced_manual",
-]);
-const takeoffDpgfReviewDecisionSchema = z.enum([
-  "keep_dpgf",
-  "keep_takeoff",
-  "manual_fix",
-  "out_of_scope",
-]);
-const takeoffDpgfComparisonDpgfLineSchema = z.object({
-  estimate_item_id: uuidSchema,
-  title: z.string(),
-  description: z.string().nullable(),
-  quantity: z.number().positive(),
-  unit: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  source_file_name: z.string().nullable(),
-  position: z.number().int().min(0),
-});
-const takeoffDpgfComparisonTakeoffLineSchema = z.object({
-  item_id: uuidSchema,
-  designation: z.string(),
-  quantity: z.number().positive(),
-  unit: z.string(),
-  source_page: z.number().int().nullable(),
-  source_file_name: z.string().nullable(),
-  confidence: z.number().min(0).max(1).nullable(),
-  evidence: z.string().nullable(),
-  metadata: z.record(z.string(), z.unknown()),
-});
-const takeoffDpgfComparisonProofSchema = z.object({
-  proof_id: z.string(),
-  type: takeoffDpgfComparisonEvidenceTypeSchema,
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-  label: z.string(),
-  source: z.string(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  note: z.string().nullable(),
-});
-const takeoffDpgfReviewDecisionRecordSchema = z.object({
-  id: uuidSchema,
-  tenant_id: uuidSchema,
-  version_id: uuidSchema,
-  takeoff_job_id: uuidSchema,
-  estimate_item_id: uuidSchema,
-  decision: takeoffDpgfReviewDecisionSchema,
-  reason: z.string().nullable(),
-  review_reference: z.string(),
-  line_label: z.string(),
-  line_position: z.number().int().min(0),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  decided_at: z.string(),
-  updated_at: z.string(),
-  decided_by: uuidSchema.nullable(),
-  source: z.enum(["current_version", "carried_over"]),
-  carried_over_from_version_id: uuidSchema.nullable(),
-  carried_over_from_version_number: z.number().int().positive().nullable(),
-});
-const takeoffDpgfUnusedTakeoffItemSchema = z.object({
-  item_id: uuidSchema,
-  designation: z.string(),
-  quantity: z.number().positive(),
-  unit: z.string(),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  evidence: z.string().nullable(),
-});
+
 const takeoffRiskSeveritySchema = z.enum(["info", "warning", "critical"]);
 const takeoffRiskStatusSchema = z.enum([
   "to_process",
@@ -1644,12 +1455,7 @@ const takeoffRiskProvenanceEntrySchema = z.object({
   confidence_score: z.number().min(0).max(1).nullable(),
   note: z.string().nullable(),
 });
-const takeoffDpgfLineRiskSummarySchema = z.object({
-  score: z.number().int().min(0).max(100),
-  severity: takeoffRiskSeveritySchema,
-  causes: z.array(z.string()),
-  status: takeoffRiskStatusSchema.nullable(),
-});
+
 const takeoffRiskAlertSchema = z.object({
   alert_id: uuidSchema,
   scope_type: takeoffRiskScopeTypeSchema,
@@ -1693,51 +1499,8 @@ const takeoffRiskRadarSummarySchema = z.object({
   project_score: z.number().int().min(0).max(100),
   project_severity: takeoffRiskSeveritySchema,
 });
-const takeoffDpgfComparisonRowSchema = z.object({
-  line_id: uuidSchema,
-  line_label: z.string(),
-  dpgf: takeoffDpgfComparisonDpgfLineSchema,
-  linked_takeoff_items: z.array(takeoffDpgfComparisonTakeoffLineSchema),
-  dpgf_quantity: z.number().nullable(),
-  takeoff_quantity: z.number().nullable(),
-  quantity_unit: z.string().nullable(),
-  matching_score: z.number().min(0).max(1),
-  confidence_score: z.number().min(0).max(1),
-  review_status: takeoffDpgfReviewStatusSchema,
-  proofs: z.array(takeoffDpgfComparisonProofSchema),
-  suggested_decision: takeoffDpgfReviewDecisionSchema.nullable(),
-  applied_decision: takeoffDpgfReviewDecisionRecordSchema.nullable(),
-  delta_absolute: z.number().nullable(),
-  delta_percent: z.number().nullable(),
-  is_exception: z.boolean(),
-  manual_link_count: z.number().int().min(0),
-  matched_by: z.enum(["auto", "manual"]).nullable(),
-  risk: takeoffDpgfLineRiskSummarySchema.nullable(),
-});
-const takeoffDpgfComparisonSummarySchema = z.object({
-  reliable_matches: z.number().int().min(0),
-  to_confirm: z.number().int().min(0),
-  significant_gaps: z.number().int().min(0),
-  forced_manual: z.number().int().min(0),
-  lines_without_proof: z.number().int().min(0),
-  unused_takeoff_items: z.number().int().min(0),
-  total_lines: z.number().int().min(0),
-});
-const takeoffDpgfComparisonDataSchema = z.object({
-  version_id: uuidSchema,
-  job_id: uuidSchema,
-  view: takeoffDpgfComparisonViewSchema,
-  threshold: z.number().min(0).max(1),
-  summary: takeoffDpgfComparisonSummarySchema,
-  rows: z.array(takeoffDpgfComparisonRowSchema),
-  manual_link_candidates: z.array(takeoffDpgfUnusedTakeoffItemSchema),
-  unused_takeoff_items: z.array(takeoffDpgfUnusedTakeoffItemSchema),
-  pagination: z.object({
-    page_size: z.number().int().min(1),
-    next_cursor: z.string().nullable(),
-    total: z.number().int().min(0),
-  }),
-});
+
+const takeoffDpgfComparisonDataSchema = takeoffDpgfComparisonResponseSchema;
 const takeoffRiskRadarDataSchema = z.object({
   version_id: uuidSchema,
   job_id: uuidSchema,
@@ -1746,34 +1509,8 @@ const takeoffRiskRadarDataSchema = z.object({
   lots: z.array(takeoffRiskRadarScopeSummarySchema),
   items: z.array(takeoffRiskAlertSchema),
 });
-const takeoffLineEvidenceStatusSchema = z.enum([
-  "active",
-  "invalidated",
-  "replaced",
-]);
-const takeoffLineEvidenceEntrySchema = z.object({
-  evidence_id: uuidSchema,
-  type: takeoffDpgfComparisonEvidenceTypeSchema,
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-  label: z.string(),
-  source: z.string(),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  note: z.string().nullable(),
-  created_at: z.string(),
-  author_name: z.string().nullable(),
-  status: takeoffLineEvidenceStatusSchema,
-  supersedes_evidence_id: uuidSchema.nullable(),
-  replaced_by_evidence_id: uuidSchema.nullable(),
-});
-const takeoffLineEvidencePanelDataSchema = z.object({
-  line_id: uuidSchema,
-  version_id: uuidSchema,
-  job_id: uuidSchema,
-  evidences: z.array(takeoffLineEvidenceEntrySchema),
-  history: z.array(takeoffLineEvidenceEntrySchema),
-});
+
+const takeoffLineEvidencePanelDataSchema = takeoffLineEvidencePanelResponseSchema;
 const takeoffDpgfManualLinkSchema = z.object({
   id: uuidSchema,
   tenant_id: uuidSchema,
@@ -4198,14 +3935,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Version et toutes les lignes confirmées après sauvegarde atomique.",
-        successResponseSchemaDefinition("ApiEstimateSettingsResponse", z.object({
-          version: estimateVersionSchema.extend({
-            updated_at: z.string(), content_revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-            total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
-            rounding_adjustment_cents: z.number().int(),
-          }),
-          items: z.array(estimateItemSchema),
-        }))
+        successResponseSchemaDefinition("ApiEstimateSettingsResponse", estimateSettingsResponseSchema)
       ),
       "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED ou CONTEXT_CHANGED : aucun réglage ni montant enregistré.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
@@ -4300,7 +4030,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Variante promue avec succes.",
-        apiEstimateVersionSchemaDefinition
+        successResponseSchemaDefinition("ApiEstimatePromoteVariantResponse", estimatePromoteVariantResponseSchema)
       ),
     },
   },

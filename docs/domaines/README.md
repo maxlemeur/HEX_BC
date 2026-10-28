@@ -81,6 +81,16 @@ les lectures et contrôles partagés. Les orchestrateurs gardent l'ordre des
 autorisations, verrous, contrôles de révision et écritures atomiques. Aucun module
 d'opération ne doit réimporter la façade `server.ts`.
 
+Les opérations de version suivent cette organisation :
+[création et variantes](../../src/lib/estimates/version-creation-server.ts),
+[réglages](../../src/lib/estimates/version-settings-server.ts),
+[cycle de vie](../../src/lib/estimates/version-lifecycle-server.ts) et
+[sceaux](../../src/lib/estimates/version-seal-server.ts) délèguent leurs règles
+pures aux plans correspondants. Les contrôles de totaux sont distincts de leur
+journal d'audit. La façade conserve les exports publics ; elle ne possède plus
+l'orchestration de ces opérations. Le retour d'un bulk vide conserve son rôle
+de contrôle d'accès, de verrou et de révision avant toute résolution du moteur.
+
 La copie de sections et l'import DPGF suivent la même séparation : plans purs
 (`section-copy-plan.ts`, `linked-dpgf-plan.ts`), lectures paginées, puis
 orchestration dans `section-copy-server.ts` et `linked-dpgf-import-server.ts`.
@@ -90,6 +100,15 @@ Le recalcul partagé est dans `version-recalculation-server.ts`. Les contrats
 confirmation côté client et documentés dans OpenAPI. Une réponse incohérente
 après écriture bloque une seconde mutation jusqu'à une relecture explicite ;
 elle ne déclenche pas de nouvelle écriture automatique.
+
+Les [contrats de mutation](../../src/lib/estimates/write-response-contracts.ts)
+décrivent aussi les lignes et versions persistées, sans la jointure projet
+réservée à la lecture de l'éditeur. Ils valident les réglages, les opérations
+de lignes, les statuts, les nouvelles versions, les événements et les sceaux
+avant acquittement. Le compteur d'un bulk peut inclure toutes les lignes
+recalculées ; il n'est pas remplacé par la taille de la requête. Un sceau
+invalide reste un résultat de vérification, y compris si son empreinte stockée
+est corrompue.
 
 Templates, ouvrages de bibliothèque et ouvrages générés alimentent le devis
 par des opérations de copie/application encadrées. Une modification de la
@@ -152,6 +171,18 @@ pour l'orchestration. Le [contrat partagé](../../src/lib/takeoff/price-suggesti
 vérifie notamment la ligne, le job, la version et l'état de revue. Une suggestion
 relue à l'identique est réutilisée ; son renouvellement reste explicite. Un reçu
 incohérent après mutation exige une relecture, sans compensation aveugle.
+
+La [comparaison DPGF](../../src/lib/takeoff/dpgf-comparison-server.ts) partage un
+[contexte autorisé](../../src/lib/takeoff/dpgf-comparison-context-server.ts)
+limité à la requête. Les lectures paginées ne réacquièrent pas leurs sources à
+chaque page. Seules les preuves des lignes de la page sont synchronisées ; le
+résumé du dossier ne produit aucune preuve. Le
+[panneau de preuves](../../src/lib/takeoff/line-evidence-server.ts) filtre sa
+sélection avant de résoudre le fichier source. Empreintes et plans de
+remplacement sont purs, avec une horloge fournie ; le repository garde les IO.
+Les contrats communs de comparaison et de preuves préservent la provenance
+reportée, les curseurs opaques et l'historique. La réponse de comparaison est
+validée après son enrichissement par les risques.
 
 ## Catalogue et achats
 

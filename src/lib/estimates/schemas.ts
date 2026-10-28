@@ -1690,17 +1690,8 @@ export {
   type ImportLinkedDpgfSourceClientResult as ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/linked-dpgf-contracts";
 
-export const estimateVersionEventSchema = z.object({
-  id: uuidSchema,
-  estimateVersionId: uuidSchema,
-  eventType: z.string(),
-  metadata: z.record(z.string(), z.unknown()),
-  createdBy: z.string().nullable(),
-  actorName: z.string().nullable(),
-  occurredAt: z.string(),
-  createdAt: z.string(),
-});
-export type EstimateVersionEvent = z.infer<typeof estimateVersionEventSchema>;
+export { estimateVersionEventSchema, type EstimateVersionEvent } from "@/lib/estimates/write-response-contracts";
+
 
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
 export type CreateEstimateCreationModeInput = z.infer<typeof createEstimateCreationModeSchema>;

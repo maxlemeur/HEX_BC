@@ -184,7 +184,7 @@ export async function runEstimateEditorMutation<T>(
       throw error;
     }
     if (!session.active) return committed.value;
-    if (committed.version.id !== versionId) {
+    if (committed.version.id.toLowerCase() !== versionId.toLowerCase()) {
       throw new Error("Le jeton reçu appartient à une autre version.");
     }
     if (token) session.tokens.add(token);
@@ -211,7 +211,7 @@ export async function recoverEstimateEditorRead(versionId: string): Promise<bool
     if (!session.active || session.readRequired !== recovery) return false;
     const committed = await recovery.read();
     if (!session.active || session.readRequired !== recovery) return false;
-    if (committed.version.id !== versionId || typeof committed.version.updated_at !== "string" || !committed.version.updated_at) {
+    if (committed.version.id.toLowerCase() !== versionId.toLowerCase() || typeof committed.version.updated_at !== "string" || !committed.version.updated_at) {
       throw new Error("La lecture reçue appartient à une autre version ou est incomplète.");
     }
     // Explicit recovery adopts a new baseline; old intentions keep their CAS.

@@ -1,3 +1,5 @@
+import { parseSaveEstimateVersionResponse } from "@/lib/estimates/write-response-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -60,7 +62,7 @@ export async function PATCH(
     const body = patchEstimateVersionSchema.parse(await parseJsonBody(request));
     const token = resolveConcurrencyToken(request, body.updated_at);
     const data = await patchEstimateVersion(versionId, body, token);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseSaveEstimateVersionResponse(data, versionId)));
   } catch (error) {
     return toErrorResponse(error);
   }

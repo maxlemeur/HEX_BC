@@ -1,3 +1,5 @@
+import { parseEstimateEventsResponse } from "@/lib/estimates/write-response-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -19,7 +21,7 @@ export async function GET(
   try {
     const versionId = await getVersionId(params);
     const data = await listEstimateVersionEvents(versionId);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateEventsResponse(data, versionId)));
   } catch (error) {
     return toErrorResponse(error);
   }

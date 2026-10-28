@@ -10589,7 +10589,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEstimateVersionResponse"
+                  "$ref": "#/components/schemas/ApiEstimatePromoteVariantResponse"
                 }
               }
             }
@@ -24576,6 +24576,9 @@
               "project": {
                 "type": "object",
                 "properties": {
+                  "name": {
+                    "type": "string"
+                  },
                   "id": {
                     "type": "string",
                     "format": "uuid",
@@ -24591,10 +24594,13 @@
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
-                  "name": {
-                    "type": "string"
-                  },
                   "reference": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "estimate_reference": {
                     "type": [
                       "string",
                       "null"
@@ -24607,14 +24613,9 @@
                     ]
                   },
                   "site_address": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 1000
-                      },
-                      {
-                        "type": "null"
-                      }
+                    "type": [
+                      "string",
+                      "null"
                     ]
                   },
                   "notes": {
@@ -24628,8 +24629,9 @@
                   }
                 },
                 "required": [
+                  "name",
                   "id",
-                  "name"
+                  "tenant_id"
                 ],
                 "additionalProperties": {}
               },
@@ -24645,6 +24647,12 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
                   },
                   "project_id": {
                     "type": "string",
@@ -24686,61 +24694,8 @@
                     "minimum": -9007199254740991,
                     "maximum": 9007199254740991
                   },
-                  "margin_multiplier": {
-                    "type": "number"
-                  },
-                  "margin_mode": {
-                    "type": "string"
-                  },
                   "currency": {
                     "type": "string"
-                  },
-                  "margin_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "discount_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "discount_amount_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 2147483647
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "discount_mode": {
-                    "type": "string"
-                  },
-                  "discount_steps": {
-                    "type": "array",
-                    "items": {
-                      "type": "number"
-                    }
-                  },
-                  "global_coefficient": {
-                    "type": "number"
-                  },
-                  "tax_rate_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "rounding_mode": {
-                    "type": "string"
-                  },
-                  "rounding_step_cents": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   },
                   "calc_engine_version": {
                     "anyOf": [
@@ -24758,74 +24713,9 @@
                       }
                     ]
                   },
-                  "sale_coefficient_fo": {
-                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "sale_coefficient_mo": {
-                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "gross_ht_cents": {
-                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "discount_applied_cents": {
-                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "commercial_rounding_cents": {
-                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "rounding_adjustment_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "content_revision": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
+                    "minimum": 0,
                     "maximum": 9007199254740991
                   },
                   "calc_snapshot_content_revision": {
@@ -24841,48 +24731,171 @@
                     ]
                   },
                   "calc_snapshot_context": {
-                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                    "anyOf": [
+                      {},
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  "approval_status": {
-                    "type": "string"
+                  "margin_mode": {
+                    "type": "string",
+                    "enum": [
+                      "fixed",
+                      "tiered"
+                    ]
+                  },
+                  "margin_multiplier": {
+                    "type": "number"
+                  },
+                  "margin_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_mode": {
+                    "type": "string",
+                    "enum": [
+                      "simple",
+                      "cascade"
+                    ]
+                  },
+                  "discount_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "discount_amount_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "global_coefficient": {
+                    "type": "number"
+                  },
+                  "rounding_mode": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "nearest",
+                      "up",
+                      "down"
+                    ]
+                  },
+                  "rounding_step_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "rounding_adjustment_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "commercial_rounding_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tax_rate_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ht_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_tax_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ttc_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "gross_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_fo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max_section_depth": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   "contractor_role": {
                     "type": "string"
                   },
-                  "total_ht_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
+                  "approval_status": {
+                    "type": "string",
+                    "enum": [
+                      "not_required",
+                      "required",
+                      "in_review",
+                      "approved",
+                      "changes_requested"
                     ]
                   },
-                  "total_tax_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "total_ttc_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
+                  "approval_summary": {},
+                  "approval_evaluated_at": {
+                    "type": [
+                      "string",
+                      "null"
                     ]
                   },
                   "parent_version_id": {
@@ -24913,148 +24926,8 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": 1,
-                        "maximum": 5
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "estimate_projects": {
-                    "anyOf": [
-                      {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "tenant_id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "user_id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "reference": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "client_name": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "site_address": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "maxLength": 1000
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ]
-                              },
-                              "notes": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "is_archived": {
-                                "type": "boolean"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name"
-                            ],
-                            "additionalProperties": {}
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "tenant_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "user_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "reference": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "client_name": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "site_address": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "maxLength": 1000
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "notes": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "is_archived": {
-                                  "type": "boolean"
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "name"
-                              ],
-                              "additionalProperties": {}
-                            }
-                          }
-                        ]
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
                       },
                       {
                         "type": "null"
@@ -25064,10 +24937,50 @@
                 },
                 "required": [
                   "id",
+                  "tenant_id",
+                  "created_at",
+                  "updated_at",
                   "project_id",
                   "version_number",
                   "status",
-                  "calc_engine_version"
+                  "title",
+                  "exclusions",
+                  "date_devis",
+                  "validite_jours",
+                  "currency",
+                  "calc_engine_version",
+                  "content_revision",
+                  "calc_snapshot_content_revision",
+                  "calc_snapshot_context",
+                  "margin_mode",
+                  "margin_multiplier",
+                  "margin_bp",
+                  "discount_mode",
+                  "discount_bp",
+                  "discount_steps",
+                  "discount_amount_cents",
+                  "discount_applied_cents",
+                  "global_coefficient",
+                  "rounding_mode",
+                  "rounding_step_cents",
+                  "rounding_adjustment_cents",
+                  "commercial_rounding_cents",
+                  "tax_rate_bp",
+                  "total_ht_cents",
+                  "total_tax_cents",
+                  "total_ttc_cents",
+                  "gross_ht_cents",
+                  "sale_coefficient_fo",
+                  "sale_coefficient_mo",
+                  "max_section_depth",
+                  "contractor_role",
+                  "approval_status",
+                  "approval_summary",
+                  "approval_evaluated_at",
+                  "parent_version_id",
+                  "variant_label",
+                  "seal_hash",
+                  "seal_payload_version"
                 ],
                 "additionalProperties": {}
               }
@@ -26996,6 +26909,12 @@
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
                   "project_id": {
                     "type": "string",
                     "format": "uuid",
@@ -27036,61 +26955,8 @@
                     "minimum": -9007199254740991,
                     "maximum": 9007199254740991
                   },
-                  "margin_multiplier": {
-                    "type": "number"
-                  },
-                  "margin_mode": {
-                    "type": "string"
-                  },
                   "currency": {
                     "type": "string"
-                  },
-                  "margin_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "discount_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "discount_amount_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 2147483647
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "discount_mode": {
-                    "type": "string"
-                  },
-                  "discount_steps": {
-                    "type": "array",
-                    "items": {
-                      "type": "number"
-                    }
-                  },
-                  "global_coefficient": {
-                    "type": "number"
-                  },
-                  "tax_rate_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "rounding_mode": {
-                    "type": "string"
-                  },
-                  "rounding_step_cents": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   },
                   "calc_engine_version": {
                     "anyOf": [
@@ -27107,64 +26973,6 @@
                         "const": 3
                       }
                     ]
-                  },
-                  "sale_coefficient_fo": {
-                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "sale_coefficient_mo": {
-                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "gross_ht_cents": {
-                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "discount_applied_cents": {
-                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "commercial_rounding_cents": {
-                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "rounding_adjustment_cents": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   },
                   "content_revision": {
                     "type": "integer",
@@ -27184,13 +26992,108 @@
                     ]
                   },
                   "calc_snapshot_context": {
-                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                    "anyOf": [
+                      {},
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  "approval_status": {
-                    "type": "string"
+                  "margin_mode": {
+                    "type": "string",
+                    "enum": [
+                      "fixed",
+                      "tiered"
+                    ]
                   },
-                  "contractor_role": {
-                    "type": "string"
+                  "margin_multiplier": {
+                    "type": "number"
+                  },
+                  "margin_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_mode": {
+                    "type": "string",
+                    "enum": [
+                      "simple",
+                      "cascade"
+                    ]
+                  },
+                  "discount_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "discount_amount_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "global_coefficient": {
+                    "type": "number"
+                  },
+                  "rounding_mode": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "nearest",
+                      "up",
+                      "down"
+                    ]
+                  },
+                  "rounding_step_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "rounding_adjustment_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "commercial_rounding_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tax_rate_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   "total_ht_cents": {
                     "type": "integer",
@@ -27206,6 +27109,55 @@
                     "type": "integer",
                     "minimum": -9007199254740991,
                     "maximum": 9007199254740991
+                  },
+                  "gross_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_fo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max_section_depth": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "contractor_role": {
+                    "type": "string"
+                  },
+                  "approval_status": {
+                    "type": "string",
+                    "enum": [
+                      "not_required",
+                      "required",
+                      "in_review",
+                      "approved",
+                      "changes_requested"
+                    ]
+                  },
+                  "approval_summary": {},
+                  "approval_evaluated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "parent_version_id": {
                     "anyOf": [
@@ -27235,148 +27187,8 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": 1,
-                        "maximum": 5
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "estimate_projects": {
-                    "anyOf": [
-                      {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "tenant_id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "user_id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "reference": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "client_name": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "site_address": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "maxLength": 1000
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ]
-                              },
-                              "notes": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "is_archived": {
-                                "type": "boolean"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name"
-                            ],
-                            "additionalProperties": {}
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "tenant_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "user_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "reference": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "client_name": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "site_address": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "maxLength": 1000
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "notes": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "is_archived": {
-                                  "type": "boolean"
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "name"
-                              ],
-                              "additionalProperties": {}
-                            }
-                          }
-                        ]
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
                       },
                       {
                         "type": "null"
@@ -27386,16 +27198,50 @@
                 },
                 "required": [
                   "id",
+                  "tenant_id",
+                  "created_at",
+                  "updated_at",
                   "project_id",
                   "version_number",
                   "status",
+                  "title",
+                  "exclusions",
+                  "date_devis",
+                  "validite_jours",
+                  "currency",
                   "calc_engine_version",
-                  "rounding_adjustment_cents",
                   "content_revision",
+                  "calc_snapshot_content_revision",
+                  "calc_snapshot_context",
+                  "margin_mode",
+                  "margin_multiplier",
+                  "margin_bp",
+                  "discount_mode",
+                  "discount_bp",
+                  "discount_steps",
+                  "discount_amount_cents",
+                  "discount_applied_cents",
+                  "global_coefficient",
+                  "rounding_mode",
+                  "rounding_step_cents",
+                  "rounding_adjustment_cents",
+                  "commercial_rounding_cents",
+                  "tax_rate_bp",
                   "total_ht_cents",
                   "total_tax_cents",
                   "total_ttc_cents",
-                  "updated_at"
+                  "gross_ht_cents",
+                  "sale_coefficient_fo",
+                  "sale_coefficient_mo",
+                  "max_section_depth",
+                  "contractor_role",
+                  "approval_status",
+                  "approval_summary",
+                  "approval_evaluated_at",
+                  "parent_version_id",
+                  "variant_label",
+                  "seal_hash",
+                  "seal_payload_version"
                 ],
                 "additionalProperties": {}
               },
@@ -27404,45 +27250,21 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "selected_supplier_details": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "price_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "name": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "reference": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "price_id",
-                            "name",
-                            "reference"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
                     "id": {
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "tenant_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
                     },
                     "version_id": {
                       "type": "string",
@@ -27489,9 +27311,27 @@
                       ]
                     },
                     "unit_price_ht_cents": {
-                      "type": [
-                        "number",
-                        "null"
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pu_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "tax_rate_bp": {
@@ -27512,6 +27352,12 @@
                         "null"
                       ]
                     },
+                    "k_mo": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
                     "h_mo": {
                       "type": [
                         "number",
@@ -27519,18 +27365,15 @@
                       ]
                     },
                     "h_mo_majoration": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "k_mo": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
+                      "type": "number"
                     },
                     "h_mo_atelier": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "h_mo_chantier": {
                       "type": [
                         "number",
                         "null"
@@ -27540,6 +27383,42 @@
                       "type": [
                         "number",
                         "null"
+                      ]
+                    },
+                    "k_mo_chantier": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "h_mo_per_unit": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "h_mo_atelier_per_unit": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "h_mo_chantier_per_unit": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "labor_role_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "labor_role_atelier_id": {
@@ -27554,37 +27433,7 @@
                         }
                       ]
                     },
-                    "h_mo_chantier": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "k_mo_chantier": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
                     "labor_role_chantier_id": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "pu_ht_cents": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "labor_role_id": {
                       "anyOf": [
                         {
                           "type": "string",
@@ -27620,6 +27469,18 @@
                         }
                       ]
                     },
+                    "product_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "selected_supplier_price_id": {
                       "anyOf": [
                         {
@@ -27632,36 +27493,69 @@
                         }
                       ]
                     },
-                    "source_provider": {
-                      "description": "Origine immédiate de la ligne, sous forme de texte libre. assembly_library désigne une ligne réutilisée depuis la bibliothèque d'ouvrages.",
+                    "selected_supplier_details": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "price_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reference": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "price_id",
+                            "name",
+                            "reference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "line_nature": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "supply_only",
+                            "supply_and_labor",
+                            "labor_only"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "fo_provision": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "aid": {
                       "type": [
                         "string",
                         "null"
                       ]
                     },
-                    "source_metadata": {
-                      "description": "Provenance JSON. Pour assembly_library : kind=assembly_library et library_origin contenant assembly_id (ouvrage feuille), assembly_item_id et source_metadata (copie JSON exacte de l'item d'origine). Cette copie historique ne valide pas les quantités ni les exigences du devis actuel."
-                    },
-                    "line_total_ht_cents": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "line_tax_cents": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "line_total_ttc_cents": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
                     "unit_code": {
-                      "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
                       "type": [
                         "string",
                         "null"
@@ -27678,23 +27572,40 @@
                         "not_applicable"
                       ]
                     },
-                    "h_mo_per_unit": {
-                      "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
-                      "type": [
-                        "number",
-                        "null"
+                    "line_total_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
-                    "h_mo_atelier_per_unit": {
-                      "type": [
-                        "number",
-                        "null"
+                    "line_tax_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
-                    "h_mo_chantier_per_unit": {
-                      "type": [
-                        "number",
-                        "null"
+                    "line_total_ttc_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "snapshot_pu_ht_cents": {
@@ -27710,7 +27621,6 @@
                       ]
                     },
                     "snapshot_gross_ht_cents": {
-                      "description": "Moteur 3 : brut de ligne figé au gel.",
                       "anyOf": [
                         {
                           "type": "integer",
@@ -27723,7 +27633,6 @@
                       ]
                     },
                     "snapshot_gross_fo_ht_cents": {
-                      "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
                       "anyOf": [
                         {
                           "type": "integer",
@@ -27758,14 +27667,263 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "snapshot_mo_atelier_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_mo_chantier_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_provider": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source_job_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_file_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source_page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_metadata": {},
+                    "source_level": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source_version_number": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_extracted_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "line_truth": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "manual",
+                                    "dpgf",
+                                    "plan",
+                                    "brief",
+                                    "cctp",
+                                    "assembly",
+                                    "mixed",
+                                    "unknown"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "label",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "qtyStatus": {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "imported_unverified",
+                                    "measured",
+                                    "assumed",
+                                    "provisional",
+                                    "to_confirm",
+                                    "missing"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "label",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "confidence": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string",
+                                  "enum": [
+                                    "faible",
+                                    "moyenne",
+                                    "forte"
+                                  ]
+                                },
+                                "score": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "detail": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "label",
+                                "score",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "needsReview": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "source",
+                            "qtyStatus",
+                            "confidence",
+                            "needsReview"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
                     "id",
+                    "tenant_id",
+                    "created_at",
+                    "updated_at",
                     "version_id",
+                    "parent_id",
                     "item_type",
                     "position",
-                    "title"
+                    "title",
+                    "description",
+                    "quantity",
+                    "unit_price_ht_cents",
+                    "pu_ht_cents",
+                    "tax_rate_bp",
+                    "k_fo",
+                    "k_mo",
+                    "h_mo",
+                    "h_mo_majoration",
+                    "h_mo_atelier",
+                    "h_mo_chantier",
+                    "k_mo_atelier",
+                    "k_mo_chantier",
+                    "h_mo_per_unit",
+                    "h_mo_atelier_per_unit",
+                    "h_mo_chantier_per_unit",
+                    "labor_role_id",
+                    "labor_role_atelier_id",
+                    "labor_role_chantier_id",
+                    "category_id",
+                    "supply_type_id",
+                    "product_id",
+                    "selected_supplier_price_id",
+                    "line_nature",
+                    "fo_provision",
+                    "aid",
+                    "unit_code",
+                    "pricing_status",
+                    "line_total_ht_cents",
+                    "line_tax_cents",
+                    "line_total_ttc_cents",
+                    "snapshot_pu_ht_cents",
+                    "snapshot_gross_ht_cents",
+                    "snapshot_gross_fo_ht_cents",
+                    "snapshot_fo_ht_cents",
+                    "snapshot_mo_ht_cents",
+                    "snapshot_mo_atelier_ht_cents",
+                    "snapshot_mo_chantier_ht_cents",
+                    "source_provider",
+                    "source_job_id",
+                    "source_file_name",
+                    "source_page",
+                    "source_metadata"
                   ],
                   "additionalProperties": {}
                 }
@@ -31816,16 +31974,23 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    "estimate_version_id": {
+                    "estimateVersionId": {
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    "event_type": {
-                      "type": "string"
+                    "eventType": {
+                      "type": "string",
+                      "minLength": 1
                     },
-                    "metadata": {},
-                    "created_by": {
+                    "metadata": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    },
+                    "createdBy": {
                       "anyOf": [
                         {
                           "type": "string",
@@ -31837,30 +32002,30 @@
                         }
                       ]
                     },
-                    "actor_name": {
+                    "actorName": {
                       "type": [
                         "string",
                         "null"
                       ]
                     },
-                    "occurred_at": {
+                    "occurredAt": {
                       "type": "string"
                     },
-                    "created_at": {
+                    "createdAt": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "id",
-                    "estimate_version_id",
-                    "event_type",
+                    "estimateVersionId",
+                    "eventType",
                     "metadata",
-                    "created_by",
-                    "actor_name",
-                    "occurred_at",
-                    "created_at"
+                    "createdBy",
+                    "actorName",
+                    "occurredAt",
+                    "createdAt"
                   ],
-                  "additionalProperties": {}
+                  "additionalProperties": false
                 }
               }
             },
@@ -33165,66 +33330,24 @@
           "data": {
             "type": "object",
             "properties": {
-              "version": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "updated_at"
-                ],
-                "additionalProperties": false
-              },
               "item": {
                 "type": "object",
                 "properties": {
-                  "selected_supplier_details": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "price_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "name": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "reference": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "price_id",
-                          "name",
-                          "reference"
-                        ],
-                        "additionalProperties": false
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "id": {
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "tenant_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
                   },
                   "version_id": {
                     "type": "string",
@@ -33271,9 +33394,27 @@
                     ]
                   },
                   "unit_price_ht_cents": {
-                    "type": [
-                      "number",
-                      "null"
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pu_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
                   "tax_rate_bp": {
@@ -33294,6 +33435,12 @@
                       "null"
                     ]
                   },
+                  "k_mo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
                   "h_mo": {
                     "type": [
                       "number",
@@ -33301,18 +33448,15 @@
                     ]
                   },
                   "h_mo_majoration": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "k_mo": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   },
                   "h_mo_atelier": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_chantier": {
                     "type": [
                       "number",
                       "null"
@@ -33322,6 +33466,42 @@
                     "type": [
                       "number",
                       "null"
+                    ]
+                  },
+                  "k_mo_chantier": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_per_unit": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_atelier_per_unit": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_chantier_per_unit": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "labor_role_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
                   "labor_role_atelier_id": {
@@ -33336,37 +33516,7 @@
                       }
                     ]
                   },
-                  "h_mo_chantier": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "k_mo_chantier": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
                   "labor_role_chantier_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "pu_ht_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "labor_role_id": {
                     "anyOf": [
                       {
                         "type": "string",
@@ -33402,6 +33552,18 @@
                       }
                     ]
                   },
+                  "product_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "selected_supplier_price_id": {
                     "anyOf": [
                       {
@@ -33414,36 +33576,69 @@
                       }
                     ]
                   },
-                  "source_provider": {
-                    "description": "Origine immédiate de la ligne, sous forme de texte libre. assembly_library désigne une ligne réutilisée depuis la bibliothèque d'ouvrages.",
+                  "selected_supplier_details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "price_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reference": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "price_id",
+                          "name",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "line_nature": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "supply_only",
+                          "supply_and_labor",
+                          "labor_only"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "fo_provision": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "aid": {
                     "type": [
                       "string",
                       "null"
                     ]
                   },
-                  "source_metadata": {
-                    "description": "Provenance JSON. Pour assembly_library : kind=assembly_library et library_origin contenant assembly_id (ouvrage feuille), assembly_item_id et source_metadata (copie JSON exacte de l'item d'origine). Cette copie historique ne valide pas les quantités ni les exigences du devis actuel."
-                  },
-                  "line_total_ht_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "line_tax_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "line_total_ttc_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
                   "unit_code": {
-                    "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
                     "type": [
                       "string",
                       "null"
@@ -33460,23 +33655,40 @@
                       "not_applicable"
                     ]
                   },
-                  "h_mo_per_unit": {
-                    "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
-                    "type": [
-                      "number",
-                      "null"
+                  "line_total_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
-                  "h_mo_atelier_per_unit": {
-                    "type": [
-                      "number",
-                      "null"
+                  "line_tax_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
-                  "h_mo_chantier_per_unit": {
-                    "type": [
-                      "number",
-                      "null"
+                  "line_total_ttc_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
                   "snapshot_pu_ht_cents": {
@@ -33492,7 +33704,6 @@
                     ]
                   },
                   "snapshot_gross_ht_cents": {
-                    "description": "Moteur 3 : brut de ligne figé au gel.",
                     "anyOf": [
                       {
                         "type": "integer",
@@ -33505,7 +33716,6 @@
                     ]
                   },
                   "snapshot_gross_fo_ht_cents": {
-                    "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
                     "anyOf": [
                       {
                         "type": "integer",
@@ -33540,21 +33750,300 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "snapshot_mo_atelier_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_mo_chantier_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_provider": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_job_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_file_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_page": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_metadata": {},
+                  "source_level": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_extracted_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "line_truth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "manual",
+                                  "dpgf",
+                                  "plan",
+                                  "brief",
+                                  "cctp",
+                                  "assembly",
+                                  "mixed",
+                                  "unknown"
+                                ]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "detail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "label",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "qtyStatus": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "imported_unverified",
+                                  "measured",
+                                  "assumed",
+                                  "provisional",
+                                  "to_confirm",
+                                  "missing"
+                                ]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "detail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "label",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "confidence": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "enum": [
+                                  "faible",
+                                  "moyenne",
+                                  "forte"
+                                ]
+                              },
+                              "score": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "detail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "score",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "needsReview": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "qtyStatus",
+                          "confidence",
+                          "needsReview"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "id",
+                  "tenant_id",
+                  "created_at",
+                  "updated_at",
                   "version_id",
+                  "parent_id",
                   "item_type",
                   "position",
-                  "title"
+                  "title",
+                  "description",
+                  "quantity",
+                  "unit_price_ht_cents",
+                  "pu_ht_cents",
+                  "tax_rate_bp",
+                  "k_fo",
+                  "k_mo",
+                  "h_mo",
+                  "h_mo_majoration",
+                  "h_mo_atelier",
+                  "h_mo_chantier",
+                  "k_mo_atelier",
+                  "k_mo_chantier",
+                  "h_mo_per_unit",
+                  "h_mo_atelier_per_unit",
+                  "h_mo_chantier_per_unit",
+                  "labor_role_id",
+                  "labor_role_atelier_id",
+                  "labor_role_chantier_id",
+                  "category_id",
+                  "supply_type_id",
+                  "product_id",
+                  "selected_supplier_price_id",
+                  "line_nature",
+                  "fo_provision",
+                  "aid",
+                  "unit_code",
+                  "pricing_status",
+                  "line_total_ht_cents",
+                  "line_tax_cents",
+                  "line_total_ttc_cents",
+                  "snapshot_pu_ht_cents",
+                  "snapshot_gross_ht_cents",
+                  "snapshot_gross_fo_ht_cents",
+                  "snapshot_fo_ht_cents",
+                  "snapshot_mo_ht_cents",
+                  "snapshot_mo_atelier_ht_cents",
+                  "snapshot_mo_chantier_ht_cents",
+                  "source_provider",
+                  "source_job_id",
+                  "source_file_name",
+                  "source_page",
+                  "source_metadata"
                 ],
                 "additionalProperties": {}
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
+              "converted_from_item_type": {
+                "type": "string",
+                "enum": [
+                  "section",
+                  "line"
+                ]
               }
             },
             "required": [
-              "version",
-              "item"
+              "item",
+              "version"
             ],
             "additionalProperties": false
           }
@@ -33878,66 +34367,24 @@
           "data": {
             "type": "object",
             "properties": {
-              "version": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "updated_at"
-                ],
-                "additionalProperties": false
-              },
               "item": {
                 "type": "object",
                 "properties": {
-                  "selected_supplier_details": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "price_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "name": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "reference": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "price_id",
-                          "name",
-                          "reference"
-                        ],
-                        "additionalProperties": false
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "id": {
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "tenant_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
                   },
                   "version_id": {
                     "type": "string",
@@ -33984,9 +34431,27 @@
                     ]
                   },
                   "unit_price_ht_cents": {
-                    "type": [
-                      "number",
-                      "null"
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pu_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
                   "tax_rate_bp": {
@@ -34007,6 +34472,12 @@
                       "null"
                     ]
                   },
+                  "k_mo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
                   "h_mo": {
                     "type": [
                       "number",
@@ -34014,18 +34485,15 @@
                     ]
                   },
                   "h_mo_majoration": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "k_mo": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
+                    "type": "number"
                   },
                   "h_mo_atelier": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_chantier": {
                     "type": [
                       "number",
                       "null"
@@ -34035,6 +34503,42 @@
                     "type": [
                       "number",
                       "null"
+                    ]
+                  },
+                  "k_mo_chantier": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_per_unit": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_atelier_per_unit": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "h_mo_chantier_per_unit": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "labor_role_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
                   "labor_role_atelier_id": {
@@ -34049,37 +34553,7 @@
                       }
                     ]
                   },
-                  "h_mo_chantier": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "k_mo_chantier": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
                   "labor_role_chantier_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "pu_ht_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "labor_role_id": {
                     "anyOf": [
                       {
                         "type": "string",
@@ -34115,6 +34589,18 @@
                       }
                     ]
                   },
+                  "product_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "selected_supplier_price_id": {
                     "anyOf": [
                       {
@@ -34127,36 +34613,69 @@
                       }
                     ]
                   },
-                  "source_provider": {
-                    "description": "Origine immédiate de la ligne, sous forme de texte libre. assembly_library désigne une ligne réutilisée depuis la bibliothèque d'ouvrages.",
+                  "selected_supplier_details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "price_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reference": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "price_id",
+                          "name",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "line_nature": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "supply_only",
+                          "supply_and_labor",
+                          "labor_only"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "fo_provision": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "aid": {
                     "type": [
                       "string",
                       "null"
                     ]
                   },
-                  "source_metadata": {
-                    "description": "Provenance JSON. Pour assembly_library : kind=assembly_library et library_origin contenant assembly_id (ouvrage feuille), assembly_item_id et source_metadata (copie JSON exacte de l'item d'origine). Cette copie historique ne valide pas les quantités ni les exigences du devis actuel."
-                  },
-                  "line_total_ht_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "line_tax_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "line_total_ttc_cents": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
                   "unit_code": {
-                    "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
                     "type": [
                       "string",
                       "null"
@@ -34173,23 +34692,40 @@
                       "not_applicable"
                     ]
                   },
-                  "h_mo_per_unit": {
-                    "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
-                    "type": [
-                      "number",
-                      "null"
+                  "line_total_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
-                  "h_mo_atelier_per_unit": {
-                    "type": [
-                      "number",
-                      "null"
+                  "line_tax_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
-                  "h_mo_chantier_per_unit": {
-                    "type": [
-                      "number",
-                      "null"
+                  "line_total_ttc_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
                   "snapshot_pu_ht_cents": {
@@ -34205,7 +34741,6 @@
                     ]
                   },
                   "snapshot_gross_ht_cents": {
-                    "description": "Moteur 3 : brut de ligne figé au gel.",
                     "anyOf": [
                       {
                         "type": "integer",
@@ -34218,7 +34753,6 @@
                     ]
                   },
                   "snapshot_gross_fo_ht_cents": {
-                    "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
                     "anyOf": [
                       {
                         "type": "integer",
@@ -34253,21 +34787,300 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "snapshot_mo_atelier_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_mo_chantier_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_provider": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_job_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_file_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_page": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_metadata": {},
+                  "source_level": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_extracted_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "line_truth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "manual",
+                                  "dpgf",
+                                  "plan",
+                                  "brief",
+                                  "cctp",
+                                  "assembly",
+                                  "mixed",
+                                  "unknown"
+                                ]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "detail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "label",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "qtyStatus": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "imported_unverified",
+                                  "measured",
+                                  "assumed",
+                                  "provisional",
+                                  "to_confirm",
+                                  "missing"
+                                ]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "detail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "label",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "confidence": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "enum": [
+                                  "faible",
+                                  "moyenne",
+                                  "forte"
+                                ]
+                              },
+                              "score": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "detail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "score",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "needsReview": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "qtyStatus",
+                          "confidence",
+                          "needsReview"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "id",
+                  "tenant_id",
+                  "created_at",
+                  "updated_at",
                   "version_id",
+                  "parent_id",
                   "item_type",
                   "position",
-                  "title"
+                  "title",
+                  "description",
+                  "quantity",
+                  "unit_price_ht_cents",
+                  "pu_ht_cents",
+                  "tax_rate_bp",
+                  "k_fo",
+                  "k_mo",
+                  "h_mo",
+                  "h_mo_majoration",
+                  "h_mo_atelier",
+                  "h_mo_chantier",
+                  "k_mo_atelier",
+                  "k_mo_chantier",
+                  "h_mo_per_unit",
+                  "h_mo_atelier_per_unit",
+                  "h_mo_chantier_per_unit",
+                  "labor_role_id",
+                  "labor_role_atelier_id",
+                  "labor_role_chantier_id",
+                  "category_id",
+                  "supply_type_id",
+                  "product_id",
+                  "selected_supplier_price_id",
+                  "line_nature",
+                  "fo_provision",
+                  "aid",
+                  "unit_code",
+                  "pricing_status",
+                  "line_total_ht_cents",
+                  "line_tax_cents",
+                  "line_total_ttc_cents",
+                  "snapshot_pu_ht_cents",
+                  "snapshot_gross_ht_cents",
+                  "snapshot_gross_fo_ht_cents",
+                  "snapshot_fo_ht_cents",
+                  "snapshot_mo_ht_cents",
+                  "snapshot_mo_atelier_ht_cents",
+                  "snapshot_mo_chantier_ht_cents",
+                  "source_provider",
+                  "source_job_id",
+                  "source_file_name",
+                  "source_page",
+                  "source_metadata"
                 ],
                 "additionalProperties": {}
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
+              "converted_from_item_type": {
+                "type": "string",
+                "enum": [
+                  "section",
+                  "line"
+                ]
               }
             },
             "required": [
-              "version",
-              "item"
+              "item",
+              "version"
             ],
             "additionalProperties": false
           }
@@ -34696,7 +35509,7 @@
             "properties": {
               "updated_count": {
                 "type": "integer",
-                "minimum": -9007199254740991,
+                "minimum": 0,
                 "maximum": 9007199254740991
               },
               "version": {
@@ -34709,6 +35522,11 @@
                   },
                   "updated_at": {
                     "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -34741,8 +35559,7 @@
                   "total_tax_cents",
                   "total_ttc_cents"
                 ],
-                "additionalProperties": false,
-                "description": "Totaux canoniques confirmes par le serveur apres une sauvegarde V2. Les trois montants sont des entiers surs non negatifs en centimes et total_ht_cents + total_tax_cents = total_ttc_cents. Ce bloc peut etre absent sur les anciens chemins V1 ou sans modification."
+                "additionalProperties": false
               }
             },
             "required": [
@@ -47770,6 +48587,12 @@
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
                   "project_id": {
                     "type": "string",
                     "format": "uuid",
@@ -47810,61 +48633,8 @@
                     "minimum": -9007199254740991,
                     "maximum": 9007199254740991
                   },
-                  "margin_multiplier": {
-                    "type": "number"
-                  },
-                  "margin_mode": {
-                    "type": "string"
-                  },
                   "currency": {
                     "type": "string"
-                  },
-                  "margin_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "discount_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "discount_amount_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 2147483647
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "discount_mode": {
-                    "type": "string"
-                  },
-                  "discount_steps": {
-                    "type": "array",
-                    "items": {
-                      "type": "number"
-                    }
-                  },
-                  "global_coefficient": {
-                    "type": "number"
-                  },
-                  "tax_rate_bp": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  "rounding_mode": {
-                    "type": "string"
-                  },
-                  "rounding_step_cents": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   },
                   "calc_engine_version": {
                     "anyOf": [
@@ -47882,74 +48652,9 @@
                       }
                     ]
                   },
-                  "sale_coefficient_fo": {
-                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "sale_coefficient_mo": {
-                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "gross_ht_cents": {
-                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "discount_applied_cents": {
-                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "commercial_rounding_cents": {
-                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "rounding_adjustment_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "content_revision": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
+                    "minimum": 0,
                     "maximum": 9007199254740991
                   },
                   "calc_snapshot_content_revision": {
@@ -47965,48 +48670,171 @@
                     ]
                   },
                   "calc_snapshot_context": {
-                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                    "anyOf": [
+                      {},
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  "approval_status": {
-                    "type": "string"
+                  "margin_mode": {
+                    "type": "string",
+                    "enum": [
+                      "fixed",
+                      "tiered"
+                    ]
+                  },
+                  "margin_multiplier": {
+                    "type": "number"
+                  },
+                  "margin_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_mode": {
+                    "type": "string",
+                    "enum": [
+                      "simple",
+                      "cascade"
+                    ]
+                  },
+                  "discount_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "discount_amount_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "global_coefficient": {
+                    "type": "number"
+                  },
+                  "rounding_mode": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "nearest",
+                      "up",
+                      "down"
+                    ]
+                  },
+                  "rounding_step_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "rounding_adjustment_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "commercial_rounding_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tax_rate_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ht_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_tax_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ttc_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "gross_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_fo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max_section_depth": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   "contractor_role": {
                     "type": "string"
                   },
-                  "total_ht_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
+                  "approval_status": {
+                    "type": "string",
+                    "enum": [
+                      "not_required",
+                      "required",
+                      "in_review",
+                      "approved",
+                      "changes_requested"
                     ]
                   },
-                  "total_tax_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "total_ttc_cents": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
+                  "approval_summary": {},
+                  "approval_evaluated_at": {
+                    "type": [
+                      "string",
+                      "null"
                     ]
                   },
                   "parent_version_id": {
@@ -48037,148 +48865,8 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": 1,
-                        "maximum": 5
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "estimate_projects": {
-                    "anyOf": [
-                      {
-                        "anyOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "tenant_id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "user_id": {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "reference": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "client_name": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "site_address": {
-                                "anyOf": [
-                                  {
-                                    "type": "string",
-                                    "maxLength": 1000
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ]
-                              },
-                              "notes": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "is_archived": {
-                                "type": "boolean"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name"
-                            ],
-                            "additionalProperties": {}
-                          },
-                          {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "tenant_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "user_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "reference": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "client_name": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "site_address": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "maxLength": 1000
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "notes": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "is_archived": {
-                                  "type": "boolean"
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "name"
-                              ],
-                              "additionalProperties": {}
-                            }
-                          }
-                        ]
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
                       },
                       {
                         "type": "null"
@@ -48188,10 +48876,50 @@
                 },
                 "required": [
                   "id",
+                  "tenant_id",
+                  "created_at",
+                  "updated_at",
                   "project_id",
                   "version_number",
                   "status",
-                  "calc_engine_version"
+                  "title",
+                  "exclusions",
+                  "date_devis",
+                  "validite_jours",
+                  "currency",
+                  "calc_engine_version",
+                  "content_revision",
+                  "calc_snapshot_content_revision",
+                  "calc_snapshot_context",
+                  "margin_mode",
+                  "margin_multiplier",
+                  "margin_bp",
+                  "discount_mode",
+                  "discount_bp",
+                  "discount_steps",
+                  "discount_amount_cents",
+                  "discount_applied_cents",
+                  "global_coefficient",
+                  "rounding_mode",
+                  "rounding_step_cents",
+                  "rounding_adjustment_cents",
+                  "commercial_rounding_cents",
+                  "tax_rate_bp",
+                  "total_ht_cents",
+                  "total_tax_cents",
+                  "total_ttc_cents",
+                  "gross_ht_cents",
+                  "sale_coefficient_fo",
+                  "sale_coefficient_mo",
+                  "max_section_depth",
+                  "contractor_role",
+                  "approval_status",
+                  "approval_summary",
+                  "approval_evaluated_at",
+                  "parent_version_id",
+                  "variant_label",
+                  "seal_hash",
+                  "seal_payload_version"
                 ],
                 "additionalProperties": {}
               }
@@ -51351,6 +52079,378 @@
         "properties": {},
         "additionalProperties": false
       },
+      "ApiEstimatePromoteVariantResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "tenant_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "version_number": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "sending",
+                      "sent",
+                      "accepted",
+                      "archived"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "exclusions": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "date_devis": {
+                    "type": "string"
+                  },
+                  "validite_jours": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "calc_engine_version": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
+                      }
+                    ]
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "calc_snapshot_content_revision": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "calc_snapshot_context": {
+                    "anyOf": [
+                      {},
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "margin_mode": {
+                    "type": "string",
+                    "enum": [
+                      "fixed",
+                      "tiered"
+                    ]
+                  },
+                  "margin_multiplier": {
+                    "type": "number"
+                  },
+                  "margin_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_mode": {
+                    "type": "string",
+                    "enum": [
+                      "simple",
+                      "cascade"
+                    ]
+                  },
+                  "discount_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "discount_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "discount_amount_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "global_coefficient": {
+                    "type": "number"
+                  },
+                  "rounding_mode": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "nearest",
+                      "up",
+                      "down"
+                    ]
+                  },
+                  "rounding_step_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "rounding_adjustment_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "commercial_rounding_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tax_rate_bp": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ht_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_tax_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ttc_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "gross_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_fo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max_section_depth": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "contractor_role": {
+                    "type": "string"
+                  },
+                  "approval_status": {
+                    "type": "string",
+                    "enum": [
+                      "not_required",
+                      "required",
+                      "in_review",
+                      "approved",
+                      "changes_requested"
+                    ]
+                  },
+                  "approval_summary": {},
+                  "approval_evaluated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "parent_version_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "variant_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "seal_hash": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "seal_payload_version": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "tenant_id",
+                  "created_at",
+                  "updated_at",
+                  "project_id",
+                  "version_number",
+                  "status",
+                  "title",
+                  "exclusions",
+                  "date_devis",
+                  "validite_jours",
+                  "currency",
+                  "calc_engine_version",
+                  "content_revision",
+                  "calc_snapshot_content_revision",
+                  "calc_snapshot_context",
+                  "margin_mode",
+                  "margin_multiplier",
+                  "margin_bp",
+                  "discount_mode",
+                  "discount_bp",
+                  "discount_steps",
+                  "discount_amount_cents",
+                  "discount_applied_cents",
+                  "global_coefficient",
+                  "rounding_mode",
+                  "rounding_step_cents",
+                  "rounding_adjustment_cents",
+                  "commercial_rounding_cents",
+                  "tax_rate_bp",
+                  "total_ht_cents",
+                  "total_tax_cents",
+                  "total_ttc_cents",
+                  "gross_ht_cents",
+                  "sale_coefficient_fo",
+                  "sale_coefficient_mo",
+                  "max_section_depth",
+                  "contractor_role",
+                  "approval_status",
+                  "approval_summary",
+                  "approval_evaluated_at",
+                  "parent_version_id",
+                  "variant_label",
+                  "seal_hash",
+                  "seal_payload_version"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ApiEstimateVerifySealResponse": {
         "type": "object",
         "properties": {
@@ -51365,7 +52465,8 @@
                 "type": "boolean"
               },
               "computed_hash": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
               },
               "stored_hash": {
                 "type": [
@@ -51377,56 +52478,44 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "minimum": -9007199254740991,
+                    "minimum": 0,
                     "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
                   }
-                ],
-                "description": "Marqueur du sceau : 5 = sceau lié à l'offre (contrat client et PDF) ; 1 à 4 = sceau historique ; nul sans sceau."
+                ]
               },
               "client_contract_version": {
                 "anyOf": [
                   {
-                    "anyOf": [
-                      {
-                        "type": "number",
-                        "const": 1
-                      },
-                      {
-                        "type": "number",
-                        "const": 2
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
                   }
-                ],
-                "description": "Marqueur 5 : contrat client 1 (moteurs 1 et 2) ou 2 (moteur 3) ; nul sinon."
+                ]
               },
               "calc_payload_version": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "minimum": -9007199254740991,
+                    "minimum": 0,
                     "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
                   }
-                ],
-                "description": "Charge de calcul hachée : 4 (contrat 1) ou 6 (contrat 2, moteur 3) sous le marqueur 5, charge historique retrouvée sinon ; nulle si aucune."
+                ]
               }
             },
             "required": [
               "valid",
               "computed_hash",
               "stored_hash",
-              "seal_payload_version",
-              "client_contract_version",
-              "calc_payload_version"
+              "seal_payload_version"
             ],
             "additionalProperties": false
           }
@@ -61068,8 +62157,8 @@
               },
               "threshold": {
                 "type": "number",
-                "minimum": 0,
-                "maximum": 1
+                "minimum": 0.5,
+                "maximum": 0.99
               },
               "summary": {
                 "type": "object",
@@ -61153,7 +62242,7 @@
                         },
                         "quantity": {
                           "type": "number",
-                          "exclusiveMinimum": 0
+                          "minimum": 0
                         },
                         "unit": {
                           "type": [
@@ -61165,7 +62254,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -61212,7 +62301,7 @@
                           },
                           "quantity": {
                             "type": "number",
-                            "exclusiveMinimum": 0
+                            "minimum": 0
                           },
                           "unit": {
                             "type": "string"
@@ -61221,7 +62310,7 @@
                             "anyOf": [
                               {
                                 "type": "integer",
-                                "minimum": -9007199254740991,
+                                "exclusiveMinimum": 0,
                                 "maximum": 9007199254740991
                               },
                               {
@@ -61276,15 +62365,25 @@
                       }
                     },
                     "dpgf_quantity": {
-                      "type": [
-                        "number",
-                        "null"
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "takeoff_quantity": {
-                      "type": [
-                        "number",
-                        "null"
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "quantity_unit": {
@@ -61459,7 +62558,7 @@
                               "anyOf": [
                                 {
                                   "type": "integer",
-                                  "minimum": -9007199254740991,
+                                  "exclusiveMinimum": 0,
                                   "maximum": 9007199254740991
                                 },
                                 {
@@ -61545,15 +62644,25 @@
                       ]
                     },
                     "delta_absolute": {
-                      "type": [
-                        "number",
-                        "null"
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "delta_percent": {
-                      "type": [
-                        "number",
-                        "null"
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     },
                     "is_exception": {
@@ -61584,7 +62693,7 @@
                           "type": "object",
                           "properties": {
                             "score": {
-                              "type": "integer",
+                              "type": "number",
                               "minimum": 0,
                               "maximum": 100
                             },
@@ -61671,7 +62780,7 @@
                     },
                     "quantity": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "minimum": 0
                     },
                     "unit": {
                       "type": "string"
@@ -61686,7 +62795,7 @@
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": -9007199254740991,
+                          "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
                         {
@@ -61741,7 +62850,7 @@
                     },
                     "quantity": {
                       "type": "number",
-                      "exclusiveMinimum": 0
+                      "minimum": 0
                     },
                     "unit": {
                       "type": "string"
@@ -61756,7 +62865,7 @@
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": -9007199254740991,
+                          "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
                         {
@@ -61802,7 +62911,7 @@
                   "page_size": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 9007199254740991
+                    "maximum": 200
                   },
                   "next_cursor": {
                     "type": [
@@ -62124,7 +63233,7 @@
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": -9007199254740991,
+                          "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
                         {
@@ -62256,7 +63365,7 @@
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": -9007199254740991,
+                          "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
                         {
@@ -63788,7 +64897,7 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": -9007199254740991,
+                        "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
                       },
                       {

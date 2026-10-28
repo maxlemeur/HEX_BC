@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import type {
+  TakeoffDpgfComparisonEvidenceKind,
+  TakeoffDpgfReviewDecision,
+  TakeoffDpgfReviewDecisionRecord,
+} from "@/lib/takeoff/dpgf-comparison-contracts";
+
 import {
   TakeoffExchangeSchema,
   TakeoffItemSchema,
@@ -462,125 +468,28 @@ export type TakeoffJobCompareResponse = {
   unchanged: TakeoffDiffUnchangedEntry[];
 };
 
-export type TakeoffDpgfComparisonView = "all" | "exceptions_only";
+export type {
+  TakeoffDpgfComparisonView,
+  TakeoffDpgfComparisonEvidenceKind,
+  TakeoffDpgfComparisonEvidenceType,
+  TakeoffDpgfReviewStatus,
+  TakeoffDpgfReviewDecision,
+  TakeoffDpgfComparisonDpgfLine,
+  TakeoffDpgfComparisonTakeoffLine,
+  TakeoffDpgfComparisonProof,
+  TakeoffDpgfReviewDecisionRecord,
+  TakeoffDpgfComparisonUnusedTakeoffItem,
+  TakeoffDpgfLineRiskSummary,
+  TakeoffDpgfComparisonRow,
+  TakeoffDpgfComparisonSummary,
+  TakeoffDpgfComparisonResponse,
+} from "@/lib/takeoff/dpgf-comparison-contracts";
 
-export type TakeoffDpgfComparisonEvidenceKind =
-  | "fact"
-  | "hypothesis"
-  | "inference";
-
-export type TakeoffDpgfComparisonEvidenceType =
-  | "dpgf"
-  | "takeoff"
-  | "plan_zone"
-  | "formula"
-  | "price_source"
-  | "comment";
-
-export type TakeoffDpgfReviewStatus =
-  | "reliable_match"
-  | "to_confirm"
-  | "significant_gap"
-  | "unlinked"
-  | "forced_manual";
-
-export type TakeoffDpgfReviewDecision =
-  | "keep_dpgf"
-  | "keep_takeoff"
-  | "manual_fix"
-  | "out_of_scope";
-
-export type TakeoffDpgfComparisonDpgfLine = {
-  estimate_item_id: string;
-  title: string;
-  description: string | null;
-  quantity: number;
-  unit: string | null;
-  source_page: number | null;
-  source_file_name: string | null;
-  position: number;
-};
-
-export type TakeoffDpgfComparisonTakeoffLine = {
-  item_id: string;
-  designation: string;
-  quantity: number;
-  unit: string;
-  source_page: number | null;
-  source_file_name: string | null;
-  confidence: number | null;
-  evidence: string | null;
-  metadata: Record<string, unknown>;
-};
-
-export type TakeoffDpgfComparisonProof = {
-  proof_id: string;
-  type: TakeoffDpgfComparisonEvidenceType;
-  kind: TakeoffDpgfComparisonEvidenceKind;
-  label: string;
-  source: string;
-  confidence_score: number | null;
-  note: string | null;
-};
-
-export type TakeoffLineEvidenceStatus = "active" | "invalidated" | "replaced";
-
-export type TakeoffLineEvidence = {
-  evidence_id: string;
-  type: TakeoffDpgfComparisonEvidenceType;
-  kind: TakeoffDpgfComparisonEvidenceKind;
-  label: string;
-  source: string;
-  source_file_name: string | null;
-  source_page: number | null;
-  confidence_score: number | null;
-  note: string | null;
-  created_at: string;
-  author_name: string | null;
-  status: TakeoffLineEvidenceStatus;
-  supersedes_evidence_id: string | null;
-  replaced_by_evidence_id: string | null;
-};
-
-export type TakeoffLineEvidencePanelResponse = {
-  line_id: string;
-  version_id: string;
-  job_id: string;
-  evidences: TakeoffLineEvidence[];
-  history: TakeoffLineEvidence[];
-};
-
-export type TakeoffDpgfReviewDecisionRecord = {
-  id: string;
-  tenant_id: string;
-  version_id: string;
-  takeoff_job_id: string;
-  estimate_item_id: string;
-  decision: TakeoffDpgfReviewDecision;
-  reason: string | null;
-  review_reference: string;
-  line_label: string;
-  line_position: number;
-  source_file_name: string | null;
-  source_page: number | null;
-  decided_at: string;
-  updated_at: string;
-  decided_by: string | null;
-  source: "current_version" | "carried_over";
-  carried_over_from_version_id: string | null;
-  carried_over_from_version_number: number | null;
-};
-
-export type TakeoffDpgfComparisonUnusedTakeoffItem = {
-  item_id: string;
-  designation: string;
-  quantity: number;
-  unit: string;
-  source_file_name: string | null;
-  source_page: number | null;
-  confidence_score: number | null;
-  evidence: string | null;
-};
+export type {
+  TakeoffLineEvidenceStatus,
+  TakeoffLineEvidence,
+  TakeoffLineEvidencePanelResponse,
+} from "@/lib/takeoff/line-evidence-contracts";
 
 export type TakeoffRiskSeverity = "info" | "warning" | "critical";
 export type TakeoffRiskStatus = "to_process" | "assumed" | "false_positive";
@@ -604,13 +513,6 @@ export type TakeoffRiskProvenanceEntry = {
   source: string;
   confidence_score: number | null;
   note: string | null;
-};
-
-export type TakeoffDpgfLineRiskSummary = {
-  score: number;
-  severity: TakeoffRiskSeverity;
-  causes: string[];
-  status: TakeoffRiskStatus | null;
 };
 
 export type TakeoffRiskAlert = {
@@ -658,54 +560,6 @@ export type TakeoffRiskRadarSummary = {
   top_causes: string[];
   project_score: number;
   project_severity: TakeoffRiskSeverity;
-};
-
-export type TakeoffDpgfComparisonRow = {
-  line_id: string;
-  line_label: string;
-  dpgf: TakeoffDpgfComparisonDpgfLine;
-  linked_takeoff_items: TakeoffDpgfComparisonTakeoffLine[];
-  dpgf_quantity: number | null;
-  takeoff_quantity: number | null;
-  quantity_unit: string | null;
-  matching_score: number;
-  confidence_score: number;
-  review_status: TakeoffDpgfReviewStatus;
-  proofs: TakeoffDpgfComparisonProof[];
-  suggested_decision: TakeoffDpgfReviewDecision | null;
-  applied_decision: TakeoffDpgfReviewDecisionRecord | null;
-  delta_absolute: number | null;
-  delta_percent: number | null;
-  is_exception: boolean;
-  manual_link_count: number;
-  matched_by: "auto" | "manual" | null;
-  risk: TakeoffDpgfLineRiskSummary | null;
-};
-
-export type TakeoffDpgfComparisonSummary = {
-  reliable_matches: number;
-  to_confirm: number;
-  significant_gaps: number;
-  forced_manual: number;
-  lines_without_proof: number;
-  unused_takeoff_items: number;
-  total_lines: number;
-};
-
-export type TakeoffDpgfComparisonResponse = {
-  version_id: string;
-  job_id: string;
-  view: TakeoffDpgfComparisonView;
-  threshold: number;
-  summary: TakeoffDpgfComparisonSummary;
-  rows: TakeoffDpgfComparisonRow[];
-  manual_link_candidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
-  unused_takeoff_items: TakeoffDpgfComparisonUnusedTakeoffItem[];
-  pagination: {
-    page_size: number;
-    next_cursor: string | null;
-    total: number;
-  };
 };
 
 export type TakeoffRiskRadarResponse = {

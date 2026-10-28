@@ -2,6 +2,8 @@ import {
   parseTakeoffPriceSuggestionResponse,
   parseTakeoffPriceSuggestionReviewResponse,
 } from "@/lib/takeoff/price-suggestion-contracts";
+import { parseTakeoffDpgfComparisonResponse } from "@/lib/takeoff/dpgf-comparison-contracts";
+import { parseTakeoffLineEvidencePanelResponse } from "@/lib/takeoff/line-evidence-contracts";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/client";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type {
@@ -803,6 +805,17 @@ export async function deletePlanFile(
 
 /* ─── DPGF Comparison API ─── */
 
+function validateTakeoffReadResponse<T>(jobId: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    throw new TakeoffApiError(
+      error instanceof Error ? error.message : "Réponse de lecture du métré invalide.",
+      502, null, "TAKEOFF_INVALID_RESPONSE", { jobId, retryable: false }
+    );
+  }
+}
+
 export async function fetchTakeoffDpgfComparison(
   jobId: string,
   query: {
@@ -823,11 +836,14 @@ export async function fetchTakeoffDpgfComparison(
     searchParams.set("view", query.view);
   }
 
-  return requestTakeoffJson<TakeoffDpgfComparisonResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/dpgf-compare?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
     "Impossible de charger la comparaison DPGF."
   );
+  return validateTakeoffReadResponse(jobId, () => parseTakeoffDpgfComparisonResponse(response, {
+    jobId, versionId: query.version_id, view: query.view, cursor: query.cursor,
+  }));
 }
 
 export async function fetchTakeoffLineEvidencePanel(
@@ -841,13 +857,16 @@ export async function fetchTakeoffLineEvidencePanel(
   const searchParams = new URLSearchParams();
   searchParams.set("version_id", query.version_id);
 
-  return requestTakeoffJson<TakeoffLineEvidencePanelResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/lines/${encodeURIComponent(
       lineId
     )}/evidence?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
     "Impossible de charger le panneau preuves."
   );
+  return validateTakeoffReadResponse(jobId, () => parseTakeoffLineEvidencePanelResponse(response, {
+    jobId, versionId: query.version_id, lineId,
+  }));
 }
 
 function validatePriceSuggestionResponse<T>(jobId: string, parse: () => T): T {
@@ -910,6 +929,8 @@ export async function fetchAllTakeoffDpgfComparison(
 ): Promise<TakeoffDpgfComparisonResponse> {
   const rows: TakeoffDpgfComparisonResponse["rows"] = [];
   const seenCursors = new Set<string>();
+  const seenLineIds = new Set<string>();
+  let total: number | undefined;
   let cursor = query.cursor;
   let response: TakeoffDpgfComparisonResponse;
 
@@ -919,7 +940,23 @@ export async function fetchAllTakeoffDpgfComparison(
       { ...query, cursor },
       options
     );
-    rows.push(...response.rows);
+    validateTakeoffReadResponse(jobId, () => {
+      if (total !== undefined && response.pagination.total !== total) {
+        throw new Error("Pagination DPGF incohérente : le nombre de lignes a changé.");
+      }
+      total = response.pagination.total;
+      for (const row of response.rows) {
+        const lineId = row.line_id.toLowerCase();
+        if (seenLineIds.has(lineId)) {
+          throw new Error("Pagination DPGF incohérente : ligne dupliquée.");
+        }
+        seenLineIds.add(lineId);
+      }
+      rows.push(...response.rows);
+      if (rows.length > total || (!query.cursor && response.pagination.next_cursor === null && rows.length !== total)) {
+        throw new Error("Pagination DPGF incohérente : nombre de lignes incomplet.");
+      }
+    });
 
     const nextCursor = response.pagination.next_cursor;
     if (!nextCursor) {
@@ -934,7 +971,9 @@ export async function fetchAllTakeoffDpgfComparison(
     }
 
     if (seenCursors.has(nextCursor)) {
-      throw new Error("Pagination DPGF incohérente : curseur dupliqué.");
+      return validateTakeoffReadResponse(jobId, () => {
+        throw new Error("Pagination DPGF incohérente : curseur dupliqué.");
+      });
     }
 
     seenCursors.add(nextCursor);
