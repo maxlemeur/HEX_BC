@@ -1,3 +1,6 @@
+import {
+  estimateBatchCommittedResultSchema as estimateBatchCommittedSchema, estimateBatchResultSchema,
+} from "@/lib/estimates/batch-contracts";
 import { z } from "zod";
 import { sourceCoverageOperations } from "@/lib/openapi/registry-source-coverage";
 import { purchaseReceiptSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
@@ -43,7 +46,6 @@ export type {
 } from "@/lib/openapi/registry-helpers";
 
 import {
-  batchOperationSchema,
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateAssemblySchema,
@@ -248,7 +250,6 @@ const supplierAlternativeKindSchema = z.enum([
   "preferred_supplier",
 ]);
 const changelogCacheStatusSchema = z.enum(["hit", "miss", "stale"]);
-const batchOperationTypeSchema = z.enum(["create", "update", "delete", "reorder"]);
 
 const estimateProjectSchema = z
   .object({
@@ -739,48 +740,6 @@ const estimatePurchaseOrderDraftPreparationSummarySchema = z.object({
   invalid_quantity_lines: z.number().int(),
   missing_unit_price_lines: z.number().int(),
 });
-
-const estimateBatchBaseSchema = z.object({
-  version: estimateVersionTokenSchema,
-  results: z.array(
-    z.union([
-      z.object({
-        index: z.number().int(),
-        op: batchOperationTypeSchema,
-        status: z.literal("ok"),
-        data: z.unknown(),
-      }),
-      z.object({
-        index: z.number().int(),
-        op: batchOperationTypeSchema,
-        status: z.literal("error"),
-        code: z.string(),
-        message: z.string(),
-        details: z.unknown().optional(),
-      }),
-    ])
-  ),
-});
-
-const estimateBatchCommittedSchema = estimateBatchBaseSchema.extend({
-  committed: z.literal(true),
-  totals: z.object({
-    total_ht_cents: z.number().int().nonnegative(),
-    total_tax_cents: z.number().int().nonnegative(),
-    total_ttc_cents: z.number().int().nonnegative(),
-  }),
-  receipt: z.object({
-    operation_key: uuidSchema, actor_id: uuidSchema, version_id: uuidSchema,
-    expected_updated_at: z.string(), committed_at: z.string(),
-    operations: z.array(batchOperationSchema).min(1).max(1000),
-  }),
-  replayed: z.boolean(),
-  current_version: estimateVersionTokenSchema.extend({ status: estimateStatusSchema }),
-});
-const estimateBatchResultSchema = z.discriminatedUnion("committed", [
-  estimateBatchCommittedSchema,
-  estimateBatchBaseSchema.extend({ committed: z.literal(false) }),
-]);
 
 const estimateGatingFlagSchema = z.object({
   key: z.string(),

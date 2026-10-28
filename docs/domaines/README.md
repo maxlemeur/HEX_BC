@@ -38,6 +38,14 @@ d'autosauvegarde sont définis dans
 [useEstimateEditorSyncController.types.ts](../../src/hooks/useEstimateEditorSyncController.types.ts) ;
 ils ne constituent pas une garantie de persistance avant confirmation serveur.
 
+La saisie d'une cellule est sauvegardée par `editor-line-save.ts`, via le lot
+atomique commun aux moteurs historiques et au moteur 3. Le contrat de réponse
+`batch-contracts.ts` est partagé par le serveur, le client et OpenAPI : une
+réponse incohérente conserve l'intention de sauvegarde pour vérification, sans
+rejeu automatique. `editor-save-session.ts` possède l'état de la requête en
+cours ; un changement de compte ou de version invalide sa capacité à modifier
+l'éditeur. Les nouvelles saisies restent dans le tampon pendant cette requête.
+
 Templates, ouvrages de bibliothèque et ouvrages générés alimentent le devis
 par des opérations de copie/application encadrées. Une modification de la
 bibliothèque ne modifie pas rétroactivement une offre émise. Les capacités des

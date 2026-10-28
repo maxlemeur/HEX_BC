@@ -1461,6 +1461,34 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(result.current.state.conflict).toBeNull();
   });
 
+  it("releases a waiting save when its account changes, without acknowledging the old request", async () => {
+    const pending = createDeferred<ReturnType<typeof createBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(pending.promise);
+    const input = createInput();
+    const { result, rerender } = renderHook(
+      ({ actorId }: { actorId: string | null }) => useEstimateEditorSyncController({ ...input, currentUserId: actorId }),
+      { initialProps: { actorId: input.currentUserId } }
+    );
+    await settleDeferredEffects();
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { title: "Previous account" }); });
+    let first!: Promise<string>;
+    let waiting!: Promise<string>;
+    act(() => {
+      first = result.current.actions.flushBufferedItemUpdates();
+      waiting = result.current.actions.flushBufferedItemUpdates();
+    });
+    rerender({ actorId: "627ef080-0003-4000-8000-000000000002" });
+    await act(async () => { expect(await waiting).toBe("blocked"); });
+    expect(input.applyVersionFlushResult).not.toHaveBeenCalled();
+    await act(async () => {
+      pending.resolve(createBatchResult(input.routeVersionId, "old-account-token"));
+      await first;
+    });
+    expect(input.applyVersionFlushResult).not.toHaveBeenCalled();
+    expect(input.clearHistory).not.toHaveBeenCalled();
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a late conflict snapshot scoped to its original route", async () => {
     const versionOne = createVersion();
     const versionTwo = createVersion({

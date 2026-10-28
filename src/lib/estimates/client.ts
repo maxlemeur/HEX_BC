@@ -1,3 +1,5 @@
+import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
+export type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
 import { downloadBlob } from "@/lib/browser-download";
 import { MAX_CENTS } from "@/lib/estimate-calculations";
 import { assertNoPendingEstimateBatch, type EstimateBatchAttempt, type EstimateBatchIdentity } from "@/lib/estimates/batch-intentions";
@@ -649,22 +651,6 @@ export type EstimateBatchOperation =
         parent_id?: string | null;
         ordered_ids: string[];
       };
-    };
-
-export type EstimateBatchOperationResult =
-  | {
-      index: number;
-      op: EstimateBatchOperation["op"];
-      status: "ok";
-      data?: unknown;
-    }
-  | {
-      index: number;
-      op: EstimateBatchOperation["op"];
-      status: "error";
-      code: string;
-      message: string;
-      details?: unknown;
     };
 
 export type EstimateBatchResult = {

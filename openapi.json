@@ -28155,34 +28155,22 @@
               {
                 "type": "object",
                 "properties": {
-                  "version": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "updated_at": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "updated_at"
-                    ],
-                    "additionalProperties": false
+                  "committed": {
+                    "type": "boolean",
+                    "const": true
                   },
                   "results": {
+                    "minItems": 1,
+                    "maxItems": 1000,
                     "type": "array",
                     "items": {
-                      "anyOf": [
+                      "oneOf": [
                         {
                           "type": "object",
                           "properties": {
                             "index": {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             "op": {
@@ -28213,7 +28201,7 @@
                           "properties": {
                             "index": {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             "op": {
@@ -28230,10 +28218,13 @@
                               "const": "error"
                             },
                             "code": {
-                              "type": "string"
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]+$"
                             },
                             "message": {
-                              "type": "string"
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1000
                             },
                             "details": {}
                           },
@@ -28249,9 +28240,28 @@
                       ]
                     }
                   },
-                  "committed": {
-                    "type": "boolean",
-                    "const": true
+                  "version": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "updated_at"
+                    ],
+                    "additionalProperties": false
                   },
                   "totals": {
                     "type": "object",
@@ -28298,9 +28308,6 @@
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       },
                       "expected_updated_at": {
-                        "type": "string"
-                      },
-                      "committed_at": {
                         "type": "string"
                       },
                       "operations": {
@@ -29035,6 +29042,9 @@
                             }
                           ]
                         }
+                      },
+                      "committed_at": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -29042,8 +29052,8 @@
                       "actor_id",
                       "version_id",
                       "expected_updated_at",
-                      "committed_at",
-                      "operations"
+                      "operations",
+                      "committed_at"
                     ],
                     "additionalProperties": false
                   },
@@ -29060,6 +29070,11 @@
                       },
                       "updated_at": {
                         "type": "string"
+                      },
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
                       },
                       "status": {
                         "type": "string",
@@ -29081,9 +29096,9 @@
                   }
                 },
                 "required": [
-                  "version",
-                  "results",
                   "committed",
+                  "results",
+                  "version",
                   "totals",
                   "receipt",
                   "replayed",
@@ -29094,34 +29109,22 @@
               {
                 "type": "object",
                 "properties": {
-                  "version": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "updated_at": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "updated_at"
-                    ],
-                    "additionalProperties": false
+                  "committed": {
+                    "type": "boolean",
+                    "const": false
                   },
                   "results": {
+                    "minItems": 1,
+                    "maxItems": 1000,
                     "type": "array",
                     "items": {
-                      "anyOf": [
+                      "oneOf": [
                         {
                           "type": "object",
                           "properties": {
                             "index": {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             "op": {
@@ -29152,7 +29155,7 @@
                           "properties": {
                             "index": {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             "op": {
@@ -29169,10 +29172,13 @@
                               "const": "error"
                             },
                             "code": {
-                              "type": "string"
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]+$"
                             },
                             "message": {
-                              "type": "string"
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1000
                             },
                             "details": {}
                           },
@@ -29188,15 +29194,34 @@
                       ]
                     }
                   },
-                  "committed": {
-                    "type": "boolean",
-                    "const": false
+                  "version": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "updated_at"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
-                  "version",
+                  "committed",
                   "results",
-                  "committed"
+                  "version"
                 ],
                 "additionalProperties": false
               }
@@ -29226,34 +29251,22 @@
               {
                 "type": "object",
                 "properties": {
-                  "version": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "updated_at": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "updated_at"
-                    ],
-                    "additionalProperties": false
+                  "committed": {
+                    "type": "boolean",
+                    "const": true
                   },
                   "results": {
+                    "minItems": 1,
+                    "maxItems": 1000,
                     "type": "array",
                     "items": {
-                      "anyOf": [
+                      "oneOf": [
                         {
                           "type": "object",
                           "properties": {
                             "index": {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             "op": {
@@ -29284,7 +29297,7 @@
                           "properties": {
                             "index": {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             "op": {
@@ -29301,10 +29314,13 @@
                               "const": "error"
                             },
                             "code": {
-                              "type": "string"
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]+$"
                             },
                             "message": {
-                              "type": "string"
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1000
                             },
                             "details": {}
                           },
@@ -29320,9 +29336,28 @@
                       ]
                     }
                   },
-                  "committed": {
-                    "type": "boolean",
-                    "const": true
+                  "version": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "updated_at"
+                    ],
+                    "additionalProperties": false
                   },
                   "totals": {
                     "type": "object",
@@ -29369,9 +29404,6 @@
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       },
                       "expected_updated_at": {
-                        "type": "string"
-                      },
-                      "committed_at": {
                         "type": "string"
                       },
                       "operations": {
@@ -30106,6 +30138,9 @@
                             }
                           ]
                         }
+                      },
+                      "committed_at": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -30113,8 +30148,8 @@
                       "actor_id",
                       "version_id",
                       "expected_updated_at",
-                      "committed_at",
-                      "operations"
+                      "operations",
+                      "committed_at"
                     ],
                     "additionalProperties": false
                   },
@@ -30131,6 +30166,11 @@
                       },
                       "updated_at": {
                         "type": "string"
+                      },
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
                       },
                       "status": {
                         "type": "string",
@@ -30152,9 +30192,9 @@
                   }
                 },
                 "required": [
-                  "version",
-                  "results",
                   "committed",
+                  "results",
+                  "version",
                   "totals",
                   "receipt",
                   "replayed",

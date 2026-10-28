@@ -111,7 +111,7 @@ describe("editor writes and optimistic concurrency", () => {
         return response({
           committed: true,
           results: [{ index: 0, op: "update", status: "ok", data: { item: {
-            id: OTHER, version_id: ID, item_type: "line", quantity: 2,
+            id: OTHER, version_id: ID, item_type: "line", quantity: 2, unit_price_ht_cents: 100,
             pu_ht_cents: 100, line_total_ht_cents: 200, line_tax_cents: 40,
             line_total_ttc_cents: 240,
           } } }],

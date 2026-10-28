@@ -11,7 +11,8 @@ import {
 import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useDraftLock } from "@/hooks/useDraftLock";
 import { useEstimateBatchRecovery } from "@/hooks/useEstimateBatchRecovery";
-import { createEstimateBatchAttempt } from "@/lib/estimates/batch-intentions";
+import { EstimateEditorSaveSession } from "@/lib/estimates/editor-save-session";
+import { saveEstimateEditorLines, type EstimateLineSaveReceipt } from "@/lib/estimates/editor-line-save";
 import {
   applyBufferedUpdatesToItems,
   rehydrateBufferedUpdates,
@@ -21,9 +22,6 @@ import {
   upsertBufferedUpdate,
 } from "@/lib/estimates/bulk-buffer";
 import {
-  batchEstimateOperations,
-  bulkUpdateEstimateItems,
-  type EstimateBatchOperationResult,
   isEstimateApiError,
 } from "@/lib/estimates/client";
 import {
@@ -39,7 +37,6 @@ import {
   registerEstimateEditorMutations,
   recoverEstimateEditorRead,
   waitForEstimateEditorMutations,
-  type EditorMutationToken,
 } from "@/lib/estimates/editor-mutations";
 import {
   buildEstimateItemUpdatePayload,
@@ -114,11 +111,8 @@ export function useEstimateEditorSyncController({
   const hasPendingTotalsSaveRef = useRef(false);
   const savePendingSettingsRef = useRef(savePendingSettings);
   const deriveBufferedItemRef = useRef(deriveBufferedItem);
-  const isFlushingBufferedUpdatesRef = useRef(false);
-  const flushCompletionRef = useRef<Promise<void> | null>(null);
-  const activeFlushIdRef = useRef(0);
+  const saveSessionRef = useRef(new EstimateEditorSaveSession());
   const routeVersionIdRef = useRef(routeVersionId);
-  const routeGenerationRef = useRef(0);
   const structuralGenerationRef = useRef(0);
   const restoredConflictDraftRef = useRef(false);
   const pendingSettingsRef = useRef(hasPendingSettingsChanges);
@@ -154,16 +148,13 @@ export function useEstimateEditorSyncController({
   }, [activeVersion?.id, items, routeVersionId, settings]);
 
   useLayoutEffect(() => {
+    const saveSession = saveSessionRef.current;
     routeVersionIdRef.current = routeVersionId;
-    routeGenerationRef.current += 1;
-    activeFlushIdRef.current += 1;
-    isFlushingBufferedUpdatesRef.current = false;
+    saveSession.reset();
     hadDraftLockOwnershipRef.current = false;
 
     return () => {
-      routeGenerationRef.current += 1;
-      activeFlushIdRef.current += 1;
-      isFlushingBufferedUpdatesRef.current = false;
+      saveSession.reset();
     };
   }, [currentTenantId, currentUserId, routeVersionId]);
 
@@ -696,16 +687,16 @@ export function useEstimateEditorSyncController({
     if (forceTotals && restorableDraft && !restoredConflictDraftRef.current) {
       return "blocked";
     }
-    if (isFlushingBufferedUpdatesRef.current) {
-      const generation = routeGenerationRef.current;
-      await flushCompletionRef.current;
-      if (generation !== routeGenerationRef.current) return "blocked";
+    if (saveSessionRef.current.isSaving) {
+      const generation = saveSessionRef.current.generation;
+      await saveSessionRef.current.completion;
+      if (generation !== saveSessionRef.current.generation) return "blocked";
       return flushBufferedItemUpdates(forceTotals);
     }
     if (hasEstimateEditorMutations(routeVersionId)) {
-      const generation = routeGenerationRef.current;
+      const generation = saveSessionRef.current.generation;
       await waitForEstimateEditorMutations(routeVersionId);
-      if (generation !== routeGenerationRef.current) return "blocked";
+      if (generation !== saveSessionRef.current.generation) return "blocked";
       // Read the buffer only after successful deletions have removed their IDs.
       return flushBufferedItemUpdates(forceTotals);
     }
@@ -741,83 +732,22 @@ export function useEstimateEditorSyncController({
     pendingItemUpdatesRef.current.clear();
     pendingBufferedUpdateCountRef.current = 0;
 
-    const flushId = activeFlushIdRef.current + 1;
-    activeFlushIdRef.current = flushId;
-    const flushGeneration = routeGenerationRef.current;
+    const saveSession = saveSessionRef.current;
+    const attempt = saveSession.start();
     const flushVersionId = versionSnapshot.id;
-    isFlushingBufferedUpdatesRef.current = true;
-    let finishFlush!: () => void;
-    const completion = new Promise<void>((resolve) => { finishFlush = resolve; });
-    flushCompletionRef.current = completion;
-
-    let savedVersionTotalsPatch = versionTotalsPatch;
     const structuralGeneration = structuralGenerationRef.current;
-    const batchOperations = bufferedEntries.map((entry) => ({
-      op: "update" as const,
-      id: entry.id,
-      data: toEngineItemWrite(entry.updates, versionSnapshot),
-    }));
-    let lineBatchCommitted = false;
-    let committedLineResults: readonly EstimateBatchOperationResult[] = [];
-    let committedLineVersionToken: string | null = null;
-    let committedLineContentRevision: number | undefined;
-
-    const isCurrentFlush = () =>
-      activeFlushIdRef.current === flushId &&
-      routeGenerationRef.current === flushGeneration &&
-      routeVersionIdRef.current === flushVersionId;
+    let receipt: EstimateLineSaveReceipt | null = null;
+    const isCurrentFlush = () => saveSession.isCurrent(attempt) && routeVersionIdRef.current === flushVersionId;
 
     try {
-      let nextVersionToken = versionSnapshot.updated_at;
-      let nextContentRevision: number | undefined = versionSnapshot.content_revision;
-
-      if (batchOperations.length > 0) {
-        const attempt = createEstimateBatchAttempt();
-        const batchResult = await runWithDraftLockRecovery(() =>
-          batchEstimateOperations(
-            flushVersionId,
-            nextVersionToken,
-            batchOperations,
-            { attempt }
-          )
-        );
-
-        if (!batchResult.committed) {
-          const failedResult = batchResult.results.find(
-            (result) => result.status === "error"
-          );
-          throw new Error(
-            failedResult?.message ??
-              "Une opération de sauvegarde groupée a échoué."
-          );
-        }
-
-        lineBatchCommitted = true;
-        committedLineResults = batchResult.results;
-        nextVersionToken = batchResult.versionToken.updated_at;
-        const acknowledgedVersion: EditorMutationToken =
-          batchResult.currentVersionToken?.updated_at === nextVersionToken
-            ? batchResult.currentVersionToken : batchResult.versionToken;
-        nextContentRevision = acknowledgedVersion.content_revision;
-        committedLineVersionToken = nextVersionToken;
-        committedLineContentRevision = nextContentRevision;
-        savedVersionTotalsPatch = batchResult.totals;
-      }
-
-      if (versionTotalsPatch && !lineBatchCommitted) {
-        const bulkResult = await runWithDraftLockRecovery(() =>
-          bulkUpdateEstimateItems(
-            flushVersionId,
-            nextVersionToken,
-            [],
-            versionTotalsPatch
-          )
-        );
-        nextVersionToken = bulkResult.versionToken.updated_at;
-        const acknowledgedVersion: EditorMutationToken = bulkResult.versionToken;
-        nextContentRevision = acknowledgedVersion.content_revision;
-        savedVersionTotalsPatch = bulkResult.totals ?? versionTotalsPatch;
-      }
+      receipt = await saveEstimateEditorLines({
+        version: versionSnapshot,
+        operations: bufferedEntries.map((entry) => ({
+          op: "update", id: entry.id, data: toEngineItemWrite(entry.updates, versionSnapshot),
+        })),
+        totals: versionTotalsPatch,
+        withDraftLockRecovery: runWithDraftLockRecovery,
+      });
 
       if (!isCurrentFlush()) {
         return "saved";
@@ -830,8 +760,8 @@ export function useEstimateEditorSyncController({
         mergeSyncedItemPayload(entry.id, entry.updates);
       });
       pruneSyncedBufferedUpdates();
-      applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: savedVersionTotalsPatch, updatedAt: nextVersionToken,
-        results: committedLineResults, ...(nextContentRevision === undefined ? {} : { contentRevision: nextContentRevision }) });
+      applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: receipt.totals, updatedAt: receipt.version.updated_at,
+        results: receipt.results, ...(receipt.version.content_revision === undefined ? {} : { contentRevision: receipt.version.content_revision }) });
       // Une sauvegarde réussie invalide les anciens messages de navigation ou
       // de synchronisation. Sans ce reset, le ruban peut afficher « Sauvegardé »
       // tout en conservant une alerte rouge devenue fausse.
@@ -848,11 +778,11 @@ export function useEstimateEditorSyncController({
         setRestorableDraft(null);
         reportNotice(null);
       }
-      if (lineBatchCommitted) clearHistory();
+      if (receipt.linesCommitted) clearHistory();
       return "saved";
     } catch (error) {
       if (!isCurrentFlush()) {
-        if (!lineBatchCommitted) {
+        if (!receipt?.linesCommitted) {
           const persistedDraft =
             readAutoSaveDraftFromLocal<EstimateItemUpdatePayload>(flushVersionId);
           const restoredEntries = new Map<string, EstimateItemUpdatePayload>();
@@ -870,14 +800,14 @@ export function useEstimateEditorSyncController({
         return "blocked";
       }
 
-      if (lineBatchCommitted && committedLineVersionToken) {
+      if (receipt?.linesCommitted) {
         bufferedEntries.forEach((entry) => {
           mergeSyncedItemPayload(entry.id, entry.updates);
         });
         pruneSyncedBufferedUpdates();
-        applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: undefined, updatedAt: committedLineVersionToken,
-          results: committedLineResults,
-          ...(committedLineContentRevision === undefined ? {} : { contentRevision: committedLineContentRevision }) });
+        applyVersionFlushResult({ versionId: flushVersionId, totalsPatch: undefined, updatedAt: receipt.version.updated_at,
+          results: receipt.results,
+          ...(receipt.version.content_revision === undefined ? {} : { contentRevision: receipt.version.content_revision }) });
         updateHasPendingTotalsSave(Boolean(versionTotalsPatch));
         clearHistory();
       } else {
@@ -904,7 +834,7 @@ export function useEstimateEditorSyncController({
 
       setTotalsOutOfSync(true);
       reportError(
-        lineBatchCommitted
+        receipt?.linesCommitted
           ? "Les lignes sont enregistrées, mais les totaux n’ont pas pu être synchronisés. Une nouvelle tentative va être effectuée."
           : resolveErrorMessage(
               error instanceof Error
@@ -914,11 +844,7 @@ export function useEstimateEditorSyncController({
       );
       return "error";
     } finally {
-      finishFlush();
-      if (flushCompletionRef.current === completion) flushCompletionRef.current = null;
-      if (activeFlushIdRef.current === flushId) {
-        isFlushingBufferedUpdatesRef.current = false;
-      }
+      saveSession.finish(attempt);
     }
   }, [
     applyVersionFlushResult,
@@ -986,10 +912,10 @@ export function useEstimateEditorSyncController({
   }, [reportError]);
 
   const saveBeforeNavigation = useCallback(async () => {
-    const generation = routeGenerationRef.current;
+    const generation = saveSessionRef.current.generation;
     if (!isOnline || isSaveBlockedRef.current || restorableDraft) return false;
     await waitForEstimateEditorMutations(routeVersionId);
-    if (generation !== routeGenerationRef.current) return false;
+    if (generation !== saveSessionRef.current.generation) return false;
     const result = await flushBufferedItemUpdates();
     if (result === "error" || result === "blocked") return false;
     if (pendingSettingsRef.current || savingSettingsRef.current) {
@@ -1002,7 +928,7 @@ export function useEstimateEditorSyncController({
     }
     // New edits may arrive while the first request is in flight.
     const finalResult = await flushBufferedItemUpdates();
-    return generation === routeGenerationRef.current &&
+    return generation === saveSessionRef.current.generation &&
       finalResult !== "error" && finalResult !== "blocked" &&
       pendingItemUpdatesRef.current.size === 0 &&
       !hasPendingTotalsSaveRef.current && !pendingSettingsRef.current &&
@@ -1095,7 +1021,7 @@ export function useEstimateEditorSyncController({
         return false;
       }
 
-      if (isFlushingBufferedUpdatesRef.current) {
+      if (saveSessionRef.current.isSaving) {
         reportError(
           "Synchronisation des modifications en cours. Réessayez dans quelques secondes."
         );
@@ -1140,7 +1066,7 @@ export function useEstimateEditorSyncController({
   const retryTotalsSave = saveNow;
 
   const isFlushInProgress = useCallback(
-    () => isFlushingBufferedUpdatesRef.current,
+    () => saveSessionRef.current.isSaving,
     []
   );
 
@@ -1153,10 +1079,9 @@ export function useEstimateEditorSyncController({
 
   useEffect(() => {
     const pendingItemUpdates = pendingItemUpdatesRef.current;
+    const saveSession = saveSessionRef.current;
     return () => {
-      activeFlushIdRef.current += 1;
-      routeGenerationRef.current += 1;
-      isFlushingBufferedUpdatesRef.current = false;
+      saveSession.reset();
       persistBufferedItemUpdatesToLocal();
       pendingItemUpdates.clear();
       pendingBufferedUpdateCountRef.current = 0;

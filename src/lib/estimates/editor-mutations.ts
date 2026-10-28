@@ -1,3 +1,5 @@
+export { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";
+
 import type { EstimateBatchIdentity } from "@/lib/estimates/batch-intentions";
 import type { EstimateVersionTotalsPatch } from "@/lib/estimates/editor-items";
 
@@ -106,16 +108,6 @@ export async function waitForEstimateEditorMutations(versionId: string) {
     await tail;
     if (tail === session.tail) break;
   }
-}
-
-// Preserve PostgreSQL's microseconds when comparing tokens from responses.
-export function isOlderEstimateVersionToken(candidate: string, current: string) {
-  const timestamp = (value: string) => {
-    const milliseconds = Date.parse(value);
-    const fraction = value.match(/\.(\d+)(?:Z|[+-]\d\d:?\d\d)$/)?.[1] ?? "";
-    return milliseconds * 1000 + Number(fraction.padEnd(6, "0").slice(3, 6));
-  };
-  return timestamp(candidate) < timestamp(current);
 }
 
 export function hasEstimateEditorMutations(versionId: string) {
