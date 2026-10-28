@@ -204,12 +204,13 @@ function buildThenableSelectBuilder<T>(getRows: () => T[]) {
   return builder;
 }
 
-function createSupabaseMock() {
+function createSupabaseMock(input: { failSuggestionInsertAt?: number } = {}) {
   const state: {
     estimateItems: EstimateItemRow[];
     estimateItemSelects: string[];
     suggestions: SuggestionRow[];
     suggestionSources: SuggestionSourceRow[];
+    failedInsertSupersededIds: string[];
   } = {
     estimateItems: [
       {
@@ -252,6 +253,7 @@ function createSupabaseMock() {
     estimateItemSelects: [],
     suggestions: [],
     suggestionSources: [],
+    failedInsertSupersededIds: [],
   };
 
   let suggestionSequence = 0;
@@ -302,6 +304,15 @@ function createSupabaseMock() {
             select: vi.fn(() => ({
               single: vi.fn(async () => {
                 suggestionSequence += 1;
+                if (suggestionSequence === input.failSuggestionInsertAt) {
+                  state.failedInsertSupersededIds = state.suggestions
+                    .filter((suggestion) => suggestion.superseded_at !== null)
+                    .map((suggestion) => suggestion.id);
+                  return {
+                    data: null,
+                    error: { code: "XX000", message: "Snapshot insertion failed" },
+                  };
+                }
                 const now = `2026-03-06T10:0${suggestionSequence}:00.000Z`;
                 const row: SuggestionRow = {
                   id: `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa${suggestionSequence}`,
@@ -603,18 +614,17 @@ describe("takeoff price suggestion server helpers", () => {
       userId: USER_ID,
       tenantRole: "admin",
     } as never);
-    vi.mocked(updateEstimateItem).mockResolvedValue({
-      item: {
-        id: LINE_ID,
-        unit_price_ht_cents: 1230,
-        updated_at: "2026-03-06T10:05:00.000Z",
-      },
-    } as never);
-
     const created = await requestTakeoffPriceSuggestion(JOB_ID, {
       version_id: VERSION_ID,
       estimate_item_id: LINE_ID,
     });
+    vi.mocked(updateEstimateItem).mockResolvedValue({
+      item: {
+        id: LINE_ID,
+        unit_price_ht_cents: created.suggestion.target_cents,
+        updated_at: "2026-03-06T10:05:00.000Z",
+      },
+    } as never);
 
     await reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
       version_id: VERSION_ID,
@@ -637,6 +647,36 @@ describe("takeoff price suggestion server helpers", () => {
       status: "applied",
       selected_action: "apply_target",
       review_note: "Premiere revue validee.",
+    });
+  });
+
+  it("reports an invalid committed review response without retrying or undoing the mutation", async () => {
+    const mock = createSupabaseMock();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
+    } as never);
+    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID, estimate_item_id: LINE_ID,
+    });
+    vi.mocked(updateEstimateItem).mockResolvedValue({
+      item: {
+        id: LINE_ID,
+        unit_price_ht_cents: created.suggestion.target_cents + 1,
+        updated_at: "2026-03-06T10:05:00.000Z",
+      },
+    } as never);
+
+    await expect(reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
+      version_id: VERSION_ID, action: "apply_target", review_note: "Prix cible confirmé.",
+    })).rejects.toMatchObject({
+      status: 500, code: "INTERNAL_ERROR", retryable: false,
+      details: { reason: "INVALID_PRICE_SUGGESTION_RESPONSE" },
+    });
+
+    expect(updateEstimateItem).toHaveBeenCalledTimes(1);
+    expect(mock.state.suggestions[0]).toMatchObject({
+      status: "applied", selected_action: "apply_target",
+      selected_price_cents: created.suggestion.target_cents,
     });
   });
 
@@ -674,5 +714,142 @@ describe("takeoff price suggestion server helpers", () => {
       superseded_by_suggestion_id: refreshed.suggestion.suggestion_id,
     });
     expect(mock.state.suggestions[0]?.superseded_at).not.toBeNull();
+  });
+
+  it("restores the previous suggestion after its estimate price update fails without a second line mutation", async () => {
+    const mock = createSupabaseMock();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+    const previous = structuredClone(mock.state.suggestions[0]);
+    const previousItems = structuredClone(mock.state.estimateItems);
+    const previousSources = structuredClone(mock.state.suggestionSources);
+    const refusal = new Error("Estimate version became read-only");
+    vi.mocked(updateEstimateItem).mockImplementationOnce(async () => {
+      expect(mock.state.suggestions[0]).toMatchObject({
+        status: "applied",
+        selected_action: "apply_target",
+        selected_price_cents: created.suggestion.target_cents,
+        review_note: "Valider le prix cible.",
+        reviewed_by: USER_ID,
+      });
+      throw refusal;
+    });
+
+    await expect(reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
+      version_id: VERSION_ID,
+      action: "apply_target",
+      review_note: "Valider le prix cible.",
+    })).rejects.toBe(refusal);
+
+    expect(updateEstimateItem).toHaveBeenCalledExactlyOnceWith(VERSION_ID, {
+      id: LINE_ID,
+      unit_price_ht_cents: created.suggestion.target_cents,
+    });
+    // Compensation is a new write; only its technical update timestamp may change.
+    expect(mock.state.suggestions).toEqual([{
+      ...previous,
+      updated_at: mock.state.suggestions[0].updated_at,
+    }]);
+    expect(mock.state.estimateItems).toEqual(previousItems);
+    expect(mock.state.suggestionSources).toEqual(previousSources);
+    const recovered = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+    expect(recovered.suggestion).toMatchObject({
+      suggestion_id: created.suggestion.suggestion_id,
+      status: "pending",
+      selected_action: null,
+      selected_price_cents: null,
+      review_note: null,
+      reviewed_at: null,
+      reviewed_by: null,
+    });
+  });
+
+  it("reactivates the previous snapshot when its replacement cannot be inserted", async () => {
+    const mock = createSupabaseMock({ failSuggestionInsertAt: 2 });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+    const previous = structuredClone(mock.state.suggestions[0]);
+    const previousSources = structuredClone(mock.state.suggestionSources);
+
+    await expect(requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+      force_refresh: true,
+    })).rejects.toMatchObject({ message: "Impossible de persister la suggestion de prix." });
+
+    expect(mock.state.failedInsertSupersededIds).toEqual([created.suggestion.suggestion_id]);
+    expect(mock.state.suggestions).toEqual([{
+      ...previous,
+      updated_at: mock.state.suggestions[0].updated_at,
+    }]);
+    expect(mock.state.suggestionSources).toEqual(previousSources);
+    const recovered = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+    expect(recovered.suggestion.suggestion_id).toBe(created.suggestion.suggestion_id);
+    expect(recovered.suggestion.sources).toEqual(created.suggestion.sources);
+    expect(mock.state.suggestions).toHaveLength(1);
+    expect(updateEstimateItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { action: "reject", status: "rejected", selectedPriceCents: null },
+    { action: "keep_current", status: "kept_current", selectedPriceCents: 1200 },
+  ] as const)("records $action without writing an estimate price", async ({ action, status, selectedPriceCents }) => {
+    const mock = createSupabaseMock();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+    const previousItems = structuredClone(mock.state.estimateItems);
+
+    const reviewed = await reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
+      version_id: VERSION_ID,
+      action,
+      review_note: "Décision humaine sans changement de prix.",
+    });
+
+    expect(reviewed.applied_item).toBeNull();
+    expect(reviewed.suggestion).toMatchObject({
+      suggestion_id: created.suggestion.suggestion_id,
+      status,
+      selected_action: action,
+      selected_price_cents: selectedPriceCents,
+      review_note: "Décision humaine sans changement de prix.",
+      reviewed_by: USER_ID,
+    });
+    expect(mock.state.suggestions[0]).toMatchObject({
+      status,
+      selected_action: action,
+      selected_price_cents: selectedPriceCents,
+    });
+    expect(mock.state.estimateItems).toEqual(previousItems);
+    expect(updateEstimateItem).not.toHaveBeenCalled();
   });
 });

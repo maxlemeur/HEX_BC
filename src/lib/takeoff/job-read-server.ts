@@ -926,3 +926,35 @@ export async function getTakeoffJobDetails(
     },
   };
 }
+
+const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
+
+export async function listAllTakeoffItemsByJobId(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  jobId: string;
+}): Promise<TakeoffJobItem[]> {
+  const items: TakeoffJobItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    const page = await listTakeoffItemsByJobId({
+      ...input,
+      limit: MAX_TAKEOFF_JOB_ITEMS_LIMIT,
+      offset,
+    });
+
+    if (page.data.length === 0) {
+      break;
+    }
+
+    items.push(...page.data);
+    offset += page.data.length;
+
+    if (items.length >= page.total) {
+      break;
+    }
+  }
+
+  return items;
+}
