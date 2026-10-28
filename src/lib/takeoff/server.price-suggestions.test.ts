@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
-  assertDraftStatus: vi.fn(),
-  bulkUpdateEstimateItems: vi.fn(),
-  insertAssemblyIntoVersion: vi.fn(),
+vi.mock("@/lib/estimates/supplier-comparison-server", () => ({
   suggestEstimateCataloguePrices: vi.fn(),
+}));
+
+vi.mock("@/lib/estimates/item-update-server", () => ({
   updateEstimateItem: vi.fn(),
 }));
 
@@ -21,10 +21,8 @@ vi.mock("@/lib/takeoff/version-links", () => ({
   listAccessibleTakeoffJobsForVersion: vi.fn(),
 }));
 
-import {
-  suggestEstimateCataloguePrices,
-  updateEstimateItem,
-} from "@/lib/estimates/server";
+import { suggestEstimateCataloguePrices } from "@/lib/estimates/supplier-comparison-server";
+import { updateEstimateItem } from "@/lib/estimates/item-update-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { requestTakeoffPriceSuggestion, reviewTakeoffPriceSuggestion } from "@/lib/takeoff/server";

@@ -3,7 +3,8 @@ import "server-only";
 import { getAuthenticatedTakeoffContext, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { assertTakeoffOperatorActionRole, parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { z } from "zod";
-import { suggestEstimateCataloguePrices, updateEstimateItem } from "@/lib/estimates/server";
+import { suggestEstimateCataloguePrices } from "@/lib/estimates/supplier-comparison-server";
+import { updateEstimateItem } from "@/lib/estimates/item-update-server";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import {
   TakeoffError,

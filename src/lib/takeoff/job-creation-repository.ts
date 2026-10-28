@@ -5,7 +5,7 @@ import { type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server"
 import { readAllRows } from "@/lib/supabase/read-all";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { assertDraftStatus } from "@/lib/estimates/server";
+import { assertDraftStatus } from "@/lib/estimates/server-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {

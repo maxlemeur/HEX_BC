@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/item-bulk-server", () => ({
   assertDraftStatus: vi.fn(),
   bulkUpdateEstimateItems: vi.fn(),
 }));
@@ -18,7 +18,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   getTakeoffLowConfidenceThresholdForTenant: vi.fn(),
 }));
 
-import { bulkUpdateEstimateItems } from "@/lib/estimates/server";
+import { bulkUpdateEstimateItems } from "@/lib/estimates/item-bulk-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
