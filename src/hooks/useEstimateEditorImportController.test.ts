@@ -6,6 +6,7 @@ import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 const clientMocks = vi.hoisted(() => ({
   applyEstimateStructureDraft: vi.fn(),
   fetchEstimateEditorData: vi.fn(),
+  fetchAffaireLinkedDpgfSource: vi.fn(),
   importEstimateSections: vi.fn(),
   importLinkedDpgfSource: vi.fn(),
 }));
@@ -13,6 +14,7 @@ const clientMocks = vi.hoisted(() => ({
 vi.mock("@/lib/estimates/client", () => ({
   applyEstimateStructureDraft: clientMocks.applyEstimateStructureDraft,
   fetchEstimateEditorData: clientMocks.fetchEstimateEditorData,
+  fetchAffaireLinkedDpgfSource: clientMocks.fetchAffaireLinkedDpgfSource,
   importEstimateSections: clientMocks.importEstimateSections,
   importLinkedDpgfSource: clientMocks.importLinkedDpgfSource,
 }));
@@ -29,6 +31,8 @@ ImportEstimateSectionsResult,
 ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/client";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 
 type LinkedSourceLoader = NonNullable<
   EstimateEditorImportControllerInput["loadLinkedDpgfSource"]
@@ -149,6 +153,7 @@ function createDpgfImportResult(
 }
 
 function createHarness(options: {
+  document?: EstimateEditorDocument;
   version?: EstimateVersionRow;
   isMutationBlocked?: boolean;
   ensureGroupedActionCanProceed?: AutosaveBarrier;
@@ -156,6 +161,7 @@ function createHarness(options: {
   loadLinkedDpgfSource?: LinkedSourceLoader;
   autoOpenStructureDraft?: boolean;
   reloadItems?: () => Promise<void>;
+  useDefaultLoader?: boolean;
 } = {}) {
   let version = options.version ?? createVersion();
   const ensureGroupedActionCanProceed =
@@ -164,7 +170,7 @@ function createHarness(options: {
   const handleVersionConflict =
     options.handleVersionConflict ??
     vi.fn<VersionConflictHandler>().mockReturnValue(false);
-  const loadLinkedDpgfSource =
+  const loadLinkedDpgfSource = options.useDefaultLoader ? undefined :
     options.loadLinkedDpgfSource ??
     vi.fn<LinkedSourceLoader>(async () => createLinkedSource());
   const applyVersionToken = vi.fn();
@@ -190,6 +196,7 @@ function createHarness(options: {
       isMutationBlocked: boolean;
     }) =>
       useEstimateEditorImportController({
+        document: options.document,
         routeVersionId,
         activeVersion,
         autoOpenStructureDraft: options.autoOpenStructureDraft,
@@ -231,6 +238,16 @@ function createHarness(options: {
     ...rendered,
     applyVersionToken,
     changeRoute,
+    changeIdentity: (actorId: string, tenantId: string) => {
+      if (!options.document) throw new Error("Document required for an identity change.");
+      options.document.changeScope({ actorId, tenantId, versionId: version.id });
+      version = { ...version, tenant_id: tenantId };
+      options.document.setConfirmedVersion({ ...version, estimate_projects: null });
+      rendered.rerender({
+        routeVersionId: version.id, activeVersion: version,
+        isMutationBlocked: options.isMutationBlocked ?? false,
+      });
+    },
     ensureGroupedActionCanProceed,
     getVersion: () => version,
     handleVersionConflict,
@@ -256,6 +273,7 @@ async function captureRejection(action: () => Promise<unknown>) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  clientMocks.fetchAffaireLinkedDpgfSource.mockResolvedValue(createLinkedSource());
   clientMocks.fetchEstimateEditorData.mockImplementation(
     async (versionId: string) => ({
       version: createVersion(versionId),
@@ -665,5 +683,146 @@ describe("useEstimateEditorImportController", () => {
     expect(harness.applyVersionToken).not.toHaveBeenCalled();
     expect(harness.result.current.state.importSummaryMessage).toBeNull();
     expect(harness.result.current.state.isImportingDpgfSource).toBe(false);
+  });
+});
+
+describe("import controller document identity", () => {
+  const tenantA = "22222222-2222-4222-8222-222222222222";
+  const tenantB = "77777777-7777-4777-8777-777777777777";
+
+  function connected(options: Parameters<typeof createHarness>[0] = {}) {
+    const version = { ...createEstimateEditorResponseFixture().version,
+      id: "version-1", project_id: "project-1", tenant_id: tenantA };
+    const document = new EstimateEditorDocument({ actorId: "actor-a", tenantId: tenantA, versionId: version.id });
+    document.setConfirmedVersion(version);
+    return { ...createHarness({ ...options, document, version }), document };
+  }
+
+  it.each([
+    ["actor", "actor-b", tenantA],
+    ["tenant", "actor-a", tenantB],
+  ])("aborts the old source and hides old UI when the %s changes on the same version", async (_kind, actorId, tenantId) => {
+    const first = createDeferred<AffaireLinkedDpgfSource>();
+    const second = createDeferred<AffaireLinkedDpgfSource>();
+    const signals: AbortSignal[] = [];
+    const loadLinkedDpgfSource = vi.fn<LinkedSourceLoader>((_projectId, signal) => {
+      signals.push(signal);
+      return signals.length === 1 ? first.promise : second.promise;
+    });
+    const harness = connected({ loadLinkedDpgfSource });
+    await waitFor(() => expect(loadLinkedDpgfSource).toHaveBeenCalledTimes(1));
+    act(() => { harness.result.current.actions.openImportFromEstimateDialog(); });
+    expect(harness.result.current.state.isImportFromEstimateDialogOpen).toBe(true);
+    act(() => harness.changeIdentity(actorId, tenantId));
+    expect(harness.result.current.state.linkedDpgfSource).toBeNull();
+    expect(harness.result.current.state.isImportFromEstimateDialogOpen).toBe(false);
+    expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(false);
+    expect(harness.result.current.state.importSummaryMessage).toBeNull();
+    await waitFor(() => {
+      expect(signals[0].aborted).toBe(true);
+      expect(loadLinkedDpgfSource).toHaveBeenCalledTimes(2);
+    });
+    const source = createLinkedSource("current-source");
+    await act(async () => { second.resolve(source); await second.promise; });
+    await act(async () => { first.resolve(createLinkedSource("old-source")); await first.promise; });
+    expect(harness.result.current.state.linkedDpgfSource).toEqual(source);
+  });
+
+  it("does not expose a previous actor's completed import summary or open structure dialog", async () => {
+    const harness = connected();
+    await act(async () => harness.result.current.actions.confirmImportFromEstimate(IMPORT_INPUT));
+    expect(harness.result.current.state.importSummaryMessage).not.toBeNull();
+    act(() => harness.changeIdentity("actor-b", tenantB));
+    expect(harness.result.current.state.importSummaryMessage).toBeNull();
+    act(() => { harness.result.current.actions.openEstimateStructureDraftDialog(); });
+    expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(true);
+    act(() => harness.changeIdentity("actor-a", tenantA));
+    expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(false);
+    expect(harness.result.current.state.isImportFromEstimateDialogOpen).toBe(false);
+    expect(harness.result.current.state.activeMutation).toBeNull();
+  });
+
+  it("allows the new actor's mutation while ignoring the prior in-flight result, reload and token", async () => {
+    const first = createDeferred<ImportEstimateSectionsResult>();
+    clientMocks.importEstimateSections.mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(createImportResult({ importedSectionsCount: 3, versionToken: { id: "version-1", updated_at: "token-b" } }));
+    const harness = connected();
+    let oldOperation!: Promise<unknown>;
+    act(() => { oldOperation = harness.result.current.actions.confirmImportFromEstimate(IMPORT_INPUT).catch((error: unknown) => error); });
+    await waitFor(() => expect(clientMocks.importEstimateSections).toHaveBeenCalledTimes(1));
+    act(() => harness.changeIdentity("actor-b", tenantB));
+    expect(harness.result.current.state.activeMutation).toBeNull();
+    await act(async () => harness.result.current.actions.confirmImportFromEstimate(IMPORT_INPUT));
+    expect(clientMocks.importEstimateSections).toHaveBeenCalledTimes(2);
+    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
+    expect(harness.applyVersionToken).toHaveBeenCalledExactlyOnceWith("token-b");
+    const newSummary = harness.result.current.state.importSummaryMessage;
+    await act(async () => { first.resolve(createImportResult()); await oldOperation; });
+    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
+    expect(harness.applyVersionToken).toHaveBeenCalledExactlyOnceWith("token-b");
+    expect(harness.result.current.state.importSummaryMessage).toBe(newSummary);
+    expect(harness.result.current.state.activeMutation).toBeNull();
+  });
+
+  it("rejects old actions after an actor A to B to A cycle before source loads, dialogs or writes", async () => {
+    const loader = vi.fn<LinkedSourceLoader>().mockResolvedValue(createLinkedSource());
+    const harness = connected({ loadLinkedDpgfSource: loader });
+    await waitFor(() => expect(harness.result.current.meta.hasLinkedDpgfSource).toBe(true));
+    const old = harness.result.current.actions;
+    act(() => harness.changeIdentity("actor-b", tenantB));
+    act(() => harness.changeIdentity("actor-a", tenantA));
+    await waitFor(() => expect(harness.result.current.meta.hasLinkedDpgfSource).toBe(true));
+    const loadsBefore = loader.mock.calls.length;
+    act(() => {
+      expect(old.openImportFromEstimateDialog()).toBe(false);
+      expect(old.openEstimateStructureDraftDialog()).toBe(false);
+    });
+    await captureRejection(() => old.confirmImportFromEstimate(IMPORT_INPUT));
+    await captureRejection(() => old.applyEstimateStructureDraft("draft-1", { mode: "create_empty", selectedRootNodeIds: ["node-1"] }));
+    await captureRejection(() => old.importLinkedDpgfSource());
+    await captureRejection(() => old.refreshLinkedDpgfSource());
+    expect(loader).toHaveBeenCalledTimes(loadsBefore);
+    expect(harness.ensureGroupedActionCanProceed).not.toHaveBeenCalled();
+    expect(clientMocks.importEstimateSections).not.toHaveBeenCalled();
+    expect(clientMocks.applyEstimateStructureDraft).not.toHaveBeenCalled();
+    expect(clientMocks.importLinkedDpgfSource).not.toHaveBeenCalled();
+    expect(harness.reloadItems).not.toHaveBeenCalled();
+    expect(harness.applyVersionToken).not.toHaveBeenCalled();
+  });
+
+  it("does not apply a fallback token after the actor changes during that read", async () => {
+    const fallback = createDeferred<{ version: EstimateVersionRow }>();
+    clientMocks.importEstimateSections.mockResolvedValue(createImportResult({ versionToken: null }));
+    clientMocks.fetchEstimateEditorData.mockReturnValueOnce(fallback.promise);
+    const harness = connected();
+    let operation!: Promise<unknown>;
+    act(() => { operation = harness.result.current.actions.confirmImportFromEstimate(IMPORT_INPUT).catch((error: unknown) => error); });
+    await waitFor(() => expect(clientMocks.fetchEstimateEditorData).toHaveBeenCalledTimes(1));
+    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
+    act(() => harness.changeIdentity("actor-b", tenantB));
+    await act(async () => { fallback.resolve({ version: createVersion() }); await operation; });
+    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
+    expect(harness.applyVersionToken).not.toHaveBeenCalled();
+    expect(harness.result.current.state.importSummaryMessage).toBeNull();
+  });
+
+  it("passes the request signal to the shared default loader and aborts it on identity change", async () => {
+    const pending = createDeferred<AffaireLinkedDpgfSource>();
+    clientMocks.fetchAffaireLinkedDpgfSource.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(null);
+    const harness = connected({ useDefaultLoader: true });
+    await waitFor(() => expect(clientMocks.fetchAffaireLinkedDpgfSource).toHaveBeenCalledWith("project-1", { signal: expect.any(AbortSignal) }));
+    const signal = clientMocks.fetchAffaireLinkedDpgfSource.mock.calls[0][1].signal as AbortSignal;
+    act(() => harness.changeIdentity("actor-b", tenantB));
+    expect(signal.aborted).toBe(true);
+    await act(async () => { pending.resolve(createLinkedSource("old-source")); await pending.promise; });
+    expect(harness.result.current.state.linkedDpgfSource).toBeNull();
+  });
+
+  it("shows a shared-loader parsing failure instead of treating malformed source data as no source", async () => {
+    clientMocks.fetchAffaireLinkedDpgfSource.mockRejectedValueOnce(new Error("Réponse source DPGF invalide."));
+    const harness = connected({ useDefaultLoader: true });
+    await waitFor(() => expect(harness.result.current.state.linkedDpgfSourceError).toBe("Réponse source DPGF invalide."));
+    expect(harness.result.current.state.linkedDpgfSource).toBeNull();
+    expect(harness.result.current.state.isLoadingLinkedDpgfSource).toBe(false);
   });
 });

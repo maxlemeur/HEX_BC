@@ -7,12 +7,14 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type MutableRefObject,
 } from "react";
 
 import {
   applyEstimateStructureDraft,
   fetchEstimateEditorData,
+  fetchAffaireLinkedDpgfSource,
   importEstimateSections,
   importLinkedDpgfSource as importLinkedDpgfSourceClient,
   type AffaireLinkedDpgfSource,
@@ -23,6 +25,7 @@ import {
   type ImportEstimateSectionsResult,
   type ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/client";
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 
@@ -44,6 +47,7 @@ type LinkedDpgfSourceLoader = (
 ) => Promise<AffaireLinkedDpgfSource>;
 
 export type EstimateEditorImportControllerInput = {
+  document?: EstimateEditorDocument;
   routeVersionId: string;
   activeVersion: Pick<
     EstimateVersionRow,
@@ -113,7 +117,7 @@ type LinkedDpgfSourceState = {
 };
 
 type ScopedImportUiState = {
-  versionId: string;
+  scopeKey: string;
   isImportFromEstimateDialogOpen: boolean;
   isEstimateStructureDraftDialogOpen: boolean;
   isStructureDraftAutoOpenConsumed: boolean;
@@ -122,6 +126,7 @@ type ScopedImportUiState = {
 };
 
 type MutationScope = {
+  scopeKey: string;
   kind: EstimateEditorImportMutation;
   versionId: string;
   routeGeneration: number;
@@ -141,114 +146,8 @@ type StructuralMutationOptions<T> = {
 
 class ExpectedImportOperationError extends Error {}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toFiniteNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function unwrapData(payload: unknown) {
-  return isRecord(payload) && "data" in payload ? payload.data : payload;
-}
-
-function resolveResponseError(payload: unknown, fallback: string) {
-  if (!isRecord(payload)) return fallback;
-  const nestedError = isRecord(payload.error) ? payload.error : null;
-  return (
-    toNonEmptyString(payload.error) ??
-    toNonEmptyString(nestedError?.message) ??
-    toNonEmptyString(payload.message) ??
-    fallback
-  );
-}
-
-function parseLinkedDpgfSource(payload: unknown): AffaireLinkedDpgfSource {
-  const root = unwrapData(payload);
-  if (root === null || !isRecord(root)) return null;
-
-  const importId =
-    toNonEmptyString(root.importId) ?? toNonEmptyString(root.import_id);
-  const filename = toNonEmptyString(root.filename);
-  const sourceFormat =
-    toNonEmptyString(root.sourceFormat) ??
-    toNonEmptyString(root.source_format);
-  const importStatus =
-    toNonEmptyString(root.importStatus) ??
-    toNonEmptyString(root.import_status);
-  const importedAt =
-    toNonEmptyString(root.importedAt) ?? toNonEmptyString(root.imported_at);
-  const parseMode =
-    toNonEmptyString(root.parseMode) ?? toNonEmptyString(root.parse_mode);
-  const rowCount =
-    toFiniteNumber(root.rowCount) ?? toFiniteNumber(root.row_count);
-  const mappedRowCount =
-    toFiniteNumber(root.mappedRowCount) ??
-    toFiniteNumber(root.mapped_row_count);
-
-  if (
-    !importId ||
-    !filename ||
-    !sourceFormat ||
-    !importStatus ||
-    !importedAt ||
-    !parseMode ||
-    rowCount === null ||
-    mappedRowCount === null
-  ) {
-    return null;
-  }
-
-  return {
-    importId,
-    filename,
-    sourceFormat,
-    importStatus,
-    mappingStatus:
-      toNonEmptyString(root.mappingStatus) ??
-      toNonEmptyString(root.mapping_status) ??
-      null,
-    importedAt,
-    mappingUpdatedAt:
-      toNonEmptyString(root.mappingUpdatedAt) ??
-      toNonEmptyString(root.mapping_updated_at) ??
-      null,
-    parseMode,
-    rowCount: Math.max(0, Math.trunc(rowCount)),
-    mappedRowCount: Math.max(0, Math.trunc(mappedRowCount)),
-  };
-}
-
-async function defaultLoadLinkedDpgfSource(
-  projectId: string,
-  signal: AbortSignal
-) {
-  const response = await fetch(
-    `/api/affaires/${encodeURIComponent(projectId)}/dpgf-source`,
-    {
-      credentials: "same-origin",
-      signal,
-    }
-  );
-  const payload = (await response.json().catch(() => null)) as unknown;
-
-  if (!response.ok) {
-    throw new Error(resolveResponseError(payload, LINKED_DPGF_LOAD_ERROR));
-  }
-
-  return parseLinkedDpgfSource(payload);
+function defaultLoadLinkedDpgfSource(projectId: string, signal: AbortSignal) {
+  return fetchAffaireLinkedDpgfSource(projectId, { signal });
 }
 
 function cancelSourceRequest(slot: MutableRefObject<SourceRequestSlot>) {
@@ -267,9 +166,9 @@ function isImportableLinkedDpgfSource(
   );
 }
 
-function createEmptyImportUiState(versionId: string): ScopedImportUiState {
+function createEmptyImportUiState(scopeKey: string): ScopedImportUiState {
   return {
-    versionId,
+    scopeKey,
     isImportFromEstimateDialogOpen: false,
     isEstimateStructureDraftDialogOpen: false,
     isStructureDraftAutoOpenConsumed: false,
@@ -279,6 +178,7 @@ function createEmptyImportUiState(versionId: string): ScopedImportUiState {
 }
 
 export function useEstimateEditorImportController({
+  document,
   routeVersionId,
   activeVersion,
   autoOpenStructureDraft = false,
@@ -294,22 +194,34 @@ export function useEstimateEditorImportController({
   resolveErrorMessage,
   loadLinkedDpgfSource = defaultLoadLinkedDpgfSource,
 }: EstimateEditorImportControllerInput): EstimateEditorImportController {
+  const subscribeDocument = useCallback((notify: () => void) => document?.subscribe(notify) ?? (() => undefined), [document]);
+  const getDocumentGeneration = useCallback(() => document?.getSnapshot().generation ?? 0, [document]);
+  const documentGeneration = useSyncExternalStore(subscribeDocument, getDocumentGeneration, getDocumentGeneration);
+  const documentScope = useMemo(() => document
+    ? { ...document.captureScope(), generation: documentGeneration } : null, [document, documentGeneration]);
+  const scopeKey = JSON.stringify([documentScope?.actorId ?? null, documentScope?.tenantId ?? null,
+    routeVersionId, documentGeneration]);
+  // A token object, not the repeated string A, distinguishes visits A → B → A.
+  const controllerScope = useMemo(() => ({ scopeKey }), [scopeKey]);
+  const controllerScopeRef = useRef(controllerScope);
+  const isControllerScopeCurrent = useCallback(() => controllerScopeRef.current === controllerScope &&
+    (!document || Boolean(documentScope && document.isCurrent(documentScope))), [controllerScope, document, documentScope]);
   const activeVersionId = activeVersion?.id ?? null;
   const activeProjectId =
     activeVersionId === routeVersionId
       ? (activeVersion?.project_id ?? null)
       : null;
   const linkedSourceScopeKey = activeProjectId
-    ? `${routeVersionId}:${activeVersionId}:${activeProjectId}`
+    ? `${scopeKey}:${activeVersionId}:${activeProjectId}`
     : null;
   const [linkedSourceState, setLinkedSourceState] =
     useState<LinkedDpgfSourceState | null>(null);
   const [scopedImportUiState, setScopedImportUiState] =
     useState<ScopedImportUiState>(() =>
-      createEmptyImportUiState(routeVersionId)
+      createEmptyImportUiState(scopeKey)
     );
-  if (scopedImportUiState.versionId !== routeVersionId) {
-    setScopedImportUiState(createEmptyImportUiState(routeVersionId));
+  if (scopedImportUiState.scopeKey !== scopeKey) {
+    setScopedImportUiState(createEmptyImportUiState(scopeKey));
   }
 
   const isLinkedSourceStateCurrent = Boolean(
@@ -328,7 +240,7 @@ export function useEstimateEditorImportController({
     : false;
 
   const isImportUiStateCurrent =
-    scopedImportUiState.versionId === routeVersionId;
+    scopedImportUiState.scopeKey === scopeKey;
   const shouldAutoOpenStructureDraft = Boolean(
     autoOpenStructureDraft &&
       activeVersionId === routeVersionId &&
@@ -371,17 +283,19 @@ export function useEstimateEditorImportController({
   }, [activeProjectId, activeVersionId]);
 
   useLayoutEffect(() => {
+    controllerScopeRef.current = controllerScope;
     routeVersionIdRef.current = routeVersionId;
     routeGenerationRef.current += 1;
     operationGenerationRef.current += 1;
     activeMutationRef.current = null;
     cancelLinkedSourceRequest();
-  }, [cancelLinkedSourceRequest, routeVersionId]);
+  }, [cancelLinkedSourceRequest, controllerScope, routeVersionId]);
 
   const isSameMutationScope = useCallback((scope: MutationScope) => {
     const active = activeMutationRef.current;
     return Boolean(
       active &&
+        active.scopeKey === scope.scopeKey &&
         active.versionId === scope.versionId &&
         active.routeGeneration === scope.routeGeneration &&
         active.operationGeneration === scope.operationGeneration
@@ -390,29 +304,31 @@ export function useEstimateEditorImportController({
 
   const isMutationScopeActive = useCallback(
     (scope: MutationScope) =>
-      isSameMutationScope(scope) &&
+      isControllerScopeCurrent() && isSameMutationScope(scope) &&
+      scope.scopeKey === scopeKey &&
       routeVersionIdRef.current === scope.versionId &&
       routeGenerationRef.current === scope.routeGeneration &&
       getVersionSnapshot()?.id === scope.versionId,
-    [getVersionSnapshot, isSameMutationScope]
+    [getVersionSnapshot, isControllerScopeCurrent, isSameMutationScope, scopeKey]
   );
 
   const finishMutation = useCallback(
     (scope: MutationScope) => {
-      if (!isSameMutationScope(scope)) return;
+      if (!isControllerScopeCurrent() || !isSameMutationScope(scope)) return;
       activeMutationRef.current = null;
       setScopedImportUiState((previous) =>
-        previous.versionId === scope.versionId &&
+        previous.scopeKey === scope.scopeKey &&
         previous.activeMutation === scope.kind
           ? { ...previous, activeMutation: null }
           : previous
       );
     },
-    [isSameMutationScope]
+    [isControllerScopeCurrent, isSameMutationScope]
   );
 
   const refreshLinkedDpgfSource = useCallback(async () => {
     if (
+      !isControllerScopeCurrent() ||
       !activeProjectId ||
       !linkedSourceScopeKey ||
       activeVersionId !== routeVersionId ||
@@ -431,7 +347,7 @@ export function useEstimateEditorImportController({
     };
 
     const isCurrentRequest = () =>
-      !controller.signal.aborted &&
+      isControllerScopeCurrent() && !controller.signal.aborted &&
       routeVersionIdRef.current === routeVersionId &&
       routeGenerationRef.current === routeGeneration &&
       activeVersionIdRef.current === routeVersionId &&
@@ -480,11 +396,13 @@ export function useEstimateEditorImportController({
     linkedDpgfSource,
     linkedSourceScopeKey,
     loadLinkedDpgfSource,
+    isControllerScopeCurrent,
     routeVersionId,
   ]);
 
   useEffect(() => {
     if (
+      !isControllerScopeCurrent() ||
       !activeProjectId ||
       !linkedSourceScopeKey ||
       activeVersionId !== routeVersionId
@@ -504,7 +422,7 @@ export function useEstimateEditorImportController({
     };
 
     const isCurrentRequest = () =>
-      !controller.signal.aborted &&
+      isControllerScopeCurrent() && !controller.signal.aborted &&
       routeVersionIdRef.current === routeVersionId &&
       routeGenerationRef.current === routeGeneration &&
       activeVersionIdRef.current === routeVersionId &&
@@ -560,6 +478,7 @@ export function useEstimateEditorImportController({
     cancelLinkedSourceRequest,
     linkedSourceScopeKey,
     loadLinkedDpgfSource,
+    isControllerScopeCurrent,
     routeVersionId,
   ]);
 
@@ -595,7 +514,7 @@ export function useEstimateEditorImportController({
 
   const runStructuralMutation = useCallback(
     async <T,>(options: StructuralMutationOptions<T>): Promise<T> => {
-      if (routeVersionIdRef.current !== routeVersionId) {
+      if (!isControllerScopeCurrent() || routeVersionIdRef.current !== routeVersionId) {
         throw new ExpectedImportOperationError(STALE_OPERATION_MESSAGE);
       }
       if (isMutationBlocked) {
@@ -616,6 +535,7 @@ export function useEstimateEditorImportController({
       }
 
       const scope: MutationScope = {
+        scopeKey,
         kind: options.kind,
         versionId: versionSnapshot.id,
         routeGeneration: routeGenerationRef.current,
@@ -624,9 +544,9 @@ export function useEstimateEditorImportController({
       operationGenerationRef.current = scope.operationGeneration;
       activeMutationRef.current = scope;
       setScopedImportUiState((previous) => ({
-        ...(previous.versionId === scope.versionId
+        ...(previous.scopeKey === scope.scopeKey
           ? previous
-          : createEmptyImportUiState(scope.versionId)),
+          : createEmptyImportUiState(scope.scopeKey)),
         activeMutation: scope.kind,
         importSummaryMessage: null,
       }));
@@ -658,7 +578,7 @@ export function useEstimateEditorImportController({
 
         setTotalsOutOfSync(false);
         setScopedImportUiState((previous) =>
-          previous.versionId === scope.versionId
+          previous.scopeKey === scope.scopeKey
             ? {
                 ...previous,
                 importSummaryMessage: options.buildSummary(result),
@@ -697,6 +617,8 @@ export function useEstimateEditorImportController({
       handleVersionConflict,
       isMutationBlocked,
       isMutationScopeActive,
+      isControllerScopeCurrent,
+      scopeKey,
       mutationBlockedMessage,
       reconcileVersionToken,
       reloadItems,
@@ -708,7 +630,7 @@ export function useEstimateEditorImportController({
   );
 
   const canOpenDialog = useCallback(() => {
-    if (routeVersionIdRef.current !== routeVersionId) return false;
+    if (!isControllerScopeCurrent() || routeVersionIdRef.current !== routeVersionId) return false;
     if (isMutationBlocked) {
       reportError(mutationBlockedMessage);
       return false;
@@ -728,27 +650,28 @@ export function useEstimateEditorImportController({
     isMutationBlocked,
     mutationBlockedMessage,
     reportError,
+    isControllerScopeCurrent,
     routeVersionId,
   ]);
 
   const openImportFromEstimateDialog = useCallback(() => {
     if (!canOpenDialog()) return false;
     setScopedImportUiState({
-      ...createEmptyImportUiState(routeVersionId),
+      ...createEmptyImportUiState(scopeKey),
       isImportFromEstimateDialogOpen: true,
       isStructureDraftAutoOpenConsumed: true,
     });
     return true;
-  }, [canOpenDialog, routeVersionId]);
+  }, [canOpenDialog, scopeKey]);
 
   const closeImportFromEstimateDialog = useCallback(() => {
-    if (routeVersionIdRef.current !== routeVersionId) return;
+    if (!isControllerScopeCurrent() || routeVersionIdRef.current !== routeVersionId) return;
     setScopedImportUiState((previous) =>
-      previous.versionId === routeVersionId
+      previous.scopeKey === scopeKey
         ? { ...previous, isImportFromEstimateDialogOpen: false }
         : previous
     );
-  }, [routeVersionId]);
+  }, [isControllerScopeCurrent, routeVersionId, scopeKey]);
 
   const confirmImportFromEstimate = useCallback(
     async (input: ImportEstimateSectionsPayload) => {
@@ -775,22 +698,22 @@ export function useEstimateEditorImportController({
   const openEstimateStructureDraftDialog = useCallback(() => {
     if (!canOpenDialog()) return false;
     setScopedImportUiState({
-      ...createEmptyImportUiState(routeVersionId),
+      ...createEmptyImportUiState(scopeKey),
       isEstimateStructureDraftDialogOpen: true,
     });
     return true;
-  }, [canOpenDialog, routeVersionId]);
+  }, [canOpenDialog, scopeKey]);
 
   const closeEstimateStructureDraftDialog = useCallback(() => {
-    if (routeVersionIdRef.current !== routeVersionId) return;
+    if (!isControllerScopeCurrent() || routeVersionIdRef.current !== routeVersionId) return;
     setScopedImportUiState((previous) => ({
-      ...(previous.versionId === routeVersionId
+      ...(previous.scopeKey === scopeKey
         ? previous
-        : createEmptyImportUiState(routeVersionId)),
+        : createEmptyImportUiState(scopeKey)),
       isEstimateStructureDraftDialogOpen: false,
       isStructureDraftAutoOpenConsumed: true,
     }));
-  }, [routeVersionId]);
+  }, [isControllerScopeCurrent, routeVersionId, scopeKey]);
 
   const applyStructureDraft = useCallback(
     async (draftId: string, input: ApplyEstimateStructureDraftPayload) =>
@@ -814,6 +737,7 @@ export function useEstimateEditorImportController({
     isImportableLinkedDpgfSource(linkedDpgfSource);
 
   const importLinkedDpgfSource = useCallback(async () => {
+    if (!isControllerScopeCurrent()) return;
     if (!hasLinkedDpgfSource) {
       reportError("Aucune source DPGF importable n'est liée à cette affaire.");
       return;
@@ -837,16 +761,16 @@ export function useEstimateEditorImportController({
     } catch {
       // The shared mutation runner already handled user-visible errors.
     }
-  }, [hasLinkedDpgfSource, reportError, runStructuralMutation]);
+  }, [hasLinkedDpgfSource, isControllerScopeCurrent, reportError, runStructuralMutation]);
 
   const clearImportSummary = useCallback(() => {
-    if (routeVersionIdRef.current !== routeVersionId) return;
+    if (!isControllerScopeCurrent() || routeVersionIdRef.current !== routeVersionId) return;
     setScopedImportUiState((previous) =>
-      previous.versionId === routeVersionId
+      previous.scopeKey === scopeKey
         ? { ...previous, importSummaryMessage: null }
         : previous
     );
-  }, [routeVersionId]);
+  }, [isControllerScopeCurrent, routeVersionId, scopeKey]);
 
   const isMutationInProgress = activeMutation !== null;
   const isImportingDpgfSource = activeMutation === "linked-dpgf";

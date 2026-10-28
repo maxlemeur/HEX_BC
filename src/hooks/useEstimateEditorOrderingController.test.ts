@@ -42,12 +42,16 @@ function createVersion(id = "version-1"): EstimateVersionRow {
   } as EstimateVersionRow;
 }
 
+function orderingReceipt(id = "version-1", updatedAt = "2026-10-28T10:00:00.123457Z") {
+  return { versionToken: { id, updated_at: updatedAt } };
+}
+
 function createDeferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((innerResolve) => {
+  let resolve!: (value: ReturnType<typeof orderingReceipt>) => void;
+  const promise = new Promise<ReturnType<typeof orderingReceipt>>((innerResolve) => {
     resolve = innerResolve;
   });
-  return { promise, resolve };
+  return { promise, resolve: () => resolve(orderingReceipt()) };
 }
 
 function itemOrder(items: EditorEstimateItem[]) {
@@ -117,8 +121,8 @@ function readHistoryCommand(
 }
 
 beforeEach(() => {
-  clientMocks.moveEstimateItem.mockReset().mockResolvedValue(undefined);
-  clientMocks.reorderEstimateItems.mockReset().mockResolvedValue(undefined);
+  clientMocks.moveEstimateItem.mockReset().mockResolvedValue(orderingReceipt());
+  clientMocks.reorderEstimateItems.mockReset().mockResolvedValue(orderingReceipt());
 });
 
 afterEach(() => {
@@ -357,7 +361,7 @@ describe("useEstimateEditorOrderingController route races", () => {
         clientMocks.moveEstimateItem.mockReturnValueOnce(deferred.promise);
       }
 
-      let actionPromise!: Promise<void>;
+      let actionPromise!: Promise<void | boolean>;
       act(() => {
         actionPromise =
           actionName === "reorder"

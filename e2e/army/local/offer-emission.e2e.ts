@@ -418,6 +418,180 @@ offerTest("OF00 actual confirmation emits the same frozen PDF", options, async (
   await send(ui, "OF00", p.ids.versionId);
 });
 
+type EmailConfirmationWitness = {
+  requestKeyPresent: boolean;
+  requestKeySha256: string;
+  bodySha256: string;
+  sameRequestKey: boolean;
+  sameEnvelope: boolean;
+  responseStatus: number;
+  confirmedReceipt: boolean;
+  sameProviderReceipt: boolean;
+  corruptedForClient: boolean;
+};
+type EmailConfirmationProbeWindow = Window & {
+  __armyEmailConfirmationProbe?: {
+    snapshot: () => {
+      requests: EmailConfirmationWitness[];
+      successfulNotifications: number;
+      pendingCount: number;
+      pendingMatchesRequest: boolean;
+      pendingMatchesEnvelope: boolean;
+    };
+    restore: () => boolean;
+  };
+};
+
+offerTest("EC01 corrupt confirmation retains its request and replays one actual email", options, async (ui) => {
+  const p = await prepare(ui, "EC01");
+  const endpoint = new URL(`/api/estimates/${p.ids.versionId}/send`, ui.app.baseUrl!).href;
+  const receiptsBefore = await receiptNames();
+  await ui.browser.evaluate(({ endpoint, versionId }) => {
+    const scope = window as EmailConfirmationProbeWindow;
+    if (scope.__armyEmailConfirmationProbe) throw new Error("Email confirmation probe already installed.");
+    const originalFetch = window.fetch;
+    const requests: EmailConfirmationWitness[] = [];
+    let originalKey = "", originalBody = "", originalProviderId = "";
+    const notified = new Set<string>();
+    const observeNotifications = () => {
+      for (const toast of document.querySelectorAll('[data-slot="toast"]')) {
+        if (toast.textContent?.includes("Devis envoyé")) notified.add(toast.getAttribute("data-toast-id") ?? "missing-id");
+      }
+    };
+    const observer = new MutationObserver(observeNotifications);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    observeNotifications();
+    const sha = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))))
+      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const wrapped: typeof window.fetch = async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (url.href !== endpoint || method !== "POST") return originalFetch.call(window, input, init);
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      const key = headers.get("idempotency-key") ?? "";
+      const body = typeof init?.body === "string" ? init.body : input instanceof Request ? await input.clone().text() : "";
+      const first = requests.length === 0;
+      if (first) { originalKey = key; originalBody = body; }
+      const witness: EmailConfirmationWitness = {
+        requestKeyPresent: /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(key),
+        requestKeySha256: await sha(key), bodySha256: await sha(body),
+        sameRequestKey: key === originalKey, sameEnvelope: body === originalBody,
+        responseStatus: 0, confirmedReceipt: false, sameProviderReceipt: false, corruptedForClient: false,
+      };
+      requests.push(witness);
+      // The SDK has no route.fetch. Keep the real request and browser guards;
+      // alter only the first successful response delivered to the application.
+      const response = await originalFetch.call(window, input, init);
+      witness.responseStatus = response.status;
+      const reply = await response.clone().json().catch(() => null) as {
+        ok?: boolean; data?: { version_id?: string; request_id?: string; message_id?: string | null };
+      } | null;
+      witness.confirmedReceipt = response.status === 200 && reply?.ok === true
+        && reply.data?.version_id === versionId && reply.data.request_id === key
+        && typeof reply.data.message_id === "string" && reply.data.message_id.length > 0;
+      if (first && witness.confirmedReceipt) originalProviderId = reply!.data!.message_id!;
+      witness.sameProviderReceipt = !!originalProviderId && reply?.data?.message_id === originalProviderId;
+      if (!first || !witness.confirmedReceipt) return response;
+      witness.corruptedForClient = true;
+      return new Response("{", { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const probe = {
+      snapshot: () => {
+        observeNotifications();
+        const keys = Object.keys(sessionStorage).filter((key) => key.startsWith(`estimate-email:${versionId}:`));
+        let pending: { version?: number; requestId?: string; payload?: unknown } | null = null;
+        try { pending = JSON.parse(sessionStorage.getItem(`estimate-email:${versionId}:pending`) ?? "null"); }
+        catch { /* Keep a malformed retained record visible through false witnesses. */ }
+        const envelope = pending?.payload && typeof pending.payload === "object" ? pending.payload as Record<string, unknown> : null;
+        const original = originalBody ? JSON.parse(originalBody) as Record<string, unknown> : null;
+        return { requests, successfulNotifications: notified.size, pendingCount: keys.length,
+          pendingMatchesRequest: pending?.version === 1 && pending.requestId === originalKey,
+          pendingMatchesEnvelope: !!envelope && !!original && ["to", "subject", "message"].every((key) => envelope[key] === original[key])
+            && JSON.stringify(envelope.cc ?? []) === JSON.stringify(original.cc ?? []) };
+      },
+      restore: () => {
+        observeNotifications(); observer.disconnect();
+        const ownsFetch = window.fetch === wrapped;
+        if (ownsFetch) window.fetch = originalFetch;
+        if (scope.__armyEmailConfirmationProbe === probe) delete scope.__armyEmailConfirmationProbe;
+        originalKey = ""; originalBody = ""; originalProviderId = "";
+        return ownsFetch;
+      },
+    };
+    scope.__armyEmailConfirmationProbe = probe;
+    window.fetch = wrapped;
+    return { installed: true };
+  }, { endpoint, versionId: p.ids.versionId });
+  const snapshot = () => ui.browser.evaluate(() => {
+    const probe = (window as EmailConfirmationProbeWindow).__armyEmailConfirmationProbe;
+    if (!probe) throw new Error("Email confirmation probe was lost before its assertions.");
+    return probe.snapshot();
+  });
+  try {
+    await ui.screen.getByRole("button", "Envoyer par email", { exact: true }).click();
+    const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
+    await expect(modal).toBeVisible();
+    await modal.getByLabel("Destinataire *", { exact: true }).fill("army-ec01@offer.invalid");
+    await modal.getByLabel("CC", { exact: true }).fill("army-ec01-copy@offer.invalid");
+    await modal.getByLabel("Objet *", { exact: true }).fill("EC01 confirmation à vérifier");
+    await modal.getByLabel("Message *", { exact: true }).fill("ARMY envoi unique malgré une confirmation perdue.");
+    await modal.getByRole("button", "Envoyer", { exact: true }).click();
+    await expect(modal.getByText("La confirmation de l’envoi n’a pas pu être vérifiée. Réessayez avec les mêmes informations pour vérifier cet envoi.", { exact: true })).toBeVisible();
+    const unconfirmed = await snapshot();
+    const issued = await readEstimate(ui.browser, p.ids.versionId);
+    const receiptsAfterFirst = await receiptNames();
+    await recordOfferEvidence(ui.army, "EC01-unconfirmed", { ids: p.ids, witness: unconfirmed,
+      versionStatus: issued.version.status, totals: totals(issued.version),
+      receiptCountBefore: receiptsBefore.length, receiptCountAfter: receiptsAfterFirst.length });
+    expect(unconfirmed.requests).toHaveLength(1);
+    expect(unconfirmed.requests[0]).toMatchObject({ requestKeyPresent: true, responseStatus: 200, confirmedReceipt: true, corruptedForClient: true });
+    expect(unconfirmed.successfulNotifications).toBe(0);
+    expect(unconfirmed.pendingCount).toBe(1);
+    expect(unconfirmed.pendingMatchesRequest).toBe(true);
+    expect(unconfirmed.pendingMatchesEnvelope).toBe(true);
+    expect(receiptsAfterFirst.filter((name) => !receiptsBefore.includes(name))).toHaveLength(1);
+    expect(issued.version.status).toBe("sent");
+    expect(totals(issued.version)).toEqual([2000, 400, 2400]);
+    for (const label of ["Destinataire *", "CC", "Objet *", "Message *"]) {
+      await expect(modal.getByLabel(label, { exact: true })).toBeDisabled();
+    }
+    await expect(modal.getByRole("button", "Envoyer", { exact: true })).toBeEnabled();
+    // Only this explicit second click retries; the pending request cannot create
+    // a fresh dispatch after the server has already committed the first email.
+    const [response] = await Promise.all([ui.browser.waitForResponse(endpoint, { timeout: 120000 }),
+      modal.getByRole("button", "Envoyer", { exact: true }).click()]);
+    const reply = await response.json<{ ok: boolean; data?: { message_id?: string | null; version_id?: string; request_id?: string } }>();
+    await expect(modal).not.toBeVisible();
+    await expect.poll(async () => (await snapshot()).successfulNotifications, { timeout: 30000 }).toBe(1);
+    const confirmed = await snapshot();
+    const receiptsAfterRetry = await receiptNames();
+    await recordOfferEvidence(ui.army, "EC01-confirmed", { ids: p.ids, witness: confirmed,
+      responseStatus: response.status, receiptMatchesVersion: reply.data?.version_id === p.ids.versionId,
+      receiptCountAfterFirst: receiptsAfterFirst.length, receiptCountAfterRetry: receiptsAfterRetry.length,
+      unchangedCollector: JSON.stringify(receiptsAfterRetry) === JSON.stringify(receiptsAfterFirst) });
+    expect(response.status).toBe(200);
+    expect(reply.ok).toBe(true);
+    expect(confirmed.requests).toHaveLength(2);
+    expect(confirmed.requests[1]).toMatchObject({ requestKeyPresent: true, sameRequestKey: true, sameEnvelope: true,
+      responseStatus: 200, confirmedReceipt: true, sameProviderReceipt: true, corruptedForClient: false });
+    expect(confirmed.pendingCount).toBe(0);
+    expect(receiptsAfterRetry).toEqual(receiptsAfterFirst);
+    if (!reply.data?.message_id) throw new Error("EC01 successful replay has no provider receipt.");
+    const result = await collected(reply.data.message_id);
+    await recordOfferEvidence(ui.army, "EC01-single-provider-receipt", { ids: p.ids, receipt: result.receipt,
+      requestKeySha256: confirmed.requests[0].requestKeySha256, envelopeSha256: confirmed.requests[0].bodySha256 });
+    await expectEstimateSummaryStatus(ui, "Envoyé");
+  } finally {
+    const cleanup = await ui.browser.evaluate(() => {
+      const probe = (window as EmailConfirmationProbeWindow).__armyEmailConfirmationProbe;
+      const witness = probe?.snapshot() ?? null;
+      return { witness, restored: probe?.restore() ?? false };
+    });
+    await recordOfferEvidence(ui.army, "EC01-probe-cleanup", cleanup);
+    expect(cleanup.restored).toBe(true);
+  }
+});
+
 offerTest("OF04 manual issue and lifecycle preserve its final PDF without email", options, async (ui) => {
   const p = await prepare(ui, "OF04");
   const pdfBefore = await apiRequest<{ ok: boolean; data: { status: string; sha256_hash?: string; file_size_bytes?: number } }>(
@@ -1381,6 +1555,9 @@ async function efExerciseFirstSend(ui: OfferUi, caseId: EfCase) {
       expect(after.version.seal_payload_version).toBe(5);
       expect(totals(after.version)).toEqual([2000, 400, 2400]);
       expect(receiptsAfter.length).toBe(beforeReceipts.length + 1);
+      // The response observer can finish before the UI consumes its receipt.
+      // Confirm the successful dialog close before teardown tries to cancel it.
+      await expect(modal).not.toBeVisible();
     } else {
       expect(probe.events.length).toBe(1);
       expect(probe.events[0]).toMatchObject({ originalOwnSessionPresent: true, bodyPreserved: true, methodPreserved: true,

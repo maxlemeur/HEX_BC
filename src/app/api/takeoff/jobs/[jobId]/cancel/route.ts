@@ -1,3 +1,4 @@
+import { parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -17,7 +18,7 @@ export async function POST(
   try {
     const jobId = await getJobId(params);
     const data = await cancelTakeoffJob(jobId);
-    return ok(data);
+    return ok(parseTakeoffJobActionResponse(data, { jobId, command: "cancel" }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

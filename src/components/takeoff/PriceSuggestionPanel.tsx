@@ -47,6 +47,7 @@ type PanelState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "empty" }
+  | { kind: "read-required" | "recovering"; suggestion: TakeoffPriceSuggestionSnapshot | null; message: string }
   | { kind: "ready"; suggestion: TakeoffPriceSuggestionSnapshot }
   | { kind: "recalculating"; suggestion: TakeoffPriceSuggestionSnapshot }
   | { kind: "submitting"; suggestion: TakeoffPriceSuggestionSnapshot; action: TakeoffPriceSuggestionAction }
@@ -137,6 +138,10 @@ function isNoSourceAvailableError(error: unknown): boolean {
   );
 }
 
+function isUncertainPriceWrite(error: unknown): boolean {
+  return !isTakeoffApiError(error) || error.status >= 500 || error.status === 408;
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -145,10 +150,12 @@ function BoundsDisplay({
   suggestion,
   selectedAction,
   onSelectAction,
+  disabled,
 }: {
   suggestion: TakeoffPriceSuggestionSnapshot;
   selectedAction: TakeoffPriceSuggestionAction | null;
   onSelectAction: (action: TakeoffPriceSuggestionAction) => void;
+  disabled: boolean;
 }) {
   const bounds: Array<{
     action: Extract<TakeoffPriceSuggestionAction, "apply_low" | "apply_target" | "apply_high">;
@@ -189,6 +196,7 @@ function BoundsDisplay({
             key={action}
             type="button"
             onClick={() => onSelectAction(action)}
+            disabled={disabled}
             aria-pressed={isSelected}
             className={`min-w-0 rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:hover:translate-y-0 ${
               isSelected
@@ -252,7 +260,15 @@ function SourceItem({ source }: { source: TakeoffPriceSuggestionSource }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function PriceSuggestionPanel({
+export function PriceSuggestionPanel(props: PriceSuggestionPanelProps) {
+  // A different document/line or a reopened panel owns a fresh async lifecycle.
+  return props.open ? <PriceSuggestionPanelContent
+    key={JSON.stringify([props.jobId, props.versionId, props.estimateItemId])}
+    {...props}
+  /> : null;
+}
+
+function PriceSuggestionPanelContent({
   open,
   onOpenChange,
   jobId,
@@ -262,6 +278,9 @@ export function PriceSuggestionPanel({
   onReviewComplete,
 }: PriceSuggestionPanelProps) {
   const reviewCompletedRef = useRef(false);
+  const generationRef = useRef(0);
+  const operationRef = useRef<symbol | null>(null);
+  const readAbortRef = useRef<AbortController | null>(null);
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [selectedAction, setSelectedAction] = useState<TakeoffPriceSuggestionAction | null>(null);
   const [reviewNote, setReviewNote] = useState("");
@@ -271,16 +290,20 @@ export function PriceSuggestionPanel({
   useEffect(() => {
     if (!open) return;
 
-    let canceled = false;
+    const generation = ++generationRef.current;
+    const controller = new AbortController();
+    readAbortRef.current = controller;
+    const isCurrent = () => generationRef.current === generation && !controller.signal.aborted;
 
     async function load() {
+      let requested = false;
       try {
         let response;
         try {
           response = await fetchTakeoffPriceSuggestion(jobId, {
             version_id: versionId,
             estimate_item_id: estimateItemId,
-          });
+          }, { signal: controller.signal });
         } catch (error) {
           if (
             !isTakeoffApiError(error) ||
@@ -290,13 +313,15 @@ export function PriceSuggestionPanel({
             throw error;
           }
 
+          if (!isCurrent()) return;
+          requested = true;
           response = await requestTakeoffPriceSuggestion(jobId, {
             version_id: versionId,
             estimate_item_id: estimateItemId,
           });
         }
 
-        if (canceled) return;
+        if (!isCurrent()) return;
 
         if (!response.suggestion) {
           setState({ kind: "empty" });
@@ -309,20 +334,22 @@ export function PriceSuggestionPanel({
           setState({ kind: "reviewed", suggestion: s });
           setSelectedAction(s.selected_action);
           setReviewNote(s.review_note ?? "");
+          // Reopening may be the read that confirms a previous lost response.
+          reviewCompletedRef.current = true;
           return;
         }
 
         setState({ kind: "ready", suggestion: s });
       } catch (error) {
-        if (canceled) return;
+        if (!isCurrent()) return;
         if (isNoSourceAvailableError(error)) {
           setState({ kind: "empty" });
           return;
         }
-        setState({
-          kind: "error",
-          message: isTakeoffApiError(error) ? error.message : "Impossible de charger la suggestion.",
-        });
+        const message = isTakeoffApiError(error) ? error.message : "Impossible de charger la suggestion.";
+        setState(requested && isUncertainPriceWrite(error)
+          ? { kind: "read-required", suggestion: null, message }
+          : { kind: "error", message });
       }
     }
 
@@ -338,7 +365,9 @@ export function PriceSuggestionPanel({
     })();
 
     return () => {
-      canceled = true;
+      generationRef.current += 1;
+      controller.abort();
+      readAbortRef.current?.abort();
     };
   }, [open, jobId, versionId, estimateItemId]);
 
@@ -366,88 +395,109 @@ export function PriceSuggestionPanel({
     onOpenChange(false);
   }, [onOpenChange, onReviewComplete]);
 
-  // Recalculate
+  // Every write is tied to this visit and admits only one in-flight action.
   const handleRecalculate = useCallback(async () => {
-    const currentSuggestion =
-      state.kind === "ready" || state.kind === "reviewed"
-        ? state.suggestion
-        : null;
-
-    if (currentSuggestion) {
-      setState({ kind: "recalculating", suggestion: currentSuggestion });
-    } else {
-      setState({ kind: "loading" });
-    }
+    if (operationRef.current || !["ready", "reviewed", "error", "empty"].includes(state.kind)) return;
+    const operation = Symbol("recalculate");
+    operationRef.current = operation;
+    const generation = generationRef.current;
+    const isCurrent = () => generationRef.current === generation && operationRef.current === operation;
+    const currentSuggestion = state.kind === "ready" || state.kind === "reviewed" ? state.suggestion : null;
+    setState(currentSuggestion ? { kind: "recalculating", suggestion: currentSuggestion } : { kind: "loading" });
 
     try {
       const response = await requestTakeoffPriceSuggestion(jobId, {
-        version_id: versionId,
-        estimate_item_id: estimateItemId,
-        force_refresh: true,
+        version_id: versionId, estimate_item_id: estimateItemId, force_refresh: true,
       });
-
-      if (!response.suggestion) {
-        setState({ kind: "empty" });
-        return;
-      }
-
-      setState({ kind: "ready", suggestion: response.suggestion });
-      setSelectedAction(null);
-      setReviewNote("");
+      if (!isCurrent()) return;
+      setState(response.suggestion.status === "pending"
+        ? { kind: "ready", suggestion: response.suggestion }
+        : { kind: "reviewed", suggestion: response.suggestion });
+      setSelectedAction(response.suggestion.selected_action);
+      setReviewNote(response.suggestion.review_note ?? "");
       setSubmitError(null);
     } catch (error) {
+      if (!isCurrent()) return;
       if (isNoSourceAvailableError(error)) {
         setState({ kind: "empty" });
         setSubmitError(null);
         return;
       }
-      setState({
-        kind: "error",
-        message: isTakeoffApiError(error) ? error.message : "Impossible de recalculer.",
-      });
+      const message = isTakeoffApiError(error) ? error.message : "Impossible de confirmer le recalcul.";
+      setState(isUncertainPriceWrite(error)
+        ? { kind: "read-required", suggestion: currentSuggestion, message }
+        : { kind: "error", message });
+    } finally {
+      if (operationRef.current === operation) operationRef.current = null;
     }
   }, [state, jobId, versionId, estimateItemId]);
 
-  // Submit review
   const handleSubmitReview = useCallback(async () => {
-    if (!selectedAction) return;
-    if (reviewNote.trim().length === 0) return;
-
-    const suggestion =
-      state.kind === "ready"
-        ? state.suggestion
-        : state.kind === "recalculating"
-          ? state.suggestion
-          : null;
-
-    if (!suggestion) return;
-
+    if (operationRef.current || state.kind !== "ready" || !selectedAction || !reviewNote.trim()) return;
+    const suggestion = state.suggestion;
+    const operation = Symbol("review");
+    operationRef.current = operation;
+    const generation = generationRef.current;
+    const isCurrent = () => generationRef.current === generation && operationRef.current === operation;
     setState({ kind: "submitting", suggestion, action: selectedAction });
     setSubmitError(null);
 
     try {
-      const response = await reviewTakeoffPriceSuggestion(
-        jobId,
-        suggestion.suggestion_id,
-        {
-          version_id: versionId,
-          action: selectedAction,
-          review_note: reviewNote.trim(),
-        }
-      );
-
+      const response = await reviewTakeoffPriceSuggestion(jobId, suggestion.suggestion_id, {
+        version_id: versionId, action: selectedAction, review_note: reviewNote.trim(),
+      }, estimateItemId);
+      if (!isCurrent()) return;
       setState({ kind: "reviewed", suggestion: response.suggestion });
       setSubmitError(null);
       reviewCompletedRef.current = true;
     } catch (error) {
-      setState({ kind: "ready", suggestion });
-      setSubmitError(
-        isTakeoffApiError(error)
-          ? error.message
-          : "Impossible d'enregistrer la revue de suggestion de prix."
-      );
+      if (!isCurrent()) return;
+      const message = isTakeoffApiError(error) ? error.message : "Impossible de confirmer la revue de suggestion de prix.";
+      if (isUncertainPriceWrite(error)) {
+        setState({ kind: "read-required", suggestion, message });
+      } else {
+        setState({ kind: "ready", suggestion });
+        setSubmitError(message);
+      }
+    } finally {
+      if (operationRef.current === operation) operationRef.current = null;
     }
-  }, [selectedAction, reviewNote, state, jobId, versionId]);
+  }, [selectedAction, reviewNote, state, jobId, versionId, estimateItemId]);
+
+  const handleRecoverRead = useCallback(async () => {
+    if (operationRef.current || state.kind !== "read-required") return;
+    const operation = Symbol("read-recovery");
+    operationRef.current = operation;
+    const generation = generationRef.current;
+    const isCurrent = () => generationRef.current === generation && operationRef.current === operation;
+    const controller = new AbortController();
+    readAbortRef.current = controller;
+    setState({ ...state, kind: "recovering" });
+    try {
+      // An uncertain write is reconciled only by reading. A 404 must never
+      // fall back to generating or reviewing another suggestion here.
+      const response = await fetchTakeoffPriceSuggestion(jobId, {
+        version_id: versionId, estimate_item_id: estimateItemId,
+      }, { signal: controller.signal });
+      if (!isCurrent()) return;
+      const suggestion = response.suggestion;
+      if (suggestion.status === "pending") {
+        setState({ kind: "ready", suggestion });
+      } else {
+        setState({ kind: "reviewed", suggestion });
+        setSelectedAction(suggestion.selected_action);
+        setReviewNote(suggestion.review_note ?? "");
+        reviewCompletedRef.current = true;
+      }
+      setSubmitError(null);
+    } catch (error) {
+      if (!isCurrent()) return;
+      setState({ kind: "read-required", suggestion: state.suggestion,
+        message: isTakeoffApiError(error) ? error.message : "Impossible de vérifier la suggestion. Réessayez la lecture." });
+    } finally {
+      if (operationRef.current === operation) operationRef.current = null;
+    }
+  }, [state, jobId, versionId, estimateItemId]);
 
   if (!open) return null;
 
@@ -455,13 +505,16 @@ export function PriceSuggestionPanel({
     state.kind === "ready" ||
     state.kind === "recalculating" ||
     state.kind === "submitting" ||
-    state.kind === "reviewed"
+    state.kind === "reviewed" ||
+    state.kind === "read-required" ||
+    state.kind === "recovering"
       ? state.suggestion
       : null;
 
   const isReviewed = state.kind === "reviewed";
   const isSubmitting = state.kind === "submitting";
   const isRecalculating = state.kind === "recalculating";
+  const isReadBlocked = state.kind === "read-required" || state.kind === "recovering";
   const canSubmit =
     state.kind === "ready" &&
     selectedAction !== null &&
@@ -516,6 +569,18 @@ export function PriceSuggestionPanel({
                 onClick={() => void handleRecalculate()}
               >
                 Réessayer
+              </Button>
+            </Alert>
+          ) : null}
+
+          {isReadBlocked ? (
+            <Alert variant="warning">
+              <AlertTitle>Confirmation à vérifier</AlertTitle>
+              <AlertDescription>{state.message} Les actions restent bloquées jusqu’à la vérification de la suggestion.</AlertDescription>
+              <Button variant="outline" size="sm" className="mt-3"
+                loading={state.kind === "recovering"}
+                onClick={() => void handleRecoverRead()}>
+                Vérifier la suggestion
               </Button>
             </Alert>
           ) : null}
@@ -592,7 +657,8 @@ export function PriceSuggestionPanel({
                     selectedAction={
                       isReviewed ? suggestion.selected_action : selectedAction
                     }
-                    onSelectAction={isReviewed ? () => {} : setSelectedAction}
+                    onSelectAction={setSelectedAction}
+                    disabled={isReviewed || isRecalculating || isSubmitting || isReadBlocked}
                   />
                 </div>
 
@@ -721,7 +787,7 @@ export function PriceSuggestionPanel({
                       variant={selectedAction === "keep_current" ? "primary" : "secondary"}
                       size="sm"
                       onClick={() => setSelectedAction("keep_current")}
-                      disabled={isRecalculating || isSubmitting}
+                      disabled={isRecalculating || isSubmitting || isReadBlocked}
                     >
                       Conserver le prix actuel
                     </Button>
@@ -729,7 +795,7 @@ export function PriceSuggestionPanel({
                       variant={selectedAction === "reject" ? "danger" : "ghost"}
                       size="sm"
                       onClick={() => setSelectedAction("reject")}
-                      disabled={isRecalculating || isSubmitting}
+                      disabled={isRecalculating || isSubmitting || isReadBlocked}
                     >
                       Rejeter
                     </Button>
@@ -753,7 +819,7 @@ export function PriceSuggestionPanel({
                       placeholder="Justifiez votre choix…"
                       aria-invalid={selectedAction && reviewNote.trim().length === 0 ? true : undefined}
                       aria-describedby="price-suggestion-review-note-hint"
-                      disabled={isRecalculating || isSubmitting}
+                      disabled={isRecalculating || isSubmitting || isReadBlocked}
                     />
                     <div
                       id="price-suggestion-review-note-hint"
@@ -802,7 +868,7 @@ export function PriceSuggestionPanel({
                 variant="ghost"
                 size="sm"
                 onClick={() => void handleRecalculate()}
-                disabled={isRecalculating || isSubmitting}
+                disabled={isRecalculating || isSubmitting || isReadBlocked}
               >
                 Recalculer
               </Button>

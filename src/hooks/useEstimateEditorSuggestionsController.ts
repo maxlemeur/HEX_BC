@@ -1,5 +1,8 @@
 "use client";
 
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+
 import {
   useCallback,
   useLayoutEffect,
@@ -66,6 +69,7 @@ type EstimateEditorSuggestionsHydration = {
 };
 
 export type EstimateEditorSuggestionsControllerInput = {
+  document?: EstimateEditorDocument;
   routeVersionId: string;
   currentUserId: string | null;
   previewItems: EditorEstimateItem[];
@@ -325,6 +329,7 @@ function resolveActionError(
 }
 
 export function useEstimateEditorSuggestionsController({
+  document,
   routeVersionId,
   currentUserId,
   previewItems,
@@ -345,6 +350,11 @@ export function useEstimateEditorSuggestionsController({
   handleVersionConflict,
   v3Writer,
 }: EstimateEditorSuggestionsControllerInput): EstimateEditorSuggestionsController {
+  const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems,
+    applyVersionToken: (updatedAt, totals) => applyVersionToken(updatedAt, totals),
+    markItemsSynced,
+  });
   const buildLineUpdate = v3Writer?.buildUpdatePayload ?? buildEstimateItemUpdatePayload;
   const [rulesState, setRulesState] = useState<SuggestionRulesState>(() =>
     createEmptyRulesState(routeVersionId)
@@ -897,7 +907,9 @@ export function useEstimateEditorSuggestionsController({
   }, []);
 
   const applySelected = useCallback(async () => {
+    if (!isItemsDocumentCurrent()) return;
     if (isApplyingRef.current || isUndoingRef.current) return;
+    const documentScope = document?.captureScope();
 
     const targetVersionId = routeVersionIdRef.current;
     const scopeGeneration = scopeGenerationRef.current;
@@ -921,7 +933,7 @@ export function useEstimateEditorSuggestionsController({
       ) {
         return;
       }
-      if (!isScopeCurrent(targetVersionId, scopeGeneration)) return;
+      if ((document && documentScope && !document.isCurrent(documentScope)) || !isScopeCurrent(targetVersionId, scopeGeneration)) return;
 
       const versionSnapshot = getVersionSnapshot();
       if (
@@ -1041,9 +1053,10 @@ export function useEstimateEditorSuggestionsController({
             }
           : previous
       );
-      setItems((previous) =>
+      const operation = beginItemsOperation((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
+      if (!isItemsOperationCurrent(operation)) return;
 
       try {
         const bulkResult = v3Writer
@@ -1057,11 +1070,16 @@ export function useEstimateEditorSuggestionsController({
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration ||
-          getVersionSnapshot()?.id !== targetVersionId
+          getVersionSnapshot()?.id !== targetVersionId || !isItemsOperationCurrent(operation)
         ) {
           return;
         }
 
+        if (!acceptItemsReceipt(operation, {
+          version: bulkResult.versionToken,
+          totals: bulkResult.totals ?? versionTotalsPatch,
+          updates: updatesPayload,
+        })) return;
         if (shouldTrackProgress) {
           setInteractiveState((previous) =>
             previous.routeVersionId === targetVersionId
@@ -1076,13 +1094,6 @@ export function useEstimateEditorSuggestionsController({
               : previous
           );
         }
-        // v2 returns the totals it recalculated; v1 stores the patch as sent.
-        applyVersionToken(
-          bulkResult.versionToken.updated_at,
-          bulkResult.totals ?? versionTotalsPatch
-        );
-        // Without a fresh baseline, an edit back to the previous value is dropped.
-        markItemsSynced(updatesPayload);
         setTotalsOutOfSync(false);
         setInteractiveState((previous) =>
           previous.routeVersionId === targetVersionId
@@ -1137,12 +1148,12 @@ export function useEstimateEditorSuggestionsController({
       } catch (error) {
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
-          bulkOperationGenerationRef.current !== operationGeneration
+          bulkOperationGenerationRef.current !== operationGeneration || !isItemsOperationCurrent(operation)
         ) {
           return;
         }
 
-        setItems(snapshot);
+        rollbackItems(operation);
         if (handleVersionConflict(error, { persistDraft: true })) {
           setInteractiveState((previous) =>
             previous.routeVersionId === targetVersionId
@@ -1176,7 +1187,12 @@ export function useEstimateEditorSuggestionsController({
       }
     }
   }, [
-    applyVersionToken,
+    isItemsDocumentCurrent,
+    acceptItemsReceipt,
+    document,
+    beginItemsOperation,
+    isItemsOperationCurrent,
+    rollbackItems,
     buildLineUpdate,
     computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
@@ -1185,17 +1201,16 @@ export function useEstimateEditorSuggestionsController({
     handleVersionConflict,
     isMutationBlocked,
     isScopeCurrent,
-    markItemsSynced,
     mutationBlockedMessage,
     normalizeLine,
     reportError,
     resolveErrorMessage,
-    setItems,
     setTotalsOutOfSync,
     v3Writer,
   ]);
 
   const undoLastApply = useCallback(async () => {
+    if (!isItemsDocumentCurrent()) return;
     if (isUndoingRef.current || isApplyingRef.current) return;
 
     const targetVersionId = routeVersionIdRef.current;
@@ -1215,7 +1230,7 @@ export function useEstimateEditorSuggestionsController({
       ) {
         return;
       }
-      if (!isScopeCurrent(targetVersionId, scopeGeneration)) return;
+      if (!isItemsDocumentCurrent() || !isScopeCurrent(targetVersionId, scopeGeneration)) return;
 
       const currentUndoState = undoStateRef.current;
       const versionSnapshot = getVersionSnapshot();
@@ -1267,9 +1282,10 @@ export function useEstimateEditorSuggestionsController({
           : previous
       );
       reportError(null);
-      setItems((previous) =>
+      const operation = beginItemsOperation((previous) =>
         previous.map((item) => previousById.get(item.id) ?? item)
       );
+      if (!isItemsOperationCurrent(operation)) return;
 
       const undoPayload = previousItems.map((item) => ({
         id: item.id,
@@ -1285,18 +1301,18 @@ export function useEstimateEditorSuggestionsController({
               versionTotalsPatch
             );
         if (
-          !isScopeCurrent(targetVersionId, scopeGeneration) ||
+          !isItemsOperationCurrent(operation) || !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration ||
           getVersionSnapshot()?.id !== targetVersionId
         ) {
           return;
         }
 
-        applyVersionToken(
-          bulkResult.versionToken.updated_at,
-          bulkResult.totals ?? versionTotalsPatch
-        );
-        markItemsSynced(undoPayload);
+        if (!acceptItemsReceipt(operation, {
+          version: bulkResult.versionToken,
+          totals: bulkResult.totals ?? versionTotalsPatch,
+          updates: undoPayload,
+        })) return;
         setTotalsOutOfSync(false);
         setInteractiveState((previous) =>
           previous.routeVersionId === targetVersionId
@@ -1305,13 +1321,13 @@ export function useEstimateEditorSuggestionsController({
         );
       } catch (error) {
         if (
-          !isScopeCurrent(targetVersionId, scopeGeneration) ||
+          !isItemsOperationCurrent(operation) || !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration
         ) {
           return;
         }
 
-        setItems(currentItemsSnapshot);
+        rollbackItems(operation);
         if (handleVersionConflict(error, { persistDraft: true })) {
           setInteractiveState((previous) =>
             previous.routeVersionId === targetVersionId
@@ -1342,7 +1358,11 @@ export function useEstimateEditorSuggestionsController({
       }
     }
   }, [
-    applyVersionToken,
+    beginItemsOperation,
+    isItemsOperationCurrent,
+    acceptItemsReceipt,
+    rollbackItems,
+    isItemsDocumentCurrent,
     buildLineUpdate,
     computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
@@ -1351,12 +1371,10 @@ export function useEstimateEditorSuggestionsController({
     handleVersionConflict,
     isMutationBlocked,
     isScopeCurrent,
-    markItemsSynced,
     mutationBlockedMessage,
     normalizeLine,
     reportError,
     resolveErrorMessage,
-    setItems,
     setTotalsOutOfSync,
     v3Writer,
   ]);

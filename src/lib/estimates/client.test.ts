@@ -3,18 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 
 import { acquireEstimateDraftLock, batchEstimateOperations, bulkUpdateEstimateItems, createEstimate, createEstimateItem, fetchEstimateList, fetchEstimatePdfStatus, getEstimateDraftLockSessionId, isEstimateApiError, releaseEstimateDraftLock, requestEstimatePdfGeneration, renewEstimateDraftLock, saveEstimateVersion, takeoverEstimateDraftLock, updateEstimateStatus } from "@/lib/estimates/client";
-import type { Database } from "@/types/database";
-
-// Keep the precode intent executable before the product exposes this contract.
-const saveEstimateSettingsPrecode = saveEstimateVersion as unknown as (
-  versionId: string,
-  updates: Database["public"]["Tables"]["estimate_versions"]["Update"],
-  updatedAtToken: string,
-  expectedContentRevision: number
-) => Promise<{
-  version: Database["public"]["Tables"]["estimate_versions"]["Row"];
-  items: Database["public"]["Tables"]["estimate_items"]["Row"][];
-}>;
+import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 
 const VERSION_ID = "77777777-7777-4777-8777-777777777777";
 const ITEM_ID = "88888888-8888-4888-8888-888888888888";
@@ -26,6 +15,13 @@ const NEXT_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2026-02-20T10:30:00.000Z";
 const DRAFT_LOCK_SESSION_GLOBAL_KEY =
   "__miaouffrageEstimateDraftLockSessions";
+
+function persistedVersion() {
+  return { ...createEstimateEditorResponseFixture().version, id: VERSION_ID, project_id: PROJECT_ID };
+}
+function persistedItem() {
+  return { ...createEstimateEditorResponseFixture().items[0], id: ITEM_ID, version_id: VERSION_ID };
+}
 
 class MemoryStorage implements Storage {
   private readonly values: Map<string, string>;
@@ -259,10 +255,8 @@ describe("estimate client optimistic concurrency", () => {
         JSON.stringify({
           ok: true,
           data: {
-            item: {
-              id: ITEM_ID,
-              item_type: "line",
-            },
+            item: persistedItem(),
+            version: { id: VERSION_ID, updated_at: NEXT_UPDATED_AT },
           },
         }),
         {
@@ -318,10 +312,7 @@ describe("estimate client optimistic concurrency", () => {
         JSON.stringify({
           ok: true,
           data: {
-            item: {
-              id: ITEM_ID,
-              item_type: "line",
-            },
+            item: persistedItem(),
             version: {
               id: VERSION_ID,
               updated_at: "2026-09-03T21:00:00.000Z",
@@ -368,7 +359,7 @@ describe("estimate client optimistic concurrency", () => {
           ok: true,
           data: {
             version: {
-              id: VERSION_ID,
+              ...persistedVersion(),
               updated_at: NEXT_UPDATED_AT,
               content_revision: 2,
               title: "Maj",
@@ -386,7 +377,7 @@ describe("estimate client optimistic concurrency", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await saveEstimateSettingsPrecode(
+    const result = await saveEstimateVersion(
       VERSION_ID,
       {
         title: "Maj",
@@ -443,7 +434,7 @@ describe("estimate client optimistic concurrency", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     try {
-      await saveEstimateSettingsPrecode(
+      await saveEstimateVersion(
         VERSION_ID,
         {
           title: "Maj",
@@ -473,7 +464,7 @@ describe("estimate client optimistic concurrency", () => {
           ok: true,
           data: {
             version: {
-              id: VERSION_ID,
+              ...persistedVersion(),
               updated_at: NEXT_UPDATED_AT,
               status: "sent",
             },
@@ -941,7 +932,7 @@ describe("estimate client creation wrappers", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          data: { version: { id: VERSION_ID } },
+          data: { version: persistedVersion(), project: { id: PROJECT_ID, tenant_id: persistedVersion().tenant_id, name: "Affaire test" } },
         }),
         {
           status: 201,

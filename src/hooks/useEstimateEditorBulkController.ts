@@ -1,5 +1,8 @@
 "use client";
 
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
@@ -36,6 +39,7 @@ function withPlacement(
 }
 
 type EstimateEditorBulkControllerInput = {
+  document?: EstimateEditorDocument;
   isMutationBlocked: boolean;
   mutationBlockedMessage: string;
   isLaborSplitEnabled: boolean;
@@ -79,7 +83,7 @@ type EstimateEditorBulkControllerInput = {
     siblingOrderByParent: Map<string | null, string[]>,
     idMap?: Map<string, string>,
     isCurrentScope?: () => boolean
-  ) => Promise<void>;
+  ) => Promise<void | boolean>;
   reloadItems: () => Promise<void>;
   /**
    * Lot 2, sous-lot 2.6 (revue, F26-22) : sur une v3, les lignes modifiées, déplacées ou supprimées en lot partent
@@ -89,6 +93,7 @@ type EstimateEditorBulkControllerInput = {
 };
 
 export function useEstimateEditorBulkController({
+  document,
   isMutationBlocked,
   mutationBlockedMessage,
   isLaborSplitEnabled,
@@ -110,6 +115,9 @@ export function useEstimateEditorBulkController({
   applySiblingOrder,
   v3Writer,
 }: EstimateEditorBulkControllerInput) {
+  const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, releaseItemsOperation, acceptItemsReceipt, acceptDeletedItems } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems, applyVersionToken, markItemsSynced,
+  });
   const buildLineUpdate = v3Writer?.buildUpdatePayload ?? buildEstimateItemUpdatePayload;
   const buildPlacedLineUpdatePayload = useMemo(() => withPlacement(buildLineUpdate), [buildLineUpdate]);
   const applyBulkLineState = useCallback(
@@ -149,9 +157,10 @@ export function useEstimateEditorBulkController({
         reportError("Impossible de calculer les totaux du devis.");
         throw new Error("Impossible de calculer les totaux du devis.");
       }
-      setItems((previous) =>
+      const operation = beginItemsOperation((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
+      if (!isItemsOperationCurrent(operation)) return false;
       const updates = lines.map((line) => ({
         id: line.id,
         updates: buildUpdate(line),
@@ -168,29 +177,26 @@ export function useEstimateEditorBulkController({
             );
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
-          !isCurrentScope()
+          !isCurrentScope() || !isItemsOperationCurrent(operation)
         ) {
           return false;
         }
-        // v2 returns the totals it recalculated; v1 stores the patch as sent.
-        // Only the v3 writer returns the content revision the editor resumes from.
-        applyVersionToken(
-          bulkResult.versionToken.updated_at,
-          bulkResult.totals ?? versionTotalsPatch,
-          v3Writer ? bulkResult.versionToken.content_revision : undefined
-        );
-        // Without a fresh baseline, an edit back to the previous value is dropped.
-        markItemsSynced(updates);
+        // The document accepts the version and baseline together, or rejects a stale receipt.
+        if (!acceptItemsReceipt(operation, {
+          version: bulkResult.versionToken,
+          totals: bulkResult.totals ?? versionTotalsPatch,
+          updates,
+        })) return false;
         setTotalsOutOfSync(false);
         return true;
       } catch (error) {
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
-          !isCurrentScope()
+          !isCurrentScope() || !isItemsOperationCurrent(operation)
         ) {
           return false;
         }
-        setItems(snapshot);
+        rollbackItems(operation);
         if (!handleVersionConflict(error, { persistDraft: true })) {
           reportError(
             resolveErrorMessage(
@@ -202,18 +208,19 @@ export function useEstimateEditorBulkController({
       }
     },
     [
-      applyVersionToken,
+      acceptItemsReceipt,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
       buildLineUpdate,
       buildPlacedLineUpdatePayload,
       computeVersionTotalsPatch,
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,
-      markItemsSynced,
       normalizeLine,
       reportError,
       resolveErrorMessage,
-      setItems,
       setTotalsOutOfSync,
       v3Writer,
     ]
@@ -221,14 +228,19 @@ export function useEstimateEditorBulkController({
 
   const guardBulkAction = useCallback(
     async (actionLabel: string) => {
+      if (!isItemsDocumentCurrent()) return false;
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
         return false;
       }
-      return ensureGroupedActionCanProceed(actionLabel);
+      const scope = document?.captureScope();
+      const allowed = await ensureGroupedActionCanProceed(actionLabel);
+      return allowed && (!document || Boolean(scope && document.isCurrent(scope)));
     },
     [
+      isItemsDocumentCurrent,
       ensureGroupedActionCanProceed,
+      document,
       isMutationBlocked,
       mutationBlockedMessage,
       reportError,
@@ -274,14 +286,14 @@ export function useEstimateEditorBulkController({
         pushHistoryCommand({
           label: "bulk-majoration",
           undo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               selectedLines,
               "Impossible d'annuler la majoration en lot.",
               context?.isCurrentScope
             );
           },
           redo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               updatedLines,
               "Impossible de réappliquer la majoration en lot.",
               context?.isCurrentScope
@@ -329,23 +341,33 @@ export function useEstimateEditorBulkController({
       });
 
       reportError(null);
-      setItems((previous) =>
+      const operation = beginItemsOperation((previous) =>
         previous.filter((item) => !selectedIdSet.has(item.id))
       );
+      if (!isItemsOperationCurrent(operation)) return;
 
       let deletedCount = 0;
       try {
         if (v3Writer) {
           // v3 : un seul lot `delete`, atomique (aucune suppression partielle), recalculé et vérifié.
-          await v3Writer.deleteItems(targetVersionId, versionSnapshot.updated_at, selectedLines.map((line) => line.id));
+          const versionToken = await v3Writer.deleteItems(targetVersionId, versionSnapshot.updated_at, selectedLines.map((line) => line.id));
+          if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+          if (!acceptItemsReceipt(operation, { version: versionToken })) return;
           deletedCount = selectedLines.length;
         } else {
           for (const line of selectedLines) {
-            await deleteEstimateItem(targetVersionId, line.id);
+            if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+            const receipt = await deleteEstimateItem(targetVersionId, line.id);
+            if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+            if (!acceptDeletedItems(operation, { version: receipt.versionToken, deletedIds: receipt.deletedIds })) {
+              rollbackItems(operation);
+              return;
+            }
             deletedCount += 1;
           }
         }
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!v3Writer) releaseItemsOperation(operation);
         setTotalsOutOfSync(false);
         let currentDeletedLineIds = selectedLines.map((line) => line.id);
         const restorer = createEstimateDeletionRestorer({
@@ -354,7 +376,7 @@ export function useEstimateEditorBulkController({
           siblingOrderByParent,
           itemId: selectedLines[0]?.id ?? null,
           plural: selectedLines.length > 1,
-          isCurrentVersion: () => getVersionSnapshot()?.id === targetVersionId,
+          isCurrentVersion: () => isItemsOperationCurrent(operation) && getVersionSnapshot()?.id === targetVersionId,
           recreateItemsFromSnapshots,
           applySiblingOrder,
           setItems,
@@ -365,44 +387,54 @@ export function useEstimateEditorBulkController({
         pushHistoryCommand({
           label: "bulk-delete-lines",
           undo: async (context) => {
-            await restorer.undo(context);
-            if (context && !context.isCurrentScope()) return;
-            if (getVersionSnapshot()?.id !== targetVersionId) return;
+            if ((await restorer.undo(context)) === false) return false;
+            if (context && !context.isCurrentScope()) return false;
+            if (getVersionSnapshot()?.id !== targetVersionId) return false;
             setTotalsOutOfSync(false);
           },
           redo: async (context) => {
-            if (context && !context.isCurrentScope()) return;
+            if (context && !context.isCurrentScope()) return false;
             const currentVersion = getVersionSnapshot();
-            if (!currentVersion || currentVersion.id !== targetVersionId) return;
-            const redoSnapshot = getItemsSnapshot();
+            if (!currentVersion || currentVersion.id !== targetVersionId) return false;
             const toDelete = new Set(currentDeletedLineIds);
-            setItems((previous) =>
+            const redoOperation = beginItemsOperation((previous) =>
               previous.filter((item) => !toDelete.has(item.id))
             );
+            if (!isItemsOperationCurrent(redoOperation)) return false;
             try {
               if (v3Writer) {
-                await v3Writer.deleteItems(currentVersion.id, currentVersion.updated_at, currentDeletedLineIds);
+                const versionToken = await v3Writer.deleteItems(currentVersion.id, currentVersion.updated_at, currentDeletedLineIds);
+                if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope()) ||
+                    getVersionSnapshot()?.id !== targetVersionId) return false;
+                if (!acceptItemsReceipt(redoOperation, { version: versionToken })) return false;
               } else {
                 for (const lineId of currentDeletedLineIds) {
-                  if (context && !context.isCurrentScope()) return;
-                  if (getVersionSnapshot()?.id !== targetVersionId) return;
-                  await deleteEstimateItem(currentVersion.id, lineId);
+                  if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+                  if (getVersionSnapshot()?.id !== targetVersionId) return false;
+                  const receipt = await deleteEstimateItem(currentVersion.id, lineId);
+                  if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope()) ||
+                      getVersionSnapshot()?.id !== targetVersionId) return false;
+                  if (!acceptDeletedItems(redoOperation, { version: receipt.versionToken, deletedIds: receipt.deletedIds })) {
+                    rollbackItems(redoOperation);
+                    return false;
+                  }
                 }
               }
-              if (context && !context.isCurrentScope()) return;
-              if (getVersionSnapshot()?.id !== targetVersionId) return;
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              if (getVersionSnapshot()?.id !== targetVersionId) return false;
+              if (!v3Writer) releaseItemsOperation(redoOperation);
               restorer.reset();
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(redoSnapshot);
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(redoOperation);
               throw error;
             }
           },
         });
       } catch (error) {
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
-        setItems(snapshot);
+        if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+        rollbackItems(operation);
         if (deletedCount > 0) {
           const hasConflict = handleVersionConflict(error, {
             persistDraft: true,
@@ -431,6 +463,12 @@ export function useEstimateEditorBulkController({
       }
     },
     [
+      acceptDeletedItems,
+      acceptItemsReceipt,
+      releaseItemsOperation,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
       applySiblingOrder,
       getItemsSnapshot,
       getVersionSnapshot,
@@ -495,7 +533,7 @@ export function useEstimateEditorBulkController({
         pushHistoryCommand({
           label: "bulk-move-lines",
           undo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               selectedLines,
               "Impossible d'annuler le déplacement des lignes.",
               context?.isCurrentScope,
@@ -503,7 +541,7 @@ export function useEstimateEditorBulkController({
             );
           },
           redo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               movedLines,
               "Impossible de réappliquer le déplacement des lignes.",
               context?.isCurrentScope,
@@ -557,14 +595,14 @@ export function useEstimateEditorBulkController({
         pushHistoryCommand({
           label: "bulk-set-category",
           undo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               selectedLines,
               "Impossible d'annuler la catégorie en lot.",
               context?.isCurrentScope
             );
           },
           redo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               updatedLines,
               "Impossible de réappliquer la catégorie en lot.",
               context?.isCurrentScope
@@ -625,14 +663,14 @@ export function useEstimateEditorBulkController({
         pushHistoryCommand({
           label: "bulk-set-labor-role",
           undo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               selectedLines,
               "Impossible d'annuler le rôle MO en lot.",
               context?.isCurrentScope
             );
           },
           redo: async (context) => {
-            await applyBulkLineState(
+            return applyBulkLineState(
               updatedLines,
               "Impossible de réappliquer le rôle MO en lot.",
               context?.isCurrentScope

@@ -27,6 +27,10 @@ vi.mock("@/lib/estimates/v3-editor-writer", () => ({
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorPasteController } from "@/hooks/useEstimateEditorPasteController";
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { parseEstimateEditorData } from "@/lib/estimates/editor-read-contracts";
+import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
+import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 import type { ClipboardPreviewValues } from "@/lib/estimates/clipboard";
 import type {
   EditorEstimateItem,
@@ -102,7 +106,7 @@ function makeBatchResult(input: {
       op: "create" as const,
       status: "ok" as const,
       data: {
-        item: createItem(`created-${idOffset + index + 1}`, operation.data),
+        item: createItem(`created-${idOffset + index + 1}`, { ...operation.data, version_id: input.versionId ?? "627ef080-0001-4000-8000-000000000001" }),
       },
     })),
   };
@@ -117,6 +121,7 @@ function createDeferred<T>() {
 }
 
 function createHarness(input?: {
+  document?: EstimateEditorDocument;
   items?: EditorEstimateItem[];
   version?: EstimateVersionRow | null;
   isLaborSplitEnabled?: boolean;
@@ -148,12 +153,14 @@ function createHarness(input?: {
         | EditorEstimateItem[]
         | ((previous: EditorEstimateItem[]) => EditorEstimateItem[])
     ) => {
-      items = typeof update === "function" ? update(items) : update;
+      if (input?.document) input.document.setDraftItems(update);
+      else items = typeof update === "function" ? update(items) : update;
     }
   );
 
   const rendered = renderHook(() =>
     useEstimateEditorPasteController({
+      document: input?.document,
       settings:
         input && "settings" in input
           ? (input.settings ?? null)
@@ -162,8 +169,8 @@ function createHarness(input?: {
       isMutationBlocked: false,
       mutationBlockedMessage: "Mutation interdite.",
       supplyTypeIdByLowerName: new Map([["acier", "supply-steel"]]),
-      getItemsSnapshot: () => items,
-      getVersionSnapshot: () => version,
+      getItemsSnapshot: () => input?.document?.getSnapshot().items ?? items,
+      getVersionSnapshot: () => input?.document?.getSnapshot().version ?? version,
       setItems,
       setTotalsOutOfSync,
       reportError,
@@ -183,7 +190,7 @@ function createHarness(input?: {
     ...rendered,
     applyVersionToken,
     ensureGroupedActionCanProceed,
-    getItems: () => items,
+    getItems: () => input?.document?.getSnapshot().items ?? items,
     handleVersionConflict,
     pushHistoryCommand,
     recreateItemsFromSnapshots,
@@ -242,8 +249,8 @@ beforeEach(() => {
     taxLineCents: 311,
     ttcLineCents: 1865,
   });
-  mocks.deleteEstimateItem.mockReset().mockResolvedValue(undefined);
-  mocks.reorderEstimateItems.mockReset().mockResolvedValue(undefined);
+  mocks.deleteEstimateItem.mockReset().mockImplementation(async (id: string, itemId: string) => ({ versionToken: { id, updated_at: `token-${++generatedTokenCount}` }, deletedIds: [itemId] }));
+  mocks.reorderEstimateItems.mockReset().mockImplementation(async (id: string) => ({ versionToken: { id, updated_at: `token-${++generatedTokenCount}` } }));
   mocks.commitEstimateV3Operations.mockReset().mockImplementation(async () => ({
     id: "627ef080-0001-4000-8000-000000000001",
     updated_at: `token-${++generatedTokenCount}`,
@@ -566,7 +573,7 @@ describe("useEstimateEditorPasteController history", () => {
     harness.setItems.mockClear();
     mocks.reorderEstimateItems.mockClear();
     let isCurrentScope = true;
-    let redoPromise!: Promise<void>;
+    let redoPromise!: Promise<void | boolean>;
 
     act(() => {
       redoPromise = command.redo({
@@ -671,7 +678,7 @@ describe("useEstimateEditorPasteController route races", () => {
     const deferred = createDeferred<ReturnType<typeof makeBatchResult>>();
     mocks.batchEstimateOperations.mockReset().mockReturnValueOnce(deferred.promise);
     const harness = createHarness();
-    let pastePromise!: Promise<void>;
+    let pastePromise!: Promise<void | boolean>;
 
     act(() => {
       pastePromise = harness.result.current.actions.pasteRows({
@@ -774,5 +781,91 @@ describe("useEstimateEditorPasteController v3 (2.8)", () => {
     expect(mocks.deleteEstimateItem).not.toHaveBeenCalled();
     expect(harness.applyVersionToken).toHaveBeenLastCalledWith("token-delete-2");
     expect(harness.getItems()).toEqual([]);
+  });
+});
+
+
+describe("document-owned paste receipts", () => {
+  function setupDocument() {
+    const wire = createEstimateEditorResponseFixture();
+    wire.version.updated_at = "2026-10-28T10:00:00.123456Z";
+    wire.items.push({ ...wire.items[0], id: "55555555-5555-4555-8555-555555555555", position: 2 });
+    const data = parseEstimateEditorData(wire, wire.version.id);
+    const document = new EstimateEditorDocument({ actorId: "actor-1", tenantId: data.version.tenant_id, versionId: data.version.id });
+    document.acceptRead(prepareEstimateEditorRead(data, false));
+    const harness = createHarness({ document, version: data.version });
+    const reread = (items: EstimateItem[], updatedAt: string) => document.acceptRead(prepareEstimateEditorRead({
+      ...data, version: { ...data.version, updated_at: updatedAt },
+      items: items.map((item) => ({ ...item, source_metadata: {} })),
+    }, false));
+    mocks.batchEstimateOperations.mockImplementation(async (versionId: string, _token: string, operations: CreateOperation[]) => {
+      const result = makeBatchResult({ versionId, updatedAt: "2026-10-28T10:00:00.123457Z", operations });
+      result.results.forEach((entry) => {
+        entry.data.item = { ...data.items[0], ...entry.data.item, tenant_id: data.version.tenant_id, updated_at: result.versionToken.updated_at };
+      });
+      return result;
+    });
+    return { document, data, harness, reread };
+  }
+
+  it("keeps a newer full read when the paste reorder receipt arrives late", async () => {
+    const { document, data, harness, reread } = setupDocument();
+    const response = createDeferred<{ versionToken: { id: string; updated_at: string } }>();
+    mocks.reorderEstimateItems.mockReturnValueOnce(response.promise);
+    let completion!: Promise<void | boolean>;
+    act(() => { completion = harness.result.current.actions.pasteRows({ anchorRowId: data.items[0].id, rows: [createRow("Collée")] }); });
+    await waitFor(() => expect(mocks.reorderEstimateItems).toHaveBeenCalledTimes(1));
+    expect(document.getSnapshot().confirmedItems).toHaveLength(3);
+    const newerItems = document.getSnapshot().confirmedItems.map((item) => ({ ...item, title: `Récent ${item.title}` }));
+    act(() => { reread(newerItems, "2026-10-28T10:00:00.123459Z"); });
+    await act(async () => {
+      response.resolve({ versionToken: { id: data.version.id, updated_at: "2026-10-28T10:00:00.123458Z" } });
+      await completion;
+    });
+    expect(document.getSnapshot().confirmedItems).toEqual(newerItems);
+    expect(document.getSnapshot().items).toMatchObject(newerItems);
+    expect(document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123459Z");
+    expect(document.getSnapshot().itemOperationCount).toBe(0);
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+    expect(harness.applyVersionToken).not.toHaveBeenCalled();
+  });
+
+  it("keeps a row present in a newer read when an undo deletion receipt is stale", async () => {
+    const { document, data, harness, reread } = setupDocument();
+    await act(async () => { await harness.result.current.actions.pasteRows({ anchorRowId: null, rows: [createRow("Collée")] }); });
+    const confirmedItems = document.getSnapshot().confirmedItems;
+    expect(confirmedItems).toHaveLength(3);
+    const response = createDeferred<{ versionToken: { id: string; updated_at: string }; deletedIds: string[] }>();
+    mocks.deleteEstimateItem.mockReturnValueOnce(response.promise);
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    let completion!: Promise<void | boolean>;
+    act(() => { completion = command.undo(); });
+    act(() => { reread(confirmedItems, "2026-10-28T10:00:00.123459Z"); });
+    await act(async () => {
+      response.resolve({ versionToken: { id: data.version.id, updated_at: "2026-10-28T10:00:00.123458Z" }, deletedIds: ["created-1"] });
+      expect(await completion).toBe(false);
+    });
+    expect(document.getSnapshot().confirmedItems).toEqual(confirmedItems);
+    expect(document.getSnapshot().items).toMatchObject(confirmedItems);
+    expect(document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123459Z");
+    expect(document.getSnapshot().itemOperationCount).toBe(0);
+  });
+
+  it("does not install created rows from a batch older than the confirmed read", async () => {
+    const { document, data, harness, reread } = setupDocument();
+    const response = createDeferred<ReturnType<typeof makeBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(response.promise);
+    let completion!: Promise<void | boolean>;
+    act(() => { completion = harness.result.current.actions.pasteRows({ anchorRowId: null, rows: [createRow("Collée")] }); });
+    await waitFor(() => expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1));
+    act(() => { reread(data.items, "2026-10-28T10:00:00.123459Z"); });
+    const operations = mocks.batchEstimateOperations.mock.calls[0][2] as CreateOperation[];
+    await act(async () => {
+      response.resolve(makeBatchResult({ versionId: data.version.id, updatedAt: "2026-10-28T10:00:00.123458Z", operations }));
+      await completion;
+    });
+    expect(document.getSnapshot().confirmedItems).toEqual(data.items);
+    expect(document.getSnapshot().items).toMatchObject(data.items);
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
 });

@@ -14,37 +14,18 @@ import {
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type { Json } from "@/types/database";
 
-export const ESTIMATE_BATCH_MAX_OPERATIONS = 1000;
-export const ESTIMATE_BATCH_MAX_BODY_BYTES = 1024 * 1024;
-export const ESTIMATE_BATCH_MAX_RECEIPT_BYTES = 2 * 1024 * 1024;
+import {
+  ESTIMATE_BATCH_MAX_OPERATIONS, ESTIMATE_BATCH_MAX_BODY_BYTES, ESTIMATE_BATCH_MAX_RECEIPT_BYTES,
+  parseEstimateBatchResponse, type EstimateBatchCommittedResult, type ExecuteEstimateBatchResult,
+} from "@/lib/estimates/batch-contracts";
+export {
+  ESTIMATE_BATCH_MAX_OPERATIONS, ESTIMATE_BATCH_MAX_BODY_BYTES, ESTIMATE_BATCH_MAX_RECEIPT_BYTES,
+  estimateBatchCommittedResultSchema,
+  type EstimateBatchOperationResult, type EstimateBatchCommittedResult, type ExecuteEstimateBatchResult,
+} from "@/lib/estimates/batch-contracts";
+
 const DEFAULT_MAX_BATCH_OPERATIONS = 100;
 const uuid = z.string().uuid();
-const timestamp = z.string().refine((value) => Number.isFinite(Date.parse(value)));
-const tokenSchema = z.object({ id: uuid, updated_at: timestamp }).strict();
-const operationNameSchema = z.enum(["create", "update", "delete", "reorder"]);
-const operationResultSchema = z.discriminatedUnion("status", [
-  z.object({ index: z.number().int().nonnegative(), op: operationNameSchema,
-    status: z.literal("ok"), data: z.unknown() }).strict(),
-  z.object({ index: z.number().int().nonnegative(), op: operationNameSchema,
-    status: z.literal("error"), code: z.string().regex(/^[A-Z][A-Z0-9_]+$/), message: z.string().max(1000) }).strict(),
-]);
-const cents = z.number().int().nonnegative().refine(Number.isSafeInteger);
-const totalsSchema = z.object({ total_ht_cents: cents, total_tax_cents: cents, total_ttc_cents: cents })
-  .strict().refine((value) => value.total_ht_cents + value.total_tax_cents === value.total_ttc_cents);
-export const estimateBatchCommittedResultSchema = z.object({
-  committed: z.literal(true), results: z.array(operationResultSchema).min(1).max(ESTIMATE_BATCH_MAX_OPERATIONS),
-  version: tokenSchema, totals: totalsSchema,
-  receipt: z.object({ operation_key: uuid, actor_id: uuid, version_id: uuid,
-    expected_updated_at: timestamp, operations: z.array(batchOperationSchema).min(1).max(ESTIMATE_BATCH_MAX_OPERATIONS),
-    committed_at: timestamp }).strict(),
-  replayed: z.boolean(),
-  current_version: tokenSchema.extend({ status: z.enum(["draft", "sending", "sent", "accepted", "archived"]) }).strict(),
-}).strict();
-const refusedResultSchema = z.object({ committed: z.literal(false),
-  results: z.array(operationResultSchema).min(1).max(ESTIMATE_BATCH_MAX_OPERATIONS), version: tokenSchema }).strict();
-export type EstimateBatchOperationResult = z.infer<typeof operationResultSchema>;
-export type EstimateBatchCommittedResult = z.infer<typeof estimateBatchCommittedResultSchema>;
-export type ExecuteEstimateBatchResult = EstimateBatchCommittedResult | z.infer<typeof refusedResultSchema>;
 export type ExecuteEstimateBatchOptions = {
   concurrencyToken?: string;
   operationKey?: string;
@@ -105,48 +86,16 @@ function rpcError(error: SupabaseErrorLike, mutation: boolean) {
   return mutation ? outcomeUnknown() : readUnavailable();
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function parseCommitted(value: unknown, input: {
   versionId: string; operationKey: string; actorId: string;
 }): EstimateBatchCommittedResult {
-  const parsed = estimateBatchCommittedResultSchema.safeParse(value);
-  if (!parsed.success) throw outcomeUnknown();
-  const result = parsed.data;
-  const operations = result.receipt.operations;
-  if (result.version.id !== input.versionId || result.current_version.id !== input.versionId ||
-    result.receipt.version_id !== input.versionId || result.receipt.actor_id !== input.actorId ||
-    result.receipt.operation_key !== input.operationKey || result.results.length !== operations.length) throw outcomeUnknown();
-  for (let index = 0; index < operations.length; index += 1) {
-    const operation = operations[index];
-    const entry = result.results[index];
-    if (entry.index !== index || entry.op !== operation.op || entry.status !== "ok" || !record(entry.data)) throw outcomeUnknown();
-    if (operation.op === "create" || operation.op === "update") {
-      const item = entry.data.item;
-      if (item === null && entry.data.deleted_in_batch === true) {
-        const deletedId = entry.data.deleted_item_id;
-        const deletedLater = result.results.some((later, laterIndex) =>
-          laterIndex > index && operations[laterIndex].op === "delete" &&
-          later.op === "delete" && later.status === "ok" && record(later.data) &&
-          Array.isArray(later.data.deleted_ids) && later.data.deleted_ids.includes(deletedId));
-        if (!uuid.safeParse(deletedId).success || !deletedLater ||
-          (operation.op === "update" && deletedId !== operation.id)) throw outcomeUnknown();
-        continue;
-      }
-      if (!record(item) || !uuid.safeParse(item.id).success || item.version_id !== input.versionId ||
-        (operation.op === "update" && item.id !== operation.id) ||
-        (operation.op === "create" && item.item_type !== operation.data.item_type)) throw outcomeUnknown();
-    } else if (operation.op === "delete") {
-      const ids = z.array(uuid).min(1).safeParse(entry.data.deleted_ids);
-      if (entry.data.deleted_id !== operation.id || !ids.success || !ids.data.includes(operation.id) ||
-        new Set(ids.data).size !== ids.data.length) throw outcomeUnknown();
-    } else if (entry.data.parent_id !== (operation.data.parent_id ?? null) ||
-      entry.data.updated_count !== operation.data.ordered_ids.length ||
-      JSON.stringify(entry.data.ordered_ids) !== JSON.stringify(operation.data.ordered_ids)) throw outcomeUnknown();
+  try {
+    const result = parseEstimateBatchResponse(value, input);
+    if (!result.committed) throw outcomeUnknown();
+    return result;
+  } catch {
+    throw outcomeUnknown();
   }
-  return result;
 }
 
 async function lookupReceipt(context: AuthenticatedContext, versionId: string, operationKey: string) {
@@ -254,17 +203,11 @@ export async function executeEstimateBatch(
   } catch { throw outcomeUnknown(); }
   if (response.error) throw rpcError(response.error, true);
   if (Buffer.byteLength(JSON.stringify(response.data), "utf8") > ESTIMATE_BATCH_MAX_RECEIPT_BYTES) throw outcomeUnknown();
-  if (record(response.data) && response.data.committed === false) {
-    const parsed = refusedResultSchema.safeParse(response.data);
-    if (!parsed.success || parsed.data.version.id !== versionId || parsed.data.results.length > operations.length) throw outcomeUnknown();
-    const results = parsed.data.results;
-    if (results.some((entry, index) => entry.index !== index || entry.op !== operations[index].op ||
-      (index === results.length - 1 ? entry.status !== "error" : entry.status !== "ok" ||
-        !record(entry.data) || entry.data.rolled_back !== true))) throw outcomeUnknown();
-    return parsed.data;
+  try {
+    return parseEstimateBatchResponse(response.data, {
+      versionId, operationKey, actorId: context.userId, expectedUpdatedAt: concurrencyToken, operations,
+    });
+  } catch {
+    throw outcomeUnknown();
   }
-  const saved = parseCommitted(response.data, { versionId, operationKey: operationKey!, actorId: context.userId });
-  if (!sameEstimateBatchTimestamp(saved.receipt.expected_updated_at, concurrencyToken) ||
-    JSON.stringify(canonicalizeEstimateBatchOperations(saved.receipt.operations)) !== JSON.stringify(operations)) throw outcomeUnknown();
-  return saved;
 }

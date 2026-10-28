@@ -93,6 +93,23 @@ describe("deleteIntakeDocumentCopy", () => {
     expect(f.document).toMatchObject({ deleted_at: null, deletion_token: null, document_priority: "primary" });
     expect(f.bytes.size).toBe(2);
   });
+  it("keeps the copy generation when deletion fails before removing any plan", async () => {
+    const f = fixture();
+    Object.assign(f.document, { plan_copy_generation: "existing-generation" });
+    f.fail();
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).rejects.toThrow("Suppression du fichier interrompue");
+    expect(f.document).toMatchObject({ plan_copy_generation: "existing-generation", deletion_token: null });
+  });
+  it("retires the copy generation after plan bytes were removed even if the source removal fails", async () => {
+    const f = fixture();
+    Object.assign(f.document, { plan_copy_generation: "existing-generation" });
+    const original = f.remove.getMockImplementation()!;
+    f.remove.mockImplementation(async (bucket, paths) => bucket === "affaire-intake" ? { error: new Error("Storage unavailable") } : original(bucket, paths));
+    await expect(deleteIntakeDocumentCopy(f.access, "document")).rejects.toThrow("Suppression du fichier interrompue");
+    expect(f.document.deletion_token).toBeNull();
+    expect((f.document as typeof f.document & { plan_copy_generation: string }).plan_copy_generation).not.toBe("existing-generation");
+    expect(f.bytes.has("affaire-intake:" + f.document.storage_path)).toBe(true);
+  });
   it("renews the reservation lease before the refresh", async () => {
     const f = fixture();
     const leases: Array<{ token: unknown; startedAt: unknown }> = [];

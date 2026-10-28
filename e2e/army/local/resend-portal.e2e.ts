@@ -423,13 +423,26 @@ async function collectorAttempts() {
   });
 }
 
-async function submitIncident(ui: OfferUi, versionId: string, recipient: string, caseId: string) {
+async function submitIncident(ui: OfferUi, versionId: string, recipient: string, caseId: string, resume = false) {
   await ui.screen.getByRole("button", /^(Envoyer par email|Reprendre l’envoi)$/).click();
   const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
   await expect(modal).toBeVisible();
-  await modal.getByLabel("Destinataire *", { exact: true }).fill(recipient);
-  await modal.getByLabel("Objet *", { exact: true }).fill(`${caseId} offre commerciale`);
-  await modal.getByLabel("Message *", { exact: true }).fill("Veuillez consulter notre proposition et son PDF contractuel.");
+  const envelope = [
+    ["Destinataire *", recipient],
+    ["Objet *", `${caseId} offre commerciale`],
+    ["Message *", "Veuillez consulter notre proposition et son PDF contractuel."],
+  ] as const;
+  for (const [label, value] of envelope) {
+    const field = modal.getByLabel(label, { exact: true });
+    if (resume) {
+      // An uncertain send retains the exact envelope across closing/reopening.
+      await expect(field).toBeDisabled();
+      await expect(field).toHaveValue(value);
+    } else {
+      await expect(field).toBeEnabled();
+      await field.fill(value);
+    }
+  }
   const [response] = await Promise.all([
     ui.browser.waitForResponse(new URL(`/api/estimates/${versionId}/send`, ui.app.baseUrl!).href, { timeout: 120000 }),
     modal.getByRole("button", "Envoyer", { exact: true }).click(),
@@ -466,7 +479,7 @@ for (const [caseId, faults, expectedCode, firstStatus] of [
 
     await setCollectorFault(ui, recipient, []);
     await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
-    const retried = await submitIncident(ui, prepared.ids.versionId, recipient, caseId);
+    const retried = await submitIncident(ui, prepared.ids.versionId, recipient, caseId, firstStatus !== "failed");
     const after = await observeOwnedOffer(ui.army, prepared.ids.versionId);
     const attempts = (await collectorAttempts()).slice(beforeAttempts);
     await recordOfferEvidence(ui.army, `${caseId}-retry`, { retried, first, after, attempts });
@@ -514,7 +527,7 @@ offerTest("EIU reconciles an ambiguous collected delivery through the admin UI w
   expect(before.version.status).toBe("sending");
   await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
   await expect(ui.screen.getByTestId("estimate-email-dispatch-problem")).toContainText("indéterminé");
-  const refusedReplay = await submitIncident(ui, prepared.ids.versionId, recipient, "EIU");
+  const refusedReplay = await submitIncident(ui, prepared.ids.versionId, recipient, "EIU", true);
   expect(refusedReplay.body.error?.code).toBe("ESTIMATE_EMAIL_DELIVERY_UNKNOWN");
   expect((await collectorAttempts()).length).toBe(beforeAttempts + 1);
   const mark = ui.screen.getByRole("button", "Marquer envoyé", { exact: true });

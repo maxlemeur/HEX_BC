@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { inspectEstimateBatchReceipt, resumeEstimateBatchOperation, type EstimateBatchResult } from "@/lib/estimates/client";
 import {
   clearEstimateBatchIntention, isEstimateBatchSending, readEstimateBatchIntention,
@@ -12,7 +12,7 @@ type Input = {
   versionId: string;
   actorId: string | null;
   tenantId: string | null;
-  pendingUpdates: MutableRefObject<Map<string, EstimateItemUpdatePayload>>;
+  updatePending: (update: (pending: Map<string, EstimateItemUpdatePayload>) => void) => void;
   onBufferedChanges: () => void;
   triggerReload: () => void;
   reportError: (message: string | null) => void;
@@ -63,7 +63,7 @@ export function useEstimateBatchRecovery(input: Input) {
     const { reconcileEstimateBatchBuffer } = await import("@/lib/estimates/reconcile-batch-buffer");
     if (epoch !== generation.current) return;
     if (result.committed) {
-      reconcileEstimateBatchBuffer(pending, result, latest.current.pendingUpdates.current);
+      latest.current.updatePending((buffer) => reconcileEstimateBatchBuffer(pending, result, buffer));
       latest.current.reportNotice("L'opération est enregistrée. Les données actuelles du devis sont en cours de rechargement.");
     } else {
       const failed = result.results.find((entry) => entry.status === "error");

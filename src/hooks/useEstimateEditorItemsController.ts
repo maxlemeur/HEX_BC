@@ -1,5 +1,8 @@
 "use client";
 
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+
 import {
   useCallback,
   useLayoutEffect,
@@ -20,6 +23,7 @@ import {
   createEstimateItem,
   deleteEstimateItem,
   reorderEstimateItems,
+  type EstimateVersionToken,
 } from "@/lib/estimates/client";
 import {
   buildEstimateItemInsertPayload,
@@ -78,6 +82,7 @@ export type EstimateEditorItemPatch = Partial<
   LaborSplitItemFields;
 
 type EstimateEditorItemsControllerInput = {
+  document?: EstimateEditorDocument;
   version: Pick<EstimateVersionRow, "id" | "tenant_id"> | null;
   settings: Pick<
     EstimateSettingsState,
@@ -110,6 +115,7 @@ type EstimateEditorItemsControllerInput = {
 };
 
 export function useEstimateEditorItemsController({
+  document,
   version,
   settings,
   isLaborSplitEnabled,
@@ -129,12 +135,29 @@ export function useEstimateEditorItemsController({
   buildItemUpdatePayload = buildEstimateItemUpdatePayload,
   v3Writer,
 }: EstimateEditorItemsControllerInput) {
+  const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt, acceptDeletedItems, releaseItemsOperation } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems, applyVersionToken: (updatedAt) => applyVersionToken(updatedAt),
+  });
   const buildItemInsertPayload = v3Writer?.buildInsertPayload ?? buildEstimateItemInsertPayload;
   // v1/v2 : suppression directe (inchangée) ; v3 : un lot `delete`, recalculé et vérifié (D12).
   const deleteItemRecord = useCallback(async (versionId: string, itemId: string) => {
     if (!v3Writer) return deleteEstimateItem(versionId, itemId);
-    await v3Writer.deleteItems(versionId, getVersionSnapshot()?.updated_at ?? "", [itemId]);
+    const versionToken = await v3Writer.deleteItems(versionId, getVersionSnapshot()?.updated_at ?? "", [itemId]);
+    return { versionToken };
   }, [getVersionSnapshot, v3Writer]);
+  const acceptDeletionReceipt = useCallback((operation: ReturnType<typeof beginItemsOperation>, receipt: Awaited<ReturnType<typeof deleteItemRecord>>) => {
+    let accepted = false;
+    const accept = () => {
+      if (document && "deletedIds" in receipt && !acceptDeletedItems(operation, { version: receipt.versionToken, deletedIds: receipt.deletedIds })) {
+        rollbackItems(operation);
+        return;
+      }
+      accepted = acceptItemsReceipt(operation, { version: receipt.versionToken });
+    };
+    if (document) document.transaction(accept);
+    else accept();
+    return accepted;
+  }, [acceptDeletedItems, acceptItemsReceipt, document, rollbackItems]);
   // Nettoyage d'un élément retiré pendant sa création : au mieux en v1/v2 (inchangé) ; en v3, l'échec est signalé
   // et la grille relue, sinon une ligne orpheline resterait enregistrée, invisible jusqu'au prochain rechargement.
   const reportCleanupFailure = useCallback(async (error: unknown) => {
@@ -225,11 +248,14 @@ export function useEstimateEditorItemsController({
       snapshots: EstimateItem[],
       options: EstimateDeletionRecreationOptions = {}
     ) => {
+      const scope = document?.captureScope();
+      const isDocumentCurrent = () => !document || Boolean(scope && document.isCurrent(scope));
       const idMap = new Map<string, string>();
       const createdItems: EstimateItem[] = [];
+      if (!isItemsDocumentCurrent()) return { idMap, createdItems };
 
       for (const snapshotItem of sortItemsForTreeRecreation(snapshots)) {
-        if (!isCurrentVersion(versionId) || options.isCurrentScope?.() === false) break;
+        if (!isDocumentCurrent() || !isCurrentVersion(versionId) || options.isCurrentScope?.() === false) break;
         const mappedParentId = snapshotItem.parent_id
           ? (idMap.get(snapshotItem.parent_id) ?? snapshotItem.parent_id)
           : null;
@@ -238,9 +264,18 @@ export function useEstimateEditorItemsController({
           position: snapshotItem.position,
           title: snapshotItem.title,
         });
+        let createdVersionToken: EstimateVersionToken | undefined;
         const created = await createEstimateItem(versionId, payload, {
-          onVersionToken: applyCreatedItemVersionToken,
+          documentOwnsReceipt: Boolean(document),
+          onVersionToken: (token) => {
+            createdVersionToken = token;
+            if (!document && isDocumentCurrent()) applyCreatedItemVersionToken(token);
+          },
         });
+        if (!isDocumentCurrent() || !isCurrentVersion(versionId) || options.isCurrentScope?.() === false) break;
+        if (document && !document.acceptCreatedItem(null, created, scope, undefined, createdVersionToken)) {
+          throw new Error("Une version plus récente du devis a été chargée. Vérifiez les lignes restaurées avant de poursuivre.");
+        }
         idMap.set(snapshotItem.id, created.id);
         createdItems.push(created);
         options.onProgress?.({ idMap: new Map(idMap), createdItems: [...createdItems] });
@@ -248,7 +283,7 @@ export function useEstimateEditorItemsController({
 
       return { idMap, createdItems };
     },
-    [applyCreatedItemVersionToken, buildItemInsertPayload, isCurrentVersion]
+    [isItemsDocumentCurrent, applyCreatedItemVersionToken, buildItemInsertPayload, document, isCurrentVersion]
   );
 
   const applySiblingOrder = useCallback(
@@ -258,14 +293,17 @@ export function useEstimateEditorItemsController({
       idMap: Map<string, string> = new Map(),
       isCurrentScope: () => boolean = () => true
     ) => {
+      if (!isItemsDocumentCurrent()) return false;
       if (siblingOrderByParent.size === 0) return;
+      const scope = document?.captureScope();
+      const isDocumentCurrent = () => !document || Boolean(scope && document.isCurrent(scope));
 
       const currentItemIds = new Set(
         [...getItemsSnapshot().map((item) => item.id), ...idMap.values()]
       );
 
       for (const [parentId, orderedIds] of siblingOrderByParent.entries()) {
-        if (!isCurrentScope()) return;
+        if (!isDocumentCurrent() || !isCurrentScope()) return false;
         const mappedParentId = parentId ? (idMap.get(parentId) ?? parentId) : null;
         const mappedOrderedIds = orderedIds
           .map((itemId) => idMap.get(itemId) ?? itemId)
@@ -274,26 +312,32 @@ export function useEstimateEditorItemsController({
           throw new Error("Impossible de confirmer l'ordre des lignes restaurées.");
         }
 
-        await reorderEstimateItems(
-          versionId,
-          mappedParentId,
-          mappedOrderedIds
-        );
-        // The deletion restorer owns this map. An acknowledged parent is not
-        // written again if a later parent fails and the user resumes ordering.
-        siblingOrderByParent.delete(parentId);
-        if (!isCurrentScope()) return;
-        const nextPositionById = new Map(mappedOrderedIds.map((itemId, index) => [itemId, index + 1]));
-        setItems((previous) => previous.map((item) => nextPositionById.has(item.id)
-          ? { ...item, position: nextPositionById.get(item.id) ?? item.position } : item));
+        const operation = beginItemsOperation((previous) => previous);
+        if (!isItemsOperationCurrent(operation)) return false;
+        try {
+          const receipt = await reorderEstimateItems(versionId, mappedParentId, mappedOrderedIds);
+          // Acknowledged parents are not written again when later ordering fails.
+          if (!isDocumentCurrent() || !isCurrentScope()) return false;
+          const updates = mappedOrderedIds.map((id, index) => ({ id, updates: { position: index + 1 } }));
+          if (!acceptItemsReceipt(operation, { version: receipt.versionToken, updates })) return false;
+          siblingOrderByParent.delete(parentId);
+          if (!document) {
+            const nextPositionById = new Map(mappedOrderedIds.map((itemId, index) => [itemId, index + 1]));
+            setItems((previous) => previous.map((item) => nextPositionById.has(item.id)
+              ? { ...item, position: nextPositionById.get(item.id) ?? item.position } : item));
+          }
+        } catch (error) {
+          rollbackItems(operation);
+          throw error;
+        }
       }
     },
-    [getItemsSnapshot, setItems]
+    [acceptItemsReceipt, beginItemsOperation, isItemsOperationCurrent, rollbackItems, isItemsDocumentCurrent, document, getItemsSnapshot, setItems]
   );
 
   const addSection = useCallback(
     async (parentId: string | null) => {
-      if (!version) return;
+      if (!isItemsDocumentCurrent() || !version) return;
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
         return;
@@ -306,6 +350,8 @@ export function useEstimateEditorItemsController({
       }
 
       const targetVersion = version;
+      const documentScope = document?.captureScope();
+      const isDocumentCurrent = () => !document || Boolean(documentScope && document.isCurrent(documentScope));
       reportError(null);
       const position = getNextPosition(parentId);
       const tempId = createTempEstimateItemId();
@@ -323,6 +369,7 @@ export function useEstimateEditorItemsController({
       setItems((previous) => [...previous, optimisticSection]);
 
       try {
+        let createdVersionToken: EstimateVersionToken | undefined;
         const created = await createEstimateItem(
           targetVersion.id,
           {
@@ -332,10 +379,13 @@ export function useEstimateEditorItemsController({
             position,
             title: optimisticSection.title,
           },
-          { onVersionToken: applyCreatedItemVersionToken }
+          { documentOwnsReceipt: Boolean(document), onVersionToken: (token) => {
+            createdVersionToken = token;
+            if (!document && isDocumentCurrent()) applyCreatedItemVersionToken(token);
+          } }
         );
 
-        if (!isCurrentVersion(targetVersion.id)) {
+        if (!isDocumentCurrent() || !isCurrentVersion(targetVersion.id)) {
           queuedPatchesByTempIdRef.current.delete(tempId);
           removedTempItemIdsRef.current.delete(tempId);
           return;
@@ -344,29 +394,38 @@ export function useEstimateEditorItemsController({
         if (removedTempItemIdsRef.current.has(tempId)) {
           removedTempItemIdsRef.current.delete(tempId);
           queuedPatchesByTempIdRef.current.delete(tempId);
+          if (document && createdVersionToken && !document.setConfirmedVersion(
+            (current) => current ? { ...current, ...createdVersionToken } : null, documentScope
+          )) return;
           try {
-            await deleteItemRecord(targetVersion.id, created.id);
+            const receipt = await deleteItemRecord(targetVersion.id, created.id);
+            if (isDocumentCurrent()) {
+              if (document) document.confirmDeletedItems("deletedIds" in receipt ? receipt.deletedIds : [created.id], documentScope, receipt.versionToken);
+              else applyVersionToken(receipt.versionToken.updated_at);
+            }
           } catch (error) {
             // Best-effort cleanup after a temp item was removed in flight (v1/v2).
-            await reportCleanupFailure(error);
+            if (isDocumentCurrent()) await reportCleanupFailure(error);
           }
           return;
         }
 
         const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
         queuedPatchesByTempIdRef.current.delete(tempId);
-        setItems((previous) =>
-          previous.map((item) =>
-            item.id === tempId
-              ? (reconcileCreatedItemWithLocalDraft(
-                  created,
-                  buildEstimateItemUpdatePayload(item),
-                  queuedPatch,
-                  item._clientKey ?? tempId
-                ) as EditorEstimateItem)
-              : item
-          )
-        );
+        const reconcileCreated = (item: EditorEstimateItem) => reconcileCreatedItemWithLocalDraft(
+          created, buildEstimateItemUpdatePayload(item), queuedPatch, item._clientKey ?? tempId
+        ) as EditorEstimateItem;
+        if (document) {
+          const local = getItemsSnapshot().find((item) => item.id === tempId);
+          let accepted = false;
+          document.transaction(() => {
+            if (queuedPatch) document.enqueueItem(tempId, queuedPatch);
+            accepted = document.acceptCreatedItem(tempId, created, documentScope, local ? reconcileCreated(local) : undefined, createdVersionToken);
+          });
+          if (!accepted) return;
+        } else {
+          setItems((previous) => previous.map((item) => item.id === tempId ? reconcileCreated(item) : item));
+        }
         if (queuedPatch) enqueueItemUpdate(created.id, queuedPatch);
 
         let currentSectionId = created.id;
@@ -380,20 +439,23 @@ export function useEstimateEditorItemsController({
               snapshot,
               currentSectionId
             );
-            setItems((previous) =>
+            const undoOperation = beginItemsOperation((previous) =>
               previous.filter((item) => !idsToRemove.has(item.id))
             );
+            if (!isItemsOperationCurrent(undoOperation)) return false;
             try {
-              await deleteItemRecord(versionSnapshot.id, currentSectionId);
-              if (context && !context.isCurrentScope()) return;
+              const receipt = await deleteItemRecord(versionSnapshot.id, currentSectionId);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              if (!acceptDeletionReceipt(undoOperation, receipt)) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(snapshot);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(undoOperation);
               throw error;
             }
           },
           redo: async (context) => {
+            if (!isDocumentCurrent() || (context && !context.isCurrentScope())) return;
             const versionSnapshot = getVersionSnapshot();
             if (!versionSnapshot) throw new Error("Version introuvable.");
             const payload = buildItemInsertPayload(
@@ -405,20 +467,26 @@ export function useEstimateEditorItemsController({
                 title: created.title,
               }
             );
+            let recreatedVersionToken: EstimateVersionToken | undefined;
             const recreated = await createEstimateItem(
               versionSnapshot.id,
               payload,
-              { onVersionToken: applyCreatedItemVersionToken }
+              { documentOwnsReceipt: Boolean(document), onVersionToken: (token) => {
+                recreatedVersionToken = token;
+                if (!document && isDocumentCurrent()) applyCreatedItemVersionToken(token);
+              } }
             );
-            if (context && !context.isCurrentScope()) return;
+            if (!isDocumentCurrent() || (context && !context.isCurrentScope())) return;
+            if (document) {
+              if (!document.acceptCreatedItem(null, recreated, documentScope, undefined, recreatedVersionToken)) return false;
+            } else setItems((previous) => [...previous, recreated]);
             currentSectionId = recreated.id;
-            setItems((previous) => [...previous, recreated]);
             setTotalsOutOfSync(false);
           },
         });
       } catch (error) {
         queuedPatchesByTempIdRef.current.delete(tempId);
-        if (!isCurrentVersion(targetVersion.id)) return;
+        if (!isDocumentCurrent() || !isCurrentVersion(targetVersion.id)) return;
         setItems((previous) =>
           previous.filter((item) => item.id !== tempId)
         );
@@ -432,7 +500,14 @@ export function useEstimateEditorItemsController({
       }
     },
     [
+      isItemsDocumentCurrent,
+      acceptDeletionReceipt,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
+      document,
       applyCreatedItemVersionToken,
+      applyVersionToken,
       buildItemInsertPayload,
       deleteItemRecord,
       enqueueItemUpdate,
@@ -455,7 +530,7 @@ export function useEstimateEditorItemsController({
 
   const addLine = useCallback(
     async (parentId: string | null) => {
-      if (!version || !settings) return;
+      if (!isItemsDocumentCurrent() || !version || !settings) return;
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
         return;
@@ -468,6 +543,8 @@ export function useEstimateEditorItemsController({
       }
 
       const targetVersion = version;
+      const documentScope = document?.captureScope();
+      const isDocumentCurrent = () => !document || Boolean(documentScope && document.isCurrent(documentScope));
       reportError(null);
       const position = getNextPosition(parentId);
       const effectiveTaxRateBp =
@@ -554,12 +631,16 @@ export function useEstimateEditorItemsController({
       }
 
       try {
+        let createdVersionToken: EstimateVersionToken | undefined;
         const created = await createEstimateItem(
           targetVersion.id,
           createPayload,
-          { onVersionToken: applyCreatedItemVersionToken }
+          { documentOwnsReceipt: Boolean(document), onVersionToken: (token) => {
+            createdVersionToken = token;
+            if (!document && isDocumentCurrent()) applyCreatedItemVersionToken(token);
+          } }
         );
-        if (!isCurrentVersion(targetVersion.id)) {
+        if (!isDocumentCurrent() || !isCurrentVersion(targetVersion.id)) {
           queuedPatchesByTempIdRef.current.delete(tempId);
           removedTempItemIdsRef.current.delete(tempId);
           return;
@@ -568,33 +649,44 @@ export function useEstimateEditorItemsController({
         if (removedTempItemIdsRef.current.has(tempId)) {
           removedTempItemIdsRef.current.delete(tempId);
           queuedPatchesByTempIdRef.current.delete(tempId);
+          if (document && createdVersionToken && !document.setConfirmedVersion(
+            (current) => current ? { ...current, ...createdVersionToken } : null, documentScope
+          )) return;
           try {
-            await deleteItemRecord(targetVersion.id, created.id);
+            const receipt = await deleteItemRecord(targetVersion.id, created.id);
+            if (isDocumentCurrent()) {
+              if (document) document.confirmDeletedItems("deletedIds" in receipt ? receipt.deletedIds : [created.id], documentScope, receipt.versionToken);
+              else applyVersionToken(receipt.versionToken.updated_at);
+            }
           } catch (error) {
             // Best-effort cleanup after a temp item was removed in flight (v1/v2).
-            await reportCleanupFailure(error);
+            if (isDocumentCurrent()) await reportCleanupFailure(error);
           }
           return;
         }
 
         const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
         queuedPatchesByTempIdRef.current.delete(tempId);
-        setItems((previous) =>
-          previous.map((item) => {
-            if (item.id !== tempId) return item;
-            const reconciled = reconcileCreatedItemWithLocalDraft(
-              created,
-              buildItemUpdatePayload(item),
-              queuedPatch,
-              item._clientKey ?? tempId
-            ) as EditorEstimateItem;
-            // TI-534 : le type FO choisi avant la confirmation part avec le correctif en file, que le serveur
-            // redérive ; la provision locale de la ligne provisoire est déjà celle de ce type.
-            return v3Writer && supplyTypeChanged(created.supply_type_id, reconciled.supply_type_id)
-              ? { ...reconciled, fo_provision: item.fo_provision }
-              : reconciled;
-          })
-        );
+        const reconcileCreated = (item: EditorEstimateItem) => {
+          const reconciled = reconcileCreatedItemWithLocalDraft(
+            created, buildItemUpdatePayload(item), queuedPatch, item._clientKey ?? tempId
+          ) as EditorEstimateItem;
+          // Keep the provision derived from the FO type edited during creation.
+          return v3Writer && supplyTypeChanged(created.supply_type_id, reconciled.supply_type_id)
+            ? { ...reconciled, fo_provision: item.fo_provision }
+            : reconciled;
+        };
+        if (document) {
+          const local = getItemsSnapshot().find((item) => item.id === tempId);
+          let accepted = false;
+          document.transaction(() => {
+            if (queuedPatch) document.enqueueItem(tempId, queuedPatch);
+            accepted = document.acceptCreatedItem(tempId, created, documentScope, local ? reconcileCreated(local) : undefined, createdVersionToken);
+          });
+          if (!accepted) return;
+        } else {
+          setItems((previous) => previous.map((item) => item.id === tempId ? reconcileCreated(item) : item));
+        }
         if (queuedPatch) enqueueItemUpdate(created.id, queuedPatch);
 
         let currentLineId = created.id;
@@ -603,21 +695,23 @@ export function useEstimateEditorItemsController({
           undo: async (context) => {
             const versionSnapshot = getVersionSnapshot();
             if (!versionSnapshot) throw new Error("Version introuvable.");
-            const snapshot = getItemsSnapshot();
-            setItems((previous) =>
+            const undoOperation = beginItemsOperation((previous) =>
               previous.filter((item) => item.id !== currentLineId)
             );
+            if (!isItemsOperationCurrent(undoOperation)) return false;
             try {
-              await deleteItemRecord(versionSnapshot.id, currentLineId);
-              if (context && !context.isCurrentScope()) return;
+              const receipt = await deleteItemRecord(versionSnapshot.id, currentLineId);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              if (!acceptDeletionReceipt(undoOperation, receipt)) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(snapshot);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(undoOperation);
               throw error;
             }
           },
           redo: async (context) => {
+            if (!isDocumentCurrent() || (context && !context.isCurrentScope())) return;
             const versionSnapshot = getVersionSnapshot();
             if (!versionSnapshot) throw new Error("Version introuvable.");
             const payload = buildItemInsertPayload(
@@ -629,20 +723,26 @@ export function useEstimateEditorItemsController({
                 title: created.title,
               }
             );
+            let recreatedVersionToken: EstimateVersionToken | undefined;
             const recreated = await createEstimateItem(
               versionSnapshot.id,
               payload,
-              { onVersionToken: applyCreatedItemVersionToken }
+              { documentOwnsReceipt: Boolean(document), onVersionToken: (token) => {
+                recreatedVersionToken = token;
+                if (!document && isDocumentCurrent()) applyCreatedItemVersionToken(token);
+              } }
             );
-            if (context && !context.isCurrentScope()) return;
+            if (!isDocumentCurrent() || (context && !context.isCurrentScope())) return;
+            if (document) {
+              if (!document.acceptCreatedItem(null, recreated, documentScope, undefined, recreatedVersionToken)) return false;
+            } else setItems((previous) => [...previous, recreated]);
             currentLineId = recreated.id;
-            setItems((previous) => [...previous, recreated]);
             setTotalsOutOfSync(false);
           },
         });
       } catch (error) {
         queuedPatchesByTempIdRef.current.delete(tempId);
-        if (!isCurrentVersion(targetVersion.id)) return;
+        if (!isDocumentCurrent() || !isCurrentVersion(targetVersion.id)) return;
         setItems((previous) =>
           previous.filter((item) => item.id !== tempId)
         );
@@ -656,7 +756,14 @@ export function useEstimateEditorItemsController({
       }
     },
     [
+      isItemsDocumentCurrent,
+      acceptDeletionReceipt,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
+      document,
       applyCreatedItemVersionToken,
+      applyVersionToken,
       buildItemInsertPayload,
       buildItemUpdatePayload,
       deleteItemRecord,
@@ -704,9 +811,10 @@ export function useEstimateEditorItemsController({
         const order = allSiblingOrders.get(parentId);
         if (order) siblingOrderByParent.set(parentId, order);
       });
-      setItems((previous) =>
+      const operation = beginItemsOperation((previous) =>
         previous.filter((item) => !idsToRemove.has(item.id))
       );
+      if (!isItemsOperationCurrent(operation)) return;
 
       const removedTempIds = Array.from(idsToRemove).filter((id) =>
         isTempEstimateItemId(id)
@@ -726,12 +834,14 @@ export function useEstimateEditorItemsController({
       };
 
       if (isTempEstimateItemId(itemId)) {
+        releaseItemsOperation(operation);
         setTotalsOutOfSync(false);
         return;
       }
 
       const targetVersionId = version?.id;
       if (!targetVersionId) {
+        rollbackItems(operation);
         rollbackRemovedTempIds();
         reportError("Version introuvable.");
         await reloadItems();
@@ -739,8 +849,9 @@ export function useEstimateEditorItemsController({
       }
 
       try {
-        await deleteItemRecord(targetVersionId, itemId);
-        if (!isCurrentVersion(targetVersionId)) return;
+        const receipt = await deleteItemRecord(targetVersionId, itemId);
+        if (!isItemsOperationCurrent(operation) || !isCurrentVersion(targetVersionId)) return;
+        if (!acceptDeletionReceipt(operation, receipt)) return;
 
         let currentDeletedRootId = itemId;
         const restorer = createEstimateDeletionRestorer({
@@ -752,7 +863,7 @@ export function useEstimateEditorItemsController({
           isCurrentVersion: () => getVersionSnapshot()?.id === targetVersionId,
           recreateItemsFromSnapshots,
           applySiblingOrder,
-          setItems,
+          setItems: document ? () => undefined : setItems,
           onRestored: (idMap) => {
             currentDeletedRootId = idMap.get(itemId) ?? currentDeletedRootId;
           },
@@ -760,7 +871,7 @@ export function useEstimateEditorItemsController({
         pushHistoryCommand({
           label: "delete-item",
           undo: async (context) => {
-            await restorer.undo(context);
+            if ((await restorer.undo(context)) === false) return false;
             if (context && !context.isCurrentScope()) return;
             if (getVersionSnapshot()?.id !== targetVersionId) return;
             setTotalsOutOfSync(false);
@@ -774,28 +885,31 @@ export function useEstimateEditorItemsController({
               redoSnapshot,
               currentDeletedRootId
             );
-            setItems((previous) =>
+            const redoOperation = beginItemsOperation((previous) =>
               previous.filter((item) => !redoIdsToRemove.has(item.id))
             );
+            if (!isItemsOperationCurrent(redoOperation)) return false;
             try {
-              await deleteItemRecord(
+              const receipt = await deleteItemRecord(
                 versionSnapshot.id,
                 currentDeletedRootId
               );
-              if (context && !context.isCurrentScope()) return;
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
               if (getVersionSnapshot()?.id !== targetVersionId) return;
               restorer.reset();
+              if (!acceptDeletionReceipt(redoOperation, receipt)) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(redoSnapshot);
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(redoOperation);
               throw error;
             }
           },
         });
       } catch (error) {
         rollbackRemovedTempIds();
-        if (!isCurrentVersion(targetVersionId)) return;
+        if (!isItemsOperationCurrent(operation) || !isCurrentVersion(targetVersionId)) return;
+        rollbackItems(operation);
         reportError(
           resolveErrorMessage(
             error instanceof Error
@@ -807,7 +921,13 @@ export function useEstimateEditorItemsController({
       }
     },
     [
+      acceptDeletionReceipt,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
+      releaseItemsOperation,
       applySiblingOrder,
+      document,
       deleteItemRecord,
       getItemsSnapshot,
       getVersionSnapshot,
@@ -847,13 +967,11 @@ export function useEstimateEditorItemsController({
         updated = normalizePatchedItem(updated);
       }
 
-      const applyLocalItemPatch = () => {
-        setItems((previous) =>
-          previous.map((item) => (item.id === itemId ? updated : item))
-        );
-      };
-      applyLocalItemPatch();
-      if (!persist) return;
+      const operation = beginItemsOperation((previous) =>
+        previous.map((item) => (item.id === itemId ? updated : item))
+      );
+      if (!isItemsOperationCurrent(operation)) return;
+      if (!persist) { releaseItemsOperation(operation); return; }
 
       if (isTempEstimateItemId(itemId) || isPendingCreateEstimateItem(current)) {
         const queuedPayload = buildItemUpdatePayload(updated);
@@ -864,16 +982,18 @@ export function useEstimateEditorItemsController({
           ...queuedPayload,
         });
         setTotalsOutOfSync(false);
+        releaseItemsOperation(operation);
         return;
       }
 
       if (!version?.id) {
         reportError("Version introuvable.");
-        setItems(snapshot);
+        rollbackItems(operation);
         return;
       }
 
       enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
+      releaseItemsOperation(operation);
       setTotalsOutOfSync(false);
       // TI-534 : en v3, une ligne rétablie (annuler, rétablir) qui change de type FO en redérive la provision, et garde
       // sinon celle de la ligne en place, côté serveur comme ici.
@@ -905,6 +1025,10 @@ export function useEstimateEditorItemsController({
       });
     },
     [
+      isItemsOperationCurrent,
+      beginItemsOperation,
+      releaseItemsOperation,
+      rollbackItems,
       buildItemUpdatePayload,
       enqueueItemUpdate,
       getItemsSnapshot,

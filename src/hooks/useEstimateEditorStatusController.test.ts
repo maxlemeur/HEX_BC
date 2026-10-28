@@ -22,6 +22,7 @@ import type {
 EstimateSendGatingResponse,
 EstimateStatus,
 } from "@/lib/estimates/client";
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 
 type HarnessProps = Pick<
@@ -34,10 +35,12 @@ type HarnessProps = Pick<
   | "isDraftLockedByOther"
   | "isDraftLockAcquiring"
   | "isForcingDraftUnlock"
+  | "hasPendingSettingsChanges"
 > & {
   version: EstimateVersionRow | null;
   preloadGating: boolean;
   gatingReloadToken: number;
+  document?: EstimateEditorDocument;
 };
 
 function createVersion(
@@ -105,6 +108,7 @@ function defaultProps(
 function createDependencies() {
   return {
     applyUpdatedVersion: vi.fn(),
+    openSettings: vi.fn(),
     flushBufferedItemUpdates: vi.fn().mockResolvedValue("noop"),
     handleVersionConflict: vi.fn().mockReturnValue(false),
     hasPendingUpdatesNow: vi.fn().mockReturnValue(false),
@@ -129,11 +133,14 @@ function useStatusControllerHarness(
 
   return useEstimateEditorStatusController({
     routeVersionId: props.routeVersionId,
+    document: props.document,
     activeVersion: props.preloadGating ? props.version : null,
     gatingReloadToken: props.gatingReloadToken,
     getVersionSnapshot,
     applyUpdatedVersion: dependencies.applyUpdatedVersion,
     isAdmin: props.isAdmin,
+    hasPendingSettingsChanges: props.hasPendingSettingsChanges,
+    openSettings: dependencies.openSettings,
     isViewerReadOnly: props.isViewerReadOnly,
     isConflictLocked: props.isConflictLocked,
     conflictMessage: "Conflit courant.",
@@ -188,6 +195,103 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorStatusController send workflow", () => {
+
+  it.each(["actor", "tenant", "A to B to A"])("does not send from a confirmation belonging to an earlier document %s", async (change) => {
+    const firstScope = { actorId: "actor-a", tenantId: "tenant-a", versionId: "version-1" };
+    const document = new EstimateEditorDocument(firstScope);
+    const gating = createDeferred<EstimateSendGatingResponse>();
+    clientMocks.fetchEstimateSendGating.mockResolvedValueOnce(createGating()).mockReturnValueOnce(gating.promise);
+    const harness = renderController(defaultProps({ document }));
+    await act(async () => { await harness.result.current.actions.requestSend(); });
+    let confirmation!: Promise<void>;
+    act(() => { confirmation = harness.result.current.actions.confirmSend(); });
+    await waitFor(() => expect(clientMocks.fetchEstimateSendGating).toHaveBeenCalledTimes(2));
+    act(() => { document.changeScope({ ...firstScope, ...(change === "tenant" ? { tenantId: "tenant-b" } : { actorId: "actor-b" }) }); });
+    harness.rerender(defaultProps({ document }));
+    if (change === "A to B to A") {
+      act(() => { document.changeScope(firstScope); });
+      harness.rerender(defaultProps({ document }));
+    }
+    await act(async () => { gating.resolve(createGating()); await confirmation; });
+    expect(clientMocks.updateEstimateStatus).not.toHaveBeenCalled();
+    expect(harness.dependencies.applyUpdatedVersion).not.toHaveBeenCalled();
+    expect(harness.result.current.state.isSendGatingDialogOpen).toBe(false);
+    expect(harness.result.current.state.isUpdatingStatus).toBe(false);
+  });
+
+  it("does not publish an old actor's committed status receipt into the next document", async () => {
+    const scope = { actorId: "actor-a", tenantId: "tenant-a", versionId: "version-1" };
+    const document = new EstimateEditorDocument(scope);
+    const written = createDeferred<EstimateVersionRow>();
+    clientMocks.updateEstimateStatus.mockReturnValueOnce(written.promise);
+    const harness = renderController(defaultProps({ document }));
+    await act(async () => { await harness.result.current.actions.requestSend(); });
+    let confirmation!: Promise<void>;
+    act(() => { confirmation = harness.result.current.actions.confirmSend(); });
+    await waitFor(() => expect(clientMocks.updateEstimateStatus).toHaveBeenCalledOnce());
+    act(() => { document.changeScope({ ...scope, actorId: "actor-b" }); });
+    harness.rerender(defaultProps({ document }));
+    await act(async () => { written.resolve(createVersion("sent")); await confirmation; });
+    expect(harness.dependencies.applyUpdatedVersion).not.toHaveBeenCalled();
+    expect(harness.dependencies.releaseDraftLock).not.toHaveBeenCalled();
+    expect(harness.result.current.state.isUpdatingStatus).toBe(false);
+    expect(harness.result.current.state.error).toBeNull();
+  });
+
+  it("rechecks local settings when they change while the final send verification is pending", async () => {
+    const gating = createDeferred<EstimateSendGatingResponse>();
+    clientMocks.fetchEstimateSendGating.mockResolvedValueOnce(createGating()).mockReturnValueOnce(gating.promise);
+    const harness = renderController();
+    await act(async () => { await harness.result.current.actions.requestSend(); });
+    let confirmation!: Promise<void>;
+    act(() => { confirmation = harness.result.current.actions.confirmSend(); });
+    await waitFor(() => expect(clientMocks.fetchEstimateSendGating).toHaveBeenCalledTimes(2));
+    harness.rerender(defaultProps({ hasPendingSettingsChanges: true }));
+    await act(async () => { gating.resolve(createGating()); await confirmation; });
+    expect(clientMocks.updateEstimateStatus).not.toHaveBeenCalled();
+    expect(harness.dependencies.openSettings).toHaveBeenCalledOnce();
+    expect(harness.result.current.state.error).toContain("modifications non enregistrées");
+    expect(harness.result.current.state.isSendGatingDialogOpen).toBe(false);
+    expect(harness.result.current.state.isUpdatingStatus).toBe(false);
+    harness.rerender(defaultProps({ hasPendingSettingsChanges: false }));
+    await act(async () => { await harness.result.current.actions.requestSend(); });
+    await act(async () => { await harness.result.current.actions.confirmSend(); });
+    expect(clientMocks.updateEstimateStatus).toHaveBeenCalledOnce();
+  });
+
+  it("consumes a committed status receipt when settings become dirty after the write started", async () => {
+    const written = createDeferred<EstimateVersionRow>();
+    clientMocks.updateEstimateStatus.mockReturnValueOnce(written.promise);
+    const harness = renderController();
+    await act(async () => { await harness.result.current.actions.requestSend(); });
+    let confirmation!: Promise<void>;
+    act(() => { confirmation = harness.result.current.actions.confirmSend(); });
+    await waitFor(() => expect(clientMocks.updateEstimateStatus).toHaveBeenCalledOnce());
+    harness.rerender(defaultProps({ hasPendingSettingsChanges: true }));
+    const receipt = createVersion("sent", "version-1", "committed-status-token");
+    await act(async () => { written.resolve(receipt); await confirmation; });
+    expect(harness.dependencies.applyUpdatedVersion).toHaveBeenCalledExactlyOnceWith(receipt);
+    expect(harness.dependencies.releaseDraftLock).toHaveBeenCalledOnce();
+    expect(harness.dependencies.openSettings).not.toHaveBeenCalled();
+    expect(harness.result.current.state.error).toBeNull();
+    expect(harness.result.current.state.isSendGatingDialogOpen).toBe(false);
+    expect(harness.result.current.state.isUpdatingStatus).toBe(false);
+  });
+
+  it("rechecks restored settings after an in-flight line flush", async () => {
+    const flush = createDeferred<"saved">();
+    const dependencies = createDependencies();
+    dependencies.flushBufferedItemUpdates.mockReturnValueOnce(flush.promise);
+    const harness = renderController(defaultProps(), dependencies);
+    let request!: Promise<void>;
+    act(() => { request = harness.result.current.actions.requestSend(); });
+    harness.rerender(defaultProps({ hasPendingSettingsChanges: true }));
+    await act(async () => { flush.resolve("saved"); await request; });
+    expect(clientMocks.fetchEstimateSendGating).not.toHaveBeenCalled();
+    expect(clientMocks.updateEstimateStatus).not.toHaveBeenCalled();
+    expect(harness.dependencies.openSettings).toHaveBeenCalledOnce();
+    expect(harness.result.current.state.error).toContain("modifications non enregistrées");
+  });
 
   it("reflushes and revalidates gating with the latest token before sending", async () => {
     const harness = renderController(

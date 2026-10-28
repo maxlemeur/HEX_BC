@@ -18,6 +18,7 @@ import {
   type ReleaseEstimateDraftLockOptions,
 } from "@/lib/estimates/client";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
+import type { EstimateEditorDocument, EstimateEditorDocumentScopeToken } from "@/lib/estimates/editor-document-state";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 
 export type EstimateEditorSendWorkflowPhase =
@@ -28,6 +29,8 @@ export type EstimateEditorSendWorkflowPhase =
 
 type RouteScope = {
   versionId: string;
+  scopeKey: string;
+  documentScope?: EstimateEditorDocumentScopeToken;
   routeGeneration: number;
   operationGeneration: number;
 };
@@ -50,6 +53,7 @@ type ScopedStatusState = {
 };
 
 export type EstimateEditorStatusControllerInput = {
+  document?: EstimateEditorDocument;
   routeVersionId: string;
   activeVersion?: Pick<
     EstimateVersionRow,
@@ -64,6 +68,9 @@ export type EstimateEditorStatusControllerInput = {
   conflictMessage?: string | null;
   /** History writes and incomplete recoveries must finish before a status transition. */
   isHistoryBlocked?: boolean;
+  /** Restored settings may be dirty while the settings drawer is closed. */
+  hasPendingSettingsChanges?: boolean;
+  openSettings?: () => void;
   isDraftLockPending: boolean;
   draftLockPendingMessage?: string;
   isDraftLockedByOther: boolean;
@@ -162,6 +169,7 @@ function createEmptyStatusState(scopeKey: string): ScopedStatusState {
 }
 
 export function useEstimateEditorStatusController({
+  document,
   routeVersionId,
   activeVersion = null,
   gatingReloadToken = 0,
@@ -172,6 +180,8 @@ export function useEstimateEditorStatusController({
   isConflictLocked,
   conflictMessage,
   isHistoryBlocked = false,
+  hasPendingSettingsChanges = false,
+  openSettings,
   isDraftLockPending,
   draftLockPendingMessage = "Acquisition du verrou de brouillon en cours.",
   isDraftLockedByOther,
@@ -189,8 +199,15 @@ export function useEstimateEditorStatusController({
   resolveErrorMessage,
   refreshTimeline,
 }: EstimateEditorStatusControllerInput): EstimateEditorStatusController {
+  const documentGeneration = document?.getSnapshot().generation;
+  const documentScope = useMemo(() => document && documentGeneration !== undefined
+    ? { ...document.captureScope(), generation: documentGeneration } : undefined, [document, documentGeneration]);
+  const controllerScopeKey = documentScope
+    ? JSON.stringify([routeVersionId, documentScope.actorId, documentScope.tenantId, documentScope.generation])
+    : routeVersionId;
+  const isDocumentScopeCurrent = useCallback(() => !documentScope || Boolean(document?.isCurrent(documentScope)), [document, documentScope]);
   const [scopedState, setScopedState] = useState<ScopedStatusState>(() =>
-    createEmptyStatusState(routeVersionId)
+    createEmptyStatusState(controllerScopeKey)
   );
   const [previousHistoryBlocked, setPreviousHistoryBlocked] = useState(isHistoryBlocked);
   // Clear the previous confirmation before rendering children, including after recovery ends.
@@ -207,9 +224,9 @@ export function useEstimateEditorStatusController({
     }
   }
   const projectedState =
-    scopedState.scopeKey === routeVersionId
+    scopedState.scopeKey === controllerScopeKey
       ? scopedState
-      : createEmptyStatusState(routeVersionId);
+      : createEmptyStatusState(controllerScopeKey);
   const {
     error,
     isUpdatingStatus,
@@ -223,7 +240,7 @@ export function useEstimateEditorStatusController({
   const activeVersionUpdatedAt = activeVersion?.updated_at ?? null;
   const preloadRequestKey =
     activeVersionId === routeVersionId && activeVersionStatus === "draft"
-      ? `${activeVersionId}:${activeVersionUpdatedAt ?? ""}:${gatingReloadToken}`
+      ? `${controllerScopeKey}:${activeVersionUpdatedAt ?? ""}:${gatingReloadToken}`
       : null;
   const preloadedSendGating =
     preloadRequestKey &&
@@ -244,13 +261,17 @@ export function useEstimateEditorStatusController({
     preloadedGatingSnapshot?.requestKey !== preloadRequestKey;
 
   const activeRouteVersionIdRef = useRef(routeVersionId);
-  const previousRouteVersionIdRef = useRef(routeVersionId);
+  const previousControllerScopeKeyRef = useRef(controllerScopeKey);
   const routeGenerationRef = useRef(0);
   const operationGenerationRef = useRef(0);
   const isOperationInProgressRef = useRef(false);
   const gatingScopeRef = useRef<GatingScope | null>(null);
   const preloadGenerationRef = useRef(0);
   const historyBlockedRef = useRef(isHistoryBlocked);
+  const pendingSettingsRef = useRef(hasPendingSettingsChanges);
+  useLayoutEffect(() => {
+    pendingSettingsRef.current = hasPendingSettingsChanges;
+  }, [hasPendingSettingsChanges]);
 
   const updateStateForScope = useCallback(
     (
@@ -269,16 +290,16 @@ export function useEstimateEditorStatusController({
   );
 
   useLayoutEffect(() => {
-    if (previousRouteVersionIdRef.current === routeVersionId) return;
+    if (previousControllerScopeKeyRef.current === controllerScopeKey) return;
 
-    previousRouteVersionIdRef.current = routeVersionId;
+    previousControllerScopeKeyRef.current = controllerScopeKey;
     activeRouteVersionIdRef.current = routeVersionId;
     routeGenerationRef.current += 1;
     operationGenerationRef.current += 1;
     preloadGenerationRef.current += 1;
     isOperationInProgressRef.current = false;
     gatingScopeRef.current = null;
-  }, [routeVersionId]);
+  }, [controllerScopeKey, routeVersionId]);
 
   useLayoutEffect(() => {
     historyBlockedRef.current = isHistoryBlocked;
@@ -303,10 +324,11 @@ export function useEstimateEditorStatusController({
   );
 
   const isRouteScopeCurrent = useCallback(
-    (scope: Pick<RouteScope, "versionId" | "routeGeneration">) =>
+    (scope: Pick<RouteScope, "versionId" | "routeGeneration" | "documentScope">) =>
       activeRouteVersionIdRef.current === scope.versionId &&
-      routeGenerationRef.current === scope.routeGeneration,
-    []
+      routeGenerationRef.current === scope.routeGeneration &&
+      (!scope.documentScope || Boolean(document?.isCurrent(scope.documentScope))),
+    [document]
   );
 
   const isOperationScopeCurrent = useCallback(
@@ -319,7 +341,7 @@ export function useEstimateEditorStatusController({
 
   const beginOperation = useCallback((): RouteScope | null => {
     if (
-      !routeVersionId ||
+      !routeVersionId || !isDocumentScopeCurrent() ||
       activeRouteVersionIdRef.current !== routeVersionId ||
       historyBlockedRef.current ||
       isOperationInProgressRef.current
@@ -334,16 +356,18 @@ export function useEstimateEditorStatusController({
     isOperationInProgressRef.current = true;
     const scope = {
       versionId: routeVersionId,
+      scopeKey: controllerScopeKey,
+      documentScope,
       routeGeneration: routeGenerationRef.current,
       operationGeneration: operationGenerationRef.current,
     };
-    updateStateForScope(scope.versionId, (current) => ({
+    updateStateForScope(scope.scopeKey, (current) => ({
       ...current,
       error: null,
       isUpdatingStatus: true,
     }));
     return scope;
-  }, [routeVersionId, updateStateForScope]);
+  }, [controllerScopeKey, documentScope, isDocumentScopeCurrent, routeVersionId, updateStateForScope]);
 
   useEffect(() => {
     const generation = ++preloadGenerationRef.current;
@@ -354,7 +378,7 @@ export function useEstimateEditorStatusController({
       .then((result) => {
         const currentVersion = getVersionSnapshot();
         if (
-          !active ||
+          !active || !isDocumentScopeCurrent() ||
           preloadGenerationRef.current !== generation ||
           activeRouteVersionIdRef.current !== activeVersionId ||
           currentVersion?.id !== activeVersionId ||
@@ -363,7 +387,7 @@ export function useEstimateEditorStatusController({
         ) {
           return;
         }
-        updateStateForScope(activeVersionId, (current) => ({
+        updateStateForScope(controllerScopeKey, (current) => ({
           ...current,
           preloadedGatingSnapshot: {
             requestKey: preloadRequestKey,
@@ -373,11 +397,11 @@ export function useEstimateEditorStatusController({
       })
       .catch(() => {
         if (
-          active &&
+          active && isDocumentScopeCurrent() &&
           preloadGenerationRef.current === generation &&
           activeRouteVersionIdRef.current === activeVersionId
         ) {
-          updateStateForScope(activeVersionId, (current) => ({
+          updateStateForScope(controllerScopeKey, (current) => ({
             ...current,
             preloadedGatingSnapshot: {
               requestKey: preloadRequestKey,
@@ -394,7 +418,9 @@ export function useEstimateEditorStatusController({
     activeVersionId,
     activeVersionStatus,
     activeVersionUpdatedAt,
+    controllerScopeKey,
     getVersionSnapshot,
+    isDocumentScopeCurrent,
     preloadRequestKey,
     updateStateForScope,
   ]);
@@ -403,7 +429,7 @@ export function useEstimateEditorStatusController({
     (scope: RouteScope) => {
       if (!isOperationScopeCurrent(scope)) return;
       isOperationInProgressRef.current = false;
-      updateStateForScope(scope.versionId, (current) => ({
+      updateStateForScope(scope.scopeKey, (current) => ({
         ...current,
         isUpdatingStatus: false,
         sendWorkflowPhase: null,
@@ -415,7 +441,7 @@ export function useEstimateEditorStatusController({
   const reportScopedError = useCallback(
     (scope: RouteScope, message: string) => {
       if (isOperationScopeCurrent(scope)) {
-        updateStateForScope(scope.versionId, (current) => ({
+        updateStateForScope(scope.scopeKey, (current) => ({
           ...current,
           error: message,
         }));
@@ -429,14 +455,14 @@ export function useEstimateEditorStatusController({
       if (!isOperationScopeCurrent(scope)) return;
       if (handleVersionConflict(requestError, { persistDraft: true })) {
         gatingScopeRef.current = null;
-        updateStateForScope(scope.versionId, (current) => ({
+        updateStateForScope(scope.scopeKey, (current) => ({
           ...current,
           workflowSendGating: null,
           isSendGatingDialogOpen: false,
         }));
         return;
       }
-      updateStateForScope(scope.versionId, (current) => ({
+      updateStateForScope(scope.scopeKey, (current) => ({
         ...current,
         error: resolveErrorMessage(
           requestError instanceof Error
@@ -452,6 +478,20 @@ export function useEstimateEditorStatusController({
       updateStateForScope,
     ]
   );
+
+  const requireSavedSettings = useCallback((scope: RouteScope, nextStatus: EstimateStatus) => {
+    if (nextStatus !== "sent" || !pendingSettingsRef.current) return true;
+    if (!isOperationScopeCurrent(scope)) return false;
+    gatingScopeRef.current = null;
+    updateStateForScope(scope.scopeKey, (current) => ({
+      ...current,
+      workflowSendGating: null,
+      isSendGatingDialogOpen: false,
+      error: "Le paramétrage contient des modifications non enregistrées. Enregistrez-les ou abandonnez-les avant d’envoyer le devis.",
+    }));
+    openSettings?.();
+    return false;
+  }, [isOperationScopeCurrent, openSettings, updateStateForScope]);
 
   const prepareTransition = useCallback(
     async (
@@ -487,6 +527,7 @@ export function useEstimateEditorStatusController({
         return null;
       }
 
+      if (!requireSavedSettings(scope, nextStatus)) return null;
       const initialVersion = getVersionSnapshot();
       if (!initialVersion || initialVersion.id !== scope.versionId) {
         reportScopedError(scope, "Version introuvable.");
@@ -505,7 +546,7 @@ export function useEstimateEditorStatusController({
       }
 
       const flushResult = await flushBufferedItemUpdates();
-      if (!isOperationScopeCurrent(scope)) return null;
+      if (!isOperationScopeCurrent(scope) || !requireSavedSettings(scope, nextStatus)) return null;
       if (flushResult === "blocked" || flushResult === "error") {
         reportScopedError(
           scope,
@@ -552,6 +593,7 @@ export function useEstimateEditorStatusController({
       isOperationScopeCurrent,
       isViewerReadOnly,
       reportScopedError,
+      requireSavedSettings,
       viewerReadOnlyMessage,
     ]
   );
@@ -565,15 +607,15 @@ export function useEstimateEditorStatusController({
     ) => {
       let sealingTimer: ReturnType<typeof setTimeout> | null = null;
       try {
-        if (!isOperationScopeCurrent(scope)) return false;
+        if (!isOperationScopeCurrent(scope) || !requireSavedSettings(scope, nextStatus)) return false;
         if (nextStatus === "sent") {
-          updateStateForScope(scope.versionId, (current) => ({
+          updateStateForScope(scope.scopeKey, (current) => ({
             ...current,
             sendWorkflowPhase: "pdf",
           }));
           sealingTimer = setTimeout(() => {
             if (isOperationScopeCurrent(scope)) {
-              updateStateForScope(scope.versionId, (current) => ({
+              updateStateForScope(scope.scopeKey, (current) => ({
                 ...current,
                 sendWorkflowPhase: "sealing",
               }));
@@ -581,13 +623,15 @@ export function useEstimateEditorStatusController({
           }, 250);
         }
 
-        if (!isOperationScopeCurrent(scope)) return false;
+        if (!isOperationScopeCurrent(scope) || !requireSavedSettings(scope, nextStatus)) return false;
         const updatedVersion = await updateEstimateStatus(
           sourceVersion.id,
           nextStatus,
           sourceVersion.updated_at,
           force === undefined ? undefined : { force }
         );
+        // The write has committed. Later local edits cannot turn its receipt
+        // into an unperformed transition; publish the confirmed server status.
         if (!isOperationScopeCurrent(scope)) return false;
         if (
           updatedVersion.id !== scope.versionId ||
@@ -638,6 +682,7 @@ export function useEstimateEditorStatusController({
       refreshTimeline,
       releaseDraftLock,
       reportScopedError,
+      requireSavedSettings,
       updateStateForScope,
     ]
   );
@@ -645,7 +690,7 @@ export function useEstimateEditorStatusController({
   const requestSend = useCallback(async () => {
     const scope = beginOperation();
     if (!scope) return;
-    updateStateForScope(scope.versionId, (current) => ({
+    updateStateForScope(scope.scopeKey, (current) => ({
       ...current,
       sendWorkflowPhase: "verification",
     }));
@@ -662,9 +707,11 @@ export function useEstimateEditorStatusController({
 
         gatingScopeRef.current = {
           versionId: scope.versionId,
+          scopeKey: scope.scopeKey,
+          documentScope: scope.documentScope,
           routeGeneration: scope.routeGeneration,
         };
-        updateStateForScope(scope.versionId, (current) => ({
+        updateStateForScope(scope.scopeKey, (current) => ({
           ...current,
           workflowSendGating: gatingResult,
           isSendGatingDialogOpen: true,
@@ -691,7 +738,7 @@ export function useEstimateEditorStatusController({
 
   const confirmSend = useCallback(
     async (force = false) => {
-      if (historyBlockedRef.current) return;
+      if (historyBlockedRef.current || !isDocumentScopeCurrent()) return;
       const gatingScope = gatingScopeRef.current;
       if (
         !gatingScope ||
@@ -699,7 +746,7 @@ export function useEstimateEditorStatusController({
         gatingScope.versionId !== routeVersionId
       ) {
         if (activeRouteVersionIdRef.current === routeVersionId) {
-          updateStateForScope(routeVersionId, (current) => ({
+          updateStateForScope(controllerScopeKey, (current) => ({
             ...current,
             error: "Veuillez vérifier les préconditions d'envoi.",
           }));
@@ -707,7 +754,7 @@ export function useEstimateEditorStatusController({
         return;
       }
       if (force && !isAdmin) {
-        updateStateForScope(routeVersionId, (current) => ({
+        updateStateForScope(controllerScopeKey, (current) => ({
           ...current,
           error: "Seul un administrateur peut forcer l'envoi.",
         }));
@@ -716,7 +763,7 @@ export function useEstimateEditorStatusController({
 
       const scope = beginOperation();
       if (!scope) return;
-      updateStateForScope(scope.versionId, (current) => ({
+      updateStateForScope(scope.scopeKey, (current) => ({
         ...current,
         sendWorkflowPhase: "verification",
       }));
@@ -747,7 +794,7 @@ export function useEstimateEditorStatusController({
           return;
         }
         if (!isOperationScopeCurrent(scope)) return;
-        updateStateForScope(scope.versionId, (current) => ({
+        updateStateForScope(scope.scopeKey, (current) => ({
           ...current,
           workflowSendGating: latestGating,
         }));
@@ -778,7 +825,7 @@ export function useEstimateEditorStatusController({
         );
         if (!didUpdate || !isOperationScopeCurrent(scope)) return;
         gatingScopeRef.current = null;
-        updateStateForScope(scope.versionId, (current) => ({
+        updateStateForScope(scope.scopeKey, (current) => ({
           ...current,
           workflowSendGating: null,
           isSendGatingDialogOpen: false,
@@ -791,7 +838,9 @@ export function useEstimateEditorStatusController({
       applyStatusUpdate,
       beginOperation,
       finishOperation,
+      controllerScopeKey,
       getVersionSnapshot,
+      isDocumentScopeCurrent,
       handleScopedError,
       isAdmin,
       isOperationScopeCurrent,
@@ -832,24 +881,24 @@ export function useEstimateEditorStatusController({
 
   const closeSendGatingDialog = useCallback(() => {
     if (
-      isOperationInProgressRef.current ||
+      !isDocumentScopeCurrent() || isOperationInProgressRef.current ||
       activeRouteVersionIdRef.current !== routeVersionId
     ) {
       return;
     }
-    updateStateForScope(routeVersionId, (current) => ({
+    updateStateForScope(controllerScopeKey, (current) => ({
       ...current,
       isSendGatingDialogOpen: false,
     }));
-  }, [routeVersionId, updateStateForScope]);
+  }, [controllerScopeKey, isDocumentScopeCurrent, routeVersionId, updateStateForScope]);
 
   const clearError = useCallback(() => {
-    if (activeRouteVersionIdRef.current !== routeVersionId) return;
-    updateStateForScope(routeVersionId, (current) => ({
+    if (!isDocumentScopeCurrent() || activeRouteVersionIdRef.current !== routeVersionId) return;
+    updateStateForScope(controllerScopeKey, (current) => ({
       ...current,
       error: null,
     }));
-  }, [routeVersionId, updateStateForScope]);
+  }, [controllerScopeKey, isDocumentScopeCurrent, routeVersionId, updateStateForScope]);
 
   const currentVersion = getVersionSnapshot();
   const currentStatus =

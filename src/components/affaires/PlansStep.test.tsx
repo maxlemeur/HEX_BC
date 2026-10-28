@@ -1,4 +1,5 @@
 import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const {
@@ -70,7 +71,7 @@ const EXISTING_PLAN_SET = {
   updated_at: "2026-03-06T10:00:00.000Z",
   tenant_id: "tenant-1",
   project_id: PROJECT_ID,
-  estimate_version_id: VERSION_ID,
+  estimate_version_id: null,
   name: "Plans import",
   description: null,
   metadata: {},
@@ -102,11 +103,31 @@ describe("PlansStep", () => {
     cleanup();
   });
 
-  it("prefers a version-scoped marked import set over a newer project-scoped one", async () => {
+  it("prepares only one import plan set when React repeats the initial effect", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([]);
+    createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);
+
+    render(
+      <StrictMode>
+        <PlansStep
+          projectId={PROJECT_ID}
+          versionId={VERSION_ID}
+          onSkip={vi.fn()}
+          onContinue={vi.fn()}
+        />
+      </StrictMode>
+    );
+
+    await screen.findByTestId("plan-upload-zone");
+    expect(createPlanSetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers the project-scoped set over historical version sets", async () => {
     fetchPlanSetsForProjectMock.mockResolvedValue([
       {
         ...EXISTING_PLAN_SET,
         id: "plan-set-version-scoped",
+        estimate_version_id: VERSION_ID,
         updated_at: "2026-03-06T10:00:00.000Z",
         metadata: {
           source: "import-flow",
@@ -140,8 +161,29 @@ describe("PlansStep", () => {
 
     expect(createPlanSetMock).not.toHaveBeenCalled();
     expect(screen.getByTestId("plan-upload-zone")).toHaveTextContent(
-      "plan-set-version-scoped"
+      "plan-set-project-scoped"
     );
+  });
+
+  it("creates an affair-wide set when only a historical version set exists", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([
+      { ...EXISTING_PLAN_SET, estimate_version_id: VERSION_ID, metadata: { source: "import-flow", default_import_plan_set: true } },
+      { ...EXISTING_PLAN_SET, id: "older", estimate_version_id: "33333333-3333-4333-8333-333333333333", metadata: { source: "import-flow", default_import_plan_set: true } },
+    ]);
+    createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);
+    render(<PlansStep projectId={PROJECT_ID} versionId={VERSION_ID} onSkip={vi.fn()} onContinue={vi.fn()} />);
+    expect(await screen.findByTestId("plan-upload-zone")).toHaveTextContent("plan-set-created");
+    expect(createPlanSetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the populated set when an earlier duplicate left an empty set", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([
+      { ...EXISTING_PLAN_SET, id: "populated", metadata: { source: "import-flow", default_import_plan_set: true } },
+      { ...CREATED_PLAN_SET, id: "empty", updated_at: "2026-03-06T11:00:00.000Z", metadata: { source: "import-flow", default_import_plan_set: true } },
+    ]);
+    render(<PlansStep projectId={PROJECT_ID} versionId={VERSION_ID} onSkip={vi.fn()} onContinue={vi.fn()} />);
+    expect(await screen.findByTestId("plan-upload-zone")).toHaveTextContent("populated");
+    expect(createPlanSetMock).not.toHaveBeenCalled();
   });
 
   it("keeps a local fallback counter when the refresh fails", async () => {
@@ -195,7 +237,6 @@ describe("PlansStep", () => {
     await waitFor(() => {
       expect(createPlanSetMock).toHaveBeenCalledWith({
         project_id: PROJECT_ID,
-        estimate_version_id: VERSION_ID,
         name: "Plans import",
         metadata: {
           source: "import-flow",
@@ -229,7 +270,6 @@ describe("PlansStep", () => {
     await waitFor(() => {
       expect(createPlanSetMock).toHaveBeenCalledWith({
         project_id: PROJECT_ID,
-        estimate_version_id: VERSION_ID,
         name: "Plans import",
         metadata: {
           source: "import-flow",

@@ -1,3 +1,6 @@
+import { sameEstimateVersionToken as sameEstimateBatchTimestamp } from "@/lib/estimates/version-token";
+export { sameEstimateVersionToken as sameEstimateBatchTimestamp } from "@/lib/estimates/version-token";
+
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
@@ -58,14 +61,6 @@ export class EstimateBatchPreparationError extends Error {
 function unavailable() {
   return new ApiError({ status: 503, code: "ESTIMATE_BATCH_READ_UNAVAILABLE",
     message: "Impossible de vérifier les éléments du batch. Réessayez la même demande." });
-}
-
-export function sameEstimateBatchTimestamp(left: string, right: string) {
-  const a = Date.parse(left);
-  const b = Date.parse(right);
-  const micros = (value: string) =>
-    (value.match(/\.(\d+)(?:Z|[+-]\d\d:?\d\d)$/)?.[1] ?? "").padEnd(6, "0").slice(3, 6);
-  return Number.isFinite(a) && Number.isFinite(b) && a === b && micros(left) === micros(right);
 }
 
 const LINE_FIELDS = new Set([

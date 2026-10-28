@@ -1,5 +1,8 @@
 "use client";
 
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
@@ -30,6 +33,7 @@ type RecreatedItems = {
 };
 
 type EstimateEditorPasteControllerInput = {
+  document?: EstimateEditorDocument;
   settings: Pick<
     EstimateSettingsState,
     "margin_multiplier" | "tax_rate_bp" | "contractor_role"
@@ -66,6 +70,7 @@ type EstimateEditorPasteControllerInput = {
 };
 
 export function useEstimateEditorPasteController({
+  document,
   settings,
   isLaborSplitEnabled,
   isMutationBlocked,
@@ -86,33 +91,51 @@ export function useEstimateEditorPasteController({
   reloadItems,
   v3Writer,
 }: EstimateEditorPasteControllerInput) {
-  // v1/v2 : routes directes (inchangées) ; v3 : un lot recalculé et vérifié (D12), dont le jeton de version est repris.
+  const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt, acceptDeletedItems, releaseItemsOperation } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems, applyVersionToken: (updatedAt) => applyVersionToken(updatedAt),
+  });
   const reorderSiblings = useCallback(
-    async (versionId: string, parentId: string | null, orderedIds: string[]) => {
-      if (!v3Writer) return reorderEstimateItems(versionId, parentId, orderedIds);
-      const token = await commitEstimateV3Operations(versionId, getVersionSnapshot()?.updated_at ?? "",
-        [{ op: "reorder", data: { parent_id: parentId, ordered_ids: orderedIds } }],
-        "Impossible de repositionner les lignes collées.");
-      applyVersionToken(token.updated_at);
+    async (versionId: string, parentId: string | null, orderedIds: string[], operation?: ReturnType<typeof beginItemsOperation>) => {
+      const reorderOperation = operation ?? beginItemsOperation((items) => items);
+      if (!isItemsOperationCurrent(reorderOperation)) return false;
+      try {
+        const receipt = !v3Writer
+          ? await reorderEstimateItems(versionId, parentId, orderedIds)
+          : { versionToken: await commitEstimateV3Operations(versionId, getVersionSnapshot()?.updated_at ?? "",
+              [{ op: "reorder", data: { parent_id: parentId, ordered_ids: orderedIds } }],
+              "Impossible de repositionner les lignes collées.") };
+        if (!isItemsOperationCurrent(reorderOperation)) return false;
+        return acceptItemsReceipt(reorderOperation, {
+          version: receipt.versionToken,
+          updates: orderedIds.map((id, index) => ({ id, updates: { position: index + 1 } })),
+        });
+      } catch (error) {
+        rollbackItems(reorderOperation);
+        throw error;
+      }
     },
-    [applyVersionToken, getVersionSnapshot, v3Writer]
+    [acceptItemsReceipt, beginItemsOperation, getVersionSnapshot, isItemsOperationCurrent, rollbackItems, v3Writer]
   );
   const deletePastedItems = useCallback(
-    async (versionId: string, itemIds: string[]) => {
-      if (!v3Writer) {
-        for (const itemId of itemIds) {
-          await deleteEstimateItem(versionId, itemId);
+    async (versionId: string, itemIds: string[], operation: ReturnType<typeof beginItemsOperation>) => {
+      let latestReceipt: { versionToken: { id: string; updated_at: string; content_revision?: number } } | null = null;
+      const chunkSize = v3Writer ? PASTE_CREATE_BATCH_MAX_OPERATIONS : 1;
+      for (let start = 0; start < itemIds.length; start += chunkSize) {
+        if (!isItemsOperationCurrent(operation)) return null;
+        const ids = itemIds.slice(start, start + chunkSize);
+        const receipt = !v3Writer
+          ? await deleteEstimateItem(versionId, ids[0])
+          : { versionToken: await v3Writer.deleteItems(versionId, getVersionSnapshot()?.updated_at ?? "", ids), deletedIds: ids };
+        if (!isItemsOperationCurrent(operation)) return null;
+        if (!acceptDeletedItems(operation, { version: receipt.versionToken, deletedIds: receipt.deletedIds })) {
+          rollbackItems(operation);
+          return null;
         }
-        return;
+        latestReceipt = receipt;
       }
-      // Un lot v3 porte au plus PASTE_CREATE_BATCH_MAX_OPERATIONS opérations, comme la création.
-      for (let start = 0; start < itemIds.length; start += PASTE_CREATE_BATCH_MAX_OPERATIONS) {
-        const token = await v3Writer.deleteItems(versionId, getVersionSnapshot()?.updated_at ?? "",
-          itemIds.slice(start, start + PASTE_CREATE_BATCH_MAX_OPERATIONS));
-        applyVersionToken(token.updated_at);
-      }
+      return latestReceipt;
     },
-    [applyVersionToken, getVersionSnapshot, v3Writer]
+    [acceptDeletedItems, getVersionSnapshot, isItemsOperationCurrent, rollbackItems, v3Writer]
   );
 
   const pasteRows = useCallback(
@@ -125,11 +148,14 @@ export function useEstimateEditorPasteController({
       rows: ClipboardPreviewValues[];
       laborRoleId?: string | null;
     }) => {
+      if (!isItemsDocumentCurrent()) return;
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
         return;
       }
-      if (!(await ensureGroupedActionCanProceed("coller les lignes"))) return;
+      const documentScope = document?.captureScope();
+      const isDocumentCurrent = () => !document || Boolean(documentScope && document.isCurrent(documentScope));
+      if (!(await ensureGroupedActionCanProceed("coller les lignes")) || !isDocumentCurrent()) return;
 
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot || !settings) {
@@ -299,6 +325,7 @@ export function useEstimateEditorPasteController({
               data: payload,
             }))
           );
+          if (!isDocumentCurrent()) return;
           if (!batchResult.committed) {
             const failedResult = batchResult.results.find(
               (result) => result.status === "error"
@@ -326,9 +353,19 @@ export function useEstimateEditorPasteController({
             }
             createdItems.push(createdItem);
           }
+          if (document) {
+            let accepted = false;
+            document.transaction(() => {
+              accepted = document.setConfirmedVersion((current) => current ? { ...current, ...batchResult.versionToken } : null, documentScope);
+              if (!accepted) return;
+              const createdChunk = [...createdItemsByChunkIndex.values()];
+              createdChunk.forEach((item) => document.acceptCreatedItem(null, item, documentScope));
+            });
+            if (!accepted) return;
+          }
         }
       } catch (error) {
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
         const hasConflict = handleVersionConflict(error, {
           persistDraft: true,
         });
@@ -349,14 +386,14 @@ export function useEstimateEditorPasteController({
         );
       }
 
-      if (getVersionSnapshot()?.id !== targetVersionId) return;
-      if (nextVersionToken !== versionSnapshot.updated_at) {
+      if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
+      if (!document && nextVersionToken !== versionSnapshot.updated_at) {
         applyVersionToken(nextVersionToken);
       }
 
       const insertedIds = createdItems.map((item) => item.id);
-      const mergedItems = [...snapshot, ...createdItems];
-      setItems(mergedItems);
+      const mergedItems = document ? getItemsSnapshot() : [...snapshot, ...createdItems];
+      if (!document) setItems(mergedItems);
       const currentOrderedIds = mergedItems
         .filter((item) => item.parent_id === targetParentId)
         .sort((left, right) => left.position - right.position)
@@ -379,17 +416,17 @@ export function useEstimateEditorPasteController({
 
       if (afterOrderedIds.join("|") !== currentOrderedIds.join("|")) {
         try {
-          await reorderSiblings(
+          if (!(await reorderSiblings(
             targetVersionId,
             targetParentId,
             afterOrderedIds
-          );
-          if (getVersionSnapshot()?.id !== targetVersionId) return;
+          ))) return;
+          if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
           const nextPositionById = new Map<string, number>();
           afterOrderedIds.forEach((itemId, index) => {
             nextPositionById.set(itemId, index + 1);
           });
-          setItems((previous) =>
+          if (!document) setItems((previous) =>
             previous.map((item) =>
               nextPositionById.has(item.id)
                 ? {
@@ -400,7 +437,7 @@ export function useEstimateEditorPasteController({
             )
           );
         } catch (error) {
-          if (getVersionSnapshot()?.id !== targetVersionId) return;
+          if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
           await reloadItems();
           throw new Error(
             resolveErrorMessage(
@@ -417,15 +454,20 @@ export function useEstimateEditorPasteController({
       pushHistoryCommand({
         label: "paste-insert",
         undo: async (context) => {
+          if (!isItemsDocumentCurrent() || (context && !context.isCurrentScope())) return false;
           const currentVersion = getVersionSnapshot();
           if (!currentVersion) throw new Error("Version introuvable.");
           const undoSnapshot = getItemsSnapshot();
           const idsToDelete = new Set(currentInsertedIds);
-          setItems((previous) =>
+          const undoOperation = beginItemsOperation((previous) =>
             previous.filter((item) => !idsToDelete.has(item.id))
           );
+          if (!isItemsOperationCurrent(undoOperation)) return false;
           try {
-            await deletePastedItems(currentVersion.id, currentInsertedIds);
+            const receipt = await deletePastedItems(currentVersion.id, currentInsertedIds, undoOperation);
+            if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+            if (!receipt) { releaseItemsOperation(undoOperation); return false; }
+            if (!acceptItemsReceipt(undoOperation, { version: receipt.versionToken })) return false;
             const survivingIds = new Set(
               undoSnapshot
                 .filter((item) => !idsToDelete.has(item.id))
@@ -435,17 +477,17 @@ export function useEstimateEditorPasteController({
               survivingIds.has(itemId)
             );
             if (restoredBeforeOrder.length > 0) {
-              await reorderSiblings(
+              if (!(await reorderSiblings(
                 currentVersion.id,
                 targetParentId,
                 restoredBeforeOrder
-              );
-              if (context && !context.isCurrentScope()) return;
+              ))) return false;
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
               const nextPositionById = new Map<string, number>();
               restoredBeforeOrder.forEach((itemId, index) => {
                 nextPositionById.set(itemId, index + 1);
               });
-              setItems((previous) =>
+              if (!document) setItems((previous) =>
                 previous.map((item) =>
                   nextPositionById.has(item.id)
                     ? {
@@ -457,63 +499,63 @@ export function useEstimateEditorPasteController({
                 )
               );
             }
-            if (context && !context.isCurrentScope()) return;
+            if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
             setTotalsOutOfSync(false);
           } catch (error) {
-            if (context && !context.isCurrentScope()) return;
+            if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
             // v3 : un premier lot de suppressions a pu être enregistré ; la grille relit l'état enregistré.
-            if (v3Writer) await reloadItems();
-            else setItems(undoSnapshot);
+            rollbackItems(undoOperation);
+            if (document || v3Writer) await reloadItems();
             throw error;
           }
         },
         redo: async (context) => {
+          if (!isItemsDocumentCurrent() || (context && !context.isCurrentScope())) return false;
           const currentVersion = getVersionSnapshot();
           if (!currentVersion) throw new Error("Version introuvable.");
+          const redoScope = document?.captureScope();
           const redoSnapshot = getItemsSnapshot();
           const recreated = await recreateItemsFromSnapshots(
             currentVersion.id,
             createdItems
           );
-          if (context && !context.isCurrentScope()) return;
+          if ((document && redoScope && !document.isCurrent(redoScope)) || (context && !context.isCurrentScope())) return false;
           const remappedAfterOrder = afterOrderedIds.map(
             (itemId) => recreated.idMap.get(itemId) ?? itemId
           );
-          setItems([...redoSnapshot, ...recreated.createdItems]);
+          if (!document) setItems([...redoSnapshot, ...recreated.createdItems]);
+          const nextPositionById = new Map(remappedAfterOrder.map((id, index) => [id, index + 1]));
+          const redoOperation = beginItemsOperation((previous) => previous.map((item) =>
+            nextPositionById.has(item.id) ? { ...item, position: nextPositionById.get(item.id)! } : item));
+          if (!isItemsOperationCurrent(redoOperation)) return false;
           currentInsertedIds = createdItems.map(
             (item) => recreated.idMap.get(item.id) ?? item.id
           );
           try {
-            await reorderSiblings(
+            if (!(await reorderSiblings(
               currentVersion.id,
               targetParentId,
-              remappedAfterOrder
-            );
-            if (context && !context.isCurrentScope()) return;
-            const nextPositionById = new Map<string, number>();
-            remappedAfterOrder.forEach((itemId, index) => {
-              nextPositionById.set(itemId, index + 1);
-            });
-            setItems((previous) =>
-              previous.map((item) =>
-                nextPositionById.has(item.id)
-                  ? {
-                      ...item,
-                      position: nextPositionById.get(item.id) ?? item.position,
-                    }
-                  : item
-              )
-            );
+              remappedAfterOrder,
+              redoOperation
+            ))) return false;
+            if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
             setTotalsOutOfSync(false);
           } catch (error) {
-            if (context && !context.isCurrentScope()) return;
-            setItems(redoSnapshot);
+            if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+            rollbackItems(redoOperation);
             throw error;
           }
         },
       });
     },
     [
+      isItemsDocumentCurrent,
+      acceptItemsReceipt,
+      releaseItemsOperation,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
+      document,
       applyVersionToken,
       deletePastedItems,
       ensureGroupedActionCanProceed,

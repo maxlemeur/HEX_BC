@@ -1,5 +1,8 @@
 "use client";
 
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+
 import {
   useCallback,
   useLayoutEffect,
@@ -319,6 +322,7 @@ export function normalizeSupplierPreselectionReview(
 }
 
 type EstimateEditorSupplierControllerInput = {
+  document?: EstimateEditorDocument;
   routeVersionId: string;
   items: EditorEstimateItem[];
   isMutationBlocked: boolean;
@@ -351,6 +355,7 @@ type EstimateEditorSupplierControllerInput = {
 };
 
 export function useEstimateEditorSupplierController({
+  document,
   routeVersionId,
   items,
   isMutationBlocked,
@@ -368,6 +373,9 @@ export function useEstimateEditorSupplierController({
   ensureGroupedActionCanProceed,
   handleVersionConflict,
 }: EstimateEditorSupplierControllerInput) {
+  const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems, applyVersionToken, markItemsSynced,
+  });
   const [scopedDialogState, setScopedDialogState] =
     useState<ScopedSupplierDialogState>(() => ({
       routeVersionId,
@@ -592,7 +600,9 @@ export function useEstimateEditorSupplierController({
   );
 
   const apply = useCallback(async () => {
+    if (!isItemsDocumentCurrent()) return;
     if (!isCurrentRoute(routeVersionId) || applyingRef.current) return;
+    const scope = document?.captureScope();
     if (isMutationBlocked) {
       setScopedDialogState((previous) => ({
         routeVersionId,
@@ -608,7 +618,7 @@ export function useEstimateEditorSupplierController({
     if (!(await ensureGroupedActionCanProceed("appliquer la preselection fournisseurs"))) {
       return;
     }
-    if (!isCurrentRoute(routeVersionId)) return;
+    if ((document && scope && !document.isCurrent(scope)) || !isCurrentRoute(routeVersionId)) return;
 
     const versionSnapshot = getVersionSnapshot();
     if (!versionSnapshot || versionSnapshot.id !== routeVersionId) {
@@ -697,9 +707,10 @@ export function useEstimateEditorSupplierController({
         isApplying: true,
       },
     }));
-    setItems((previous) =>
+    const operation = beginItemsOperation((previous) =>
       previous.map((item) => updatedById.get(item.id) ?? item)
     );
+    if (!isItemsOperationCurrent(operation)) return;
     const updates = updatedLines.map((item) => ({
       id: item.id,
       updates: isV3
@@ -724,19 +735,15 @@ export function useEstimateEditorSupplierController({
           );
       if (
         !isCurrentRoute(targetVersionId) ||
-        requestGenerationRef.current !== generation
+        requestGenerationRef.current !== generation || !isItemsOperationCurrent(operation)
       ) {
         return;
       }
-      // v2 returns the totals it recalculated; v1 stores the patch as sent.
-      // Only the v3 writer returns the content revision the editor resumes from.
-      applyVersionToken(
-        result.versionToken.updated_at,
-        result.totals ?? versionTotalsPatch,
-        isV3 ? result.versionToken.content_revision : undefined
-      );
-      // Without a fresh baseline, an edit back to the previous value is dropped.
-      markItemsSynced(updates);
+      if (!acceptItemsReceipt(operation, {
+        version: result.versionToken,
+        totals: result.totals ?? versionTotalsPatch,
+        updates,
+      })) return;
       setTotalsOutOfSync(false);
       setScopedDialogState((previous) =>
         previous.routeVersionId === targetVersionId
@@ -754,11 +761,11 @@ export function useEstimateEditorSupplierController({
     } catch (caught) {
       if (
         !isCurrentRoute(targetVersionId) ||
-        requestGenerationRef.current !== generation
+        requestGenerationRef.current !== generation || !isItemsOperationCurrent(operation)
       ) {
         return;
       }
-      setItems(snapshot);
+      rollbackItems(operation);
       const isConflict = handleVersionConflict(caught, {
         persistDraft: true,
       });
@@ -798,7 +805,12 @@ export function useEstimateEditorSupplierController({
       }
     }
   }, [
-    applyVersionToken,
+    isItemsDocumentCurrent,
+    acceptItemsReceipt,
+    document,
+    beginItemsOperation,
+    isItemsOperationCurrent,
+    rollbackItems,
     computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
@@ -806,13 +818,11 @@ export function useEstimateEditorSupplierController({
     handleVersionConflict,
     isCurrentRoute,
     isMutationBlocked,
-    markItemsSynced,
     mutationBlockedMessage,
     normalizeLine,
     resolveErrorMessage,
     routeVersionId,
     selectedProposals,
-    setItems,
     setTotalsOutOfSync,
   ]);
 

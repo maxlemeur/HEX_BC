@@ -22,6 +22,8 @@ vi.mock("@/lib/takeoff/version-links", () => ({
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { buildTakeoffDpgfReviewReference } from "@/lib/takeoff/dpgf-compare";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { takeoffDpgfComparisonResponseSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
+import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   fetchDpgfTakeoffComparison,
@@ -263,6 +265,7 @@ function createSupabaseMock() {
     evidences: StoredEvidence[];
     auditActions: string[];
     importId: string;
+    importFilters: Record<string, string>[];
     manualLinkRpcError: {
       code: string;
       message: string;
@@ -337,6 +340,7 @@ function createSupabaseMock() {
     evidences: [],
     auditActions: [],
     importId: "99999999-9999-4999-8999-999999999999",
+    importFilters: [],
     manualLinkRpcError: null,
   };
 
@@ -850,6 +854,7 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
+            state.importFilters.push(filters);
             const builder = {
               eq: vi.fn((column: string, value: string) => {
                 filters[column] = value;
@@ -936,6 +941,7 @@ function createSupabaseMock() {
   return {
     supabase: supabase as never,
     rpcMock: supabase.rpc,
+    fromMock: supabase.from,
     state,
   };
 }
@@ -970,7 +976,7 @@ describe("takeoff DPGF comparison server helpers", () => {
         tenant_id: TENANT_ID,
         version_id: SOURCE_VERSION_ID,
         takeoff_job_id: JOB_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
+        estimate_item_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
         review_reference: "dpgf xlsx row 12",
         line_label: "Faux plafond acoustique",
         line_position: 1,
@@ -980,8 +986,8 @@ describe("takeoff DPGF comparison server helpers", () => {
         carried_over_at: null,
         decision: "keep_dpgf",
         reason: "Decision issue de la version précédente.",
-        decided_at: "2026-03-06T10:10:00.000Z",
-        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_at: "2026-03-06T10:10:00.123456+00:00",
+        updated_at: "2026-03-06T10:10:00.123456+00:00",
         decided_by: USER_ID,
       },
     ];
@@ -1016,6 +1022,19 @@ describe("takeoff DPGF comparison server helpers", () => {
       total_lines: 1,
       unused_takeoff_items: 1,
     });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
+    } as never);
+    const comparison = await fetchDpgfTakeoffComparison(JOB_ID, {
+      version_id: VERSION_ID, view: "all",
+    });
+    expect(comparison.rows[0]?.applied_decision).toMatchObject({
+      source: "carried_over",
+      version_id: SOURCE_VERSION_ID,
+      estimate_item_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      decided_at: "2026-03-06T10:10:00.123456+00:00",
+    });
+    expect(takeoffDpgfComparisonResponseSchema.safeParse(comparison)).toMatchObject({ success: true });
   });
 
   it("keeps the DPGF summary global when the response rows are paginated", async () => {
@@ -1060,6 +1079,79 @@ describe("takeoff DPGF comparison server helpers", () => {
     expect(response.pagination.total).toBe(2);
   });
 
+  it("synchronizes proofs only for the requested comparison page", async () => {
+    const mock = createSupabaseMock();
+    const baseLine = mock.state.estimateItems[0]!;
+    mock.state.estimateItems.push({
+      ...baseLine,
+      id: "88888888-8888-4888-8888-888888888888",
+      position: 2,
+      title: "Autre ligne DPGF",
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
+    } as never);
+
+    const response = await fetchDpgfTakeoffComparison(JOB_ID, {
+      version_id: VERSION_ID, view: "all", page_size: 1,
+    });
+
+    expect(response.pagination.total).toBe(2);
+    expect(response.rows.map((row) => row.line_id)).toEqual([ESTIMATE_ITEM_ID]);
+    expect(new Set(mock.state.evidences.map((row) => row.estimate_item_id))).toEqual(
+      new Set([ESTIMATE_ITEM_ID])
+    );
+  });
+
+  it("keeps the hub summary free of evidence writes and supplier reads with supplied auth", async () => {
+    const mock = createSupabaseMock();
+    mock.state.estimateItems[0]!.selected_supplier_price_id = "abababab-abab-4bab-8bab-abababababab";
+
+    const summary = await fetchTakeoffDpgfSummaryForHub({
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      jobId: JOB_ID,
+      versionId: VERSION_ID,
+      projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    });
+
+    expect(summary.total_lines).toBe(1);
+    expect(summary.lines_without_proof).toBe(0);
+    expect(getAuthenticatedContext).not.toHaveBeenCalled();
+    expect(mock.state.evidences).toEqual([]);
+    expect(mock.fromMock.mock.calls.map(([table]) => table)).not.toContain("supplier_pricebook");
+    expect(mock.fromMock.mock.calls.map(([table]) => table)).not.toContain("estimate_line_evidences");
+  });
+
+  it("resolves panel units from the selected line's source before the version's first source", async () => {
+    const mock = createSupabaseMock();
+    const lineId = "88888888-8888-4888-8888-888888888888";
+    mock.state.estimateItems.push({
+      ...mock.state.estimateItems[0]!,
+      id: lineId,
+      position: 2,
+      title: "DPGF annexe",
+      source_file_name: "annexe.xlsx",
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
+    } as never);
+
+    const panel = await fetchTakeoffLineEvidencePanel(JOB_ID, {
+      version_id: VERSION_ID, line_id: lineId,
+    });
+
+    expect(mock.state.importFilters).toEqual([{
+      tenant_id: TENANT_ID,
+      project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      filename: "annexe.xlsx",
+    }]);
+    expect(panel.evidences.find((evidence) => evidence.type === "dpgf")).toMatchObject({
+      source_file_name: "annexe.xlsx",
+    });
+    expect(new Set(mock.state.evidences.map((row) => row.estimate_item_id))).toEqual(new Set([lineId]));
+  });
+
   it("loads comparison sources once while preserving risk and evidence past the 200-line pages", async () => {
     const mock = createSupabaseMock();
     mock.state.takeoffItems = [];
@@ -1085,6 +1177,11 @@ describe("takeoff DPGF comparison server helpers", () => {
     } as never);
 
     const radar = await fetchTakeoffRiskRadar(JOB_ID, { version_id: VERSION_ID });
+
+    expect(listAccessibleTakeoffJobsForVersion).toHaveBeenCalledTimes(1);
+    for (const table of ["takeoff_items", "dpgf_imports", "dpgf_rows_mapped", "takeoff_dpgf_links", "takeoff_dpgf_review_decisions"]) {
+      expect(mock.fromMock.mock.calls.filter(([name]) => name === table)).toHaveLength(1);
+    }
 
     const missingProofs = radar.items.filter((item) => item.cause_code === "missing_proof");
     expect(missingProofs.map((item) => item.line_id).sort()).toEqual(
@@ -1184,7 +1281,7 @@ describe("takeoff DPGF comparison server helpers", () => {
     mock.state.evidences = [
       {
         id: "99999999-9999-4999-8999-999999999999",
-        created_at: "2026-03-06T09:55:00.000Z",
+        created_at: "2026-03-06T09:55:00.123456+00:00",
         tenant_id: TENANT_ID,
         project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         version_id: VERSION_ID,
@@ -1221,6 +1318,8 @@ describe("takeoff DPGF comparison server helpers", () => {
       line_id: ESTIMATE_ITEM_ID,
     });
 
+    expect(takeoffLineEvidencePanelResponseSchema.safeParse(panel)).toMatchObject({ success: true });
+    expect(panel.history[0]?.created_at).toBe("2026-03-06T09:55:00.123456+00:00");
     expect(panel.line_id).toBe(ESTIMATE_ITEM_ID);
     expect(panel.evidences.some((evidence) => evidence.type === "takeoff")).toBe(true);
     expect(panel.history[0]).toMatchObject({

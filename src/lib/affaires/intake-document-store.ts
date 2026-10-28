@@ -67,8 +67,23 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
         throw new DriveStoreError(500, "La suppression du fichier n’a pas pu être confirmée. Reprenez la suppression.");
       }
     }
+    let generationRotated = false;
     for (const plan of planCopies) {
       await removeAndVerify(PLAN_FILES_BUCKET, plan.file_path);
+      if (!generationRotated) {
+        // A confirmed removal retires this copy generation. Rotating the token
+        // keeps the deletion reservation intact while fencing delayed producers.
+        const renewed = randomUUID();
+        const generation = await database.from("affaire_intake_documents" as never).update({
+          deletion_token: renewed, deletion_started_at: new Date().toISOString(), plan_copy_generation: randomUUID(),
+        } as never).eq("tenant_id", context.tenantId).eq("project_id", project.id)
+          .eq("id", documentId).eq("deletion_token", token).select("id");
+        if (generation.error || !(generation.data as unknown[])?.length) {
+          throw new DriveStoreError(409, "Une autre suppression a repris cette pièce. Actualisez le dossier.");
+        }
+        token = renewed;
+        generationRotated = true;
+      }
       const deleted = await database.from("plan_files" as never).delete()
         .eq("tenant_id", context.tenantId).eq("id", plan.id).select("id");
       if (deleted.error || !(deleted.data as unknown[])?.length) throw new DriveStoreError(500, "La copie du plan n’a pas pu être retirée.");

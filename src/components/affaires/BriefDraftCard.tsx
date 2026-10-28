@@ -19,6 +19,7 @@ import {
 import {
   updateAffaireBrief,
   confirmAffaireBrief,
+  resolveAffaireBriefPlanGap,
 } from "@/app/dashboard/affaires/_actions/intake";
 import {
   COCKPIT_OPEN_SURFACE_EVENT,
@@ -35,6 +36,7 @@ type BriefDraftCardProps = {
   briefDraft: AffaireIntakeBriefDraft | null;
   isReadOnly?: boolean;
   hideConfirmAction?: boolean;
+  hasPlans?: boolean;
 };
 
 type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
@@ -282,6 +284,9 @@ function BriefBlockSection({
   onEditItemsChange,
   editParagraph,
   onEditParagraphChange,
+  hasPlans,
+  resolvedPlanGapIndexes,
+  onResolvePlanGap,
 }: {
   projectId: string;
   blockKey: AffaireIntakeBriefBlockKey;
@@ -293,6 +298,9 @@ function BriefBlockSection({
   onEditItemsChange?: (next: string[]) => void;
   editParagraph?: string;
   onEditParagraphChange?: (next: string) => void;
+  hasPlans?: boolean;
+  resolvedPlanGapIndexes?: number[];
+  onResolvePlanGap?: (index: number) => void;
 }) {
   const label = AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS[blockKey];
   const isEditable = EDITABLE_BLOCKS.has(blockKey);
@@ -343,14 +351,21 @@ function BriefBlockSection({
         <ul className="space-y-1">
           {items.map((item, i) => {
             const entrySources = sourceLookup.get(`${blockKey}:${i}`) ?? [];
+            const planGap = blockKey === "missing_elements" && item === "Plans manquants";
+            const resolvedPlanGap = planGap && hasPlans && resolvedPlanGapIndexes?.includes(i);
             return (
               <li key={i} className="flex flex-col gap-0.5">
                 <span className="text-sm text-foreground-secondary">
                   {blockKey === "missing_elements" && (
-                    <Badge variant="danger" className="mr-1.5">!</Badge>
+                    <Badge variant={resolvedPlanGap ? "success" : "danger"} className="mr-1.5">{resolvedPlanGap ? "Traité" : "!"}</Badge>
                   )}
-                  {item}
+                  {item}{resolvedPlanGap ? " · mention historique, plans reçus" : ""}
                 </span>
+                {planGap && hasPlans && !resolvedPlanGap && onResolvePlanGap && (
+                  <button type="button" onClick={() => onResolvePlanGap(i)} className="self-start text-xs font-medium text-primary hover:underline">
+                    Marquer les plans comme reçus
+                  </button>
+                )}
                 {blockKey !== "received_pieces" && (
                   <BriefSourceAnnotation
                     projectId={projectId}
@@ -377,6 +392,7 @@ export function BriefDraftCard({
   briefDraft,
   isReadOnly,
   hideConfirmAction = false,
+  hasPlans = false,
 }: Readonly<BriefDraftCardProps>) {
   const router = useRouter();
   const toast = useToast();
@@ -482,9 +498,13 @@ export function BriefDraftCard({
   ]);
 
   const handleConfirm = useCallback(() => {
+    if (!briefDraft?.updatedAt) {
+      toast.error({ title: "Impossible de confirmer le brief", description: "Actualisez le dossier et réessayez." });
+      return;
+    }
     startTransition(async () => {
       try {
-        await confirmAffaireBrief({ projectId });
+        await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt! });
         setAnnouncement("Brief confirmé.");
         toast.success({ title: "Brief confirmé." });
         router.refresh();
@@ -495,7 +515,24 @@ export function BriefDraftCard({
         });
       }
     });
-  }, [projectId, router, toast]);
+  }, [briefDraft, projectId, router, toast]);
+
+  const handleResolvePlanGap = useCallback((entryIndex: number) => {
+    if (!briefDraft?.updatedAt) return;
+    startTransition(async () => {
+      try {
+        await resolveAffaireBriefPlanGap({ projectId, entryIndex, expectedUpdatedAt: briefDraft.updatedAt! });
+        toast.success({ title: "Plans marqués comme reçus. Vérifiez le brief avant confirmation." });
+        router.refresh();
+      } catch (err) {
+        toast.error({ title: "Impossible de mettre à jour le brief", description: err instanceof Error ? err.message : "Actualisez le dossier et réessayez." });
+      }
+    });
+  }, [briefDraft, projectId, router, toast]);
+
+  const unresolvedMissingCount = briefDraft?.missingElements.filter((item, index) =>
+    !(hasPlans && item === "Plans manquants" && briefDraft.resolvedPlanGapIndexes?.includes(index))
+  ).length ?? 0;
 
   function getBlockData(blockKey: AffaireIntakeBriefBlockKey) {
     if (!briefDraft) return {};
@@ -636,8 +673,8 @@ export function BriefDraftCard({
           <span className="font-medium text-foreground-secondary">{briefDraft.receivedPieces.length} pièces</span>
           <span className="font-medium text-foreground-secondary">{briefDraft.assumptions.length} hypothèses</span>
           <span className="font-medium text-foreground-secondary">{briefDraft.vigilancePoints.length} vigilance</span>
-          {briefDraft.missingElements.length > 0 ? (
-            <span className="font-medium text-danger">{briefDraft.missingElements.length} manquant(s)</span>
+          {unresolvedMissingCount > 0 ? (
+            <span className="font-medium text-danger">{unresolvedMissingCount} manquant(s)</span>
           ) : (
             <span className="font-medium text-success">Dossier complet</span>
           )}
@@ -652,7 +689,7 @@ export function BriefDraftCard({
             Il deviendra la référence de travail pour la suite du chiffrage.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {briefDraft.missingElements.length} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
+            {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {unresolvedMissingCount} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
           </p>
           <div className="mt-2 flex items-center gap-2">
             <Button size="sm" onClick={() => { setShowConfirmDialog(false); handleConfirm(); }} loading={isPending}>
@@ -689,6 +726,9 @@ export function BriefDraftCard({
                 blockKey={blockKey}
                 sourceLookup={sourceLookup}
                 isEditing={isEditing}
+                hasPlans={hasPlans}
+                resolvedPlanGapIndexes={briefDraft.resolvedPlanGapIndexes}
+                onResolvePlanGap={!isReadOnly && !isEditing && !isPending && briefDraft.updatedAt ? handleResolvePlanGap : undefined}
                 {...blockData}
                 {...editProps}
               />

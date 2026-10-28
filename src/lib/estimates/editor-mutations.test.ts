@@ -9,21 +9,11 @@ import {
   updateEstimateItem, updateEstimateStatus,
 } from "@/lib/estimates/client";
 import {
-  isOlderEstimateVersionToken, registerEstimateEditorMutations,
+  isOlderEstimateVersionToken, registerEstimateEditorMutations, recoverEstimateEditorRead,
   runEstimateEditorMutation, waitForEstimateEditorMutations,
 } from "@/lib/estimates/editor-mutations";
 import type { Database } from "@/types/database";
-
-// A local type bridge preserves the future CAS intent without changing runtime.
-const saveEstimateSettingsPrecode = saveEstimateVersion as unknown as (
-  versionId: string,
-  updates: Database["public"]["Tables"]["estimate_versions"]["Update"],
-  updatedAtToken: string,
-  expectedContentRevision: number
-) => Promise<{
-  version: Database["public"]["Tables"]["estimate_versions"]["Row"];
-  items: Database["public"]["Tables"]["estimate_items"]["Row"][];
-}>;
+import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 
 const ID = "77777777-7777-4777-8777-777777777777";
 const ITEM = "88888888-8888-4888-8888-888888888888";
@@ -34,6 +24,17 @@ const INITIAL = "2026-09-05T10:00:00.000001Z";
 const NEXT = "2026-09-05T10:00:01.000001Z";
 const LAST = "2026-09-05T10:00:02.000001Z";
 const createInput = { version_id: ID, item_type: "line" as const, title: "Ligne", position: 1 };
+function persistedVersion(updatedAt: string, revision: number, status: Database["public"]["Tables"]["estimate_versions"]["Row"]["status"] = "draft") {
+  return { ...createEstimateEditorResponseFixture().version, estimate_projects: undefined,
+    id: ID, tenant_id: TENANT, created_at: INITIAL, updated_at: updatedAt, content_revision: revision, status };
+}
+function persistedItem(title = "Ligne") {
+  return { ...createEstimateEditorResponseFixture().items[0], id: ITEM, version_id: ID, tenant_id: TENANT,
+    created_at: INITIAL, updated_at: NEXT, title };
+}
+function settingsResponse(updatedAt: string, revision: number) {
+  return { version: persistedVersion(updatedAt, revision), items: [persistedItem()] };
+}
 const cleanups: Array<() => void> = [];
 function editor(id = ID) {
   let token = INITIAL;
@@ -70,14 +71,14 @@ afterEach(() => {
 });
 
 const structuralCases: Array<{ name: string; run: () => Promise<unknown>; data: object }> = [
-  { name: "ajout de ligne / chapitre et rétablissement", run: () => createEstimateItem(ID, createInput), data: { item: { id: ITEM } } },
-  { name: "modification directe / annulation", run: () => updateEstimateItem(ID, ITEM, { title: "Modifiée" }), data: { item: { id: ITEM } } },
+  { name: "ajout de ligne / chapitre et rétablissement", run: () => createEstimateItem(ID, createInput), data: { item: persistedItem() } },
+  { name: "modification directe / annulation", run: () => updateEstimateItem(ID, ITEM, { title: "Modifiée" }), data: { item: persistedItem("Modifiée") } },
   { name: "suppression / annulation de création", run: () => deleteEstimateItem(ID, ITEM), data: { deleted_id: ITEM, deleted_ids: [ITEM, OTHER] } },
-  { name: "ordre / collage / annulation et rétablissement", run: () => reorderEstimateItems(ID, null, [ITEM]), data: { ordered_ids: [ITEM], updated_count: 1 } },
-  { name: "déplacement de lot", run: () => moveEstimateItem(ID, { item_id: ITEM, from_parent_id: null, to_parent_id: OTHER, ordered_source_ids: [], ordered_target_ids: [ITEM] }), data: { item_id: ITEM, updated_count: 1 } },
-  { name: "duplication de chapitre", run: () => duplicateEstimateSection(ID, ITEM), data: { duplicated_section_id: OTHER, source_version_id: ID, target_version_id: ID, copied_item_count: 1 } },
-  { name: "import de sections", run: () => importEstimateSections(ID, { sourceVersionId: OTHER, sectionIds: [ITEM], mode: "append" }), data: { sourceVersionId: OTHER, targetVersionId: ID, mode: "append", importedSectionsCount: 1, importedLinesCount: 1 } },
-  { name: "import DPGF", run: () => importLinkedDpgfSource(ID), data: { sourceImportId: OTHER, targetVersionId: ID, createdSectionId: ITEM, importedLinesCount: 1, totals: { total_ht_cents: 100, total_tax_cents: 20, total_ttc_cents: 120 } } },
+  { name: "ordre / collage / annulation et rétablissement", run: () => reorderEstimateItems(ID, null, [ITEM]), data: { parent_id: null, ordered_ids: [ITEM], updated_count: 1 } },
+  { name: "déplacement de lot", run: () => moveEstimateItem(ID, { item_id: ITEM, from_parent_id: null, to_parent_id: OTHER, ordered_source_ids: [], ordered_target_ids: [ITEM] }), data: { item_id: ITEM, from_parent_id: null, to_parent_id: OTHER, ordered_source_ids: [], ordered_target_ids: [ITEM], updated_count: 1 } },
+  { name: "duplication de chapitre", run: () => duplicateEstimateSection(ID, ITEM), data: { duplicated_section_id: OTHER, source_version_id: ID, target_version_id: ID, copied_item_count: 1, totals: { total_ht_cents: 100, total_tax_cents: 20, total_ttc_cents: 120 } } },
+  { name: "import de sections", run: () => importEstimateSections(ID, { sourceVersionId: OTHER, sectionIds: [ITEM], mode: "append" }), data: { sourceVersionId: OTHER, targetVersionId: ID, mode: "append", importedSectionsCount: 1, importedLinesCount: 1, createdSectionIds: [OTHER], createdLineIds: [ITEM], totals: { total_ht_cents: 100, total_tax_cents: 20, total_ttc_cents: 120 } } },
+  { name: "import DPGF", run: () => importLinkedDpgfSource(ID), data: { sourceImportId: OTHER, targetVersionId: ID, createdSectionId: ITEM, importedLinesCount: 1, skippedLinesCount: 0, createdLineIds: [OTHER], totals: { total_ht_cents: 100, total_tax_cents: 20, total_ttc_cents: 120 } } },
   { name: "application de structure", run: () => applyEstimateStructureDraft(ID, OTHER, { mode: "create_empty", selectedRootNodeIds: [ITEM] }), data: { draftId: OTHER, versionId: ID, mode: "create_empty", createdCount: 1, mergedCount: 0, skippedCount: 0 } },
   { name: "matérialisation V0", run: () => materializeVersionZeroDraft(ID, OTHER), data: { status: "applied" } },
   { name: "insertion de template", run: () => insertTemplateIntoVersion(OTHER, { versionId: ID }), data: { items: [{ id: ITEM }] } },
@@ -89,11 +90,11 @@ describe("editor writes and optimistic concurrency", () => {
     const session = editor();
     const fetch = vi.fn()
       .mockResolvedValueOnce(response({ ...data, version: { id: ID, updated_at: NEXT, content_revision: 2 } }))
-      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST, content_revision: 3 }, items: [] }));
+      .mockResolvedValueOnce(response(settingsResponse(LAST, 3)));
     vi.stubGlobal("fetch", fetch);
     await run();
     // A caller may have captured its snapshot before the structural write.
-    await saveEstimateSettingsPrecode(ID, { title: "Réglages" }, INITIAL, 1);
+    await saveEstimateVersion(ID, { title: "Réglages" }, INITIAL, 1);
     const request = fetch.mock.calls[1][1] as RequestInit;
     expect(new Headers(request.headers).get("If-Match")).toBe(NEXT);
     expect(JSON.parse(String(request.body)).updated_at).toBe(NEXT);
@@ -111,7 +112,7 @@ describe("editor writes and optimistic concurrency", () => {
         return response({
           committed: true,
           results: [{ index: 0, op: "update", status: "ok", data: { item: {
-            id: OTHER, version_id: ID, item_type: "line", quantity: 2,
+            id: OTHER, version_id: ID, item_type: "line", quantity: 2, unit_price_ht_cents: 100,
             pu_ht_cents: 100, line_total_ht_cents: 200, line_tax_cents: 40,
             line_total_ttc_cents: 240,
           } } }],
@@ -146,7 +147,7 @@ describe("editor writes and optimistic concurrency", () => {
     const refresh = deferred<Response>();
     const fetch = vi.fn().mockResolvedValueOnce(response({ items: [] }))
       .mockReturnValueOnce(refresh.promise)
-      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST, content_revision: 2 } }));
+      .mockResolvedValueOnce(response({ version: persistedVersion(LAST, 2, "sent") }));
     vi.stubGlobal("fetch", fetch);
     const inserted = insertTemplateIntoVersion(OTHER, { versionId: ID });
     const saved = updateEstimateStatus(ID, "sent", INITIAL);
@@ -161,10 +162,10 @@ describe("editor writes and optimistic concurrency", () => {
     editor();
     const action = deferred<number>();
     const fetch = vi.fn().mockResolvedValueOnce(response({ version: { id: ID, updated_at: NEXT, content_revision: 2 } }))
-      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST, content_revision: 3 }, items: [] }));
+      .mockResolvedValueOnce(response(settingsResponse(LAST, 3)));
     vi.stubGlobal("fetch", fetch);
     const inserted = runEstimateEditorExternalMutation(ID, () => action.promise);
-    const saved = saveEstimateSettingsPrecode(ID, { title: "Devis" }, INITIAL, 1);
+    const saved = saveEstimateVersion(ID, { title: "Devis" }, INITIAL, 1);
     await Promise.resolve();
     expect(fetch).not.toHaveBeenCalled();
     action.resolve(3);
@@ -178,7 +179,7 @@ describe("editor writes and optimistic concurrency", () => {
     const fetch = vi.fn().mockResolvedValue(response({ code: "VERSION_CONFLICT", message: "Version modifiée ailleurs" }, 409));
     vi.stubGlobal("fetch", fetch);
     const results = await Promise.allSettled([
-      deleteEstimateItem(ID, ITEM), saveEstimateSettingsPrecode(ID, { title: "Devis" }, INITIAL, 1),
+      deleteEstimateItem(ID, ITEM), saveEstimateVersion(ID, { title: "Devis" }, INITIAL, 1),
     ]);
     expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -222,6 +223,27 @@ describe("editor writes and optimistic concurrency", () => {
     await waiting;
     expect(await last).toBe(3);
     await running;
+  });
+
+  it("accepts the same UUID spelled with uppercase letters in an external receipt", async () => {
+    const versionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const session = editor(versionId);
+    await expect(runEstimateEditorMutation(versionId, INITIAL, async () => ({
+      value: 7, version: { id: versionId.toUpperCase(), updated_at: NEXT },
+    }))).resolves.toBe(7);
+    expect(session.onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts UUID casing differences during explicit read recovery", async () => {
+    const versionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const session = editor(versionId);
+    await expect(runEstimateEditorMutation(versionId, INITIAL, async (_token, scope) => {
+      throw scope.requireRead(async () => ({
+        version: { id: versionId.toUpperCase(), updated_at: NEXT }, structural: false,
+      }), "Relire avant de poursuivre");
+    })).rejects.toThrow("Relire avant de poursuivre");
+    await expect(recoverEstimateEditorRead(versionId)).resolves.toBe(true);
+    expect(session.onCommit).toHaveBeenCalledTimes(1);
   });
 
   it("compares PostgreSQL microseconds and equivalent timezone representations", () => {

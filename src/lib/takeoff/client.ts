@@ -1,3 +1,15 @@
+import { parseTakeoffApplyResponse, parseTakeoffPreviewConversionResponse } from "@/lib/takeoff/apply-response-contracts";
+import { parseTakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
+import { parseTakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
+import { parseTakeoffJobCreateResponse, parseTakeoffJobDetailResponse, parseTakeoffJobListResponse, parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
+import { parseSaveTakeoffDpgfManualLinkResponse, parseSaveTakeoffReviewDecisionResponse } from "@/lib/takeoff/review-response-contracts";
+import { parseTakeoffRiskRadarResponse, parseUpdateTakeoffRiskAlertStatusResponse } from "@/lib/takeoff/risk-response-contracts";
+import {
+  parseTakeoffPriceSuggestionResponse,
+  parseTakeoffPriceSuggestionReviewResponse,
+} from "@/lib/takeoff/price-suggestion-contracts";
+import { parseTakeoffDpgfComparisonResponse } from "@/lib/takeoff/dpgf-comparison-contracts";
+import { parseTakeoffLineEvidencePanelResponse } from "@/lib/takeoff/line-evidence-contracts";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/client";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type {
@@ -130,19 +142,6 @@ type TakeoffApiErrorMetadata = {
   level?: TakeoffLevel | string;
 };
 
-type ApiEnvelope<T> = {
-  ok?: boolean;
-  data?: T;
-  error?: {
-    message?: string;
-    code?: string;
-    details?: unknown;
-    retryable?: boolean;
-    jobId?: string;
-    level?: TakeoffLevel | string;
-  };
-};
-
 function toErrorMessage(payload: unknown, fallbackMessage: string): string {
   if (isRecord(payload)) {
     if (isRecord(payload.error)) {
@@ -269,6 +268,18 @@ function unwrapSuccessfulEnvelopePayload(
   return payload;
 }
 
+function unwrapValidatedTakeoffEnvelope(payload: unknown): unknown {
+  if (!isRecord(payload) || payload.ok !== true
+    || !Object.prototype.hasOwnProperty.call(payload, "data")
+    || Object.prototype.hasOwnProperty.call(payload, "error")) {
+    throw new TakeoffApiError(
+      "La réponse du serveur est invalide. Relisez les données avant toute nouvelle action.",
+      502, null, "TAKEOFF_INVALID_RESPONSE", { retryable: false }
+    );
+  }
+  return payload.data;
+}
+
 function normalizeProgress(value: number) {
   if (!Number.isFinite(value)) return 0;
   if (value <= 0) return 0;
@@ -287,7 +298,8 @@ async function readJsonPayload(response: Response): Promise<unknown> {
 async function requestTakeoffJson<T>(
   path: string,
   init: RequestInit,
-  fallbackMessage: string
+  fallbackMessage: string,
+  strictEnvelope = false
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const timeoutMs =
@@ -349,7 +361,8 @@ async function requestTakeoffJson<T>(
     );
   }
 
-  return unwrapSuccessfulEnvelopePayload(payload, fallbackMessage) as T;
+  return (strictEnvelope ? unwrapValidatedTakeoffEnvelope(payload)
+    : unwrapSuccessfulEnvelopePayload(payload, fallbackMessage)) as T;
 }
 
 export async function fetchTakeoffMappingRules(): Promise<TakeoffMappingRule[]> {
@@ -485,9 +498,7 @@ export async function createTakeoffJob(
     xhr.onload = () => {
       cleanupAbortListener();
 
-      const payload = parseJsonPayload(xhr.responseText) as
-        | ApiEnvelope<TakeoffJobCreateResponse>
-        | null;
+      const payload = parseJsonPayload(xhr.responseText);
 
       if (xhr.status < 200 || xhr.status >= 300) {
         rejectOnce(
@@ -503,12 +514,11 @@ export async function createTakeoffJob(
       }
 
       try {
-        const responsePayload = unwrapSuccessfulEnvelopePayload(
-          payload,
-          "Impossible de créer le job takeoff."
-        ) as TakeoffJobCreateResponse;
+        const responsePayload = unwrapValidatedTakeoffEnvelope(payload);
 
-        resolveOnce(responsePayload);
+        resolveOnce(validateTakeoffResponse(undefined, () => parseTakeoffJobCreateResponse(responsePayload, {
+          versionId: input.estimateVersionId, level: input.level,
+        })));
       } catch (error) {
         if (error instanceof TakeoffApiError) {
           rejectOnce(error);
@@ -563,11 +573,13 @@ export async function fetchTakeoffJob(
   }
   const query = searchParams.toString();
 
-  return requestTakeoffJson<TakeoffJobDetailResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}${query ? `?${query}` : ""}`,
     { method: "GET", signal: options?.signal },
-    "Impossible de récupérer les détails du job takeoff."
+    "Impossible de récupérer les détails du job takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffJobDetailResponse(response, { jobId, itemsLimit: options?.itemsLimit, itemsOffset: options?.itemsOffset }));
 }
 
 export async function fetchTakeoffJobCompare(
@@ -585,11 +597,13 @@ export async function fetchTakeoffJobCompare(
     searchParams.set("threshold", String(input.threshold));
   }
 
-  return requestTakeoffJson<TakeoffJobCompareResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/compare?${searchParams.toString()}`,
     { method: "GET", signal: input.signal },
-    "Impossible de comparer les jobs takeoff."
+    "Impossible de comparer les jobs takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffJobCompareResponse(response, { jobId, withJobId: input.withJobId, threshold: input.threshold }));
 }
 
 export async function listTakeoffJobs(
@@ -615,51 +629,61 @@ export async function listTakeoffJobs(
     ? `/api/takeoff/jobs?${searchParams.toString()}`
     : "/api/takeoff/jobs";
 
-  return requestTakeoffJson<TakeoffJobListResponse>(
+  const response = await requestTakeoffJson<unknown>(
     requestPath,
     { method: "GET", signal: options?.signal },
-    "Impossible de lister les jobs takeoff."
+    "Impossible de lister les jobs takeoff.",
+    true
   );
+  return validateTakeoffResponse(undefined, () => parseTakeoffJobListResponse(response, { versionId: estimateVersionId, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
 }
 
 export async function retryTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
-  return requestTakeoffJson<TakeoffJobActionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/retry`,
     { method: "POST" },
-    "Impossible de relancer le job takeoff."
+    "Impossible de relancer le job takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffJobActionResponse(response, { jobId, command: "retry" }));
 }
 
 export async function reconcileTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
-  return requestTakeoffJson<TakeoffJobActionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/reconcile`,
     { method: "POST" },
-    "Impossible de relancer le reconcile du job takeoff."
+    "Impossible de relancer le reconcile du job takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffJobActionResponse(response, { jobId, command: "reconcile" }));
 }
 
 export async function resubmitTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
-  return requestTakeoffJson<TakeoffJobActionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/resubmit`,
     { method: "POST" },
-    "Impossible de resoumettre le job takeoff."
+    "Impossible de resoumettre le job takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffJobActionResponse(response, { jobId, command: "resubmit" }));
 }
 
 export async function cancelTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
-  return requestTakeoffJson<TakeoffJobActionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
-    "Impossible d'annuler le job takeoff."
+    "Impossible d'annuler le job takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffJobActionResponse(response, { jobId, command: "cancel" }));
 }
 
 export async function applyTakeoffJob(
@@ -667,7 +691,7 @@ export async function applyTakeoffJob(
   payload: TakeoffApplyRequest,
   versionId: string
 ): Promise<TakeoffApplyResponse> {
-  return requestTakeoffJson<TakeoffApplyResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/apply`,
     {
       method: "POST",
@@ -677,38 +701,44 @@ export async function applyTakeoffJob(
       },
       body: JSON.stringify(payload),
     },
-    "Impossible d'appliquer le job takeoff."
+    "Impossible d'appliquer le job takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffApplyResponse(response, { jobId, versionId, targetSectionId: payload.target_section_id }));
 }
 
 export async function previewTakeoffConversion(
   jobId: string,
   payload: TakeoffPreviewConversionRequest
 ): Promise<TakeoffPreviewConversionResponse> {
-  return requestTakeoffJson<TakeoffPreviewConversionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/preview-conversion`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
-    "Impossible de calculer la preview de conversion takeoff."
+    "Impossible de calculer la preview de conversion takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffPreviewConversionResponse(response, { jobId, strategy: payload.strategy, targetSectionId: payload.target_section_id }));
 }
 
 export async function patchTakeoffItems(
   jobId: string,
   request: TakeoffItemBatchPatchRequest
 ): Promise<TakeoffItemBatchPatchResponse> {
-  return requestTakeoffJson<TakeoffItemBatchPatchResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/items`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     },
-    "Impossible de mettre à jour les items takeoff."
+    "Impossible de mettre à jour les items takeoff.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffItemBatchPatchResponse(response, request.items.map((item) => item.item_id)));
 }
 
 /* ─── Plan Center API ─── */
@@ -725,10 +755,11 @@ export async function fetchPlanSets(
 }
 
 export async function fetchPlanSetsForProject(
-  projectId: string
+  projectId: string,
+  options?: { defaultImportOnly?: boolean }
 ): Promise<PlanSetListItem[]> {
   const response = await requestTakeoffJson<PlanSetsListResponse>(
-    `/api/takeoff/plan-sets?project_id=${encodeURIComponent(projectId)}`,
+    `/api/takeoff/plan-sets?project_id=${encodeURIComponent(projectId)}${options?.defaultImportOnly ? "&import_default_only=true" : ""}`,
     { method: "GET" },
     "Impossible de récupérer les jeux de plans."
   );
@@ -786,6 +817,23 @@ export async function registerPlanFile(
   );
 }
 
+export async function reconcilePlanSetDossier(setId: string): Promise<void> {
+  await requestTakeoffJson<{ synchronized: true }>(
+    `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files/reconcile`,
+    { method: "POST" },
+    "Impossible d'actualiser les pièces manquantes de l'affaire."
+  );
+}
+
+export async function reconcileProjectPlanDossier(projectId: string): Promise<boolean> {
+  const response = await requestTakeoffJson<{ changed: boolean }>(
+    `/api/affaires/${encodeURIComponent(projectId)}/intake/reconcile-plans`,
+    { method: "POST" },
+    "Impossible d'actualiser les pièces manquantes de l'affaire."
+  );
+  return response.changed;
+}
+
 export async function deletePlanFile(
   setId: string,
   fileId: string
@@ -798,6 +846,17 @@ export async function deletePlanFile(
 }
 
 /* ─── DPGF Comparison API ─── */
+
+function validateTakeoffResponse<T>(jobId: string | undefined, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    throw new TakeoffApiError(
+      error instanceof Error ? error.message : "Réponse de lecture du métré invalide.",
+      502, null, "TAKEOFF_INVALID_RESPONSE", { jobId, retryable: false }
+    );
+  }
+}
 
 export async function fetchTakeoffDpgfComparison(
   jobId: string,
@@ -819,11 +878,15 @@ export async function fetchTakeoffDpgfComparison(
     searchParams.set("view", query.view);
   }
 
-  return requestTakeoffJson<TakeoffDpgfComparisonResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/dpgf-compare?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
-    "Impossible de charger la comparaison DPGF."
+    "Impossible de charger la comparaison DPGF.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffDpgfComparisonResponse(response, {
+    jobId, versionId: query.version_id, view: query.view, cursor: query.cursor,
+  }));
 }
 
 export async function fetchTakeoffLineEvidencePanel(
@@ -837,13 +900,28 @@ export async function fetchTakeoffLineEvidencePanel(
   const searchParams = new URLSearchParams();
   searchParams.set("version_id", query.version_id);
 
-  return requestTakeoffJson<TakeoffLineEvidencePanelResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/lines/${encodeURIComponent(
       lineId
     )}/evidence?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
-    "Impossible de charger le panneau preuves."
+    "Impossible de charger le panneau preuves.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffLineEvidencePanelResponse(response, {
+    jobId, versionId: query.version_id, lineId,
+  }));
+}
+
+function validatePriceSuggestionResponse<T>(jobId: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    throw new TakeoffApiError(
+      error instanceof Error ? error.message : "Réponse de suggestion de prix invalide.",
+      502, null, "TAKEOFF_INVALID_RESPONSE", { jobId, retryable: false }
+    );
+  }
 }
 
 export async function fetchTakeoffPriceSuggestion(
@@ -855,26 +933,34 @@ export async function fetchTakeoffPriceSuggestion(
   searchParams.set("version_id", query.version_id);
   searchParams.set("estimate_item_id", query.estimate_item_id);
 
-  return requestTakeoffJson<TakeoffPriceSuggestionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
-    "Impossible de charger la suggestion de prix."
+    "Impossible de charger la suggestion de prix.",
+    true
   );
+  return validatePriceSuggestionResponse(jobId, () => parseTakeoffPriceSuggestionResponse(response, {
+    jobId, versionId: query.version_id, lineId: query.estimate_item_id,
+  }));
 }
 
 export async function requestTakeoffPriceSuggestion(
   jobId: string,
   input: RequestTakeoffPriceSuggestionInput
 ): Promise<TakeoffPriceSuggestionResponse> {
-  return requestTakeoffJson<TakeoffPriceSuggestionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible de recalculer la suggestion de prix."
+    "Impossible de recalculer la suggestion de prix.",
+    true
   );
+  return validatePriceSuggestionResponse(jobId, () => parseTakeoffPriceSuggestionResponse(response, {
+    jobId, versionId: input.version_id, lineId: input.estimate_item_id,
+  }));
 }
 
 export async function fetchAllTakeoffDpgfComparison(
@@ -889,6 +975,8 @@ export async function fetchAllTakeoffDpgfComparison(
 ): Promise<TakeoffDpgfComparisonResponse> {
   const rows: TakeoffDpgfComparisonResponse["rows"] = [];
   const seenCursors = new Set<string>();
+  const seenLineIds = new Set<string>();
+  let total: number | undefined;
   let cursor = query.cursor;
   let response: TakeoffDpgfComparisonResponse;
 
@@ -898,7 +986,23 @@ export async function fetchAllTakeoffDpgfComparison(
       { ...query, cursor },
       options
     );
-    rows.push(...response.rows);
+    validateTakeoffResponse(jobId, () => {
+      if (total !== undefined && response.pagination.total !== total) {
+        throw new Error("Pagination DPGF incohérente : le nombre de lignes a changé.");
+      }
+      total = response.pagination.total;
+      for (const row of response.rows) {
+        const lineId = row.line_id.toLowerCase();
+        if (seenLineIds.has(lineId)) {
+          throw new Error("Pagination DPGF incohérente : ligne dupliquée.");
+        }
+        seenLineIds.add(lineId);
+      }
+      rows.push(...response.rows);
+      if (rows.length > total || (!query.cursor && response.pagination.next_cursor === null && rows.length !== total)) {
+        throw new Error("Pagination DPGF incohérente : nombre de lignes incomplet.");
+      }
+    });
 
     const nextCursor = response.pagination.next_cursor;
     if (!nextCursor) {
@@ -913,7 +1017,9 @@ export async function fetchAllTakeoffDpgfComparison(
     }
 
     if (seenCursors.has(nextCursor)) {
-      throw new Error("Pagination DPGF incohérente : curseur dupliqué.");
+      return validateTakeoffResponse(jobId, () => {
+        throw new Error("Pagination DPGF incohérente : curseur dupliqué.");
+      });
     }
 
     seenCursors.add(nextCursor);
@@ -925,38 +1031,43 @@ export async function saveTakeoffDpgfManualLink(
   jobId: string,
   input: SaveTakeoffDpgfManualLinkInput
 ): Promise<SaveTakeoffDpgfManualLinkResponse> {
-  return requestTakeoffJson<SaveTakeoffDpgfManualLinkResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/dpgf-link`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible de sauvegarder le lien manuel DPGF."
+    "Impossible de sauvegarder le lien manuel DPGF.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseSaveTakeoffDpgfManualLinkResponse(response, { jobId, versionId: input.version_id, lineId: input.estimate_item_id, itemIds: input.takeoff_item_ids }));
 }
 
 export async function saveTakeoffReviewDecision(
   jobId: string,
   input: SaveTakeoffReviewDecisionInput
 ): Promise<SaveTakeoffReviewDecisionResponse> {
-  return requestTakeoffJson<SaveTakeoffReviewDecisionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/review-decision`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible d'enregistrer la décision de revue."
+    "Impossible d'enregistrer la décision de revue.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseSaveTakeoffReviewDecisionResponse(response, { jobId, versionId: input.version_id, lineId: input.estimate_item_id, decision: input.decision, reason: input.reason }));
 }
 
 export async function reviewTakeoffPriceSuggestion(
   jobId: string,
   suggestionId: string,
-  input: ReviewTakeoffPriceSuggestionInput
+  input: ReviewTakeoffPriceSuggestionInput,
+  expectedLineId: string
 ): Promise<ReviewTakeoffPriceSuggestionResponse> {
-  return requestTakeoffJson<ReviewTakeoffPriceSuggestionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions/${encodeURIComponent(
       suggestionId
     )}`,
@@ -965,8 +1076,12 @@ export async function reviewTakeoffPriceSuggestion(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible d'enregistrer la revue de suggestion de prix."
+    "Impossible d'enregistrer la revue de suggestion de prix.",
+    true
   );
+  return validatePriceSuggestionResponse(jobId, () => parseTakeoffPriceSuggestionReviewResponse(response, {
+    jobId, versionId: input.version_id, suggestionId, lineId: expectedLineId, action: input.action,
+  }));
 }
 
 export async function fetchTakeoffRiskRadar(
@@ -981,11 +1096,13 @@ export async function fetchTakeoffRiskRadar(
   if (query.scope) searchParams.set("scope", query.scope);
   if (query.lot_id) searchParams.set("lot_id", query.lot_id);
 
-  return requestTakeoffJson<TakeoffRiskRadarResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/risk-radar?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
-    "Impossible de charger le radar de risque."
+    "Impossible de charger le radar de risque.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseTakeoffRiskRadarResponse(response, { jobId, versionId: query.version_id, severity: query.severity, status: query.status, scope: query.scope, lotId: query.lot_id }));
 }
 
 export async function updateTakeoffRiskAlertStatus(
@@ -993,15 +1110,17 @@ export async function updateTakeoffRiskAlertStatus(
   alertId: string,
   input: UpdateTakeoffRiskAlertStatusInput
 ): Promise<UpdateTakeoffRiskAlertStatusResponse> {
-  return requestTakeoffJson<UpdateTakeoffRiskAlertStatusResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/risk-alerts/${encodeURIComponent(alertId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-    "Impossible de mettre à jour le statut du risque."
+    "Impossible de mettre à jour le statut du risque.",
+    true
   );
+  return validateTakeoffResponse(jobId, () => parseUpdateTakeoffRiskAlertStatusResponse(response, { jobId, alertId, status: input.status, reviewNote: input.review_note }));
 }
 
 export function uploadFileToSignedUrl(

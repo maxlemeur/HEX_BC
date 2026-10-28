@@ -11,6 +11,8 @@ vi.mock("@/lib/estimates/client", () => ({
   bulkUpdateEstimateItems: clientMocks.bulkUpdateEstimateItems,
 }));
 
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+
 import {
 normalizeSupplierPreselectionReview,
 useEstimateEditorSupplierController,
@@ -107,6 +109,7 @@ function response(payload: unknown, ok = true) {
 }
 
 function createHarness(input?: {
+  document?: EstimateEditorDocument;
   routeVersionId?: string;
   items?: EditorEstimateItem[];
   isMutationBlocked?: boolean;
@@ -119,7 +122,8 @@ function createHarness(input?: {
         | EditorEstimateItem[]
         | ((previous: EditorEstimateItem[]) => EditorEstimateItem[])
     ) => {
-      items = typeof update === "function" ? update(items) : update;
+      if (input?.document) input.document.setDraftItems(update);
+      else items = typeof update === "function" ? update(items) : update;
     }
   );
   const normalizeLine = vi.fn((item: EditorEstimateItem) => ({
@@ -138,12 +142,13 @@ function createHarness(input?: {
   const rendered = renderHook(
     ({ routeVersionId }: { routeVersionId: string }) =>
       useEstimateEditorSupplierController({
+        document: input?.document,
         routeVersionId,
-        items,
+        items: input?.document?.getSnapshot().items ?? items,
         isMutationBlocked: input?.isMutationBlocked ?? false,
         mutationBlockedMessage: "Mutation interdite.",
-        getItemsSnapshot: () => items,
-        getVersionSnapshot: () => version,
+        getItemsSnapshot: () => input?.document?.getSnapshot().items ?? items,
+        getVersionSnapshot: () => input?.document?.getSnapshot().version ?? version,
         normalizeLine,
         setItems,
         setTotalsOutOfSync,
@@ -166,7 +171,7 @@ function createHarness(input?: {
     ...rendered,
     applyVersionToken,
     ensureGroupedActionCanProceed,
-    getItems: () => items,
+    getItems: () => input?.document?.getSnapshot().items ?? items,
     handleVersionConflict,
     normalizeLine,
     reportError,
@@ -376,4 +381,32 @@ describe("useEstimateEditorSupplierController", () => {
       "line-2"
     );
   });
+});
+
+
+it("preserves a newer confirmed supplier choice when an earlier successful receipt arrives", async () => {
+  const document = new EstimateEditorDocument({ actorId: "actor-1", tenantId: "tenant-1", versionId: "version-1" });
+  document.setConfirmedVersion({ ...createVersion("version-1", "2026-10-28T10:00:00.123456Z"),
+    tenant_id: "tenant-1", calc_engine_version: 1, estimate_projects: null });
+  document.acceptItems([createLine()]);
+  const harness = createHarness({ document });
+  await openWithPayload(harness);
+  const request = createDeferred<{ updatedCount: number; versionToken: { id: string; updated_at: string } }>();
+  clientMocks.bulkUpdateEstimateItems.mockReturnValueOnce(request.promise);
+  let completion!: Promise<void>;
+  act(() => { completion = harness.result.current.actions.apply(); });
+  await waitFor(() => expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(1));
+  act(() => document.transaction(() => {
+    document.setConfirmedVersion((version) => version && { ...version, updated_at: "2026-10-28T10:00:00.123458Z" });
+    document.acceptItems([createLine({ unit_price_ht_cents: 900, selected_supplier_price_id: "price-newer" })]);
+  }));
+  await act(async () => {
+    request.resolve({ updatedCount: 1, versionToken: { id: "version-1", updated_at: "2026-10-28T10:00:00.123457Z" } });
+    await completion;
+  });
+  expect(document.getSnapshot().items[0]).toMatchObject({ unit_price_ht_cents: 900, selected_supplier_price_id: "price-newer" });
+  expect(document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123458Z");
+  expect(harness.result.current.state.isOpen).toBe(true);
+  expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
+  expect(harness.applyVersionToken).not.toHaveBeenCalled();
 });

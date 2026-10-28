@@ -1,4 +1,10 @@
+import type { TakeoffRiskSeverity, TakeoffRiskStatus, TakeoffRiskScopeType } from "@/lib/takeoff/risk-response-contracts";
+import type { TakeoffDiffAddedEntry, TakeoffDiffRemovedEntry, TakeoffDiffChangedEntry, TakeoffDiffUnchangedEntry } from "@/lib/takeoff/compare-response-contracts";
 import { z } from "zod";
+
+import type {
+  TakeoffDpgfReviewDecision,
+} from "@/lib/takeoff/dpgf-comparison-contracts";
 
 import {
   TakeoffExchangeSchema,
@@ -82,21 +88,9 @@ export type TakeoffJobCreateInput = {
   signal?: AbortSignal;
 };
 
-export type TakeoffJobResponse = {
-  id: string;
-  status: TakeoffJobStatus | string;
-  level: TakeoffLevel | string;
-  source_file_name: string | null;
-  estimate_version_id: string;
-  created_at: string;
-  dispatch?: TakeoffJobDispatch;
-};
+export type { TakeoffJobCreateResponse as TakeoffJobResponse } from "@/lib/takeoff/job-response-contracts";
 
-export type TakeoffJobDispatch = {
-  status: "accepted" | "queued_for_recovery" | "persistence_unconfirmed";
-  correlation_id: string;
-  persisted: boolean;
-};
+export type { TakeoffJobDispatch } from "@/lib/takeoff/job-response-contracts";
 
 export type TakeoffDispatchStatus =
   | "started"
@@ -110,58 +104,9 @@ export type TakeoffDispatchOutcome =
   | "timeout"
   | "network_error";
 
-export type TakeoffJobMetrics = {
-  token_count: number | null;
-  cost_cents: number | null;
-  duration_ms: number | null;
-};
+export type { TakeoffJobMetrics } from "@/lib/takeoff/apply-response-contracts";
 
-export type TakeoffJobSummary = {
-  id: string;
-  estimate_version_id: string;
-  status: TakeoffJobStatus | string;
-  level: TakeoffLevel | string;
-  processing_strategy: TakeoffProcessingStrategy | null;
-  provider_batch_id: string | null;
-  provider_batch_state: TakeoffProviderBatchState | null;
-  provider_batch_updated_at: string | null;
-  source_file_name: string | null;
-  source_file_type: string | null;
-  source_file_size_bytes: number | null;
-  /** Jeu de plans source, référence durable du document (M1b) ; null pour un fichier téléversé. */
-  plan_set_id?: string | null;
-  prompt_version: string | null;
-  schema_version: string | null;
-  model: string | null;
-  thinking_level: string | null;
-  media_resolution: string | null;
-  retry_count: number;
-  error_code: string | null;
-  error_message: string | null;
-  next_retry_at: string | null;
-  last_error_at: string | null;
-  dispatch_status?: TakeoffDispatchStatus | null;
-  dispatch_outcome?: TakeoffDispatchOutcome | null;
-  dispatch_trigger?: "create" | "retry" | "manual" | "reconcile" | null;
-  dispatch_correlation_id?: string | null;
-  dispatch_status_code?: number | null;
-  dispatch_updated_at?: string | null;
-  provider_reconcile_due_at?: string | null;
-  provider_reconcile_attempt_count?: number;
-  provider_reconcile_lease_expires_at?: string | null;
-  operator_state?: TakeoffJobOperatorState | null;
-  operator_state_label?: string | null;
-  can_reconcile?: boolean;
-  can_cancel?: boolean;
-  can_resubmit?: boolean;
-  started_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-  updated_at: string;
-  items_count?: number | null;
-  version_number?: number | null;
-  metrics: TakeoffJobMetrics;
-};
+export type { TakeoffJobSummary } from "@/lib/takeoff/apply-response-contracts";
 
 export type TakeoffLinkedJobSummary = {
   id: string;
@@ -214,13 +159,7 @@ export type TakeoffCarryOverStatus = {
   unlinkedJobs: number;
 };
 
-export type TakeoffJobStatusCounters = {
-  total: number;
-  processing: number;
-  completed: number;
-  failed: number;
-  canceled: number;
-};
+export type { TakeoffJobStatusCounters } from "@/lib/takeoff/job-response-contracts";
 
 export type TakeoffJobListQuery = {
   estimate_version_id?: string;
@@ -232,42 +171,11 @@ export type TakeoffJobListQuery = {
   offset?: number;
 };
 
-export type TakeoffApplySummary = {
-  scope: TakeoffApplyScope;
-  created_count: number;
-  updated_count: number;
-  ignored_count: number;
-  created_ids: string[];
-  item_links: Array<{
-    takeoff_item_id: string;
-    estimate_item_id: string;
-  }>;
-};
+export type { TakeoffApplySummary } from "@/lib/takeoff/apply-response-contracts";
 
-export type TakeoffJobListResponse = {
-  jobs: TakeoffJobSummary[];
-  counters: TakeoffJobStatusCounters;
-  pagination: {
-    limit: number;
-    offset: number;
-    total: number;
-  };
-};
+export type { TakeoffJobListResponse } from "@/lib/takeoff/job-response-contracts";
 
-export type TakeoffJobResult = {
-  id: string;
-  extracted_json: unknown;
-  warnings: unknown[];
-  tables: unknown[];
-  provider_meta: Record<string, unknown>;
-  raw_response: unknown;
-  confidence: number | null;
-  token_count: number | null;
-  cost_cents: number | null;
-  duration_ms: number | null;
-  created_at: string;
-  updated_at: string;
-};
+export type { TakeoffJobResult } from "@/lib/takeoff/job-response-contracts";
 
 export type TakeoffRunMetric = {
   id: string;
@@ -292,24 +200,7 @@ export type TakeoffRunMetric = {
   metadata: Record<string, unknown>;
 };
 
-export type TakeoffJobItem = {
-  id: string;
-  designation: string;
-  quantity: number;
-  unit: string;
-  confidence: number | null;
-  evidence: string | null;
-  source_file_name: string | null;
-  source_page: number | null;
-  metadata: Record<string, unknown>;
-  is_excluded: boolean;
-  exclusion_reason: string | null;
-  is_verified: boolean;
-  verified_at: string | null;
-  verified_by: string | null;
-  created_at: string;
-  updated_at: string;
-};
+export type { TakeoffJobItem } from "@/lib/takeoff/item-response-contracts";
 
 export type TakeoffItemPatchField = {
   designation?: string;
@@ -332,43 +223,15 @@ export type TakeoffItemBatchPatchRequest = {
   items: TakeoffItemPatchEntry[];
 };
 
-export type TakeoffItemPatchResult = {
-  item_id: string;
-  success: boolean;
-  item?: TakeoffJobItem;
-  error?: string;
-};
+export type { TakeoffItemPatchResult } from "@/lib/takeoff/item-response-contracts";
 
-export type TakeoffItemBatchPatchResponse = {
-  results: TakeoffItemPatchResult[];
-  succeeded: number;
-  failed: number;
-};
+export type { TakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
 
-export type TakeoffJobDetailResponse = {
-  job: TakeoffJobSummary;
-  result: TakeoffJobResult | null;
-  items: {
-    data: TakeoffJobItem[];
-    pagination: {
-      limit: number;
-      offset: number;
-      total: number;
-    };
-  };
-};
+export type { TakeoffJobDetailResponse } from "@/lib/takeoff/job-response-contracts";
 
-export type TakeoffJobActionResponse = {
-  job: TakeoffJobSummary;
-  command?: "retry" | "cancel" | "reconcile" | "resubmit";
-  outcome?: "applied" | "noop";
-  dispatch?: TakeoffJobDispatch;
-};
+export type { TakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 
-export type TakeoffApplyResponse = {
-  job: TakeoffJobSummary;
-  summary: TakeoffApplySummary;
-};
+export type { TakeoffApplyResponse } from "@/lib/takeoff/apply-response-contracts";
 
 export type TakeoffPreviewConversionRequest = TakeoffApplyRequest;
 export type TakeoffMappingOverrideAction = z.infer<
@@ -391,50 +254,15 @@ export const TAKEOFF_DIFF_MATCH_STRATEGIES = [
 export type TakeoffDiffMatchStrategy =
   (typeof TAKEOFF_DIFF_MATCH_STRATEGIES)[number];
 
-export type TakeoffDiffField = {
-  field:
-    | "designation"
-    | "quantity"
-    | "unit"
-    | "source_page"
-    | "confidence"
-    | "evidence";
-  label: string;
-  kind: "text" | "number";
-  before_value: string | number | null;
-  after_value: string | number | null;
-};
+export type { TakeoffDiffField } from "@/lib/takeoff/compare-response-contracts";
 
-export type TakeoffDiffAddedEntry = {
-  key: string;
-  change_type: "added";
-  other_item: TakeoffJobItem;
-};
+export type { TakeoffDiffAddedEntry } from "@/lib/takeoff/compare-response-contracts";
 
-export type TakeoffDiffRemovedEntry = {
-  key: string;
-  change_type: "removed";
-  base_item: TakeoffJobItem;
-};
+export type { TakeoffDiffRemovedEntry } from "@/lib/takeoff/compare-response-contracts";
 
-export type TakeoffDiffChangedEntry = {
-  key: string;
-  change_type: "changed";
-  base_item: TakeoffJobItem;
-  other_item: TakeoffJobItem;
-  match_score: number;
-  match_strategy: TakeoffDiffMatchStrategy;
-  delta: TakeoffDiffField[];
-};
+export type { TakeoffDiffChangedEntry } from "@/lib/takeoff/compare-response-contracts";
 
-export type TakeoffDiffUnchangedEntry = {
-  key: string;
-  change_type: "unchanged";
-  base_item: TakeoffJobItem;
-  other_item: TakeoffJobItem;
-  match_score: number;
-  match_strategy: TakeoffDiffMatchStrategy;
-};
+export type { TakeoffDiffUnchangedEntry } from "@/lib/takeoff/compare-response-contracts";
 
 export type TakeoffDiffEntry =
   | TakeoffDiffAddedEntry
@@ -442,381 +270,60 @@ export type TakeoffDiffEntry =
   | TakeoffDiffChangedEntry
   | TakeoffDiffUnchangedEntry;
 
-export type TakeoffJobCompareSummary = {
-  added: number;
-  removed: number;
-  changed: number;
-  unchanged: number;
-  total_base: number;
-  total_other: number;
-};
+export type { TakeoffJobCompareSummary } from "@/lib/takeoff/compare-response-contracts";
 
-export type TakeoffJobCompareResponse = {
-  base_job_id: string;
-  other_job_id: string;
-  threshold: number;
-  summary: TakeoffJobCompareSummary;
-  added: TakeoffDiffAddedEntry[];
-  removed: TakeoffDiffRemovedEntry[];
-  changed: TakeoffDiffChangedEntry[];
-  unchanged: TakeoffDiffUnchangedEntry[];
-};
+export type { TakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
 
-export type TakeoffDpgfComparisonView = "all" | "exceptions_only";
+export type {
+  TakeoffDpgfComparisonView,
+  TakeoffDpgfComparisonEvidenceKind,
+  TakeoffDpgfComparisonEvidenceType,
+  TakeoffDpgfReviewStatus,
+  TakeoffDpgfReviewDecision,
+  TakeoffDpgfComparisonDpgfLine,
+  TakeoffDpgfComparisonTakeoffLine,
+  TakeoffDpgfComparisonProof,
+  TakeoffDpgfReviewDecisionRecord,
+  TakeoffDpgfComparisonUnusedTakeoffItem,
+  TakeoffDpgfLineRiskSummary,
+  TakeoffDpgfComparisonRow,
+  TakeoffDpgfComparisonSummary,
+  TakeoffDpgfComparisonResponse,
+} from "@/lib/takeoff/dpgf-comparison-contracts";
 
-export type TakeoffDpgfComparisonEvidenceKind =
-  | "fact"
-  | "hypothesis"
-  | "inference";
+export type {
+  TakeoffLineEvidenceStatus,
+  TakeoffLineEvidence,
+  TakeoffLineEvidencePanelResponse,
+} from "@/lib/takeoff/line-evidence-contracts";
 
-export type TakeoffDpgfComparisonEvidenceType =
-  | "dpgf"
-  | "takeoff"
-  | "plan_zone"
-  | "formula"
-  | "price_source"
-  | "comment";
+export type {
+  TakeoffRiskSeverity,
+  TakeoffRiskStatus,
+  TakeoffRiskScopeType,
+  TakeoffRiskMarginBucket,
+  TakeoffRiskCauseCode,
+  TakeoffRiskProvenanceEntry,
+  TakeoffRiskAlert,
+  TakeoffRiskRadarScopeSummary,
+  TakeoffRiskRadarSummary,
+  TakeoffRiskRadarResponse,
+} from "@/lib/takeoff/risk-response-contracts";
 
-export type TakeoffDpgfReviewStatus =
-  | "reliable_match"
-  | "to_confirm"
-  | "significant_gap"
-  | "unlinked"
-  | "forced_manual";
-
-export type TakeoffDpgfReviewDecision =
-  | "keep_dpgf"
-  | "keep_takeoff"
-  | "manual_fix"
-  | "out_of_scope";
-
-export type TakeoffDpgfComparisonDpgfLine = {
-  estimate_item_id: string;
-  title: string;
-  description: string | null;
-  quantity: number;
-  unit: string | null;
-  source_page: number | null;
-  source_file_name: string | null;
-  position: number;
-};
-
-export type TakeoffDpgfComparisonTakeoffLine = {
-  item_id: string;
-  designation: string;
-  quantity: number;
-  unit: string;
-  source_page: number | null;
-  source_file_name: string | null;
-  confidence: number | null;
-  evidence: string | null;
-  metadata: Record<string, unknown>;
-};
-
-export type TakeoffDpgfComparisonProof = {
-  proof_id: string;
-  type: TakeoffDpgfComparisonEvidenceType;
-  kind: TakeoffDpgfComparisonEvidenceKind;
-  label: string;
-  source: string;
-  confidence_score: number | null;
-  note: string | null;
-};
-
-export type TakeoffLineEvidenceStatus = "active" | "invalidated" | "replaced";
-
-export type TakeoffLineEvidence = {
-  evidence_id: string;
-  type: TakeoffDpgfComparisonEvidenceType;
-  kind: TakeoffDpgfComparisonEvidenceKind;
-  label: string;
-  source: string;
-  source_file_name: string | null;
-  source_page: number | null;
-  confidence_score: number | null;
-  note: string | null;
-  created_at: string;
-  author_name: string | null;
-  status: TakeoffLineEvidenceStatus;
-  supersedes_evidence_id: string | null;
-  replaced_by_evidence_id: string | null;
-};
-
-export type TakeoffLineEvidencePanelResponse = {
-  line_id: string;
-  version_id: string;
-  job_id: string;
-  evidences: TakeoffLineEvidence[];
-  history: TakeoffLineEvidence[];
-};
-
-export type TakeoffDpgfReviewDecisionRecord = {
-  id: string;
-  tenant_id: string;
-  version_id: string;
-  takeoff_job_id: string;
-  estimate_item_id: string;
-  decision: TakeoffDpgfReviewDecision;
-  reason: string | null;
-  review_reference: string;
-  line_label: string;
-  line_position: number;
-  source_file_name: string | null;
-  source_page: number | null;
-  decided_at: string;
-  updated_at: string;
-  decided_by: string | null;
-  source: "current_version" | "carried_over";
-  carried_over_from_version_id: string | null;
-  carried_over_from_version_number: number | null;
-};
-
-export type TakeoffDpgfComparisonUnusedTakeoffItem = {
-  item_id: string;
-  designation: string;
-  quantity: number;
-  unit: string;
-  source_file_name: string | null;
-  source_page: number | null;
-  confidence_score: number | null;
-  evidence: string | null;
-};
-
-export type TakeoffRiskSeverity = "info" | "warning" | "critical";
-export type TakeoffRiskStatus = "to_process" | "assumed" | "false_positive";
-export type TakeoffRiskScopeType = "project" | "lot" | "line";
-export type TakeoffRiskMarginBucket =
-  | "negative"
-  | "thin"
-  | "healthy"
-  | "unknown";
-export type TakeoffRiskCauseCode =
-  | "missing_proof"
-  | "dpgf_takeoff_gap"
-  | "atypical_price"
-  | "insufficient_margin"
-  | "vat_inconsistency"
-  | "missing_piece";
-
-export type TakeoffRiskProvenanceEntry = {
-  kind: TakeoffDpgfComparisonEvidenceKind;
-  label: string;
-  source: string;
-  confidence_score: number | null;
-  note: string | null;
-};
-
-export type TakeoffDpgfLineRiskSummary = {
-  score: number;
-  severity: TakeoffRiskSeverity;
-  causes: string[];
-  status: TakeoffRiskStatus | null;
-};
-
-export type TakeoffRiskAlert = {
-  alert_id: string;
-  takeoff_job_id?: string | null;
-  scope_type: TakeoffRiskScopeType;
-  scope_id: string | null;
-  scope_label: string;
-  line_id: string | null;
-  lot_id: string | null;
-  cause_code: TakeoffRiskCauseCode;
-  cause_label: string;
-  severity: TakeoffRiskSeverity;
-  risk_score: number;
-  status: TakeoffRiskStatus;
-  margin_bucket: TakeoffRiskMarginBucket;
-  reason_labels: string[];
-  provenance: TakeoffRiskProvenanceEntry[];
-  review_note: string | null;
-  reviewed_at: string | null;
-  reviewed_by: string | null;
-  created_at: string;
-  updated_at: string;
-  metadata: Record<string, unknown>;
-};
-
-export type TakeoffRiskRadarScopeSummary = {
-  scope_type: Exclude<TakeoffRiskScopeType, "line">;
-  scope_id: string | null;
-  scope_label: string;
-  score: number;
-  severity: TakeoffRiskSeverity;
-  open_alerts_count: number;
-  critical_alerts_count: number;
-  top_causes: string[];
-};
-
-export type TakeoffRiskRadarSummary = {
-  to_process_count: number;
-  assumed_count: number;
-  false_positive_count: number;
-  critical_count: number;
-  warning_count: number;
-  info_count: number;
-  top_causes: string[];
-  project_score: number;
-  project_severity: TakeoffRiskSeverity;
-};
-
-export type TakeoffDpgfComparisonRow = {
-  line_id: string;
-  line_label: string;
-  dpgf: TakeoffDpgfComparisonDpgfLine;
-  linked_takeoff_items: TakeoffDpgfComparisonTakeoffLine[];
-  dpgf_quantity: number | null;
-  takeoff_quantity: number | null;
-  quantity_unit: string | null;
-  matching_score: number;
-  confidence_score: number;
-  review_status: TakeoffDpgfReviewStatus;
-  proofs: TakeoffDpgfComparisonProof[];
-  suggested_decision: TakeoffDpgfReviewDecision | null;
-  applied_decision: TakeoffDpgfReviewDecisionRecord | null;
-  delta_absolute: number | null;
-  delta_percent: number | null;
-  is_exception: boolean;
-  manual_link_count: number;
-  matched_by: "auto" | "manual" | null;
-  risk: TakeoffDpgfLineRiskSummary | null;
-};
-
-export type TakeoffDpgfComparisonSummary = {
-  reliable_matches: number;
-  to_confirm: number;
-  significant_gaps: number;
-  forced_manual: number;
-  lines_without_proof: number;
-  unused_takeoff_items: number;
-  total_lines: number;
-};
-
-export type TakeoffDpgfComparisonResponse = {
-  version_id: string;
-  job_id: string;
-  view: TakeoffDpgfComparisonView;
-  threshold: number;
-  summary: TakeoffDpgfComparisonSummary;
-  rows: TakeoffDpgfComparisonRow[];
-  manual_link_candidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
-  unused_takeoff_items: TakeoffDpgfComparisonUnusedTakeoffItem[];
-  pagination: {
-    page_size: number;
-    next_cursor: string | null;
-    total: number;
-  };
-};
-
-export type TakeoffRiskRadarResponse = {
-  version_id: string;
-  job_id: string;
-  summary: TakeoffRiskRadarSummary;
-  project: TakeoffRiskRadarScopeSummary;
-  lots: TakeoffRiskRadarScopeSummary[];
-  items: TakeoffRiskAlert[];
-};
-
-export type TakeoffPriceSuggestionStatus =
-  | "pending"
-  | "applied"
-  | "kept_current"
-  | "rejected";
-
-export type TakeoffPriceSuggestionAction =
-  | "apply_low"
-  | "apply_target"
-  | "apply_high"
-  | "keep_current"
-  | "reject";
-
-export type TakeoffPriceSuggestionSourceKind =
-  | "history"
-  | "pricebook"
-  | "similar_item"
-  | "external_reference";
-
-export type TakeoffPriceSuggestionConfidenceLabel = "low" | "medium" | "high";
-
-export type TakeoffPriceSuggestionFactor = {
-  key: string;
-  label: string;
-  value: string;
-  kind: TakeoffDpgfComparisonEvidenceKind;
-};
-
-export type TakeoffPriceSuggestionSource = {
-  source_id: string;
-  source_kind: TakeoffPriceSuggestionSourceKind;
-  kind: TakeoffDpgfComparisonEvidenceKind;
-  label: string;
-  source_ref: string;
-  price_cents: number;
-  freshness_label: string | null;
-  confidence_score: number | null;
-  rank: number;
-  is_outlier: boolean;
-  source_record_table: string | null;
-  source_record_id: string | null;
-  metadata: Record<string, unknown>;
-};
-
-export type TakeoffPriceSuggestionSnapshot = {
-  suggestion_id: string;
-  line_id: string;
-  version_id: string;
-  job_id: string;
-  current_price_cents: number | null;
-  low_cents: number;
-  target_cents: number;
-  high_cents: number;
-  confidence_score: number | null;
-  confidence_label: TakeoffPriceSuggestionConfidenceLabel;
-  candidate_count: number;
-  outlier_count: number;
-  justification: string;
-  factors: TakeoffPriceSuggestionFactor[];
-  summary: Record<string, unknown>;
-  status: TakeoffPriceSuggestionStatus;
-  selected_action: TakeoffPriceSuggestionAction | null;
-  selected_price_cents: number | null;
-  review_note: string | null;
-  reviewed_at: string | null;
-  reviewed_by: string | null;
-  created_at: string;
-  updated_at: string;
-  sources: TakeoffPriceSuggestionSource[];
-};
-
-export type GetTakeoffPriceSuggestionQuery = {
-  version_id: string;
-  estimate_item_id: string;
-};
-
-export type RequestTakeoffPriceSuggestionInput = {
-  version_id: string;
-  estimate_item_id: string;
-  force_refresh?: boolean;
-};
-
-export type TakeoffPriceSuggestionResponse = {
-  suggestion: TakeoffPriceSuggestionSnapshot;
-};
-
-export type ReviewTakeoffPriceSuggestionInput = {
-  version_id: string;
-  action: TakeoffPriceSuggestionAction;
-  review_note: string;
-};
-
-export type ReviewTakeoffPriceSuggestionResponse = {
-  suggestion: TakeoffPriceSuggestionSnapshot;
-  applied_item: {
-    id: string;
-    unit_price_ht_cents: number | null;
-    updated_at: string;
-  } | null;
-};
+export type {
+  TakeoffPriceSuggestionStatus,
+  TakeoffPriceSuggestionAction,
+  TakeoffPriceSuggestionSourceKind,
+  TakeoffPriceSuggestionConfidenceLabel,
+  TakeoffPriceSuggestionFactor,
+  TakeoffPriceSuggestionSource,
+  TakeoffPriceSuggestionSnapshot,
+  GetTakeoffPriceSuggestionQuery,
+  RequestTakeoffPriceSuggestionInput,
+  TakeoffPriceSuggestionResponse,
+  ReviewTakeoffPriceSuggestionInput,
+  ReviewTakeoffPriceSuggestionResponse,
+} from "@/lib/takeoff/price-suggestion-contracts";
 
 export type TakeoffRiskRadarQuery = {
   version_id: string;
@@ -832,21 +339,9 @@ export type UpdateTakeoffRiskAlertStatusInput = {
   review_note?: string | null;
 };
 
-export type UpdateTakeoffRiskAlertStatusResponse = {
-  alert: TakeoffRiskAlert;
-};
+export type { UpdateTakeoffRiskAlertStatusResponse } from "@/lib/takeoff/risk-response-contracts";
 
-export type TakeoffDpgfManualLinkRecord = {
-  id: string;
-  tenant_id: string;
-  version_id: string;
-  takeoff_job_id: string;
-  estimate_item_id: string;
-  takeoff_item_id: string;
-  created_at: string;
-  updated_at: string;
-  linked_by: string | null;
-};
+export type { TakeoffDpgfManualLinkRecord } from "@/lib/takeoff/review-response-contracts";
 
 export type SaveTakeoffDpgfManualLinkInput = {
   version_id: string;
@@ -854,9 +349,7 @@ export type SaveTakeoffDpgfManualLinkInput = {
   takeoff_item_ids: string[];
 };
 
-export type SaveTakeoffDpgfManualLinkResponse = {
-  links: TakeoffDpgfManualLinkRecord[];
-};
+export type { SaveTakeoffDpgfManualLinkResponse } from "@/lib/takeoff/review-response-contracts";
 
 export type SaveTakeoffReviewDecisionInput = {
   version_id: string;
@@ -865,9 +358,7 @@ export type SaveTakeoffReviewDecisionInput = {
   reason?: string | null;
 };
 
-export type SaveTakeoffReviewDecisionResponse = {
-  decision: TakeoffDpgfReviewDecisionRecord;
-};
+export type { SaveTakeoffReviewDecisionResponse } from "@/lib/takeoff/review-response-contracts";
 
 export type TakeoffApiError = {
   code: string;
@@ -1003,6 +494,7 @@ export type PlanSetMutationResponse = {
 export type PlanSetDeleteResponse = {
   deleted: true;
   plan_set_id: string;
+  dossier_synchronized?: boolean;
 };
 
 export type PlanFileCreateResponse = {
@@ -1020,6 +512,7 @@ export type PlanFileDeleteResponse = {
   deleted: true;
   plan_set_id: string;
   file_id: string;
+  dossier_synchronized?: boolean;
 };
 
 export type CreatePlanSetInput = {

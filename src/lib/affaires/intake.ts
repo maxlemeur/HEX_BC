@@ -266,6 +266,8 @@ export const affaireIntakeBriefDraftSchema = z
     assumptions: z.array(z.string().trim().min(1).max(280)).max(12),
     vigilancePoints: z.array(z.string().trim().min(1).max(280)).max(12),
     missingElements: z.array(z.string().trim().min(1).max(280)).max(12),
+    resolvedPlanGapIndexes: z.array(z.number().int().min(0).max(11)).max(12).optional(),
+    updatedAt: z.string().datetime({ offset: true }).optional(),
     sources: z.array(affaireIntakeBriefSourceSchema).max(120),
     uploadId: z.string().uuid().nullable(),
     lastGeneratedAt: z.string().datetime({ offset: true }).nullable(),

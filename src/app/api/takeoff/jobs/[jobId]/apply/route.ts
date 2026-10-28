@@ -1,3 +1,4 @@
+import { parseTakeoffApplyResponse } from "@/lib/takeoff/apply-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -16,7 +17,7 @@ export async function POST(
     const jobId = await getJobId(params);
     const body = await request.json();
     const data = await applyTakeoffJob(jobId, body);
-    return ok(data);
+    return ok(parseTakeoffApplyResponse(data, { jobId, targetSectionId: body.target_section_id }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

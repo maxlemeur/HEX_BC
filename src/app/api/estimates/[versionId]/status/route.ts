@@ -1,3 +1,5 @@
+import { parseEstimateStatusResponse } from "@/lib/estimates/write-response-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -51,7 +53,7 @@ export async function PATCH(
       : await patchEstimateStatus(versionId, body, token, {
           draftLockSessionId: normalizeEstimateDraftLockSessionId(sessionHeader),
         });
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateStatusResponse(data, versionId, body.status)));
   } catch (error) {
     return toErrorResponse(error);
   }

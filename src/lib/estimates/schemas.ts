@@ -1681,56 +1681,17 @@ export const insertTemplateIntoVersionSchema = z.preprocess(
   })
 );
 
-const estimateVersionTokenDtoSchema = z.object({
-  id: uuidSchema,
-  updated_at: updatedAtTokenSchema,
-});
+export {
+  importEstimateSectionsClientResultSchema as importEstimateSectionsResultSchema,
+  type ImportEstimateSectionsClientResult as ImportEstimateSectionsResult,
+} from "@/lib/estimates/section-copy-contracts";
+export {
+  importLinkedDpgfSourceClientResultSchema as importLinkedDpgfSourceResultSchema,
+  type ImportLinkedDpgfSourceClientResult as ImportLinkedDpgfSourceResult,
+} from "@/lib/estimates/linked-dpgf-contracts";
 
-export const importEstimateSectionsResultSchema = z.object({
-  sourceVersionId: uuidSchema,
-  targetVersionId: uuidSchema,
-  mode: importEstimateSectionsModeSchema,
-  importedSectionsCount: nonNegativeIntegerSchema,
-  importedLinesCount: nonNegativeIntegerSchema,
-  createdSectionIds: z.array(uuidSchema),
-  createdLineIds: z.array(uuidSchema),
-  versionToken: estimateVersionTokenDtoSchema.nullable(),
-  /** Sous-lot 2.8b (A7, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
-  convertedLines: z.array(z.object({ title: z.string(), templateHours: z.number(), convertedHours: z.number() })).optional(),
-});
-export type ImportEstimateSectionsResult = z.infer<
-  typeof importEstimateSectionsResultSchema
->;
+export { estimateVersionEventSchema, type EstimateVersionEvent } from "@/lib/estimates/write-response-contracts";
 
-export const importLinkedDpgfSourceResultSchema = z.object({
-  sourceImportId: uuidSchema,
-  targetVersionId: uuidSchema,
-  createdSectionId: uuidSchema,
-  createdLineIds: z.array(uuidSchema),
-  importedLinesCount: nonNegativeIntegerSchema,
-  skippedLinesCount: nonNegativeIntegerSchema,
-  totals: z.object({
-    totalHtCents: nonNegativeIntegerSchema,
-    totalTaxCents: nonNegativeIntegerSchema,
-    totalTtcCents: nonNegativeIntegerSchema,
-  }),
-  versionToken: estimateVersionTokenDtoSchema.nullable(),
-});
-export type ImportLinkedDpgfSourceResult = z.infer<
-  typeof importLinkedDpgfSourceResultSchema
->;
-
-export const estimateVersionEventSchema = z.object({
-  id: uuidSchema,
-  estimateVersionId: uuidSchema,
-  eventType: z.string(),
-  metadata: z.record(z.string(), z.unknown()),
-  createdBy: z.string().nullable(),
-  actorName: z.string().nullable(),
-  occurredAt: z.string(),
-  createdAt: z.string(),
-});
-export type EstimateVersionEvent = z.infer<typeof estimateVersionEventSchema>;
 
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
 export type CreateEstimateCreationModeInput = z.infer<typeof createEstimateCreationModeSchema>;

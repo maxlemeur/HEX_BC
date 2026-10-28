@@ -1,3 +1,5 @@
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
+import { parseImportLinkedDpgfResponse } from "@/lib/estimates/section-copy-response";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -34,7 +36,7 @@ export async function POST(
     const versionId = await getVersionId(params);
     const body = importLinkedDpgfSourceSchema.parse(await parseJsonBody(request));
     const data = await importLinkedDpgfSourceIntoVersion(versionId, body);
-    return ok(data, 201);
+    return ok(validateEstimateResponse(() => parseImportLinkedDpgfResponse(data, versionId)), 201);
   } catch (error) {
     return toErrorResponse(error);
   }

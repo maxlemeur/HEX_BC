@@ -87,11 +87,7 @@ export function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   return value;
 }
 
-export function toNullableText(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
+export { toNullableText } from "@/lib/estimates/version-write-normalization";
 
 export function isTenantAdmin(tenantRole: TenantRole) {
   return tenantRole === TENANT_ADMIN_ROLE;

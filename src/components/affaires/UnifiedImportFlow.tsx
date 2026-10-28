@@ -19,6 +19,7 @@ import {
   STEPPER_STEPS_WITH_PLANS,
   type PreviewStepResult,
   type Step,
+  type IntakeDpgfCandidate,
 } from "./unified-import-flow/types";
 import { UploadStep } from "./unified-import-flow/UploadStep";
 import { ChevronLeftIcon } from "lucide-react";
@@ -42,6 +43,7 @@ const LazyPlansStep = dynamic(
 
 export type UnifiedImportFlowProps = {
   projectId: string;
+  intakeDpgfCandidates?: IntakeDpgfCandidate[];
   takeoffEnabled?: boolean;
   onCancel?: () => void;
   onComplete?: (result: ConfirmUnifiedImportFlowResult) => void;
@@ -49,6 +51,7 @@ export type UnifiedImportFlowProps = {
 
 export function UnifiedImportFlow({
   projectId,
+  intakeDpgfCandidates,
   takeoffEnabled = false,
   onCancel,
   onComplete,
@@ -212,7 +215,7 @@ export function UnifiedImportFlow({
       </div>
 
       {step === "upload" && (
-        <UploadStep projectId={projectId} onImportReady={handleImportReady} />
+        <UploadStep projectId={projectId} onImportReady={handleImportReady} intakeDpgfCandidates={intakeDpgfCandidates} />
       )}
 
       {step === "mapping" && importId && (

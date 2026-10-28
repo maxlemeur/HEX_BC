@@ -1,3 +1,4 @@
+import { parseTakeoffRiskRadarResponse } from "@/lib/takeoff/risk-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -24,7 +25,7 @@ export async function GET(
     const query = parseTakeoffRiskRadarQuery(toQueryObject(request));
     const data = await fetchTakeoffRiskRadar(jobId, query);
 
-    return ok(data);
+    return ok(parseTakeoffRiskRadarResponse(data, { jobId, versionId: query.version_id, severity: query.severity, status: query.status, scope: query.scope, lotId: query.lot_id }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

@@ -5,6 +5,7 @@ import useSWR from "swr";
 
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
+import { PlanDossierSyncNotice } from "@/components/takeoff/PlanDossierSyncNotice";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -59,6 +60,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [unsynchronizedProjectId, setUnsynchronizedProjectId] = useState<string | null>(null);
 
   const handleCreateSet = useCallback(
     async (input: Pick<CreatePlanSetInput, "name" | "description">) => {
@@ -85,11 +87,13 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
     [versionId, mutate]
   );
 
-  const handleSetDeleted = useCallback(() => {
+  const handleSetDeleted = useCallback((projectId?: string) => {
+    if (projectId) setUnsynchronizedProjectId(projectId);
     mutate();
   }, [mutate]);
 
-  const handleFilesChanged = useCallback(() => {
+  const handleFilesChanged = useCallback((projectId?: string) => {
+    if (projectId) setUnsynchronizedProjectId(projectId);
     mutate();
   }, [mutate]);
 
@@ -104,6 +108,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
 
   return (
     <section>
+      {unsynchronizedProjectId && <PlanDossierSyncNotice projectId={unsynchronizedProjectId} onSynchronized={() => { setUnsynchronizedProjectId(null); void mutate(); }} />}
       {/* Metrics bar */}
       {!isLoading && !error && sets && sets.length > 0 && (
         <div className="mb-6 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">

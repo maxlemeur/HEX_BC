@@ -1,3 +1,5 @@
+import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
+import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import "server-only";
 
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
@@ -131,8 +133,8 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
   .object({
     id: z.string().uuid(),
     estimate_version_id: z.string().uuid(),
-    status: z.string(),
-    level: z.string(),
+    status: z.enum(TAKEOFF_JOB_STATUSES),
+    level: z.enum(TAKEOFF_RESPONSE_LEVELS),
     processing_strategy: z.enum(["sync", "batch"]).nullable().optional(),
     provider_batch_id: z.string().nullable().optional(),
     provider_batch_state: z
@@ -380,11 +382,7 @@ export function normalizeTakeoffJobSummaryRow(
   tenantRole?: string | null
 ): TakeoffJobSummary {
   return decorateTakeoffJobSummaryWithOperatorState(
-    parseWithSchema(
-      takeoffJobSummarySchema,
-      row,
-      "Données takeoff_jobs invalides en base."
-    ),
+    parseTakeoffResponse(takeoffJobSummarySchema, row),
     tenantRole
   );
 }
@@ -925,4 +923,36 @@ export async function getTakeoffJobDetails(
       },
     },
   };
+}
+
+const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
+
+export async function listAllTakeoffItemsByJobId(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  jobId: string;
+}): Promise<TakeoffJobItem[]> {
+  const items: TakeoffJobItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    const page = await listTakeoffItemsByJobId({
+      ...input,
+      limit: MAX_TAKEOFF_JOB_ITEMS_LIMIT,
+      offset,
+    });
+
+    if (page.data.length === 0) {
+      break;
+    }
+
+    items.push(...page.data);
+    offset += page.data.length;
+
+    if (items.length >= page.total) {
+      break;
+    }
+  }
+
+  return items;
 }

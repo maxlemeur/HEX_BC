@@ -180,6 +180,9 @@ async function uploadAndClassifyIntakeDpgf(page: Page, input: {
   projectId: string;
   fixturePath: string;
 }) {
+  if (!page.army.ownedEstimates.some((estimate) => estimate.projectId === input.projectId)) {
+    throw new Error("Only a newly owned local affair may receive the test DPGF.");
+  }
   const uploadResponse = await page.request.post(`/api/affaires/${input.projectId}/intake/files`, {
     multipart: {
       files: {
@@ -213,9 +216,12 @@ async function uploadAndClassifyIntakeDpgf(page: Page, input: {
   const classified = await client.from("affaire_intake_documents").update({
     document_kind: "dpgf", classification_status: "classified", confidence: 0.99, issues: [],
     classification_source: "manual", classified_by: userId, classified_at: nowIso, manually_overridden_at: nowIso,
-  }).eq("id", documentId).eq("project_id", input.projectId).select("id");
+  }).eq("id", documentId).eq("project_id", input.projectId).select("id,storage_path");
   expect(classified.error).toBe(null);
   expect(classified.data?.map(row => row.id)).toEqual([documentId]);
+  const storagePath = classified.data?.[0]?.storage_path;
+  if (!storagePath) throw new Error("The owned DPGF has no storage path.");
+  (page.army.ownedIntakeCopies ??= []).push({ projectId: input.projectId, storagePath });
 }
 
 async function fetchLatestProjectVersion(projectId: string) {

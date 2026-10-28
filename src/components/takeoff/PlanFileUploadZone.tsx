@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   deletePlanFile,
   isTakeoffApiError,
+  reconcilePlanSetDossier,
   registerPlanFile,
   uploadFileToSignedUrl,
 } from "@/lib/takeoff/client";
@@ -94,6 +95,8 @@ export function PlanFileUploadZone({
   const [entries, setEntries] = useState<UploadFileEntry[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [dossierWarning, setDossierWarning] = useState<string | null>(null);
+  const [isReconciling, setIsReconciling] = useState(false);
   const uploadingRef = useRef(false);
 
   const updateEntry = useCallback(
@@ -175,6 +178,17 @@ export function PlanFileUploadZone({
         }
       }
 
+      if (completedUploads.length > 0) {
+        setIsReconciling(true);
+        try {
+          await reconcilePlanSetDossier(setId);
+          setDossierWarning(null);
+        } catch {
+          setDossierWarning("Plans envoyés, mais le dossier n'a pas pu être actualisé.");
+        } finally {
+          setIsReconciling(false);
+        }
+      }
       uploadingRef.current = false;
       onUploadsComplete({
         uploadedCount: completedUploads.length,
@@ -244,7 +258,7 @@ export function PlanFileUploadZone({
 
   const hasActiveUploads = entries.some(
     (e) => e.status === "pending" || e.status === "registering" || e.status === "uploading"
-  );
+  ) || isReconciling;
 
   useEffect(() => {
     onUploadActivityChange?.(hasActiveUploads);
@@ -392,6 +406,26 @@ export function PlanFileUploadZone({
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {dossierWarning && (
+        <div role="alert" className="mt-3 text-sm text-warning">
+          {dossierWarning}{" "}
+          <button
+            type="button"
+            className="font-semibold underline"
+            disabled={hasActiveUploads}
+            onClick={() => {
+              setIsReconciling(true);
+              void reconcilePlanSetDossier(setId)
+                .then(() => setDossierWarning(null))
+                .catch(() => setDossierWarning("Plans envoyés, mais le dossier n'a pas pu être actualisé."))
+                .finally(() => setIsReconciling(false));
+            }}
+          >
+            Réessayer l&apos;actualisation
+          </button>
         </div>
       )}
 

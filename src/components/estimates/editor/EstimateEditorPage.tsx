@@ -124,10 +124,12 @@ export function EstimateEditorPage({
     setHistoryError({ message, key: historyErrorSequenceRef.current });
   }, []);
   const historyController = useEstimateEditorHistoryController({
-    scopeKey: versionId,
+    scopeKey: `${profile?.id?.toLowerCase() ?? ""}:${profile?.tenant_id?.toLowerCase() ?? ""}:${versionId.toLowerCase()}`,
     reportError: reportHistoryError,
   });
   const activityController = useEstimateEditorActivityController({
+    actorId: profile?.id ?? null,
+    tenantId: profile?.tenant_id ?? null,
     routeVersionId: versionId,
     isAdmin: profile?.role === "admin",
   });

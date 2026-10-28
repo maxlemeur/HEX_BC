@@ -1047,7 +1047,11 @@ export async function reviewTabularPdfImportFile(input: {
   };
 }
 
-export async function createImportFromMultipartFormData(formData: FormData) {
+export async function createImportFromMultipartFormData(
+  formData: FormData,
+  trustedIntakeDocumentId?: string,
+  approvedIntakePdfTables?: Array<{ sourcePage: number; tableIndex: number }>
+) {
   const fileEntry = formData.get("file");
   if (!(fileEntry instanceof File)) {
     throw badRequest("Aucun fichier fourni.");
@@ -1070,7 +1074,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
       toOptionalNonEmptyString(fileEntry.name) ??
       "import"
   );
-  const sourceDocumentId = toOptionalNonEmptyString(
+  const sourceDocumentId = trustedIntakeDocumentId ?? toOptionalNonEmptyString(
     formData.get("sourceDocumentId") ?? formData.get("source_document_id")
   );
   const isPdf = isPdfImportFile(fileEntry);
@@ -1123,7 +1127,9 @@ export async function createImportFromMultipartFormData(formData: FormData) {
             tables,
           });
           const review = buildTabularPdfImportReview(tabularPdfBody);
-          const approvedTables = buildSuggestedApprovedPdfTables(review);
+          const approvedTables = trustedIntakeDocumentId && approvedIntakePdfTables
+            ? parseApprovedPdfTables(approvedIntakePdfTables)
+            : buildSuggestedApprovedPdfTables(review);
           if (approvedTables.size === 0) {
             throw badRequest(
               "Aucun tableau exploitable n'a été détecté dans ce PDF DPGF."
@@ -1142,7 +1148,13 @@ export async function createImportFromMultipartFormData(formData: FormData) {
           headerRowNumber,
         });
 
-    await insertRawRows(supabase, importRecord.id, parsed.rows);
+    const rows = trustedIntakeDocumentId && !isPdf
+      ? parsed.rows.map((row) => attachImportRowProvenance(row, {
+          source_page: null, table_index: null, source_file_name: fileEntry.name,
+          source_document_id: trustedIntakeDocumentId,
+        }))
+      : parsed.rows;
+    await insertRawRows(supabase, importRecord.id, rows);
 
     return await updateImportRecord(
       supabase,

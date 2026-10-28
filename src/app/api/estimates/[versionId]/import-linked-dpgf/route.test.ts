@@ -80,4 +80,19 @@ describe("POST /api/estimates/[versionId]/import-linked-dpgf", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(vi.mocked(importLinkedDpgfSourceIntoVersion)).not.toHaveBeenCalled();
   });
+
+  it("returns 500 after an incoherent result without treating the completed call as invalid input", async () => {
+    vi.mocked(importLinkedDpgfSourceIntoVersion).mockResolvedValue({
+      source_import_id: IMPORT_ID, target_version_id: VERSION_ID, created_section_id: SECTION_ID,
+      created_line_ids: [], imported_lines_count: 1, skipped_lines_count: 0,
+      totals: { total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0 },
+      version: { id: VERSION_ID, updated_at: "2026-10-28T10:00:00.123456Z" },
+    });
+    const response = await POST(new Request(`http://localhost/api/estimates/${VERSION_ID}/import-linked-dpgf`, {
+      method: "POST",
+    }), makeParams());
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ ok: false, error: { code: "INTERNAL_ERROR" } });
+    expect(vi.mocked(importLinkedDpgfSourceIntoVersion)).toHaveBeenCalledTimes(1);
+  });
 });

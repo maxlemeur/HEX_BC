@@ -1,3 +1,5 @@
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
+import { parseDuplicateSectionResponse } from "@/lib/estimates/section-copy-response";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -39,7 +41,7 @@ export async function POST(
       await parseJsonBodyOrDefault(request)
     );
     const data = await duplicateSectionFromVersion(versionId, sectionId, body);
-    return ok(data, 201);
+    return ok(validateEstimateResponse(() => parseDuplicateSectionResponse(data, { sourceVersionId: versionId, targetVersionId: body.target_version_id ?? versionId })), 201);
   } catch (error) {
     return toErrorResponse(error);
   }

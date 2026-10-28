@@ -1,3 +1,11 @@
+import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response-contracts";
+import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
+import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
+import {
+  duplicateSectionResponseSchema, importEstimateSectionsResponseSchema,
+  listEstimateImportSectionsResultSchema, listEstimateImportSourcesResultSchema,
+} from "@/lib/estimates/section-copy-contracts";
+import { importLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import { z } from "zod";
 
 import { purchaseOrderItemHistorySchema } from "@/lib/purchase-orders/schemas";
@@ -29,7 +37,6 @@ import {
   purchaseOrderDevisReorderSchema,
   purchaseOrderUpdateSchema,
   routeContractUuidSchema as uuidSchema,
-  takeoffItemsPatchSchema,
   takeoffPlanSetUpdateSchema,
   versionIdParameter,
   type RouteContract,
@@ -343,7 +350,8 @@ const estimateWorkflowContracts: RouteContract[] = [
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
     body: { schema: importLinkedDpgfSourceSchema, description: "Titre de section optionnel.", required: false },
-    success: [{ status: "201", description: "Source DPGF importee." }],
+    success: [{ status: "201", description: "Réponse validée du parcours de copie/import.",
+      schema: { schemaName: "ImportLinkedDpgfSourceResponse", schema: z.object({ ok: z.literal(true), data: importLinkedDpgfSourceResponseSchema }), io: "output" } }],
   },
   {
     id: "import-estimate-sections",
@@ -354,7 +362,8 @@ const estimateWorkflowContracts: RouteContract[] = [
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
     body: { schema: importEstimateSectionsSchema, description: "Version source, sections et mode d'import." },
-    success: [{ status: "201", description: "Sections importees." }],
+    success: [{ status: "201", description: "Réponse validée du parcours de copie/import.",
+      schema: { schemaName: "ImportEstimateSectionsResponse", schema: z.object({ ok: z.literal(true), data: importEstimateSectionsResponseSchema }), io: "output" } }],
   },
   {
     id: "duplicate-estimate-section",
@@ -368,7 +377,8 @@ const estimateWorkflowContracts: RouteContract[] = [
       { name: "sectionId", schema: uuidSchema, description: "Identifiant de la section." },
     ],
     body: { schema: duplicateEstimateSectionSchema, description: "Version cible optionnelle.", required: false },
-    success: [{ status: "201", description: "Section dupliquee." }],
+    success: [{ status: "201", description: "Réponse validée du parcours de copie/import.",
+      schema: { schemaName: "DuplicateEstimateSectionResponse", schema: z.object({ ok: z.literal(true), data: duplicateSectionResponseSchema }), io: "output" } }],
   },
   {
     id: "list-estimate-sections",
@@ -378,6 +388,8 @@ const estimateWorkflowContracts: RouteContract[] = [
     description: "Retourne les sections de la version accessibles au workflow d'import.",
     tags: ["Estimates"],
     pathParameters: [versionIdParameter],
+    success: [{ status: "200", description: "Réponse validée du parcours de copie/import.",
+      schema: { schemaName: "ListEstimateImportSectionsResponse", schema: z.object({ ok: z.literal(true), data: listEstimateImportSectionsResultSchema }), io: "output" } }],
   },
   {
     id: "generate-estimate-structure-draft",
@@ -486,6 +498,8 @@ const estimateWorkflowContracts: RouteContract[] = [
       { name: "exclude_version_id", schema: uuidSchema, description: "Version a exclure." },
       { name: "excludeVersionId", schema: uuidSchema, description: "Alias camelCase de l'exclusion." },
     ],
+    success: [{ status: "200", description: "Réponse validée du parcours de copie/import.",
+      schema: { schemaName: "ListEstimateImportSourcesResponse", schema: z.object({ ok: z.literal(true), data: listEstimateImportSourcesResultSchema }), io: "output" } }],
   },
   {
     id: "get-estimate-stats",
@@ -544,6 +558,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     description: "Applique jusqu'a 100 mises a jour optimistes aux items d'un job termine.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "Résultats ordonnés des modifications, succès partiels inclus.", schema: {
+      schemaName: "ApiTakeoffItemsPatchResponse", schema: z.object({ ok: z.literal(true), data: takeoffItemBatchPatchResponseSchema }), io: "output",
+    } }],
     body: { schema: takeoffItemsPatchSchema, description: "Items, jetons updated_at et champs a modifier." },
   },
   {
@@ -554,6 +571,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     description: "Reconcilie l'etat du job et relance le traitement asynchrone si necessaire.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "État confirmé du job et résultat de la réconciliation.", schema: {
+      schemaName: "ApiTakeoffReconcileResponse", schema: z.object({ ok: z.literal(true), data: takeoffJobActionResponseSchema }), io: "output",
+    } }],
     extraErrors: [{ status: "503", description: "Worker asynchrone indisponible." }],
   },
   {
@@ -564,6 +584,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     description: "Resoumet un job eligible et declenche son traitement asynchrone.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "État confirmé du job et résultat de la soumission.", schema: {
+      schemaName: "ApiTakeoffResubmitResponse", schema: z.object({ ok: z.literal(true), data: takeoffJobActionResponseSchema }), io: "output",
+    } }],
   },
   {
     id: "patch-takeoff-plan-set",

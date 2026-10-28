@@ -1,3 +1,4 @@
+import { parseSaveTakeoffReviewDecisionResponse } from "@/lib/takeoff/review-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -17,7 +18,7 @@ export async function PATCH(
     const body = await request.json();
     const data = await saveTakeoffReviewDecision(jobId, body);
 
-    return ok(data);
+    return ok(parseSaveTakeoffReviewDecisionResponse(data, { jobId, versionId: body.version_id, lineId: body.estimate_item_id, decision: body.decision, reason: body.reason }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {
