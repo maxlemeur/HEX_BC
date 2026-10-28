@@ -1,3 +1,4 @@
+import { parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -37,7 +38,7 @@ export async function POST(
       });
     }
 
-    return ok({
+    return ok(parseTakeoffJobActionResponse({
       ...data,
       dispatch: {
         status: triggerResult.triggered
@@ -48,7 +49,7 @@ export async function POST(
         correlation_id: triggerResult.correlationId,
         persisted: dispatchPersisted,
       },
-    });
+    }, { jobId, command: "retry" }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

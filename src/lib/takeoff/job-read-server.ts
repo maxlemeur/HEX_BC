@@ -1,3 +1,5 @@
+import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
+import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import "server-only";
 
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
@@ -131,8 +133,8 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
   .object({
     id: z.string().uuid(),
     estimate_version_id: z.string().uuid(),
-    status: z.string(),
-    level: z.string(),
+    status: z.enum(TAKEOFF_JOB_STATUSES),
+    level: z.enum(TAKEOFF_RESPONSE_LEVELS),
     processing_strategy: z.enum(["sync", "batch"]).nullable().optional(),
     provider_batch_id: z.string().nullable().optional(),
     provider_batch_state: z
@@ -380,11 +382,7 @@ export function normalizeTakeoffJobSummaryRow(
   tenantRole?: string | null
 ): TakeoffJobSummary {
   return decorateTakeoffJobSummaryWithOperatorState(
-    parseWithSchema(
-      takeoffJobSummarySchema,
-      row,
-      "Données takeoff_jobs invalides en base."
-    ),
+    parseTakeoffResponse(takeoffJobSummarySchema, row),
     tenantRole
   );
 }

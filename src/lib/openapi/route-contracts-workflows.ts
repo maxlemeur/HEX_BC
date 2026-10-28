@@ -1,3 +1,6 @@
+import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response-contracts";
+import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
+import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
 import {
   duplicateSectionResponseSchema, importEstimateSectionsResponseSchema,
   listEstimateImportSectionsResultSchema, listEstimateImportSourcesResultSchema,
@@ -34,7 +37,6 @@ import {
   purchaseOrderDevisReorderSchema,
   purchaseOrderUpdateSchema,
   routeContractUuidSchema as uuidSchema,
-  takeoffItemsPatchSchema,
   takeoffPlanSetUpdateSchema,
   versionIdParameter,
   type RouteContract,
@@ -556,6 +558,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     description: "Applique jusqu'a 100 mises a jour optimistes aux items d'un job termine.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "Résultats ordonnés des modifications, succès partiels inclus.", schema: {
+      schemaName: "ApiTakeoffItemsPatchResponse", schema: z.object({ ok: z.literal(true), data: takeoffItemBatchPatchResponseSchema }), io: "output",
+    } }],
     body: { schema: takeoffItemsPatchSchema, description: "Items, jetons updated_at et champs a modifier." },
   },
   {
@@ -566,6 +571,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     description: "Reconcilie l'etat du job et relance le traitement asynchrone si necessaire.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "État confirmé du job et résultat de la réconciliation.", schema: {
+      schemaName: "ApiTakeoffReconcileResponse", schema: z.object({ ok: z.literal(true), data: takeoffJobActionResponseSchema }), io: "output",
+    } }],
     extraErrors: [{ status: "503", description: "Worker asynchrone indisponible." }],
   },
   {
@@ -576,6 +584,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     description: "Resoumet un job eligible et declenche son traitement asynchrone.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "État confirmé du job et résultat de la soumission.", schema: {
+      schemaName: "ApiTakeoffResubmitResponse", schema: z.object({ ok: z.literal(true), data: takeoffJobActionResponseSchema }), io: "output",
+    } }],
   },
   {
     id: "patch-takeoff-plan-set",

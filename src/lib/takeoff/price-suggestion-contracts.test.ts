@@ -63,6 +63,23 @@ describe("takeoff price suggestion client contracts", () => {
     expect(await fetchTakeoffPriceSuggestion(JOB_ID, QUERY)).toEqual(data);
   });
 
+  it.each(["string ok", "missing ok", "contradictory error", "false ok"])("rejects %s envelopes with otherwise valid price receipts", async (shape) => {
+    for (const [run, data] of [
+      [() => fetchTakeoffPriceSuggestion(JOB_ID, QUERY), { suggestion: suggestion() }],
+      [() => requestTakeoffPriceSuggestion(JOB_ID, QUERY), { suggestion: suggestion() }],
+      [() => reviewTakeoffPriceSuggestion(JOB_ID, SUGGESTION_ID, { version_id: VERSION_ID, action: "apply_target", review_note: "Prix vérifié" }, LINE_ID), reviewedSuggestion()],
+    ] as const) {
+      const envelope = shape === "string ok" ? { ok: "yes", data }
+        : shape === "missing ok" ? { data }
+        : shape === "contradictory error" ? { ok: true, data, error: null }
+        : { ok: false, data };
+      const fetch = vi.fn().mockResolvedValue(Response.json(envelope));
+      vi.stubGlobal("fetch", fetch);
+      await expect(run()).rejects.toMatchObject({ status: 502, code: "TAKEOFF_INVALID_RESPONSE", retryable: false });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("matches valid uppercase request UUIDs against canonical database UUIDs", async () => {
     const data = { suggestion: suggestion() };
     respond(data);

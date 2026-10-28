@@ -18116,11 +18116,11 @@
         },
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Résultats ordonnés des modifications, succès partiels inclus.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiTakeoffItemsPatchResponse"
                 }
               }
             }
@@ -18794,11 +18794,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "État confirmé du job et résultat de la réconciliation.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiTakeoffReconcileResponse"
                 }
               }
             }
@@ -18896,11 +18896,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "État confirmé du job et résultat de la soumission.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiTakeoffResubmitResponse"
                 }
               }
             }
@@ -37896,14 +37896,31 @@
           "data": {
             "type": "object",
             "properties": {
+              "version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
               "message_id": {
-                "type": [
-                  "string",
-                  "null"
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               }
             },
             "required": [
+              "version_id",
+              "request_id",
               "message_id"
             ],
             "additionalProperties": false
@@ -59240,6 +59257,52 @@
                         "C"
                       ]
                     },
+                    "processing_strategy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "sync",
+                            "batch"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "provider_batch_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "provider_batch_state": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "submitted",
+                            "pending",
+                            "running",
+                            "succeeded",
+                            "failed",
+                            "cancelled",
+                            "expired",
+                            "unknown"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "provider_batch_updated_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "source_file_name": {
                       "type": [
                         "string",
@@ -59256,7 +59319,7 @@
                       "anyOf": [
                         {
                           "type": "integer",
-                          "minimum": -9007199254740991,
+                          "minimum": 0,
                           "maximum": 9007199254740991
                         },
                         {
@@ -59318,6 +59381,18 @@
                       ]
                     },
                     "error_message": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "next_retry_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "last_error_at": {
                       "type": [
                         "string",
                         "null"
@@ -59401,6 +59476,55 @@
                         "null"
                       ]
                     },
+                    "provider_reconcile_due_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "provider_reconcile_attempt_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "provider_reconcile_lease_expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "operator_state": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "submitted_to_provider",
+                            "awaiting_provider_result",
+                            "provider_failed",
+                            "orphan_to_reconcile"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "operator_state_label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "can_reconcile": {
+                      "type": "boolean"
+                    },
+                    "can_cancel": {
+                      "type": "boolean"
+                    },
+                    "can_resubmit": {
+                      "type": "boolean"
+                    },
                     "started_at": {
                       "type": [
                         "string",
@@ -59431,6 +59555,18 @@
                         }
                       ]
                     },
+                    "version_number": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "metrics": {
                       "type": "object",
                       "properties": {
@@ -59438,7 +59574,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -59450,7 +59586,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -59462,7 +59598,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "minimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -59484,6 +59620,10 @@
                     "estimate_version_id",
                     "status",
                     "level",
+                    "processing_strategy",
+                    "provider_batch_id",
+                    "provider_batch_state",
+                    "provider_batch_updated_at",
                     "source_file_name",
                     "source_file_type",
                     "source_file_size_bytes",
@@ -59495,6 +59635,8 @@
                     "retry_count",
                     "error_code",
                     "error_message",
+                    "next_retry_at",
+                    "last_error_at",
                     "started_at",
                     "completed_at",
                     "created_at",
@@ -59548,7 +59690,7 @@
                   "limit": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 9007199254740991
+                    "maximum": 100
                   },
                   "offset": {
                     "type": "integer",
@@ -59636,11 +59778,23 @@
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "status": {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "processing",
+                  "completed",
+                  "failed",
+                  "canceled",
+                  "applied"
+                ]
               },
               "level": {
                 "type": "string",
-                "const": "A"
+                "enum": [
+                  "A",
+                  "B",
+                  "C"
+                ]
               },
               "source_file_name": {
                 "type": [
@@ -59690,8 +59844,7 @@
               "level",
               "source_file_name",
               "estimate_version_id",
-              "created_at",
-              "dispatch"
+              "created_at"
             ],
             "additionalProperties": false
           }
@@ -59759,6 +59912,52 @@
                       "C"
                     ]
                   },
+                  "processing_strategy": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sync",
+                          "batch"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_batch_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "submitted",
+                          "pending",
+                          "running",
+                          "succeeded",
+                          "failed",
+                          "cancelled",
+                          "expired",
+                          "unknown"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source_file_name": {
                     "type": [
                       "string",
@@ -59775,7 +59974,7 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": -9007199254740991,
+                        "minimum": 0,
                         "maximum": 9007199254740991
                       },
                       {
@@ -59837,6 +60036,18 @@
                     ]
                   },
                   "error_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "next_retry_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "last_error_at": {
                     "type": [
                       "string",
                       "null"
@@ -59920,6 +60131,55 @@
                       "null"
                     ]
                   },
+                  "provider_reconcile_due_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_attempt_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "provider_reconcile_lease_expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operator_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "submitted_to_provider",
+                          "awaiting_provider_result",
+                          "provider_failed",
+                          "orphan_to_reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "operator_state_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "can_reconcile": {
+                    "type": "boolean"
+                  },
+                  "can_cancel": {
+                    "type": "boolean"
+                  },
+                  "can_resubmit": {
+                    "type": "boolean"
+                  },
                   "started_at": {
                     "type": [
                       "string",
@@ -59950,6 +60210,18 @@
                       }
                     ]
                   },
+                  "version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "metrics": {
                     "type": "object",
                     "properties": {
@@ -59957,7 +60229,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -59969,7 +60241,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -59981,7 +60253,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60003,6 +60275,10 @@
                   "estimate_version_id",
                   "status",
                   "level",
+                  "processing_strategy",
+                  "provider_batch_id",
+                  "provider_batch_state",
+                  "provider_batch_updated_at",
                   "source_file_name",
                   "source_file_type",
                   "source_file_size_bytes",
@@ -60014,6 +60290,8 @@
                   "retry_count",
                   "error_code",
                   "error_message",
+                  "next_retry_at",
+                  "last_error_at",
                   "started_at",
                   "completed_at",
                   "created_at",
@@ -60048,25 +60326,24 @@
                         },
                         "additionalProperties": {}
                       },
-                      "raw_response": {
+                      "raw_response": {},
+                      "confidence": {
                         "anyOf": [
-                          {},
+                          {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
                           {
                             "type": "null"
                           }
-                        ]
-                      },
-                      "confidence": {
-                        "type": [
-                          "number",
-                          "null"
                         ]
                       },
                       "token_count": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60078,7 +60355,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60090,7 +60367,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60143,15 +60420,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -60170,7 +60454,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -60187,6 +60471,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -60227,6 +60517,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -60242,7 +60533,7 @@
                       "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": 9007199254740991
+                        "maximum": 200
                       },
                       "offset": {
                         "type": "integer",
@@ -60533,6 +60824,52 @@
                       "C"
                     ]
                   },
+                  "processing_strategy": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sync",
+                          "batch"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_batch_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "submitted",
+                          "pending",
+                          "running",
+                          "succeeded",
+                          "failed",
+                          "cancelled",
+                          "expired",
+                          "unknown"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source_file_name": {
                     "type": [
                       "string",
@@ -60549,7 +60886,7 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": -9007199254740991,
+                        "minimum": 0,
                         "maximum": 9007199254740991
                       },
                       {
@@ -60611,6 +60948,18 @@
                     ]
                   },
                   "error_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "next_retry_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "last_error_at": {
                     "type": [
                       "string",
                       "null"
@@ -60694,6 +61043,55 @@
                       "null"
                     ]
                   },
+                  "provider_reconcile_due_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_attempt_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "provider_reconcile_lease_expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operator_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "submitted_to_provider",
+                          "awaiting_provider_result",
+                          "provider_failed",
+                          "orphan_to_reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "operator_state_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "can_reconcile": {
+                    "type": "boolean"
+                  },
+                  "can_cancel": {
+                    "type": "boolean"
+                  },
+                  "can_resubmit": {
+                    "type": "boolean"
+                  },
                   "started_at": {
                     "type": [
                       "string",
@@ -60724,6 +61122,18 @@
                       }
                     ]
                   },
+                  "version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "metrics": {
                     "type": "object",
                     "properties": {
@@ -60731,7 +61141,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60743,7 +61153,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60755,7 +61165,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -60777,6 +61187,10 @@
                   "estimate_version_id",
                   "status",
                   "level",
+                  "processing_strategy",
+                  "provider_batch_id",
+                  "provider_batch_state",
+                  "provider_batch_updated_at",
                   "source_file_name",
                   "source_file_type",
                   "source_file_size_bytes",
@@ -60788,6 +61202,8 @@
                   "retry_count",
                   "error_code",
                   "error_message",
+                  "next_retry_at",
+                  "last_error_at",
                   "started_at",
                   "completed_at",
                   "created_at",
@@ -60919,6 +61335,52 @@
                       "C"
                     ]
                   },
+                  "processing_strategy": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sync",
+                          "batch"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_batch_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "submitted",
+                          "pending",
+                          "running",
+                          "succeeded",
+                          "failed",
+                          "cancelled",
+                          "expired",
+                          "unknown"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source_file_name": {
                     "type": [
                       "string",
@@ -60935,7 +61397,7 @@
                     "anyOf": [
                       {
                         "type": "integer",
-                        "minimum": -9007199254740991,
+                        "minimum": 0,
                         "maximum": 9007199254740991
                       },
                       {
@@ -60997,6 +61459,18 @@
                     ]
                   },
                   "error_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "next_retry_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "last_error_at": {
                     "type": [
                       "string",
                       "null"
@@ -61080,6 +61554,55 @@
                       "null"
                     ]
                   },
+                  "provider_reconcile_due_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_attempt_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "provider_reconcile_lease_expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operator_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "submitted_to_provider",
+                          "awaiting_provider_result",
+                          "provider_failed",
+                          "orphan_to_reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "operator_state_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "can_reconcile": {
+                    "type": "boolean"
+                  },
+                  "can_cancel": {
+                    "type": "boolean"
+                  },
+                  "can_resubmit": {
+                    "type": "boolean"
+                  },
                   "started_at": {
                     "type": [
                       "string",
@@ -61110,6 +61633,18 @@
                       }
                     ]
                   },
+                  "version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "metrics": {
                     "type": "object",
                     "properties": {
@@ -61117,7 +61652,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -61129,7 +61664,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -61141,7 +61676,7 @@
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
@@ -61163,6 +61698,10 @@
                   "estimate_version_id",
                   "status",
                   "level",
+                  "processing_strategy",
+                  "provider_batch_id",
+                  "provider_batch_state",
+                  "provider_batch_updated_at",
                   "source_file_name",
                   "source_file_type",
                   "source_file_size_bytes",
@@ -61174,6 +61713,8 @@
                   "retry_count",
                   "error_code",
                   "error_message",
+                  "next_retry_at",
+                  "last_error_at",
                   "started_at",
                   "completed_at",
                   "created_at",
@@ -61181,6 +61722,22 @@
                   "metrics"
                 ],
                 "additionalProperties": false
+              },
+              "command": {
+                "type": "string",
+                "enum": [
+                  "retry",
+                  "cancel",
+                  "reconcile",
+                  "resubmit"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "noop"
+                ]
               },
               "dispatch": {
                 "type": "object",
@@ -61254,8 +61811,8 @@
               },
               "threshold": {
                 "type": "number",
-                "minimum": 0,
-                "maximum": 1
+                "minimum": 0.5,
+                "maximum": 0.99
               },
               "summary": {
                 "type": "object",
@@ -61307,7 +61864,8 @@
                   "type": "object",
                   "properties": {
                     "key": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 1
                     },
                     "change_type": {
                       "type": "string",
@@ -61325,15 +61883,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -61352,7 +61917,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -61369,6 +61934,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -61409,6 +61980,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -61432,7 +62004,8 @@
                   "type": "object",
                   "properties": {
                     "key": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 1
                     },
                     "change_type": {
                       "type": "string",
@@ -61450,15 +62023,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -61477,7 +62057,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -61494,6 +62074,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -61534,6 +62120,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -61557,11 +62144,8 @@
                   "type": "object",
                   "properties": {
                     "key": {
-                      "type": "string"
-                    },
-                    "change_type": {
                       "type": "string",
-                      "const": "changed"
+                      "minLength": 1
                     },
                     "base_item": {
                       "type": "object",
@@ -61575,15 +62159,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -61602,7 +62193,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -61619,6 +62210,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -61659,6 +62256,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -61679,15 +62277,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -61706,7 +62311,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -61723,6 +62328,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -61763,6 +62374,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -61772,7 +62384,9 @@
                       "additionalProperties": false
                     },
                     "match_score": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
                     },
                     "match_strategy": {
                       "type": "string",
@@ -61781,7 +62395,12 @@
                         "designation_plus_page_fuzzy"
                       ]
                     },
+                    "change_type": {
+                      "type": "string",
+                      "const": "changed"
+                    },
                     "delta": {
+                      "minItems": 1,
                       "type": "array",
                       "items": {
                         "type": "object",
@@ -61835,11 +62454,11 @@
                   },
                   "required": [
                     "key",
-                    "change_type",
                     "base_item",
                     "other_item",
                     "match_score",
                     "match_strategy",
+                    "change_type",
                     "delta"
                   ],
                   "additionalProperties": false
@@ -61851,11 +62470,8 @@
                   "type": "object",
                   "properties": {
                     "key": {
-                      "type": "string"
-                    },
-                    "change_type": {
                       "type": "string",
-                      "const": "unchanged"
+                      "minLength": 1
                     },
                     "base_item": {
                       "type": "object",
@@ -61869,15 +62485,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -61896,7 +62519,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -61913,6 +62536,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -61953,6 +62582,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -61973,15 +62603,22 @@
                           "type": "string"
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
                           "type": "string"
                         },
                         "confidence": {
-                          "type": [
-                            "number",
-                            "null"
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "evidence": {
@@ -62000,7 +62637,7 @@
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": -9007199254740991,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
@@ -62017,6 +62654,12 @@
                         },
                         "is_excluded": {
                           "type": "boolean"
+                        },
+                        "exclusion_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "is_verified": {
                           "type": "boolean"
@@ -62057,6 +62700,7 @@
                         "source_page",
                         "metadata",
                         "is_excluded",
+                        "exclusion_reason",
                         "is_verified",
                         "verified_at",
                         "verified_by",
@@ -62066,7 +62710,9 @@
                       "additionalProperties": false
                     },
                     "match_score": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
                     },
                     "match_strategy": {
                       "type": "string",
@@ -62074,15 +62720,19 @@
                         "designation_fuzzy",
                         "designation_plus_page_fuzzy"
                       ]
+                    },
+                    "change_type": {
+                      "type": "string",
+                      "const": "unchanged"
                     }
                   },
                   "required": [
                     "key",
-                    "change_type",
                     "base_item",
                     "other_item",
                     "match_score",
-                    "match_strategy"
+                    "match_strategy",
+                    "change_type"
                   ],
                   "additionalProperties": false
                 }
@@ -62992,6 +63642,7 @@
             "type": "object",
             "properties": {
               "links": {
+                "maxItems": 50,
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -63113,6 +63764,18 @@
                       "minLength": 1,
                       "maxLength": 64
                     },
+                    "source_page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "is_excluded": {
                       "type": "boolean"
                     },
@@ -63143,7 +63806,8 @@
                         }
                       ]
                     }
-                  }
+                  },
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -63156,7 +63820,220 @@
         },
         "required": [
           "items"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffItemsPatchResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "results": {
+                "minItems": 1,
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "item": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "designation": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            "unit": {
+                              "type": "string"
+                            },
+                            "confidence": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "evidence": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "source_file_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "source_page": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {}
+                            },
+                            "is_excluded": {
+                              "type": "boolean"
+                            },
+                            "exclusion_reason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "is_verified": {
+                              "type": "boolean"
+                            },
+                            "verified_at": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "verified_by": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "created_at": {
+                              "type": "string"
+                            },
+                            "updated_at": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "designation",
+                            "quantity",
+                            "unit",
+                            "confidence",
+                            "evidence",
+                            "source_file_name",
+                            "source_page",
+                            "metadata",
+                            "is_excluded",
+                            "exclusion_reason",
+                            "is_verified",
+                            "verified_at",
+                            "verified_by",
+                            "created_at",
+                            "updated_at"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "error": {
+                          "not": {}
+                        }
+                      },
+                      "required": [
+                        "item_id",
+                        "success",
+                        "item"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "success": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "error": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "item": {
+                          "not": {}
+                        }
+                      },
+                      "required": [
+                        "item_id",
+                        "success",
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "succeeded": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "results",
+              "succeeded",
+              "failed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "TakeoffLineIdPathParameter": {
         "type": "string",
@@ -63818,13 +64695,18 @@
                       "type": "object",
                       "properties": {
                         "designation": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
                         },
                         "is_excluded": {
                           "type": "boolean"
@@ -63881,13 +64763,18 @@
                       "type": "object",
                       "properties": {
                         "designation": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
                         },
                         "quantity": {
-                          "type": "number"
+                          "type": "number",
+                          "exclusiveMinimum": 0
                         },
                         "unit": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
                         },
                         "is_excluded": {
                           "type": "boolean"
@@ -64778,10 +65665,982 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "ApiTakeoffReconcileResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "estimate_version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "processing",
+                      "completed",
+                      "failed",
+                      "canceled",
+                      "applied"
+                    ]
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "A",
+                      "B",
+                      "C"
+                    ]
+                  },
+                  "processing_strategy": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sync",
+                          "batch"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_batch_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "submitted",
+                          "pending",
+                          "running",
+                          "succeeded",
+                          "failed",
+                          "cancelled",
+                          "expired",
+                          "unknown"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_file_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_file_type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_file_size_bytes": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "plan_set_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "prompt_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "schema_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "thinking_level": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "media_resolution": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "retry_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "error_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "error_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "next_retry_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "last_error_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dispatch_status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "queued",
+                          "trigger_failed"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_outcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accepted",
+                          "configuration_missing",
+                          "http_error",
+                          "timeout",
+                          "network_error"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_trigger": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "create",
+                          "retry",
+                          "manual",
+                          "reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_correlation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_status_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_due_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_attempt_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "provider_reconcile_lease_expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operator_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "submitted_to_provider",
+                          "awaiting_provider_result",
+                          "provider_failed",
+                          "orphan_to_reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "operator_state_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "can_reconcile": {
+                    "type": "boolean"
+                  },
+                  "can_cancel": {
+                    "type": "boolean"
+                  },
+                  "can_resubmit": {
+                    "type": "boolean"
+                  },
+                  "started_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "completed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "items_count": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "metrics": {
+                    "type": "object",
+                    "properties": {
+                      "token_count": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cost_cents": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "duration_ms": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "token_count",
+                      "cost_cents",
+                      "duration_ms"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "estimate_version_id",
+                  "status",
+                  "level",
+                  "processing_strategy",
+                  "provider_batch_id",
+                  "provider_batch_state",
+                  "provider_batch_updated_at",
+                  "source_file_name",
+                  "source_file_type",
+                  "source_file_size_bytes",
+                  "prompt_version",
+                  "schema_version",
+                  "model",
+                  "thinking_level",
+                  "media_resolution",
+                  "retry_count",
+                  "error_code",
+                  "error_message",
+                  "next_retry_at",
+                  "last_error_at",
+                  "started_at",
+                  "completed_at",
+                  "created_at",
+                  "updated_at",
+                  "metrics"
+                ],
+                "additionalProperties": false
+              },
+              "command": {
+                "type": "string",
+                "enum": [
+                  "retry",
+                  "cancel",
+                  "reconcile",
+                  "resubmit"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "noop"
+                ]
+              },
+              "dispatch": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "queued_for_recovery",
+                      "persistence_unconfirmed"
+                    ]
+                  },
+                  "correlation_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "persisted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "status",
+                  "correlation_id",
+                  "persisted"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ResubmitTakeoffJobJobIdParameter": {
         "type": "string",
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffResubmitResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "estimate_version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "processing",
+                      "completed",
+                      "failed",
+                      "canceled",
+                      "applied"
+                    ]
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "A",
+                      "B",
+                      "C"
+                    ]
+                  },
+                  "processing_strategy": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sync",
+                          "batch"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_batch_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "submitted",
+                          "pending",
+                          "running",
+                          "succeeded",
+                          "failed",
+                          "cancelled",
+                          "expired",
+                          "unknown"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider_batch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_file_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_file_type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_file_size_bytes": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "plan_set_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "prompt_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "schema_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "thinking_level": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "media_resolution": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "retry_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "error_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "error_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "next_retry_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "last_error_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dispatch_status": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "queued",
+                          "trigger_failed"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_outcome": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accepted",
+                          "configuration_missing",
+                          "http_error",
+                          "timeout",
+                          "network_error"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_trigger": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "create",
+                          "retry",
+                          "manual",
+                          "reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_correlation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_status_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispatch_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_due_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_reconcile_attempt_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "provider_reconcile_lease_expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operator_state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "submitted_to_provider",
+                          "awaiting_provider_result",
+                          "provider_failed",
+                          "orphan_to_reconcile"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "operator_state_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "can_reconcile": {
+                    "type": "boolean"
+                  },
+                  "can_cancel": {
+                    "type": "boolean"
+                  },
+                  "can_resubmit": {
+                    "type": "boolean"
+                  },
+                  "started_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "completed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "items_count": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "metrics": {
+                    "type": "object",
+                    "properties": {
+                      "token_count": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cost_cents": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "duration_ms": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "token_count",
+                      "cost_cents",
+                      "duration_ms"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "estimate_version_id",
+                  "status",
+                  "level",
+                  "processing_strategy",
+                  "provider_batch_id",
+                  "provider_batch_state",
+                  "provider_batch_updated_at",
+                  "source_file_name",
+                  "source_file_type",
+                  "source_file_size_bytes",
+                  "prompt_version",
+                  "schema_version",
+                  "model",
+                  "thinking_level",
+                  "media_resolution",
+                  "retry_count",
+                  "error_code",
+                  "error_message",
+                  "next_retry_at",
+                  "last_error_at",
+                  "started_at",
+                  "completed_at",
+                  "created_at",
+                  "updated_at",
+                  "metrics"
+                ],
+                "additionalProperties": false
+              },
+              "command": {
+                "type": "string",
+                "enum": [
+                  "retry",
+                  "cancel",
+                  "reconcile",
+                  "resubmit"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "noop"
+                ]
+              },
+              "dispatch": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "queued_for_recovery",
+                      "persistence_unconfirmed"
+                    ]
+                  },
+                  "correlation_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "persisted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "status",
+                  "correlation_id",
+                  "persisted"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "PatchTakeoffReviewDecisionRequest": {
         "type": "object",
@@ -65046,6 +66905,18 @@
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
+                  "takeoff_job_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "scope_type": {
                     "type": "string",
                     "enum": [
@@ -65116,7 +66987,7 @@
                     ]
                   },
                   "risk_score": {
-                    "type": "integer",
+                    "type": "number",
                     "minimum": 0,
                     "maximum": 100
                   },
@@ -65355,7 +67226,7 @@
                     }
                   },
                   "project_score": {
-                    "type": "integer",
+                    "type": "number",
                     "minimum": 0,
                     "maximum": 100
                   },
@@ -65407,7 +67278,7 @@
                     "type": "string"
                   },
                   "score": {
-                    "type": "integer",
+                    "type": "number",
                     "minimum": 0,
                     "maximum": 100
                   },
@@ -65476,7 +67347,7 @@
                       "type": "string"
                     },
                     "score": {
-                      "type": "integer",
+                      "type": "number",
                       "minimum": 0,
                       "maximum": 100
                     },
@@ -65527,6 +67398,18 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "takeoff_job_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "scope_type": {
                       "type": "string",
@@ -65598,7 +67481,7 @@
                       ]
                     },
                     "risk_score": {
-                      "type": "integer",
+                      "type": "number",
                       "minimum": 0,
                       "maximum": 100
                     },

@@ -1,3 +1,5 @@
+import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
+import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import { z } from "zod";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import {
@@ -34,8 +36,8 @@ const UUID_REGEX =
 
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   id: z.string().uuid(),
-  status: z.string(),
-  level: z.string(),
+  status: z.enum(TAKEOFF_JOB_STATUSES),
+  level: z.enum(TAKEOFF_RESPONSE_LEVELS),
   source_file_name: z.string().nullable(),
   estimate_version_id: z.string().uuid(),
   created_at: z.string(),
@@ -167,7 +169,7 @@ export function extractPayloadFingerprint(path: string | null | undefined) {
 }
 
 export function normalizeTakeoffJobRow(row: TakeoffJobRow): TakeoffJobCreateResponse {
-  return takeoffJobResponseSchema.parse({
+  return parseTakeoffResponse(takeoffJobResponseSchema, {
     id: row.id,
     status: row.status,
     level: row.level,

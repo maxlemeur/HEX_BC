@@ -405,27 +405,8 @@ export const purchaseOrderDevisReorderSchema = z.object({
   orderedIds: z.array(uuidSchema).min(1),
 });
 
-const takeoffItemPatchFieldsSchema = z.object({
-  designation: z.string().trim().min(1).max(500).optional(),
-  quantity: z.number().finite().positive().optional(),
-  unit: z.string().trim().min(1).max(64).optional(),
-  is_excluded: z.boolean().optional(),
-  exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
-  is_verified: z.boolean().optional(),
-  evidence: z.string().trim().min(1).max(2000).nullable().optional(),
-});
-export const takeoffItemsPatchSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        item_id: uuidSchema,
-        updated_at: z.string().min(1),
-        fields: takeoffItemPatchFieldsSchema,
-      })
-    )
-    .min(1)
-    .max(100),
-});
+
+export { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
 export const takeoffPlanSetUpdateSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
   description: z.string().max(2000).nullable().optional(),

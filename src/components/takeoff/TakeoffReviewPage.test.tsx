@@ -178,7 +178,7 @@ function makeItem(overrides: Partial<TakeoffJobItem> = {}): TakeoffJobItem {
 
 function makeMockResponse(
   items: TakeoffJobItem[],
-  overrides: { level?: string; tables?: unknown[] } = {}
+  overrides: { level?: TakeoffJobDetailResponse["job"]["level"]; tables?: unknown[] } = {}
 ): TakeoffJobDetailResponse {
   return {
     job: {

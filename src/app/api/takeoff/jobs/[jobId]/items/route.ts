@@ -1,3 +1,4 @@
+import { parseTakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -16,7 +17,7 @@ export async function PATCH(
     const jobId = await getJobId(params);
     const body = await request.json();
     const data = await batchUpdateTakeoffItems(jobId, body);
-    return ok(data);
+    return ok(parseTakeoffItemBatchPatchResponse(data, body.items.map((item: { item_id: string }) => item.item_id)));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {
