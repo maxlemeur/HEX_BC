@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { expect } from "e2e";
+import { editorDocumentDraftStorageKey } from "../../../src/lib/estimates/editor-document-drafts";
 
 import {
   apiRequest, armyTest, readEstimate, recordEvidence, resolveDownload, saveLineEditsWithShortcut, waitForAutoSave,
@@ -1434,18 +1435,20 @@ armyTest("V3E18 restoring a conflicting local draft on a v3 writes its v3 inputs
     const before = await readConsistent(ui, draft.versionId);
     expect(totalsOf(before)).toEqual(initial);
 
-    // Le brouillon que l'éditeur conserve en session après un conflit d'enregistrement (editor-drafts.ts,
-    // « estimate:edit:conflict-draft:<version> ») : les lignes telles que l'éditeur les tenait, saisies v3 comprises,
-    // et ses réglages (forme v2, ici une marge × 1,25 qu'une v3 ne porte pas).
+    // A conflict draft belongs to the authenticated owner and tenant of this
+    // fixture. Unattributed historical drafts are never restored automatically.
     const draftItems = before.items.map(item => item.id === line.id
       ? { ...item, unit_code: "ml", h_mo_per_unit: 1.5 } : item);
     const settings = { margin_mode: "fixed", margin_multiplier: 1.25, margin_bp: 2500, discount_bp: 0, tax_rate_bp: 2000, currency: "EUR" };
+    const draftIdentity = { actorId: draft.owner.userId, tenantId: draft.owner.tenantId, versionId: draft.versionId };
+    const storageKey = editorDocumentDraftStorageKey("conflict", draftIdentity);
+    if (!storageKey) throw new Error("The recovery fixture must have a verified document identity.");
     await browser.evaluate((entry) => {
       const [key, value] = entry as [string, string];
       sessionStorage.setItem(key, value);
       return true;
-    }, [`estimate:edit:conflict-draft:${draft.versionId}`,
-      JSON.stringify({ settings, items: draftItems, saved_at: new Date().toISOString() })]);
+    }, [storageKey, JSON.stringify({ schemaVersion: 2, identity: draftIdentity,
+      draft: { settings, items: draftItems, saved_at: new Date().toISOString() } })]);
     await browser.reload();
     await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
     await waitForDraftLease(ui);
@@ -1702,7 +1705,14 @@ armyTest("V3E20 a failed reorder after undo restores one line once and offers an
       await expect(screen.getByTestId("estimate-editor-undo-button", { visible: true })).toBeDisabled();
       await expect(screen.getByRole("combobox", lineA.title, { exact: true })).toBeDisabled();
       await expect(screen.getByLabel(`Sélectionner la ligne ${lineA.title}`, { exact: true })).toBeDisabled();
+      // An HTTP 503 does not prove whether the order was committed. The
+      // explicit verification is read-only and must precede another write.
+      await expect(retry).toBeDisabled();
+      await screen.getByRole("button", "Vérifier le résultat", { exact: true }).click();
       await expect(retry).toBeEnabled();
+      await expect(partial).toBeVisible();
+      expect(creationPosts).toBe(1);
+      expect(reorderRequests).toHaveLength(1);
       await expect(screen.getByTestId("estimate-page-toolbar-send-button")).toBeDisabled();
       expect(await sectionTop()).toBe(topBeforeUndo);
       expect(creationPosts).toBe(1);
@@ -1895,7 +1905,14 @@ armyTest("V3E21 a bulk deletion undo recovers its two restored lines without rec
       await expect(screen.getByTestId("estimate-editor-undo-button", { visible: true })).toBeDisabled();
       await expect(screen.getByRole("combobox", lineA.title, { exact: true })).toBeDisabled();
       await expect(screen.getByLabel(`Sélectionner la ligne ${lineA.title}`, { exact: true })).toBeDisabled();
+      // An HTTP 503 does not prove whether the order was committed. The
+      // explicit verification is read-only and must precede another write.
+      await expect(retry).toBeDisabled();
+      await screen.getByRole("button", "Vérifier le résultat", { exact: true }).click();
       await expect(retry).toBeEnabled();
+      await expect(partial).toBeVisible();
+      expect(creationPosts).toBe(2);
+      expect(reorderRequests).toHaveLength(1);
       await expect(screen.getByTestId("estimate-page-toolbar-send-button")).toBeDisabled();
       expect(await sectionTop()).toBe(topBeforeUndo);
       expect(creationPosts).toBe(2);
@@ -1988,6 +2005,10 @@ armyTest("V3E22 a queued line save cannot clear an undo recovery when its acknow
     await openV3Editor(ui, army, draft, "v3e22");
     await waitForDraftLease(ui);
     const before = await readConsistent(ui, draft.versionId);
+    const autosaveKey = editorDocumentDraftStorageKey("autosave", {
+      actorId: draft.owner.userId, tenantId: draft.owner.tenantId, versionId: draft.versionId,
+    });
+    if (!autosaveKey) throw new Error("The save fixture must have a verified document identity.");
     const quantity = screen.getByLabel(`Quantité pour ${lineA.title}`, { exact: true });
     // A real unsaved edit precedes the deletion, so undo still targets deletion.
     // Ctrl+S below uses the ordinary flush path; the version mutation queue holds
@@ -2070,9 +2091,25 @@ armyTest("V3E22 a queued line save cannot clear an undo recovery when its acknow
           ]);
           const refusedBody = await refused.json<{ ok: boolean; error: { code: string } }>();
           expect([refused.status, refusedBody.ok, refusedBody.error.code]).toEqual([503, false, "INTERNAL_ERROR"]);
-          await expect.poll(() => saveHeld).toBe(true);
           await expect(partial).toBeVisible();
+          await expect(retry).toBeDisabled();
+          expect(saveRequests).toHaveLength(0);
+          await screen.getByRole("button", "Vérifier le résultat", { exact: true }).click();
           await expect(retry).toBeEnabled();
+          await expect(partial).toBeVisible();
+          expect(saveRequests).toHaveLength(0);
+          expect(reorderRequests).toHaveLength(1);
+          expect(creationPosts).toBe(1);
+          await expect.poll(() => browser.evaluate(({ key, id }) => {
+            const envelope = JSON.parse(localStorage.getItem(key) ?? "null");
+            return envelope?.draft?.buffered_updates?.some((entry: { id: string; updates: { quantity?: number } }) =>
+              entry.id === id && entry.updates.quantity === 2) === true;
+          }, { key: autosaveKey, id: lineA.id })).toBe(true);
+          events.push("result-verified-without-write");
+          // The earlier queued save stopped at the uncertain receipt. Resume
+          // it explicitly, then hold its acknowledgement while history recovers.
+          await browser.keyboard.press("ControlOrMeta+s");
+          await expect.poll(() => saveHeld).toBe(true);
           events.push("recovery-visible-before-save-ack");
           const recreated = await readConsistent(ui, draft.versionId);
           const matches = recreated.items.filter(item => item.title === lineB.title);
@@ -2096,8 +2133,8 @@ armyTest("V3E22 a queued line save cannot clear an undo recovery when its acknow
       expect([saveResponse.status, saved.ok, saved.data.committed]).toEqual([200, true, true]);
       // The buffer is removed by the successful flush before clearHistory is
       // called; this observes completion of that real acknowledgement path.
-      await expect.poll(() => browser.evaluate(id =>
-        localStorage.getItem(`estimate:edit:autosave-buffer:${id}`) === null, draft.versionId)).toBe(true);
+      await expect.poll(() => browser.evaluate(key =>
+        localStorage.getItem(key) === null, autosaveKey)).toBe(true);
       const savedState = await readConsistent(ui, draft.versionId);
       expect(Number(savedState.items.find(item => item.id === lineA.id)?.quantity)).toBe(2);
       const afterAck = { recoveryVisible: await partial.isVisible(), retryVisible: await retry.isVisible() };

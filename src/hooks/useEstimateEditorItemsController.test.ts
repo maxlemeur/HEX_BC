@@ -278,8 +278,12 @@ function findTempItem(items: EditorEstimateItem[]) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.deleteEstimateItem.mockResolvedValue(undefined);
-  mocks.reorderEstimateItems.mockResolvedValue(undefined);
+  mocks.deleteEstimateItem.mockImplementation(async (versionId: string, itemId: string) => ({
+    versionToken: { id: versionId, updated_at: "2026-07-15T08:00:01.000Z" }, deletedIds: [itemId],
+  }));
+  mocks.reorderEstimateItems.mockImplementation(async (versionId: string) => ({
+    versionToken: { id: versionId, updated_at: "2026-07-15T08:00:02.000Z" },
+  }));
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
@@ -322,7 +326,7 @@ describe("useEstimateEditorItemsController", () => {
       );
       current = () => result.current.items;
 
-      let createRequest!: Promise<void>;
+      let createRequest!: Promise<void | boolean>;
       act(() => {
         createRequest = result.current.actions.addLine(null);
       });
@@ -405,7 +409,7 @@ describe("useEstimateEditorItemsController", () => {
       initialItems: [],
     });
 
-    let createRequest!: Promise<void>;
+    let createRequest!: Promise<void | boolean>;
     act(() => {
       createRequest = result.current.actions.addLine(null);
     });
@@ -527,7 +531,7 @@ describe("useEstimateEditorItemsController", () => {
       initialItems: [],
     });
 
-    let createRequest!: Promise<void>;
+    let createRequest!: Promise<void | boolean>;
     act(() => {
       createRequest = result.current.actions.addLine(null);
     });
@@ -583,7 +587,7 @@ describe("useEstimateEditorItemsController", () => {
       initialItems: [],
     });
 
-    let createRequest!: Promise<void>;
+    let createRequest!: Promise<void | boolean>;
     act(() => {
       createRequest = result.current.actions.addLine(null);
     });
@@ -619,7 +623,7 @@ describe("useEstimateEditorItemsController", () => {
       initialItems: [],
     });
 
-    let createRequest!: Promise<void>;
+    let createRequest!: Promise<void | boolean>;
     act(() => {
       createRequest = result.current.actions.addSection(null);
     });
@@ -646,7 +650,9 @@ describe("useEstimateEditorItemsController", () => {
       position: 1,
     });
     const initialItems = [section, child];
-    const deferred = createDeferred<void>();
+    const deferred = createDeferred<{
+      versionToken: { id: string; updated_at: string }; deletedIds: string[];
+    }>();
     mocks.deleteEstimateItem.mockImplementationOnce(() => deferred.promise);
     const { result, dependencies } = renderController({
       version: createVersion(),
@@ -654,7 +660,7 @@ describe("useEstimateEditorItemsController", () => {
       reloadItemsResult: initialItems,
     });
 
-    let deleteRequest!: Promise<void>;
+    let deleteRequest!: Promise<void | boolean>;
     act(() => {
       deleteRequest = result.current.actions.deleteItem(section.id);
     });
@@ -808,7 +814,7 @@ describe("useEstimateEditorItemsController", () => {
       initialItems: [],
     });
 
-    let createRequest!: Promise<void>;
+    let createRequest!: Promise<void | boolean>;
     act(() => {
       createRequest = result.current.actions.addLine(null);
     });
@@ -868,7 +874,7 @@ describe("useEstimateEditorItemsController", () => {
     const deferredRedo = createDeferred<EstimateItem>();
     mocks.createEstimateItem.mockReturnValueOnce(deferredRedo.promise);
     let isCurrentScope = true;
-    let redoPromise!: Promise<void>;
+    let redoPromise!: Promise<void | boolean>;
 
     act(() => {
       redoPromise = command.redo({

@@ -58,6 +58,21 @@ les lignes et réglages sans effectuer d'écriture. Les correctifs historiques
 [editor-settings-state.ts](../../src/lib/estimates/editor-settings-state.ts)
 conserve les champs modifiés localement lors de la fusion avec les réglages relus.
 
+Le [document de l'éditeur](../../src/lib/estimates/editor-document-state.ts)
+possède la référence serveur, les intentions locales et les opérations
+optimistes. [useEstimateEditorDocument](../../src/hooks/useEstimateEditorDocument.ts)
+expose le même instantané au rendu et aux contrôleurs ; leurs références ne sont
+pas un second stockage. Les accusés de sauvegarde ne retirent que les intentions
+envoyées, et un rollback ne remplace pas une saisie plus récente. Les opérations
+et callbacks portent l'identité acteur/tenant/devis et la génération de visite.
+La synchronisation possède le réseau et sa cadence ; textes de saisie,
+dialogues, sélection et surbrillance restent des états visuels locaux.
+
+Les [brouillons persistés](../../src/lib/estimates/editor-document-drafts.ts)
+vérifient cette identité avant restauration. Les anciens brouillons sans auteur
+restent dans le stockage mais ne sont plus restaurés automatiquement : leur
+propriétaire ne peut pas être établi. Cette situation est signalée dans l'éditeur.
+
 Pour les opérations de lignes, `server.ts` garde les exports publics et délègue
 aux modules `item-create-server.ts`, `item-update-server.ts` et
 `item-structure-server.ts`. Leurs plans purs portent les défauts, conversions,
@@ -65,6 +80,16 @@ calculs historiques et règles de hiérarchie ; `item-write-context.ts` rassembl
 les lectures et contrôles partagés. Les orchestrateurs gardent l'ordre des
 autorisations, verrous, contrôles de révision et écritures atomiques. Aucun module
 d'opération ne doit réimporter la façade `server.ts`.
+
+La copie de sections et l'import DPGF suivent la même séparation : plans purs
+(`section-copy-plan.ts`, `linked-dpgf-plan.ts`), lectures paginées, puis
+orchestration dans `section-copy-server.ts` et `linked-dpgf-import-server.ts`.
+Le recalcul partagé est dans `version-recalculation-server.ts`. Les contrats
+[sections](../../src/lib/estimates/section-copy-contracts.ts) et
+[DPGF](../../src/lib/estimates/linked-dpgf-contracts.ts) sont validés avant la
+confirmation côté client et documentés dans OpenAPI. Une réponse incohérente
+après écriture bloque une seconde mutation jusqu'à une relecture explicite ;
+elle ne déclenche pas de nouvelle écriture automatique.
 
 Templates, ouvrages de bibliothèque et ouvrages générés alimentent le devis
 par des opérations de copie/application encadrées. Une modification de la
@@ -116,6 +141,17 @@ entrées et identités déterministes ;
 porte les accès, le stockage et les compensations. Le rejeu conserve l'identité
 du job et ne répète pas ses effets. Une erreur métier transitoire conserve son
 indicateur `retryable` ; cet indicateur ne déclenche aucune relance automatique.
+
+Les suggestions de prix utilisent
+[price-suggestion-preparation.ts](../../src/lib/takeoff/price-suggestion-preparation.ts)
+pour les conversions, empreintes et règles de sélection,
+[price-suggestion-repository.ts](../../src/lib/takeoff/price-suggestion-repository.ts)
+pour les accès aux données, et
+[price-suggestion-server.ts](../../src/lib/takeoff/price-suggestion-server.ts)
+pour l'orchestration. Le [contrat partagé](../../src/lib/takeoff/price-suggestion-contracts.ts)
+vérifie notamment la ligne, le job, la version et l'état de revue. Une suggestion
+relue à l'identique est réutilisée ; son renouvellement reste explicite. Un reçu
+incohérent après mutation exige une relecture, sans compensation aveugle.
 
 ## Catalogue et achats
 

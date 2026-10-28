@@ -1,8 +1,35 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import {
+  ESTIMATE_V3_SETTINGS_TEXT_FIELDS as TEXT_FIELDS,
+  estimateDocumentV3SettingsTexts as textsOf,
+  freshEstimateDocumentV3Settings as freshState,
+  hasDirtyEstimateDocumentV3SettingsText as hasDirtyText,
+  readEstimateDocumentV3SettingsBaseline as readBaseline,
+  resyncEstimateDocumentV3Settings as resyncState,
+  sameEstimateDocumentV3SettingsDraft as sameDraft,
+  type EstimateDocumentV3SettingsState as EditorState,
+  type EstimateV3MarginTierHint,
+  type EstimateV3SavePayloadResult,
+  type EstimateV3SettingsDirectPatch,
+  type EstimateV3SettingsFieldErrors,
+  type EstimateV3SettingsTextField,
+  type EstimateV3SettingsTexts,
+  type EstimateV3TaxPropagationRequest,
+} from "@/lib/estimates/editor-document-v3-settings";
+export type {
+  EstimateV3MarginTierHint,
+  EstimateV3SavePayloadResult,
+  EstimateV3SettingsDirectPatch,
+  EstimateV3SettingsFieldError,
+  EstimateV3SettingsFieldErrors,
+  EstimateV3SettingsTextField,
+  EstimateV3SettingsTexts,
+  EstimateV3TaxPropagationRequest,
+} from "@/lib/estimates/editor-document-v3-settings";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   EstimateV3SettingsError,
@@ -11,17 +38,10 @@ import {
   buildEstimateV3SettingsPayload,
   computeEstimateV3SettingsPreview,
   countEstimateV3LinesWithOtherTaxRate,
-  formatEstimateV3Coefficient,
-  formatEstimateV3DiscountTexts,
-  formatEstimateV3RatePercent,
-  readEstimateV3SettingsDraft,
   resolveEstimateV3MarginTierHint,
   type EstimateV3PreviewLaborRole,
   type EstimateV3PreviewLine,
   type EstimateV3SettingsDraft,
-  type EstimateV3SettingsField,
-  type EstimateV3SettingsInputErrorCode,
-  type EstimateV3SettingsPayload,
   type EstimateV3SettingsPreview,
   type VersionSettingsColumns,
 } from "@/lib/estimates/v3-settings-payload";
@@ -34,31 +54,9 @@ import {
  */
 export * from "@/lib/estimates/v3-settings-payload";
 
-/** Champs saisis en texte : les quatre du contrat pur et le taux par défaut des nouvelles lignes. */
-export type EstimateV3SettingsTextField = EstimateV3SettingsField | "tax_rate";
-
-export type EstimateV3SettingsFieldError = {
-  code: EstimateV3SettingsInputErrorCode | "ESTIMATE_V3_TAX_RATE_INVALID";
-  message: string;
-};
-
-export type EstimateV3SettingsTexts = Record<EstimateV3SettingsTextField, string>;
-export type EstimateV3SettingsFieldErrors = Partial<Record<EstimateV3SettingsTextField, EstimateV3SettingsFieldError>>;
-
-/** Champs du brouillon saisis directement (texte, date, listes) : ni coefficient, ni remise, ni taux. */
-export type EstimateV3SettingsDirectPatch = Partial<Pick<EstimateV3SettingsDraft,
-  "title" | "date_devis" | "exclusions" | "validite_jours" | "currency" | "contractor_role" | "rounding_mode" | "rounding_step_cents">>;
-
-/** Question de propagation ouverte par `requestSave` : taux demandé et lignes qui portent un autre taux. */
-export type EstimateV3TaxPropagationRequest = { rateBp: number; lineCount: number };
-
-export type EstimateV3SavePayloadResult =
-  | { ok: true; payload: EstimateV3SettingsPayload }
-  | { ok: false; reason: "unavailable" | "field_errors" | "tax_propagation_required"; message: string };
-
-export type EstimateV3MarginTierHint = { multiplier: number; costSubtotalCents: number };
-
 export type UseEstimateV3SettingsInput = {
+  /** Shared document owner; omitted only by standalone consumers. */
+  document?: EstimateEditorDocument;
   /** Ligne de version de l'éditeur (`calc_engine_version` obligatoire, colonnes de réglages). */
   version: (VersionSettingsColumns & { id: string }) | null | undefined;
   /** Lignes courantes de l'éditeur (sections ignorées). */
@@ -123,121 +121,8 @@ export type EstimateV3SettingsController = {
   marginTierHint: EstimateV3MarginTierHint | null;
 };
 
-type Baseline =
-  | { active: false }
-  | { active: true; versionId: string; key: string; draft: EstimateV3SettingsDraft; error: null }
-  | { active: true; versionId: string; key: string; draft: null; error: string };
-
-type EditorState = {
-  baselineKey: string | null;
-  versionId: string | null;
-  saved: EstimateV3SettingsDraft | null;
-  draft: EstimateV3SettingsDraft | null;
-  unavailableMessage: string | null;
-  texts: EstimateV3SettingsTexts;
-  errors: EstimateV3SettingsFieldErrors;
-  /** Réponse à la question de propagation, valable pour ce taux seulement. */
-  taxDecision: { rateBp: number; applyToLines: boolean } | null;
-  taxPropagation: EstimateV3TaxPropagationRequest | null;
-};
-
-const TEXT_FIELDS: readonly EstimateV3SettingsTextField[] = [
-  "sale_coefficient_fo",
-  "sale_coefficient_mo",
-  "tax_rate",
-  "discount_amount",
-  "discount_rate",
-];
-
-const EMPTY_TEXTS: EstimateV3SettingsTexts = {
-  sale_coefficient_fo: "",
-  sale_coefficient_mo: "",
-  tax_rate: "",
-  discount_amount: "",
-  discount_rate: "",
-};
-
 const TAX_PROPAGATION_REQUIRED_MESSAGE =
   "Indiquez si le nouveau taux de TVA s'applique à toutes les lignes avant d'enregistrer le paramétrage.";
-
-function isEngineV3Version(version: object): boolean {
-  try {
-    return usesSaleCoefficients(requireEstimateEngineVersion(version));
-  } catch {
-    // Moteur absent ou hors domaine : les chemins historiques le refusent déjà par leur nom.
-    return false;
-  }
-}
-
-function readBaseline(version: UseEstimateV3SettingsInput["version"]): Baseline {
-  if (!version || !isEngineV3Version(version)) return { active: false };
-  try {
-    const draft = readEstimateV3SettingsDraft(version);
-    return { active: true, versionId: version.id, key: `${version.id}:${JSON.stringify(draft)}`, draft, error: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Réglages de la version illisibles.";
-    return { active: true, versionId: version.id, key: `${version.id}:error:${message}`, draft: null, error: message };
-  }
-}
-
-function textsOf(draft: EstimateV3SettingsDraft | null): EstimateV3SettingsTexts {
-  if (!draft) return EMPTY_TEXTS;
-  const discount = formatEstimateV3DiscountTexts(draft.discount);
-  return {
-    sale_coefficient_fo: formatEstimateV3Coefficient(draft.sale_coefficient_fo),
-    sale_coefficient_mo: formatEstimateV3Coefficient(draft.sale_coefficient_mo),
-    tax_rate: formatEstimateV3RatePercent(draft.tax_rate_bp),
-    discount_amount: discount.amount,
-    discount_rate: discount.rate,
-  };
-}
-
-/** Comparaison au sens de la charge : titre et exclusions partent rognés (convention v2). */
-function comparableDraft(draft: EstimateV3SettingsDraft | null) {
-  return draft ? { ...draft, title: draft.title.trim(), exclusions: draft.exclusions.trim() } : null;
-}
-
-function sameDraft(left: EstimateV3SettingsDraft | null, right: EstimateV3SettingsDraft | null) {
-  return JSON.stringify(comparableDraft(left)) === JSON.stringify(comparableDraft(right));
-}
-
-function freshState(baseline: Baseline): EditorState {
-  if (!baseline.active) {
-    return {
-      baselineKey: null, versionId: null, saved: null, draft: null, unavailableMessage: null,
-      texts: EMPTY_TEXTS, errors: {}, taxDecision: null, taxPropagation: null,
-    };
-  }
-  return {
-    baselineKey: baseline.key,
-    versionId: baseline.versionId,
-    saved: baseline.draft,
-    draft: baseline.draft,
-    unavailableMessage: baseline.error,
-    texts: textsOf(baseline.draft),
-    errors: {},
-    taxDecision: null,
-    taxPropagation: null,
-  };
-}
-
-function hasDirtyText(state: EditorState) {
-  const canonical = textsOf(state.draft);
-  return TEXT_FIELDS.some((field) => state.texts[field] !== canonical[field]);
-}
-
-/**
- * Nouvelle version relue (sauvegarde, rechargement, sauvegarde de lignes) : sans modification en cours, le
- * brouillon suit la version ; avec des modifications, elles restent et seule la référence enregistrée change.
- */
-function resyncState(state: EditorState, baseline: Baseline): EditorState {
-  if (!baseline.active || state.versionId !== baseline.versionId || !state.draft || !baseline.draft) {
-    return freshState(baseline);
-  }
-  const untouched = sameDraft(state.draft, state.saved) && !hasDirtyText(state) && !state.taxPropagation;
-  if (untouched || sameDraft(state.draft, baseline.draft)) return freshState(baseline);
-  return { ...state, baselineKey: baseline.key, saved: baseline.draft };
-}
 
 function withoutErrors(errors: EstimateV3SettingsFieldErrors, fields: readonly EstimateV3SettingsTextField[]) {
   const next = { ...errors };
@@ -304,12 +189,23 @@ function decisionFor(state: EditorState, request: EstimateV3TaxPropagationReques
 
 export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): EstimateV3SettingsController | null {
   const baseline = useMemo(() => readBaseline(input.version), [input.version]);
-  const [state, setState] = useState<EditorState>(() => freshState(baseline));
-  let current = state;
-  if ((current.baselineKey ?? null) !== (baseline.active ? baseline.key : null)) {
-    // Réglages relus : ajustement pendant le rendu (pas d'effet), une seule fois par version relue.
+  const document = input.document;
+  // The connected hook stores no second saved/draft: the document publishes the
+  // same typed v3 state used by all read and save transitions.
+  const [standaloneState, setStandaloneState] = useState<EditorState | null>(() =>
+    document ? null : freshState(baseline));
+  const subscribe = useCallback((notify: () => void) => document?.subscribe(notify) ?? (() => undefined), [document]);
+  const getDocumentState = useCallback(() => document?.getV3Settings() ?? null, [document]);
+  const documentState = useSyncExternalStore(subscribe, getDocumentState, getDocumentState);
+  const documentGeneration = document?.getSnapshot().generation;
+  const documentScope = useMemo(() => document && documentGeneration !== undefined
+    ? { ...document.captureScope(), generation: documentGeneration }
+    : undefined, [document, documentGeneration]);
+  let current = documentState ?? standaloneState ?? freshState(baseline);
+  if (!document && (current.baselineKey ?? null) !== (baseline.active ? baseline.key : null)) {
+    // Standalone use keeps the same reconciliation policy as the document.
     current = resyncState(current, baseline);
-    setState(current);
+    setStandaloneState(current);
   }
   // Valeurs les plus récentes pour les appels impératifs (sauvegarde appelée dans le même tour).
   const stateRef = useRef(current);
@@ -324,33 +220,43 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
     resolve?.(answered);
     return resolve !== null;
   }, []);
+  const currentVersionId = current.versionId;
+  useEffect(() => () => { settleAnswer(false); }, [document, documentGeneration, currentVersionId, settleAnswer]);
+  const isCurrentDocument = useCallback(() => !document || Boolean(documentScope && document.isCurrent(documentScope)),
+    [document, documentScope]);
 
   const update = useCallback((next: EditorState) => {
+    if (document) {
+      if (document.updateV3Settings(next, documentScope)) stateRef.current = document.getV3Settings();
+      return;
+    }
     stateRef.current = next;
-    setState(next);
-  }, []);
+    setStandaloneState(next);
+  }, [document, documentScope]);
+  const getLatestState = useCallback(() => document?.getV3Settings() ?? stateRef.current, [document]);
 
   const setText = useCallback((field: EstimateV3SettingsTextField, raw: string) => {
-    update(applyText(stateRef.current, field, raw, "live"));
-  }, [update]);
+    update(applyText(getLatestState(), field, raw, "live"));
+  }, [getLatestState, update]);
 
   const commitText = useCallback((field: EstimateV3SettingsTextField) => {
-    const latest = stateRef.current;
+    const latest = getLatestState();
     update(applyText(latest, field, latest.texts[field], "commit"));
-  }, [update]);
+  }, [getLatestState, update]);
 
   const applyInput = useCallback((field: EstimateV3SettingsTextField, raw: string) => {
-    update(applyText(stateRef.current, field, raw, "commit"));
-  }, [update]);
+    update(applyText(getLatestState(), field, raw, "commit"));
+  }, [getLatestState, update]);
 
   const updateDraft = useCallback((patch: EstimateV3SettingsDirectPatch) => {
-    const latest = stateRef.current;
+    const latest = getLatestState();
     if (!latest.draft) return;
     update({ ...latest, draft: { ...latest.draft, ...patch } });
-  }, [update]);
+  }, [getLatestState, update]);
 
   const requestSave = useCallback((save: () => unknown) => {
-    const committed = commitPendingTexts(stateRef.current);
+    if (!isCurrentDocument()) return false;
+    const committed = commitPendingTexts(getLatestState());
     update(committed);
     if (!committed.draft || firstErrorMessage(committed.errors) !== null) return false;
     const request = propagationNeedOf(committed, itemsRef.current);
@@ -361,10 +267,11 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
     }
     void save();
     return true;
-  }, [update]);
+  }, [getLatestState, isCurrentDocument, update]);
 
   const confirmTaxPropagation = useCallback((applyToLines: boolean, save: () => unknown) => {
-    const latest = stateRef.current;
+    if (!isCurrentDocument()) return;
+    const latest = getLatestState();
     if (!latest.taxPropagation) return;
     update({
       ...latest,
@@ -375,17 +282,20 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
     if (settleAnswer(true)) return;
     // La sauvegarde courante de l'éditeur, pas celle de l'ouverture du dialogue : la version a pu être relue.
     void save();
-  }, [settleAnswer, update]);
+  }, [getLatestState, isCurrentDocument, settleAnswer, update]);
 
   const cancelTaxPropagation = useCallback(() => {
-    const latest = stateRef.current;
+    if (!isCurrentDocument()) return;
+    const latest = getLatestState();
     if (latest.taxPropagation) update({ ...latest, taxPropagation: null });
     settleAnswer(false);
-  }, [settleAnswer, update]);
+  }, [getLatestState, isCurrentDocument, settleAnswer, update]);
 
   const askTaxPropagation = useCallback((onAsk?: () => void) => new Promise<boolean>((resolve) => {
-    const committed = commitPendingTexts(stateRef.current);
-    if (committed !== stateRef.current) update(committed);
+    if (!isCurrentDocument()) { resolve(false); return; }
+    const latest = getLatestState();
+    const committed = commitPendingTexts(latest);
+    if (committed !== latest) update(committed);
     // Une erreur de champ est refusée par `buildSavePayload`, après : aucune question tant qu'elle reste.
     const request = committed.draft && firstErrorMessage(committed.errors) === null
       ? propagationNeedOf(committed, itemsRef.current) : null;
@@ -397,11 +307,15 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
     answerRef.current = resolve;
     update({ ...committed, taxPropagation: request });
     onAsk?.();
-  }), [settleAnswer, update]);
+  }), [getLatestState, isCurrentDocument, settleAnswer, update]);
 
   const buildSavePayload = useCallback((): EstimateV3SavePayloadResult => {
-    const committed = commitPendingTexts(stateRef.current);
-    if (committed !== stateRef.current) update(committed);
+    if (!isCurrentDocument()) {
+      return { ok: false, reason: "unavailable", message: "La version active a changé pendant l'opération." };
+    }
+    const latest = getLatestState();
+    const committed = commitPendingTexts(latest);
+    if (committed !== latest) update(committed);
     if (!committed.draft) {
       return { ok: false, reason: "unavailable", message: committed.unavailableMessage ?? "Réglages v3 indisponibles." };
     }
@@ -421,12 +335,13 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
       if (error instanceof EstimateV3SettingsError) return { ok: false, reason: "field_errors", message: error.message };
       throw error;
     }
-  }, [update]);
+  }, [getLatestState, isCurrentDocument, update]);
 
   const reset = useCallback(() => {
+    if (!isCurrentDocument()) return;
     settleAnswer(false);
-    update(freshState(baseline));
-  }, [baseline, settleAnswer, update]);
+    update(freshState(document ? readBaseline(document.getSnapshot().version) : baseline));
+  }, [baseline, document, isCurrentDocument, settleAnswer, update]);
 
   const { draft } = current;
   const preview = useMemo(

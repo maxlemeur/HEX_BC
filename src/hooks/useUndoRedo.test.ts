@@ -85,6 +85,19 @@ describe("useUndoRedo state helpers", () => {
 });
 
 describe("useUndoRedo store behavior", () => {
+  it("does not advance either pointer when a command explicitly returns false", async () => {
+    const store = createUndoRedoStore();
+    const undo = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(undefined);
+    const redo = vi.fn().mockResolvedValue(false);
+    store.push({ undo, redo });
+    expect(await store.undo()).toBe(false);
+    expect(store.getState().pointer).toBe(1);
+    expect(await store.undo()).toBe(true);
+    expect(store.getState().pointer).toBe(0);
+    expect(await store.redo()).toBe(false);
+    expect(store.getState().pointer).toBe(0);
+  });
+
 
   it("moves pointer only when undo succeeds", async () => {
     const successfulUndo = vi.fn(async () => {});

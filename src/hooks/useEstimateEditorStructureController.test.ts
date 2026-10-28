@@ -21,6 +21,10 @@ vi.mock("@/lib/estimates/client", () => ({
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorStructureController } from "@/hooks/useEstimateEditorStructureController";
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { parseEstimateEditorData } from "@/lib/estimates/editor-read-contracts";
+import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
+import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 import type {
 EditorEstimateItem,
 EstimateItem,
@@ -72,6 +76,7 @@ function createDuplicateResult(
 }
 
 function createHarness(input?: {
+  document?: EstimateEditorDocument;
   items?: EditorEstimateItem[];
   version?: EstimateVersionRow | null;
   isMutationBlocked?: boolean;
@@ -91,23 +96,26 @@ function createHarness(input?: {
   const reloadItems = vi.fn().mockResolvedValue(undefined);
   const reportError = vi.fn();
   const setTotalsOutOfSync = vi.fn();
+  const highlightItems = vi.fn();
   const setItems = vi.fn(
     (
       update:
         | EditorEstimateItem[]
         | ((previous: EditorEstimateItem[]) => EditorEstimateItem[])
     ) => {
-      items = typeof update === "function" ? update(items) : update;
+      if (input?.document) input.document.setDraftItems(update);
+      else items = typeof update === "function" ? update(items) : update;
     }
   );
 
   const rendered = renderHook(() =>
     useEstimateEditorStructureController({
+      document: input?.document,
       routeVersionId: version?.id ?? "version-1",
       isMutationBlocked: input?.isMutationBlocked ?? false,
       mutationBlockedMessage: "Mutation interdite.",
-      getItemsSnapshot: () => items,
-      getVersionSnapshot: () => version,
+      getItemsSnapshot: () => input?.document ? input.document.getSnapshot().items : items,
+      getVersionSnapshot: () => input?.document ? input.document.getSnapshot().version : version,
       setItems,
       setTotalsOutOfSync,
       reportError,
@@ -119,6 +127,7 @@ function createHarness(input?: {
       reloadItems,
       convertV3Items: input?.convertV3Items,
       clearHistory,
+      highlightItems,
     })
   );
 
@@ -126,8 +135,9 @@ function createHarness(input?: {
     ...rendered,
     applyVersionToken,
     clearHistory,
+    highlightItems,
     ensureGroupedActionCanProceed,
-    getItems: () => items,
+    getItems: () => input?.document ? input.document.getSnapshot().items : items,
     handleVersionConflict,
     pushHistoryCommand,
     reloadItems,
@@ -158,7 +168,10 @@ function itemPositions(items: EditorEstimateItem[]) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  clientMocks.deleteEstimateItem.mockResolvedValue(undefined);
+  clientMocks.deleteEstimateItem.mockImplementation(async (versionId: string, itemId: string) => ({
+    versionToken: { id: versionId, updated_at: "2026-10-28T10:00:00.123458Z" },
+    deletedIds: [itemId],
+  }));
   clientMocks.fetchEstimateEditorData.mockResolvedValue({
     version: createVersion("version-1", "token-refreshed"),
   });
@@ -189,7 +202,7 @@ describe("useEstimateEditorStructureController insertions", () => {
     clientMocks.insertAssemblyIntoVersion.mockReturnValueOnce(deferred.promise);
     const harness = createHarness();
 
-    let firstRequest!: Promise<void>;
+    let firstRequest!: Promise<void | boolean>;
     await act(async () => {
       firstRequest = harness.result.current.actions.insertAssembly(
         "assembly-1",
@@ -284,6 +297,184 @@ describe("useEstimateEditorStructureController insertions", () => {
     expect(harness.setItems).not.toHaveBeenCalled();
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
     expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
+  });
+});
+
+describe("document-owned structure transitions", () => {
+  function connected(convertV3Items?: Parameters<typeof useEstimateEditorStructureController>[0]["convertV3Items"]) {
+    const wire = createEstimateEditorResponseFixture();
+    const data = parseEstimateEditorData(wire, wire.version.id);
+    const prepared = prepareEstimateEditorRead(data, false);
+    const scope = { actorId: "actor-1", tenantId: data.version.tenant_id, versionId: data.version.id };
+    const document = new EstimateEditorDocument(scope);
+    document.acceptRead(prepared);
+    clientMocks.fetchEstimateEditorData.mockResolvedValue(data);
+    const harness = createHarness({ document, version: data.version, convertV3Items });
+    const acceptServerRead = (items: typeof data.items, updatedAt = "2026-10-28T10:00:00.123457Z") => {
+      const lines = items.filter((item) => item.item_type === "line");
+      const read = { ...data, items, version: { ...data.version, updated_at: updatedAt,
+        content_revision: data.version.content_revision + 1,
+        total_ht_cents: lines.reduce((sum, item) => sum + (item.line_total_ht_cents ?? 0), 0),
+        total_tax_cents: lines.reduce((sum, item) => sum + (item.line_tax_cents ?? 0), 0),
+        total_ttc_cents: lines.reduce((sum, item) => sum + (item.line_total_ttc_cents ?? 0), 0),
+      } };
+      document.acceptRead(prepareEstimateEditorRead(read, false));
+    };
+    const queueServerRead = (items: typeof data.items, updatedAt?: string) => {
+      harness.reloadItems.mockImplementationOnce(async () => { acceptServerRead(items, updatedAt); });
+    };
+    return { ...harness, document, data, prepared, scope, acceptServerRead, queueServerRead };
+  }
+
+  it("confirms inserted template rows and shifted positions without overwriting a newer local title", async () => {
+    const harness = connected();
+    const inserted = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555", title: "Ligne template" };
+    harness.queueServerRead([{ ...harness.data.items[0], position: 2 }, inserted]);
+    const response = createDeferred<EstimateItem[]>();
+    clientMocks.insertTemplateIntoVersion.mockReturnValueOnce(response.promise);
+    let pending!: Promise<void | boolean>;
+    await act(async () => { pending = harness.result.current.actions.insertTemplate("template", null); });
+    act(() => harness.document.setDraftItems((items) => items.map((item) => ({ ...item, title: "Saisie pendant insertion" }))));
+    await act(async () => { response.resolve([inserted]); await pending; });
+    expect(harness.document.getSnapshot().confirmedItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: harness.data.items[0].id, position: 2, title: harness.data.items[0].title }),
+      inserted,
+    ]));
+    expect(harness.document.getSnapshot().items.find((item) => item.id === harness.data.items[0].id)?.title).toBe("Saisie pendant insertion");
+    expect(harness.setItems).not.toHaveBeenCalled();
+  });
+
+  it("rolls back a refused template undo while preserving edits made during its request", async () => {
+    const harness = connected();
+    const inserted = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555", title: "Ligne template" };
+    clientMocks.insertTemplateIntoVersion.mockResolvedValueOnce([inserted]);
+    harness.queueServerRead([{ ...harness.data.items[0], position: 2 }, inserted]);
+    await act(async () => harness.result.current.actions.insertTemplate("template", null));
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    const deletion = createDeferred<{ versionToken: { id: string; updated_at: string }; deletedIds: string[] }>();
+    clientMocks.deleteEstimateItem.mockReturnValueOnce(deletion.promise);
+    let undo!: Promise<void | boolean>;
+    await act(async () => { undo = command.undo({ isCurrentScope: () => true }); });
+    act(() => harness.document.setDraftItems((items) => items.map((item) => ({ ...item, title: "Saisie après annulation" }))));
+    await act(async () => {
+      const rejection = expect(undo).rejects.toThrow("Refus");
+      deletion.reject(new Error("Refus"));
+      await rejection;
+    });
+    expect(harness.document.getSnapshot().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: inserted.id, title: inserted.title }),
+      expect.objectContaining({ id: harness.data.items[0].id, title: "Saisie après annulation" }),
+    ]));
+    expect(harness.document.getSnapshot().itemOperationCount).toBe(0);
+  });
+
+  it("retains acknowledged deletions when a later template root cannot be deleted", async () => {
+    const harness = connected();
+    const first = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555" };
+    const second = { ...first, id: "66666666-6666-4666-8666-666666666666", position: 2 };
+    clientMocks.insertTemplateIntoVersion.mockResolvedValueOnce([first, second]);
+    harness.queueServerRead([{ ...harness.data.items[0], position: 3 }, first, second]);
+    await act(async () => harness.result.current.actions.insertTemplate("template", null));
+    clientMocks.deleteEstimateItem.mockResolvedValueOnce({
+      versionToken: { id: harness.data.version.id, updated_at: "2026-10-28T10:00:00.123458Z" }, deletedIds: [first.id],
+    }).mockRejectedValueOnce(new Error("Deuxième suppression refusée"));
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    await act(async () => { await expect(command.undo({ isCurrentScope: () => true })).rejects.toThrow("Deuxième"); });
+    expect(harness.document.getSnapshot().confirmedItems.some((item) => item.id === first.id)).toBe(false);
+    expect(harness.document.getSnapshot().items.some((item) => item.id === first.id)).toBe(false);
+    expect(harness.document.getSnapshot().items.some((item) => item.id === second.id)).toBe(true);
+    expect(harness.document.getSnapshot().itemOperationCount).toBe(0);
+  });
+
+  it("keeps a newer versioned read when an earlier template deletion receipt arrives", async () => {
+    const harness = connected();
+    const inserted = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555", title: "Ligne template" };
+    clientMocks.insertTemplateIntoVersion.mockResolvedValueOnce([inserted]);
+    const confirmedRows = [{ ...harness.data.items[0], position: 2 }, inserted];
+    harness.queueServerRead(confirmedRows);
+    await act(async () => harness.result.current.actions.insertTemplate("template", null));
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    const deletion = createDeferred<{ versionToken: { id: string; updated_at: string }; deletedIds: string[] }>();
+    clientMocks.deleteEstimateItem.mockReturnValueOnce(deletion.promise);
+    let undo!: Promise<void | boolean>;
+    await act(async () => { undo = command.undo({ isCurrentScope: () => true }); });
+    act(() => harness.acceptServerRead(confirmedRows.map((item) => item.id === inserted.id
+      ? { ...item, title: "Titre confirmé plus récent" } : item), "2026-10-28T10:00:00.123459Z"));
+    harness.setTotalsOutOfSync.mockClear();
+    await act(async () => {
+      deletion.resolve({ versionToken: { id: harness.data.version.id, updated_at: "2026-10-28T10:00:00.123458Z" }, deletedIds: [inserted.id] });
+      expect(await undo).toBe(false);
+    });
+    expect(harness.document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123459Z");
+    expect(harness.document.getSnapshot().confirmedItems.find((item) => item.id === inserted.id)?.title).toBe("Titre confirmé plus récent");
+    expect(harness.document.getSnapshot().items.find((item) => item.id === inserted.id)?.title).toBe("Titre confirmé plus récent");
+    expect(harness.document.getSnapshot().itemOperationCount).toBe(0);
+    expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
+  });
+
+  it.each(["insertAssembly", "insertTemplate"] as const)("does not publish %s history or highlight for roots absent from the full read", async (action) => {
+    const harness = connected();
+    const inserted = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555" };
+    const insertMock = action === "insertAssembly" ? clientMocks.insertAssemblyIntoVersion : clientMocks.insertTemplateIntoVersion;
+    insertMock.mockResolvedValueOnce([inserted]);
+    harness.queueServerRead(harness.data.items, "2026-10-28T10:00:00.123459Z");
+    await act(async () => { await harness.result.current.actions[action]("source", null); });
+    expect(harness.document.getSnapshot().confirmedItems).toEqual(harness.data.items);
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+    expect(harness.highlightItems).not.toHaveBeenCalled();
+    expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
+  });
+
+  it.each(["insertAssembly", "insertTemplate"] as const)("returns false for %s redo when its roots are absent from the full read", async (action) => {
+    const harness = connected();
+    const inserted = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555" };
+    const recreated = { ...inserted, id: "66666666-6666-4666-8666-666666666666" };
+    const insertMock = action === "insertAssembly" ? clientMocks.insertAssemblyIntoVersion : clientMocks.insertTemplateIntoVersion;
+    insertMock.mockResolvedValueOnce([inserted]).mockResolvedValueOnce([recreated]);
+    harness.queueServerRead([...harness.data.items, inserted]);
+    await act(async () => { await harness.result.current.actions[action]("source", null); });
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    harness.queueServerRead(harness.data.items, "2026-10-28T10:00:00.123459Z");
+    harness.setTotalsOutOfSync.mockClear();
+    await act(async () => { expect(await command.redo({ isCurrentScope: () => true })).toBe(false); });
+    expect(harness.document.getSnapshot().confirmedItems).toEqual(harness.data.items);
+    expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
+  });
+
+  it("ignores stale actor callbacks and their late insertion replies", async () => {
+    const harness = connected();
+    const oldInsert = harness.result.current.actions.insertTemplate;
+    const response = createDeferred<EstimateItem[]>();
+    clientMocks.insertTemplateIntoVersion.mockReturnValueOnce(response.promise);
+    let pending!: Promise<void | boolean>;
+    await act(async () => { pending = oldInsert("template", null); });
+    act(() => {
+      harness.document.changeScope({ ...harness.scope, actorId: "actor-2" });
+      harness.document.acceptRead(harness.prepared);
+    });
+    const before = harness.document.getSnapshot();
+    await act(async () => { await oldInsert("other-template", null); });
+    expect(clientMocks.insertTemplateIntoVersion).toHaveBeenCalledTimes(1);
+    await act(async () => { response.resolve([{ ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555" }]); await pending; });
+    expect(harness.document.getSnapshot()).toBe(before);
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+  });
+
+  it("rolls back only the failed conversion while preserving a concurrent edit elsewhere", async () => {
+    const response = createDeferred<Awaited<ReturnType<NonNullable<Parameters<typeof useEstimateEditorStructureController>[0]["convertV3Items"]>>>>();
+    const convert = vi.fn().mockReturnValue(response.promise);
+    const harness = connected(convert);
+    const other = { ...harness.data.items[0], id: "55555555-5555-4555-8555-555555555555", position: 2 };
+    act(() => harness.document.acceptCreatedItem(null, other));
+    let pending!: Promise<boolean>;
+    await act(async () => { pending = harness.result.current.actions.convertItems([harness.data.items[0].id], "section"); });
+    act(() => harness.document.setDraftItems((items) => items.map((item) => ({ ...item, title: "Saisie concurrente" }))));
+    await act(async () => { response.reject(new Error("Conversion refusée")); expect(await pending).toBe(false); });
+    expect(harness.document.getSnapshot().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: harness.data.items[0].id, title: harness.data.items[0].title }),
+      expect.objectContaining({ id: other.id, title: "Saisie concurrente" }),
+    ]));
+    expect(harness.document.getSnapshot().itemOperationCount).toBe(0);
   });
 });
 
@@ -390,7 +581,7 @@ describe("useEstimateEditorStructureController route races", () => {
     );
     const harness = createHarness();
 
-    let request!: Promise<void>;
+    let request!: Promise<void | boolean>;
     await act(async () => {
       request = harness.result.current.actions.insertAssembly(
         "assembly-1",
@@ -443,7 +634,7 @@ describe("useEstimateEditorStructureController route races", () => {
       items: [createItem("existing", { item_type: "section" })],
     });
 
-    let request!: Promise<void>;
+    let request!: Promise<void | boolean>;
     act(() => {
       request = call(harness.result.current.actions);
     });
@@ -470,7 +661,7 @@ describe("useEstimateEditorStructureController route races", () => {
     clientMocks.duplicateEstimateSection.mockReturnValueOnce(deferred.promise);
     const harness = createHarness();
 
-    let request!: Promise<void>;
+    let request!: Promise<void | boolean>;
     act(() => {
       request = harness.result.current.actions.duplicateSection("section-1");
     });

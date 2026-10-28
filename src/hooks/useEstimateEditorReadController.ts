@@ -8,6 +8,7 @@ import {
   isEstimateApiError,
   type SuggestionLearningState,
 } from "@/lib/estimates/client";
+import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
 import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";
 
@@ -45,7 +46,10 @@ export function useEstimateEditorReadController(input: ReadScope & {
     resolveErrorMessage: (message: string) => string;
   };
 }) {
-  const { versionId, actorId, tenantId, reloadToken, isLaborSplitEnabled, autoOpenVersionZero } = input;
+  const { reloadToken, isLaborSplitEnabled, autoOpenVersionZero } = input;
+  const versionId = normalizeEstimateEditorIdentity(input.versionId)!;
+  const actorId = normalizeEstimateEditorIdentity(input.actorId);
+  const tenantId = normalizeEstimateEditorIdentity(input.tenantId);
   const { setState } = input.readState;
   const loadedScope = useRef<ReadScope | null>(null);
   const currentScope = useRef<ReadScope>({ versionId, actorId, tenantId });

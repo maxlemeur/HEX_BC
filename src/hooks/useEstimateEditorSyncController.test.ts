@@ -10,6 +10,8 @@ import {
   AUTOSAVE_MAX_WAIT_MS,
 } from "@/hooks/useEstimateEditorSyncController.types";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { editorDocumentDraftStorageKey, UNOWNED_DOCUMENT_DRAFT_MESSAGE } from "@/lib/estimates/editor-document-drafts";
 import { runEstimateEditorMutation } from "@/lib/estimates/editor-mutations";
 import { withRederivedFoProvision } from "@/lib/estimates/fo-provision";
 import type {
@@ -54,9 +56,21 @@ vi.mock("@/hooks/useDraftLock", () => ({
 
 type ControllerInput = Parameters<typeof useEstimateEditorSyncController>[0];
 
-const AUTO_SAVE_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
 const AUTO_SAVE_PREFERENCE_PREFIX = "estimate:edit:autosave-enabled:v1:";
-const CONFLICT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
+const DEFAULT_DRAFT_SCOPE = {
+  actorId: "627ef080-0003-4000-8000-000000000001",
+  tenantId: "627ef080-0002-4000-8000-000000000001",
+  versionId: "627ef080-0001-4000-8000-000000000001",
+};
+function autoSaveStorageKey(versionId: string) {
+  return editorDocumentDraftStorageKey("autosave", { ...DEFAULT_DRAFT_SCOPE, versionId })!;
+}
+function conflictStorageKey(versionId: string) {
+  return editorDocumentDraftStorageKey("conflict", { ...DEFAULT_DRAFT_SCOPE, versionId })!;
+}
+function scopedDraftJson(draft: unknown) {
+  return JSON.stringify({ schemaVersion: 2, identity: DEFAULT_DRAFT_SCOPE, draft });
+}
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -292,7 +306,9 @@ function createApiConflict(message = "La version a ete modifiee.") {
 
 function readStoragePayload(storage: Storage, key: string) {
   const raw = storage.getItem(key);
-  return raw ? (JSON.parse(raw) as unknown) : null;
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  return parsed?.schemaVersion === 2 ? parsed.draft : parsed;
 }
 
 beforeEach(() => {
@@ -643,7 +659,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     const input = createInput();
     const { result } = renderHook(() => useEstimateEditorSyncController(input));
     await settleDeferredEffects();
-    act(() => result.current.actions.enqueueItemUpdate("line-1", { supply_type_id: null }));
+    act(() => result.current.actions.enqueueItemUpdate("line-1", { supply_type_id: "627ef080-0005-4000-8000-000000000001" }));
     await act(async () => {
       await result.current.actions.flushBufferedItemUpdates();
     });
@@ -693,10 +709,10 @@ describe("useEstimateEditorSyncController buffered updates", () => {
   });
 
   it("rehydrates buffered updates from localStorage and overlays the current items", async () => {
-    const storageKey = `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`;
+    const storageKey = autoSaveStorageKey("627ef080-0001-4000-8000-000000000001");
     window.localStorage.setItem(
       storageKey,
-      JSON.stringify({
+      scopedDraftJson({
         buffered_updates: [
           {
             id: "line-1",
@@ -733,8 +749,8 @@ describe("useEstimateEditorSyncController buffered updates", () => {
 
   it("gives a recovered v3 line whose Type FO is pending the provision of that type (TI-534)", async () => {
     window.localStorage.setItem(
-      `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`,
-      JSON.stringify({
+      autoSaveStorageKey("627ef080-0001-4000-8000-000000000001"),
+      scopedDraftJson({
         buffered_updates: [{ id: "line-1", updates: { supply_type_id: "627ef080-0004-4000-8000-00000000000a" } }],
         saved_at: "2026-07-15T09:00:00.000Z",
       })
@@ -788,7 +804,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(
       readStoragePayload(
         window.localStorage,
-        `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       buffered_updates: [
@@ -827,7 +843,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(
       readStoragePayload(
         window.localStorage,
-        `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toBeNull();
 
@@ -973,7 +989,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
     expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
     expect(
-      window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`)
+      window.localStorage.getItem(autoSaveStorageKey("627ef080-0001-4000-8000-000000000001"))
     ).toBeNull();
   });
 
@@ -1057,7 +1073,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(
       readStoragePayload(
         window.localStorage,
-        `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       buffered_updates: [
@@ -1149,7 +1165,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(
       readStoragePayload(
         window.localStorage,
-        `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       buffered_updates: [
@@ -1168,8 +1184,8 @@ describe("useEstimateEditorSyncController buffered updates", () => {
 
 describe("useEstimateEditorSyncController conflicts and route changes", () => {
   it("preserves an unrestored session draft during unrelated saves and exposes its status", async () => {
-    const key = `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`;
-    const draft = JSON.stringify({ settings: createSettings(), items: [createItem()], saved_at: "2026-07-15T09:30:00.000Z" });
+    const key = conflictStorageKey("627ef080-0001-4000-8000-000000000001");
+    const draft = scopedDraftJson({ settings: createSettings(), items: [createItem()], saved_at: "2026-07-15T09:30:00.000Z" });
     window.sessionStorage.setItem(key, draft);
     const input = createInput();
     const { result } = renderHook(() => useEstimateEditorSyncController(input));
@@ -1229,14 +1245,14 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(
       readStoragePayload(
         window.sessionStorage,
-        `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        conflictStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       settings: input.settings,
-      items: input.items,
+      items: [expect.objectContaining({ ...input.items[0], title: "Edition en conflit" })],
     });
     expect(
-      window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`)
+      window.localStorage.getItem(autoSaveStorageKey("627ef080-0001-4000-8000-000000000001"))
     ).toBeNull();
     expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
     expect(input.reportError).toHaveBeenCalledWith(
@@ -1280,7 +1296,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
     expect(
       window.sessionStorage.getItem(
-        `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        conflictStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toBeNull();
   });
@@ -1291,8 +1307,8 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
       items: [createItem("line-restored", { title: "Ligne restauree" })],
       saved_at: "2026-07-15T09:30:00.000Z",
     };
-    const storageKey = `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`;
-    window.sessionStorage.setItem(storageKey, JSON.stringify(draft));
+    const storageKey = conflictStorageKey("627ef080-0001-4000-8000-000000000001");
+    window.sessionStorage.setItem(storageKey, scopedDraftJson(draft));
     const input = createInput();
     const { result } = renderHook(() =>
       useEstimateEditorSyncController(input)
@@ -1317,7 +1333,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(
       readStoragePayload(
         window.localStorage,
-        `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       buffered_updates: [
@@ -1348,8 +1364,8 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
       saved_at: "2026-07-15T09:30:00.000Z",
     };
     window.sessionStorage.setItem(
-      `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`,
-      JSON.stringify(draft)
+      conflictStorageKey("627ef080-0001-4000-8000-000000000001"),
+      scopedDraftJson(draft)
     );
     const input = createInput({
       applyRestoredDraft: vi.fn(() => ({
@@ -1374,7 +1390,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     );
     expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
     expect(
-      window.localStorage.getItem(`${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`)
+      window.localStorage.getItem(autoSaveStorageKey("627ef080-0001-4000-8000-000000000001"))
     ).toBeNull();
   });
 
@@ -1384,8 +1400,8 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
       items: [createItem()],
       saved_at: "2026-07-15T09:30:00.000Z",
     };
-    const storageKey = `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`;
-    window.sessionStorage.setItem(storageKey, JSON.stringify(draft));
+    const storageKey = conflictStorageKey("627ef080-0001-4000-8000-000000000001");
+    window.sessionStorage.setItem(storageKey, scopedDraftJson(draft));
     const input = createInput();
     const { result } = renderHook(() =>
       useEstimateEditorSyncController(input)
@@ -1533,14 +1549,14 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(
       readStoragePayload(
         window.sessionStorage,
-        `${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        conflictStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       settings: { title: "Devis 627ef080-0001-4000-8000-000000000001" },
       items: [{ title: "Ligne 627ef080-0001-4000-8000-000000000001", version_id: "627ef080-0001-4000-8000-000000000001" }],
     });
     expect(
-      window.sessionStorage.getItem(`${CONFLICT_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000002`)
+      window.sessionStorage.getItem(conflictStorageKey("627ef080-0001-4000-8000-000000000002"))
     ).toBeNull();
     expect(result.current.state.conflict).toBeNull();
     expect(result.current.meta.reloadToken).toBe(0);
@@ -1703,7 +1719,7 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(
       readStoragePayload(
         window.localStorage,
-        `${AUTO_SAVE_STORAGE_PREFIX}627ef080-0001-4000-8000-000000000001`
+        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
       )
     ).toMatchObject({
       buffered_updates: [
@@ -1720,5 +1736,173 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
       "public:Ancienne route indisponible"
     );
     expect(sharedCallbacks.applyVersionFlushResult).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("legacy document drafts", () => {
+  it("leaves identity-free drafts intact and never applies or exposes them as restorable", async () => {
+    const input = createInput();
+    const autoKey = `estimate:edit:autosave-buffer:${input.routeVersionId}`;
+    const conflictKey = `estimate:edit:conflict-draft:${input.routeVersionId}`;
+    const auto = JSON.stringify({ buffered_updates: [{ id: "line-1", updates: { title: "Unknown author's draft" } }],
+      saved_at: "2026-10-28T12:00:00.000Z" });
+    const conflict = JSON.stringify({ settings: input.settings, items: input.items, saved_at: "2026-10-28T12:00:00.000Z" });
+    window.localStorage.setItem(autoKey, auto);
+    window.sessionStorage.setItem(conflictKey, conflict);
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    expect(input.replaceItems).not.toHaveBeenCalled();
+    expect(result.current.state.hasRestorableDraft).toBe(false);
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
+    expect(input.reportNotice).toHaveBeenCalledWith(UNOWNED_DOCUMENT_DRAFT_MESSAGE);
+    act(() => { result.current.actions.clearBufferedItemUpdates({ clearPersisted: true }); result.current.actions.clearConflictDraft(); });
+    expect(window.localStorage.getItem(autoKey)).toBe(auto);
+    expect(window.sessionStorage.getItem(conflictKey)).toBe(conflict);
+  });
+});
+
+describe("the shared document owns save intentions", () => {
+  function withDocument(input: ControllerInput) {
+    const document = new EstimateEditorDocument({
+      actorId: input.currentUserId, tenantId: input.currentTenantId, versionId: input.routeVersionId,
+    });
+    const version = input.getVersionSnapshot();
+    document.setConfirmedVersion(version ? { ...version, estimate_projects: null } : null);
+    document.acceptItems(input.items);
+    document.setConfirmedSettings(input.settings);
+    document.setDraftSettings(input.settings);
+    return { ...input, document };
+  }
+
+  it("keeps an in-flight intention through a read and saves a newer return to the original value", async () => {
+    const input = withDocument(createInput());
+    const save = createDeferred<ReturnType<typeof createBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(save.promise);
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { quantity: 2 }); });
+    let pending!: Promise<unknown>;
+    act(() => { pending = result.current.actions.flushBufferedItemUpdates(); });
+    await waitFor(() => expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1));
+    act(() => {
+      input.document.acceptItems([createItem("line-1", { title: "Fresh server title" })]);
+    });
+    expect(input.document.getSnapshot().items[0]).toMatchObject({ quantity: 2, title: "Fresh server title" });
+    expect(result.current.state.hasPendingChanges).toBe(true);
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { quantity: 1 }); });
+    await act(async () => {
+      save.resolve(createBatchResult(input.routeVersionId, "2026-07-15T08:00:01.000Z"));
+      await pending;
+    });
+    expect(input.document.getSnapshot().items[0].quantity).toBe(1);
+    expect(input.document.getPendingUpdates().get("line-1")).toMatchObject({ quantity: 1 });
+    expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
+    await act(async () => { await result.current.actions.flushBufferedItemUpdates(); });
+    expect(mocks.batchEstimateOperations).toHaveBeenLastCalledWith(
+      input.routeVersionId, expect.any(String), [{ op: "update", id: "line-1", data: { quantity: 1 } }], expect.anything()
+    );
+    expect(input.document.getPendingUpdates().size).toBe(0);
+  });
+
+  it("ignores a mediated deletion receipt older than the document read", async () => {
+    const input = withDocument(createInput({ items: [createItem("child"), createItem("kept")] }));
+    const initial = "2026-10-28T12:00:00.123456Z";
+    const receiptToken = "2026-10-28T12:00:00.123457Z";
+    const latest = "2026-10-28T12:00:00.123458Z";
+    input.document.setConfirmedVersion((version) => version && { ...version, updated_at: initial });
+    input.getVersionSnapshot = () => input.document.getSnapshot().version;
+    input.applyVersionFlushResult = vi.fn(({ updatedAt }) => {
+      input.document.setConfirmedVersion((version) => version && { ...version, updated_at: updatedAt });
+    });
+    renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    const reply = createDeferred<void>();
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = runEstimateEditorMutation(input.routeVersionId, undefined, async () => {
+        await reply.promise;
+        return { value: undefined, version: { id: input.routeVersionId, updated_at: receiptToken },
+          deletedIds: ["child"], structural: true, needsReload: true };
+      });
+    });
+    await settleDeferredEffects();
+    act(() => {
+      input.document.transaction(() => {
+        input.document.setConfirmedVersion((version) => version && { ...version, updated_at: latest });
+        input.document.acceptItems([createItem("child", { quantity: 3 }), createItem("kept")]);
+        input.document.enqueueItem("child", { quantity: 4 });
+      });
+    });
+    await act(async () => { reply.resolve(); await pending; });
+    expect(input.document.getSnapshot().version?.updated_at).toBe(latest);
+    expect(input.document.getSnapshot().confirmedItems.find((item) => item.id === "child")?.quantity).toBe(3);
+    expect(input.document.getSnapshot().items.find((item) => item.id === "child")?.quantity).toBe(4);
+    expect(input.document.getPendingUpdates().get("child")).toEqual({ quantity: 4 });
+    expect(input.applyVersionFlushResult).not.toHaveBeenCalled();
+  });
+
+  it("publishes a structural deletion together with its confirmed token", async () => {
+    const input = withDocument(createInput({ items: [createItem("child"), createItem("kept")] }));
+    input.getVersionSnapshot = () => input.document.getSnapshot().version;
+    input.applyVersionFlushResult = ({ updatedAt }) => {
+      input.document.setConfirmedVersion((version) => version && { ...version, updated_at: updatedAt });
+    };
+    renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    const observed: Array<{ token: string | undefined; ids: string[] }> = [];
+    const stop = input.document.subscribe(() => observed.push({
+      token: input.document.getSnapshot().version?.updated_at,
+      ids: input.document.getSnapshot().confirmedItems.map((item) => item.id),
+    }));
+    await act(async () => {
+      await runEstimateEditorMutation(input.routeVersionId, undefined, async () => ({
+        value: undefined, version: { id: input.routeVersionId, updated_at: "2026-07-15T08:00:02.000Z" },
+        deletedIds: ["child"], structural: true,
+      }));
+    });
+    stop();
+    expect(observed).toEqual([{ token: "2026-07-15T08:00:02.000Z", ids: ["kept"] }]);
+    expect(input.document.getSnapshot().items.map((item) => item.id)).toEqual(["kept"]);
+  });
+
+  it("does not invalidate an in-flight save for a UUID casing-only change", async () => {
+    const input = withDocument(createInput());
+    const save = createDeferred<ReturnType<typeof createBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(save.promise);
+    const { result, rerender } = renderHook((props: ControllerInput) => useEstimateEditorSyncController(props), {
+      initialProps: input,
+    });
+    await settleDeferredEffects();
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { quantity: 2 }); });
+    let pending!: Promise<unknown>;
+    act(() => { pending = result.current.actions.flushBufferedItemUpdates(); });
+    rerender({ ...input, routeVersionId: input.routeVersionId.toUpperCase(),
+      currentUserId: input.currentUserId!.toUpperCase(), currentTenantId: input.currentTenantId!.toUpperCase() });
+    await act(async () => {
+      save.resolve(createBatchResult(input.routeVersionId, "2026-07-15T08:00:01.000Z"));
+      await pending;
+    });
+    expect(input.applyVersionFlushResult).toHaveBeenCalledTimes(1);
+    expect(input.document.getSnapshot().confirmedItems[0].quantity).toBe(2);
+    expect(input.document.getSnapshot().inFlightCount).toBe(0);
+  });
+
+  it("captures the current document draft on conflict even before its consumer rerenders", async () => {
+    const input = withDocument(createInput());
+    mocks.batchEstimateOperations.mockRejectedValueOnce(createApiConflict());
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => {
+      input.document.setDraftItems((items) => items.map((item) => ({ ...item, title: "New local title" })));
+      result.current.actions.enqueueItemUpdate("line-1", { title: "New local title" });
+    });
+    await act(async () => { await result.current.actions.flushBufferedItemUpdates(); });
+    const conflictDraft = readStoragePayload(window.sessionStorage, conflictStorageKey(input.routeVersionId)) as {
+      items: EstimateItem[];
+    };
+    expect(conflictDraft.items[0].title).toBe("New local title");
+    expect(input.document.getPendingUpdates().size).toBe(0);
+    expect(result.current.state.hasRestorableDraft).toBe(true);
   });
 });
