@@ -1,9 +1,25 @@
 import {
+  TAKEOFF_DPGF_LINKS_SELECT,
+  TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT,
+  getEstimateVersionNumbersById,
+  hasTakeoffDpgfTargetLines,
+  resolveDpgfUnitByRowIndex,
+} from "@/lib/takeoff/dpgf-comparison-repository";
+import {
+  normalizeTakeoffDpgfManualLinkRows,
+  buildTakeoffDpgfReviewDecisionRecord,
+} from "@/lib/takeoff/dpgf-comparison-preparation";
+import { fetchAllTakeoffDpgfComparisonRows, fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-comparison-server";
+import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
+import { refreshTakeoffLineEvidenceSnapshot } from "@/lib/takeoff/line-evidence-server";
+export { fetchDpgfTakeoffComparison, fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/dpgf-comparison-server";
+export { fetchTakeoffLineEvidencePanel } from "@/lib/takeoff/line-evidence-server";
+
+import {
   getAuthenticatedTakeoffContext,
   type AuthenticatedTakeoffContext,
   normalizeTakeoffJobSummaryRow,
   getTakeoffJobDetailByIdOrThrow,
-  jsonRecordSchema,
   TAKEOFF_ITEMS_SELECT,
   normalizeTakeoffItemRow,
   type TakeoffItemRow,
@@ -51,8 +67,6 @@ import {
   takeoffPreviewConversionResponseSchema,
   updateTakeoffRiskAlertStatusSchema,
   type CompareTakeoffJobsQuery,
-  type TakeoffDpgfComparisonQuery,
-  type TakeoffLineEvidencePanelQuery,
   type TakeoffRiskRadarQuery,
 } from "@/lib/takeoff/schemas";
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
@@ -63,19 +77,9 @@ import {
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
 import {
-  TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
-  TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
   buildTakeoffDpgfReviewReference,
-  buildTakeoffDpgfComparison,
   hasBlockingTakeoffDpgfExceptions,
 } from "@/lib/takeoff/dpgf-compare";
-import {
-  listSupplierPriceEvidenceRows,
-  listTakeoffLineEvidenceRows,
-  mapActiveLineEvidenceRowsToProofs,
-  mapTakeoffLineEvidencePanel,
-  syncTakeoffLineEvidences,
-} from "@/lib/takeoff/evidence";
 import {
   TAKEOFF_APPLY_SCOPES,
   type TakeoffApplyRequest,
@@ -89,15 +93,9 @@ import {
   type TakeoffItemBatchPatchResponse,
   type TakeoffItemPatchResult,
   type TakeoffJobCompareResponse,
-  type TakeoffDpgfComparisonDpgfLine,
   type TakeoffDpgfComparisonResponse,
   type TakeoffDpgfComparisonSummary,
-  type TakeoffDpgfComparisonTakeoffLine,
   type TakeoffDpgfReviewDecision,
-  type TakeoffDpgfManualLinkRecord,
-  type TakeoffDpgfReviewDecisionRecord,
-  type TakeoffLineEvidencePanelResponse,
-  type TakeoffJobItem,
   type SaveTakeoffDpgfManualLinkInput,
   type SaveTakeoffDpgfManualLinkResponse,
   type SaveTakeoffReviewDecisionInput,
@@ -114,7 +112,6 @@ import {
   normalizeRiskAlertRow,
 } from "@/lib/takeoff/risk-radar";
 import { getEstimateVersionProjectIdOrThrow, assertTakeoffJobAccessibleForVersion } from "@/lib/takeoff/version-access-server";
-import { ESTIMATE_DPGF_COMPARE_SELECT, takeoffDpgfCompareEstimateItemRowSchema } from "@/lib/takeoff/estimate-line-read-contract";
 import { listAllTakeoffItemsByJobId } from "@/lib/takeoff/job-read-server";
 export { getTakeoffPriceSuggestion, requestTakeoffPriceSuggestion, reviewTakeoffPriceSuggestion } from "@/lib/takeoff/price-suggestion-server";
 
@@ -160,36 +157,6 @@ export {
   parseTakeoffPriceSuggestionQuery,
   parseTakeoffRiskRadarQuery,
 } from "@/lib/takeoff/query-parsers";
-const TAKEOFF_DPGF_LINKS_SELECT = [
-  "id",
-  "tenant_id",
-  "version_id",
-  "takeoff_job_id",
-  "estimate_item_id",
-  "takeoff_item_id",
-  "created_at",
-  "updated_at",
-  "linked_by",
-].join(", ");
-const TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT = [
-  "id",
-  "tenant_id",
-  "version_id",
-  "takeoff_job_id",
-  "estimate_item_id",
-  "review_reference",
-  "line_label",
-  "line_position",
-  "source_file_name",
-  "source_page",
-  "carried_over_from_version_id",
-  "carried_over_at",
-  "decision",
-  "reason",
-  "decided_at",
-  "updated_at",
-  "decided_by",
-].join(", ");
 const ESTIMATE_RISK_ITEMS_SELECT = [
   "id",
   "parent_id",
@@ -259,44 +226,6 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
   "first_detected_at",
   "last_detected_at",
 ].join(", ");
-
-const takeoffDpgfManualLinkSchema: z.ZodType<TakeoffDpgfManualLinkRecord> = z.object({
-  id: z.string().uuid(),
-  tenant_id: z.string().uuid(),
-  version_id: z.string().uuid(),
-  takeoff_job_id: z.string().uuid(),
-  estimate_item_id: z.string().uuid(),
-  takeoff_item_id: z.string().uuid(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  linked_by: z.string().uuid().nullable(),
-});
-
-const takeoffDpgfReviewDecisionSchema: z.ZodType<TakeoffDpgfReviewDecisionRecord> = z.object({
-  id: z.string().uuid(),
-  tenant_id: z.string().uuid(),
-  version_id: z.string().uuid(),
-  takeoff_job_id: z.string().uuid(),
-  estimate_item_id: z.string().uuid(),
-  review_reference: z.string().min(1),
-  line_label: z.string(),
-  line_position: z.number().int().nonnegative(),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
-  reason: z.string().nullable(),
-  decided_at: z.string(),
-  updated_at: z.string(),
-  decided_by: z.string().uuid().nullable(),
-  source: z.enum(["current_version", "carried_over"]),
-  carried_over_from_version_id: z.string().uuid().nullable(),
-  carried_over_from_version_number: z.number().int().positive().nullable(),
-});
-
-const takeoffDpgfCompareMappedRowSchema = z.object({
-  id: z.string().uuid(),
-  payload: jsonRecordSchema,
-});
 
 function toHexSha256(value: string | Buffer) {
   return createHash("sha256").update(value).digest("hex");
@@ -840,507 +769,6 @@ function normalizeTakeoffApplySummary(input: {
   };
 }
 
-function normalizeTakeoffDpgfManualLinkRow(row: unknown): TakeoffDpgfManualLinkRecord {
-  return parseWithSchema(
-    takeoffDpgfManualLinkSchema,
-    row,
-    "Données takeoff_dpgf_links invalides en base."
-  );
-}
-
-function normalizeTakeoffDpgfManualLinkRows(rows: unknown[]): TakeoffDpgfManualLinkRecord[] {
-  return rows.map((row) => normalizeTakeoffDpgfManualLinkRow(row));
-}
-
-function normalizeTakeoffDpgfReviewDecisionRow(
-  row: unknown
-): TakeoffDpgfReviewDecisionRecord {
-  return parseWithSchema(
-    takeoffDpgfReviewDecisionSchema,
-    row,
-    "Données takeoff_dpgf_review_decisions invalides en base."
-  );
-}
-
-function buildTakeoffDpgfReviewDecisionRecord(input: {
-  row: unknown;
-  carriedOverVersionNumberById?: Map<string, number>;
-}): TakeoffDpgfReviewDecisionRecord {
-  if (!isRecord(input.row)) {
-    throw unprocessableEntity(
-      "Données takeoff_dpgf_review_decisions invalides en base.",
-      {
-        row: input.row,
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  const carriedOverFromVersionId =
-    typeof input.row.carried_over_from_version_id === "string" &&
-    input.row.carried_over_from_version_id.trim().length > 0
-      ? input.row.carried_over_from_version_id
-      : null;
-
-  return normalizeTakeoffDpgfReviewDecisionRow({
-    ...input.row,
-    source: carriedOverFromVersionId ? "carried_over" : "current_version",
-    carried_over_from_version_id: carriedOverFromVersionId,
-    carried_over_from_version_number: carriedOverFromVersionId
-      ? (input.carriedOverVersionNumberById?.get(carriedOverFromVersionId) ?? null)
-      : null,
-  });
-}
-
-function buildTakeoffDpgfReviewDecisionRecords(input: {
-  rows: unknown[];
-  carriedOverVersionNumberById?: Map<string, number>;
-}): TakeoffDpgfReviewDecisionRecord[] {
-  return input.rows.map((row) =>
-    buildTakeoffDpgfReviewDecisionRecord({
-      row,
-      carriedOverVersionNumberById: input.carriedOverVersionNumberById,
-    })
-  );
-}
-
-function normalizeTakeoffDpgfEstimateItemRow(row: unknown) {
-  return parseWithSchema(
-    takeoffDpgfCompareEstimateItemRowSchema,
-    row,
-    "Données estimate_items invalides en base pour la comparaison DPGF."
-  );
-}
-
-function normalizeTakeoffDpgfMappedRows(rows: unknown[]) {
-  return rows.map((row) =>
-    parseWithSchema(
-      takeoffDpgfCompareMappedRowSchema,
-      row,
-      "Données dpgf_rows_mapped invalides en base."
-    )
-  );
-}
-
-function toNullableText(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toPositiveNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-
-  return value;
-}
-
-function resolveMappedRowPayload(payload: Record<string, unknown>) {
-  const embedded = payload.mapped_row;
-  return isRecord(embedded) ? embedded : payload;
-}
-
-function extractDpgfMappedRowIndex(payload: Record<string, unknown>) {
-  const candidate = resolveMappedRowPayload(payload).row_index;
-  if (typeof candidate === "number" && Number.isFinite(candidate)) {
-    return Math.max(0, Math.trunc(candidate));
-  }
-
-  return null;
-}
-
-function extractDpgfMappedRowUnit(payload: Record<string, unknown>) {
-  const mappedRow = resolveMappedRowPayload(payload);
-  return (
-    toNullableText(mappedRow.unit) ??
-    toNullableText(mappedRow.unite) ??
-    toNullableText(mappedRow.uom) ??
-    toNullableText(mappedRow.measure_unit)
-  );
-}
-
-function buildDpgfUnitByRowIndex(rows: Array<{ payload: Record<string, unknown> }>) {
-  const unitByRowIndex = new Map<number, string | null>();
-
-  for (const row of rows) {
-    const rowIndex = extractDpgfMappedRowIndex(row.payload);
-    if (rowIndex === null || unitByRowIndex.has(rowIndex)) {
-      continue;
-    }
-
-    unitByRowIndex.set(rowIndex, extractDpgfMappedRowUnit(row.payload));
-  }
-
-  return unitByRowIndex;
-}
-
-function normalizeDpgfComparisonEstimateItems(input: {
-  rows: Array<z.infer<typeof takeoffDpgfCompareEstimateItemRowSchema>>;
-  unitByRowIndex: Map<number, string | null>;
-}): TakeoffDpgfComparisonDpgfLine[] {
-  return input.rows
-    .filter((row) => {
-      if (row.item_type !== "line") return false;
-      if (toPositiveNumber(row.quantity) === null) return false;
-
-      return row.source_provider === "dpgf";
-    })
-    .map((row) => ({
-      estimate_item_id: row.id,
-      title: row.title,
-      description: row.description,
-      quantity: row.quantity as number,
-      unit:
-        typeof row.source_page === "number"
-          ? input.unitByRowIndex.get(row.source_page) ?? null
-          : null,
-      source_page: row.source_page,
-      source_file_name: row.source_file_name,
-      position: row.position,
-    }));
-}
-
-function normalizeTakeoffComparisonItems(items: TakeoffJobItem[]): TakeoffDpgfComparisonTakeoffLine[] {
-  return items.map((item) => ({
-    item_id: item.id,
-    designation: item.designation,
-    quantity: item.quantity,
-    unit: item.unit,
-    source_page: item.source_page,
-    source_file_name: item.source_file_name,
-    confidence: item.confidence,
-    evidence: item.evidence,
-    metadata: item.metadata,
-  }));
-}
-
-async function getEstimateVersionNumbersById(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionIds: string[];
-}) {
-  const uniqueVersionIds = [...new Set(input.versionIds)];
-  if (uniqueVersionIds.length === 0) {
-    return new Map<string, number>();
-  }
-
-  const { data, error } = await input.supabase
-    .from("estimate_versions" as never)
-    .select("id, version_number" as never)
-    .eq("tenant_id" as never, input.tenantId as never)
-    .in("id" as never, uniqueVersionIds as never);
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        error,
-        "Impossible de charger les numéros de version des décisions DPGF."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  return new Map(
-    ((data ?? []) as Array<{ id: string; version_number: number }>).map((row) => [
-      row.id,
-      row.version_number,
-    ])
-  );
-}
-
-async function listTakeoffDpgfEstimateItems(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionId: string;
-}) {
-  // One access check per statement, not one per item: supabase/migrations/20261024130000_read_estimate_version_items.sql.
-  // PostgREST orders a function's rows by the selected columns only: created_at is selected for the order.
-  const { data, error } = await readAllRows(() => input.supabase
-    .rpc("read_estimate_version_items" as never,
-      { p_tenant_id: input.tenantId, p_version_id: input.versionId } as never, { count: "exact", get: true })
-    .select(`${ESTIMATE_DPGF_COMPARE_SELECT}, created_at` as never)
-    .eq("item_type" as never, "line" as never)
-    .order("position" as never, { ascending: true })
-    .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true }));
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les lignes DPGF de la version."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  return (data ?? []).map((row) => normalizeTakeoffDpgfEstimateItemRow(row));
-}
-
-async function hasTakeoffDpgfTargetLines(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("estimate_items" as never)
-    .select("id" as never)
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .eq("item_type" as never, "line" as never)
-    .eq("source_provider" as never, "dpgf" as never)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        error,
-        "Impossible de vérifier la présence de lignes DPGF avant application."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  return data !== null;
-}
-
-async function listTakeoffDpgfManualLinks(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionId: string;
-  jobId: string;
-}) {
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("takeoff_dpgf_links" as never)
-    .select(TAKEOFF_DPGF_LINKS_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .eq("takeoff_job_id" as never, input.jobId as never)
-    .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true }));
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les liens manuels DPGF."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.jobId,
-      }
-    );
-  }
-
-  return normalizeTakeoffDpgfManualLinkRows((data ?? []) as unknown[]);
-}
-
-async function listTakeoffDpgfReviewDecisions(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionId: string;
-  jobId: string;
-}) {
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("takeoff_dpgf_review_decisions" as never)
-    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .eq("takeoff_job_id" as never, input.jobId as never)
-    .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false }));
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les décisions DPGF."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.jobId,
-      }
-    );
-  }
-
-  const rows = (data ?? []) as unknown[];
-  const carriedOverVersionNumberById = await getEstimateVersionNumbersById({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    versionIds: rows.flatMap((row) => {
-      if (
-        isRecord(row) &&
-        typeof row.carried_over_from_version_id === "string" &&
-        row.carried_over_from_version_id.trim().length > 0
-      ) {
-        return [row.carried_over_from_version_id];
-      }
-
-      return [];
-    }),
-  });
-
-  return buildTakeoffDpgfReviewDecisionRecords({
-    rows,
-    carriedOverVersionNumberById,
-  });
-}
-
-async function buildSupplierPriceEvidenceByEstimateItemId(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  estimateItems: Array<z.infer<typeof takeoffDpgfCompareEstimateItemRowSchema>>;
-}) {
-  const selectedPriceIds = input.estimateItems
-    .map((item) => item.selected_supplier_price_id ?? null)
-    .filter((priceId): priceId is string => typeof priceId === "string");
-
-  if (selectedPriceIds.length === 0) {
-    return new Map<string, Awaited<ReturnType<typeof listSupplierPriceEvidenceRows>> extends Map<
-      string,
-      infer T
-    >
-      ? T
-      : never>();
-  }
-
-  const supplierPriceById = await listSupplierPriceEvidenceRows({
-    supabase: input.supabase as never,
-    tenantId: input.tenantId,
-    supplierPriceIds: selectedPriceIds,
-  });
-
-  return new Map(
-    input.estimateItems.flatMap((item) => {
-      if (!item.selected_supplier_price_id) {
-        return [];
-      }
-
-      const supplierPrice = supplierPriceById.get(item.selected_supplier_price_id);
-      if (!supplierPrice) {
-        return [];
-      }
-
-      return [[item.id, supplierPrice] as const];
-    })
-  );
-}
-
-async function syncAndHydrateTakeoffLineProofs(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  userId: string | null;
-  projectId: string;
-  versionId: string;
-  jobId: string;
-  rows: TakeoffDpgfComparisonResponse["rows"];
-  supplierPriceByEstimateItemId: Map<string, Awaited<ReturnType<typeof listSupplierPriceEvidenceRows>> extends Map<
-    string,
-    infer T
-  >
-    ? T
-    : never>;
-}) {
-  if (input.rows.length === 0) {
-    return input.rows;
-  }
-
-  await syncTakeoffLineEvidences({
-    supabase: input.supabase as never,
-    tenantId: input.tenantId,
-    userId: input.userId,
-    projectId: input.projectId,
-    versionId: input.versionId,
-    jobId: input.jobId,
-    rows: input.rows,
-    supplierPriceByEstimateItemId: input.supplierPriceByEstimateItemId,
-  });
-
-  const evidenceRows = await listTakeoffLineEvidenceRows({
-    supabase: input.supabase as never,
-    tenantId: input.tenantId,
-    versionId: input.versionId,
-    jobId: input.jobId,
-    lineIds: input.rows.map((row) => row.line_id),
-    includeHistory: false,
-  });
-
-  const proofsByLineId = new Map<string, ReturnType<typeof mapActiveLineEvidenceRowsToProofs>>();
-  for (const evidenceRow of evidenceRows) {
-    const current = proofsByLineId.get(evidenceRow.estimate_item_id) ?? [];
-    current.push(...mapActiveLineEvidenceRowsToProofs([evidenceRow]));
-    proofsByLineId.set(evidenceRow.estimate_item_id, current);
-  }
-
-  return input.rows.map((row) => ({
-    ...row,
-    proofs: proofsByLineId.get(row.line_id) ?? row.proofs,
-  }));
-}
-
-async function resolveDpgfUnitByRowIndex(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  projectId: string;
-  sourceFileName: string | null;
-}) {
-  let importQuery = input.supabase
-    .from("dpgf_imports" as never)
-    .select("id" as never)
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("project_id" as never, input.projectId as never);
-
-  if (input.sourceFileName) {
-    importQuery = importQuery.eq("filename" as never, input.sourceFileName as never);
-  }
-
-  const { data: importData, error: importError } = await importQuery
-    .order("created_at" as never, { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (importError) {
-    throw toTakeoffError(
-      mapSupabaseError(importError, "Impossible de résoudre l'import DPGF source."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  const importRow = (importData ?? null) as { id: string } | null;
-
-  if (!importRow || typeof importRow.id !== "string") {
-    return new Map<number, string | null>();
-  }
-
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("dpgf_rows_mapped" as never)
-    .select("id, payload" as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("import_id" as never, importRow.id as never)
-    .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true }));
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
-  }
-
-  const rows = normalizeTakeoffDpgfMappedRows((data ?? []) as unknown[]);
-  return buildDpgfUnitByRowIndex(rows);
-}
-
 type EstimateRiskItemRow = {
   id: string;
   parent_id: string | null;
@@ -1691,78 +1119,6 @@ async function loadApplicableMinMarginThresholdBp(input: {
   }
 
   return Math.max(...thresholds);
-}
-
-async function fetchAllTakeoffDpgfComparisonRows(input: {
-  jobId: string;
-  versionId: string;
-  threshold?: number;
-}) {
-  // Keep the authorized source snapshot within this request. Reloading all sources
-  // for every 200-line page makes the radar quadratic in database reads.
-  const context = await loadTakeoffDpgfComparison(input.jobId, input.versionId);
-  const rows: TakeoffDpgfComparisonResponse["rows"] = [];
-  let cursor: string | undefined;
-  let response: TakeoffDpgfComparisonResponse | null = null;
-  const seenCursors = new Set<string>();
-
-  while (true) {
-    response = await buildAndHydrateTakeoffDpgfComparison(context, {
-      version_id: input.versionId,
-      cursor,
-      page_size: TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
-      view: "all",
-      threshold: input.threshold,
-    });
-    rows.push(...response.rows);
-
-    const nextCursor = response.pagination.next_cursor;
-    if (!nextCursor) {
-      break;
-    }
-
-    if (seenCursors.has(nextCursor)) {
-      throw new TakeoffError({
-        status: 500,
-        code: TakeoffErrorCode.INTERNAL_ERROR,
-        message: "Pagination incoherente pendant le recalcul du radar de risque.",
-        details: {
-          job_id: input.jobId,
-          version_id: input.versionId,
-          cursor: nextCursor,
-        },
-        retryable: false,
-        jobId: input.jobId,
-      });
-    }
-
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-
-  if (!response) {
-    throw new TakeoffError({
-      status: 500,
-      code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "Impossible de recalculer la comparaison DPGF complète.",
-      details: {
-        job_id: input.jobId,
-        version_id: input.versionId,
-      },
-      retryable: false,
-      jobId: input.jobId,
-    });
-  }
-
-  return {
-    ...response,
-    rows,
-    pagination: {
-      ...response.pagination,
-      next_cursor: null,
-      total: rows.length,
-    },
-  };
 }
 
 async function listActiveTakeoffRiskAlerts(input: {
@@ -2224,199 +1580,17 @@ export async function compareTakeoffJobs(
   };
 }
 
-async function loadTakeoffDpgfComparison(jobId: string, versionId: string) {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
-  const normalizedJobId = parseWithSchema(
-    takeoffJobIdSchema,
-    jobId,
-    "Identifiant job invalide."
-  );
-  const normalizedVersionId = parseWithSchema(
-    z.string().uuid("version_id invalide."),
-    versionId,
-    "version_id invalide."
-  );
-
-  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
-    supabase,
-    tenantId,
-    versionId: normalizedVersionId,
-    jobId: normalizedJobId,
-  });
-
-  const carriedReviewDecisionsPromise = accessibleJob.linked_from_version_id
-    ? listTakeoffDpgfReviewDecisions({
-        supabase,
-        tenantId,
-        versionId: accessibleJob.linked_from_version_id,
-        jobId: normalizedJobId,
-      }).then((decisions) =>
-        decisions.map((decision) => ({
-          ...decision,
-          source: "carried_over" as const,
-          carried_over_from_version_id:
-            decision.carried_over_from_version_id ?? accessibleJob.linked_from_version_id ?? null,
-          carried_over_from_version_number:
-            decision.carried_over_from_version_number ??
-            accessibleJob.linked_from_version_number ??
-            null,
-        }))
-      )
-    : Promise.resolve([]);
-
-  const [takeoffItems, estimateItems, manualLinks, reviewDecisions, carriedReviewDecisions, projectId] =
-    await Promise.all([
-    listAllTakeoffItemsByJobId({
-      supabase,
-      tenantId,
-      jobId: normalizedJobId,
-    }),
-    listTakeoffDpgfEstimateItems({
-      supabase,
-      tenantId,
-      versionId: normalizedVersionId,
-    }),
-    listTakeoffDpgfManualLinks({
-      supabase,
-      tenantId,
-      versionId: normalizedVersionId,
-      jobId: normalizedJobId,
-    }),
-    listTakeoffDpgfReviewDecisions({
-      supabase,
-      tenantId,
-      versionId: normalizedVersionId,
-      jobId: normalizedJobId,
-    }),
-    carriedReviewDecisionsPromise,
-    getEstimateVersionProjectIdOrThrow({
-      supabase,
-      tenantId,
-      versionId: normalizedVersionId,
-    }),
-  ]);
-
-  const dominantSourceFileName =
-    estimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
-  const unitByRowIndex =
-    estimateItems.length > 0
-      ? await resolveDpgfUnitByRowIndex({
-          supabase,
-          tenantId,
-          projectId,
-          sourceFileName: dominantSourceFileName,
-        })
-      : new Map<number, string | null>();
-
-  const dpgfLines = normalizeDpgfComparisonEstimateItems({
-    rows: estimateItems,
-    unitByRowIndex,
-  });
-  const supplierPriceByEstimateItemId = await buildSupplierPriceEvidenceByEstimateItemId({
-    supabase,
-    tenantId,
-    estimateItems,
-  });
-  return {
-    supabase,
-    tenantId,
-    userId,
-    projectId,
-    supplierPriceByEstimateItemId,
-    comparisonInput: {
-      versionId: normalizedVersionId,
-      jobId: normalizedJobId,
-      dpgfLines,
-      takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
-      manualLinks,
-      reviewDecisions,
-      carriedReviewDecisions,
-    },
-  };
-}
-
-async function buildAndHydrateTakeoffDpgfComparison(
-  context: Awaited<ReturnType<typeof loadTakeoffDpgfComparison>>,
-  input: TakeoffDpgfComparisonQuery
-): Promise<TakeoffDpgfComparisonResponse> {
-  const comparison = buildTakeoffDpgfComparison({
-    ...context.comparisonInput,
-    threshold: input.threshold,
-    cursor: input.cursor ?? null,
-    pageSize: input.page_size ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
-    view: input.view,
-  });
-  const hydratedRows = await syncAndHydrateTakeoffLineProofs({
-    supabase: context.supabase,
-    tenantId: context.tenantId,
-    userId: context.userId,
-    projectId: context.projectId,
-    versionId: context.comparisonInput.versionId,
-    jobId: context.comparisonInput.jobId,
-    rows: comparison.rows,
-    supplierPriceByEstimateItemId: context.supplierPriceByEstimateItemId,
-  });
-  const hydratedLinesWithoutProof = hydratedRows.filter((row) =>
-    row.proofs.every((proof) => proof.type === "dpgf")
-  ).length;
-  const baseLinesWithoutProof = comparison.rows.filter((row) =>
-    row.proofs.every((proof) => proof.type === "dpgf")
-  ).length;
-  const summary = {
-    ...comparison.summary,
-    lines_without_proof: Math.max(
-      0,
-      comparison.summary.lines_without_proof +
-        (hydratedLinesWithoutProof - baseLinesWithoutProof)
-    ),
-  };
-
-  return {
-    ...comparison,
-    summary,
-    rows: hydratedRows,
-  };
-}
-
-export async function fetchDpgfTakeoffComparison(
-  jobId: string,
-  input: TakeoffDpgfComparisonQuery
-): Promise<TakeoffDpgfComparisonResponse> {
-  const context = await loadTakeoffDpgfComparison(jobId, input.version_id);
-  return buildAndHydrateTakeoffDpgfComparison(context, input);
-}
-
 export async function fetchTakeoffRiskRadar(
   jobId: string,
   input: TakeoffRiskRadarQuery
 ): Promise<TakeoffRiskRadarResponse> {
-  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
-  const normalizedJobId = parseWithSchema(
-    takeoffJobIdSchema,
+  const context = await loadTakeoffDpgfComparisonContext({
     jobId,
-    "Identifiant job invalide."
-  );
-  const normalizedVersionId = parseWithSchema(
-    z.string().uuid("version_id invalide."),
-    input.version_id,
-    "version_id invalide."
-  );
-
-  await assertTakeoffJobAccessibleForVersion({
-    supabase,
-    tenantId,
-    versionId: normalizedVersionId,
-    jobId: normalizedJobId,
+    versionId: input.version_id,
   });
-  const projectId = await getEstimateVersionProjectIdOrThrow({
-    supabase,
-    tenantId,
-    versionId: normalizedVersionId,
-  });
-  const fullComparison = await fetchAllTakeoffDpgfComparisonRows({
-    jobId: normalizedJobId,
-    versionId: normalizedVersionId,
-  });
+  const { supabase, tenantId, projectId } = context;
+  const { jobId: normalizedJobId, versionId: normalizedVersionId } = context.comparisonInput;
+  const fullComparison = await fetchAllTakeoffDpgfComparisonRows({ context });
   const { alerts, lotLabelById, projectLabel } = await syncTakeoffRiskRadarProjection({
     supabase,
     tenantId,
@@ -2470,194 +1644,6 @@ export async function fetchTakeoffActiveRiskAlerts(
     tenantId,
     versionId: normalizedVersionId,
     jobId: normalizedJobId,
-  });
-}
-
-async function refreshTakeoffLineEvidenceSnapshot(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  userId: string | null;
-  versionId: string;
-  jobId: string;
-  estimateItemIds: string[];
-}) {
-  const uniqueEstimateItemIds = [...new Set(input.estimateItemIds)];
-  if (uniqueEstimateItemIds.length === 0) {
-    return;
-  }
-
-  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    versionId: input.versionId,
-    jobId: input.jobId,
-  });
-
-  const carriedReviewDecisionsPromise = accessibleJob.linked_from_version_id
-    ? listTakeoffDpgfReviewDecisions({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: accessibleJob.linked_from_version_id,
-        jobId: input.jobId,
-      }).then((decisions) =>
-        decisions.map((decision) => ({
-          ...decision,
-          source: "carried_over" as const,
-          carried_over_from_version_id:
-            decision.carried_over_from_version_id ?? accessibleJob.linked_from_version_id ?? null,
-          carried_over_from_version_number:
-            decision.carried_over_from_version_number ??
-            accessibleJob.linked_from_version_number ??
-            null,
-        }))
-      )
-    : Promise.resolve([]);
-
-  const [takeoffItems, estimateItems, manualLinks, reviewDecisions, carriedReviewDecisions, projectId] =
-    await Promise.all([
-      listAllTakeoffItemsByJobId({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        jobId: input.jobId,
-      }),
-      listTakeoffDpgfEstimateItems({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-      }),
-      listTakeoffDpgfManualLinks({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-        jobId: input.jobId,
-      }),
-      listTakeoffDpgfReviewDecisions({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-        jobId: input.jobId,
-      }),
-      carriedReviewDecisionsPromise,
-      getEstimateVersionProjectIdOrThrow({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-      }),
-    ]);
-
-  const filteredEstimateItems = estimateItems.filter((item) =>
-    uniqueEstimateItemIds.includes(item.id)
-  );
-  const missingEstimateItemId = uniqueEstimateItemIds.find(
-    (estimateItemId) => !filteredEstimateItems.some((item) => item.id === estimateItemId)
-  );
-  if (missingEstimateItemId) {
-    throw new TakeoffError({
-      status: 404,
-      code: TakeoffErrorCode.NOT_FOUND,
-      message: "Ligne DPGF introuvable.",
-      details: {
-        estimate_item_id: missingEstimateItemId,
-      },
-      retryable: false,
-      jobId: input.jobId,
-    });
-  }
-
-  const dominantSourceFileName =
-    filteredEstimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
-  const unitByRowIndex = await resolveDpgfUnitByRowIndex({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    projectId,
-    sourceFileName: dominantSourceFileName,
-  });
-  const dpgfLines = normalizeDpgfComparisonEstimateItems({
-    rows: filteredEstimateItems,
-    unitByRowIndex,
-  });
-  const missingDpgfLineId = uniqueEstimateItemIds.find(
-    (estimateItemId) => !dpgfLines.some((line) => line.estimate_item_id === estimateItemId)
-  );
-  if (missingDpgfLineId) {
-    throw new TakeoffError({
-      status: 404,
-      code: TakeoffErrorCode.NOT_FOUND,
-      message: "Ligne DPGF introuvable.",
-      details: {
-        estimate_item_id: missingDpgfLineId,
-      },
-      retryable: false,
-      jobId: input.jobId,
-    });
-  }
-  const comparison = buildTakeoffDpgfComparison({
-    versionId: input.versionId,
-    jobId: input.jobId,
-    dpgfLines,
-    takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
-    manualLinks,
-    reviewDecisions,
-    carriedReviewDecisions,
-    pageSize: dpgfLines.length,
-    view: "all",
-  });
-  const supplierPriceByEstimateItemId = await buildSupplierPriceEvidenceByEstimateItemId({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    estimateItems: filteredEstimateItems,
-  });
-
-  await syncTakeoffLineEvidences({
-    supabase: input.supabase as never,
-    tenantId: input.tenantId,
-    userId: input.userId,
-    projectId,
-    versionId: input.versionId,
-    jobId: input.jobId,
-    rows: comparison.rows,
-    supplierPriceByEstimateItemId,
-  });
-}
-
-export async function fetchTakeoffLineEvidencePanel(
-  jobId: string,
-  input: TakeoffLineEvidencePanelQuery & {
-    line_id: string;
-  }
-): Promise<TakeoffLineEvidencePanelResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
-  const normalizedJobId = parseWithSchema(
-    takeoffJobIdSchema,
-    jobId,
-    "Identifiant job invalide."
-  );
-  const normalizedVersionId = parseWithSchema(
-    z.string().uuid("version_id invalide."),
-    input.version_id,
-    "version_id invalide."
-  );
-  const normalizedLineId = parseWithSchema(
-    z.string().uuid("line_id invalide."),
-    input.line_id,
-    "line_id invalide."
-  );
-
-  await refreshTakeoffLineEvidenceSnapshot({
-    supabase,
-    tenantId,
-    userId,
-    versionId: normalizedVersionId,
-    jobId: normalizedJobId,
-    estimateItemIds: [normalizedLineId],
-  });
-
-  return mapTakeoffLineEvidencePanel({
-    supabase: supabase as never,
-    tenantId,
-    versionId: normalizedVersionId,
-    jobId: normalizedJobId,
-    lineId: normalizedLineId,
   });
 }
 
@@ -3662,7 +2648,12 @@ export async function applyTakeoffJob(
 
     try {
       if (hasDpgfTargetLines) {
-        const dpgfComparison = await fetchDpgfTakeoffComparison(normalizedJobId, {
+        const comparisonContext = await loadTakeoffDpgfComparisonContext({
+          auth: { supabase, tenantId, userId },
+          jobId: normalizedJobId,
+          versionId: jobRow.estimate_version_id,
+        });
+        const dpgfComparison = await fetchDpgfTakeoffComparisonForContext(comparisonContext, {
           version_id: jobRow.estimate_version_id,
           page_size: 1,
           view: "all",
@@ -4178,97 +3169,3 @@ export {
   listTakeoffMappingRules,
   updateTakeoffMappingRule,
 } from "@/lib/takeoff/mapping-rules-server";
-
-export async function fetchTakeoffDpgfSummaryForHub(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  jobId: string;
-  versionId: string;
-  projectId: string;
-}): Promise<TakeoffDpgfComparisonSummary> {
-  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    versionId: input.versionId,
-    jobId: input.jobId,
-  });
-
-  const carriedReviewDecisionsPromise = accessibleJob.linked_from_version_id
-    ? listTakeoffDpgfReviewDecisions({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: accessibleJob.linked_from_version_id,
-        jobId: input.jobId,
-      }).then((decisions) =>
-        decisions.map((decision) => ({
-          ...decision,
-          source: "carried_over" as const,
-          carried_over_from_version_id:
-            decision.carried_over_from_version_id ??
-            accessibleJob.linked_from_version_id ??
-            null,
-          carried_over_from_version_number:
-            decision.carried_over_from_version_number ??
-            accessibleJob.linked_from_version_number ??
-            null,
-        }))
-      )
-    : Promise.resolve([]);
-
-  const [takeoffItems, estimateItems, manualLinks, reviewDecisions, carriedReviewDecisions] =
-    await Promise.all([
-      listAllTakeoffItemsByJobId({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        jobId: input.jobId,
-      }),
-      listTakeoffDpgfEstimateItems({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-      }),
-      listTakeoffDpgfManualLinks({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-        jobId: input.jobId,
-      }),
-      listTakeoffDpgfReviewDecisions({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-        versionId: input.versionId,
-        jobId: input.jobId,
-      }),
-      carriedReviewDecisionsPromise,
-    ]);
-
-  const dominantSourceFileName =
-    estimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
-  const unitByRowIndex =
-    estimateItems.length > 0
-      ? await resolveDpgfUnitByRowIndex({
-          supabase: input.supabase,
-          tenantId: input.tenantId,
-          projectId: input.projectId,
-          sourceFileName: dominantSourceFileName,
-        })
-      : new Map<number, string | null>();
-
-  const dpgfLines = normalizeDpgfComparisonEstimateItems({
-    rows: estimateItems,
-    unitByRowIndex,
-  });
-
-  const result = buildTakeoffDpgfComparison({
-    versionId: input.versionId,
-    jobId: input.jobId,
-    dpgfLines,
-    takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
-    manualLinks,
-    reviewDecisions,
-    carriedReviewDecisions,
-    pageSize: 1,
-  });
-
-  return result.summary;
-}
