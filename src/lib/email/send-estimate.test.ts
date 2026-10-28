@@ -31,33 +31,31 @@ vi.mock("@react-email/components", async (importOriginal) => ({
 vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedTenantContext: vi.fn(),
 }));
-vi.mock("@/lib/email/estimate-email-outbox", () => ({
-  canonicalJsonHash: vi.fn(() => "a".repeat(64)),
-  sha256: vi.fn(() => "b".repeat(64)),
+vi.mock("@/lib/email/estimate-email-dispatch-repository", () => ({
   findEstimateEmailDispatchByRequest: outboxMocks.findByRequest,
   findActiveEstimateEmailDispatch: outboxMocks.findActive,
   reserveEstimateEmailDispatch: outboxMocks.reserve,
   prepareEstimateEmailDispatch: outboxMocks.prepare,
-  deliverEstimateEmailDispatch: outboxMocks.deliver,
   failEstimateEmailDispatch: outboxMocks.fail,
+}));
+vi.mock("@/lib/email/estimate-email-hash", () => ({
+  canonicalJsonHash: vi.fn(() => "a".repeat(64)),
+}));
+vi.mock("@/lib/email/estimate-email-delivery", () => ({
+  deliverEstimateEmailDispatch: outboxMocks.deliver,
 }));
 vi.mock("@/lib/estimates/pdf-generator", () => ({
   generateEstimatePdfNow: vi.fn(),
   getEstimatePdfStatus: vi.fn(),
 }));
-vi.mock("@/lib/estimates/server", async (importOriginal) => ({
-  normalizeConcurrencyToken: (await importOriginal<typeof import("@/lib/estimates/server")>()).normalizeConcurrencyToken,
+vi.mock("@/lib/estimates/version-lifecycle-server", () => ({
   freezeEstimateV2SnapshotForSend: serverMocks.freeze,
   getEstimateSendGating: serverMocks.getGating,
-  verifyEstimateSeal: serverMocks.verifySeal,
-  loadEstimateSealSource: serverMocks.loadSealSource,
-  buildCanonicalEstimateSealPayload: serverMocks.buildSealPayload,
-  computeEstimateSealHash: serverMocks.computeSealHash,
 }));
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest, internalError } from "@/lib/estimates/errors";
 import {
   generateEstimatePdfNow,
   getEstimatePdfStatus,
@@ -302,7 +300,7 @@ describe("sendEstimateEmail transactional workflow", () => {
     );
 
     await expect(sendEstimateEmail(request)).resolves.toEqual({
-      message_id: "email-1",
+      message_id: "email-1", version_id: VERSION_ID, request_id: REQUEST_ID,
     });
     expect(outboxMocks.reserve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -335,6 +333,15 @@ describe("sendEstimateEmail transactional workflow", () => {
     );
   });
 
+  it("does not compensate or deliver when preparation may have committed but its receipt is invalid", async () => {
+    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(createContext("draft") as never);
+    outboxMocks.prepare.mockRejectedValue(internalError("Confirmation invalide.", undefined,
+      "ESTIMATE_EMAIL_DISPATCH_INVALID_RESPONSE"));
+    await expect(sendEstimateEmail(request)).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_DISPATCH_INVALID_RESPONSE" });
+    expect(outboxMocks.fail).not.toHaveBeenCalled();
+    expect(outboxMocks.deliver).not.toHaveBeenCalled();
+  });
+
   it("releases the draft when preparation fails before any provider call", async () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
       createContext("draft") as never
@@ -360,7 +367,7 @@ describe("sendEstimateEmail transactional workflow", () => {
     outboxMocks.findByRequest.mockResolvedValue(createDispatch("sent"));
 
     await expect(sendEstimateEmail(request)).resolves.toEqual({
-      message_id: "email-existing",
+      message_id: "email-existing", version_id: VERSION_ID, request_id: REQUEST_ID,
     });
     expect(outboxMocks.findActive).not.toHaveBeenCalled();
     expect(outboxMocks.reserve).not.toHaveBeenCalled();
@@ -376,7 +383,7 @@ describe("sendEstimateEmail transactional workflow", () => {
     outboxMocks.reserve.mockResolvedValue(createDispatch("preparing"));
 
     await expect(sendEstimateEmail(request)).resolves.toEqual({
-      message_id: "email-1",
+      message_id: "email-1", version_id: VERSION_ID, request_id: REQUEST_ID,
     });
 
     expect(offerMocks.load).toHaveBeenCalled();
@@ -407,7 +414,7 @@ describe("sendEstimateEmail transactional workflow", () => {
           ...request,
           idempotencyKey: "77777777-7777-4777-8777-777777777777",
         })
-      ).resolves.toEqual({ message_id: "email-1" });
+      ).resolves.toEqual({ message_id: "email-1", version_id: VERSION_ID, request_id: "77777777-7777-4777-8777-777777777777" });
 
       expect(outboxMocks.deliver).toHaveBeenCalledWith(
         expect.objectContaining({ dispatch: frozenDispatch })
@@ -450,7 +457,7 @@ describe("sendEstimateEmail transactional workflow", () => {
 
     await expect(
       sendEstimateEmail(request)
-    ).resolves.toEqual({ message_id: "email-1" });
+    ).resolves.toEqual({ message_id: "email-1", version_id: VERSION_ID, request_id: REQUEST_ID });
 
     expect(offerMocks.load).toHaveBeenCalled();
     expect(generateEstimatePdfNow).not.toHaveBeenCalled();

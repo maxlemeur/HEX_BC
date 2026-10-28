@@ -81,9 +81,9 @@ describe("estimate email outbox provider boundary", () => {
   });
 
   it("sends the frozen payload with the database-owned idempotency key", async () => {
-    mocks.rpc.mockImplementation(async (functionName: string) => {
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
       if (functionName === "claim_estimate_email_dispatch") {
-        return { data: createDispatch("processing"), error: null };
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token, lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
       }
       if (functionName === "complete_estimate_email_dispatch") {
         return { data: createDispatch("sent"), error: null };
@@ -126,9 +126,9 @@ describe("estimate email outbox provider boundary", () => {
 
   it("replays the identical provider request when provider success precedes a DB failure", async () => {
     let completionCount = 0;
-    mocks.rpc.mockImplementation(async (functionName: string) => {
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
       if (functionName === "claim_estimate_email_dispatch") {
-        return { data: createDispatch("processing"), error: null };
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token, lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
       }
       if (functionName === "complete_estimate_email_dispatch") {
         completionCount += 1;
@@ -154,6 +154,28 @@ describe("estimate email outbox provider boundary", () => {
 
     expect(mocks.send).toHaveBeenCalledTimes(2);
     expect(mocks.send.mock.calls[1]).toEqual(mocks.send.mock.calls[0]);
+  });
+
+  it("does not resend or compensate after a malformed completion receipt", async () => {
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token,
+          lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      if (functionName === "complete_estimate_email_dispatch") {
+        return { data: { ...createDispatch("sent"), provider_id: "unrelated-provider-id" }, error: null };
+      }
+      throw new Error(`Unexpected compensating RPC ${functionName}`);
+    });
+    mocks.send.mockResolvedValue({ data: { id: "email-1" }, error: null });
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"), actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER, retryDelaysMs: [0],
+    })).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_DISPATCH_INVALID_RESPONSE" });
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+      "claim_estimate_email_dispatch", "complete_estimate_email_dispatch",
+    ]);
   });
 
   it("classifies provider errors conservatively", () => {
@@ -222,11 +244,11 @@ describe("estimate email outbox provider boundary", () => {
 
 describe("drainEstimateEmailOutbox", () => {
   it("advances the eligible dispatch after 25 blocked actors and reports the blocked count", async () => {
-    mocks.rpc.mockImplementation(async (name: string) => {
+    mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
       if (name === "list_due_estimate_email_dispatches") {
         return { data: { dispatches: [createDispatch("queued")], blocked: 25 }, error: null };
       }
-      if (name === "claim_estimate_email_dispatch") return { data: createDispatch("processing"), error: null };
+      if (name === "claim_estimate_email_dispatch") return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token, lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
       if (name === "complete_estimate_email_dispatch") return { data: createDispatch("sent"), error: null };
       throw new Error(`Unexpected RPC ${name}`);
     });
@@ -334,9 +356,9 @@ describe("drainEstimateEmailOutbox", () => {
   });
 
   it("downloads the frozen PDF from estimate-documents on the shipped deliver path", async () => {
-    mocks.rpc.mockImplementation(async (functionName: string) => {
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
       if (functionName === "claim_estimate_email_dispatch") {
-        return { data: createDispatch("processing"), error: null };
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token, lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
       }
       if (functionName === "complete_estimate_email_dispatch") {
         return { data: createDispatch("sent"), error: null };
