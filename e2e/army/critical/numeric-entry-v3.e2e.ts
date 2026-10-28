@@ -177,7 +177,22 @@ armyTest(
     await quantity.fill("1,2345");
     await quantity.press("Tab");
     await expect(quantity).toHaveAttribute("aria-invalid", "true");
-    await browser.reload();
+    // This reload intentionally discards the rejected draft. Handle only the
+    // browser's leave warning; unrelated dialogs must still fail the journey.
+    const reloadDialogs: string[] = [];
+    const stopReloadDialogs = await browser.onDialog(async (dialog) => {
+      reloadDialogs.push(dialog.type);
+      if (dialog.type !== "beforeunload") {
+        await dialog.dismiss();
+        throw new Error(`Unexpected dialog during rejected quantity reload: ${dialog.type}`);
+      }
+      await dialog.accept();
+    });
+    try {
+      await browser.reload();
+    } finally {
+      await stopReloadDialogs();
+    }
     await expect(grid).toBeVisible();
     expect((await lineOf())?.quantity).toBe(1);
 
@@ -203,7 +218,7 @@ armyTest(
     expect(reviewed.items.some((item) => item.title === preciseTitle)).toBe(false);
 
     await recordEvidence(army, "numeric-entry-v3", {
-      ids, itemId: line.id, refusal, pasteReason: pasteReasonText, preciseQuantityReason: preciseReasonText,
+      ids, itemId: line.id, refusal, pasteReason: pasteReasonText, preciseQuantityReason: preciseReasonText, reloadDialogs,
       expected: {
         priceCents: 1000, discountCents: 100000, pastedTitleAbsent: pastedTitle, bulkMajoration: 1.5,
         gridMajorationPercent: 1.125, gridMajorationAfterReload: 1, gridMajorationRefusedText: "1 001",

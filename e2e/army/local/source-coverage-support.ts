@@ -278,14 +278,19 @@ export async function createRegister(c: Case) {
     await expect(c.screen.getByText(entry.text, { exact: true })).toBeVisible();
   }
   const client = await ordinaryClient(c);
-  const result = await client.from("affaire_register_entries").select("id,kind,text,status,scope_type,scope_id,version_id,origin_kind,is_active").eq("tenant_id", c.fixture.owner.tenantId).eq("project_id", c.scenario.projectId).order("kind");
+  const result = await client.from("affaire_register_entries").select("id,kind,code,text,status,scope_type,scope_id,version_id,origin_kind,is_active").eq("tenant_id", c.fixture.owner.tenantId).eq("project_id", c.scenario.projectId).order("kind");
   if (result.error) throw new Error("Ordinary register read failed.");
-  expect(result.data).toHaveLength(2);
-  for (const entry of result.data) expect([entry.status, entry.scope_type, entry.scope_id, entry.version_id, entry.origin_kind, entry.is_active]).toEqual(["open", "lot", c.scenario.sectionB, c.scenario.versionId, "manual", true]);
+  expect(result.data).toHaveLength(3);
+  const manual = result.data.filter((entry) => entry.origin_kind === "manual");
+  expect(manual).toHaveLength(2);
+  for (const entry of manual) expect([entry.status, entry.scope_type, entry.scope_id, entry.version_id, entry.is_active]).toEqual(["open", "lot", c.scenario.sectionB, c.scenario.versionId, true]);
+  expect(result.data.filter((entry) => entry.origin_kind === "system")).toEqual([
+    expect.objectContaining({ kind: "missing_piece", code: "missing_plans", status: "open", scope_type: "project", is_active: true }),
+  ]);
   await recordEvidence(c.army, "canonical-register", result.data);
   const signedOut = await client.auth.signOut({ scope: "local" });
   if (signedOut.error) throw new Error("Ordinary coverage observer session cleanup failed.");
-  return { H1: result.data.find((entry) => entry.kind === "assumption")!, M1: result.data.find((entry) => entry.kind === "missing_piece")! };
+  return { H1: manual.find((entry) => entry.kind === "assumption")!, M1: manual.find((entry) => entry.kind === "missing_piece")! };
 }
 
 export async function selectRequirement(c: Case, id: string) {

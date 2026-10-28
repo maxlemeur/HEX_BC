@@ -3,6 +3,10 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 select no_plan();
 select ok((select allowed_mime_types is null or 'application/pdf' = any(allowed_mime_types) from storage.buckets where id='dpgf-imports'), 'reviewed PDF imports can use the private import bucket');
+select ok((select relrowsecurity from pg_catalog.pg_class where oid='private.affaire_plan_presence_state'::regclass), 'plan observations have row level security enabled');
+select is(has_table_privilege('anon','private.affaire_plan_presence_state','SELECT'),false,'anonymous clients cannot read plan observations');
+select is(has_table_privilege('authenticated','private.affaire_plan_presence_state','SELECT'),false,'authenticated clients cannot read plan observations');
+select is(has_table_privilege('authenticated','private.affaire_plan_presence_state','UPDATE'),false,'authenticated clients cannot alter plan observations');
 
 insert into auth.users (instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at,confirmation_token,email_change,email_change_token_new,recovery_token)
 values ('00000000-0000-0000-0000-000000000000','6c000000-0000-4000-8000-000000000001','authenticated','authenticated','plan-reconcile@example.test',crypt('fictional-password', gen_salt('bf')),now(),'{"provider":"email","providers":["email"]}','{}',now(),now(),'','','','');
@@ -29,6 +33,55 @@ select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-00000000000
 select is((select is_active from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),true,'plan gap is active');
 select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000005'),'confirme','initializing the register does not invalidate a confirmed brief');
 update public.affaire_briefs set status='confirme',confirmed_at=now(),confirmed_by='6c000000-0000-4000-8000-000000000001' where id='6c000000-0000-4000-8000-000000000005';
+
+-- A newly discovered plan gap may require review once, but a human can then
+-- confirm a brief without the system rewriting the user's missing-elements text.
+insert into public.estimate_projects (id,tenant_id,user_id,name)
+select '6c000000-0000-4000-8000-000000000020',tenant_id,user_id,'Confirmed brief without a plan entry'
+from public.tenant_memberships where user_id='6c000000-0000-4000-8000-000000000001';
+insert into public.affaire_intake_uploads (id,project_id,created_by,status)
+values ('6c000000-0000-4000-8000-000000000021','6c000000-0000-4000-8000-000000000020','6c000000-0000-4000-8000-000000000001','ready');
+insert into public.affaire_briefs (id,project_id,upload_id,status,summary,project_object,missing_elements,confirmed_at,confirmed_by)
+values ('6c000000-0000-4000-8000-000000000022','6c000000-0000-4000-8000-000000000020','6c000000-0000-4000-8000-000000000021',
+  'confirme','Preserve this summary','Object','["Doute CCTP"]',now(),'6c000000-0000-4000-8000-000000000001');
+select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000020',null),true,'a newly discovered missing plan creates an issue and requests brief review');
+select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000022'),'a_confirmer','the newly discovered gap invalidates the old confirmation once');
+update public.affaire_briefs set status='confirme',confirmed_at=now(),confirmed_by='6c000000-0000-4000-8000-000000000001'
+where id='6c000000-0000-4000-8000-000000000022';
+select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000020',null),false,'rechecking an unchanged plan gap does not invalidate a renewed confirmation');
+select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000022'),'confirme','renewed confirmation is stable');
+select is((select missing_elements from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000022'),'["Doute CCTP"]'::jsonb,'reconciliation preserves the human brief text');
+
+-- Even if no gap ever existed in the register, losing a previously observed
+-- plan changes the facts underlying a confirmation mentioning missing plans.
+insert into public.estimate_projects (id,tenant_id,user_id,name)
+select '6c000000-0000-4000-8000-000000000030',tenant_id,user_id,'Initially present plan'
+from public.tenant_memberships where user_id='6c000000-0000-4000-8000-000000000001';
+insert into public.affaire_intake_uploads (id,project_id,created_by,status)
+values ('6c000000-0000-4000-8000-000000000031','6c000000-0000-4000-8000-000000000030','6c000000-0000-4000-8000-000000000001','ready');
+insert into public.affaire_intake_documents (id,upload_id,file_name,upload_status,storage_path,classification_status,document_kind)
+values ('6c000000-0000-4000-8000-000000000032','6c000000-0000-4000-8000-000000000031','source.xlsx','uploaded','fixture/source','classified','dpgf');
+insert into public.affaire_briefs (id,project_id,upload_id,status,summary,project_object,missing_elements,confirmed_at,confirmed_by)
+values ('6c000000-0000-4000-8000-000000000033','6c000000-0000-4000-8000-000000000030','6c000000-0000-4000-8000-000000000031',
+  'confirme','Keep summary','Object','["Plans manquants"]',now(),'6c000000-0000-4000-8000-000000000001');
+insert into public.affaire_brief_source_links (brief_id,source_document_id,block_key,entry_index,source_file_name)
+values ('6c000000-0000-4000-8000-000000000033','6c000000-0000-4000-8000-000000000032','missing_elements',0,'source.xlsx');
+insert into public.plan_sets (id,tenant_id,project_id,name)
+select '6c000000-0000-4000-8000-000000000034',tenant_id,id,'Existing plans' from public.estimate_projects where id='6c000000-0000-4000-8000-000000000030';
+insert into public.plan_files (id,tenant_id,plan_set_id,file_path,file_name,file_type,file_size_bytes,metadata)
+select '6c000000-0000-4000-8000-000000000035',tenant_id,'6c000000-0000-4000-8000-000000000034',
+  tenant_id::text || '/6c000000-0000-4000-8000-000000000034/6c000000-0000-4000-8000-000000000035/plan.pdf','plan.pdf','application/pdf',8,'{}'
+from public.estimate_projects where id='6c000000-0000-4000-8000-000000000030';
+insert into storage.objects (bucket_id,name,metadata)
+select 'plan-files',file_path,'{"size":8}' from public.plan_files where id='6c000000-0000-4000-8000-000000000035';
+select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000030',null),false,'first observation of a present plan has no visible changes');
+select is((select has_plan from private.affaire_plan_presence_state where project_id='6c000000-0000-4000-8000-000000000030'),true,'the present plan is recorded privately');
+select is((select count(*) from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000030' and code='missing_plans'),0::bigint,'no fictional resolved gap is created');
+delete from public.plan_files where id='6c000000-0000-4000-8000-000000000035';
+select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000030',null),true,'loss of an initially present plan creates the gap');
+select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000033'),'a_confirmer','loss of the observed plan invalidates the confirmation');
+select is((select missing_elements from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000033'),'["Plans manquants"]'::jsonb,'loss of the plan preserves historical text');
+select is((select count(*) from public.affaire_brief_source_links where brief_id='6c000000-0000-4000-8000-000000000033'),1::bigint,'loss of the plan preserves its source link');
 
 insert into public.plan_sets (id,tenant_id,project_id,name)
 select '6c000000-0000-4000-8000-000000000006',tenant_id,id,'Plans import' from public.estimate_projects where id='6c000000-0000-4000-8000-000000000002';

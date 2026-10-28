@@ -156,6 +156,10 @@ describe("AssemblyEditorDialog", () => {
       />
     );
 
+    // The dialog places its initial focus asynchronously. Let it finish before
+    // typing into another field so it cannot redirect the keystroke to the name.
+    await waitFor(() => expect(screen.getByLabelText(/Nom de l'ouvrage/)).toHaveFocus());
+
     const header = screen.getByTestId("assembly-items-header");
     expect(header).toHaveTextContent("Qté");
     expect(header).toHaveTextContent("PR FO");
