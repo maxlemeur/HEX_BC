@@ -184,6 +184,25 @@ Les contrats communs de comparaison et de preuves préservent la provenance
 reportée, les curseurs opaques et l'historique. La réponse de comparaison est
 validée après son enrichissement par les risques.
 
+Le [radar](../../src/lib/takeoff/risk-radar-server.ts) sépare la projection pure,
+les accès et la synchronisation. Une alerte conserve sa décision humaine lors
+d'une actualisation ou réactivation ; un signal disparu devient inactif.
+Les [liens et décisions DPGF](../../src/lib/takeoff/dpgf-review-server.ts)
+préservent la provenance héritée et actualisent seulement les preuves concernées.
+L'[application](../../src/lib/takeoff/apply-server.ts) prépare son plan après les
+contrôles d'accès, de verrou et de révision, puis utilise une seule RPC atomique.
+Une autorisation temporaire est révoquée en cas d'échec ; aucun repli n'écrit des
+lignes séparément. Le [batch d'items](../../src/lib/takeoff/item-patch-server.ts)
+garde ses résultats partiels ordonnés et vérifie la révision à la lecture puis
+dans l'écriture conditionnelle. La [comparaison de jobs](../../src/lib/takeoff/job-compare-server.ts)
+contrôle leur version et leur document avant de charger les lignes.
+
+Les modules `*-response-contracts.ts` fournissent les schémas communs aux routes,
+au client et à OpenAPI. Ils vérifient les identités, discriminants, compteurs,
+pages et confirmations partielles. Les réponses de création et de reprise sont
+validées après l'ajout du résultat de déclenchement du worker. Un reçu invalide
+après écriture reste une erreur serveur et ne déclenche pas de relance automatique.
+
 ## Catalogue et achats
 
 Le catalogue porte produits, fournisseurs et offres tarifaires avec leur
@@ -218,6 +237,20 @@ figés de la version. L'email initial et ses reprises utilisent une outbox ;
 voir le [cycle de vie](../metier/cycle-de-vie.md). Les exports DPGF sont dans
 [dpgf-export.ts](../../src/lib/estimates/dpgf-export.ts) et les adaptateurs v3
 dans [v3-export.ts](../../src/lib/estimates/v3-export.ts).
+
+L'[orchestrateur d'envoi](../../src/lib/email/send-estimate.ts) utilise des
+décisions pures de reprise, une préparation de document et un repository de
+dispatch distincts de la livraison fournisseur. Les confirmations RPC respectent
+les variantes historiques nullable et vérifient l'opération attendue. Une
+confirmation indécidable interrompt les effets suivants, y compris les
+compensations. Les baux, le PDF figé et la clé fournisseur restent ceux de l'outbox.
+
+Le [reçu HTTP d'envoi](../../src/lib/email/send-estimate-contract.ts) confirme la
+version et la demande avant l'affichage du succès. En cas de réponse ambiguë,
+le client conserve le contenu et la clé pour une reprise manuelle du même envoi.
+Une réponse tardive d'une autre ouverture ne ferme pas le dialogue courant.
+Les réglages restaurés mais non enregistrés doivent être résolus avant émission ;
+le journal d'activité utilise le lecteur d'événements partagé et annulable.
 
 | Terme | Sens dans le produit |
 | --- | --- |

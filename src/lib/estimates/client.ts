@@ -3752,12 +3752,14 @@ export async function fetchEstimateEditorData(
 }
 
 export async function fetchEstimateVersionEvents(
-  versionId: string
+  versionId: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<EstimateVersionEvent[]> {
   const payload = await requestJson(
     `/api/estimates/${versionId}/events`,
     {
       method: "GET",
+      signal: options.signal,
     },
     "Impossible de charger les événements.",
     value => parseEstimateEventsResponse(value, versionId)

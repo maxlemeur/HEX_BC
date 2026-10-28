@@ -562,6 +562,52 @@ describe("useEstimateEditorSyncController contract", () => {
 describe("useEstimateEditorSyncController buffered updates", () => {
   // A shared-data E2E cannot safely inject failed/slow settings writes into the
   // locked demonstration estimate. This isolates the actual navigation race.
+  it("does not save the new visit's settings when an old navigation flush completes after A to B to A", async () => {
+    const batch = createDeferred<ReturnType<typeof createBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(batch.promise);
+    const input = createInput();
+    const newSaveSettings = vi.fn().mockResolvedValue(true);
+    const { result, rerender } = renderHook(({ actorId, dirty, saveSettings }) => useEstimateEditorSyncController({
+      ...input, currentUserId: actorId, hasPendingSettingsChanges: dirty, savePendingSettings: saveSettings,
+    }), { initialProps: { actorId: input.currentUserId, dirty: false, saveSettings: input.savePendingSettings } });
+    await settleDeferredEffects();
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { title: "Old visit" }); });
+    const oldGuard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    let navigation!: Promise<boolean>;
+    act(() => { navigation = oldGuard.onBeforeNavigation(); });
+    await waitFor(() => expect(mocks.batchEstimateOperations).toHaveBeenCalledOnce());
+    rerender({ actorId: "627ef080-0003-4000-8000-000000000002", dirty: false, saveSettings: input.savePendingSettings });
+    rerender({ actorId: input.currentUserId, dirty: true, saveSettings: newSaveSettings });
+    await act(async () => {
+      batch.resolve(createBatchResult(input.routeVersionId, "old-navigation-token"));
+      expect(await navigation).toBe(false);
+    });
+    expect(newSaveSettings).not.toHaveBeenCalled();
+    expect(input.applyVersionFlushResult).not.toHaveBeenCalled();
+  });
+
+  it("does not clear the new visit's dirty settings after an old settings save completes", async () => {
+    const settings = createDeferred<boolean>();
+    const oldSaveSettings = vi.fn(() => settings.promise);
+    const newSaveSettings = vi.fn().mockResolvedValue(true);
+    const input = createInput();
+    const { rerender } = renderHook(({ actorId, saveSettings }) => useEstimateEditorSyncController({
+      ...input, currentUserId: actorId, hasPendingSettingsChanges: true, savePendingSettings: saveSettings,
+    }), { initialProps: { actorId: input.currentUserId, saveSettings: oldSaveSettings } });
+    await settleDeferredEffects();
+    const oldGuard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    let navigation!: Promise<boolean>;
+    act(() => { navigation = oldGuard.onBeforeNavigation(); });
+    await waitFor(() => expect(oldSaveSettings).toHaveBeenCalledOnce());
+    rerender({ actorId: "627ef080-0003-4000-8000-000000000002", saveSettings: newSaveSettings });
+    rerender({ actorId: input.currentUserId, saveSettings: newSaveSettings });
+    await act(async () => { settings.resolve(true); expect(await navigation).toBe(false); });
+    expect(newSaveSettings).not.toHaveBeenCalled();
+    const currentGuard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    await act(async () => { expect(await currentGuard.onBeforeNavigation()).toBe(true); });
+    expect(newSaveSettings).toHaveBeenCalledOnce();
+  });
+
   it("waits for a settings save already in progress even after its dirty flag clears", async () => {
     const save = createDeferred<boolean>();
     const input = createInput({ isSavingSettings: true, savePendingSettings: vi.fn(() => save.promise) });

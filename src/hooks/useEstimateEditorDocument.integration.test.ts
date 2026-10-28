@@ -7,15 +7,21 @@ import { useCallback } from "react";
 import { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
 import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
 import { useEstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
+import { useEstimateEditorStatusController } from "@/hooks/useEstimateEditorStatusController";
+import { haveEstimateSettingsChanged } from "@/lib/estimates/editor-settings-state";
+import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
+import type { EstimateEditorConflictDraft } from "@/hooks/useEstimateEditorSyncController.types";
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
-import { writeDocumentAutoSaveDraft } from "@/lib/estimates/editor-document-drafts";
+import { writeDocumentAutoSaveDraft, writeDocumentConflictDraft } from "@/lib/estimates/editor-document-drafts";
 import { parseEstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 import type { EstimateLineSaveReceipt } from "@/lib/estimates/editor-line-save";
 
-const io = vi.hoisted(() => ({ read: vi.fn(), save: vi.fn(), error: vi.fn(), notice: vi.fn(), schedule: vi.fn() }));
+const io = vi.hoisted(() => ({ read: vi.fn(), save: vi.fn(), error: vi.fn(), notice: vi.fn(), schedule: vi.fn(), gating: vi.fn(), status: vi.fn(), openSettings: vi.fn() }));
 vi.mock("@/lib/estimates/client", () => ({
   fetchEstimateEditorData: io.read,
+  fetchEstimateSendGating: io.gating,
+  updateEstimateStatus: io.status,
   fetchEstimateSuggestionLearnings: async () => null,
   isEstimateApiError: () => false,
 }));
@@ -63,11 +69,21 @@ function useEditor(input: typeof scope & { reload: number }) {
       ? { ...previous, updated_at: value.updatedAt, content_revision: value.contentRevision ?? previous.content_revision }
       : previous);
   }, [owner.document]);
-  const restore = useCallback(() => ({ restoredItems: [], skippedItemCount: 0 }), []);
+  const { document, setSettings, setItems } = owner;
+  const restore = useCallback((draft: EstimateEditorConflictDraft) => {
+    if (draft.settings && document.getSnapshot().version?.calc_engine_version !== 3) {
+      setSettings(draft.settings);
+    }
+    const current = document.getSnapshot().items;
+    const restoredItems = draft.items.filter((item) => current.some((row) => row.id === item.id));
+    setItems([...restoredItems, ...current.filter((item) => !restoredItems.some((row) => row.id === item.id))]);
+    return { restoredItems, skippedItemCount: 0, settingsRestored: Boolean(draft.settings) };
+  }, [document, setItems, setSettings]);
+  const hasPendingSettingsChanges = haveEstimateSettingsChanged(owner.settings, owner.savedSettings);
   const sync = useEstimateEditorSyncController({
     document: owner.document, routeVersionId: input.versionId, activeVersion: owner.version,
     currentUserId: input.actorId, currentTenantId: input.tenantId, isViewerReadOnly: false,
-    hasPendingSettingsChanges: false, isSavingSettings: false, savePendingSettings: noSaveSettings,
+    hasPendingSettingsChanges, isSavingSettings: false, savePendingSettings: noSaveSettings,
     items: owner.items, settings: owner.settings, getVersionSnapshot: getVersion,
     getPersistedTotals: noTotals, replaceItems: owner.setItems, applyRestoredDraft: restore,
     applyVersionFlushResult: acceptVersion, setTotalsOutOfSync: noOp,
@@ -82,6 +98,17 @@ function useEditor(input: typeof scope & { reload: number }) {
       finish: sync.actions.markVersionReloadFinished, reportRefreshError: io.error, resolveErrorMessage: identity,
     },
   });
+  const status = useEstimateEditorStatusController({
+    document: owner.document,
+    routeVersionId: input.versionId, getVersionSnapshot: getVersion,
+    applyUpdatedVersion: (updated) => owner.setVersion((previous) => previous && ({ ...previous, ...updated })),
+    isAdmin: false, isViewerReadOnly: false, isConflictLocked: sync.meta.isConflictLocked,
+    isDraftLockPending: false, isDraftLockedByOther: false, isDraftLockAcquiring: false, isForcingDraftUnlock: false,
+    hasPendingSettingsChanges, openSettings: io.openSettings,
+    isFlushInProgress: sync.actions.isFlushInProgress, flushBufferedItemUpdates: sync.actions.flushBufferedItemUpdates,
+    hasPendingUpdatesNow: sync.actions.hasPendingUpdatesNow, releaseDraftLock: async () => true,
+    handleVersionConflict: () => false, resolveErrorMessage: identity, refreshTimeline: noOp,
+  });
   const edit = (quantity: number) => {
     const previous = owner.document.getSnapshot().items[0].quantity;
     const id = owner.document.getSnapshot().items[0].id;
@@ -92,13 +119,15 @@ function useEditor(input: typeof scope & { reload: number }) {
     apply(quantity);
     history.actions.push({ undo: async () => apply(previous), redo: async () => apply(quantity) });
   };
-  return { ...owner, readState, sync, history, edit };
+  return { ...owner, readState, sync, history, status, edit };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear(); window.sessionStorage.clear();
   io.read.mockReset().mockResolvedValue(data()); io.save.mockReset();
+  io.gating.mockResolvedValue({ canSend: true, blockingFlags: [], warningFlags: [], stalePriceDays: 30, checkedAt: first.version.updated_at });
+  io.status.mockImplementation(async () => ({ ...data().version, status: "sent" }));
 });
 afterEach(cleanup);
 
@@ -161,6 +190,35 @@ describe("document / read / sync / history integration", () => {
     expect(view.result.current.document.getPendingUpdates().size).toBe(0);
     await act(async () => { await view.result.current.sync.actions.flushBufferedItemUpdates(); });
     expect(io.save).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 2] as const)("keeps restored engine %s settings in draft until they are saved or discarded before sending", async (engine) => {
+    const incoming = data();
+    incoming.version.calc_engine_version = engine;
+    io.read.mockResolvedValue(incoming);
+    io.status.mockImplementation(async () => ({ ...incoming.version, status: "sent" }));
+    const settings = prepareEstimateEditorRead(incoming, false).draft.settings;
+    writeDocumentConflictDraft(scope, {
+      settings: { ...settings, title: "Restored local title" }, items: [], saved_at: incoming.version.updated_at,
+    });
+    const view = renderHook(useEditor, { initialProps: { ...scope, reload: 0 } });
+    await waitFor(() => expect(view.result.current.sync.state.hasRestorableDraft).toBe(true));
+    await waitFor(() => expect(view.result.current.settings).not.toBeNull());
+    act(() => view.result.current.sync.actions.restoreConflictDraft());
+    expect(view.result.current.settings?.title).toBe("Restored local title");
+    expect(view.result.current.savedSettings?.title).toBe(settings.title);
+    await act(async () => { await view.result.current.status.actions.requestSend(); });
+    await act(async () => { await view.result.current.status.actions.confirmSend(); });
+    expect(io.status).not.toHaveBeenCalled();
+    expect(io.openSettings).toHaveBeenCalledOnce();
+    expect(view.result.current.version?.status).toBe("draft");
+    expect(view.result.current.settings?.title).toBe("Restored local title");
+    expect(view.result.current.status.state.isSendGatingDialogOpen).toBe(false);
+    act(() => view.result.current.document.discardSettings());
+    await act(async () => { await view.result.current.status.actions.requestSend(); });
+    await act(async () => { await view.result.current.status.actions.confirmSend(); });
+    expect(io.status).toHaveBeenCalledOnce();
+    expect(view.result.current.version?.status).toBe("sent");
   });
 
   it("rebases settings and discards to the latest confirmation rather than the first read", async () => {

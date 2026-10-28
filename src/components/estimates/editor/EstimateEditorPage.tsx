@@ -128,6 +128,8 @@ export function EstimateEditorPage({
     reportError: reportHistoryError,
   });
   const activityController = useEstimateEditorActivityController({
+    actorId: profile?.id ?? null,
+    tenantId: profile?.tenant_id ?? null,
     routeVersionId: versionId,
     isAdmin: profile?.role === "admin",
   });

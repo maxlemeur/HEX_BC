@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { persistEstimateSettingsWithLockRecovery } from "@/hooks/estimate-editor-settings-save";
 import { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
 import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
 import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
@@ -126,7 +127,6 @@ import {
 } from "@/lib/estimate-editor-virtualization";
 import {
   acquireEstimateDraftLock,
-  isEstimateApiError,
   createEstimateLaborRole,
   createMarginTier as createMarginTierClient,
   updateMarginTier as updateMarginTierClient,
@@ -206,9 +206,6 @@ function resolveEstimateActionError(message: string) {
   return message;
 }
 
-function isDraftLockRequiredError(error: unknown) {
-  return isEstimateApiError(error) && error.code === "LOCK_REQUIRED";
-}
 export type EstimateEditorStateModel = {
   state: {
     versionId: string;
@@ -1183,14 +1180,11 @@ export function useEstimateEditorState({
 
       let saved: Awaited<ReturnType<typeof saveEstimateVersion>>;
       try {
-        try {
-          saved = await persistSettings();
-        } catch (error) {
-          if (!isDraftLockRequiredError(error)) throw error;
-          const reacquired = await recoverDraftLock();
-          if (!reacquired) throw error;
-          saved = await persistSettings();
-        }
+        saved = await persistEstimateSettingsWithLockRecovery({
+          persist: persistSettings,
+          recoverLock: recoverDraftLock,
+          isCurrent: isCurrentSettingsSave,
+        });
       } catch (error) {
         if (!isCurrentSettingsSave()) return;
         if (!handleVersionConflict(error, { persistDraft: true })) {
@@ -1905,6 +1899,7 @@ export function useEstimateEditorState({
   }, [setVersion]);
 
   const statusController = useEstimateEditorStatusController({
+    document: editorDocument,
     routeVersionId: resolvedVersionId,
     activeVersion: version
       ? {
@@ -1919,6 +1914,8 @@ export function useEstimateEditorState({
     isAdmin,
     isViewerReadOnly,
     isHistoryBlocked,
+    hasPendingSettingsChanges: hasUnsavedSettings,
+    openSettings: handleOpenSettingsDrawer,
     isConflictLocked,
     conflictMessage: conflictState?.message ?? null,
     isDraftLockPending,

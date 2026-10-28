@@ -881,14 +881,15 @@ export function useEstimateEditorSyncController({
   const saveBeforeNavigation = useCallback(async () => {
     if (!document.isCurrent(documentScope)) return false;
     const generation = saveSessionRef.current.generation;
+    const isCurrentNavigation = () => document.isCurrent(documentScope) && generation === saveSessionRef.current.generation;
     if (!isOnline || isSaveBlockedRef.current || restorableDraft) return false;
     await waitForEstimateEditorMutations(routeVersionId);
-    if (generation !== saveSessionRef.current.generation) return false;
+    if (!isCurrentNavigation()) return false;
     const result = await flushBufferedItemUpdates();
-    if (result === "error" || result === "blocked") return false;
+    if (!isCurrentNavigation() || result === "error" || result === "blocked") return false;
     if (pendingSettingsRef.current || savingSettingsRef.current) {
       const saved = await savePendingSettingsRef.current();
-      if (saved !== true) return false;
+      if (!isCurrentNavigation() || saved !== true) return false;
       // Settings inputs are disabled for this operation. Its completed promise
       // is authoritative even before React commits the matching clean state.
       pendingSettingsRef.current = false;
@@ -896,7 +897,7 @@ export function useEstimateEditorSyncController({
     }
     // New edits may arrive while the first request is in flight.
     const finalResult = await flushBufferedItemUpdates();
-    return generation === saveSessionRef.current.generation &&
+    return isCurrentNavigation() &&
       finalResult !== "error" && finalResult !== "blocked" &&
       pendingItemUpdatesRef.current.size === 0 &&
       !hasPendingTotalsSaveRef.current && !pendingSettingsRef.current &&
