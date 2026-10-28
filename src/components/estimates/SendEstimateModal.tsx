@@ -50,6 +50,9 @@ type SendEstimateModalProps = {
   onPdfPrepared?: () => void;
 };
 
+const DRAFT_REVIEW_REQUIRED = "Le devis a changé. Fermez cette fenêtre, rechargez la page et relisez le devis, puis rouvrez l’envoi. Une tentative déjà en cours peut concerner la version précédente.";
+const DRAFT_REVIEW_READY = "Vérifiez le devis actualisé avant de reprendre l’envoi. Les destinataires et le message restent identiques ; une tentative déjà en cours peut concerner la version précédente.";
+
 function buildDefaultMessage(tenantName: string | null) {
   return `Bonjour,
 
@@ -103,14 +106,19 @@ export function SendEstimateModal({
 
   const [pendingSubmission, setPendingSubmission] = useState(() => readPendingEstimateEmail(versionId));
   const pendingSubmissionRef = useRef<PendingEstimateEmail | null>(pendingSubmission);
-  const canSubmit = isCurrentSendSource &&
-    (pendingSubmission !== null || !requiresDraftLock || draftLock.isOwnedByCurrentUser);
+  const [reviewAfterReopen, setReviewAfterReopen] = useState(() => pendingSubmission?.requiresDraftReview === true);
+  const needsReviewedDraft = requiresDraftLock && pendingSubmission?.requiresDraftReview === true;
+  const hasReviewedDraft = needsReviewedDraft && reviewAfterReopen && Number.isFinite(Date.parse(concurrencyToken));
+  const canSubmit = isCurrentSendSource && (needsReviewedDraft
+    ? hasReviewedDraft && draftLock.isOwnedByCurrentUser
+    : pendingSubmission !== null || !requiresDraftLock || draftLock.isOwnedByCurrentUser);
   const [to, setTo] = useState(pendingSubmission?.payload.to ?? defaultRecipient);
   const [ccRaw, setCcRaw] = useState(pendingSubmission?.payload.cc?.join(", ") ?? "");
   const [subject, setSubject] = useState(pendingSubmission?.payload.subject ?? defaultSubject);
   const tenantName = useOptionalUserContext()?.tenantName ?? null;
   const [message, setMessage] = useState(() => pendingSubmission?.payload.message ?? buildDefaultMessage(tenantName));
-  const [formError, setFormError] = useState<string | null>(pendingSubmission ? ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE : null);
+  const [formError, setFormError] = useState<string | null>(pendingSubmission?.requiresDraftReview
+    ? DRAFT_REVIEW_READY : pendingSubmission ? ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE : null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   const [gating, setGating] = useState<EstimateSendGatingResponse | null>(null);
@@ -133,13 +141,16 @@ export function SendEstimateModal({
         : readPendingEstimateEmail(versionId);
       pendingSubmissionRef.current = pending;
       setPendingSubmission(pending);
+      setReviewAfterReopen(pending?.requiresDraftReview === true);
       if (pending || sendSource.versionId !== versionId) {
         setTo(pending?.payload.to ?? defaultRecipient);
         setCcRaw(pending?.payload.cc?.join(", ") ?? "");
         setSubject(pending?.payload.subject ?? defaultSubject);
         setMessage(pending?.payload.message ?? buildDefaultMessage(tenantName));
       }
-      setFormError(pending ? ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE : null);
+      setFormError(pending?.requiresDraftReview ? DRAFT_REVIEW_READY : pending ? ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE : null);
+    } else {
+      setReviewAfterReopen(false);
     }
     setSendSource(open
       ? { open, versionId, updatedAt: versionUpdatedAt }
@@ -284,6 +295,20 @@ export function SendEstimateModal({
           setPendingSubmission(pending);
           persistPendingEstimateEmail(versionId, pending);
         }
+        if (pending.requiresDraftReview && requiresDraftLock) {
+          // The user has reopened the dialog after review. Verify that source
+          // before reusing the original idempotency key and payload.
+          const current = await fetchEstimateEditorData(versionId);
+          if (!isCurrent()) return;
+          if (current.version.id !== versionId || current.version.status !== "draft" ||
+              current.version.updated_at !== concurrencyToken || !hasReviewedDraft) {
+            throw new Error(DRAFT_REVIEW_REQUIRED);
+          }
+          pending = { ...pending, concurrencyToken, requiresDraftReview: false };
+          pendingSubmissionRef.current = pending;
+          setPendingSubmission(pending);
+          persistPendingEstimateEmail(versionId, pending);
+        }
         await sendEstimateEmailRequest({
           versionId,
           requestId: pending.requestId,
@@ -308,8 +333,15 @@ export function SendEstimateModal({
           clearPendingEstimateEmail(versionId, pendingSubmissionRef.current?.requestId);
           pendingSubmissionRef.current = null;
           setPendingSubmission(null);
+        } else if (err instanceof EstimateEmailSendError && err.requiresDraftReview && requiresDraftLock && pendingSubmissionRef.current) {
+          const pending = { ...pendingSubmissionRef.current, requiresDraftReview: true };
+          pendingSubmissionRef.current = pending;
+          setPendingSubmission(pending);
+          setReviewAfterReopen(false);
+          persistPendingEstimateEmail(versionId, pending);
         }
-        setFormError(err instanceof Error ? err.message : ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE);
+        setFormError(err instanceof EstimateEmailSendError && err.requiresDraftReview && requiresDraftLock
+          ? DRAFT_REVIEW_REQUIRED : err instanceof Error ? err.message : ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE);
       } finally {
         if (isCurrent()) {
           submittingGenerationRef.current = null;
@@ -331,6 +363,7 @@ export function SendEstimateModal({
       requiresDraftLock,
       isCurrentSendSource,
       concurrencyToken,
+      hasReviewedDraft,
       isPreparingPdf,
     ]
   );
@@ -433,14 +466,14 @@ export function SendEstimateModal({
               <Alert variant="warning" className="text-sm">
                 Le devis affiché a changé. Fermez cette fenêtre, vérifiez la version puis rouvrez l’envoi.
               </Alert>
-            ) : requiresDraftLock && !canSubmit ? (
+            ) : requiresDraftLock && !canSubmit && (!needsReviewedDraft || hasReviewedDraft) ? (
               <Alert variant={draftLock.isLockedByOther || draftLock.error ? "warning" : "info"}>
                 {draftLock.error ?? (draftLock.isLockedByOther
                   ? "Ce devis est ouvert dans une autre page ou par un autre utilisateur. Fermez cette édition avant de confirmer l’envoi."
                   : "Vérification de la disponibilité du devis…")}
               </Alert>
             ) : null}
-            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+            {formError ? <Alert variant={formError === DRAFT_REVIEW_READY ? "warning" : "danger"}>{formError}</Alert> : null}
           </DialogBody>
           <DialogFooter>
             <Button

@@ -12,6 +12,7 @@ const pendingSubmissionSchema = z.object({
     message: z.string().min(1),
   }),
   concurrencyToken: z.string().optional(),
+  requiresDraftReview: z.boolean().optional(),
 });
 export type PendingEstimateEmail = z.infer<typeof pendingSubmissionSchema>;
 

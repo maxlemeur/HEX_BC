@@ -7,7 +7,7 @@ import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
 
 export class EstimateEmailSendError extends Error {
-  constructor(message: string, readonly canStartNewRequest = false) {
+  constructor(message: string, readonly canStartNewRequest = false, readonly requiresDraftReview = false) {
     super(message);
     this.name = "EstimateEmailSendError";
   }
@@ -44,16 +44,20 @@ export async function sendEstimateEmailRequest(input: EstimateEmailRequestIdenti
   if (!response.ok) {
     const root = record(body);
     const error = record(root?.error);
+    const confirmedError = root?.ok === false && !("data" in root) &&
+      typeof error?.message === "string" && error.message.trim().length > 0;
     const canStartNewRequest =
-      root?.ok === false && !("data" in root) &&
-      typeof error?.message === "string" && error.message.trim().length > 0 && (
+      confirmedError && (
       error.code === "ESTIMATE_EMAIL_PROVIDER_REJECTED" ||
       error?.code === "ESTIMATE_EMAIL_PDF_UNAVAILABLE" ||
       error?.code === "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST");
+    // A conflict is not proof that another attempt with this identity is absent.
+    // Keep its key and payload; only a reread draft may supply a new token.
+    const requiresDraftReview = confirmedError && response.status === 409 && error?.code === "VERSION_CONFLICT";
     const message = typeof error?.message === "string" && error.message.trim()
       ? error.message : typeof root?.error === "string" && root.error.trim()
         ? root.error : ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE;
-    throw new EstimateEmailSendError(message, canStartNewRequest);
+    throw new EstimateEmailSendError(message, canStartNewRequest, requiresDraftReview);
   }
   try {
     return parseEstimateEmailSendResponse(body, input);

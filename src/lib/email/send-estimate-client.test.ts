@@ -81,4 +81,24 @@ describe("sendEstimateEmailRequest confirmation boundary", () => {
       message: "Vérifiez le destinataire.", canStartNewRequest,
     });
   });
+
+  it("requires draft review after a confirmed version conflict without authorizing a new identity", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      ok: false, error: { code: "VERSION_CONFLICT", message: "Le devis a changé." },
+    }, { status: 409 })));
+    await expect(sendEstimateEmailRequest(input)).rejects.toMatchObject({
+      message: "Le devis a changé.", canStartNewRequest: false, requiresDraftReview: true,
+    });
+  });
+
+  it.each([
+    [409, { error: { code: "VERSION_CONFLICT", message: "Conflit" } }],
+    [409, { ok: false, data: receipt, error: { code: "VERSION_CONFLICT", message: "Conflit" } }],
+    [500, { ok: false, error: { code: "VERSION_CONFLICT", message: "Conflit" } }],
+  ])("does not treat an ambiguous conflict envelope as permission to refresh the draft token", async (status, body) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status })));
+    await expect(sendEstimateEmailRequest(input)).rejects.toMatchObject({
+      canStartNewRequest: false, requiresDraftReview: false,
+    });
+  });
 });
