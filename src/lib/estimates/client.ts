@@ -1,3 +1,5 @@
+import { parseEstimateEditorData, type EstimateEditorData, type VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
+export type { EstimateEditorData, VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
 export type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
 import { downloadBlob } from "@/lib/browser-download";
@@ -479,36 +481,6 @@ export type VersionZeroDraftStatus =
   | "discarded"
   | "superseded";
 
-export type VersionZeroDraftSummary = {
-  versionId: string;
-  projectId: string;
-  hasConfirmedBrief: boolean;
-  confirmedBriefId: string | null;
-  isVersionEmpty: boolean;
-  canGenerate: boolean;
-  availableLots: string[];
-  activeDraft: {
-    id: string;
-    status: VersionZeroDraftStatus;
-    createdAt: string;
-    materializedAt: string | null;
-    selectedLots: string[];
-    counts: {
-      lots: number;
-      lines: number;
-      pending: number;
-      accepted: number;
-      edited: number;
-      rejected: number;
-      missingLots: number;
-      partialLots: number;
-      lowConfidenceLines: number;
-    };
-    summaryText: string | null;
-    state: "active" | "terminal";
-  } | null;
-};
-
 export type VersionZeroReviewLine = {
   id: string;
   lotId: string;
@@ -575,17 +547,6 @@ export type VersionZeroReview = {
     counts: VersionZeroDraftCounts;
   };
   lots: VersionZeroReviewLot[];
-};
-
-export type EstimateEditorData = {
-  version: EstimateVersionWithProject;
-  items: EstimateItem[];
-  categories: EstimateCategory[];
-  supplyTypes: SupplyType[];
-  laborRoles: LaborRole[];
-  marginTiers: MarginTier[];
-  suggestionRules: SuggestionRule[];
-  versionZeroSummary: VersionZeroDraftSummary | null;
 };
 
 export type CreateEstimateCreationMode = "blank" | "linkedDpgfSource";
@@ -3115,70 +3076,6 @@ function parseDuplicateEstimateSectionResult(
   };
 }
 
-function parseEstimateEditorData(payload: unknown): EstimateEditorData {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) {
-    throw new Error("Impossible de charger les données du chiffrage.");
-  }
-
-  const versionNode =
-    (isRecord(root.version) ? root.version : null) ??
-    (isRecord(root.estimateVersion) ? root.estimateVersion : null) ??
-    (isRecord(root.estimate) ? root.estimate : null);
-
-  if (!versionNode) {
-    throw new Error("Version de chiffrage introuvable.");
-  }
-
-  const projectName =
-    toStringValue(root.projectName) ??
-    toStringValue(root.project_name) ??
-    toStringValue(versionNode.projectName) ??
-    toStringValue(versionNode.project_name);
-
-  const estimateProjects =
-    versionNode.estimate_projects ?? (projectName ? { name: projectName } : null);
-
-  const version = {
-    ...(versionNode as EstimateVersionRow),
-    estimate_projects:
-      (estimateProjects as EstimateVersionWithProject["estimate_projects"]) ?? null,
-  } as EstimateVersionWithProject;
-
-  const items = pickArray(root, ["items", "estimateItems", "estimate_items"]);
-  const categories = pickArray(root, [
-    "categories",
-    "estimateCategories",
-    "estimate_categories",
-  ]);
-  const supplyTypes = pickArray(root, [
-    "supplyTypes",
-    "supply_types",
-    "supplyTypesList",
-  ]);
-  const laborRoles = pickArray(root, ["laborRoles", "labor_roles", "roles"]);
-  const marginTiers = pickArray(root, ["marginTiers", "margin_tiers"]);
-  const suggestionRules = pickArray(root, [
-    "suggestionRules",
-    "suggestion_rules",
-    "rules",
-  ]);
-  const versionZeroSummary =
-    (isRecord(root.version_zero_summary) ? root.version_zero_summary : null) ??
-    (isRecord(root.versionZeroSummary) ? root.versionZeroSummary : null);
-
-  return {
-    version,
-    items: items as EstimateItem[],
-    categories: categories as EstimateCategory[],
-    supplyTypes: supplyTypes as SupplyType[],
-    laborRoles: laborRoles as LaborRole[],
-    marginTiers: marginTiers as MarginTier[],
-    suggestionRules: suggestionRules as SuggestionRule[],
-    versionZeroSummary: (versionZeroSummary as VersionZeroDraftSummary | null) ?? null,
-  };
-}
-
 function parseVersionZeroDraftSummary(payload: unknown): VersionZeroDraftSummary {
   const root = getRootPayload(payload);
   if (!isRecord(root)) {
@@ -4325,7 +4222,7 @@ export async function fetchEstimateEditorData(
     "Impossible de charger le chiffrage."
   );
 
-  return parseEstimateEditorData(payload);
+  return parseEstimateEditorData(payload, versionId);
 }
 
 export async function fetchEstimateVersionEvents(

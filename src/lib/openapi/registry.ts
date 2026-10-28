@@ -1,3 +1,4 @@
+import { estimateEditorResponseSchema } from "@/lib/estimates/editor-read-contracts";
 import {
   estimateBatchCommittedResultSchema as estimateBatchCommittedSchema, estimateBatchResultSchema,
 } from "@/lib/estimates/batch-contracts";
@@ -446,15 +447,6 @@ const suggestionLearningPurgeResultSchema = suggestionLearningStateSchema.extend
   deleted_count: z.number().int(),
   retention_months: z.number().int(),
 });
-
-const marginTierSchema = z
-  .object({
-    id: uuidSchema,
-    threshold_cents: z.number().int(),
-    multiplier: z.number(),
-    position: z.number().int(),
-  })
-  .passthrough();
 
 const estimateVersionEventSchema = z
   .object({
@@ -949,15 +941,7 @@ const estimateVersionDataSchema = z.object({
   version: estimateVersionSchema,
 });
 
-const estimateVersionDetailsDataSchema = z.object({
-  version: estimateVersionSchema,
-  items: z.array(estimateItemSchema),
-  categories: z.array(estimateCategorySchema),
-  supply_types: z.array(supplyTypeSchema),
-  labor_roles: z.array(laborRoleSchema),
-  suggestion_rules: z.array(suggestionRuleSchema),
-  margin_tiers: z.array(marginTierSchema),
-});
+const estimateVersionDetailsDataSchema = estimateEditorResponseSchema;
 
 const estimateVersionIdDataSchema = z.object({
   version_id: uuidSchema,

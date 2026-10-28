@@ -1,6 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
+import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
+import {
+  buildEditorSettingsFromVersion,
+  buildHistoricalSettingsPayload,
+  haveEstimateSettingsChanged,
+  mergeReloadedEditorSettings,
+  normalizeCascadeDiscountSteps,
+} from "@/lib/estimates/editor-settings-state";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/editor-mutations";
 import {
   useCallback,
@@ -28,7 +37,7 @@ import {
 } from "@/components/estimates/EstimateEditorTable";
 import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
-import type { DiscountMode, EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
+import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateV3GridModel } from "@/components/estimates/v3/V3LineCells";
 import {
   EstimateSettingsSummaryBar,
@@ -76,7 +85,7 @@ import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
-  normalizeEditorDraftItems, reconcilesEditorTotals, resolveEditorEngineContext, resolveEditorInitialDiscountCents,
+  normalizeEditorDraftItems, reconcilesEditorTotals, resolveEditorEngineContext,
   resolveEditorQualityItems,
 } from "@/lib/estimates/editor-engine";
 import {
@@ -95,9 +104,7 @@ import {
   resolveEstimateCurrency,
 } from "@/lib/estimates/editor-export";
 import {
-  LABOR_SPLIT_FIELD_KEYS,
   buildEstimateItemUpdatePayload,
-  buildVersionDiscountPatch,
   buildVersionTotalsPatch,
   resolveLaborRoleHourlyRate,
   type EditorEstimateItem,
@@ -130,7 +137,6 @@ import {
   type EstimateBatchOperationResult,
   type EstimateEditorData,
   fetchEstimateItemsForVersion,
-  fetchEstimateSuggestionLearnings,
   releaseEstimateDraftLock,
   saveEstimateVersion,
   updateEstimateLaborRole,
@@ -157,6 +163,7 @@ function deferEffectStateUpdate(
 }
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
+type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
@@ -167,144 +174,12 @@ type EstimateVersionView = EstimateVersionRow & {
 
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 
-const MAX_CASCADE_DISCOUNT_STEPS = 4;
-
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
 ) {
   if (!value) return "";
   if (Array.isArray(value)) return value[0]?.name ?? "";
   return value.name ?? "";
-}
-
-function clampCascadeDiscountStepBp(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(Math.max(Math.round(value), 0), 10000);
-}
-
-function normalizeCascadeDiscountSteps(steps: number[] | undefined): number[] {
-  return (steps ?? [])
-    .map((step) => clampCascadeDiscountStepBp(step))
-    .slice(0, MAX_CASCADE_DISCOUNT_STEPS);
-}
-
-function buildSettingsComparisonSnapshot(
-  settings: EstimateSettingsState | null
-) {
-  if (!settings) return null;
-
-  return {
-    title: settings.title,
-    date_devis: settings.date_devis,
-    exclusions: settings.exclusions,
-    validite_jours: settings.validite_jours,
-    currency: settings.currency,
-    margin_multiplier: settings.margin_multiplier,
-    margin_mode: settings.margin_mode ?? "fixed",
-    discount_cents: settings.discount_cents,
-    discount_amount_cents: settings.discount_amount_cents ?? null,
-    discount_bp: settings.discount_bp ?? null,
-    discount_mode: settings.discount_mode ?? "simple",
-    discount_steps: normalizeCascadeDiscountSteps(settings.discount_steps),
-    global_coefficient: settings.global_coefficient ?? 1,
-    tax_rate_bp: settings.tax_rate_bp,
-    contractor_role: settings.contractor_role ?? "principal",
-    rounding_mode: settings.rounding_mode,
-    rounding_step_cents: settings.rounding_step_cents,
-  };
-}
-
-/** Réglages de l'éditeur relus d'une version (chargement ; relecture d'une sauvegarde v3). */
-function buildEditorSettingsFromVersion(
-  versionRow: EstimateVersionRow,
-  context: { marginTiers: NonNullable<EstimateSettingsState["margin_tiers"]>; discountCents: number }
-) {
-  const discountMode: DiscountMode = versionRow.discount_mode === "cascade" ? "cascade" : "simple";
-  return {
-    title: versionRow.title ?? "",
-    exclusions: versionRow.exclusions ?? "",
-    date_devis: versionRow.date_devis,
-    validite_jours: versionRow.validite_jours,
-    currency: resolveEstimateCurrency(versionRow.currency),
-    margin_multiplier: versionRow.margin_multiplier,
-    margin_mode: versionRow.margin_mode ?? "fixed",
-    margin_tiers: context.marginTiers,
-    discount_cents: versionRow.discount_amount_cents ?? context.discountCents,
-    discount_amount_cents: versionRow.discount_amount_cents ?? null,
-    discount_bp: versionRow.discount_bp,
-    discount_mode: discountMode,
-    discount_steps: discountMode === "cascade" ? normalizeCascadeDiscountSteps(versionRow.discount_steps) : [],
-    global_coefficient: Number.isFinite(versionRow.global_coefficient ?? NaN) ? Math.max(versionRow.global_coefficient ?? 1, 0) : 1,
-    tax_rate_bp: versionRow.tax_rate_bp,
-    contractor_role: versionRow.contractor_role ?? "principal",
-    rounding_mode: versionRow.rounding_mode,
-    rounding_step_cents: versionRow.rounding_step_cents,
-  };
-}
-
-type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
-
-/** Charge v1/v2 des réglages, inchangée (le moteur 3 a la sienne, `buildEstimateV3SettingsPayload`). */
-function buildHistoricalSettingsPayload(
-  settingsSnapshot: EstimateSettingsState,
-  versionSnapshot: EstimateVersionRow,
-  totalsSnapshot: EstimateTotals
-) {
-  const discountBase = totalsSnapshot.saleSubtotalCents;
-  const discountBp =
-    settingsSnapshot.discount_amount_cents == null
-      ? (settingsSnapshot.discount_bp ?? versionSnapshot.discount_bp)
-      : discountBase > 0
-      ? Math.round(
-          (totalsSnapshot.discountCents / discountBase) * 10000
-        )
-      : 0;
-  const discountMode: DiscountMode =
-    settingsSnapshot.discount_mode === "cascade" ? "cascade" : "simple";
-  const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
-    settingsSnapshot.discount_steps
-  );
-  // EST-E26 etape 16 : le coefficient est une grandeur INDEPENDANTE du mode
-  // de remise, il est persiste tel qu'il est affiche (cf.
-  // buildVersionDiscountPatch). L'ecrire a 1 hors cascade rendait la version
-  // auto-contradictoire, `total_ht_cents` l'incluant toujours.
-  const discountPatch = buildVersionDiscountPatch({
-    discountMode,
-    globalCoefficient: settingsSnapshot.global_coefficient,
-    cascadeDiscountSteps: normalizedCascadeDiscountSteps,
-  });
-  const payload: EstimateVersionUpdate = {
-    title: settingsSnapshot.title.trim() || null,
-    exclusions: settingsSnapshot.exclusions.trim() || null,
-    date_devis: settingsSnapshot.date_devis,
-    validite_jours: settingsSnapshot.validite_jours,
-    currency: settingsSnapshot.currency,
-    margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
-    margin_mode: settingsSnapshot.margin_mode ?? "fixed",
-    discount_bp: discountBp,
-    discount_amount_cents: settingsSnapshot.discount_amount_cents ?? null,
-    ...discountPatch,
-    tax_rate_bp: settingsSnapshot.tax_rate_bp,
-    // EST-E27 : le regime de TVA est une grandeur de version, persistee
-    // telle qu elle est choisie.
-    contractor_role: settingsSnapshot.contractor_role ?? "principal",
-    rounding_mode: settingsSnapshot.rounding_mode,
-    rounding_step_cents: settingsSnapshot.rounding_step_cents,
-    total_ht_cents: totalsSnapshot.saleTotalCents,
-    total_tax_cents: totalsSnapshot.adjustedTaxCents,
-    total_ttc_cents: totalsSnapshot.roundedTtcCents,
-  };
-  return { payload, discountPatch };
-}
-
-function haveEstimateSettingsChanged(
-  settings: EstimateSettingsState | null,
-  savedSettings: EstimateSettingsState | null
-) {
-  return (
-    JSON.stringify(buildSettingsComparisonSnapshot(settings)) !==
-    JSON.stringify(buildSettingsComparisonSnapshot(savedSettings))
-  );
 }
 
 function resolveLatestSavedAt(
@@ -450,6 +325,8 @@ export function useEstimateEditorState({
     ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY
   );
 
+  const readState = useEstimateEditorReadState();
+  const { isLoading, loadError } = readState;
   const [version, setVersion] = useState<EstimateVersionView | null>(null);
   const [settings, setSettings] = useState<EstimateSettingsState | null>(null);
   const [savedSettings, setSavedSettings] =
@@ -469,7 +346,6 @@ export function useEstimateEditorState({
   } | null>(null);
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const settingsSaveGenerationRef = useRef(0);
   const settingsSavePromiseRef = useRef<{
     versionId: string;
@@ -483,7 +359,6 @@ export function useEstimateEditorState({
   const isSavingSettings =
     activeSettingsSave?.routeVersionId === resolvedVersionId &&
     activeSettingsSave.operationId === settingsSaveGenerationRef.current;
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const externalActionErrorKey = externalActionError?.key ?? null;
   const externalActionErrorMessage = externalActionError?.message ?? null;
@@ -516,11 +391,6 @@ export function useEstimateEditorState({
   const itemsRef = useRef<EditorEstimateItem[]>([]);
   const versionRef = useRef<EstimateVersionView | null>(null);
   const foProvisionsRef = useRef<FoProvisionBySupplyTypeId>(new Map());
-  const loadedReadIdentityRef = useRef<{
-    actorId: string;
-    tenantId: string;
-    versionId: string;
-  } | null>(null);
   const activeRouteVersionIdRef = useRef(resolvedVersionId);
   const activeReadTenantRef = useRef(readTenantId);
   const persistedTotalsRef = useRef<EstimateTotals | null>(null);
@@ -767,224 +637,52 @@ export function useEstimateEditorState({
     readOnlyActionErrorMessage,
   ]);
 
+  useEstimateEditorReadController({
+    readState,
+    versionId: resolvedVersionId,
+    actorId: readActorId,
+    tenantId: readTenantId,
+    reloadToken: reloadNonce,
+    isLaborSplitEnabled,
+    autoOpenVersionZero: shouldAutoOpenVersionZero,
+    handlers: {
+      getCurrentVersion: () => versionRef.current,
+      isRecoveryRequired: isReadRecoveryRequired,
+      clearSuggestions: () => setSuggestionsHydration(null),
+      apply: (prepared, learning, preserveLocalDraft) => {
+        const data = prepared.confirmed;
+        const versionRow = data.version;
+        const { items: normalizedItems, settings: initialSettings } = prepared.draft;
+        versionRef.current = versionRow;
+        setVersion(versionRow);
+        hydrateAiVersionZeroSummaryRef.current(versionRow.id, data.versionZeroSummary, {
+          autoOpen: shouldAutoOpenVersionZero,
+        });
+        foProvisionsRef.current = foProvisionsBySupplyType(data.supplyTypes);
+        const nextItems = applyPendingBufferedUpdatesToItems(normalizedItems);
+        itemsRef.current = nextItems;
+        setItems(nextItems);
+        setCategories(data.categories);
+        setSupplyTypes(data.supplyTypes);
+        setLaborRoles(data.laborRoles);
+        setSuggestionsHydration({ versionId: versionRow.id, rules: data.suggestionRules, learning });
+        const previousSavedSettings = preserveLocalDraft ? savedSettingsRef.current : null;
+        setSettings((current) => mergeReloadedEditorSettings(current, previousSavedSettings, initialSettings));
+        savedSettingsRef.current = initialSettings;
+        setSavedSettings(initialSettings);
+        clearConflictState();
+        prepared.normalizationUpdates.forEach(({ id, updates }) => enqueueBufferedItemUpdate(id, updates));
+      },
+      finish: markVersionReloadFinished,
+      reportRefreshError: setActionError,
+      resolveErrorMessage: resolveEstimateActionError,
+    },
+  });
+
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
-  const initialLoadHandlersRef = useRef({
-    applyPendingBufferedUpdatesToItems, clearConflictState, enqueueBufferedItemUpdate,
-    markVersionReloadFinished, isReadRecoveryRequired,
-  });
-  useLayoutEffect(() => {
-    initialLoadHandlersRef.current = {
-      applyPendingBufferedUpdatesToItems, clearConflictState, enqueueBufferedItemUpdate,
-      markVersionReloadFinished, isReadRecoveryRequired,
-    };
-  }, [applyPendingBufferedUpdatesToItems, clearConflictState, enqueueBufferedItemUpdate,
-    markVersionReloadFinished, isReadRecoveryRequired]);
-
-  useEffect(() => {
-    if (!resolvedVersionId) {
-      return deferEffectStateUpdate(() => {
-        setSuggestionsHydration(null);
-      });
-    }
-
-    const loadedIdentity = loadedReadIdentityRef.current;
-    const hasLoadedVersion = versionRef.current?.id === resolvedVersionId &&
-      loadedIdentity?.versionId === resolvedVersionId &&
-      loadedIdentity.actorId === readActorId && loadedIdentity.tenantId === readTenantId;
-    // A known read failure has one recovery owner. Only its explicit verification
-    // may reread and release the mutation barrier, retaining the current editor.
-    if (hasLoadedVersion && initialLoadHandlersRef.current.isReadRecoveryRequired) return;
-    let active = true;
-    let hasReadEditorData = false;
-    const learningController = new AbortController();
-
-    async function load() {
-      if (!hasLoadedVersion) setIsLoading(true);
-      setLoadError(null);
-      if (!hasLoadedVersion) setSuggestionsHydration(null);
-
-      try {
-        const [data, learning] = await Promise.all([
-          fetchEstimateEditorData(resolvedVersionId),
-          fetchEstimateSuggestionLearnings(resolvedVersionId, { signal: learningController.signal }).catch((error) => {
-            if (!active) return null;
-            // A reload or full navigation discards the document without this
-            // cleanup; the browser cancels the read inside that unload task and
-            // a discarded document runs no later task. Report one task later so
-            // a live editor still reports the failure but a discard does not
-            // (PR83 LEP01/LEP07).
-            window.setTimeout(() => {
-              if (!active) return;
-              console.error(
-                "Impossible de charger les apprentissages de suggestions.",
-                error
-              );
-            }, 0);
-            return null;
-          }),
-        ]);
-        if (!active) return;
-        hasReadEditorData = true;
-
-        const versionRow = data.version as EstimateVersionView;
-        if (versionRow.id !== resolvedVersionId ||
-            (readTenantId && versionRow.tenant_id !== readTenantId)) {
-          throw new Error("Les données reçues appartiennent à un autre devis ou une autre organisation.");
-        }
-        if (versionRef.current?.id === versionRow.id &&
-            isOlderEstimateVersionToken(versionRow.updated_at, versionRef.current.updated_at)) {
-          initialLoadHandlersRef.current.markVersionReloadFinished(false);
-          return;
-        }
-        const itemsRows = data.items ?? [];
-        const rolesData = data.laborRoles ?? [];
-
-        const rateById = new Map<string, number>();
-        const rateAtelierById = new Map<string, number>();
-        const rateChantierById = new Map<string, number>();
-        rolesData.forEach((role) => {
-          rateById.set(role.id, role.hourly_rate_cents);
-          rateAtelierById.set(
-            role.id,
-            resolveLaborRoleHourlyRate(role, "atelier")
-          );
-          rateChantierById.set(
-            role.id,
-            resolveLaborRoleHourlyRate(role, "chantier")
-          );
-        });
-
-        const normalizedItems = normalizeEditorDraftItems({
-          items: itemsRows, version: versionRow, rateById, rateAtelierById, rateChantierById, isLaborSplitEnabled,
-        });
-
-        const discountCents = resolveEditorInitialDiscountCents({
-          version: versionRow, items: itemsRows, rateById, rateAtelierById, rateChantierById, isLaborSplitEnabled,
-          marginTiers: data.marginTiers ?? [],
-        });
-        const initialSettings = buildEditorSettingsFromVersion(versionRow, { marginTiers: data.marginTiers ?? [], discountCents });
-
-        versionRef.current = versionRow;
-        loadedReadIdentityRef.current = readActorId && readTenantId
-          ? { actorId: readActorId, tenantId: readTenantId, versionId: versionRow.id }
-          : null;
-        setVersion(versionRow);
-        hydrateAiVersionZeroSummaryRef.current(
-          versionRow.id,
-          data.versionZeroSummary ?? null,
-          { autoOpen: shouldAutoOpenVersionZero }
-        );
-        foProvisionsRef.current = foProvisionsBySupplyType(data.supplyTypes ?? []);
-        setItems(initialLoadHandlersRef.current.applyPendingBufferedUpdatesToItems(normalizedItems));
-        setCategories(data.categories ?? []);
-        setSupplyTypes(data.supplyTypes ?? []);
-        setLaborRoles(rolesData);
-        setSuggestionsHydration({
-          versionId: versionRow.id,
-          rules: data.suggestionRules ?? [],
-          learning,
-        });
-        const previousSavedSettings = hasLoadedVersion ? savedSettingsRef.current : null;
-        setSettings((current) => {
-          if (!current || !previousSavedSettings) return initialSettings;
-          const currentFields = buildSettingsComparisonSnapshot(current);
-          const savedFields = buildSettingsComparisonSnapshot(previousSavedSettings);
-          if (!currentFields || !savedFields) return initialSettings;
-          const localChanges = Object.fromEntries(Object.keys(currentFields).filter((key) =>
-            JSON.stringify(currentFields[key as keyof typeof currentFields]) !==
-            JSON.stringify(savedFields[key as keyof typeof savedFields])
-          ).map((key) => [key, current[key as keyof EstimateSettingsState]]));
-          return { ...initialSettings, ...localChanges };
-        });
-        savedSettingsRef.current = initialSettings;
-        setSavedSettings(initialSettings);
-        initialLoadHandlersRef.current.clearConflictState();
-        if (versionRow.status === "draft") {
-          const originalById = new Map(
-            itemsRows.map((item) => [item.id, item])
-          );
-          const updates = normalizedItems.filter((item) => {
-            if (item.item_type !== "line") return false;
-            const original = originalById.get(item.id);
-            if (!original) return false;
-            return (
-              original.tax_rate_bp !== item.tax_rate_bp ||
-              original.k_fo !== item.k_fo ||
-              original.h_mo !== item.h_mo ||
-              original.h_mo_majoration !== item.h_mo_majoration ||
-              original.k_mo !== item.k_mo ||
-              original.supply_type_id !== item.supply_type_id ||
-              LABOR_SPLIT_FIELD_KEYS.some(
-                (key) =>
-                  (original as unknown as Record<string, unknown>)[key] !==
-                  (item as unknown as Record<string, unknown>)[key]
-              ) ||
-              original.pu_ht_cents !== item.pu_ht_cents ||
-              original.line_total_ht_cents !== item.line_total_ht_cents ||
-              original.line_tax_cents !== item.line_tax_cents ||
-              original.line_total_ttc_cents !== item.line_total_ttc_cents
-            );
-          });
-
-          updates.forEach((item) => {
-            initialLoadHandlersRef.current.enqueueBufferedItemUpdate(item.id, {
-              tax_rate_bp: item.tax_rate_bp,
-              k_fo: item.k_fo,
-              h_mo: item.h_mo,
-              h_mo_majoration: item.h_mo_majoration,
-              k_mo: item.k_mo,
-              supply_type_id: item.supply_type_id,
-              pu_ht_cents: item.pu_ht_cents,
-              line_total_ht_cents: item.line_total_ht_cents,
-              line_tax_cents: item.line_tax_cents,
-              line_total_ttc_cents: item.line_total_ttc_cents,
-            });
-          });
-        }
-        initialLoadHandlersRef.current.markVersionReloadFinished(true);
-      } catch (error) {
-        if (!active) return;
-        const message =
-          error instanceof Error
-            ? resolveEstimateActionError(error.message)
-            : "Impossible de charger le chiffrage.";
-        const isTransientReadFailure = !hasReadEditorData && (
-          error instanceof TypeError ||
-          (error instanceof Error && error.name === "AbortError") ||
-          (isEstimateApiError(error) && error.status >= 500 && error.status < 600)
-        );
-        if (hasLoadedVersion && isTransientReadFailure) {
-          setActionError(initialLoadHandlersRef.current.isReadRecoveryRequired
-            ? "La lecture du devis reste interrompue. Vérifiez le résultat ; vos saisies sont conservées."
-            : "Impossible de relire le chiffrage. Vos saisies sont conservées.");
-        } else {
-          setLoadError(message);
-        }
-        initialLoadHandlersRef.current.markVersionReloadFinished(false);
-      } finally {
-        if (active) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void load();
-
-    return () => {
-      active = false;
-      learningController.abort();
-    };
-  }, [
-    isLaborSplitEnabled,
-    readActorId,
-    readTenantId,
-    reloadNonce,
-    resolvedVersionId,
-    shouldAutoOpenVersionZero,
-  ]);
 
   useEffect(() => {
     if (!resolvedVersionId) {
@@ -1432,18 +1130,8 @@ export function useEstimateEditorState({
       isOlderEstimateVersionToken(versionRow.updated_at, versionRef.current.updated_at))) {
       throw new Error("Le devis relu a changé. Actualisez avant de poursuivre.");
     }
-    const itemsRows = refreshed.items as EstimateItem[];
-    const rates = new Map(refreshed.laborRoles.map((role) => [role.id, role.hourly_rate_cents]));
-    const atelierRates = new Map(refreshed.laborRoles.map((role) => [role.id, resolveLaborRoleHourlyRate(role, "atelier")]));
-    const chantierRates = new Map(refreshed.laborRoles.map((role) => [role.id, resolveLaborRoleHourlyRate(role, "chantier")]));
-    const normalized = normalizeEditorDraftItems({
-      items: itemsRows, version: versionRow, rateById: rates, rateAtelierById: atelierRates,
-      rateChantierById: chantierRates, isLaborSplitEnabled,
-    });
-    const discountCents = resolveEditorInitialDiscountCents({
-      version: versionRow, items: itemsRows, rateById: rates, rateAtelierById: atelierRates, rateChantierById: chantierRates,
-      isLaborSplitEnabled, marginTiers: refreshed.marginTiers ?? [],
-    });
+    const prepared = prepareEstimateEditorRead(refreshed, isLaborSplitEnabled);
+    const normalized = prepared.draft.items;
     const previousSaved = savedSettingsRef.current;
     const overlaidItems = applyPendingBufferedUpdatesToItems(normalized);
     versionRef.current = versionRow;
@@ -1453,7 +1141,7 @@ export function useEstimateEditorState({
     setLaborRoles(refreshed.laborRoles);
     if (previousSaved && settingsSavePromiseRef.current?.versionId !== targetVersionId) {
       const nextSaved = { ...previousSaved,
-        discount_cents: versionRow.discount_amount_cents ?? discountCents,
+        discount_cents: prepared.draft.settings.discount_cents,
         discount_amount_cents: versionRow.discount_amount_cents ?? null,
         discount_bp: versionRow.discount_bp };
       savedSettingsRef.current = nextSaved;
