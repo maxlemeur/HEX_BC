@@ -1611,6 +1611,7 @@ const takeoffPlanSetDataSchema = z.object({
 const takeoffPlanSetDeleteDataSchema = z.object({
   deleted: z.literal(true),
   plan_set_id: uuidSchema,
+  dossier_synchronized: z.boolean(),
   cleanup: takeoffCleanupStatusSchema,
 });
 const takeoffPlanFilesDataSchema = z.object({
@@ -1627,6 +1628,7 @@ const takeoffPlanFileDeleteDataSchema = z.object({
   deleted: z.literal(true),
   plan_set_id: uuidSchema,
   file_id: uuidSchema,
+  dossier_synchronized: z.boolean(),
   cleanup: takeoffCleanupStatusSchema,
 });
 
@@ -3427,6 +3429,8 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [
       takeoffPlanSetEstimateVersionIdQueryParameter,
       takeoffPlanSetLimitQueryParameter,
+      queryParameter({ name: "project_id", description: "Filtrer les jeux par affaire.", schemaName: "TakeoffPlanSetProjectIdQueryParameter", schema: uuidSchema, required: false }),
+      queryParameter({ name: "import_default_only", description: "Sélectionner le jeu d’import de l’affaire sans limite de pagination.", schemaName: "TakeoffPlanSetImportDefaultQueryParameter", schema: z.boolean(), required: false }),
     ],
     responses: {
       "200": jsonResponse(

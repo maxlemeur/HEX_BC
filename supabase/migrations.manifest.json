@@ -285,6 +285,7 @@
     "20261025191709_intake_deletion_concurrency.sql": "ef7444d727ed04a7998b3ab44b873db5726769f58e9d711b553b6a0b6045f5f0",
     "20261025192225_intake_copy_recovery.sql": "e2e7602873b56862b937c880807bd72af335fa731ebefc4d1bce4a8cfa5261c8",
     "20261025192427_intake_plan_cleanup_reservation.sql": "eca43ffd6d85cc36edace41c90026336e9dcf1f9a9fa303dc90f4b49e3573272",
-    "20261025192608_intake_plan_generation_guard.sql": "49bc7c1db08cc62b06e7a2879a89883856f75cde3708beea48c7b89981989c4f"
+    "20261025192608_intake_plan_generation_guard.sql": "49bc7c1db08cc62b06e7a2879a89883856f75cde3708beea48c7b89981989c4f",
+    "20261028215442_reconcile_plan_intake_and_provenance.sql": "292d40e872e589c2ee64b4438557a2dedd068c672f19f95096b966929f408977"
   }
 }

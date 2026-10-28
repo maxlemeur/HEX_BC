@@ -19,7 +19,7 @@ import {
 import {
   DEFAULT_IMPORT_PLAN_SET_NAME,
   IMPORT_FLOW_PLAN_SET_METADATA,
-  hasDefaultImportPlanSetMarker,
+  selectProjectImportPlanSet,
 } from "@/lib/takeoff/default-import-plan-set";
 import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
@@ -41,62 +41,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
-
-function compareByUpdatedAtDesc(left: PlanSetListItem, right: PlanSetListItem) {
-  return right.updated_at.localeCompare(left.updated_at);
-}
-
-function isDefaultImportPlanSet(planSet: PlanSetListItem) {
-  return planSet.name.trim().toLowerCase() === DEFAULT_IMPORT_PLAN_SET_NAME.toLowerCase();
-}
-
-function hasImportFlowPlanSetMarker(planSet: PlanSetListItem) {
-  return hasDefaultImportPlanSetMarker(planSet.metadata);
-}
-
-function selectDefaultImportPlanSet(
-  planSets: PlanSetListItem[],
-  versionId: string
-): PlanSetListItem | null {
-  const sortedPlanSets = [...planSets].sort(compareByUpdatedAtDesc);
-  const canonicalPlanSet =
-    sortedPlanSets.find(
-      (planSet) =>
-        hasImportFlowPlanSetMarker(planSet) && planSet.estimate_version_id === versionId
-    ) ??
-    sortedPlanSets.find(
-      (planSet) =>
-        hasImportFlowPlanSetMarker(planSet) && planSet.estimate_version_id === null
-    ) ??
-    null;
-
-  if (canonicalPlanSet) {
-    return canonicalPlanSet;
-  }
-
-  const versionScopedNamedPlanSets = sortedPlanSets.filter(
-    (planSet) =>
-      isDefaultImportPlanSet(planSet) && planSet.estimate_version_id === versionId
-  );
-  if (versionScopedNamedPlanSets.length === 1) {
-    return versionScopedNamedPlanSets[0];
-  }
-
-  const projectScopedNamedPlanSets = sortedPlanSets.filter(
-    (planSet) =>
-      isDefaultImportPlanSet(planSet) && planSet.estimate_version_id === null
-  );
-  if (projectScopedNamedPlanSets.length === 1) {
-    return projectScopedNamedPlanSets[0];
-  }
-
-  const namedPlanSets = sortedPlanSets.filter(isDefaultImportPlanSet);
-  if (namedPlanSets.length === 1) {
-    return namedPlanSets[0];
-  }
-
-  return null;
 }
 
 function sumFileSizes(fileSizes: number[]) {
@@ -138,14 +82,25 @@ export function PlansStep({
   const initialCountsRef = useRef<{ fileCount: number; totalSizeBytes: number } | null>(
     null
   );
+  const preparationRef = useRef<{ scope: string; promise: Promise<void> } | null>(null);
+  const preparationGenerationRef = useRef(0);
 
-  const loadOrCreateDefaultPlanSet = useCallback(async () => {
+  const loadOrCreateDefaultPlanSet = useCallback(() => {
+    const scope = `${projectId}:${versionId}`;
+    if (preparationRef.current?.scope === scope) {
+      return preparationRef.current.promise;
+    }
+
+    const generation = ++preparationGenerationRef.current;
+    setPlanSet(null);
     setIsPreparing(true);
     setPrepareError(null);
 
+    const promise = (async () => {
     try {
-      const existingPlanSets = await fetchPlanSetsForProject(projectId);
-      const matchingPlanSet = selectDefaultImportPlanSet(existingPlanSets, versionId);
+      const existingPlanSets = await fetchPlanSetsForProject(projectId, { defaultImportOnly: true });
+      if (generation !== preparationGenerationRef.current) return;
+      const matchingPlanSet = selectProjectImportPlanSet(existingPlanSets);
 
       if (matchingPlanSet) {
         setPlanSet(matchingPlanSet);
@@ -158,25 +113,32 @@ export function PlansStep({
 
       const createdPlanSet = await createPlanSet({
         project_id: projectId,
-        estimate_version_id: versionId,
         name: DEFAULT_IMPORT_PLAN_SET_NAME,
         metadata: IMPORT_FLOW_PLAN_SET_METADATA,
       });
 
+      if (generation !== preparationGenerationRef.current) return;
       setPlanSet(createdPlanSet);
       initialCountsRef.current = {
         fileCount: createdPlanSet.file_count,
         totalSizeBytes: createdPlanSet.total_size_bytes,
       };
     } catch (error) {
+      if (generation !== preparationGenerationRef.current) return;
       setPrepareError(
         error instanceof Error
           ? error.message
           : "Impossible de préparer le jeu de plans."
       );
     } finally {
-      setIsPreparing(false);
+      if (generation === preparationGenerationRef.current) {
+        setIsPreparing(false);
+        preparationRef.current = null;
+      }
     }
+    })();
+    preparationRef.current = { scope, promise };
+    return promise;
   }, [projectId, versionId]);
 
   const refreshUploadSummary = useCallback(async (fallbackSummary?: PlanFileUploadSummary) => {

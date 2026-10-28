@@ -20,6 +20,7 @@ import {
   __securityTesting__,
   mergeGeneratedAffaireBriefWithFallback,
   updateAffaireBrief,
+  confirmAffaireBrief,
 } from "@/lib/affaires/intake-server";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -517,6 +518,14 @@ describe("affaire intake server brief regressions", () => {
         sourceDocumentIds: [DOC_BETA],
       },
     ]);
+  });
+
+  it("rejects confirmation of a stale brief version", async () => {
+    const { context, updatedBriefPayloads } = createSupabaseContext();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    await expect(confirmAffaireBrief({ projectId: PROJECT_ID, expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(updatedBriefPayloads).toEqual([]);
   });
 
   it("rebuilds brief source links and resyncs assumptions after manual edits", async () => {

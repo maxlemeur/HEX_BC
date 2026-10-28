@@ -419,6 +419,44 @@ export const insertTemplateIntoVersionBodySchema = z.object({
 
 const administrationContracts: RouteContract[] = [
   {
+    id: "reconcile-takeoff-plan-dossier", method: "post", path: "/api/takeoff/plan-sets/{setId}/files/reconcile",
+    summary: "Actualiser les pièces manquantes après un envoi de plans", tags: ["Takeoff"],
+    description: "Vérifie les fichiers stockés et synchronise les pièces manquantes de l'affaire accessible.",
+    pathParameters: [{ name: "setId", schema: uuidSchema, description: "Identifiant UUID du jeu de plans." }],
+    success: [{ status: "200", description: "Dossier synchronisé.", schema: {
+      schemaName: "TakeoffPlanDossierReconcileResponse", io: "output", schema: z.object({ ok: z.literal(true), data: z.object({ synchronized: z.literal(true), changed: z.boolean() }) }),
+    } }],
+  },
+  {
+    id: "reconcile-affaire-plan-dossier", method: "post", path: "/api/affaires/{projectId}/intake/reconcile-plans",
+    summary: "Actualiser les plans du dossier", tags: ["Affaires"],
+    description: "Synchronise les pièces manquantes et le brief avec les plans du projet accessible.", pathParameters: [projectIdParameter],
+    success: [{ status: "200", description: "Dossier synchronisé.", schema: {
+      schemaName: "AffairePlanDossierReconcileResponse", io: "output", schema: z.object({ ok: z.literal(true), data: z.object({ changed: z.boolean() }) }),
+    } }],
+  },
+  {
+    id: "import-affaire-intake-dpgf", method: "post", path: "/api/affaires/{projectId}/intake/files/{documentId}",
+    summary: "Analyser ou importer la DPGF stockée du dossier", tags: ["Affaires"],
+    description: "Analyse les octets stockés pour préserver la provenance de la pièce choisie.",
+    pathParameters: [projectIdParameter, { name: "documentId", schema: uuidSchema, description: "Identifiant UUID de la pièce du dossier." }],
+    body: { schema: z.discriminatedUnion("action", [z.object({ action: z.literal("review_pdf") }).strict(),
+      z.object({ action: z.literal("import"), approvedTables: z.array(z.object({ sourcePage: z.number().int().positive(), tableIndex: z.number().int().nonnegative() }).strict()).max(100).optional(), sourceSha256: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict()]),
+      description: "Prévisualisation PDF ou import après sélection des tableaux." },
+    success: [{ status: "200", description: "Prévisualisation PDF." }, { status: "201", description: "Import créé." }],
+  },
+  {
+    id: "read-affaire-intake-dpgf", method: "get", path: "/api/affaires/{projectId}/intake/files/{documentId}",
+    summary: "Préparer la lecture d'une DPGF du dossier", tags: ["Affaires"],
+    description: "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible.",
+    pathParameters: [projectIdParameter, { name: "documentId", schema: uuidSchema, description: "Identifiant UUID de la pièce du dossier." }],
+    success: [{ status: "200", description: "Pièce disponible pour l'import.", schema: {
+      schemaName: "AffaireIntakeDpgfDownloadResponse", io: "output", schema: z.object({ ok: z.literal(true), data: z.object({
+        documentId: uuidSchema, fileName: z.string(), mimeType: z.string().nullable(), sizeBytes: z.number().int().positive(), downloadUrl: z.string().url(),
+      }) }),
+    } }],
+  },
+  {
     id: "read-affaire-google-drive", method: "get", path: "/api/affaires/{projectId}/intake/google-drive",
     summary: "Lire la disponibilité et les copies Google Drive de cette affaire",
     description: "Disponibilité OAuth et provenance des copies privées de cette affaire accessible.", tags: ["Affaires"],

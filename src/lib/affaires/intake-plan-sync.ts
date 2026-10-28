@@ -1,5 +1,6 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { randomUUID } from "node:crypto";
+import { conflict } from "@/lib/estimates/errors";
+import { createHash } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -8,10 +9,11 @@ import {
   getAffaireIntakeFileExtension,
 } from "@/lib/affaires/intake";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { stableImportPlanSetId, stableIntakePlanFileId } from "@/lib/takeoff/default-import-plan-set-id";
 import {
   AFFAIRE_INTAKE_PLAN_SET_METADATA,
   DEFAULT_IMPORT_PLAN_SET_NAME,
-  hasDefaultImportPlanSetMarker,
+  selectProjectImportPlanSet,
 } from "@/lib/takeoff/default-import-plan-set";
 import {
   PLAN_FILE_ORIGINAL_NAME_KEY,
@@ -38,6 +40,8 @@ type SyncDocument = {
   upload_status: string;
   classification_status: string;
   document_kind: string;
+  classified_at?: string | null;
+  plan_copy_generation?: string | null;
 };
 
 type PlanSetRow = {
@@ -45,6 +49,8 @@ type PlanSetRow = {
   estimate_version_id: string | null;
   name: string;
   metadata: Record<string, unknown>;
+  updated_at: string;
+  file_count: number;
 };
 
 type PlanFileRow = {
@@ -58,6 +64,8 @@ type IntakePlanFileMetadata = {
   intake_document_id: string;
   intake_upload_id: string;
   intake_storage_path: string;
+  intake_classified_at: string | null;
+  intake_generation: string | null;
   [PLAN_FILE_ORIGINAL_NAME_KEY]?: string;
 };
 
@@ -120,13 +128,21 @@ function toIntakeDocumentId(planFile: PlanFileRow) {
   return typeof intakeDocumentId === "string" ? intakeDocumentId : null;
 }
 
+function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocument) {
+  if (file.metadata.intake_storage_path !== document.storage_path) return false;
+  // Older copies predate the generation marker; keep them until a cleanup has
+  // actually been reserved, rather than migrating or deleting user files.
+  if ("intake_generation" in file.metadata) return file.metadata.intake_generation === (document.plan_copy_generation ?? null);
+  return !("intake_classified_at" in file.metadata) || file.metadata.intake_classified_at === (document.classified_at ?? null);
+}
+
 async function findProjectPlanSet(input: {
   supabase: Supabase;
   project: SyncProject;
 }) {
   const { data, error } = await readAllRows(() => input.supabase
     .from("plan_sets" as never)
-    .select("id, estimate_version_id, name, metadata" as never, { count: "exact" })
+    .select("id, estimate_version_id, name, metadata, updated_at, plan_files(count)" as never, { count: "exact" })
     .eq("project_id" as never, input.project.id as never)
     .order("updated_at" as never, { ascending: false }));
 
@@ -146,30 +162,15 @@ async function findProjectPlanSet(input: {
           typeof row.estimate_version_id === "string" ? row.estimate_version_id : null,
         name: row.name,
         metadata: normalizeMetadata(row.metadata),
+        updated_at: typeof row.updated_at === "string" ? row.updated_at : "",
+        file_count: Array.isArray(row.plan_files) && isRecord(row.plan_files[0]) && typeof row.plan_files[0].count === "number"
+          ? row.plan_files[0].count : 0,
       } satisfies PlanSetRow;
     })
     .filter((row): row is PlanSetRow => row !== null);
 
-  const canonicalPlanSet =
-    planSets.find(
-      (planSet) =>
-        planSet.estimate_version_id === null &&
-        hasDefaultImportPlanSetMarker(planSet.metadata)
-    ) ??
-    (() => {
-      const namedMatches = planSets.filter(
-        (planSet) =>
-          planSet.estimate_version_id === null &&
-          planSet.name.trim().toLowerCase() === DEFAULT_IMPORT_PLAN_SET_NAME.toLowerCase()
-      );
-      return namedMatches.length === 1 ? namedMatches[0] : null;
-    })();
+  return selectProjectImportPlanSet(planSets);
 
-  if (canonicalPlanSet) {
-    return canonicalPlanSet;
-  }
-
-  return null;
 }
 
 async function createProjectPlanSet(input: {
@@ -181,6 +182,7 @@ async function createProjectPlanSet(input: {
     .from("plan_sets" as never)
     .insert(
       {
+        id: stableImportPlanSetId(input.project.tenant_id, input.project.id, null),
         tenant_id: input.project.tenant_id,
         project_id: input.project.id,
         estimate_version_id: null,
@@ -194,6 +196,11 @@ async function createProjectPlanSet(input: {
   const createdData = response.data as unknown;
   const insertError = response.error;
 
+  if (insertError?.code === "23505") {
+    const existing = await findProjectPlanSet(input);
+    if (existing) return existing;
+  }
+
   if (insertError || !createdData || !isRecord(createdData) || typeof createdData.id !== "string") {
     throw insertError ?? new Error("Unable to create intake plan set.");
   }
@@ -206,6 +213,8 @@ async function createProjectPlanSet(input: {
         : null,
     name: typeof createdData.name === "string" ? createdData.name : DEFAULT_IMPORT_PLAN_SET_NAME,
     metadata: normalizeMetadata(createdData.metadata),
+    updated_at: typeof createdData.updated_at === "string" ? createdData.updated_at : "",
+    file_count: 0,
   } satisfies PlanSetRow;
 }
 
@@ -272,74 +281,83 @@ async function deleteSyncedPlanFiles(input: {
   return removed;
 }
 
+class IntakePlanCopyRequiresReimport extends Error {}
+
 async function createSyncedPlanFile(input: {
   supabase: Supabase;
   project: SyncProject;
   planSetId: string;
   document: SyncDocument;
+  existing?: PlanFileRow;
 }) {
-  if (!input.document.storage_path) {
-    return;
+  const sourcePath = input.document.storage_path;
+  if (!sourcePath) return;
+  // Legacy v4 paths are permitted temporarily for the old worker during rollout.
+  // The new worker never uploads to them, so it cannot resurrect a removed row.
+  if (input.existing && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.existing.id)) {
+    throw new IntakePlanCopyRequiresReimport();
   }
-
+  if (input.existing && !isSameIntakePlanGeneration(input.existing, input.document)) {
+    throw new Error("The existing plan copy belongs to another intake generation.");
+  }
   const { data: sourceBlob, error: downloadError } = await input.supabase.storage
-    .from(AFFAIRE_INTAKE_BUCKET)
-    .download(input.document.storage_path);
-
-  if (downloadError || !sourceBlob) {
-    throw downloadError ?? new Error("Unable to download intake document.");
+    .from(AFFAIRE_INTAKE_BUCKET).download(sourcePath);
+  if (downloadError || !sourceBlob) throw downloadError ?? new Error("Unable to download intake document.");
+  if (sourceBlob.size !== input.document.size_bytes || sourceBlob.size === 0) {
+    throw new Error("La copie du plan dans le dossier est incomplète.");
   }
 
-  const fileId = randomUUID();
-  const fileName = sanitizePdfFilename(input.document.file_name);
-  const filePath = buildPlanFileStoragePath({
-    tenantId: input.project.tenant_id,
-    setId: input.planSetId,
-    fileId,
-    fileName,
+  const fileId = input.existing?.id ?? stableIntakePlanFileId(
+    input.project.tenant_id, input.planSetId, input.document.id, sourcePath, input.document.plan_copy_generation ?? null
+  );
+  const fileName = input.existing?.file_path.split("/").at(-1) ?? sanitizePdfFilename(input.document.file_name);
+  const filePath = input.existing?.file_path ?? buildPlanFileStoragePath({
+    tenantId: input.project.tenant_id, setId: input.planSetId, fileId, fileName,
   });
-
-  const { error: uploadError } = await input.supabase.storage
-    .from(PLAN_FILES_BUCKET)
-    .upload(filePath, sourceBlob, {
-      contentType: "application/pdf",
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw uploadError;
-  }
-
   const originalFileName = normalizePlanFileOriginalName(input.document.file_name);
   const metadata: IntakePlanFileMetadata = {
-    source: "affaire-intake",
-    intake_document_id: input.document.id,
-    intake_upload_id: input.document.upload_id,
-    intake_storage_path: input.document.storage_path,
+    source: "affaire-intake", intake_document_id: input.document.id,
+    intake_upload_id: input.document.upload_id, intake_storage_path: sourcePath,
+    intake_classified_at: input.document.classified_at ?? null,
+    intake_generation: input.document.plan_copy_generation ?? null,
     ...(originalFileName ? { [PLAN_FILE_ORIGINAL_NAME_KEY]: originalFileName } : {}),
   };
 
-  const { error: insertError } = await input.supabase
-    .from("plan_files" as never)
-    .insert(
-      {
-        id: fileId,
-        tenant_id: input.project.tenant_id,
-        plan_set_id: input.planSetId,
-        file_path: filePath,
-        file_name: fileName,
-        file_type: "application/pdf",
-        file_size_bytes: input.document.size_bytes,
-        page_count: null,
-        file_hash: null,
-        metadata,
-        created_by: input.document.created_by,
-      } as never
-    );
+  if (!input.existing) {
+    // Persist the deterministic reservation before upload: Storage RLS can then
+    // authorize the path and a later refresh can recover an interrupted upload.
+    const { error: insertError } = await input.supabase.from("plan_files" as never).insert({
+      id: fileId, tenant_id: input.project.tenant_id, plan_set_id: input.planSetId,
+      file_path: filePath, file_name: fileName, file_type: "application/pdf",
+      file_size_bytes: input.document.size_bytes, page_count: null, file_hash: null,
+      metadata, created_by: input.document.created_by,
+    } as never);
+    if (insertError) {
+      if (insertError.code !== "23505") throw insertError;
+      const { data: existing, error } = await input.supabase.from("plan_files" as never)
+        .select("id,file_path,metadata" as never).eq("id", fileId).maybeSingle();
+      const row = existing as unknown as PlanFileRow | null;
+      if (error || !row || row.file_path !== filePath || row.metadata?.intake_document_id !== input.document.id ||
+          row.metadata?.intake_storage_path !== sourcePath || row.metadata?.intake_classified_at !== (input.document.classified_at ?? null) ||
+          row.metadata?.intake_generation !== (input.document.plan_copy_generation ?? null) ||
+          row.metadata?.source !== "affaire-intake") {
+        throw insertError;
+      }
+    }
+  }
 
-  if (insertError) {
-    await input.supabase.storage.from(PLAN_FILES_BUCKET).remove([filePath]);
-    throw insertError;
+  const storage = input.supabase.storage.from(PLAN_FILES_BUCKET);
+  const { error: uploadError } = await storage.upload(filePath, sourceBlob, {
+    contentType: "application/pdf", upsert: false,
+  });
+  if (uploadError) {
+    // Another producer may have uploaded the same bytes after the reservation.
+    const { data: stored, error: readError } = await storage.download(filePath);
+    if (readError || !stored) throw uploadError;
+    const digest = (buffer: ArrayBuffer) => createHash("sha256").update(Buffer.from(buffer)).digest("hex");
+    if (digest(await stored.arrayBuffer()) !== digest(await sourceBlob.arrayBuffer())) {
+      throw new IntakePlanCopyRequiresReimport();
+    }
   }
 }
 
@@ -393,11 +411,16 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
     }
   }
 
-  const desiredDocumentIds = new Set(eligibleDocuments.map((document) => document.id));
+  const desiredDocuments = new Map(eligibleDocuments.map((document) => [document.id, document]));
   const staleFiles = syncedPlanFiles.filter((file) => {
     const intakeDocumentId = toIntakeDocumentId(file);
-    return intakeDocumentId !== null && (file.metadata.intake_cleanup_pending === true || !desiredDocumentIds.has(intakeDocumentId));
+    const document = intakeDocumentId ? desiredDocuments.get(intakeDocumentId) : undefined;
+    return intakeDocumentId !== null && (file.metadata.intake_cleanup_pending === true || !document || !isSameIntakePlanGeneration(file, document));
   });
+  for (const file of staleFiles) {
+    const documentId = toIntakeDocumentId(file);
+    if (documentId && syncedByDocumentId.get(documentId)?.id === file.id) syncedByDocumentId.delete(documentId);
+  }
 
   const removedDocumentCount = await deleteSyncedPlanFiles({
     supabase: input.supabase,
@@ -408,16 +431,20 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
   let syncedDocumentCount = 0;
 
   for (const document of eligibleDocuments) {
-    if (syncedByDocumentId.has(document.id)) {
-      continue;
-    }
-
+    const existing = syncedByDocumentId.get(document.id);
     try {
+      if (existing && isSameIntakePlanGeneration(existing, document)) {
+        const { data: object, error } = await input.supabase.storage.from(PLAN_FILES_BUCKET).info(existing.file_path);
+        if (!error && object?.size === document.size_bytes && document.size_bytes > 0) continue;
+        const status = Number(error?.statusCode ?? error?.status);
+        if (error && status !== 400 && status !== 404) throw error;
+      }
       await createSyncedPlanFile({
         supabase: input.supabase,
         project: input.project,
         planSetId: planSet.id,
         document,
+        existing,
       });
       syncedDocumentCount += 1;
     } catch (error) {
@@ -428,6 +455,9 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
     }
   }
 
+  if (failures.some((failure) => failure.error instanceof IntakePlanCopyRequiresReimport)) {
+    throw conflict("Une copie de plan est incomplète. Supprimez sa pièce source du dossier puis importez-la à nouveau.");
+  }
   if (failures.length > 0) {
     throw new Error(
       `Intake plan sync failed for ${failures.length} document(s): ${failures

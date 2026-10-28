@@ -90,14 +90,36 @@ function createInactiveExistingRow() {
 }
 
 describe("syncAffaireRegisterMissingPieces", () => {
+  it("deactivates a previously missing piece when the current list is empty", async () => {
+    const stale = { ...createInactiveExistingRow(), code: "missing_cctp", sync_key: "missing_piece:missing_cctp", status: "open", is_active: true };
+    const unrelated = { ...stale, id: "55555555-5555-4555-8555-555555555555", sync_key: "manual:keep" };
+    const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => ({
+      data: name === "reconcile_affaire_plan_gap" ? false : { ...stale, ...(params.p_patch as object) }, error: null,
+    }));
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: [stale, unrelated], error: null })),
+    };
+    const supabase = { from: () => builder, rpc };
+    vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
+
+    await syncAffaireRegisterMissingPieces({ supabase: supabase as never, project: createProjectRow(), missingPieces: [], actorUserId: USER_ID });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledWith("update_affaire_register_entry_with_event", expect.objectContaining({
+      p_entry_id: ENTRY_ID, p_event_type: "deactivated", p_patch: { status: "validated", is_active: false },
+    }));
+  });
+
   it("drops stale workflow metadata when reactivating an inactive sync key", async () => {
     const eventPayloads: unknown[] = [];
     const upsertPayloads: Array<Record<string, unknown>> = [];
-    const existingRow = createInactiveExistingRow();
+    const existingRow = { ...createInactiveExistingRow(), code: "missing_cctp", sync_key: "missing_piece:missing_cctp" };
     let registerEntriesCall = 0;
 
     const supabase = {
       rpc: async (_name: string, params: Record<string, unknown>) => {
+        if (_name === "reconcile_affaire_plan_gap") return { data: false, error: null };
         const patch = params.p_patch as Record<string, unknown>;
         upsertPayloads.push({
           project_id: existingRow.project_id,
@@ -179,8 +201,8 @@ describe("syncAffaireRegisterMissingPieces", () => {
       project: createProjectRow(),
       missingPieces: [
         {
-          code: "missing_plans",
-          label: "Plans manquants",
+          code: "missing_cctp",
+          label: "CCTP non détecté",
           severity: "critical",
         },
       ],
@@ -190,7 +212,7 @@ describe("syncAffaireRegisterMissingPieces", () => {
     expect(upsertPayloads).toHaveLength(1);
     expect(upsertPayloads[0]).toMatchObject({
       project_id: PROJECT_ID,
-      sync_key: "missing_piece:missing_plans",
+      sync_key: "missing_piece:missing_cctp",
       status: "open",
       is_active: true,
       updated_by: USER_ID,
@@ -199,7 +221,6 @@ describe("syncAffaireRegisterMissingPieces", () => {
         businessImpact: [
           "affects_hub_readiness",
           "blocks_submission",
-          "affects_takeoff",
         ],
         structuredLocation: {
           scopeType: "project",

@@ -494,6 +494,7 @@ export type PlanSetMutationResponse = {
 export type PlanSetDeleteResponse = {
   deleted: true;
   plan_set_id: string;
+  dossier_synchronized?: boolean;
 };
 
 export type PlanFileCreateResponse = {
@@ -511,6 +512,7 @@ export type PlanFileDeleteResponse = {
   deleted: true;
   plan_set_id: string;
   file_id: string;
+  dossier_synchronized?: boolean;
 };
 
 export type CreatePlanSetInput = {

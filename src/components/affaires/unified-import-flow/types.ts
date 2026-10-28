@@ -12,6 +12,12 @@ import type {
 
 export type Step = "upload" | "mapping" | "preview" | "confirmation" | "plans";
 
+export type IntakeDpgfCandidate = {
+  documentId: string;
+  fileName: string;
+  label: string;
+};
+
 export const STEPPER_STEPS_BASE = ["upload", "mapping", "preview", "confirmation"] as const;
 export const STEPPER_STEPS_WITH_PLANS = ["upload", "mapping", "preview", "confirmation", "plans"] as const;
 

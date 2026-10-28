@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
   badRequest,
+  conflict,
   forbidden,
   internalError,
   mapSupabaseError,
@@ -69,11 +70,13 @@ import {
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
+import { hasStoredIntakePlan, hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
 import { readDriveHistory } from "@/lib/affaires/google-drive/store";
 import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
 import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
+  syncAffairePlanGap,
 } from "@/lib/affaires/register-server";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
@@ -109,6 +112,8 @@ type AffaireIntakeDocumentRow = {
   upload_id: string;
   created_by: string | null;
   storage_path: string | null;
+  deletion_token: string | null;
+  plan_copy_generation: string | null;
   file_name: string;
   mime_type: string | null;
   size_bytes: number;
@@ -219,6 +224,8 @@ export type AffaireIntakeWorkspace = {
   documents: Array<{
     documentId: string;
     fileName: string;
+    uploadStatus?: AffaireIntakeDocumentUploadStatus;
+    isBeingDeleted?: boolean;
     driveSource?: DriveProvenance;
     sizeBytes?: number;
     detectedCategory: AffaireIntakeDocumentKind;
@@ -255,6 +262,8 @@ const DOCUMENT_SELECT = [
   "upload_id",
   "created_by",
   "storage_path",
+  "deletion_token",
+  "plan_copy_generation",
   "file_name",
   "mime_type",
   "size_bytes",
@@ -470,6 +479,8 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     upload_id: typeof row.upload_id === "string" ? row.upload_id : "",
     created_by: toStringOrNull(row.created_by),
     storage_path: toStringOrNull(row.storage_path),
+    deletion_token: toStringOrNull(row.deletion_token),
+    plan_copy_generation: toStringOrNull(row.plan_copy_generation),
     file_name: typeof row.file_name === "string" ? row.file_name : "",
     mime_type: toStringOrNull(row.mime_type),
     size_bytes: Math.max(0, Math.trunc(toNumberOrZero(row.size_bytes))),
@@ -1078,6 +1089,65 @@ export async function requireAffaireProjectOwnerOrAdmin(
   project: AffaireProjectAccessRow;
 }> {
   return requireAffaireProjectAccess(projectId, "owner_or_admin");
+}
+
+/** Resolve only an active, classified DPGF belonging to the current affair. */
+async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
+  const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const { data, error } = await context.supabase
+    .from("affaire_intake_documents" as never)
+    .select("id, file_name, mime_type, size_bytes, storage_path" as never)
+    .eq("id", documentId)
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", project.id)
+    .eq("upload_status", "uploaded")
+    .eq("classification_status", "classified")
+    .eq("document_kind", "dpgf")
+    .is("deleted_at", null)
+    .is("deletion_token", null)
+    .maybeSingle();
+
+  if (error) throw mapSupabaseError(error, "Impossible de charger la DPGF du dossier.");
+  const document = data as unknown as {
+    file_name: string;
+    mime_type: string | null;
+    size_bytes: number;
+    storage_path: string | null;
+  } | null;
+  if (!document?.storage_path || document.size_bytes <= 0 ||
+      document.size_bytes > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) {
+    throw notFound("DPGF introuvable dans cette affaire. Actualisez le dossier.");
+  }
+
+  return { context, document };
+}
+
+export async function getAffaireIntakeDpgfDownload(projectId: string, documentId: string) {
+  const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
+  const { data: signed, error: signedError } = await context.supabase.storage
+    .from(AFFAIRE_INTAKE_BUCKET)
+    .createSignedUrl(document.storage_path!, 60);
+  if (signedError || !signed?.signedUrl) {
+    throw internalError("Impossible de récupérer la DPGF du dossier.");
+  }
+
+  return {
+    documentId,
+    fileName: document.file_name,
+    mimeType: document.mime_type,
+    sizeBytes: document.size_bytes,
+    downloadUrl: signed.signedUrl,
+  };
+}
+
+export async function readAffaireIntakeDpgfFile(projectId: string, documentId: string) {
+  const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
+  const { data: blob, error } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET)
+    .download(document.storage_path!);
+  if (error || !blob || blob.size !== document.size_bytes) {
+    throw internalError("Impossible de récupérer la copie DPGF complète.");
+  }
+  return new File([blob], document.file_name, { type: document.mime_type ?? blob.type });
 }
 
 async function requireAffaireProjectReadAccess(
@@ -1786,6 +1856,11 @@ function normalizeAffaireBriefDraftFromRows(input: {
     assumptions: input.brief.assumptions,
     vigilancePoints: input.brief.vigilance_points,
     missingElements: input.brief.missing_elements,
+    resolvedPlanGapIndexes: Array.isArray(input.brief.generation_metadata.resolved_plan_gap_indexes)
+      ? input.brief.generation_metadata.resolved_plan_gap_indexes.filter((value): value is number =>
+          typeof value === "number" && Number.isInteger(value) && value >= 0 && value < 12).slice(0, 12)
+      : [],
+    updatedAt: input.brief.updated_at,
     sources: input.sources.map((source) => ({
       blockKey: source.block_key,
       entryIndex: source.entry_index,
@@ -1809,6 +1884,7 @@ function getComparableBriefPayload(brief: AffaireIntakeBriefDraft) {
     assumptions: brief.assumptions,
     vigilancePoints: brief.vigilancePoints,
     missingElements: brief.missingElements,
+    resolvedPlanGapIndexes: brief.resolvedPlanGapIndexes ?? [],
     sources: [...brief.sources].sort((left, right) =>
       `${left.blockKey}:${left.entryIndex}:${left.sourceDocumentId}`.localeCompare(
         `${right.blockKey}:${right.entryIndex}:${right.sourceDocumentId}`,
@@ -2097,13 +2173,7 @@ async function refreshAffaireBriefFromDocuments(input: {
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded"
   );
-  const missingPieces = buildAffaireIntakeMissingPieces(
-    input.documents.map((document) => ({
-      uploadStatus: document.upload_status,
-      classificationStatus: document.classification_status,
-      documentKind: document.document_kind,
-    }))
-  );
+  const missingPieces = await getMissingPiecesForProject(input);
 
   await syncAffaireRegisterMissingPieces({
     supabase: input.supabase as never,
@@ -2149,13 +2219,83 @@ async function refreshAffaireBriefFromDocuments(input: {
     aiOwner: input.aiOwner,
   });
 
-  return persistAffaireBriefDraft({
+  const draft = await persistAffaireBriefDraft({
     supabase: input.supabase,
     project: input.project,
     uploadId: input.uploadId,
     draft: briefDraft,
     actorUserId: input.actorUserId,
   });
+  await syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });
+  return draft;
+}
+
+async function getMissingPiecesForProject(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  project: AffaireProjectAccessRow;
+  documents: AffaireIntakeDocumentRow[];
+}) {
+  const activeDocuments = input.documents.filter((document) => !document.deletion_token);
+  const candidatePlans = activeDocuments.filter((document) =>
+    document.upload_status === "uploaded" && document.classification_status === "classified" && document.document_kind === "plans"
+  );
+  const hasIntakePlan = candidatePlans.length > 0 && await hasStoredIntakePlan({
+    supabase: input.supabase as never, documents: candidatePlans,
+  });
+  const missing = buildAffaireIntakeMissingPieces(activeDocuments
+    .filter((document) => hasIntakePlan || !candidatePlans.includes(document))
+    .map((document) => ({
+      uploadStatus: document.upload_status,
+      classificationStatus: document.classification_status,
+      documentKind: document.document_kind,
+    })));
+  if (!missing.some((piece) => piece.code === "missing_plans")) return missing;
+  const hasPlan = await hasStoredStandalonePlan({
+    // Project access has already been checked; use the server client so a
+    // director with dossier read rights gets the same presence boolean.
+    supabase: createServiceRoleClient() as never,
+    projectId: input.project.id,
+    tenantId: input.project.tenant_id,
+  });
+  return hasPlan ? missing.filter((piece) => piece.code !== "missing_plans") : missing;
+}
+
+/** Reconcile system gaps after a plan file has been uploaded or removed. */
+export async function reconcileAffairePlanPresence(projectId: string) {
+  const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const { data: upload, error: uploadError } = await context.supabase
+    .from("affaire_intake_uploads" as never)
+    .select("id" as never)
+    .eq("project_id", project.id)
+    .eq("tenant_id", context.tenantId)
+    .limit(1)
+    .maybeSingle();
+  if (uploadError) throw mapSupabaseError(uploadError, "Impossible de charger le dossier de l'affaire.");
+  if (!upload) return { changed: false };
+
+  // Revisit unfinished intake-to-plan copies before reconciling the plan gap.
+  // Other document categories are deliberately outside this operation.
+  const { data, error } = await readAllRows(() => getAffaireIntakeSelectTable(context.supabase, "affaire_intake_documents")
+    .select(DOCUMENT_SELECT as never, { count: "exact" })
+    .eq("project_id", project.id).eq("tenant_id", context.tenantId)
+    .is("deleted_at", null).is("deletion_token", null));
+  if (error) throw internalError("Impossible de charger les pièces du dossier.", error);
+  const documents = (data ?? []).map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+  let planCopiesChanged = false;
+  try {
+    const planSync = await syncTakeoffPlanSetFromAffaireIntake({
+      supabase: context.supabase as never,
+      project: { id: project.id, tenant_id: project.tenant_id },
+      documents,
+    });
+    planCopiesChanged = planSync.syncedDocumentCount > 0 || planSync.removedDocumentCount > 0;
+  } catch (error) {
+    await syncAffairePlanGap({ projectId: project.id, actorUserId: context.userId });
+    throw error;
+  }
+  const changed = await syncAffairePlanGap({ projectId: project.id, actorUserId: context.userId });
+  return { changed: changed || planCopiesChanged };
 }
 
 async function updateUploadStatusFromStoredDocuments(input: {
@@ -2889,6 +3029,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
+    uploadStatus: document.upload_status,
+    isBeingDeleted: Boolean(document.deletion_token),
     driveSource: driveSources.get(document.id),
     sizeBytes: document.size_bytes,
     detectedCategory: document.document_kind,
@@ -2902,13 +3044,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       ...(document.rejection_reason ? [document.rejection_reason] : []),
     ],
   }));
-  const missingPieces = buildAffaireIntakeMissingPieces(
-    documents.map((document) => ({
-      uploadStatus: document.upload_status,
-      classificationStatus: document.classification_status,
-      documentKind: document.document_kind,
-    }))
-  );
+  const missingPieces = await getMissingPiecesForProject({ supabase: context.supabase, project, documents });
 
   return {
     projectId: project.id,
@@ -2917,7 +3053,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     documents: workspaceDocuments,
     missingPieces,
     readiness: buildAffaireIntakeReadinessSnapshot({
-      documents: documents.map((document) => ({
+      documents: documents.filter((document) => !document.deletion_token).map((document) => ({
         fileName: document.file_name,
         uploadStatus: document.upload_status,
         classificationStatus: document.classification_status,
@@ -2933,6 +3069,19 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     briefDraft: brief?.draft ?? null,
   };
 });
+
+export async function resolveAffaireBriefPlanGap(input: {
+  projectId: string; entryIndex: number; expectedUpdatedAt: string;
+}) {
+  const { context, project } = await requireAffaireProjectBriefEditor(input.projectId);
+  const { data, error } = await createServiceRoleClient().rpc("resolve_affaire_brief_plan_gap" as never, {
+    p_project_id: project.id, p_entry_index: input.entryIndex,
+    p_expected_updated_at: input.expectedUpdatedAt, p_actor_user_id: context.userId,
+  } as never);
+  if (error?.code === "40001") throw conflict("Le dossier ou le brief a changé. Actualisez avant de poursuivre.");
+  if (error) throw mapSupabaseError(error, "Impossible de mettre à jour le brief.");
+  return { changed: data === true };
+}
 
 export async function updateAffaireBrief(input: {
   projectId: string;
@@ -3045,7 +3194,7 @@ export async function updateAffaireBrief(input: {
   } as const;
 }
 
-export async function confirmAffaireBrief(input: { projectId: string }) {
+export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string }) {
   const { context, project } = await requireAffaireProjectBriefEditor(
     input.projectId
   );
@@ -3058,6 +3207,10 @@ export async function confirmAffaireBrief(input: { projectId: string }) {
     throw notFound("Brief affaire introuvable.");
   }
 
+  if (existing.brief.updated_at !== input.expectedUpdatedAt) {
+    throw conflict("Le brief a changé. Actualisez avant de le confirmer.");
+  }
+
   if (existing.draft.status === "confirme") {
     return {
       ok: true,
@@ -3066,21 +3219,19 @@ export async function confirmAffaireBrief(input: { projectId: string }) {
   }
 
   const confirmedAt = new Date().toISOString();
-  const { error } = await resolveSupabaseQuery<{ error: unknown }>(
+  const { data, error } = await resolveSupabaseQuery<{ data: { id: string } | null; error: unknown }>(
     context.supabase
       .from("affaire_briefs" as never)
       .update({
-        status: "confirme",
-        confirmed_at: confirmedAt,
-        confirmed_by: context.userId,
-        updated_by: context.userId,
+        status: "confirme", confirmed_at: confirmedAt, confirmed_by: context.userId, updated_by: context.userId,
       } as never)
       .eq("id", existing.brief.id)
+      .eq("updated_at", input.expectedUpdatedAt)
+      .select("id" as never)
+      .maybeSingle()
   );
-
-  if (error) {
-    throw internalError("Impossible de confirmer le brief affaire.", error);
-  }
+  if (error) throw internalError("Impossible de confirmer le brief affaire.", error);
+  if (!data) throw conflict("Le brief a changé. Actualisez avant de le confirmer.");
 
   await insertAffaireIntakeEvent({
     supabase: context.supabase,

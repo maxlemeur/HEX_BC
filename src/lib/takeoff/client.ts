@@ -755,10 +755,11 @@ export async function fetchPlanSets(
 }
 
 export async function fetchPlanSetsForProject(
-  projectId: string
+  projectId: string,
+  options?: { defaultImportOnly?: boolean }
 ): Promise<PlanSetListItem[]> {
   const response = await requestTakeoffJson<PlanSetsListResponse>(
-    `/api/takeoff/plan-sets?project_id=${encodeURIComponent(projectId)}`,
+    `/api/takeoff/plan-sets?project_id=${encodeURIComponent(projectId)}${options?.defaultImportOnly ? "&import_default_only=true" : ""}`,
     { method: "GET" },
     "Impossible de récupérer les jeux de plans."
   );
@@ -814,6 +815,23 @@ export async function registerPlanFile(
     },
     "Impossible d'enregistrer le fichier de plan."
   );
+}
+
+export async function reconcilePlanSetDossier(setId: string): Promise<void> {
+  await requestTakeoffJson<{ synchronized: true }>(
+    `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files/reconcile`,
+    { method: "POST" },
+    "Impossible d'actualiser les pièces manquantes de l'affaire."
+  );
+}
+
+export async function reconcileProjectPlanDossier(projectId: string): Promise<boolean> {
+  const response = await requestTakeoffJson<{ changed: boolean }>(
+    `/api/affaires/${encodeURIComponent(projectId)}/intake/reconcile-plans`,
+    { method: "POST" },
+    "Impossible d'actualiser les pièces manquantes de l'affaire."
+  );
+  return response.changed;
 }
 
 export async function deletePlanFile(

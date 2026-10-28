@@ -14,6 +14,7 @@ import {
   reclassifyAffaireDocument as reclassifyAffaireDocumentServer,
   setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
   updateAffaireBrief as updateAffaireBriefServer,
+  resolveAffaireBriefPlanGap as resolveAffaireBriefPlanGapServer,
 } from "@/lib/affaires/intake-server";
 
 const reclassifyAffaireDocumentInputSchema = z.object({
@@ -47,6 +48,7 @@ export type UpdateAffaireBriefInput = z.infer<
 
 const confirmAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 export type ConfirmAffaireBriefInput = z.infer<
@@ -104,6 +106,16 @@ export async function deleteAffaireIntakeDocument(input: { projectId: string; do
   }
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`, "layout");
+  return result;
+}
+
+export async function resolveAffaireBriefPlanGap(input: { projectId: string; entryIndex: number; expectedUpdatedAt: string }) {
+  const parsed = z.object({
+    projectId: z.string().uuid(), entryIndex: z.number().int().min(0).max(11),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+  }).strict().parse(input);
+  const result = await resolveAffaireBriefPlanGapServer(parsed);
+  revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
   return result;
 }
 

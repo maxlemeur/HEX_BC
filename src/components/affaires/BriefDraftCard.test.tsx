@@ -11,9 +11,11 @@ vi.mock("next/navigation", () => ({
 
 const mockUpdateAffaireBrief = vi.fn();
 const mockConfirmAffaireBrief = vi.fn();
+const mockResolveAffaireBriefPlanGap = vi.fn();
 vi.mock("@/app/dashboard/affaires/_actions/intake", () => ({
   updateAffaireBrief: (...args: unknown[]) => mockUpdateAffaireBrief(...args),
   confirmAffaireBrief: (...args: unknown[]) => mockConfirmAffaireBrief(...args),
+  resolveAffaireBriefPlanGap: (...args: unknown[]) => mockResolveAffaireBriefPlanGap(...args),
 }));
 
 const mockToast = {
@@ -35,6 +37,7 @@ const PROJECT_ID = "00000000-0000-0000-0000-000000000001";
 function makeBriefDraft(overrides?: Partial<AffaireIntakeBriefDraft>): AffaireIntakeBriefDraft {
   return {
     status: "a_confirmer",
+    updatedAt: "2026-03-06T09:15:00+01:00",
     summary: "Resume du projet",
     projectObject: "Construction d'un batiment",
     scope: ["Lot 1 - Gros oeuvre", "Lot 2 - Electricite"],
@@ -74,6 +77,25 @@ function getSection() {
 }
 
 describe("BriefDraftCard", () => {
+
+  it("lets a user explicitly mark the plan mention treated without hiding its source", async () => {
+    const user = userEvent.setup();
+    mockResolveAffaireBriefPlanGap.mockResolvedValue({ changed: true });
+    const brief = makeBriefDraft({
+      updatedAt: "2026-03-06T09:15:00+01:00",
+      missingElements: ["Plans manquants", "CCTP manquant"],
+      sources: [{ blockKey: "missing_elements", entryIndex: 0, sourceDocumentId: "doc-1", sourceFileName: "DPGF.pdf", rationale: null }],
+    });
+    const view = render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={brief} hasPlans />);
+    await user.click(screen.getByRole("button", { name: "Marquer les plans comme reçus" }));
+    expect(mockResolveAffaireBriefPlanGap).toHaveBeenCalledWith({ projectId: PROJECT_ID, entryIndex: 0, expectedUpdatedAt: brief.updatedAt });
+    view.rerender(<BriefDraftCard projectId={PROJECT_ID} briefDraft={{ ...brief, resolvedPlanGapIndexes: [0] }} hasPlans />);
+    expect(screen.getByText(/mention historique, plans reçus/)).toBeInTheDocument();
+    expect(screen.getByText("1 manquant(s)")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Document associé · DPGF.pdf" })).toBeInTheDocument();
+    view.rerender(<BriefDraftCard projectId={PROJECT_ID} briefDraft={{ ...brief, resolvedPlanGapIndexes: [0] }} hasPlans={false} />);
+    expect(screen.getByText("2 manquant(s)")).toBeInTheDocument();
+  });
 
   it("keeps distinct source links when the same document backs multiple brief entries", () => {
     render(

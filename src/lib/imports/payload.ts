@@ -8,6 +8,13 @@ export type ImportRowProvenance = {
   source_document_id: string | null;
 };
 
+export type ImportFileProvenance = {
+  source_page: null;
+  table_index: null;
+  source_file_name: string;
+  source_document_id: string;
+};
+
 export type ImportRowStructure = {
   sheet_name: string | null;
   source_row_number: number;
@@ -28,7 +35,7 @@ export function isImportReservedKey(key: string) {
 
 export function attachImportRowProvenance<T extends Record<string, unknown>>(
   row: T,
-  provenance: ImportRowProvenance | null | undefined
+  provenance: ImportRowProvenance | ImportFileProvenance | null | undefined
 ) {
   if (!provenance) {
     return row;

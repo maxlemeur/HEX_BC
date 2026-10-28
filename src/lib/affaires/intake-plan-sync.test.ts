@@ -57,7 +57,7 @@ function createHarness(input?: {
           const builder = {
             eq: vi.fn(),
             order: vi.fn(async () => ({
-              data: planSets,
+              data: planSets.map((set) => ({ ...set, updated_at: "2026-10-28T12:00:00Z", plan_files: [{ count: planFiles.filter((file) => file.plan_set_id === set.id).length }] })),
               error: null,
             })),
           };
@@ -95,13 +95,19 @@ function createHarness(input?: {
 
     if (table === "plan_files") {
       return {
-        select: vi.fn(() => ({
-          eq: vi.fn(async (_column: string, value: string) => ({
-            data: planFiles.filter((row) => row.plan_set_id === value),
-            error: null,
-          })),
-        })),
+        select: vi.fn(() => {
+          let column = "";
+          let value = "";
+          const data = () => planFiles.filter((row) => column === "id" ? row.id === value : row.plan_set_id === value);
+          const builder = {
+            eq: vi.fn((nextColumn: string, nextValue: string) => { column = nextColumn; value = nextValue; return builder; }),
+            maybeSingle: vi.fn(async () => ({ data: data()[0] ?? null, error: null })),
+            then: (resolve: (value: unknown) => void, reject: (reason: unknown) => void) => Promise.resolve({ data: data(), error: null }).then(resolve, reject),
+          };
+          return builder;
+        }),
         insert: vi.fn(async (values: Record<string, unknown>) => {
+          if (planFiles.some((row) => row.id === values.id)) return { error: { code: "23505" } };
           planFiles.push(values as unknown as PlanFileRow);
           return { error: null };
         }),
@@ -141,7 +147,9 @@ function createHarness(input?: {
     if (bucket === "plan-files") {
       return {
         download: vi.fn(async (path: string) => ({ data: planStorageFiles.get(path) ?? null, error: planStorageFiles.has(path) ? null : { statusCode: "404" } })),
+        info: vi.fn(async (path: string) => ({ data: planStorageFiles.has(path) ? { size: planStorageFiles.get(path)!.size } : null, error: planStorageFiles.has(path) ? null : { statusCode: "404" } })),
         upload: vi.fn(async (path: string, blob: Blob) => {
+          if (planStorageFiles.has(path)) return { error: { statusCode: "409" } };
           uploadedPaths.push(path);
           planStorageFiles.set(path, blob);
           return { error: null };
@@ -186,6 +194,25 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
     vi.mocked(isTakeoffEnabled).mockResolvedValue(true);
   });
 
+  it("deduplicates concurrent producers and recovers a reserved copy with missing bytes", async () => {
+    const sourcePath = `${TENANT_ID}/${PROJECT_ID}/upload-1/doc-1/plan.pdf`;
+    const harness = createHarness({
+      planSets: [{ id: "plan-set-existing", estimate_version_id: null, name: "Plans import", metadata: { source: "import-flow", default_import_plan_set: true } }],
+      intakeFiles: { [sourcePath]: new Blob(["pdf-a"]) },
+    });
+    const document = { id: "doc-1", upload_id: "upload-1", created_by: USER_ID, storage_path: sourcePath,
+      file_name: "plan.pdf", mime_type: "application/pdf", size_bytes: 5, upload_status: "uploaded", classification_status: "classified", document_kind: "plans" };
+    const input = { supabase: harness.supabase, project: { id: PROJECT_ID, tenant_id: TENANT_ID }, documents: [document] };
+    await Promise.all([syncTakeoffPlanSetFromAffaireIntake(input), syncTakeoffPlanSetFromAffaireIntake(input)]);
+    expect(harness.planFiles).toHaveLength(1);
+    expect(harness.uploadedPaths).toHaveLength(1);
+    const filePath = harness.planFiles[0].file_path;
+    harness.planStorageFiles.delete(filePath);
+    await syncTakeoffPlanSetFromAffaireIntake(input);
+    expect(harness.planFiles).toHaveLength(1);
+    expect(await harness.planStorageFiles.get(filePath)?.text()).toBe("pdf-a");
+  });
+
   it("creates a canonical project-scoped plan set and copies eligible intake PDFs", async () => {
     const harness = createHarness({
       intakeFiles: {
@@ -207,7 +234,7 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
           storage_path: `${TENANT_ID}/${PROJECT_ID}/upload-1/doc-1/plan-a.pdf`,
           file_name: "plan-a.pdf",
           mime_type: "application/pdf",
-          size_bytes: 1234,
+          size_bytes: 5,
           upload_status: "uploaded",
           classification_status: "classified",
           document_kind: "plans",
@@ -248,7 +275,7 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
         plan_set_id: "plan-set-created",
         file_name: "plan-a.pdf",
         file_type: "application/pdf",
-        file_size_bytes: 1234,
+        file_size_bytes: 5,
         created_by: USER_ID,
         metadata: expect.objectContaining({
           source: "affaire-intake",

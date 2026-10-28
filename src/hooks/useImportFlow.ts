@@ -11,6 +11,7 @@ type RefreshOptions = {
 
 export type ImportFileOptions = {
   headerRowNumber?: number | null;
+  sourceDocumentId?: string | null;
 };
 
 export type UseImportFlowOptions = {
@@ -47,6 +48,7 @@ export type ApprovedPdfTable = {
 };
 
 export type TabularPdfReviewPayload = {
+  source_sha256?: string;
   source_file_name: string | null;
   source_document_id: string | null;
   tables: TabularPdfDetectedTable[];
@@ -284,9 +286,10 @@ async function postWorkerImport(
   return extractCreatedImportId(response);
 }
 
-async function postTabularPdfReview(file: File): Promise<TabularPdfReviewPayload> {
+async function postTabularPdfReview(file: File, sourceDocumentId?: string | null): Promise<TabularPdfReviewPayload> {
   const formData = new FormData();
   formData.append("file", file);
+  if (sourceDocumentId) formData.append("sourceDocumentId", sourceDocumentId);
 
   const response = await fetch("/api/imports/tabular-pdf/review-file", {
     method: "POST",
@@ -316,6 +319,14 @@ async function postTabularPdfReview(file: File): Promise<TabularPdfReviewPayload
   }
 
   return data;
+}
+
+async function postIntakeDpgfAction(projectId: string, documentId: string, body: object) {
+  const response = await fetch(`/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(documentId)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await extractErrorMessage(response, "Impossible de traiter la DPGF du dossier."));
+  return response;
 }
 
 async function postReviewedPdfImport(input: {
@@ -507,7 +518,12 @@ export function useImportFlow(options?: UseImportFlowOptions) {
         const shouldTryWorker = file.size <= CLIENT_PARSE_MAX_SIZE_BYTES;
         let createdImportId: string | null = null;
 
-        if (shouldTryWorker) {
+        if (options?.sourceDocumentId && projectId) {
+          const response = await postIntakeDpgfAction(projectId, options.sourceDocumentId, { action: "import" });
+          createdImportId = await extractCreatedImportId(response);
+          setModeMessage("DPGF du dossier traitée par le serveur.");
+          setLastMode("server");
+        } else if (shouldTryWorker) {
           try {
             const parsed = await parseFile(file, { headerRowNumber });
             createdImportId = await postWorkerImport(
@@ -587,15 +603,21 @@ export function useImportFlow(options?: UseImportFlowOptions) {
     [parseFile, projectId]
   );
 
-  const reviewTabularPdfFile = useCallback(async (file: File) => {
-    return postTabularPdfReview(file);
-  }, []);
+  const reviewTabularPdfFile = useCallback(async (file: File, sourceDocumentId?: string | null) => {
+    if (sourceDocumentId && projectId) {
+      const response = await postIntakeDpgfAction(projectId, sourceDocumentId, { action: "review_pdf" });
+      const payload = await response.json() as { data: TabularPdfReviewPayload };
+      return payload.data;
+    }
+    return postTabularPdfReview(file, sourceDocumentId);
+  }, [projectId]);
 
   const importReviewedPdfFile = useCallback(
     async (input: {
       file: File;
       pdfReview: TabularPdfReviewPayload;
       approvedTables: ApprovedPdfTable[];
+      sourceDocumentId?: string | null;
     }): Promise<boolean> => {
       setIsSubmitting(true);
       setUploadProgress(null);
@@ -606,12 +628,16 @@ export function useImportFlow(options?: UseImportFlowOptions) {
       setLastImportId(null);
 
       try {
-        const createdImportId = await postReviewedPdfImport({
+        const createdImportId = input.sourceDocumentId && projectId
+          ? await extractCreatedImportId(await postIntakeDpgfAction(projectId, input.sourceDocumentId, {
+              action: "import", approvedTables: input.approvedTables, sourceSha256: input.pdfReview.source_sha256,
+            }))
+          : await postReviewedPdfImport({
           file: input.file,
           pdfReview: input.pdfReview,
           approvedTables: input.approvedTables,
           projectId,
-        });
+            });
 
         if (createdImportId) {
           setLastImportId(createdImportId);

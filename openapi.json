@@ -784,6 +784,227 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake/files/{documentId}": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Préparer la lecture d'une DPGF du dossier",
+        "description": "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeDpgfProjectIdParameter"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "Identifiant UUID de la pièce du dossier.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeDpgfDocumentIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pièce disponible pour l'import.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffaireIntakeDpgfDownloadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Analyser ou importer la DPGF stockée du dossier",
+        "description": "Analyse les octets stockés pour préserver la provenance de la pièce choisie.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ImportAffaireIntakeDpgfProjectIdParameter"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "Identifiant UUID de la pièce du dossier.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ImportAffaireIntakeDpgfDocumentIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Prévisualisation PDF ou import après sélection des tableaux.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAffaireIntakeDpgfRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prévisualisation PDF.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Import créé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/intake/google-drive": {
       "get": {
         "tags": [
@@ -910,6 +1131,98 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/intake/reconcile-plans": {
+      "post": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Actualiser les plans du dossier",
+        "description": "Synchronise les pièces manquantes et le brief avec les plans du projet accessible.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReconcileAffairePlanDossierProjectIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dossier synchronisé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffairePlanDossierReconcileResponse"
                 }
               }
             }
@@ -19881,6 +20194,24 @@
             "schema": {
               "$ref": "#/components/schemas/TakeoffPlanSetLimitQueryParameter"
             }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "description": "Filtrer les jeux par affaire.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanSetProjectIdQueryParameter"
+            }
+          },
+          {
+            "name": "import_default_only",
+            "in": "query",
+            "description": "Sélectionner le jeu d’import de l’affaire sans limite de pagination.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanSetImportDefaultQueryParameter"
+            }
           }
         ],
         "responses": {
@@ -20925,6 +21256,98 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/plan-sets/{setId}/files/reconcile": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Actualiser les pièces manquantes après un envoi de plans",
+        "description": "Vérifie les fichiers stockés et synchronise les pièces manquantes de l'affaire accessible.",
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "description": "Identifiant UUID du jeu de plans.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReconcileTakeoffPlanDossierSetIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dossier synchronisé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TakeoffPlanDossierReconcileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
                 }
               }
             }
@@ -22856,6 +23279,134 @@
           "file": {}
         }
       },
+      "ReadAffaireIntakeDpgfProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireIntakeDpgfDocumentIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "AffaireIntakeDpgfDownloadResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "documentId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "fileName": {
+                "type": "string"
+              },
+              "mimeType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "downloadUrl": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "documentId",
+              "fileName",
+              "mimeType",
+              "sizeBytes",
+              "downloadUrl"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ImportAffaireIntakeDpgfProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ImportAffaireIntakeDpgfDocumentIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ImportAffaireIntakeDpgfRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "review_pdf"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "import"
+              },
+              "approvedTables": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sourcePage": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "tableIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "sourcePage",
+                    "tableIndex"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "sourceSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
       "ReadAffaireGoogleDriveProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -22953,6 +23504,37 @@
             "additionalProperties": false
           }
         ]
+      },
+      "ReconcileAffairePlanDossierProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "AffairePlanDossierReconcileResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "changed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "changed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "BulkArchiveAffairesRequest": {
         "type": "object",
@@ -69152,6 +69734,14 @@
         "minimum": 1,
         "maximum": 100
       },
+      "TakeoffPlanSetProjectIdQueryParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "TakeoffPlanSetImportDefaultQueryParameter": {
+        "type": "boolean"
+      },
       "ApiTakeoffPlanSetsResponse": {
         "type": "object",
         "properties": {
@@ -69464,6 +70054,9 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "dossier_synchronized": {
+                "type": "boolean"
+              },
               "cleanup": {
                 "type": "object",
                 "properties": {
@@ -69530,6 +70123,7 @@
             "required": [
               "deleted",
               "plan_set_id",
+              "dossier_synchronized",
               "cleanup"
             ],
             "additionalProperties": false
@@ -70055,6 +70649,9 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "dossier_synchronized": {
+                "type": "boolean"
+              },
               "cleanup": {
                 "type": "object",
                 "properties": {
@@ -70122,7 +70719,44 @@
               "deleted",
               "plan_set_id",
               "file_id",
+              "dossier_synchronized",
               "cleanup"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ReconcileTakeoffPlanDossierSetIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "TakeoffPlanDossierReconcileResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "synchronized": {
+                "type": "boolean",
+                "const": true
+              },
+              "changed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "synchronized",
+              "changed"
             ],
             "additionalProperties": false
           }

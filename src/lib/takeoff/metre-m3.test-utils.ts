@@ -34,7 +34,7 @@ export type FakeTableHandler = (
 
 export type FakeStorageCall = {
   bucket: string;
-  method: "upload" | "download" | "remove" | "createSignedUploadUrl" | "createSignedUrl";
+  method: "upload" | "download" | "remove" | "info" | "createSignedUploadUrl" | "createSignedUrl";
   paths: string[];
 };
 
@@ -156,6 +156,7 @@ export function createSupabaseFake(input: {
       upload: (path: string, body: unknown) => call("upload", [path], body),
       download: (path: string) => call("download", [path]),
       remove: (paths: string[]) => call("remove", paths),
+      info: (path: string) => call("info", [path]),
       createSignedUploadUrl: (path: string) => call("createSignedUploadUrl", [path]),
       createSignedUrl: (path: string) => call("createSignedUrl", [path]),
     };
@@ -284,6 +285,7 @@ export function intakeDocument(input: { id: string; fileName: string }) {
 export function createIntakeFake(input: { failingDownloads?: Set<string> } = {}) {
   const planSets: Array<Record<string, unknown>> = [];
   const planFiles: Array<Record<string, unknown>> = [];
+  const planObjects = new Map<string, Blob>();
   const fake = createSupabaseFake({
     tables: {
       plan_sets: (query) => {
@@ -308,11 +310,20 @@ export function createIntakeFake(input: { failingDownloads?: Set<string> } = {})
       "affaire-intake": (call) =>
         input.failingDownloads?.has(call.paths[0] ?? "")
           ? { data: null, error: new Error("téléchargement simulé en échec") }
-          : { data: new Blob(["%PDF-simule"]), error: null },
-      "plan-files": () => ({ data: null, error: null }),
+          : { data: new Blob(["%PDF-simule", new Uint8Array(2048 - "%PDF-simule".length)]), error: null },
+      "plan-files": (call) => {
+        const path = call.paths[0] ?? "";
+        if (call.method === "upload" && call.body instanceof Blob) {
+          planObjects.set(path, call.body);
+          return { data: null, error: null };
+        }
+        const object = planObjects.get(path);
+        if (!object) return { data: null, error: { status: 404 } };
+        return { data: call.method === "info" ? { size: object.size } : object, error: null };
+      },
     },
   });
-  return { fake, planSets, planFiles };
+  return { fake, planSets, planFiles, planObjects };
 }
 
 export function authenticatedContext(fake: SupabaseFake, tenantRole = "admin") {

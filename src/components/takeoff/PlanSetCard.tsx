@@ -31,8 +31,8 @@ type PlanSetCardProps = {
   launchHref?: string | null;
   launchLabel?: string;
   deletePlanSetHandler?: (setId: string) => Promise<unknown>;
-  onDeleted: () => void;
-  onFilesChanged: () => void;
+  onDeleted: (unsynchronizedProjectId?: string) => void;
+  onFilesChanged: (unsynchronizedProjectId?: string) => void;
   onUpdated: () => void;
 };
 
@@ -159,9 +159,10 @@ export function PlanSetCard({
     setDeletingSet(true);
     try {
       const deleteSet = deletePlanSetHandler ?? apiDeletePlanSet;
-      await deleteSet(planSet.id);
+      const result = await deleteSet(planSet.id);
       setAnnouncement(`Jeu « ${planSet.name} » supprimé.`);
-      onDeleted();
+      if (isRecord(result) && result.dossier_synchronized === false && planSet.project_id) onDeleted(planSet.project_id);
+      else onDeleted();
     } catch (err) {
       const msg = isTakeoffApiError(err)
         ? err.message
@@ -170,7 +171,7 @@ export function PlanSetCard({
     } finally {
       setDeletingSet(false);
     }
-  }, [confirm, deletePlanSetHandler, deletingSet, planSet.id, planSet.name, onDeleted]);
+  }, [confirm, deletePlanSetHandler, deletingSet, planSet.id, planSet.name, planSet.project_id, onDeleted]);
 
   const handleDeleteFile = useCallback(
     async (fileId: string) => {
@@ -185,10 +186,11 @@ export function PlanSetCard({
 
       setDeleteFileTarget(fileId);
       try {
-        await apiDeletePlanFile(planSet.id, fileId);
+        const result = await apiDeletePlanFile(planSet.id, fileId);
         setAnnouncement("Fichier supprimé.");
         await mutateFiles();
-        onFilesChanged();
+        if (result.dossier_synchronized === false && planSet.project_id) onFilesChanged(planSet.project_id);
+        else onFilesChanged();
       } catch (err) {
         const msg = isTakeoffApiError(err)
           ? err.message
@@ -198,7 +200,7 @@ export function PlanSetCard({
         setDeleteFileTarget(null);
       }
     },
-    [confirm, deleteFileTarget, planSet.id, mutateFiles, onFilesChanged]
+    [confirm, deleteFileTarget, planSet.id, planSet.project_id, mutateFiles, onFilesChanged]
   );
 
   const handleUploadsComplete = useCallback(() => {

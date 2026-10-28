@@ -7,8 +7,9 @@ values ('00000000-0000-0000-0000-000000000000','6b000000-0000-4000-8000-00000000
 insert into public.estimate_projects (id,tenant_id,user_id,name)
 select '6b000000-0000-4000-8000-000000000002',tenant_id,user_id,'Deletion fixture' from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000001';
 insert into public.affaire_intake_uploads (id,project_id,created_by,status) values ('6b000000-0000-4000-8000-000000000003','6b000000-0000-4000-8000-000000000002','6b000000-0000-4000-8000-000000000001','ready');
-insert into public.affaire_intake_documents (id,upload_id,file_name,upload_status,storage_path,classification_status,document_kind)
-values ('6b000000-0000-4000-8000-000000000004','6b000000-0000-4000-8000-000000000003','fixture.pdf','uploaded','fixture/path','classified','plans');
+insert into public.affaire_intake_documents (id,upload_id,file_name,upload_status,storage_path,classification_status,document_kind,size_bytes)
+values ('6b000000-0000-4000-8000-000000000004','6b000000-0000-4000-8000-000000000003','fixture.pdf','uploaded','fixture/path','classified','plans',1);
+insert into storage.objects (bucket_id,name,metadata) values ('affaire-intake','fixture/path','{"size":1}');
 insert into public.plan_sets (id,tenant_id,project_id,name)
 select '6b000000-0000-4000-8000-000000000005',tenant_id,id,'Deletion fixture' from public.estimate_projects where id='6b000000-0000-4000-8000-000000000002';
 insert into public.plan_files (id,tenant_id,plan_set_id,file_path,file_name,file_type,file_size_bytes,metadata)
