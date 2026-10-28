@@ -1,3 +1,7 @@
+import {
+  parseTakeoffPriceSuggestionResponse,
+  parseTakeoffPriceSuggestionReviewResponse,
+} from "@/lib/takeoff/price-suggestion-contracts";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/client";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type {
@@ -846,6 +850,17 @@ export async function fetchTakeoffLineEvidencePanel(
   );
 }
 
+function validatePriceSuggestionResponse<T>(jobId: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    throw new TakeoffApiError(
+      error instanceof Error ? error.message : "Réponse de suggestion de prix invalide.",
+      502, null, "TAKEOFF_INVALID_RESPONSE", { jobId, retryable: false }
+    );
+  }
+}
+
 export async function fetchTakeoffPriceSuggestion(
   jobId: string,
   query: GetTakeoffPriceSuggestionQuery,
@@ -855,18 +870,21 @@ export async function fetchTakeoffPriceSuggestion(
   searchParams.set("version_id", query.version_id);
   searchParams.set("estimate_item_id", query.estimate_item_id);
 
-  return requestTakeoffJson<TakeoffPriceSuggestionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
     "Impossible de charger la suggestion de prix."
   );
+  return validatePriceSuggestionResponse(jobId, () => parseTakeoffPriceSuggestionResponse(response, {
+    jobId, versionId: query.version_id, lineId: query.estimate_item_id,
+  }));
 }
 
 export async function requestTakeoffPriceSuggestion(
   jobId: string,
   input: RequestTakeoffPriceSuggestionInput
 ): Promise<TakeoffPriceSuggestionResponse> {
-  return requestTakeoffJson<TakeoffPriceSuggestionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions`,
     {
       method: "POST",
@@ -875,6 +893,9 @@ export async function requestTakeoffPriceSuggestion(
     },
     "Impossible de recalculer la suggestion de prix."
   );
+  return validatePriceSuggestionResponse(jobId, () => parseTakeoffPriceSuggestionResponse(response, {
+    jobId, versionId: input.version_id, lineId: input.estimate_item_id,
+  }));
 }
 
 export async function fetchAllTakeoffDpgfComparison(
@@ -954,9 +975,10 @@ export async function saveTakeoffReviewDecision(
 export async function reviewTakeoffPriceSuggestion(
   jobId: string,
   suggestionId: string,
-  input: ReviewTakeoffPriceSuggestionInput
+  input: ReviewTakeoffPriceSuggestionInput,
+  expectedLineId: string
 ): Promise<ReviewTakeoffPriceSuggestionResponse> {
-  return requestTakeoffJson<ReviewTakeoffPriceSuggestionResponse>(
+  const response = await requestTakeoffJson<unknown>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions/${encodeURIComponent(
       suggestionId
     )}`,
@@ -967,6 +989,9 @@ export async function reviewTakeoffPriceSuggestion(
     },
     "Impossible d'enregistrer la revue de suggestion de prix."
   );
+  return validatePriceSuggestionResponse(jobId, () => parseTakeoffPriceSuggestionReviewResponse(response, {
+    jobId, versionId: input.version_id, suggestionId, lineId: expectedLineId, action: input.action,
+  }));
 }
 
 export async function fetchTakeoffRiskRadar(

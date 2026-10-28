@@ -1,3 +1,5 @@
+import { parseEstimateItemsMoveResponse } from "@/lib/estimates/item-structure-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -29,7 +31,7 @@ export async function POST(
     const versionId = await getVersionId(params);
     const body = moveEstimateItemSchema.parse(await parseJsonBody(request));
     const data = await moveEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateItemsMoveResponse(data, versionId, body)));
   } catch (error) {
     return toErrorResponse(error);
   }

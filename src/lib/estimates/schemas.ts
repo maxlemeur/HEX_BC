@@ -1681,44 +1681,14 @@ export const insertTemplateIntoVersionSchema = z.preprocess(
   })
 );
 
-const estimateVersionTokenDtoSchema = z.object({
-  id: uuidSchema,
-  updated_at: updatedAtTokenSchema,
-});
-
-export const importEstimateSectionsResultSchema = z.object({
-  sourceVersionId: uuidSchema,
-  targetVersionId: uuidSchema,
-  mode: importEstimateSectionsModeSchema,
-  importedSectionsCount: nonNegativeIntegerSchema,
-  importedLinesCount: nonNegativeIntegerSchema,
-  createdSectionIds: z.array(uuidSchema),
-  createdLineIds: z.array(uuidSchema),
-  versionToken: estimateVersionTokenDtoSchema.nullable(),
-  /** Sous-lot 2.8b (A7, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
-  convertedLines: z.array(z.object({ title: z.string(), templateHours: z.number(), convertedHours: z.number() })).optional(),
-});
-export type ImportEstimateSectionsResult = z.infer<
-  typeof importEstimateSectionsResultSchema
->;
-
-export const importLinkedDpgfSourceResultSchema = z.object({
-  sourceImportId: uuidSchema,
-  targetVersionId: uuidSchema,
-  createdSectionId: uuidSchema,
-  createdLineIds: z.array(uuidSchema),
-  importedLinesCount: nonNegativeIntegerSchema,
-  skippedLinesCount: nonNegativeIntegerSchema,
-  totals: z.object({
-    totalHtCents: nonNegativeIntegerSchema,
-    totalTaxCents: nonNegativeIntegerSchema,
-    totalTtcCents: nonNegativeIntegerSchema,
-  }),
-  versionToken: estimateVersionTokenDtoSchema.nullable(),
-});
-export type ImportLinkedDpgfSourceResult = z.infer<
-  typeof importLinkedDpgfSourceResultSchema
->;
+export {
+  importEstimateSectionsClientResultSchema as importEstimateSectionsResultSchema,
+  type ImportEstimateSectionsClientResult as ImportEstimateSectionsResult,
+} from "@/lib/estimates/section-copy-contracts";
+export {
+  importLinkedDpgfSourceClientResultSchema as importLinkedDpgfSourceResultSchema,
+  type ImportLinkedDpgfSourceClientResult as ImportLinkedDpgfSourceResult,
+} from "@/lib/estimates/linked-dpgf-contracts";
 
 export const estimateVersionEventSchema = z.object({
   id: uuidSchema,

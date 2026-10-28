@@ -15,6 +15,8 @@ type MutationResult<T> = {
   deletedIds?: string[];
   structural?: boolean;
   needsReload?: boolean;
+  /** The caller publishes this version with its confirmed rows in one document transaction. */
+  deferVersionPublication?: boolean;
   totals?: EstimateVersionTotalsPatch;
 };
 

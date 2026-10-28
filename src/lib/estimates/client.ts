@@ -1,3 +1,15 @@
+import { parseEstimateItemDeleteResponse, parseEstimateItemsMoveResponse, parseEstimateItemsReorderResponse } from "@/lib/estimates/item-structure-contracts";
+import {
+  toEstimateImportSourceClient, toEstimateImportSectionClient, toImportEstimateSectionsClient, toDuplicateSectionClient,
+  type EstimateImportSourceVersion, type EstimateImportSectionPreview, type DuplicateEstimateSectionResult,
+} from "@/lib/estimates/section-copy-contracts";
+export type { EstimateImportSourceVersion, EstimateImportSectionPreview, DuplicateEstimateSectionResult } from "@/lib/estimates/section-copy-contracts";
+import { toAffaireLinkedDpgfSourceClient, toImportLinkedDpgfSourceClient, type AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
+export type { AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
+import {
+  parseImportSourcesResponse, parseImportSectionsPreviewResponse, parseImportSectionsResponse,
+  parseDuplicateSectionResponse, parseLinkedDpgfSourceResponse, parseImportLinkedDpgfResponse,
+} from "@/lib/estimates/section-copy-response";
 import { parseEstimateEditorData, type EstimateEditorData, type VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 export type { EstimateEditorData, VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
@@ -155,35 +167,6 @@ export type EstimateDraftVersionTarget = {
   updatedAt: string;
 };
 
-export type DuplicateEstimateSectionResult = {
-  duplicatedSectionId: string;
-  sourceVersionId: string;
-  targetVersionId: string;
-  copiedItemCount: number;
-  versionToken: EstimateVersionToken | null;
-  /** Sous-lot 2.8b (A6, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
-  convertedLines?: V3ConvertedLine[];
-};
-
-export type EstimateImportSourceVersion = {
-  id: string;
-  projectId: string;
-  projectName: string;
-  versionNumber: number;
-  status: EstimateStatus;
-  title: string | null;
-  updatedAt: string;
-  totalHtCents: number;
-};
-
-export type EstimateImportSectionPreview = {
-  id: string;
-  title: string;
-  lineCount: number;
-  totalHtCents: number;
-  position: number;
-};
-
 export type ImportEstimateSectionsMode = "merge" | "append";
 
 export type ImportEstimateSectionsPayload = {
@@ -284,19 +267,6 @@ export type ApplyEstimateStructureDraftResult = {
   mergedItemIds: string[];
   versionToken: EstimateVersionToken | null;
 };
-
-export type AffaireLinkedDpgfSource = {
-  importId: string;
-  filename: string;
-  sourceFormat: string;
-  importStatus: string;
-  mappingStatus: string | null;
-  importedAt: string;
-  mappingUpdatedAt: string | null;
-  parseMode: string;
-  rowCount: number;
-  mappedRowCount: number;
-} | null;
 
 export type ImportLinkedDpgfSourcePayload = {
   sectionTitle?: string | null;
@@ -579,6 +549,8 @@ export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">
 
 type EstimateMutationVersionTokenOptions = {
   onVersionToken?: (versionToken: EstimateVersionToken) => void;
+  /** The caller confirms the returned row and token together in its document. */
+  documentOwnsReceipt?: boolean;
 };
 
 export type BulkUpdateEstimateItemsResult = {
@@ -2126,11 +2098,27 @@ function getEditorMutationTarget(path: string, init: RequestInit) {
 async function requestJson<T>(
   path: string,
   init: RequestInit,
-  fallbackMessage: string
+  fallbackMessage: string,
+  parseResponse?: (value: unknown) => T,
+  mutationOptions: {
+    deferVersionPublication?: boolean;
+    onAcknowledgedVersion?: (version: EstimateVersionToken) => void;
+  } = {}
 ): Promise<T> {
   const target = getEditorMutationTarget(path, init);
+  const validate = (value: unknown): T => {
+    if (!parseResponse) return value as T;
+    try { return parseResponse(value); }
+    catch {
+      throw new EstimateApiError(
+        target ? "La confirmation de l'action est invalide. Relisez le devis avant de recommencer."
+          : "Les données reçues sont invalides. Rechargez avant de poursuivre.",
+        503, undefined, target ? "BATCH_OUTCOME_UNKNOWN" : "ESTIMATE_READ_INVALID"
+      );
+    }
+  };
   if (!target || !hasEstimateEditorMutationSession(target.versionId)) {
-    return requestJsonUncoordinated<T>(path, init, fallbackMessage);
+    return validate(await requestJsonUncoordinated<unknown>(path, init, fallbackMessage, Boolean(parseResponse)));
   }
   const initialHeaders = new Headers(init.headers);
   return runEstimateEditorMutation(
@@ -2158,7 +2146,21 @@ async function requestJson<T>(
           }
         }
       }
-      const value = await requestJsonUncoordinated<T>(path, { ...init, headers, body }, fallbackMessage);
+      let value: T;
+      try {
+        value = validate(await requestJsonUncoordinated<unknown>(path, { ...init, headers, body }, fallbackMessage, Boolean(parseResponse)));
+      } catch (error) {
+        const uncertain = error instanceof TypeError || (isEstimateApiError(error) && error.status >= 500);
+        if (!parseResponse || !uncertain) throw error;
+        throw scope.requireRead(async () => {
+          const refreshed = parseEstimateEditorData(await requestJsonUncoordinated<unknown>(
+            `/api/estimates/${target.versionId}`, { method: "GET" },
+            "Impossible de vérifier le résultat de l'action."
+          ), target.versionId);
+          return { version: { id: refreshed.version.id, updated_at: refreshed.version.updated_at,
+            content_revision: refreshed.version.content_revision }, structural: true, needsReload: true };
+        }, "La confirmation de l'action est invalide. Vérifiez le devis avant de recommencer ; aucune écriture n'est relancée.");
+      }
       // Older import/assembly endpoints return items only. Refresh inside the
       // same queue, before an autosave or another action can reuse its token.
       const acknowledged = parseVersionToken(value);
@@ -2187,6 +2189,7 @@ async function requestJson<T>(
         }
       }
       if (version.id !== target.versionId) throw new Error("La confirmation appartient à un autre devis.");
+      mutationOptions.onAcknowledgedVersion?.(version);
       let totals: BulkUpdateEstimateVersionPatch | undefined;
       if (/^\/api\/estimates\/assemblies\/[^/]+\/insert(?:\?|$)/.test(path)) {
         if (version.id !== target.versionId) throw new Error("La confirmation appartient à un autre devis.");
@@ -2214,6 +2217,7 @@ async function requestJson<T>(
         value,
         version,
         structural: target.structural,
+        ...(mutationOptions.deferVersionPublication ? { deferVersionPublication: true } : {}),
         totals,
         deletedIds: deletedIds.filter((id): id is string => typeof id === "string"),
       };
@@ -2448,193 +2452,6 @@ function parseEstimateDraftVersionTargets(
       }
       return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     });
-}
-
-function isImportEstimateSectionsMode(
-  value: unknown
-): value is ImportEstimateSectionsMode {
-  return value === "merge" || value === "append";
-}
-
-function parseEstimateImportSourceVersion(
-  value: unknown
-): EstimateImportSourceVersion | null {
-  if (!isRecord(value)) return null;
-
-  const projectNode = (() => {
-    if (isRecord(value.estimate_projects)) {
-      return value.estimate_projects;
-    }
-    if (Array.isArray(value.estimate_projects)) {
-      const first = value.estimate_projects[0];
-      if (isRecord(first)) return first;
-    }
-    return null;
-  })();
-
-  const id = toStringValue(value.id);
-  const projectId =
-    toStringValue(value.projectId) ??
-    toStringValue(value.project_id) ??
-    (projectNode ? toStringValue(projectNode.id) : null);
-  const projectName =
-    toStringValue(value.projectName) ??
-    toStringValue(value.project_name) ??
-    (projectNode ? toStringValue(projectNode.name) : null);
-  const versionNumber =
-    toNumber(value.versionNumber) ?? toNumber(value.version_number);
-  const statusValue = toStringValue(value.status);
-  const updatedAt =
-    toStringValue(value.updatedAt) ?? toStringValue(value.updated_at);
-  const totalHtCents =
-    toNumber(value.totalHtCents) ?? toNumber(value.total_ht_cents);
-
-  if (
-    !id ||
-    !projectId ||
-    !projectName ||
-    versionNumber === null ||
-    !statusValue ||
-    !isEstimateStatus(statusValue) ||
-    !updatedAt ||
-    totalHtCents === null
-  ) {
-    return null;
-  }
-
-  return {
-    id,
-    projectId,
-    projectName,
-    versionNumber,
-    status: statusValue,
-    title: toStringValue(value.title),
-    updatedAt,
-    totalHtCents,
-  };
-}
-
-function parseEstimateImportSourceVersions(
-  payload: unknown
-): EstimateImportSourceVersion[] {
-  const root = getRootPayload(payload);
-  const rows = pickArray(root, ["items", "versions", "sources"]);
-
-  return rows
-    .map((entry) => parseEstimateImportSourceVersion(entry))
-    .filter((entry): entry is EstimateImportSourceVersion => entry !== null)
-    .sort((left, right) => {
-      const updatedDiff =
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-      if (updatedDiff !== 0) return updatedDiff;
-      return right.versionNumber - left.versionNumber;
-    });
-}
-
-function parseEstimateImportSectionPreview(
-  value: unknown
-): EstimateImportSectionPreview | null {
-  if (!isRecord(value)) return null;
-
-  const id = toStringValue(value.id);
-  const title = toStringValue(value.title) ?? "Section sans titre";
-  const lineCount =
-    toNumber(value.lineCount) ?? toNumber(value.line_count) ?? 0;
-  const totalHtCents =
-    toNumber(value.totalHtCents) ?? toNumber(value.total_ht_cents) ?? 0;
-  const position = toNumber(value.position) ?? 0;
-
-  if (!id) return null;
-
-  return {
-    id,
-    title,
-    lineCount: Math.max(0, Math.trunc(lineCount)),
-    totalHtCents: Math.max(0, Math.trunc(totalHtCents)),
-    position: Math.max(0, Math.trunc(position)),
-  };
-}
-
-function parseEstimateImportSectionPreviews(
-  payload: unknown
-): EstimateImportSectionPreview[] {
-  const root = getRootPayload(payload);
-  const rows = pickArray(root, ["items", "sections"]);
-
-  return rows
-    .map((entry) => parseEstimateImportSectionPreview(entry))
-    .filter((entry): entry is EstimateImportSectionPreview => entry !== null)
-    .sort((left, right) => left.position - right.position);
-}
-
-/** Sous-lot 2.8b : `converted_lines` d'une copie vers une v3 (vide hors conversion v1/v2 → v3). */
-function parseV3ConvertedLines(value: unknown): V3ConvertedLine[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((line) => {
-    if (!isRecord(line)) return [];
-    const title = toStringValue(line.title);
-    const templateHours = toNumber(line.template_hours);
-    const convertedHours = toNumber(line.converted_hours);
-    return title !== null && templateHours !== null && convertedHours !== null
-      ? [{ title, templateHours, convertedHours }]
-      : [];
-  });
-}
-
-function parseImportEstimateSectionsResult(
-  payload: unknown
-): ImportEstimateSectionsResult | null {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) return null;
-
-  const sourceVersionId =
-    toStringValue(root.sourceVersionId) ?? toStringValue(root.source_version_id);
-  const targetVersionId =
-    toStringValue(root.targetVersionId) ?? toStringValue(root.target_version_id);
-  const modeValue = toStringValue(root.mode);
-  const importedSectionsCount =
-    toNumber(root.importedSectionsCount) ?? toNumber(root.imported_sections_count);
-  const importedLinesCount =
-    toNumber(root.importedLinesCount) ?? toNumber(root.imported_lines_count);
-
-  const createdSectionIdsRaw =
-    (Array.isArray(root.createdSectionIds) ? root.createdSectionIds : null) ??
-    (Array.isArray(root.created_section_ids) ? root.created_section_ids : null) ??
-    [];
-  const createdLineIdsRaw =
-    (Array.isArray(root.createdLineIds) ? root.createdLineIds : null) ??
-    (Array.isArray(root.created_line_ids) ? root.created_line_ids : null) ??
-    [];
-
-  const createdSectionIds = createdSectionIdsRaw
-    .map((entry) => toStringValue(entry))
-    .filter((entry): entry is string => entry !== null);
-  const createdLineIds = createdLineIdsRaw
-    .map((entry) => toStringValue(entry))
-    .filter((entry): entry is string => entry !== null);
-
-  if (
-    !sourceVersionId ||
-    !targetVersionId ||
-    importedSectionsCount === null ||
-    importedLinesCount === null ||
-    !modeValue ||
-    !isImportEstimateSectionsMode(modeValue)
-  ) {
-    return null;
-  }
-
-  return {
-    sourceVersionId,
-    targetVersionId,
-    mode: modeValue,
-    importedSectionsCount: Math.max(0, Math.trunc(importedSectionsCount)),
-    importedLinesCount: Math.max(0, Math.trunc(importedLinesCount)),
-    createdSectionIds,
-    createdLineIds,
-    versionToken: parseVersionToken(root),
-    convertedLines: parseV3ConvertedLines(root.converted_lines),
-  };
 }
 
 function isEstimateStructureDraftSourceKind(
@@ -2907,172 +2724,6 @@ function parseApplyEstimateStructureDraftResult(
     createdItemIds,
     mergedItemIds,
     versionToken: parseVersionToken(root),
-  };
-}
-
-function parseAffaireLinkedDpgfSource(payload: unknown): AffaireLinkedDpgfSource {
-  const root = getRootPayload(payload);
-  if (root === null) {
-    return null;
-  }
-
-  if (!isRecord(root)) {
-    return null;
-  }
-
-  const importId =
-    toStringValue(root.importId) ?? toStringValue(root.import_id);
-  const filename = toStringValue(root.filename);
-  const sourceFormat =
-    toStringValue(root.sourceFormat) ?? toStringValue(root.source_format);
-  const importStatus =
-    toStringValue(root.importStatus) ?? toStringValue(root.import_status);
-  const importedAt =
-    toStringValue(root.importedAt) ?? toStringValue(root.imported_at);
-  const parseMode =
-    toStringValue(root.parseMode) ?? toStringValue(root.parse_mode);
-  const rowCount = toNumber(root.rowCount) ?? toNumber(root.row_count);
-  const mappedRowCount =
-    toNumber(root.mappedRowCount) ?? toNumber(root.mapped_row_count);
-
-  if (
-    !importId ||
-    !filename ||
-    !sourceFormat ||
-    !importStatus ||
-    !importedAt ||
-    !parseMode ||
-    rowCount === null ||
-    mappedRowCount === null
-  ) {
-    return null;
-  }
-
-  return {
-    importId,
-    filename,
-    sourceFormat,
-    importStatus,
-    mappingStatus:
-      toStringValue(root.mappingStatus) ??
-      toStringValue(root.mapping_status) ??
-      null,
-    importedAt,
-    mappingUpdatedAt:
-      toStringValue(root.mappingUpdatedAt) ??
-      toStringValue(root.mapping_updated_at) ??
-      null,
-    parseMode,
-    rowCount: Math.max(0, Math.trunc(rowCount)),
-    mappedRowCount: Math.max(0, Math.trunc(mappedRowCount)),
-  };
-}
-
-function parseImportLinkedDpgfSourceResult(
-  payload: unknown
-): ImportLinkedDpgfSourceResult | null {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) return null;
-
-  const sourceImportId =
-    toStringValue(root.sourceImportId) ?? toStringValue(root.source_import_id);
-  const targetVersionId =
-    toStringValue(root.targetVersionId) ?? toStringValue(root.target_version_id);
-  const createdSectionId =
-    toStringValue(root.createdSectionId) ?? toStringValue(root.created_section_id);
-  const importedLinesCount =
-    toNumber(root.importedLinesCount) ?? toNumber(root.imported_lines_count);
-  const skippedLinesCount =
-    toNumber(root.skippedLinesCount) ?? toNumber(root.skipped_lines_count) ?? 0;
-
-  const createdLineIdsRaw =
-    (Array.isArray(root.createdLineIds) ? root.createdLineIds : null) ??
-    (Array.isArray(root.created_line_ids) ? root.created_line_ids : null) ??
-    [];
-  const createdLineIds = createdLineIdsRaw
-    .map((entry) => toStringValue(entry))
-    .filter((entry): entry is string => entry !== null);
-
-  const totalsRecord = pickRecord(root, ["totals"]);
-  const totalHtCents =
-    toNumber(totalsRecord?.total_ht_cents) ??
-    toNumber(totalsRecord?.totalHtCents);
-  const totalTaxCents =
-    toNumber(totalsRecord?.total_tax_cents) ??
-    toNumber(totalsRecord?.totalTaxCents);
-  const totalTtcCents =
-    toNumber(totalsRecord?.total_ttc_cents) ??
-    toNumber(totalsRecord?.totalTtcCents);
-
-  if (
-    !sourceImportId ||
-    !targetVersionId ||
-    !createdSectionId ||
-    importedLinesCount === null ||
-    totalHtCents === null ||
-    totalTaxCents === null ||
-    totalTtcCents === null
-  ) {
-    return null;
-  }
-
-  return {
-    sourceImportId,
-    targetVersionId,
-    createdSectionId,
-    createdLineIds,
-    importedLinesCount: Math.max(0, Math.trunc(importedLinesCount)),
-    skippedLinesCount: Math.max(0, Math.trunc(skippedLinesCount)),
-    totals: {
-      totalHtCents: Math.max(0, Math.trunc(totalHtCents)),
-      totalTaxCents: Math.max(0, Math.trunc(totalTaxCents)),
-      totalTtcCents: Math.max(0, Math.trunc(totalTtcCents)),
-    },
-    versionToken: parseVersionToken(root),
-  };
-}
-
-function parseDuplicateEstimateSectionResult(
-  payload: unknown
-): DuplicateEstimateSectionResult | null {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) return null;
-
-  const duplicatedSectionId =
-    toStringValue(root.duplicated_section_id) ??
-    toStringValue(root.duplicatedSectionId);
-  const sourceVersionId =
-    toStringValue(root.source_version_id) ?? toStringValue(root.sourceVersionId);
-  const targetVersionId =
-    toStringValue(root.target_version_id) ?? toStringValue(root.targetVersionId);
-  const copiedItemCount =
-    toNumber(root.copied_item_count) ?? toNumber(root.copiedItemCount);
-
-  if (
-    !duplicatedSectionId ||
-    !sourceVersionId ||
-    !targetVersionId ||
-    copiedItemCount === null
-  ) {
-    return null;
-  }
-
-  const versionRecord = extractEntity(root, ["version", "version_token"]);
-  const versionToken =
-    versionRecord && toStringValue(versionRecord.id) && toStringValue(versionRecord.updated_at)
-      ? {
-          id: String(versionRecord.id),
-          updated_at: String(versionRecord.updated_at),
-        }
-      : null;
-
-  return {
-    duplicatedSectionId,
-    sourceVersionId,
-    targetVersionId,
-    copiedItemCount,
-    versionToken,
-    convertedLines: parseV3ConvertedLines(root.converted_lines),
   };
 }
 
@@ -3738,50 +3389,57 @@ export async function fetchEstimateImportSources(options?: {
     ? `/api/estimates/import-sources?${query}`
     : "/api/estimates/import-sources";
 
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     path,
     {
       method: "GET",
     },
-    "Impossible de charger les devis sources."
+    "Impossible de charger les devis sources.",
+    parseImportSourcesResponse
   );
 
-  return parseEstimateImportSourceVersions(payload);
+  return payload.items.map(toEstimateImportSourceClient).sort((left, right) =>
+    (isOlderEstimateVersionToken(left.updatedAt, right.updatedAt) ? 1
+      : isOlderEstimateVersionToken(right.updatedAt, left.updatedAt) ? -1 : 0) || right.versionNumber - left.versionNumber);
 }
 
 export async function fetchEstimateImportableSections(
   sourceVersionId: string
 ): Promise<EstimateImportSectionPreview[]> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${sourceVersionId}/sections`,
     {
       method: "GET",
     },
-    "Impossible de charger les sections importables."
+    "Impossible de charger les sections importables.",
+    value => parseImportSectionsPreviewResponse(value, sourceVersionId)
   );
 
-  return parseEstimateImportSectionPreviews(payload);
+  return payload.items.map(toEstimateImportSectionClient).sort((left, right) => left.position - right.position);
 }
 
 export async function fetchAffaireLinkedDpgfSource(
-  projectId: string
+  projectId: string,
+  options?: { signal?: AbortSignal }
 ): Promise<AffaireLinkedDpgfSource> {
-  const payload = await requestJson<unknown>(
-    `/api/affaires/${projectId}/dpgf-source`,
+  const payload = await requestJson(
+    `/api/affaires/${encodeURIComponent(projectId)}/dpgf-source`,
     {
       method: "GET",
+      signal: options?.signal,
     },
-    "Impossible de charger la source DPGF de l'affaire."
+    "Impossible de charger la source DPGF de l'affaire.",
+    parseLinkedDpgfSourceResponse
   );
 
-  return parseAffaireLinkedDpgfSource(payload);
+  return toAffaireLinkedDpgfSourceClient(payload);
 }
 
 export async function importEstimateSections(
   targetVersionId: string,
   input: ImportEstimateSectionsPayload
 ): Promise<ImportEstimateSectionsResult> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${targetVersionId}/import-sections`,
     {
       method: "POST",
@@ -3794,15 +3452,11 @@ export async function importEstimateSections(
         mode: input.mode,
       }),
     },
-    "Impossible d'importer les sections."
+    "Impossible d'importer les sections.",
+    value => parseImportSectionsResponse(value, { sourceVersionId: input.sourceVersionId, targetVersionId, mode: input.mode })
   );
 
-  const parsed = parseImportEstimateSectionsResult(payload);
-  if (!parsed) {
-    throw new Error("Impossible de lire le résultat de l'import.");
-  }
-
-  return parsed;
+  return toImportEstimateSectionsClient(payload);
 }
 
 export async function generateEstimateStructureDraft(
@@ -3990,7 +3644,7 @@ export async function importLinkedDpgfSource(
   targetVersionId: string,
   input: ImportLinkedDpgfSourcePayload = {}
 ): Promise<ImportLinkedDpgfSourceResult> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${targetVersionId}/import-linked-dpgf`,
     {
       method: "POST",
@@ -4001,15 +3655,11 @@ export async function importLinkedDpgfSource(
         sectionTitle: input.sectionTitle ?? null,
       }),
     },
-    "Impossible d'importer la source DPGF liée."
+    "Impossible d'importer la source DPGF liée.",
+    value => parseImportLinkedDpgfResponse(value, targetVersionId)
   );
 
-  const parsed = parseImportLinkedDpgfSourceResult(payload);
-  if (!parsed) {
-    throw new Error("Impossible de lire le résultat de l'import DPGF.");
-  }
-
-  return parsed;
+  return toImportLinkedDpgfSourceClient(payload);
 }
 
 export async function createEstimate(
@@ -4132,7 +3782,7 @@ export async function duplicateEstimateSection(
   sectionId: string,
   options?: { targetVersionId?: string | null }
 ): Promise<DuplicateEstimateSectionResult> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestJson(
     `/api/estimates/${versionId}/sections/${sectionId}/duplicate`,
     {
       method: "POST",
@@ -4143,15 +3793,11 @@ export async function duplicateEstimateSection(
         targetVersionId: options?.targetVersionId ?? null,
       }),
     },
-    "Impossible de dupliquer la section."
+    "Impossible de dupliquer la section.",
+    value => parseDuplicateSectionResponse(value, { sourceVersionId: versionId, targetVersionId: options?.targetVersionId ?? versionId })
   );
 
-  const parsed = parseDuplicateEstimateSectionResult(payload);
-  if (!parsed) {
-    throw new Error("Impossible de dupliquer la section.");
-  }
-
-  return parsed;
+  return toDuplicateSectionClient(payload);
 }
 
 export async function createEstimateVariant(
@@ -4561,6 +4207,8 @@ export async function createEstimateItem(
   options: EstimateMutationVersionTokenOptions = {}
 ): Promise<EstimateItem> {
   const body = toCreateEstimateItemBody(item);
+  let acknowledgedVersion: EstimateVersionToken | undefined;
+  const documentOwnsReceipt = options.documentOwnsReceipt === true && Boolean(options.onVersionToken);
 
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/items`,
@@ -4571,7 +4219,12 @@ export async function createEstimateItem(
       },
       body: JSON.stringify(body),
     },
-    "Impossible d'ajouter la ligne."
+    "Impossible d'ajouter la ligne.",
+    undefined,
+    documentOwnsReceipt ? {
+      deferVersionPublication: true,
+      onAcknowledgedVersion: (version) => { acknowledgedVersion = version; },
+    } : undefined
   );
 
   const entity = extractEntity(payload, ["item", "estimateItem"]);
@@ -4580,7 +4233,7 @@ export async function createEstimateItem(
   }
 
   if (options.onVersionToken) {
-    const versionToken = parseVersionToken(payload);
+    const versionToken = acknowledgedVersion ?? parseVersionToken(payload);
     if (!versionToken) {
       throw new Error("Impossible de récupérer le jeton de version.");
     }
@@ -4614,8 +4267,8 @@ export async function updateEstimateItem(
 export async function deleteEstimateItem(
   versionId: string,
   itemId: string
-): Promise<void> {
-  await requestJson<unknown>(
+): Promise<{ versionToken: EstimateVersionToken; deletedIds: string[] }> {
+  const receipt = await requestJson(
     `/api/estimates/${versionId}/items`,
     {
       method: "DELETE",
@@ -4626,16 +4279,18 @@ export async function deleteEstimateItem(
         id: itemId,
       }),
     },
-    "Impossible de supprimer la ligne."
+    "Impossible de supprimer la ligne.",
+    (data) => parseEstimateItemDeleteResponse(data, versionId, itemId)
   );
+  return { versionToken: receipt.version, deletedIds: receipt.deleted_ids };
 }
 
 export async function reorderEstimateItems(
   versionId: string,
   parentId: string | null,
   orderedIds: string[]
-): Promise<void> {
-  await requestJson<unknown>(
+): Promise<{ versionToken: EstimateVersionToken }> {
+  const receipt = await requestJson(
     `/api/estimates/${versionId}/items/reorder`,
     {
       method: "POST",
@@ -4647,15 +4302,17 @@ export async function reorderEstimateItems(
         ordered_ids: orderedIds,
       }),
     },
-    "Impossible de reordonner les lignes."
+    "Impossible de reordonner les lignes.",
+    (data) => parseEstimateItemsReorderResponse(data, { versionId, parentId, orderedIds })
   );
+  return { versionToken: receipt.version };
 }
 
 export async function moveEstimateItem(
   versionId: string,
   payload: MoveEstimateItemInput
-): Promise<void> {
-  await requestJson<unknown>(
+): Promise<{ versionToken: EstimateVersionToken }> {
+  const receipt = await requestJson(
     `/api/estimates/${versionId}/items/move`,
     {
       method: "POST",
@@ -4664,8 +4321,10 @@ export async function moveEstimateItem(
       },
       body: JSON.stringify(payload),
     },
-    "Impossible de déplacer l'élément."
+    "Impossible de déplacer l'élément.",
+    (data) => parseEstimateItemsMoveResponse(data, versionId, payload)
   );
+  return { versionToken: receipt.version };
 }
 
 export async function batchEstimateOperations(

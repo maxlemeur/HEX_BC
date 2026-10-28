@@ -1,3 +1,5 @@
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
+import { parseLinkedDpgfSourceResponse } from "@/lib/estimates/section-copy-response";
 import { z } from "zod";
 
 import { notFound, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -18,7 +20,7 @@ export async function GET(
     }
 
     const data = await getAffaireLinkedDpgfSource(parsed.data.projectId);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseLinkedDpgfSourceResponse(data)));
   } catch (error) {
     return toErrorResponse(error);
   }

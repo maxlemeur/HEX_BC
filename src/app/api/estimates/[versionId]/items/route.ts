@@ -1,3 +1,5 @@
+import { parseEstimateItemDeleteResponse } from "@/lib/estimates/item-structure-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -79,7 +81,7 @@ export async function DELETE(
     const versionId = await getVersionId(params);
     const body = deleteEstimateItemSchema.parse(await parseJsonBody(request));
     const data = await deleteEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateItemDeleteResponse(data, versionId, body.id)));
   } catch (error) {
     return toErrorResponse(error);
   }

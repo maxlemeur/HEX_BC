@@ -609,11 +609,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Source DPGF validée, ou absence explicite.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/AffaireLinkedDpgfSourceResponse"
                 }
               }
             }
@@ -4242,11 +4242,11 @@
         },
         "responses": {
           "201": {
-            "description": "Source DPGF importee.",
+            "description": "Réponse validée du parcours de copie/import.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ImportLinkedDpgfSourceResponse"
                 }
               }
             }
@@ -4345,11 +4345,11 @@
         },
         "responses": {
           "201": {
-            "description": "Sections importees.",
+            "description": "Réponse validée du parcours de copie/import.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ImportEstimateSectionsResponse"
                 }
               }
             }
@@ -6586,11 +6586,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Réponse validée du parcours de copie/import.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ListEstimateImportSectionsResponse"
                 }
               }
             }
@@ -6698,11 +6698,11 @@
         },
         "responses": {
           "201": {
-            "description": "Section dupliquee.",
+            "description": "Réponse validée du parcours de copie/import.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/DuplicateEstimateSectionResponse"
                 }
               }
             }
@@ -11889,11 +11889,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Réponse validée du parcours de copie/import.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ListEstimateImportSourcesResponse"
                 }
               }
             }
@@ -22758,6 +22758,87 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "AffaireLinkedDpgfSourceResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "import_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "source_format": {
+                    "type": "string"
+                  },
+                  "import_status": {
+                    "type": "string"
+                  },
+                  "mapping_status": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "imported_at": {
+                    "type": "string"
+                  },
+                  "mapping_updated_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "parse_mode": {
+                    "type": "string"
+                  },
+                  "row_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "mapped_row_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "import_id",
+                  "filename",
+                  "source_format",
+                  "import_status",
+                  "mapping_status",
+                  "imported_at",
+                  "mapping_updated_at",
+                  "parse_mode",
+                  "row_count",
+                  "mapped_row_count"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "CreateAffaireIntakeFilesProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -31987,6 +32068,118 @@
           }
         }
       },
+      "ImportLinkedDpgfSourceResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "source_import_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "target_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_section_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_line_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "imported_lines_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "skipped_lines_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "total_ht_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total_tax_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ttc_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "total_ht_cents",
+                  "total_tax_cents",
+                  "total_ttc_cents"
+                ],
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "source_import_id",
+              "target_version_id",
+              "created_section_id",
+              "created_line_ids",
+              "imported_lines_count",
+              "skipped_lines_count",
+              "totals",
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ImportEstimateSectionsVersionIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -32023,6 +32216,154 @@
           "source_version_id",
           "section_ids"
         ]
+      },
+      "ImportEstimateSectionsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "source_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "target_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "merge",
+                  "append"
+                ]
+              },
+              "imported_sections_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "imported_lines_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "created_section_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "created_line_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "converted_lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "template_hours": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "converted_hours": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "template_hours",
+                    "converted_hours"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "total_ht_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total_tax_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ttc_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "total_ht_cents",
+                  "total_tax_cents",
+                  "total_ttc_cents"
+                ],
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "source_version_id",
+              "target_version_id",
+              "mode",
+              "imported_sections_count",
+              "imported_lines_count",
+              "created_section_ids",
+              "created_line_ids",
+              "totals",
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "ApiEstimateItemsResponse": {
         "type": "object",
@@ -33966,6 +34307,7 @@
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "deleted_ids": {
+                "minItems": 1,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -33983,6 +34325,11 @@
                   },
                   "updated_at": {
                     "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -34479,24 +34826,6 @@
           "data": {
             "type": "object",
             "properties": {
-              "version": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "updated_at"
-                ],
-                "additionalProperties": false
-              },
               "item_id": {
                 "type": "string",
                 "format": "uuid",
@@ -34535,6 +34864,7 @@
                 }
               },
               "ordered_target_ids": {
+                "minItems": 1,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -34544,18 +34874,41 @@
               },
               "updated_count": {
                 "type": "integer",
-                "minimum": -9007199254740991,
+                "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
-              "version",
               "item_id",
               "from_parent_id",
               "to_parent_id",
               "ordered_source_ids",
               "ordered_target_ids",
-              "updated_count"
+              "updated_count",
+              "version"
             ],
             "additionalProperties": false
           }
@@ -34605,24 +34958,6 @@
           "data": {
             "type": "object",
             "properties": {
-              "version": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "updated_at"
-                ],
-                "additionalProperties": false
-              },
               "parent_id": {
                 "anyOf": [
                   {
@@ -34636,6 +34971,7 @@
                 ]
               },
               "ordered_ids": {
+                "minItems": 1,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -34645,15 +34981,38 @@
               },
               "updated_count": {
                 "type": "integer",
-                "minimum": -9007199254740991,
+                "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
-              "version",
               "parent_id",
               "ordered_ids",
-              "updated_count"
+              "updated_count",
+              "version"
             ],
             "additionalProperties": false
           }
@@ -36454,6 +36813,74 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "ListEstimateImportSectionsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "source_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "line_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "total_ht_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "line_count",
+                    "total_ht_cents",
+                    "position"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "source_version_id",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "DuplicateEstimateSectionVersionIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -36480,6 +36907,128 @@
             ]
           }
         }
+      },
+      "DuplicateEstimateSectionResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "duplicated_section_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "source_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "target_version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "copied_item_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "converted_lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "template_hours": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "converted_hours": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "template_hours",
+                    "converted_hours"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "total_ht_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total_tax_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total_ttc_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "total_ht_cents",
+                  "total_tax_cents",
+                  "total_ttc_cents"
+                ],
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "duplicated_section_id",
+              "source_version_id",
+              "target_version_id",
+              "copied_item_count",
+              "totals",
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "EstimateEmailIdempotencyKeyHeaderParameter": {
         "type": "string",
@@ -52558,6 +53107,90 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "ListEstimateImportSourcesResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "project_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "project_name": {
+                      "type": "string"
+                    },
+                    "version_number": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "sending",
+                        "sent",
+                        "accepted",
+                        "archived"
+                      ]
+                    },
+                    "title": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "total_ht_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "project_id",
+                    "project_name",
+                    "version_number",
+                    "status",
+                    "title",
+                    "updated_at",
+                    "total_ht_cents"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "TemplatesSearchQueryParameter": {
         "type": [
           "string",
@@ -62326,7 +62959,8 @@
                     "maximum": 9007199254740991
                   },
                   "justification": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "factors": {
                     "type": "array",
@@ -62334,13 +62968,16 @@
                       "type": "object",
                       "properties": {
                         "key": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "label": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "value": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "kind": {
                           "type": "string",
@@ -62462,10 +63099,12 @@
                           ]
                         },
                         "label": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "source_ref": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "price_cents": {
                           "type": "integer",
@@ -62492,7 +63131,7 @@
                         },
                         "rank": {
                           "type": "integer",
-                          "minimum": 1,
+                          "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
                         "is_outlier": {
@@ -62598,7 +63237,8 @@
         "required": [
           "version_id",
           "estimate_item_id"
-        ]
+        ],
+        "additionalProperties": false
       },
       "TakeoffPriceSuggestionIdPathParameter": {
         "type": "string",
@@ -62633,7 +63273,8 @@
           "version_id",
           "action",
           "review_note"
-        ]
+        ],
+        "additionalProperties": false
       },
       "ApiTakeoffPriceSuggestionReviewResponse": {
         "type": "object",
@@ -62726,7 +63367,8 @@
                     "maximum": 9007199254740991
                   },
                   "justification": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "factors": {
                     "type": "array",
@@ -62734,13 +63376,16 @@
                       "type": "object",
                       "properties": {
                         "key": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "label": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "value": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "kind": {
                           "type": "string",
@@ -62862,10 +63507,12 @@
                           ]
                         },
                         "label": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "source_ref": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
                         "price_cents": {
                           "type": "integer",
@@ -62892,7 +63539,7 @@
                         },
                         "rank": {
                           "type": "integer",
-                          "minimum": 1,
+                          "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
                         "is_outlier": {

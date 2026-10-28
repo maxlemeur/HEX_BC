@@ -1,3 +1,4 @@
+import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import { z, type ZodTypeAny } from "zod";
 import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
@@ -457,6 +458,8 @@ const administrationContracts: RouteContract[] = [
     description: "Retourne la source DPGF rattachee a l'affaire accessible.",
     tags: ["Affaires"],
     pathParameters: [projectIdParameter],
+    success: [{ status: "200", description: "Source DPGF validée, ou absence explicite.",
+      schema: { schemaName: "AffaireLinkedDpgfSourceResponse", schema: z.object({ ok: z.literal(true), data: affaireLinkedDpgfSourceResponseSchema }), io: "output" } }],
   },
   {
     id: "create-affaire-intake-files",

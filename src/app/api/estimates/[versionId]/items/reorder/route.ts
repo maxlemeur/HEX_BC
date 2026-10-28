@@ -1,3 +1,5 @@
+import { parseEstimateItemsReorderResponse } from "@/lib/estimates/item-structure-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -29,7 +31,7 @@ export async function POST(
     const versionId = await getVersionId(params);
     const body = reorderEstimateItemsSchema.parse(await parseJsonBody(request));
     const data = await reorderEstimateItems(versionId, body, request.headers.get("if-match") ?? undefined);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateItemsReorderResponse(data, { versionId, parentId: body.parent_id ?? null, orderedIds: body.ordered_ids })));
   } catch (error) {
     return toErrorResponse(error);
   }
