@@ -1,10 +1,3 @@
-import { getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
-export {
-  reconcileTakeoffJobNow,
-  resubmitTakeoffJob,
-  retryTakeoffJob,
-  cancelTakeoffJob,
-} from "@/lib/takeoff/job-actions-server";
 import {
   getAuthenticatedTakeoffContext,
   type AuthenticatedTakeoffContext,
@@ -16,11 +9,9 @@ import {
   normalizeTakeoffItemRow,
   type TakeoffItemRow,
 } from "./job-read-server";
-export { listTakeoffJobs, getTakeoffJobDetails } from "./job-read-server";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createHash, randomUUID } from "node:crypto";
 import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
-import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import {
   assertTakeoffOperatorActionRole,
@@ -28,13 +19,9 @@ import {
   TAKEOFF_TENANT_ADMIN_ROLE,
 } from "@/lib/takeoff/server-helpers";
 import { toValidationIssues } from "@/lib/takeoff/validation-issues";
-
 import { z } from "zod";
 import type { Database } from "@/types/database";
-
-import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
-  assertDraftStatus,
   bulkUpdateEstimateItems,
   suggestEstimateCataloguePrices,
   updateEstimateItem,
@@ -52,7 +39,6 @@ import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
-import { inspectSourceReferencePdf, SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
@@ -60,7 +46,6 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
-
 import {
   checkApplyGuard,
   getTakeoffVerificationReadiness,
@@ -80,6 +65,94 @@ import {
   type TakeoffRiskRadarQuery,
 } from "@/lib/takeoff/schemas";
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
+import {
+  logTakeoffAuditEvent,
+  takeoffAuditMetadataBuilders,
+} from "@/lib/takeoff/audit";
+import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
+import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
+import {
+  TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
+  TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+  buildTakeoffDpgfReviewReference,
+  buildTakeoffDpgfComparison,
+  hasBlockingTakeoffDpgfExceptions,
+} from "@/lib/takeoff/dpgf-compare";
+import {
+  listSupplierPriceEvidenceRows,
+  listTakeoffLineEvidenceRows,
+  mapActiveLineEvidenceRowsToProofs,
+  mapTakeoffLineEvidencePanel,
+  syncTakeoffLineEvidences,
+} from "@/lib/takeoff/evidence";
+import {
+  TAKEOFF_APPLY_SCOPES,
+  type TakeoffApplyRequest,
+  type TakeoffApplyResponse,
+  type TakeoffApplyScope,
+  type TakeoffApplyStrategy,
+  type TakeoffApplySummary,
+  type TakeoffMappingPreviewItem,
+  type TakeoffPreviewConversionResponse,
+  type TakeoffItemBatchPatchRequest,
+  type TakeoffItemBatchPatchResponse,
+  type TakeoffItemPatchResult,
+  type TakeoffJobCompareResponse,
+  type TakeoffDpgfComparisonDpgfLine,
+  type TakeoffDpgfComparisonResponse,
+  type TakeoffDpgfComparisonSummary,
+  type TakeoffDpgfComparisonTakeoffLine,
+  type TakeoffDpgfReviewDecision,
+  type TakeoffDpgfManualLinkRecord,
+  type TakeoffPriceSuggestionAction,
+  type TakeoffPriceSuggestionConfidenceLabel,
+  type TakeoffPriceSuggestionFactor,
+  type TakeoffPriceSuggestionResponse,
+  type TakeoffPriceSuggestionSnapshot,
+  type TakeoffPriceSuggestionSource,
+  type TakeoffPriceSuggestionSourceKind,
+  type ReviewTakeoffPriceSuggestionInput,
+  type ReviewTakeoffPriceSuggestionResponse,
+  type RequestTakeoffPriceSuggestionInput,
+  type GetTakeoffPriceSuggestionQuery,
+  type TakeoffDpgfReviewDecisionRecord,
+  type TakeoffLineEvidencePanelResponse,
+  type TakeoffJobItem,
+  type SaveTakeoffDpgfManualLinkInput,
+  type SaveTakeoffDpgfManualLinkResponse,
+  type SaveTakeoffReviewDecisionInput,
+  type SaveTakeoffReviewDecisionResponse,
+  type TakeoffRiskAlert,
+  type TakeoffRiskRadarResponse,
+  type UpdateTakeoffRiskAlertStatusInput,
+  type UpdateTakeoffRiskAlertStatusResponse,
+} from "@/lib/takeoff/types";
+import {
+  TAKEOFF_COMPARE_DEFAULT_THRESHOLD,
+  buildTakeoffDiff,
+  computeTakeoffSimilarityRatio,
+  normalizeTakeoffCompareText,
+} from "@/lib/takeoff/diff";
+import {
+  buildTakeoffRiskCandidates,
+  buildTakeoffRiskRadarResponse,
+  normalizeRiskAlertRow,
+} from "@/lib/takeoff/risk-radar";
+import {
+  buildTakeoffPriceSuggestion,
+  type TakeoffPriceSuggestionCandidate,
+} from "@/lib/takeoff/price-suggestions";
+import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
+export { createTakeoffJobFromFormData, createTakeoffJobFromPlanSet, hasAccessibleTakeoffJobForIdempotencyKey } from "@/lib/takeoff/job-creation-server";
+export type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
+
+export {
+  reconcileTakeoffJobNow,
+  resubmitTakeoffJob,
+  retryTakeoffJob,
+  cancelTakeoffJob,
+} from "@/lib/takeoff/job-actions-server";
+export { listTakeoffJobs, getTakeoffJobDetails } from "./job-read-server";
 
 export {
   compareTakeoffJobsQuerySchema,
@@ -112,127 +185,6 @@ export {
   parseTakeoffPriceSuggestionQuery,
   parseTakeoffRiskRadarQuery,
 } from "@/lib/takeoff/query-parsers";
-import {
-  logTakeoffAuditEvent,
-  takeoffAuditMetadataBuilders,
-} from "@/lib/takeoff/audit";
-import {
-  classifyTakeoffPlanSetSource,
-  classifyTakeoffUploadSource,
-} from "@/lib/takeoff/document-classifier";
-import {
-  MAX_FILE_SIZE_BYTES,
-  MAX_FILE_SIZE_LABEL,
-  validateFileForUpload,
-} from "@/lib/file-validation";
-import {
-  assertTakeoffEnabled,
-  getTakeoffChunkingConfigForTenant,
-  getTakeoffGeminiDeliveryConfigForTenant,
-  getTakeoffLevelCProcessingConfigForTenant,
-  getTakeoffLowConfidenceThresholdForTenant,
-} from "@/lib/takeoff/feature-flags";
-import {
-  resolveTakeoffPdfMimeType,
-  validateTakeoffPdfUploadMetadata,
-} from "@/lib/takeoff/pdf-validation";
-import { resolveTakeoffProcessingStrategy } from "@/lib/takeoff/provider-batch";
-import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
-import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
-import {
-  TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
-  TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
-  buildTakeoffDpgfReviewReference,
-  buildTakeoffDpgfComparison,
-  hasBlockingTakeoffDpgfExceptions,
-} from "@/lib/takeoff/dpgf-compare";
-import {
-  listSupplierPriceEvidenceRows,
-  listTakeoffLineEvidenceRows,
-  mapActiveLineEvidenceRowsToProofs,
-  mapTakeoffLineEvidencePanel,
-  syncTakeoffLineEvidences,
-} from "@/lib/takeoff/evidence";
-import {
-  TAKEOFF_APPLY_SCOPES,
-  TAKEOFF_LEVELS,
-  type TakeoffApplyRequest,
-  type TakeoffApplyResponse,
-  type TakeoffApplyScope,
-  type TakeoffApplyStrategy,
-  type TakeoffApplySummary,
-  type TakeoffMappingPreviewItem,
-  type TakeoffPreviewConversionResponse,
-  type TakeoffItemBatchPatchRequest,
-  type TakeoffItemBatchPatchResponse,
-  type TakeoffItemPatchResult,
-  type TakeoffJobCompareResponse,
-  type TakeoffDpgfComparisonDpgfLine,
-  type TakeoffDpgfComparisonResponse,
-  type TakeoffDpgfComparisonSummary,
-  type TakeoffDpgfComparisonTakeoffLine,
-  type TakeoffDpgfReviewDecision,
-  type TakeoffDpgfManualLinkRecord,
-  type TakeoffPriceSuggestionAction,
-  type TakeoffPriceSuggestionConfidenceLabel,
-  type TakeoffPriceSuggestionFactor,
-  type TakeoffPriceSuggestionResponse,
-  type TakeoffPriceSuggestionSnapshot,
-  type TakeoffPriceSuggestionSource,
-  type TakeoffPriceSuggestionSourceKind,
-  type ReviewTakeoffPriceSuggestionInput,
-  type ReviewTakeoffPriceSuggestionResponse,
-  type RequestTakeoffPriceSuggestionInput,
-  type GetTakeoffPriceSuggestionQuery,
-  type TakeoffDpgfReviewDecisionRecord,
-  type TakeoffLineEvidencePanelResponse,
-  type TakeoffJobItem,
-  type TakeoffJobResponse,
-  type SaveTakeoffDpgfManualLinkInput,
-  type SaveTakeoffDpgfManualLinkResponse,
-  type SaveTakeoffReviewDecisionInput,
-  type SaveTakeoffReviewDecisionResponse,
-  type TakeoffLevel,
-  type TakeoffRiskAlert,
-  type TakeoffRiskRadarResponse,
-  type UpdateTakeoffRiskAlertStatusInput,
-  type UpdateTakeoffRiskAlertStatusResponse,
-} from "@/lib/takeoff/types";
-import {
-  TAKEOFF_COMPARE_DEFAULT_THRESHOLD,
-  buildTakeoffDiff,
-  computeTakeoffSimilarityRatio,
-  normalizeTakeoffCompareText,
-} from "@/lib/takeoff/diff";
-import {
-  buildTakeoffRiskCandidates,
-  buildTakeoffRiskRadarResponse,
-  normalizeRiskAlertRow,
-} from "@/lib/takeoff/risk-radar";
-import {
-  buildTakeoffPriceSuggestion,
-  type TakeoffPriceSuggestionCandidate,
-} from "@/lib/takeoff/price-suggestions";
-import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
-import {
-  inspectPlanSetResourceBudget,
-  PLAN_SET_MAX_FILES,
-  PLAN_SET_MAX_TOTAL_SIZE_BYTES,
-} from "@/lib/takeoff/plans";
-
-const TAKEOFF_FILES_BUCKET = "takeoff-files";
-const TAKEOFF_STRUCTURED_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
-const TAKEOFF_STRUCTURED_ALLOWED_MIME_TYPES = [
-  "text/csv",
-  "application/csv",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-];
-const TAKEOFF_PDF_ALLOWED_EXTENSIONS = ["pdf"];
-const TAKEOFF_PDF_ALLOWED_MIME_TYPES = ["application/pdf"];
-const TAKEOFF_PLAN_SET_LEVEL: TakeoffLevel = "B";
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
 const TAKEOFF_DPGF_LINKS_SELECT = [
   "id",
@@ -534,19 +486,6 @@ const takeoffPriceSuggestionReviewResponseSchema: z.ZodType<ReviewTakeoffPriceSu
       .nullable(),
   });
 
-const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
-  id: z.string().uuid(),
-  status: z.string(),
-  level: z.string(),
-  source_file_name: z.string().nullable(),
-  estimate_version_id: z.string().uuid(),
-  created_at: z.string(),
-});
-
-type TakeoffJobRow = TakeoffJobResponse & {
-  source_file_path?: string | null;
-};
-
 type TakeoffPriceSuggestionRow = {
   id: string;
   created_at: string;
@@ -618,344 +557,8 @@ type EstimateItemPriceSuggestionRow = {
   updated_at: string;
 };
 
-export type TakeoffJobCreateResponse = TakeoffJobResponse;
-
-function isUuid(value: string) {
-  return UUID_REGEX.test(value);
-}
-
-function sanitizeFilename(filename: string) {
-  const normalized = filename
-    .replace(/[\\/]+/g, "-")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-
-  return normalized.length > 0 ? normalized : "upload";
-}
-
-async function resolvePlanSetSourceFile(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  planSetId: string;
-  jobId: string;
-  maxPages: number;
-}) {
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("plan_files" as never)
-    .select("file_path, file_name, file_type, file_size_bytes, page_count, id, metadata" as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("plan_set_id" as never, input.planSetId as never)
-    .order("created_at" as never, { ascending: true }));
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les fichiers du jeu de plans.");
-  }
-
-  const planFiles = ((data ?? []) as Array<{
-    file_path?: string | null;
-    file_name?: string | null;
-    file_type?: string | null;
-    file_size_bytes?: number | null;
-    page_count?: number | null;
-    metadata?: unknown;
-  }>).map((planFile) => ({
-    ...planFile,
-    // M1b : le libellé d'origine (M1a), pas la clé Storage nettoyée, nomme le job et ses fichiers.
-    source_label:
-      typeof planFile.file_name === "string" && planFile.file_name.trim().length > 0
-        ? getPlanFileDisplayName({
-            file_name: planFile.file_name.trim(),
-            metadata:
-              planFile.metadata && typeof planFile.metadata === "object" && !Array.isArray(planFile.metadata)
-                ? (planFile.metadata as Record<string, unknown>)
-                : null,
-          })
-        : null,
-  }));
-
-  if (planFiles.length === 0) {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message: "Le jeu de plans ne contient aucun fichier.",
-      retryable: false,
-      jobId: input.jobId,
-      level: TAKEOFF_PLAN_SET_LEVEL,
-    });
-  }
-
-  const resourceBudget = inspectPlanSetResourceBudget(planFiles, {
-    maxPages: input.maxPages,
-  });
-  if (resourceBudget.violation) {
-    throw new TakeoffError({
-      status: 413,
-      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-      message: "Le jeu de plans depasse les limites de traitement autorisees.",
-      details: {
-        violation: resourceBudget.violation,
-        file_count: resourceBudget.fileCount,
-        max_file_count: PLAN_SET_MAX_FILES,
-        total_size_bytes: resourceBudget.totalSizeBytes,
-        max_total_size_bytes: PLAN_SET_MAX_TOTAL_SIZE_BYTES,
-        known_page_count: resourceBudget.knownPageCount,
-        unknown_page_count: resourceBudget.unknownPageCount,
-        max_pdf_pages: input.maxPages,
-      },
-      retryable: false,
-      jobId: input.jobId,
-      level: TAKEOFF_PLAN_SET_LEVEL,
-    });
-  }
-
-  const firstPlanFile = planFiles[0];
-  const sourceFilePath =
-    typeof firstPlanFile?.file_path === "string" && firstPlanFile.file_path.trim().length > 0
-      ? firstPlanFile.file_path.trim()
-      : null;
-  const sourceFileName = firstPlanFile?.source_label ?? `plan-set-${input.planSetId}.pdf`;
-  const sourceFileType =
-    typeof firstPlanFile?.file_type === "string" && firstPlanFile.file_type.trim().length > 0
-      ? firstPlanFile.file_type.trim()
-      : "application/pdf";
-  const sourceFileSizeBytes =
-    resourceBudget.totalSizeBytes;
-
-  if (!sourceFilePath) {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.NOT_FOUND,
-      message: "Le jeu de plans ne référence aucun fichier stocke.",
-      retryable: false,
-      jobId: input.jobId,
-      level: TAKEOFF_PLAN_SET_LEVEL,
-    });
-  }
-
-  return {
-    sourceFileName,
-    sourceFilePath,
-    sourceFileType,
-    sourceFileSizeBytes,
-    planFiles,
-  };
-}
-
-function normalizeIdempotencyKey(value: string | null | undefined) {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    throw new TakeoffError({
-      status: 400,
-      code: TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID,
-      message: "La valeur de l'en-tête Idempotency-Key est invalide.",
-      retryable: false,
-    });
-  }
-
-  if (trimmed.length > 255) {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID,
-      message: "La valeur de l'en-tête Idempotency-Key est trop longue.",
-      retryable: false,
-    });
-  }
-
-  return trimmed;
-}
-
 function toHexSha256(value: string | Buffer) {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function deriveDeterministicJobId(tenantId: string, idempotencyKey: string) {
-  const seed = toHexSha256(`${tenantId}:${idempotencyKey}`);
-  const bytes = Buffer.from(seed.slice(0, 32), "hex");
-
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-  const hex = bytes.toString("hex");
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20, 32),
-  ].join("-");
-}
-
-function extractPayloadFingerprint(path: string | null | undefined) {
-  const normalizedPath = typeof path === "string" ? path.trim().replace(/\/+$/g, "") : "";
-  if (!normalizedPath) return null;
-
-  const patterns = [
-    /(?:^|\/)([a-f0-9]{64})-[^/]+$/i,
-    /(?:^|\/)([a-f0-9]{64})\/[^/]+$/i,
-    /(?:^|\/)([a-f0-9]{64})$/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = normalizedPath.match(pattern);
-    const fingerprint = match?.[1];
-    if (fingerprint) {
-      return fingerprint.toLowerCase();
-    }
-  }
-
-  return null;
-}
-
-function normalizeTakeoffJobRow(row: TakeoffJobRow): TakeoffJobCreateResponse {
-  return takeoffJobResponseSchema.parse({
-    id: row.id,
-    status: row.status,
-    level: row.level,
-    source_file_name: row.source_file_name,
-    estimate_version_id: row.estimate_version_id,
-    created_at: row.created_at,
-  });
-}
-
-function resolveTakeoffUploadValidation(level: TakeoffLevel) {
-  if (level === "A") {
-    return {
-      allowedExtensions: TAKEOFF_STRUCTURED_ALLOWED_EXTENSIONS,
-      allowedMimeTypes: TAKEOFF_STRUCTURED_ALLOWED_MIME_TYPES,
-    };
-  }
-
-  return {
-    allowedExtensions: TAKEOFF_PDF_ALLOWED_EXTENSIONS,
-    allowedMimeTypes: TAKEOFF_PDF_ALLOWED_MIME_TYPES,
-  };
-}
-
-function assertTakeoffFileIsValid(file: File, level: TakeoffLevel) {
-  if (level !== "A") {
-    const validation = validateTakeoffPdfUploadMetadata({
-      fileName: file.name,
-      mimeType: file.type,
-      fileSizeBytes: file.size,
-      maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
-      maxFileSizeLabel: MAX_FILE_SIZE_LABEL,
-    });
-
-    if (validation.valid) {
-      return;
-    }
-
-    if (validation.reason === "too_large") {
-      throw new TakeoffError({
-        status: 413,
-        code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-        message: validation.message,
-        retryable: false,
-      });
-    }
-
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
-      message: validation.message,
-      retryable: false,
-    });
-  }
-
-  const validationConfig = resolveTakeoffUploadValidation(level);
-  const validation = validateFileForUpload(file, {
-    allowedExtensions: validationConfig.allowedExtensions,
-    allowedMimeTypes: validationConfig.allowedMimeTypes,
-    allowEmptyMimeType: true,
-  });
-
-  if (validation.valid) return;
-
-  if (validation.error.includes("depasse")) {
-    throw new TakeoffError({
-      status: 413,
-      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-      message: validation.error,
-      retryable: false,
-    });
-  }
-
-  if (
-    validation.error.includes("Extension") ||
-    validation.error.includes("MIME")
-  ) {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
-      message: validation.error,
-      retryable: false,
-    });
-  }
-
-  throw new TakeoffError({
-    status: 400,
-    code: TakeoffErrorCode.BAD_REQUEST,
-    message: validation.error,
-    retryable: false,
-  });
-}
-
-function parseEstimateVersionId(formData: FormData) {
-  const value = formData.get("estimate_version_id");
-
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new TakeoffError({
-      status: 400,
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message: "Le champ estimate_version_id est requis.",
-      retryable: false,
-    });
-  }
-
-  const estimateVersionId = value.trim();
-
-  if (!isUuid(estimateVersionId)) {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.TAKEOFF_ESTIMATE_VERSION_ID_INVALID,
-      message: "Le champ estimate_version_id doit être un UUID valide.",
-      retryable: false,
-    });
-  }
-
-  return estimateVersionId;
-}
-
-function parseTakeoffLevel(formData: FormData) {
-  const value = formData.get("level");
-
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new TakeoffError({
-      status: 400,
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message: "Le champ level est requis.",
-      retryable: false,
-    });
-  }
-
-  const normalized = value.trim().toUpperCase();
-
-  if (!TAKEOFF_LEVELS.includes(normalized as TakeoffLevel)) {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-      message: "Le niveau Takeoff doit être l'un des niveaux supportes: A, B ou C.",
-      retryable: false,
-    });
-  }
-
-  return normalized as TakeoffLevel;
 }
 
 function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
@@ -2349,57 +1952,6 @@ async function listTakeoffPriceSuggestionSourceRows(input: {
   }
 
   return normalizeTakeoffPriceSuggestionSourceRows((data ?? []) as unknown[]);
-}
-
-async function getTakeoffJobById(input: {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
-  tenantId: string;
-  jobId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("takeoff_jobs" as never)
-    .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never
-    )
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("id" as never, input.jobId as never)
-    .maybeSingle();
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de vérifier l'idempotence du job."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.jobId,
-      }
-    );
-  }
-
-  return (data ?? null) as TakeoffJobRow | null;
-}
-
-export async function hasAccessibleTakeoffJobForIdempotencyKey(input: {
-  context: Awaited<ReturnType<typeof getAuthenticatedContext>>;
-  idempotencyKey: string | null;
-}) {
-  const key = normalizeIdempotencyKey(input.idempotencyKey);
-  if (!key) return false;
-  const { supabase, tenantId, userId, tenantRole } = input.context;
-  const job = await getTakeoffJobById({
-    supabase,
-    tenantId,
-    jobId: deriveDeterministicJobId(tenantId, key),
-  });
-  if (!job) return false;
-  await assertEstimateVersionAccessibleForTakeoff({
-    supabase,
-    tenantId,
-    userId,
-    tenantRole,
-    estimateVersionId: job.estimate_version_id,
-  });
-  return true;
 }
 
 async function listAllTakeoffItemsByJobId(input: {
@@ -5930,610 +5482,6 @@ export async function applyTakeoffJob(
 
     throw mappedError;
   }
-}
-
-type TakeoffTargetVersionAccess = {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
-  estimateVersionId: string;
-  tenantId: string;
-  userId: string;
-  tenantRole: string;
-};
-
-async function assertEstimateVersionAccessibleAsDraft(input: TakeoffTargetVersionAccess) {
-  const version = await assertEstimateVersionAccessibleForTakeoff(input);
-  assertDraftStatus(version.status);
-}
-
-async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTargetVersionAccess) {
-  const { data, error } = await input.supabase
-    .from("estimate_versions")
-    .select("id, status, estimate_projects!inner(tenant_id, user_id)")
-    .eq("id", input.estimateVersionId)
-    .eq("tenant_id", input.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw new TakeoffError({
-      status: 404,
-      code: TakeoffErrorCode.NOT_FOUND,
-      message: "Version de chiffrage introuvable.",
-      retryable: false,
-    });
-  }
-
-  const estimateProjects = data.estimate_projects as
-    | { tenant_id: string; user_id: string }
-    | Array<{ tenant_id: string; user_id: string }>
-    | null;
-  const project = Array.isArray(estimateProjects)
-    ? estimateProjects[0]
-    : estimateProjects;
-
-  if (!project || project.tenant_id !== input.tenantId) {
-    throw new TakeoffError({
-      status: 404,
-      code: TakeoffErrorCode.NOT_FOUND,
-      message: "Version de chiffrage introuvable.",
-      retryable: false,
-    });
-  }
-
-  const canAccess =
-    project.user_id === input.userId || input.tenantRole === "admin";
-  if (!canAccess) {
-    throw new TakeoffError({
-      status: 403,
-      code: TakeoffErrorCode.TAKEOFF_TENANT_UNAUTHORIZED,
-      message: "Accès interdit aux ressources de ce tenant.",
-      retryable: false,
-    });
-  }
-
-  return data;
-}
-
-async function removeUploadedFileIfPresent(input: {
-  storagePath: string;
-}) {
-  // The upload can exist before its takeoff_jobs row. The authenticated
-  // Storage DELETE policy intentionally requires that row, so rollback uses
-  // the server-only client for this server-generated exact path.
-  const storageAdmin = createServiceRoleClient();
-  const { error } = await storageAdmin.storage
-    .from(TAKEOFF_FILES_BUCKET)
-    .remove([input.storagePath]);
-
-  if (error) {
-    console.error("Failed to rollback takeoff storage upload", {
-      storagePath: input.storagePath,
-      error,
-    });
-  }
-}
-
-async function removeCreatedJobIfPresent(input: {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
-  tenantId: string;
-  jobId: string;
-}) {
-  const { error } = await input.supabase
-    .from("takeoff_jobs" as never)
-    .delete()
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("id" as never, input.jobId as never);
-
-  if (error) {
-    console.error("Failed to rollback takeoff job creation", {
-      jobId: input.jobId,
-      tenantId: input.tenantId,
-      error,
-    });
-  }
-}
-
-function takeoffJobInsertError(error: { code: string; message: string }, jobId: string, level?: TakeoffLevel) {
-  if (error.code === "23514" && error.message === "TAKEOFF_JOB_ADMISSION_LIMIT") {
-    return new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.TAKEOFF_JOB_ADMISSION_LIMIT,
-      message: "Trop d'analyses takeoff en cours ou créées récemment. Réessayez plus tard.",
-      retryable: true,
-      jobId,
-      level,
-    });
-  }
-  return toTakeoffError(
-    mapSupabaseError(error, "Impossible de créer le job takeoff."),
-    { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId, level },
-  );
-}
-
-function takeoffPdfInspectionError(error: unknown, level: TakeoffLevel): TakeoffError {
-  if (error instanceof SourceReferencePdfError) {
-    if (error.code === "PDF_ENCRYPTED") {
-      return new TakeoffError({
-        status: 422,
-        code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
-        message: "Le PDF est protege et ne peut pas être analyse. Exportez une version non protegee puis relancez.",
-        details: { reason: "encrypted_pdf" },
-        retryable: false,
-        level,
-      });
-    }
-    if (error.code === "PDF_INVALID" || error.code === "PDF_EMPTY" || error.code === "PDF_PAGE_LIMIT") {
-      return new TakeoffError({
-        status: 422,
-        code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
-        message: "Le PDF est invalide ou corrompu. Reexportez-le depuis la source puis relancez l'analyse.",
-        details: { reason: "corrupted_pdf" },
-        retryable: false,
-        level,
-      });
-    }
-    if (error.code === "PDF_TIMEOUT") {
-      return new TakeoffError({
-        status: 503,
-        code: TakeoffErrorCode.TAKEOFF_PDF_INSPECTION_TIMEOUT,
-        message: "La vérification du PDF a dépassé le délai autorisé. Réessayez avec un PDF plus simple.",
-        retryable: true,
-        level,
-      });
-    }
-  }
-
-  console.error("Takeoff PDF inspection worker failed", {
-    code: error instanceof SourceReferencePdfError ? error.code : "unknown",
-  });
-  return new TakeoffError({
-    status: 503,
-    code: TakeoffErrorCode.INTERNAL_ERROR,
-    message: "La vérification du PDF est temporairement indisponible.",
-    retryable: true,
-    level,
-  });
-}
-
-export async function createTakeoffJobFromFormData(
-  formData: FormData,
-  input?: { idempotencyKey?: string | null }
-): Promise<TakeoffJobCreateResponse> {
-  let level: TakeoffLevel | undefined;
-  let jobId: string | undefined;
-
-  try {
-    const { supabase, tenantId, userId, tenantRole } =
-      await getAuthenticatedContext();
-    const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
-    const fileEntry = formData.get("file");
-
-    if (!(fileEntry instanceof File)) {
-      throw new TakeoffError({
-        status: 400,
-        code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
-        message: "Le champ file est requis.",
-        retryable: false,
-      });
-    }
-
-    const file = fileEntry;
-    const estimateVersionId = parseEstimateVersionId(formData);
-    level = parseTakeoffLevel(formData);
-    const provider = parseTakeoffProvider(formData.get("provider"));
-
-    assertTakeoffFileIsValid(file, level);
-    const fileBytes = await file.arrayBuffer();
-
-    const normalizedSourceFileType =
-      level === "A"
-        ? file.type
-        : resolveTakeoffPdfMimeType({
-            fileName: file.name,
-            mimeType: file.type,
-          }) ?? file.type;
-
-    const fileContentHash = toHexSha256(Buffer.from(fileBytes));
-    const payloadFingerprint = toHexSha256(
-      JSON.stringify({
-        estimate_version_id: estimateVersionId,
-        level,
-        ...(provider !== "auto" ? { provider } : {}),
-        file_name: file.name,
-        file_type: normalizedSourceFileType,
-        file_size_bytes: file.size,
-        file_content_hash: fileContentHash,
-      })
-    );
-
-    jobId = idempotencyKey
-      ? deriveDeterministicJobId(tenantId, idempotencyKey)
-      : randomUUID();
-
-    if (idempotencyKey) {
-      const existingJob = await getTakeoffJobById({
-        supabase,
-        tenantId,
-        jobId,
-      });
-
-      if (existingJob) {
-        const existingFingerprint = extractPayloadFingerprint(
-          existingJob.source_file_path
-        );
-
-        if (existingFingerprint === payloadFingerprint) {
-          return normalizeTakeoffJobRow(existingJob);
-        }
-
-        throw new TakeoffError({
-          status: 409,
-          code: TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED,
-          message:
-            "La clé d'idempotence est déjà utilisee avec un payload différent.",
-          details: {
-            job_id: existingJob.id,
-          },
-          retryable: false,
-          jobId: existingJob.id,
-          level,
-        });
-      }
-    }
-
-    await assertTakeoffEnabled(tenantId, { supabase });
-    await assertEstimateVersionAccessibleAsDraft({
-      supabase,
-      tenantId,
-      userId,
-      tenantRole,
-      estimateVersionId,
-    });
-    if (level !== "A") {
-      try {
-        // The worker owns the buffer after transfer; Storage receives the File.
-        await inspectSourceReferencePdf(fileBytes, {
-          maxPages: Number.MAX_SAFE_INTEGER,
-          strictObjectValidation: false,
-        });
-      } catch (error) {
-        throw takeoffPdfInspectionError(error, level);
-      }
-    }
-    const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
-      tenantId,
-      level,
-      { supabase }
-    );
-    const processingStrategy = resolveTakeoffProcessingStrategy(
-      geminiDeliveryConfig.useBatchApi
-    );
-
-    const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
-    const uploadClassification = classifyTakeoffUploadSource({
-      fileName: sourceFileName,
-      mimeType: normalizedSourceFileType,
-      sizeBytes: file.size,
-    });
-    // Each contender owns its upload; the job primary key arbitrates idempotency.
-    // A replacement cannot pass Storage RLS before the job references its file.
-    const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${randomUUID()}-${sanitizeFilename(
-      sourceFileName
-    )}`;
-
-    const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, provider);
-    const { error: uploadError } = await supabase.storage
-      .from(TAKEOFF_FILES_BUCKET)
-      .upload(sourceFilePath, file, {
-        contentType: normalizedSourceFileType,
-        upsert: false,
-      });
-
-    if (uploadError) {
-      throw new TakeoffError({
-        status: 400,
-        code: TakeoffErrorCode.BAD_REQUEST,
-        message: "Impossible de téléverser le fichier takeoff.",
-        details: uploadError,
-        retryable: false,
-        jobId,
-        level,
-      });
-    }
-
-    const { data: insertedJob, error: insertError } = await supabase
-      .from("takeoff_jobs" as never)
-      .insert({
-        id: jobId,
-        tenant_id: tenantId,
-        estimate_version_id: estimateVersionId,
-        level,
-        status: "pending",
-        processing_strategy: processingStrategy,
-        source_file_name: sourceFileName,
-        source_file_path: sourceFilePath,
-        source_file_type: normalizedSourceFileType,
-        source_file_size_bytes: file.size,
-        prompt_version: getTakeoffPromptVersion(level),
-        created_by: userId,
-        ...executionOwner,
-        ...(executionOwner.execution_provider ? { processing_strategy: "sync" } : {}),
-      } as never)
-      .select(
-        "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never
-      )
-      .single();
-
-    if (insertError || !insertedJob) {
-      if (idempotencyKey && insertError?.code === "23505") {
-        const existingJob = await getTakeoffJobById({
-          supabase,
-          tenantId,
-          jobId,
-        });
-
-        if (existingJob) {
-          const existingFingerprint = extractPayloadFingerprint(
-            existingJob.source_file_path
-          );
-
-          if (existingFingerprint === payloadFingerprint) {
-            await removeUploadedFileIfPresent({
-              storagePath: sourceFilePath,
-            });
-            return normalizeTakeoffJobRow(existingJob);
-          }
-
-          await removeUploadedFileIfPresent({
-            storagePath: sourceFilePath,
-          });
-
-          throw new TakeoffError({
-            status: 409,
-            code: TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED,
-            message:
-              "La clé d'idempotence est déjà utilisee avec un payload différent.",
-            details: {
-              job_id: existingJob.id,
-            },
-            retryable: false,
-            jobId: existingJob.id,
-            level,
-          });
-        }
-
-        await removeUploadedFileIfPresent({
-          storagePath: sourceFilePath,
-        });
-
-        throw new TakeoffError({
-          status: 404,
-          code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND,
-          message:
-            "L'analyse associée à la clé d'idempotence est introuvable.",
-          details: {
-            reason: "IDEMPOTENCY_KEY_CONFLICT_WITHOUT_JOB",
-          },
-          retryable: false,
-          jobId,
-          level,
-        });
-      }
-
-      await removeUploadedFileIfPresent({
-        storagePath: sourceFilePath,
-      });
-
-      if (insertError) {
-        throw takeoffJobInsertError(insertError, jobId, level);
-      }
-
-      throw new TakeoffError({
-        status: 400,
-        code: TakeoffErrorCode.BAD_REQUEST,
-        message: "Impossible de créer le job takeoff.",
-        retryable: false,
-        jobId,
-        level,
-      });
-    }
-
-    const createdJob = insertedJob as TakeoffJobRow;
-
-    try {
-      const createdAuditMetadata =
-        takeoffAuditMetadataBuilders["takeoff.job.created"]({
-          level,
-          estimate_version_id: createdJob.estimate_version_id,
-          source_file_name: createdJob.source_file_name,
-          idempotency_key: idempotencyKey,
-          classification: uploadClassification,
-          selection: {
-            selected_level: level,
-            override_applied:
-              uploadClassification.recommendedLevel === null ||
-              uploadClassification.recommendedLevel !== level,
-            source_kind: "upload",
-          },
-        });
-
-      await logTakeoffAuditEvent({
-        supabase,
-        tenantId,
-        userId,
-        jobId: createdJob.id,
-        estimateVersionId: createdJob.estimate_version_id,
-        action: "takeoff.job.created",
-        metadata: createdAuditMetadata,
-        mode: "fail-hard",
-      });
-    } catch (error) {
-      await removeUploadedFileIfPresent({
-        storagePath: sourceFilePath,
-      });
-      await removeCreatedJobIfPresent({
-        supabase,
-        tenantId,
-        jobId: createdJob.id,
-      });
-      throw error;
-    }
-
-    return normalizeTakeoffJobRow(createdJob);
-  } catch (error) {
-    throw toTakeoffError(error, {
-      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      fallbackMessage: "Impossible de créer le job takeoff.",
-      retryable: false,
-      jobId,
-      level,
-    });
-  }
-}
-
-export async function createTakeoffJobFromPlanSet(input: {
-  projectId: string;
-  planSetId: string;
-  estimateVersionId: string;
-  level?: TakeoffLevel;
-  provider?: import("@/lib/takeoff/types").TakeoffProvider;
-}): Promise<TakeoffJobCreateResponse> {
-  const { supabase, tenantId, userId, tenantRole } =
-    await getAuthenticatedContext();
-  const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
-
-  if (level === "A") {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message:
-        "Le niveau Rapide n'est pas disponible pour les jeux de plans. Utilisez Standard ou Détaillé.",
-      retryable: false,
-      level,
-    });
-  }
-
-  await assertTakeoffEnabled(tenantId, { supabase });
-  await assertEstimateVersionAccessibleAsDraft({
-    supabase,
-    tenantId,
-    userId,
-    tenantRole,
-    estimateVersionId: input.estimateVersionId,
-  });
-  const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, input.provider);
-  const [geminiDeliveryConfig, planSetPageConfig] = await Promise.all([
-    getTakeoffGeminiDeliveryConfigForTenant(tenantId, level, { supabase }),
-    level === "C"
-      ? getTakeoffLevelCProcessingConfigForTenant(tenantId, { supabase })
-      : getTakeoffChunkingConfigForTenant(tenantId, { supabase }),
-  ]);
-  const processingStrategy = resolveTakeoffProcessingStrategy(
-    geminiDeliveryConfig.useBatchApi
-  );
-
-  // Verify plan set belongs to the project and tenant
-  const { data: planSetRow, error: planSetError } = await supabase
-    .from("plan_sets" as never)
-    .select("id" as never)
-    .eq("id" as never, input.planSetId as never)
-    .eq("project_id" as never, input.projectId as never)
-    .eq("tenant_id" as never, tenantId as never)
-    .single();
-
-  if (planSetError || !planSetRow) {
-    throw new TakeoffError({
-      status: 404,
-      code: TakeoffErrorCode.NOT_FOUND,
-      message: "Jeu de plans introuvable.",
-      retryable: false,
-    });
-  }
-
-  const jobId = randomUUID();
-  const sourceFile = await resolvePlanSetSourceFile({
-    supabase,
-    tenantId,
-    planSetId: input.planSetId,
-    jobId,
-    maxPages: planSetPageConfig.maxPdfPages,
-  });
-  const planSetClassification = classifyTakeoffPlanSetSource({
-    files: sourceFile.planFiles.map((planFile) => ({
-      file_name: planFile.source_label ?? `plan-set-${input.planSetId}.pdf`,
-      file_type: planFile.file_type ?? "application/pdf",
-      page_count:
-        typeof planFile.page_count === "number" ? planFile.page_count : null,
-    })),
-  });
-
-  const { data: insertedJob, error: insertError } = await supabase
-    .from("takeoff_jobs" as never)
-    .insert({
-      id: jobId,
-      tenant_id: tenantId,
-      estimate_version_id: input.estimateVersionId,
-      plan_set_id: input.planSetId,
-      level,
-      status: "pending",
-      processing_strategy: processingStrategy,
-      source_file_name: sourceFile.sourceFileName,
-      source_file_path: sourceFile.sourceFilePath,
-      source_file_type: sourceFile.sourceFileType,
-      source_file_size_bytes: sourceFile.sourceFileSizeBytes,
-      prompt_version: getTakeoffPromptVersion(level),
-      created_by: userId,
-      ...executionOwner,
-      ...(executionOwner.execution_provider ? { processing_strategy: "sync" } : {}),
-    } as never)
-    .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never,
-    )
-    .single();
-
-  if (insertError || !insertedJob) {
-    if (insertError) throw takeoffJobInsertError(insertError, jobId, level);
-    throw toTakeoffError(new Error("Impossible de créer le job takeoff."), {
-      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      retryable: false,
-      jobId,
-    });
-  }
-
-  const createdJob = insertedJob as TakeoffJobRow;
-
-  try {
-    const createdAuditMetadata =
-      takeoffAuditMetadataBuilders["takeoff.job.created"]({
-        level,
-        estimate_version_id: createdJob.estimate_version_id,
-        source_file_name: createdJob.source_file_name,
-        plan_set_id: input.planSetId,
-        classification: planSetClassification,
-        selection: {
-          selected_level: level,
-          override_applied:
-            planSetClassification.recommendedLevel === null ||
-            planSetClassification.recommendedLevel !== level,
-          source_kind: "plan_set",
-        },
-      });
-
-    await logTakeoffAuditEvent({
-      supabase,
-      tenantId,
-      userId,
-      jobId: createdJob.id,
-      estimateVersionId: createdJob.estimate_version_id,
-      action: "takeoff.job.created",
-      metadata: createdAuditMetadata,
-      mode: "fail-hard",
-    });
-  } catch (error) {
-    await removeCreatedJobIfPresent({ supabase, tenantId, jobId: createdJob.id });
-    throw error;
-  }
-
-  return normalizeTakeoffJobRow(createdJob);
 }
 
 const TAKEOFF_ITEM_BATCH_MAX = 100;

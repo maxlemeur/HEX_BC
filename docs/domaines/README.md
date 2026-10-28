@@ -46,6 +46,26 @@ rejeu automatique. `editor-save-session.ts` possède l'état de la requête en
 cours ; un changement de compte ou de version invalide sa capacité à modifier
 l'éditeur. Les nouvelles saisies restent dans le tampon pendant cette requête.
 
+La lecture d'un devis utilise le contrat commun
+[editor-read-contracts.ts](../../src/lib/estimates/editor-read-contracts.ts), validé
+par le serveur et le navigateur et repris par OpenAPI. Le
+[contrôleur de lecture](../../src/hooks/useEstimateEditorReadController.ts) possède
+le cycle des requêtes ; il écarte les réponses d'un ancien compte, tenant ou
+devis, ainsi que les révisions plus anciennes que celle déjà confirmée.
+[editor-read-snapshot.ts](../../src/lib/estimates/editor-read-snapshot.ts) prépare
+les lignes et réglages sans effectuer d'écriture. Les correctifs historiques
+éventuels sont mis en file uniquement après acceptation de cette lecture.
+[editor-settings-state.ts](../../src/lib/estimates/editor-settings-state.ts)
+conserve les champs modifiés localement lors de la fusion avec les réglages relus.
+
+Pour les opérations de lignes, `server.ts` garde les exports publics et délègue
+aux modules `item-create-server.ts`, `item-update-server.ts` et
+`item-structure-server.ts`. Leurs plans purs portent les défauts, conversions,
+calculs historiques et règles de hiérarchie ; `item-write-context.ts` rassemble
+les lectures et contrôles partagés. Les orchestrateurs gardent l'ordre des
+autorisations, verrous, contrôles de révision et écritures atomiques. Aucun module
+d'opération ne doit réimporter la façade `server.ts`.
+
 Templates, ouvrages de bibliothèque et ouvrages générés alimentent le devis
 par des opérations de copie/application encadrées. Une modification de la
 bibliothèque ne modifie pas rétroactivement une offre émise. Les capacités des
@@ -87,6 +107,15 @@ moteur 3 (migration `20261025134000_takeoff_apply_engine_v3`). Voir
 [feature-flags.ts](../../src/lib/takeoff/feature-flags.ts),
 [server.ts](../../src/lib/takeoff/server.ts) et
 [processor.ts](../../src/lib/takeoff/processor.ts).
+
+La création d'un métré depuis un upload ou un jeu de plans est orchestrée par
+[job-creation-server.ts](../../src/lib/takeoff/job-creation-server.ts).
+[job-creation-input.ts](../../src/lib/takeoff/job-creation-input.ts) prépare les
+entrées et identités déterministes ;
+[job-creation-repository.ts](../../src/lib/takeoff/job-creation-repository.ts)
+porte les accès, le stockage et les compensations. Le rejeu conserve l'identité
+du job et ne répète pas ses effets. Une erreur métier transitoire conserve son
+indicateur `retryable` ; cet indicateur ne déclenche aucune relance automatique.
 
 ## Catalogue et achats
 
