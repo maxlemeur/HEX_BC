@@ -343,6 +343,9 @@ export async function listEstimateProjectVersions(input: {
       .select("record_id, user_id, created_at")
       .eq("tenant_id", tenantId)
       .eq("table_name", "estimate_versions")
+      // Audit entries for live versions carry the version ID in both columns.
+      // This filter lets PostgreSQL use the existing version index.
+      .in("estimate_version_id", versionIds)
       .in("record_id", versionIds)
       .order("created_at", { ascending: false });
 
