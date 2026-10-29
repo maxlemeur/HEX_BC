@@ -1,3 +1,6 @@
+import { parseEstimateItemWriteResponse } from "@/lib/estimates/write-response-contracts";
+import { parseEstimateItemDeleteResponse } from "@/lib/estimates/item-structure-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -51,7 +54,7 @@ export async function POST(
     const versionId = await getVersionId(params);
     const body = createEstimateItemSchema.parse(await parseJsonBody(request));
     const data = await createEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
-    return ok(data, 201);
+    return ok(validateEstimateResponse(() => parseEstimateItemWriteResponse(data, versionId)), 201);
   } catch (error) {
     return toErrorResponse(error);
   }
@@ -65,7 +68,7 @@ export async function PATCH(
     const versionId = await getVersionId(params);
     const body = updateEstimateItemSchema.parse(await parseJsonBody(request));
     const data = await updateEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateItemWriteResponse(data, versionId, body.id)));
   } catch (error) {
     return toErrorResponse(error);
   }
@@ -79,7 +82,7 @@ export async function DELETE(
     const versionId = await getVersionId(params);
     const body = deleteEstimateItemSchema.parse(await parseJsonBody(request));
     const data = await deleteEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parseEstimateItemDeleteResponse(data, versionId, body.id)));
   } catch (error) {
     return toErrorResponse(error);
   }

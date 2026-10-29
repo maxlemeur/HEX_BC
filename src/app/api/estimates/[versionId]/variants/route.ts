@@ -1,3 +1,5 @@
+import { parseEstimateVersionIdResponse, parsePromoteEstimateVariantResponse } from "@/lib/estimates/write-response-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -41,7 +43,7 @@ export async function POST(
     const versionId = await getVersionId(params);
     createEstimateVariantSchema.parse(await parseJsonBodyOrDefault(request));
     const data = await createEstimateVariant(versionId);
-    return ok(data, 201);
+    return ok(validateEstimateResponse(() => parseEstimateVersionIdResponse(data, versionId)), 201);
   } catch (error) {
     return toErrorResponse(error);
   }
@@ -55,7 +57,7 @@ export async function PATCH(
     const versionId = await getVersionId(params);
     promoteEstimateVariantSchema.parse(await parseJsonBodyOrDefault(request));
     const data = await promoteEstimateVariant(versionId);
-    return ok(data);
+    return ok(validateEstimateResponse(() => parsePromoteEstimateVariantResponse(data, versionId)));
   } catch (error) {
     return toErrorResponse(error);
   }

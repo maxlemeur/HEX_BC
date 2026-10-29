@@ -3,6 +3,7 @@
 import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import { useEstimateEditorSuggestionsController } from "@/hooks/useEstimateEditorSuggestionsController";
 import type {
 SuggestionLearningState as SuggestionLearningClientState,
@@ -228,6 +229,7 @@ type HookProps = {
 };
 
 function createHarness(input?: {
+  document?: EstimateEditorDocument;
   items?: EditorEstimateItem[];
   version?: EstimateVersionRow | null;
   routeVersionId?: string;
@@ -245,7 +247,8 @@ function createHarness(input?: {
         | EditorEstimateItem[]
         | ((previous: EditorEstimateItem[]) => EditorEstimateItem[])
     ) => {
-      items = typeof update === "function" ? update(items) : update;
+      if (input?.document) input.document.setDraftItems(update);
+      else items = typeof update === "function" ? update(items) : update;
     }
   );
   const normalizeLine = vi.fn((item: EditorEstimateItem) => ({
@@ -271,17 +274,18 @@ function createHarness(input?: {
   const rendered = renderHook(
     ({ routeVersionId, isMutationBlocked }: HookProps) =>
       useEstimateEditorSuggestionsController({
+        document: input?.document,
         routeVersionId,
         currentUserId:
           input && "currentUserId" in input
             ? (input.currentUserId ?? null)
             : USER_ID,
-        previewItems: items,
+        previewItems: input?.document?.getSnapshot().items ?? items,
         categories,
         isMutationBlocked,
         mutationBlockedMessage: "Mutation interdite.",
-        getItemsSnapshot: () => items,
-        getVersionSnapshot: () => version,
+        getItemsSnapshot: () => input?.document?.getSnapshot().items ?? items,
+        getVersionSnapshot: () => input?.document?.getSnapshot().version ?? version,
         setItems,
         normalizeLine,
         setTotalsOutOfSync,
@@ -303,7 +307,7 @@ function createHarness(input?: {
 
   return {
     ...rendered,
-    getItems: () => items,
+    getItems: () => input?.document?.getSnapshot().items ?? items,
     replaceExternalItems: (nextItems: EditorEstimateItem[]) => {
       items = nextItems;
     },
@@ -969,5 +973,64 @@ describe("useEstimateEditorSuggestionsController", () => {
       expect.stringContaining("compteur")
     );
     expect(harness.result.current.state.undoState).toBeNull();
+  });
+});
+
+
+describe("suggestion receipts accepted by the document", () => {
+  function documentWithLine() {
+    const document = new EstimateEditorDocument({ actorId: USER_ID, tenantId: TENANT_ID, versionId: VERSION_A });
+    document.setConfirmedVersion({ ...createVersion(VERSION_A, "2026-10-28T10:00:00.123456Z"),
+      tenant_id: TENANT_ID, calc_engine_version: 1, estimate_projects: null });
+    document.acceptItems([createLine("line-1")]);
+    return document;
+  }
+
+  it("does not report or remember a stale successful suggestion after a newer read", async () => {
+    const document = documentWithLine();
+    const harness = createHarness({ document });
+    await hydrateWithRule(harness);
+    await openSuggestionDialog(harness);
+    const request = createDeferred<ReturnType<typeof createBulkResult>>();
+    clientMocks.bulkUpdateEstimateItems.mockReturnValueOnce(request.promise);
+    let completion!: Promise<void>;
+    act(() => { completion = harness.result.current.actions.applySelected(); });
+    await waitFor(() => expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(1));
+    act(() => document.transaction(() => {
+      document.setConfirmedVersion((version) => version && { ...version, updated_at: "2026-10-28T10:00:00.123458Z" });
+      document.acceptItems([createLine("line-1", { k_fo: 1.4 })]);
+    }));
+    await act(async () => { request.resolve(createBulkResult("2026-10-28T10:00:00.123457Z")); await completion; });
+    expect(document.getSnapshot().items[0].k_fo).toBe(1.4);
+    expect(document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123458Z");
+    expect(harness.result.current.state.isDialogOpen).toBe(true);
+    expect(harness.result.current.meta.appliedCount).toBeNull();
+    expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
+    expect(clientMocks.sendEstimateSuggestionRuleFeedback).not.toHaveBeenCalled();
+  });
+
+  it("keeps a newer confirmed value and undo context when the undo receipt is stale", async () => {
+    const document = documentWithLine();
+    const harness = createHarness({ document });
+    await hydrateWithRule(harness);
+    await openSuggestionDialog(harness);
+    clientMocks.bulkUpdateEstimateItems.mockResolvedValueOnce(createBulkResult("2026-10-28T10:00:00.123457Z"));
+    await act(async () => { await harness.result.current.actions.applySelected(); });
+    expect(harness.result.current.meta.appliedCount).toBe(1);
+    harness.setTotalsOutOfSync.mockClear();
+    const request = createDeferred<ReturnType<typeof createBulkResult>>();
+    clientMocks.bulkUpdateEstimateItems.mockReturnValueOnce(request.promise);
+    let completion!: Promise<void>;
+    act(() => { completion = harness.result.current.actions.undoLastApply(); });
+    await waitFor(() => expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(2));
+    act(() => document.transaction(() => {
+      document.setConfirmedVersion((version) => version && { ...version, updated_at: "2026-10-28T10:00:00.123459Z" });
+      document.acceptItems([createLine("line-1", { k_fo: 1.6 })]);
+    }));
+    await act(async () => { request.resolve(createBulkResult("2026-10-28T10:00:00.123458Z")); await completion; });
+    expect(document.getSnapshot().items[0].k_fo).toBe(1.6);
+    expect(document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123459Z");
+    expect(harness.result.current.meta.appliedCount).toBe(1);
+    expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
   });
 });

@@ -1,7 +1,7 @@
 import "server-only";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { Database } from "@/types/database";
-import { badRequest, mapSupabaseError, notFound } from "./errors";
+import { mapSupabaseError, notFound } from "./errors";
 import {
   canAccessOwnerResource,
   getAuthenticatedContext,
@@ -166,40 +166,13 @@ export type ListEstimateProjectDraftVersionsResult = {
 
 export type EstimateVersionEventAuthor = Pick<ProfileRow, "full_name">;
 
-export const DEFAULT_CURRENCY = "EUR";
-
-const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
+import { DEFAULT_CURRENCY, normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
+export { DEFAULT_CURRENCY, normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
 
 const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
 
 const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 
-export function normalizeEstimateCurrencyOrThrow(
-  value: string | null | undefined,
-  options?: {
-    fallback?: string;
-    fallbackOnInvalid?: boolean;
-  }
-) {
-  const normalized = value?.trim().toUpperCase() ?? "";
-
-  if (!normalized) {
-    if (options?.fallback) return options.fallback;
-    throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
-  }
-
-  if (
-    (SUPPORTED_ESTIMATE_CURRENCIES as readonly string[]).includes(normalized)
-  ) {
-    return normalized;
-  }
-
-  if (options?.fallback && options.fallbackOnInvalid === true) {
-    return options.fallback;
-  }
-
-  throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
-}
 
 function variantLabelToSequenceIndex(label: string | null | undefined) {
   const normalized = toNullableText(label)?.toUpperCase();

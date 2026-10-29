@@ -1,4 +1,4 @@
-import { readAllRows } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 
 import { cache } from "react";
@@ -17,6 +17,8 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { withPlanFileOriginalName } from "@/lib/takeoff/plan-file-display-name";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
+import { DEFAULT_IMPORT_PLAN_SET_NAME, hasDefaultImportPlanSetMarker, selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
+import { stableImportPlanSetId } from "@/lib/takeoff/default-import-plan-set-id";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -234,6 +236,7 @@ export const listPlanSetsQuerySchema = z
     project_id: optionalProjectUuidSearchParamSchema,
     estimate_version_id: optionalUuidSearchParamSchema,
     limit: optionalLimitSearchParamSchema,
+    import_default_only: optionalBooleanFlagSearchParamSchema,
   })
   .strict();
 
@@ -645,10 +648,10 @@ async function getPlanFileStatsBySetIds(input: {
     return new Map<string, { fileCount: number; totalSizeBytes: number }>();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(input.setIds, (ids) => input.supabase
     .from("plan_files" as never)
-    .select("id, plan_set_id, file_size_bytes" as never)
-    .in("plan_set_id" as never, input.setIds as never);
+    .select("id, plan_set_id, file_size_bytes" as never, { count: "exact" })
+    .in("plan_set_id" as never, ids as never));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de compter les fichiers de plan.");
@@ -863,7 +866,7 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
 
   let query = supabase
     .from("plan_sets" as never)
-    .select(PLAN_SET_SELECT as never)
+    .select(PLAN_SET_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, tenantId as never)
     .order("created_at" as never, { ascending: false });
 
@@ -874,9 +877,12 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
     );
   }
 
-  query = query.limit(input.limit ?? DEFAULT_PLAN_SETS_LIST_LIMIT);
-
-  const { data, error } = await query;
+  if (input.import_default_only && (!targetProjectId || input.estimate_version_id || input.limit)) {
+    throw unprocessableEntity("La recherche du jeu d'import nécessite une affaire, sans limite ni version.");
+  }
+  const { data, error } = input.import_default_only
+    ? await readAllRows(() => query.is("estimate_version_id" as never, null))
+    : await query.limit(input.limit ?? DEFAULT_PLAN_SETS_LIST_LIMIT);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de lister les jeux de plans.");
@@ -888,16 +894,19 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
     setIds: planSets.map((item) => item.id),
   });
 
-  return {
-    plan_sets: planSets.map((item) => {
-      const stats = fileStats.get(item.id);
-      return {
-        ...item,
-        file_count: stats?.fileCount ?? 0,
-        total_size_bytes: stats?.totalSizeBytes ?? 0,
-      };
-    }),
-  };
+  const withStats = planSets.map((item) => {
+    const stats = fileStats.get(item.id);
+    return {
+      ...item,
+      file_count: stats?.fileCount ?? 0,
+      total_size_bytes: stats?.totalSizeBytes ?? 0,
+    };
+  });
+  if (input.import_default_only) {
+    const selected = selectProjectImportPlanSet(withStats);
+    return { plan_sets: selected ? [selected] : [] };
+  }
+  return { plan_sets: withStats };
 }
 
 const projectIdParamSchema = z.string().uuid("project_id invalide.");
@@ -1008,10 +1017,18 @@ export async function createPlanSet(input: CreatePlanSetInput) {
     );
   }
 
+  // A stable ID makes simultaneous preparations from separate tabs idempotent
+  // without imposing a new constraint on existing, user-created plan sets.
+  const canonicalImportId = input.name === DEFAULT_IMPORT_PLAN_SET_NAME &&
+    input.metadata.source === "import-flow" && input.metadata.default_import_plan_set === true
+    ? stableImportPlanSetId(tenantId, targetProjectId, estimateVersionId)
+    : null;
+
   const { data, error } = await supabase
     .from("plan_sets" as never)
     .insert(
       {
+        ...(canonicalImportId ? { id: canonicalImportId } : {}),
         tenant_id: tenantId,
         project_id: targetProjectId,
         estimate_version_id: estimateVersionId,
@@ -1025,6 +1042,14 @@ export async function createPlanSet(input: CreatePlanSetInput) {
     .single();
 
   if (error) {
+    if (canonicalImportId && error.code === "23505") {
+      const existing = await getPlanSetByIdOrThrow({ supabase, setId: canonicalImportId });
+      if (existing.tenant_id === tenantId && existing.project_id === targetProjectId &&
+          existing.estimate_version_id === estimateVersionId &&
+          existing.name === DEFAULT_IMPORT_PLAN_SET_NAME && hasDefaultImportPlanSetMarker(existing.metadata)) {
+        return { plan_set: existing };
+      }
+    }
     throw mapSupabaseError(error, "Impossible de créer le jeu de plans.");
   }
 
@@ -1035,6 +1060,30 @@ export async function createPlanSet(input: CreatePlanSetInput) {
   return {
     plan_set: normalizePlanSetRow(data),
   };
+}
+
+export async function reconcilePlanSetDossier(setId: string) {
+  const { supabase, tenantRole } = await getAuthenticatedTakeoffContext();
+  assertPlanSetMutationRole(tenantRole);
+  const planSet = await getPlanSetByIdOrThrow({ supabase, setId });
+  let changed = false;
+  if (planSet.project_id) {
+    const { reconcileAffairePlanPresence } = await import("@/lib/affaires/intake-server");
+    ({ changed } = await reconcileAffairePlanPresence(planSet.project_id));
+  }
+  return { synchronized: true as const, changed };
+}
+
+async function reconcilePlanDossierAfterDeletion(projectId: string | null) {
+  if (!projectId) return true;
+  try {
+    const { reconcileAffairePlanPresence } = await import("@/lib/affaires/intake-server");
+    await reconcileAffairePlanPresence(projectId);
+    return true;
+  } catch (error) {
+    console.error("Plan dossier reconciliation failed after deletion", { projectId, error });
+    return false;
+  }
 }
 
 export async function deletePlanSet(setId: string) {
@@ -1050,6 +1099,9 @@ export async function deletePlanSet(setId: string) {
     supabase,
     setId,
   });
+  if (planFiles.some((file) => file.metadata.source === "affaire-intake")) {
+    throw conflict("Ce jeu contient des plans issus du dossier. Supprimez leurs pièces sources dans le dossier de l'affaire.");
+  }
   const storagePaths = planFiles.map(assertCanonicalPlanFileStoragePath);
 
   const { error: deleteError } = await supabase
@@ -1077,12 +1129,14 @@ export async function deletePlanSet(setId: string) {
         planFiles,
       });
 
+      const dossierSynchronized = await reconcilePlanDossierAfterDeletion(planSet.project_id);
       if (!compensation.ok) {
         throw internalError(
-          "Suppression du jeu de plans incomplete: échec cleanup storage et échec compensation.",
+          `Suppression du jeu de plans incomplete: échec cleanup storage et échec compensation.${dossierSynchronized ? "" : " Le dossier n'a pas pu être actualisé."}`,
           {
             set_id: setId,
             storage_error: cleanupError,
+            dossier_synchronized: dossierSynchronized,
             compensation: {
               restored: false,
               stage: compensation.stage,
@@ -1093,10 +1147,11 @@ export async function deletePlanSet(setId: string) {
       }
 
       throw conflict(
-        "Suppression du jeu de plans annulée car le nettoyage du stockage a échoué.",
+        `Suppression du jeu de plans annulée car le nettoyage du stockage a échoué.${dossierSynchronized ? "" : " Le dossier n'a pas pu être actualisé."}`,
         {
           set_id: setId,
           storage_error: cleanupError,
+          dossier_synchronized: dossierSynchronized,
           compensation: {
             restored: true,
           },
@@ -1108,6 +1163,7 @@ export async function deletePlanSet(setId: string) {
   return {
     deleted: true as const,
     plan_set_id: setId,
+    dossier_synchronized: await reconcilePlanDossierAfterDeletion(planSet.project_id),
     cleanup: {
       metadata_deleted: true,
       storage_cleanup_attempted: storagePaths.length > 0,
@@ -1370,7 +1426,7 @@ export async function deletePlanFile(setId: string, fileId: string) {
   const { supabase, tenantRole } = await getAuthenticatedTakeoffContext();
   assertPlanSetMutationRole(tenantRole);
 
-  await getPlanSetByIdOrThrow({
+  const planSet = await getPlanSetByIdOrThrow({
     supabase,
     setId,
   });
@@ -1380,6 +1436,9 @@ export async function deletePlanFile(setId: string, fileId: string) {
     setId,
     fileId,
   });
+  if (planFile.metadata.source === "affaire-intake") {
+    throw conflict("Ce plan provient du dossier. Supprimez sa pièce source dans le dossier de l'affaire.");
+  }
   const storagePath = assertCanonicalPlanFileStoragePath(planFile);
 
   const { error: deleteError } = await supabase
@@ -1406,13 +1465,15 @@ export async function deletePlanFile(setId: string, fileId: string) {
       planFile,
     });
 
+    const dossierSynchronized = await reconcilePlanDossierAfterDeletion(planSet.project_id);
     if (!compensation.ok) {
       throw internalError(
-        "Suppression du fichier incomplete: échec cleanup storage et échec compensation.",
+        `Suppression du fichier incomplete: échec cleanup storage et échec compensation.${dossierSynchronized ? "" : " Le dossier n'a pas pu être actualisé."}`,
         {
           set_id: setId,
           file_id: fileId,
           storage_error: cleanupError,
+          dossier_synchronized: dossierSynchronized,
           compensation: {
             restored: false,
             stage: compensation.stage,
@@ -1423,11 +1484,12 @@ export async function deletePlanFile(setId: string, fileId: string) {
     }
 
     throw conflict(
-      "Suppression du fichier annulée car le nettoyage du stockage a échoué.",
+      `Suppression du fichier annulée car le nettoyage du stockage a échoué.${dossierSynchronized ? "" : " Le dossier n'a pas pu être actualisé."}`,
       {
         set_id: setId,
         file_id: fileId,
         storage_error: cleanupError,
+        dossier_synchronized: dossierSynchronized,
         compensation: {
           restored: true,
         },
@@ -1439,6 +1501,7 @@ export async function deletePlanFile(setId: string, fileId: string) {
     deleted: true as const,
     plan_set_id: setId,
     file_id: fileId,
+    dossier_synchronized: await reconcilePlanDossierAfterDeletion(planSet.project_id),
     cleanup: {
       metadata_deleted: true,
       storage_cleanup_attempted: true,

@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
+import { PlanDossierSyncNotice } from "@/components/takeoff/PlanDossierSyncNotice";
 import { EstimateApprovalDecisionJournalCard } from "@/components/estimates/EstimateApprovalDecisionJournalCard";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import { RiskAlertBanner } from "@/components/direction/RiskAlertBanner";
@@ -33,6 +34,7 @@ import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_a
 
 import { useToast } from "@/components/ui-legacy/Toast";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { IntakeDpgfCandidate } from "./unified-import-flow/types";
 import type {
   AffaireRegisterPageResult,
   AffaireRegisterScopeOptions,
@@ -827,6 +829,7 @@ export function AffaireHub({
 
 
   const [showImportFlow, setShowImportFlow] = useState(false);
+  const [intakeDpgfCandidates, setIntakeDpgfCandidates] = useState<IntakeDpgfCandidate[]>([]);
   const [importResult, setImportResult] =
     useState<ConfirmUnifiedImportFlowResult | null>(null);
 
@@ -841,6 +844,9 @@ export function AffaireHub({
 
   return (
     <div className="animate-fade-in">
+      {intakeWorkspace?.canManageDocuments && intakeWorkspace.uploadId && !isReadOnlyReview ? (
+        <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) router.refresh(); }} />
+      ) : null}
       {/* Breadcrumb + edit actions (portal target while the fiche is edited) */}
       {!isReadOnlyReview ? (
         <div className="mb-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">
@@ -874,6 +880,7 @@ export function AffaireHub({
           }}
           onOpenImportFlow={() => {
             setShowOnboardingBanner(false);
+            setIntakeDpgfCandidates([]);
             setShowImportFlow(true);
           }}
         />
@@ -1018,6 +1025,7 @@ export function AffaireHub({
       {showImportFlow ? (
         <UnifiedImportFlow
           projectId={summary.project.id}
+          intakeDpgfCandidates={intakeDpgfCandidates}
           takeoffEnabled={takeoffEnabled}
           onCancel={() => setShowImportFlow(false)}
           onComplete={handleImportComplete}
@@ -1136,6 +1144,14 @@ export function AffaireHub({
                         ? undefined
                         : () => {
                             setImportResult(null);
+                            setIntakeDpgfCandidates((intakeWorkspace?.documents ?? [])
+                              .filter((document) => !document.isBeingDeleted && document.detectedCategory === "dpgf" &&
+                                document.classificationStatus === "classified" && document.uploadStatus === "uploaded")
+                              .map((document) => ({
+                                documentId: document.documentId,
+                                fileName: document.fileName,
+                                label: `${document.fileName}${document.documentPriority === "primary" ? " · principale" : ""}${document.driveSource ? ` · ${document.driveSource.folderName ?? "Drive"} · version ${document.driveSource.revision}` : ""} · copie ${document.documentId.slice(-8)}`,
+                              })));
                             setShowImportFlow(true);
                           }
                     }
@@ -1149,6 +1165,7 @@ export function AffaireHub({
                   <BriefDraftCard
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
+                    hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
                     isReadOnly={isReadOnlyReview}
                     hideConfirmAction={dominantFlowIntent === "confirm_brief"}
                   />
@@ -1177,6 +1194,7 @@ export function AffaireHub({
                       ? undefined
                       : () => {
                           setImportResult(null);
+                          setIntakeDpgfCandidates([]);
                           setShowImportFlow(true);
                         }
                   }

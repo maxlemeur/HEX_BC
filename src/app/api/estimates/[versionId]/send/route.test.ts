@@ -8,10 +8,44 @@ import { POST } from "@/app/api/estimates/[versionId]/send/route";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const REQUEST_ID = "22222222-2222-4222-8222-222222222222";
+const OTHER_ID = "33333333-3333-4333-8333-333333333333";
+
+function validRequest() {
+  return new Request(`http://localhost/api/estimates/${VERSION_ID}/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": REQUEST_ID },
+    body: JSON.stringify({ to: "client@example.com", subject: "Devis", message: "Bonjour" }),
+  });
+}
 
 describe("estimate send route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each(["email-1", null])("returns a validated receipt, including historical provider ID %s", async (messageId) => {
+    const data = { version_id: VERSION_ID, request_id: REQUEST_ID, message_id: messageId };
+    vi.mocked(sendEstimateEmail).mockResolvedValueOnce(data);
+    const response = await POST(validRequest(), { params: Promise.resolve({ versionId: VERSION_ID }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data });
+  });
+
+  it.each([
+    undefined,
+    { message_id: "email-1" },
+    { version_id: OTHER_ID, request_id: REQUEST_ID, message_id: "email-1" },
+    { version_id: VERSION_ID, request_id: OTHER_ID, message_id: "email-1" },
+    { version_id: VERSION_ID, request_id: REQUEST_ID, message_id: "" },
+  ])("does not expose an invalid or foreign backend receipt as HTTP success %#", async (data) => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(sendEstimateEmail).mockResolvedValueOnce(data as Awaited<ReturnType<typeof sendEstimateEmail>>);
+    const response = await POST(validRequest(), { params: Promise.resolve({ versionId: VERSION_ID }) });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ ok: false, error: { code: "INTERNAL_ERROR" } });
+    expect(sendEstimateEmail).toHaveBeenCalledOnce();
+    vi.restoreAllMocks();
   });
 
   it("returns 400 on invalid version id", async () => {

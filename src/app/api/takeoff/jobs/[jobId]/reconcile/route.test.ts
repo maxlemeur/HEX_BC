@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appliedJobFixture } from "@/lib/takeoff/response-contracts.test-fixtures";
 
 vi.mock("@/lib/takeoff/server", () => ({
   reconcileTakeoffJobNow: vi.fn(),
@@ -26,6 +27,7 @@ const JOB_ID = "11111111-1111-4111-8111-111111111111";
 
 const RECONCILE_RESPONSE = {
   job: {
+    ...appliedJobFixture(),
     id: JOB_ID,
     status: "processing",
     retry_count: 1,

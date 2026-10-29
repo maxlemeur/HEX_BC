@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EditorConflictDraft } from "@/lib/estimates/editor-drafts";
@@ -46,6 +47,7 @@ export type RestoredDraftApplication = {
 };
 
 export type EstimateEditorSyncControllerInput = {
+  document?: EstimateEditorDocument;
   routeVersionId: string;
   activeVersion: (Pick<EstimateVersionRow, "id" | "status"> & Partial<Pick<EstimateVersionRow, "tenant_id">>) | null;
   currentUserId: string | null;

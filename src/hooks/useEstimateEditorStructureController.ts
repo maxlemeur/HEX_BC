@@ -13,6 +13,8 @@ import type {
   EstimateEditorHistoryCommand,
   EstimateEditorHistoryCommandContext,
 } from "@/hooks/useEstimateEditorHistoryController";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+import type { EstimateEditorDocument, EstimateEditorDocumentScopeToken } from "@/lib/estimates/editor-document-state";
 import {
   deleteEstimateItem,
   duplicateEstimateSection,
@@ -45,6 +47,7 @@ function isPersistedAssemblyInsertion(error: unknown, versionId: string) {
 }
 
 type EstimateEditorStructureControllerInput = {
+  document?: EstimateEditorDocument;
   routeVersionId: string;
   isMutationBlocked: boolean;
   mutationBlockedMessage: string;
@@ -70,6 +73,7 @@ type EstimateEditorStructureControllerInput = {
 };
 
 export function useEstimateEditorStructureController({
+  document,
   routeVersionId,
   isMutationBlocked,
   mutationBlockedMessage,
@@ -88,6 +92,12 @@ export function useEstimateEditorStructureController({
   convertV3Items,
   clearHistory,
 }: EstimateEditorStructureControllerInput) {
+  const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt, releaseItemsOperation } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems,
+    applyVersionToken: (updatedAt, _totals, contentRevision) => applyVersionToken(updatedAt, contentRevision),
+  });
+  const documentGeneration = document?.getSnapshot().generation;
+  const documentGenerationRef = useRef(documentGeneration);
   const routeVersionIdRef = useRef(routeVersionId);
   const routeGenerationRef = useRef(0);
   const nextMutationIdRef = useRef(0);
@@ -107,17 +117,19 @@ export function useEstimateEditorStructureController({
   }, [isMutationBlocked, mutationBlockedMessage]);
 
   useLayoutEffect(() => {
-    if (routeVersionIdRef.current === routeVersionId) return;
+    if (routeVersionIdRef.current === routeVersionId && documentGenerationRef.current === documentGeneration) return;
+    documentGenerationRef.current = documentGeneration;
     routeVersionIdRef.current = routeVersionId;
     routeGenerationRef.current += 1;
     activeMutationIdRef.current = null;
     refreshGenerationRef.current += 1;
-  }, [routeVersionId]);
+  }, [documentGeneration, routeVersionId]);
 
   type StructureMutationScope = {
     id: number;
     routeGeneration: number;
     version: EstimateVersionRow;
+    documentScope?: EstimateEditorDocumentScopeToken;
   };
 
   const isCurrentMutation = useCallback(
@@ -125,8 +137,9 @@ export function useEstimateEditorStructureController({
       activeMutationIdRef.current === scope.id &&
       routeGenerationRef.current === scope.routeGeneration &&
       routeVersionIdRef.current === scope.version.id &&
+      (!document || Boolean(scope.documentScope && document.isCurrent(scope.documentScope))) &&
       getVersionSnapshot()?.id === scope.version.id,
-    [getVersionSnapshot]
+    [document, getVersionSnapshot]
   );
 
   const finishMutation = useCallback((scope: StructureMutationScope) => {
@@ -137,6 +150,8 @@ export function useEstimateEditorStructureController({
 
   const beginMutation = useCallback(
     async (actionLabel: string): Promise<StructureMutationScope | null> => {
+      if (!isItemsDocumentCurrent()) return null;
+      const documentScope = document?.captureScope();
       const initialGuard = mutationGuardRef.current;
       if (initialGuard.isBlocked) {
         reportError(initialGuard.message);
@@ -152,6 +167,7 @@ export function useEstimateEditorStructureController({
       const requestedRouteGeneration = routeGenerationRef.current;
       if (!(await ensureGroupedActionCanProceed(actionLabel))) return null;
       if (
+        !isItemsDocumentCurrent() ||
         requestedRouteGeneration !== routeGenerationRef.current ||
         routeVersionIdRef.current !== routeVersionId
       ) {
@@ -180,6 +196,7 @@ export function useEstimateEditorStructureController({
         id: nextMutationIdRef.current + 1,
         routeGeneration: routeGenerationRef.current,
         version: versionSnapshot,
+        documentScope,
       };
       nextMutationIdRef.current = scope.id;
       activeMutationIdRef.current = scope.id;
@@ -188,11 +205,26 @@ export function useEstimateEditorStructureController({
     },
     [
       ensureGroupedActionCanProceed,
+      document,
+      isItemsDocumentCurrent,
       getVersionSnapshot,
       reportError,
       routeVersionId,
     ]
   );
+
+  // Insert endpoints return rows without a causal version token. Connected
+  // documents accept only the complete versioned reread, never this preview.
+  const applyInsertionPreview = useCallback((nextItems: EditorEstimateItem[], scope: StructureMutationScope) => {
+    if (!isCurrentMutation(scope) || document) return;
+    setItems(nextItems);
+  }, [document, isCurrentMutation, setItems]);
+
+  const hasConfirmedInsertion = useCallback((insertedItems: readonly EstimateItem[]) => {
+    if (!document) return true;
+    const confirmedIds = new Set(document.getSnapshot().confirmedItems.map((item) => item.id));
+    return resolveTopLevelItemIds([...insertedItems]).every((id) => confirmedIds.has(id));
+  }, [document]);
 
   const beginHistoryMutation = useCallback(
     async (
@@ -229,6 +261,7 @@ export function useEstimateEditorStructureController({
       isCurrentScope: () => boolean,
       failureContext: string
     ) => {
+      if (document) return;
       const refreshGeneration = refreshGenerationRef.current + 1;
       refreshGenerationRef.current = refreshGeneration;
       await refreshVersionTokenAfterAssemblyInsert(versionId, {
@@ -257,7 +290,7 @@ export function useEstimateEditorStructureController({
         },
       });
     },
-    [applyVersionToken, getVersionSnapshot]
+    [applyVersionToken, document, getVersionSnapshot]
   );
 
   const insertAssembly = useCallback(
@@ -298,10 +331,11 @@ export function useEstimateEditorStructureController({
               ? item
               : { ...item, position: item.position + 1 };
           });
-          setItems([...shiftedExistingItems, ...insertedItems]);
+          applyInsertionPreview([...shiftedExistingItems, ...insertedItems], mutationScope);
           // Global discounts/tiers may have changed allocations of old rows.
           await reloadItems();
           if (!isCurrentMutation(mutationScope)) return;
+          if (!hasConfirmedInsertion(insertedItems)) return;
           setTotalsOutOfSync(false);
           highlightItems([...insertedIds]);
         } catch (error) {
@@ -336,7 +370,7 @@ export function useEstimateEditorStructureController({
           () => isCurrentMutation(mutationScope),
           "Impossible de rafraichir le jeton de version après insertion d'ouvrage."
         );
-        if (!isCurrentMutation(mutationScope)) return;
+        if (!isCurrentMutation(mutationScope) || !hasConfirmedInsertion(insertedItems)) return;
 
         let latestInsertedRoots = resolveTopLevelItemIds(insertedItems);
         pushHistoryCommand({
@@ -346,7 +380,7 @@ export function useEstimateEditorStructureController({
               "annuler l'insertion de l'assemblage",
               context
             );
-            if (!historyScope) return;
+            if (!historyScope) return false;
             try {
               const undoSnapshot = getItemsSnapshot();
               const idsToRemove = new Set<string>();
@@ -355,18 +389,29 @@ export function useEstimateEditorStructureController({
                   idsToRemove.add(id);
                 });
               });
-              setItems((previous) =>
+              const undoOperation = beginItemsOperation((previous) =>
                 previous.filter((item) => !idsToRemove.has(item.id))
               );
+              if (!isItemsOperationCurrent(undoOperation)) return false;
+              let latestReceipt: Awaited<ReturnType<typeof deleteEstimateItem>> | null = null;
               try {
                 for (const rootId of latestInsertedRoots) {
-                  await deleteEstimateItem(historyScope.version.id, rootId);
+                  if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                  const receipt = await deleteEstimateItem(historyScope.version.id, rootId);
+                  if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                  if (document && !document.confirmDeletedItems(receipt.deletedIds, historyScope.documentScope, receipt.versionToken)) {
+                    rollbackItems(undoOperation);
+                    return false;
+                  }
+                  latestReceipt = receipt;
                 }
-                if (!isCurrentHistoryMutation(historyScope, context)) return;
+                if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                if (!latestReceipt) { releaseItemsOperation(undoOperation); return false; }
+                if (!acceptItemsReceipt(undoOperation, { version: latestReceipt.versionToken })) return false;
                 setTotalsOutOfSync(false);
               } catch (error) {
-                if (!isCurrentHistoryMutation(historyScope, context)) return;
-                setItems(undoSnapshot);
+                if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                rollbackItems(undoOperation);
                 throw error;
               }
             } finally {
@@ -378,7 +423,7 @@ export function useEstimateEditorStructureController({
               "retablir l'insertion de l'assemblage",
               context
             );
-            if (!historyScope) return;
+            if (!historyScope) return false;
             let insertionConfirmed = false;
             try {
               if (assemblyInsertionsToReviewRef.current.has(historyScope.version.id + ":" + assemblyId)) {
@@ -405,7 +450,7 @@ export function useEstimateEditorStructureController({
                 recreated[0];
               const targetParentId = insertedSection?.parent_id ?? null;
               const targetPosition = insertedSection?.position ?? 1;
-              setItems([
+              const nextItems = [
                 ...redoSnapshot.map((item) => {
                   if (recreatedIds.has(item.id)) return item;
                   if ((item.parent_id ?? null) !== targetParentId) return item;
@@ -414,15 +459,17 @@ export function useEstimateEditorStructureController({
                     : { ...item, position: item.position + 1 };
                 }),
                 ...recreated,
-              ]);
+              ];
+              applyInsertionPreview(nextItems, historyScope);
               await reloadItems();
-              if (!isCurrentHistoryMutation(historyScope, context)) return;
+              if (!isCurrentHistoryMutation(historyScope, context) || !hasConfirmedInsertion(recreated)) return false;
               setTotalsOutOfSync(false);
               await refreshVersionToken(
                 historyScope.version.id,
                 () => isCurrentHistoryMutation(historyScope, context),
                 "Impossible de rafraichir le jeton de version après reinsertion d'ouvrage."
               );
+              if (!hasConfirmedInsertion(recreated)) return false;
             } catch (error) {
               const persistedInsertion = isPersistedAssemblyInsertion(error, historyScope.version.id);
               if (persistedInsertion || insertionConfirmed) {
@@ -445,6 +492,14 @@ export function useEstimateEditorStructureController({
       }
     },
     [
+      acceptItemsReceipt,
+      releaseItemsOperation,
+      applyInsertionPreview,
+      hasConfirmedInsertion,
+      beginItemsOperation,
+      document,
+      isItemsOperationCurrent,
+      rollbackItems,
       beginHistoryMutation,
       beginMutation,
       finishMutation,
@@ -458,13 +513,18 @@ export function useEstimateEditorStructureController({
       reloadItems,
       reportError,
       resolveErrorMessage,
-      setItems,
       setTotalsOutOfSync,
     ]
   );
 
   const insertTemplate = useCallback(
     async (templateId: string, afterItemId: string | null) => {
+      if (!isItemsDocumentCurrent()) return;
+      const reviewKey = `template:${routeVersionIdRef.current}:${templateId}`;
+      if (assemblyInsertionsToReviewRef.current.has(reviewKey)) {
+        reportError("Ce modèle a déjà été inséré. Rechargez le devis pour vérifier son affichage sans le réinsérer.");
+        return;
+      }
       const mutationScope = await beginMutation("insérer le template");
       if (!mutationScope) return;
       const targetVersionId = mutationScope.version.id;
@@ -472,6 +532,7 @@ export function useEstimateEditorStructureController({
       try {
         const snapshot = getItemsSnapshot();
         let insertedItems: EstimateItem[];
+        let insertionConfirmed = false;
         let insertedRootsTracker = createTopLevelItemIdsTracker([]);
         try {
           insertedItems = await insertTemplateIntoVersion(templateId, {
@@ -481,11 +542,21 @@ export function useEstimateEditorStructureController({
           if (insertedItems.length === 0 || !isCurrentMutation(mutationScope)) {
             return;
           }
+          insertionConfirmed = true;
           insertedRootsTracker = createTopLevelItemIdsTracker(insertedItems);
-          setItems(applyOptimisticTemplateInsertion(snapshot, insertedItems));
+          applyInsertionPreview(applyOptimisticTemplateInsertion(snapshot, insertedItems), mutationScope);
+          if (document) await reloadItems();
+          if (!isCurrentMutation(mutationScope)) return;
+          if (!hasConfirmedInsertion(insertedItems)) return;
           setTotalsOutOfSync(false);
         } catch (error) {
           if (!isCurrentMutation(mutationScope)) return;
+          if (insertionConfirmed) {
+            assemblyInsertionsToReviewRef.current.add(reviewKey);
+            setTotalsOutOfSync(true);
+            reportError("Le modèle est enregistré, mais son affichage n'a pas pu être confirmé. Rechargez le devis sans le réinsérer.");
+            return;
+          }
           if (!handleVersionConflict(error, { persistDraft: true })) {
             reportError(
               resolveErrorMessage(
@@ -503,7 +574,7 @@ export function useEstimateEditorStructureController({
           () => isCurrentMutation(mutationScope),
           "Impossible de rafraichir le jeton de version après insertion de template."
         );
-        if (!isCurrentMutation(mutationScope)) return;
+        if (!isCurrentMutation(mutationScope) || !hasConfirmedInsertion(insertedItems)) return;
 
         pushHistoryCommand({
           label: "insert-template",
@@ -512,7 +583,7 @@ export function useEstimateEditorStructureController({
               "annuler l'insertion du template",
               context
             );
-            if (!historyScope) return;
+            if (!historyScope) return false;
             try {
               const undoSnapshot = getItemsSnapshot();
               const idsToRemove = new Set<string>();
@@ -521,18 +592,29 @@ export function useEstimateEditorStructureController({
                   idsToRemove.add(id);
                 });
               });
-              setItems((previous) =>
+              const undoOperation = beginItemsOperation((previous) =>
                 previous.filter((item) => !idsToRemove.has(item.id))
               );
+              if (!isItemsOperationCurrent(undoOperation)) return false;
+              let latestReceipt: Awaited<ReturnType<typeof deleteEstimateItem>> | null = null;
               try {
                 for (const rootId of insertedRootsTracker.getCurrent()) {
-                  await deleteEstimateItem(historyScope.version.id, rootId);
+                  if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                  const receipt = await deleteEstimateItem(historyScope.version.id, rootId);
+                  if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                  if (document && !document.confirmDeletedItems(receipt.deletedIds, historyScope.documentScope, receipt.versionToken)) {
+                    rollbackItems(undoOperation);
+                    return false;
+                  }
+                  latestReceipt = receipt;
                 }
-                if (!isCurrentHistoryMutation(historyScope, context)) return;
+                if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                if (!latestReceipt) { releaseItemsOperation(undoOperation); return false; }
+                if (!acceptItemsReceipt(undoOperation, { version: latestReceipt.versionToken })) return false;
                 setTotalsOutOfSync(false);
               } catch (error) {
-                if (!isCurrentHistoryMutation(historyScope, context)) return;
-                setItems(undoSnapshot);
+                if (!isCurrentHistoryMutation(historyScope, context)) return false;
+                rollbackItems(undoOperation);
                 throw error;
               }
             } finally {
@@ -544,8 +626,11 @@ export function useEstimateEditorStructureController({
               "retablir l'insertion du template",
               context
             );
-            if (!historyScope) return;
+            if (!historyScope) return false;
             try {
+              if (assemblyInsertionsToReviewRef.current.has(reviewKey)) {
+                throw new Error("Ce modèle est déjà enregistré. Rechargez le devis pour vérifier son affichage sans le réinsérer.");
+              }
               const redoSnapshot = getItemsSnapshot();
               const recreated = await insertTemplateIntoVersion(templateId, {
                 versionId: historyScope.version.id,
@@ -558,15 +643,22 @@ export function useEstimateEditorStructureController({
                 return;
               }
               insertedRootsTracker.replace(recreated);
-              setItems(
-                applyOptimisticTemplateInsertion(redoSnapshot, recreated)
-              );
+              applyInsertionPreview(applyOptimisticTemplateInsertion(redoSnapshot, recreated), historyScope);
+              if (document) {
+                try { await reloadItems(); }
+                catch {
+                  assemblyInsertionsToReviewRef.current.add(reviewKey);
+                  throw new Error("Le modèle est enregistré. Rechargez le devis pour vérifier son affichage sans le réinsérer.");
+                }
+              }
+              if (!isCurrentHistoryMutation(historyScope, context) || !hasConfirmedInsertion(recreated)) return false;
               setTotalsOutOfSync(false);
               await refreshVersionToken(
                 historyScope.version.id,
                 () => isCurrentHistoryMutation(historyScope, context),
                 "Impossible de rafraichir le jeton de version après reinsertion de template."
               );
+              if (!hasConfirmedInsertion(recreated)) return false;
             } finally {
               finishMutation(historyScope);
             }
@@ -577,6 +669,14 @@ export function useEstimateEditorStructureController({
       }
     },
     [
+      acceptItemsReceipt,
+      releaseItemsOperation,
+      applyInsertionPreview,
+      hasConfirmedInsertion,
+      beginItemsOperation,
+      document,
+      isItemsOperationCurrent,
+      rollbackItems,
       beginHistoryMutation,
       beginMutation,
       finishMutation,
@@ -586,9 +686,10 @@ export function useEstimateEditorStructureController({
       isCurrentMutation,
       pushHistoryCommand,
       refreshVersionToken,
+      reloadItems,
+      isItemsDocumentCurrent,
       reportError,
       resolveErrorMessage,
-      setItems,
       setTotalsOutOfSync,
     ]
   );
@@ -609,7 +710,7 @@ export function useEstimateEditorStructureController({
           await reloadItems();
           if (!isCurrentMutation(mutationScope)) return;
           setTotalsOutOfSync(false);
-          if (result.versionToken?.updated_at) {
+          if (!document && result.versionToken?.updated_at) {
             applyVersionToken(result.versionToken.updated_at);
             return;
           }
@@ -636,6 +737,7 @@ export function useEstimateEditorStructureController({
     },
     [
       applyVersionToken,
+      document,
       beginMutation,
       finishMutation,
       handleVersionConflict,
@@ -660,6 +762,7 @@ export function useEstimateEditorStructureController({
       const targetVersionId = mutationScope.version.id;
       const convertedIds = new Set(itemIds);
       let removedItems: EditorEstimateItem[] = [];
+      let itemsOperation: ReturnType<typeof beginItemsOperation> | null = null;
       let committed = false;
 
       try {
@@ -670,7 +773,8 @@ export function useEstimateEditorStructureController({
           const snapshot = getItemsSnapshot();
           removedItems = snapshot.filter((item) => convertedIds.has(item.id));
           // Les éléments quittent la grille pendant le lot : aucune saisie ne vise plus leur ancien identifiant.
-          setItems((previous) => previous.filter((item) => !convertedIds.has(item.id)));
+          itemsOperation = beginItemsOperation((previous) => previous.filter((item) => !convertedIds.has(item.id)));
+          if (!isItemsOperationCurrent(itemsOperation)) return false;
           const versionToken = await convertV3Items(
             targetVersionId,
             getVersionSnapshot()?.updated_at ?? mutationScope.version.updated_at,
@@ -679,10 +783,10 @@ export function useEstimateEditorStructureController({
             target
           );
           committed = true;
+          if (!isCurrentMutation(mutationScope)) return true;
+          if (!acceptItemsReceipt(itemsOperation, { version: versionToken })) return true;
           // L'annulation viserait les anciens identifiants.
           clearHistory?.();
-          if (!isCurrentMutation(mutationScope)) return true;
-          applyVersionToken(versionToken.updated_at, versionToken.content_revision);
           await reloadItems();
           if (!isCurrentMutation(mutationScope)) return true;
           setTotalsOutOfSync(false);
@@ -696,10 +800,13 @@ export function useEstimateEditorStructureController({
             );
             return true;
           }
-          setItems((previous) => [
-            ...previous.filter((item) => !convertedIds.has(item.id)),
-            ...removedItems,
-          ]);
+          if (document && itemsOperation) rollbackItems(itemsOperation);
+          else {
+            setItems((previous) => [
+              ...previous.filter((item) => !convertedIds.has(item.id)),
+              ...removedItems,
+            ]);
+          }
           if (!handleVersionConflict(error, { persistDraft: true })) {
             reportError(
               resolveErrorMessage(
@@ -716,7 +823,11 @@ export function useEstimateEditorStructureController({
       }
     },
     [
-      applyVersionToken,
+      acceptItemsReceipt,
+      beginItemsOperation,
+      document,
+      isItemsOperationCurrent,
+      rollbackItems,
       beginMutation,
       clearHistory,
       convertV3Items,

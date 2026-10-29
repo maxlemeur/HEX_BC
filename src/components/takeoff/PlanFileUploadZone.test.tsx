@@ -10,12 +10,14 @@ vi.mock("@/lib/takeoff/client", () => ({
   isTakeoffApiError: (e: unknown) =>
     e instanceof Error && "status" in e,
   registerPlanFile: vi.fn(),
+  reconcilePlanSetDossier: vi.fn(),
   uploadFileToSignedUrl: vi.fn(),
 }));
 
 import {
 deletePlanFile,
 registerPlanFile,
+reconcilePlanSetDossier,
 uploadFileToSignedUrl,
 } from "@/lib/takeoff/client";
 
@@ -56,10 +58,30 @@ function dropFiles(files: File[]) {
 describe("PlanFileUploadZone", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(reconcilePlanSetDossier).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("keeps uploaded bytes and lets the user retry if dossier synchronization fails", async () => {
+    const file = await makePdfFile("plan.pdf");
+    vi.mocked(registerPlanFile).mockResolvedValue({
+      plan_file: { id: "file-1" } as never,
+      signed_upload: { url: "https://storage.example.com/upload", method: "PUT", path: "path", token: "fixture", expires_in_seconds: 7200 },
+    });
+    vi.mocked(uploadFileToSignedUrl).mockResolvedValue(undefined);
+    vi.mocked(reconcilePlanSetDossier).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    renderZone();
+    dropFiles([file]);
+
+    await screen.findByText(/Plans envoyés, mais le dossier n'a pas pu être actualisé/);
+    expect(deletePlanFile).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Réessayer l'actualisation" }));
+    await waitFor(() => expect(screen.queryByText(/Plans envoyés, mais le dossier/)).not.toBeInTheDocument());
+    expect(reconcilePlanSetDossier).toHaveBeenCalledTimes(2);
   });
 
   it("cleans up a registered file after a binary upload failure and allows retry", async () => {

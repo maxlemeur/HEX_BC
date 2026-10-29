@@ -8,9 +8,19 @@ vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture")
 vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn(() => ({})) }));
+vi.mock("@/lib/affaires/plan-presence", () => ({ hasStoredIntakePlan: vi.fn().mockResolvedValue(true), hasStoredStandalonePlan: vi.fn().mockResolvedValue(false) }));
+vi.mock("@/lib/affaires/intake-plan-sync", () => ({ syncTakeoffPlanSetFromAffaireIntake: vi.fn() }));
+vi.mock("@/lib/affaires/register-server", () => ({
+  syncAffairePlanGap: vi.fn(), syncAffaireRegisterFromBrief: vi.fn(), syncAffaireRegisterMissingPieces: vi.fn(),
+}));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace, reconcileAffairePlanPresence } from "@/lib/affaires/intake-server";
+import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
+import { syncAffairePlanGap } from "@/lib/affaires/register-server";
+import { hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -135,11 +145,11 @@ function createSupabaseMock(documents: unknown[]) {
         const builder = {
           select: vi.fn(),
           eq: vi.fn((column: string, value: string) => {
-            expect(column).toBe("project_id");
-            expect(value).toBe(PROJECT_ID);
+            expect(["project_id", "tenant_id"]).toContain(column);
+            expect(value).toBe(column === "project_id" ? PROJECT_ID : TENANT_ID);
             return builder;
           }),
-          is: vi.fn((column, value) => { expect(column).toBe("deleted_at"); expect(value).toBeNull(); return builder; }),
+          is: vi.fn((column, value) => { expect(["deleted_at", "deletion_token"]).toContain(column); expect(value).toBeNull(); return builder; }),
           order: vi.fn(() => builder),
           then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
             Promise.resolve(resolve({ data: documents, error: null })),
@@ -183,6 +193,7 @@ function createSupabaseMock(documents: unknown[]) {
 describe("fetchAffaireIntakeWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(hasStoredStandalonePlan).mockResolvedValue(false);
   });
 
   it("returns project-scoped documents while keeping the latest upload marker", async () => {
@@ -226,5 +237,70 @@ describe("fetchAffaireIntakeWorkspace", () => {
       dominantAction: "missing",
       hubReadinessImpact: "critical",
     });
+  });
+
+  it("recognizes a stored plan without losing unrelated missing pieces", async () => {
+    vi.mocked(hasStoredStandalonePlan).mockResolvedValue(true);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin",
+      supabase: createSupabaseMock([createDocumentRow({ id: "dpgf", uploadId: FIRST_UPLOAD_ID,
+        fileName: "dpgf.xlsx", documentKind: "dpgf", documentPriority: "primary" })]),
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+
+    const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
+    expect(workspace.missingPieces.map((piece) => piece.code)).toEqual(["missing_cctp", "missing_bpu_dqe"]);
+    expect(workspace.readiness?.criticalMissingPiecesCount).toBe(0);
+  });
+
+  it("gives an authorized director the same plan-presence result as the owner", async () => {
+    const serviceClient = {};
+    vi.mocked(createServiceRoleClient).mockReturnValue(serviceClient as never);
+    vi.mocked(hasStoredStandalonePlan).mockResolvedValue(true);
+    const reader = createSupabaseMock([createDocumentRow({ id: "dpgf", uploadId: FIRST_UPLOAD_ID,
+      fileName: "dpgf.xlsx", documentKind: "dpgf", documentPriority: "primary" })]);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      userId: "99999999-9999-4999-8999-999999999999", tenantId: TENANT_ID, tenantRole: "director", supabase: reader,
+    } as never);
+    const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
+    expect(workspace.missingPieces.map((piece) => piece.code)).not.toContain("missing_plans");
+    expect(hasStoredStandalonePlan).toHaveBeenCalledWith(expect.objectContaining({ supabase: serviceClient, projectId: PROJECT_ID, tenantId: TENANT_ID }));
+  });
+
+  it("keeps an interrupted deletion visible for retry but excludes it from readiness", async () => {
+    const reserved = { ...createDocumentRow({ id: "reserved", uploadId: FIRST_UPLOAD_ID,
+      fileName: "plan.pdf", documentKind: "plans", documentPriority: "secondary" }), deletion_token: "reservation" };
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin", supabase: createSupabaseMock([reserved]),
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+    const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
+    expect(workspace.documents).toEqual([expect.objectContaining({ documentId: "reserved", isBeingDeleted: true })]);
+    expect(workspace.missingPieces.map((piece) => piece.code)).toContain("missing_plans");
+  });
+});
+
+describe("reconcileAffairePlanPresence", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin", supabase: createSupabaseMock([]),
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+  });
+
+  it.each([
+    [{ syncedDocumentCount: 1, removedDocumentCount: 0 }, false, true],
+    [{ syncedDocumentCount: 0, removedDocumentCount: 1 }, false, true],
+    [{ syncedDocumentCount: 0, removedDocumentCount: 0 }, true, true],
+    [{ syncedDocumentCount: 0, removedDocumentCount: 0 }, false, false],
+  ])("reports a copy repair or a gap change to the caller", async (copies, gapChanged, expected) => {
+    vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockResolvedValue(copies);
+    vi.mocked(syncAffairePlanGap).mockResolvedValue(gapChanged);
+    await expect(reconcileAffairePlanPresence(PROJECT_ID)).resolves.toEqual({ changed: expected });
+  });
+
+  it("still refreshes the gap before reporting a failed copy repair", async () => {
+    vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockRejectedValue(new Error("copy failed"));
+    vi.mocked(syncAffairePlanGap).mockResolvedValue(false);
+    await expect(reconcileAffairePlanPresence(PROJECT_ID)).rejects.toThrow("copy failed");
+    expect(syncAffairePlanGap).toHaveBeenCalledWith({ projectId: PROJECT_ID, actorUserId: USER_ID });
   });
 });

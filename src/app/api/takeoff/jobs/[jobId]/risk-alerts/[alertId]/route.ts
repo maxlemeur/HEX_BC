@@ -1,3 +1,4 @@
+import { parseUpdateTakeoffRiskAlertStatusResponse } from "@/lib/takeoff/risk-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -19,7 +20,7 @@ export async function PATCH(
     const body = await request.json();
     const data = await updateTakeoffRiskAlertStatus(jobId, alertId, body);
 
-    return ok(data);
+    return ok(parseUpdateTakeoffRiskAlertStatusResponse(data, { jobId, alertId, status: body.status, reviewNote: body.review_note }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

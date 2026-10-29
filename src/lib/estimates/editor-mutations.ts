@@ -1,3 +1,5 @@
+export { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";
+
 import type { EstimateBatchIdentity } from "@/lib/estimates/batch-intentions";
 import type { EstimateVersionTotalsPatch } from "@/lib/estimates/editor-items";
 
@@ -13,6 +15,8 @@ type MutationResult<T> = {
   deletedIds?: string[];
   structural?: boolean;
   needsReload?: boolean;
+  /** The caller publishes this version with its confirmed rows in one document transaction. */
+  deferVersionPublication?: boolean;
   totals?: EstimateVersionTotalsPatch;
 };
 
@@ -108,16 +112,6 @@ export async function waitForEstimateEditorMutations(versionId: string) {
   }
 }
 
-// Preserve PostgreSQL's microseconds when comparing tokens from responses.
-export function isOlderEstimateVersionToken(candidate: string, current: string) {
-  const timestamp = (value: string) => {
-    const milliseconds = Date.parse(value);
-    const fraction = value.match(/\.(\d+)(?:Z|[+-]\d\d:?\d\d)$/)?.[1] ?? "";
-    return milliseconds * 1000 + Number(fraction.padEnd(6, "0").slice(3, 6));
-  };
-  return timestamp(candidate) < timestamp(current);
-}
-
 export function hasEstimateEditorMutations(versionId: string) {
   return (sessions.get(versionId)?.pending ?? 0) > 0;
 }
@@ -190,7 +184,7 @@ export async function runEstimateEditorMutation<T>(
       throw error;
     }
     if (!session.active) return committed.value;
-    if (committed.version.id !== versionId) {
+    if (committed.version.id.toLowerCase() !== versionId.toLowerCase()) {
       throw new Error("Le jeton reçu appartient à une autre version.");
     }
     if (token) session.tokens.add(token);
@@ -217,7 +211,7 @@ export async function recoverEstimateEditorRead(versionId: string): Promise<bool
     if (!session.active || session.readRequired !== recovery) return false;
     const committed = await recovery.read();
     if (!session.active || session.readRequired !== recovery) return false;
-    if (committed.version.id !== versionId || typeof committed.version.updated_at !== "string" || !committed.version.updated_at) {
+    if (committed.version.id.toLowerCase() !== versionId.toLowerCase() || typeof committed.version.updated_at !== "string" || !committed.version.updated_at) {
       throw new Error("La lecture reçue appartient à une autre version ou est incomplète.");
     }
     // Explicit recovery adopts a new baseline; old intentions keep their CAS.

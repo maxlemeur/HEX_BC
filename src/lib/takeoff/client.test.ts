@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createTakeoffMappingRule,
   fetchAllTakeoffDpgfComparison,
+  fetchTakeoffDpgfComparison,
+  fetchTakeoffLineEvidencePanel,
   fetchTakeoffMappingRules,
   TAKEOFF_READ_REQUEST_TIMEOUT_MS,
   isTakeoffApiError,
@@ -48,7 +50,7 @@ const DPGF_COMPARE_PAGE_1 = {
         source_file_name: "dpgf.xlsx",
         position: 1,
       },
-      takeoff: {
+      linked_takeoff_items: [{
         item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
         designation: "Cloison BA13",
         quantity: 12,
@@ -58,7 +60,7 @@ const DPGF_COMPARE_PAGE_1 = {
         confidence: 0.91,
         evidence: "Zone cloisons",
         metadata: {},
-      },
+      }],
       dpgf_quantity: 12,
       takeoff_quantity: 12,
       quantity_unit: "m2",
@@ -83,6 +85,7 @@ const DPGF_COMPARE_PAGE_1 = {
       is_exception: false,
       manual_link_count: 0,
       matched_by: "auto" as const,
+      risk: null,
     },
   ],
   manual_link_candidates: [
@@ -157,6 +160,7 @@ const DPGF_COMPARE_PAGE_2 = {
       is_exception: true,
       manual_link_count: 0,
       matched_by: null,
+      risk: null,
     },
   ],
   pagination: {
@@ -252,6 +256,67 @@ describe("takeoff client mapping rules wrappers", () => {
       ...DPGF_COMPARE_PAGE_2,
       rows: [...DPGF_COMPARE_PAGE_1.rows, ...DPGF_COMPARE_PAGE_2.rows],
     });
+  });
+
+  it.each([
+    ["job identity", { job_id: CATEGORY_ID }],
+    ["view", { view: "exceptions_only" }],
+    ["negative total", { pagination: { page_size: 200, next_cursor: null, total: -1 } }],
+    ["nested risk", { rows: [{ ...DPGF_COMPARE_PAGE_1.rows[0], risk: { score: "high" } }] }],
+  ])("rejects malformed comparison %s without retrying", async (_name, patch) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, data: { ...DPGF_COMPARE_PAGE_1, ...patch } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchTakeoffDpgfComparison(JOB_ID, { version_id: DPGF_COMPARE_PAGE_1.version_id }))
+      .rejects.toMatchObject({ status: 502, code: "TAKEOFF_INVALID_RESPONSE", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an evidence panel belonging to another line without retrying", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, data: {
+      job_id: JOB_ID, version_id: DPGF_COMPARE_PAGE_1.version_id, line_id: CATEGORY_ID, evidences: [], history: [],
+    } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchTakeoffLineEvidencePanel(JOB_ID, DPGF_COMPARE_PAGE_1.rows[0].line_id, {
+      version_id: DPGF_COMPARE_PAGE_1.version_id,
+    })).rejects.toMatchObject({ status: 502, code: "TAKEOFF_INVALID_RESPONSE", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["duplicate rows", "changed total", "incomplete rows", "repeated cursor"])("rejects %s across comparison pages without fetching again", async (malformation) => {
+    const secondPage = structuredClone(DPGF_COMPARE_PAGE_2);
+    if (malformation === "duplicate rows") secondPage.rows[0].line_id = DPGF_COMPARE_PAGE_1.rows[0].line_id;
+    if (malformation === "duplicate rows") secondPage.rows[0].dpgf.estimate_item_id = secondPage.rows[0].line_id;
+    if (malformation === "changed total") {
+      secondPage.summary.total_lines = 3;
+      secondPage.pagination.total = 3;
+    }
+    if (malformation === "incomplete rows") secondPage.rows = [];
+    const data = malformation === "repeated cursor"
+      ? { ...secondPage, pagination: { ...secondPage.pagination, next_cursor: DPGF_COMPARE_PAGE_1.pagination.next_cursor } }
+      : secondPage;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, data: DPGF_COMPARE_PAGE_1 }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, data }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchAllTakeoffDpgfComparison(JOB_ID, { version_id: DPGF_COMPARE_PAGE_1.version_id }))
+      .rejects.toMatchObject({ status: 502, code: "TAKEOFF_INVALID_RESPONSE", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["comparison", "evidence"])("keeps the caller abort signal for the %s read", async (read) => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const query = { version_id: DPGF_COMPARE_PAGE_1.version_id };
+    const pending = read === "comparison"
+      ? fetchTakeoffDpgfComparison(JOB_ID, query, { signal: controller.signal })
+      : fetchTakeoffLineEvidencePanel(JOB_ID, DPGF_COMPARE_PAGE_1.rows[0].line_id, query, { signal: controller.signal });
+    const assertion = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort();
+    await assertion;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("throws TakeoffApiError on non-2xx responses and preserves metadata", async () => {

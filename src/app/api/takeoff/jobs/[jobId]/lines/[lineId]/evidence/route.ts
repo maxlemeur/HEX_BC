@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { parseTakeoffLineEvidencePanelResponse } from "@/lib/takeoff/line-evidence-contracts";
 import {
   fetchTakeoffLineEvidencePanel,
   parseTakeoffLineEvidencePanelQuery,
@@ -29,7 +30,9 @@ export async function GET(
       line_id: lineId,
     });
 
-    return ok(data);
+    return ok(parseTakeoffLineEvidencePanelResponse(data, {
+      jobId, versionId: query.version_id, lineId,
+    }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

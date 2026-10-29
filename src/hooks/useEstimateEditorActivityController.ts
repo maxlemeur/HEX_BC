@@ -10,7 +10,8 @@ import {
   type MutableRefObject,
 } from "react";
 
-import type { EstimateVersionEvent } from "@/lib/estimates/client";
+import { fetchEstimateVersionEvents, type EstimateVersionEvent } from "@/lib/estimates/client";
+import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
 import type { Database } from "@/types/database";
 
 const AUDIT_LOG_LIMIT = 25;
@@ -29,6 +30,8 @@ type ActivityLoader<T> = (
 ) => Promise<T[]>;
 
 type EstimateEditorActivityControllerInput = {
+  actorId: string | null;
+  tenantId: string | null;
   routeVersionId: string | null;
   isAdmin: boolean;
   loadAuditEntries?: ActivityLoader<EstimateEditorAuditLogEntry>;
@@ -71,9 +74,12 @@ type RequestSlot = {
 type ActiveScope = {
   isEnabled: boolean;
   routeVersionId: string | null;
+  scopeKey: string | null;
 };
 
-type ActivityAccessSession = ActiveScope & {
+type ActivityAccessSession = {
+  isEnabled: boolean;
+  identityKey: string;
   generation: number;
 };
 
@@ -162,58 +168,6 @@ function normalizeAuditEntries(
     );
 }
 
-function normalizeTimelineEvent(value: unknown): EstimateVersionEvent | null {
-  if (!isRecord(value)) return null;
-
-  const id = toNonEmptyString(value.id);
-  const estimateVersionId =
-    toNonEmptyString(value.estimateVersionId) ??
-    toNonEmptyString(value.estimate_version_id);
-  const eventType =
-    toNonEmptyString(value.eventType) ??
-    toNonEmptyString(value.event_type);
-  const occurredAt =
-    toNonEmptyString(value.occurredAt) ??
-    toNonEmptyString(value.occurred_at);
-  const createdAt =
-    toNonEmptyString(value.createdAt) ??
-    toNonEmptyString(value.created_at);
-
-  if (!id || !estimateVersionId || !eventType || !occurredAt || !createdAt) {
-    return null;
-  }
-
-  return {
-    id,
-    estimateVersionId,
-    eventType,
-    metadata: isRecord(value.metadata) ? value.metadata : {},
-    createdBy:
-      toNonEmptyString(value.createdBy) ??
-      toNonEmptyString(value.created_by) ??
-      null,
-    actorName:
-      toNonEmptyString(value.actorName) ??
-      toNonEmptyString(value.actor_name) ??
-      null,
-    occurredAt,
-    createdAt,
-  };
-}
-
-function normalizeTimelineEvents(payload: unknown): EstimateVersionEvent[] {
-  const root = isRecord(payload) && "data" in payload ? payload.data : payload;
-  const rows = Array.isArray(root)
-    ? root
-    : isRecord(root)
-      ? [root.events, root.items, root.data].find(Array.isArray) ?? []
-      : [];
-
-  return rows
-    .map((entry) => normalizeTimelineEvent(entry))
-    .filter((entry): entry is EstimateVersionEvent => entry !== null);
-}
-
 async function defaultLoadAuditEntries(
   versionId: string,
   signal: AbortSignal
@@ -240,22 +194,12 @@ async function defaultLoadTimelineEvents(
   versionId: string,
   signal: AbortSignal
 ) {
-  const response = await fetch(
-    `/api/estimates/${encodeURIComponent(versionId)}/events`,
-    {
-      credentials: "same-origin",
-      signal,
-    }
-  );
-  const payload = (await response.json().catch(() => null)) as unknown;
-
-  if (!response.ok) {
-    throw new Error(
-      resolveActivityErrorMessage(payload, TIMELINE_LOAD_ERROR)
-    );
-  }
-
-  return normalizeTimelineEvents(payload);
+  signal.throwIfAborted();
+  const events = await fetchEstimateVersionEvents(versionId, { signal });
+  // The shared reader owns validation; this controller still owns cancellation
+  // and prevents an obsolete read from publishing after navigation or access loss.
+  signal.throwIfAborted();
+  return events;
 }
 
 function cancelRequest(slot: MutableRefObject<RequestSlot>) {
@@ -285,25 +229,33 @@ export function formatEstimateEditorAuditTimestamp(value: string) {
 }
 
 export function useEstimateEditorActivityController({
-  routeVersionId,
+  actorId,
+  tenantId,
+  routeVersionId: rawRouteVersionId,
   isAdmin,
   loadAuditEntries = defaultLoadAuditEntries,
   loadTimelineEvents = defaultLoadTimelineEvents,
 }: EstimateEditorActivityControllerInput): EstimateEditorActivityController {
-  const isEnabled = Boolean(isAdmin && routeVersionId);
+  const routeVersionId = normalizeEstimateEditorIdentity(rawRouteVersionId);
+  const identityKey = JSON.stringify([
+    normalizeEstimateEditorIdentity(actorId),
+    normalizeEstimateEditorIdentity(tenantId),
+    routeVersionId,
+  ]);
+  const isEnabled = Boolean(isAdmin && actorId && tenantId && routeVersionId);
   const [accessSession, setAccessSession] =
     useState<ActivityAccessSession>(() => ({
       isEnabled,
-      routeVersionId,
+      identityKey,
       generation: 0,
     }));
   const hasAccessSessionChanged =
     accessSession.isEnabled !== isEnabled ||
-    accessSession.routeVersionId !== routeVersionId;
+    accessSession.identityKey !== identityKey;
   const currentAccessSession = hasAccessSessionChanged
     ? {
         isEnabled,
-        routeVersionId,
+        identityKey,
         generation: accessSession.generation + 1,
       }
     : accessSession;
@@ -312,7 +264,7 @@ export function useEstimateEditorActivityController({
   }
   const scopeKey =
     isEnabled && routeVersionId
-      ? JSON.stringify([routeVersionId, currentAccessSession.generation])
+      ? JSON.stringify([identityKey, currentAccessSession.generation])
       : null;
   const [auditSnapshot, setAuditSnapshot] =
     useState<ScopedAuditActivityState | null>(null);
@@ -321,6 +273,7 @@ export function useEstimateEditorActivityController({
   const activeScopeRef = useRef<ActiveScope>({
     isEnabled,
     routeVersionId,
+    scopeKey,
   });
   const scopeGenerationRef = useRef(0);
   const auditRequestRef = useRef<RequestSlot>({
@@ -338,16 +291,17 @@ export function useEstimateEditorActivityController({
   }, []);
 
   useLayoutEffect(() => {
-    activeScopeRef.current = { isEnabled, routeVersionId };
+    activeScopeRef.current = { isEnabled, routeVersionId, scopeKey };
     scopeGenerationRef.current += 1;
     cancelAllRequests();
-  }, [cancelAllRequests, isEnabled, routeVersionId]);
+  }, [cancelAllRequests, isEnabled, routeVersionId, scopeKey]);
 
   const loadAuditForCurrentScope = useCallback(async () => {
     if (!isEnabled || !routeVersionId || !scopeKey) return;
     if (
       !activeScopeRef.current.isEnabled ||
-      activeScopeRef.current.routeVersionId !== routeVersionId
+      activeScopeRef.current.routeVersionId !== routeVersionId ||
+      activeScopeRef.current.scopeKey !== scopeKey
     ) {
       return;
     }
@@ -406,7 +360,8 @@ export function useEstimateEditorActivityController({
     if (!isEnabled || !routeVersionId || !scopeKey) return;
     if (
       !activeScopeRef.current.isEnabled ||
-      activeScopeRef.current.routeVersionId !== routeVersionId
+      activeScopeRef.current.routeVersionId !== routeVersionId ||
+      activeScopeRef.current.scopeKey !== scopeKey
     ) {
       return;
     }
@@ -462,7 +417,7 @@ export function useEstimateEditorActivityController({
   }, [isEnabled, loadTimelineEvents, routeVersionId, scopeKey]);
 
   const refreshAudit = useCallback(async () => {
-    if (!scopeKey) return;
+    if (!scopeKey || activeScopeRef.current.scopeKey !== scopeKey) return;
     setAuditSnapshot((previous) => ({
       scopeKey,
       value: {
@@ -477,7 +432,7 @@ export function useEstimateEditorActivityController({
   }, [loadAuditForCurrentScope, scopeKey]);
 
   const refreshTimeline = useCallback(async () => {
-    if (!scopeKey) return;
+    if (!scopeKey || activeScopeRef.current.scopeKey !== scopeKey) return;
     setTimelineSnapshot((previous) => ({
       scopeKey,
       value: {

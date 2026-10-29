@@ -1,3 +1,4 @@
+import { parseTakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -24,7 +25,7 @@ export async function GET(
     const query = parseCompareTakeoffJobsQuery(toQueryObject(request));
     const data = await compareTakeoffJobs(jobId, query);
 
-    return ok(data);
+    return ok(parseTakeoffJobCompareResponse(data, { jobId, withJobId: query.with, threshold: query.threshold }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

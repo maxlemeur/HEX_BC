@@ -9,6 +9,10 @@ import {
   mapTakeoffLineEvidencePanel,
   syncTakeoffLineEvidences,
 } from "@/lib/takeoff/evidence";
+import {
+  normalizeEvidenceRow,
+  prepareTakeoffLineEvidenceSync,
+} from "@/lib/takeoff/evidence-preparation";
 import type { TakeoffDpgfComparisonRow } from "@/lib/takeoff/types";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -243,6 +247,11 @@ describe("syncTakeoffLineEvidences", () => {
       rows: [createComparisonRow()],
     });
 
+    expect(selectBuilder.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
+    expect(selectBuilder.eq).toHaveBeenCalledWith("version_id", VERSION_ID);
+    expect(selectBuilder.eq).toHaveBeenCalledWith("takeoff_job_id", JOB_ID);
+    expect(selectBuilder.in).toHaveBeenCalledWith("estimate_item_id", [LINE_ID]);
+    expect(selectBuilder.is).toHaveBeenCalledWith("invalidated_at", null);
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         invalidated_by: USER_ID,
@@ -260,5 +269,157 @@ describe("syncTakeoffLineEvidences", () => {
     expect(
       inserted.find((row) => row.evidence_type === "dpgf")?.supersedes_evidence_id,
     ).toBe("evidence-old");
+  });
+
+  it("does not insert replacement evidence when invalidation fails", async () => {
+    const selectBuilder = createSelectBuilder({
+      data: [createEvidenceRow({ fingerprint: "stale" })],
+      error: null,
+    });
+    const updateBuilder = createUpdateBuilder({
+      data: null,
+      error: { code: "XX000", message: "Invalidation failed" },
+    });
+    const insert = vi.fn(async () => ({ error: null }));
+    const from = vi.fn(() => ({
+      select: vi.fn(() => selectBuilder),
+      update: vi.fn(() => updateBuilder),
+      insert,
+    }));
+
+    await expect(syncTakeoffLineEvidences({
+      supabase: { from } as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      projectId: PROJECT_ID,
+      versionId: VERSION_ID,
+      jobId: JOB_ID,
+      rows: [createComparisonRow()],
+    })).rejects.toThrow("Impossible d'invalider les preuves obsoletes.");
+    expect(updateBuilder.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
+    expect(insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("prepareTakeoffLineEvidenceSync", () => {
+  const context = {
+    tenantId: TENANT_ID,
+    userId: USER_ID,
+    projectId: PROJECT_ID,
+    versionId: VERSION_ID,
+    jobId: JOB_ID,
+    now: "2026-10-28T10:00:00.000Z",
+  };
+
+  it("uses the explicit snapshot time while keeping the human decision date", () => {
+    const decidedAt = "2026-10-27T12:00:00.000Z";
+    const row = createComparisonRow({
+      applied_decision: {
+        id: "decision-1",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: LINE_ID,
+        decision: "manual_fix",
+        reason: "Quantité vérifiée sur le plan",
+        review_reference: "line-1",
+        line_label: "Collecteur cuivre",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 2,
+        decided_at: decidedAt,
+        updated_at: decidedAt,
+        decided_by: USER_ID,
+        source: "current_version",
+        carried_over_from_version_id: null,
+        carried_over_from_version_number: null,
+      },
+    });
+    const plan = prepareTakeoffLineEvidenceSync({
+      ...context,
+      rows: [row],
+      existingRows: [],
+    });
+
+    expect(plan.inserts.filter((entry) => entry.evidence_type !== "comment")
+      .every((entry) => entry.created_at === context.now)).toBe(true);
+    expect(plan.inserts.find((entry) => entry.evidence_type === "comment"))
+      .toMatchObject({ created_at: decidedAt, author_user_id: USER_ID });
+    expect(prepareTakeoffLineEvidenceSync({
+      ...context,
+      rows: [row],
+      existingRows: [],
+    })).toEqual(plan);
+  });
+
+  it("keeps existing fingerprints when only the snapshot time changes", () => {
+    const rows = [createComparisonRow()];
+    const first = prepareTakeoffLineEvidenceSync({
+      ...context,
+      rows,
+      existingRows: [],
+    });
+    const existingRows = first.inserts.map((entry, index) => normalizeEvidenceRow({
+      ...entry,
+      id: `evidence-${index}`,
+      invalidated_at: null,
+      invalidated_by: null,
+      invalidation_reason: null,
+    }));
+    const second = prepareTakeoffLineEvidenceSync({
+      ...context,
+      now: "2026-10-28T11:00:00.000Z",
+      rows,
+      existingRows,
+    });
+
+    expect(second.invalidateIds).toEqual([]);
+    expect(second.inserts).toEqual([]);
+  });
+
+  it("replaces only the changed source for the selected line", () => {
+    const row = createComparisonRow();
+    const first = prepareTakeoffLineEvidenceSync({
+      ...context,
+      rows: [row],
+      existingRows: [],
+    });
+    const existingRows = first.inserts.map((entry) => normalizeEvidenceRow({
+      ...entry,
+      id: `evidence-${entry.evidence_type}`,
+      invalidated_at: null,
+      invalidated_by: null,
+      invalidation_reason: null,
+    }));
+    existingRows.push(normalizeEvidenceRow(createEvidenceRow({
+      id: "evidence-other-line",
+      estimate_item_id: "other-line",
+    })));
+    const before = structuredClone(existingRows);
+    const plan = prepareTakeoffLineEvidenceSync({
+      ...context,
+      rows: [{
+        ...row,
+        linked_takeoff_items: row.linked_takeoff_items.map((item) => ({
+          ...item,
+          designation: "Collecteur corrigé",
+        })),
+      }],
+      existingRows,
+    });
+
+    expect(plan.invalidateIds).toEqual(["evidence-takeoff"]);
+    expect(plan.invalidation).toEqual({
+      invalidated_at: context.now,
+      invalidated_by: USER_ID,
+      invalidation_reason: "snapshot_replaced",
+    });
+    expect(plan.inserts).toEqual([expect.objectContaining({
+      evidence_type: "takeoff",
+      estimate_item_id: LINE_ID,
+      label: "Collecteur corrigé",
+      supersedes_evidence_id: "evidence-takeoff",
+    })]);
+    expect(existingRows).toEqual(before);
   });
 });

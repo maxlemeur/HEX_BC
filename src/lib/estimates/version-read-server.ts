@@ -1,4 +1,5 @@
 import "server-only";
+import { parseEstimateEditorResponse } from "@/lib/estimates/editor-read-contracts";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { isFeatureEnabled } from "@/lib/feature-flags";
@@ -455,7 +456,7 @@ export async function getEstimateVersionDetails(
 
   await assertEstimateVersionUnchanged({ supabase, version });
 
-  return {
+  const result = {
     version: {
       ...version,
       estimate_projects: project,
@@ -469,6 +470,9 @@ export async function getEstimateVersionDetails(
     is_labor_split_enabled: exportLaborSplitEnabled,
     version_zero_summary: versionZeroSummary,
   };
+
+  parseEstimateEditorResponse(result, versionId);
+  return result;
 }
 
 export async function listEstimateItems(versionId: string) {

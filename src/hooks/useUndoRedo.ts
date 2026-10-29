@@ -5,8 +5,8 @@ import { useCallback, useState, useSyncExternalStore } from "react";
 export const DEFAULT_UNDO_REDO_MAX_STACK_SIZE = 50;
 
 export type UndoRedoCommand = {
-  undo: () => Promise<void>;
-  redo: () => Promise<void>;
+  undo: () => Promise<void | boolean>;
+  redo: () => Promise<void | boolean>;
 };
 
 export type UndoRedoState<TCommand extends UndoRedoCommand = UndoRedoCommand> = {
@@ -212,7 +212,7 @@ export function createUndoRedoStore<
       }
 
       try {
-        await command.undo();
+        if ((await command.undo()) === false) return false;
       } catch {
         return false;
       }
@@ -238,7 +238,7 @@ export function createUndoRedoStore<
       }
 
       try {
-        await command.redo();
+        if ((await command.redo()) === false) return false;
       } catch {
         return false;
       }

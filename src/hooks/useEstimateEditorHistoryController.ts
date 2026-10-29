@@ -9,8 +9,8 @@ const HISTORY_STACK_LIMIT = 50;
 
 export type EstimateEditorHistoryCommand = {
   label?: string;
-  undo: (context?: EstimateEditorHistoryCommandContext) => Promise<void>;
-  redo: (context?: EstimateEditorHistoryCommandContext) => Promise<void>;
+  undo: (context?: EstimateEditorHistoryCommandContext) => Promise<void | boolean>;
+  redo: (context?: EstimateEditorHistoryCommandContext) => Promise<void | boolean>;
 };
 
 export type EstimateEditorHistoryCommandContext = {
@@ -93,8 +93,8 @@ export function useEstimateEditorHistoryController({
       };
       const run = async (direction: "undo" | "redo") => {
         try {
-          await command[direction](context);
-          if (!context.isCurrentScope()) return;
+          const applied = await command[direction](context);
+          if (applied === false || !context.isCurrentScope()) return false;
           recoveryRef.current = null;
           setRecovery(null);
           const isDeletion = command.label === "delete-item" || command.label === "bulk-delete-lines";

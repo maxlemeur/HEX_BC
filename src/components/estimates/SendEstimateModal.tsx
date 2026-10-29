@@ -27,7 +27,15 @@ import {
 } from "@/lib/estimates/client";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
-import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
+import { EstimateEmailSendError, sendEstimateEmailRequest } from "@/lib/email/send-estimate-client";
+import { ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE } from "@/lib/email/send-estimate-contract";
+import {
+  clearPendingEstimateEmail,
+  persistPendingEstimateEmail,
+  readLegacyEstimateEmailRequestId,
+  readPendingEstimateEmail,
+  type PendingEstimateEmail,
+} from "@/lib/email/pending-estimate-email";
 import type { EstimateStatus } from "@/lib/estimates/status";
 
 type SendEstimateModalProps = {
@@ -41,6 +49,9 @@ type SendEstimateModalProps = {
   onSent?: () => void;
   onPdfPrepared?: () => void;
 };
+
+const DRAFT_REVIEW_REQUIRED = "Le devis a changé. Fermez cette fenêtre, rechargez la page et relisez le devis, puis rouvrez l’envoi. Une tentative déjà en cours peut concerner la version précédente.";
+const DRAFT_REVIEW_READY = "Vérifiez le devis actualisé avant de reprendre l’envoi. Les destinataires et le message restent identiques ; une tentative déjà en cours peut concerner la version précédente.";
 
 function buildDefaultMessage(tenantName: string | null) {
   return `Bonjour,
@@ -60,69 +71,6 @@ function parseCcEmails(raw: string): string[] {
     .split(/[,;\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-function fallbackFingerprintHash(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-async function getSubmissionStorageKey(versionId: string, fingerprint: string) {
-  let fingerprintHash = fallbackFingerprintHash(fingerprint);
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(fingerprint)
-    );
-    fingerprintHash = Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0")
-    ).join("");
-  }
-  return `estimate-email:${versionId}:${fingerprintHash}`;
-}
-
-function readPendingIdempotencyKey(storageKey: string) {
-  try {
-    return globalThis.sessionStorage?.getItem(storageKey) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function persistPendingIdempotencyKey(storageKey: string, value: string) {
-  try {
-    globalThis.sessionStorage?.setItem(storageKey, value);
-  } catch {
-    // sessionStorage can be unavailable in hardened browser contexts.
-  }
-}
-
-function clearPendingIdempotencyKey(storageKey: string) {
-  try {
-    globalThis.sessionStorage?.removeItem(storageKey);
-  } catch {
-    // A deterministic failure can still be retried with a fresh request key.
-  }
-}
-
-function clearConfirmedIdempotencyKeys(versionId: string) {
-  try {
-    const storage = globalThis.sessionStorage;
-    if (!storage) return;
-    const prefix = `estimate-email:${versionId}:`;
-    const keysToRemove: string[] = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (key?.startsWith(prefix)) keysToRemove.push(key);
-    }
-    keysToRemove.forEach((key) => storage.removeItem(key));
-  } catch {
-    // A confirmed send must not fail because browser storage is unavailable.
-  }
 }
 
 export function SendEstimateModal({
@@ -149,8 +97,6 @@ export function SendEstimateModal({
     versionId,
     enabled: open && requiresDraftLock && isCurrentSendSource,
   });
-  const canSubmit =
-    isCurrentSendSource && (!requiresDraftLock || draftLock.isOwnedByCurrentUser);
   const fieldId = useId();
   const toId = `${fieldId}-to`;
   const ccId = `${fieldId}-cc`;
@@ -158,32 +104,64 @@ export function SendEstimateModal({
   const subjectId = `${fieldId}-subject`;
   const messageId = `${fieldId}-message`;
 
-  const [to, setTo] = useState(defaultRecipient);
-  const [ccRaw, setCcRaw] = useState("");
-  const [subject, setSubject] = useState(defaultSubject);
+  const [pendingSubmission, setPendingSubmission] = useState(() => readPendingEstimateEmail(versionId));
+  const pendingSubmissionRef = useRef<PendingEstimateEmail | null>(pendingSubmission);
+  const [reviewAfterReopen, setReviewAfterReopen] = useState(() => pendingSubmission?.requiresDraftReview === true);
+  const needsReviewedDraft = requiresDraftLock && pendingSubmission?.requiresDraftReview === true;
+  const hasReviewedDraft = needsReviewedDraft && reviewAfterReopen && Number.isFinite(Date.parse(concurrencyToken));
+  const canSubmit = isCurrentSendSource && (needsReviewedDraft
+    ? hasReviewedDraft && draftLock.isOwnedByCurrentUser
+    : pendingSubmission !== null || !requiresDraftLock || draftLock.isOwnedByCurrentUser);
+  const [to, setTo] = useState(pendingSubmission?.payload.to ?? defaultRecipient);
+  const [ccRaw, setCcRaw] = useState(pendingSubmission?.payload.cc?.join(", ") ?? "");
+  const [subject, setSubject] = useState(pendingSubmission?.payload.subject ?? defaultSubject);
   const tenantName = useOptionalUserContext()?.tenantName ?? null;
-  const [message, setMessage] = useState(() => buildDefaultMessage(tenantName));
-  const [formError, setFormError] = useState<string | null>(null);
+  const [message, setMessage] = useState(() => pendingSubmission?.payload.message ?? buildDefaultMessage(tenantName));
+  const [formError, setFormError] = useState<string | null>(pendingSubmission?.requiresDraftReview
+    ? DRAFT_REVIEW_READY : pendingSubmission ? ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE : null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   const [gating, setGating] = useState<EstimateSendGatingResponse | null>(null);
   const [gatingError, setGatingError] = useState<string | null>(null);
-  const currentViewRef = useRef({ open, versionId });
-  currentViewRef.current = { open, versionId };
-  const idempotencyKeyRef = useRef<string | null>(null);
-  const submittedFingerprintRef = useRef<string | null>(null);
+  const currentViewRef = useRef({ open, versionId, generation: 0 });
+  const currentView = currentViewRef.current;
+  if (currentView.open !== open || currentView.versionId !== versionId) {
+    currentViewRef.current = { open, versionId, generation: currentView.generation + 1 };
+    setIsSubmitting(false);
+    setIsPreparingPdf(false);
+  }
+  const viewGeneration = currentViewRef.current.generation;
+  const submittingGenerationRef = useRef<number | null>(null);
 
   if (sendSource.open !== open) {
-    // Capture the exact displayed source only when opening the dialog. A live
-    // refresh must not adopt a newer timestamp or retarget the prepared email.
-    if (open && sendSource.versionId !== versionId) {
-      idempotencyKeyRef.current = null;
-      submittedFingerprintRef.current = null;
+    // Capture the source on opening; a live refresh cannot retarget this email.
+    if (open) {
+      const pending = sendSource.versionId === versionId
+        ? pendingSubmissionRef.current ?? readPendingEstimateEmail(versionId)
+        : readPendingEstimateEmail(versionId);
+      pendingSubmissionRef.current = pending;
+      setPendingSubmission(pending);
+      setReviewAfterReopen(pending?.requiresDraftReview === true);
+      if (pending || sendSource.versionId !== versionId) {
+        setTo(pending?.payload.to ?? defaultRecipient);
+        setCcRaw(pending?.payload.cc?.join(", ") ?? "");
+        setSubject(pending?.payload.subject ?? defaultSubject);
+        setMessage(pending?.payload.message ?? buildDefaultMessage(tenantName));
+      }
+      setFormError(pending?.requiresDraftReview ? DRAFT_REVIEW_READY : pending ? ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE : null);
+    } else {
+      setReviewAfterReopen(false);
     }
     setSendSource(open
       ? { open, versionId, updatedAt: versionUpdatedAt }
       : { ...sendSource, open });
   }
+
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!open || !requiresDraftLock || !isCurrentSendSource) return;
@@ -199,7 +177,7 @@ export function SendEstimateModal({
   }, [open, requiresDraftLock, isCurrentSendSource, versionId, concurrencyToken]);
 
   const handleBeforePreparePdf = useCallback(async () => {
-    if (isSubmitting) {
+    if (isSubmitting || pendingSubmissionRef.current) {
       throw new Error("L’envoi est en cours. Attendez sa confirmation avant de préparer un autre document.");
     }
     setIsPreparingPdf(true);
@@ -207,23 +185,26 @@ export function SendEstimateModal({
       throw new Error("Attendez la disponibilité du devis avant de préparer le PDF.");
     }
     const current = await fetchEstimateEditorData(versionId);
+    if (!mountedRef.current || !currentViewRef.current.open || currentViewRef.current.generation !== viewGeneration) {
+      throw new Error("La fenêtre de préparation du devis a changé. Rouvrez-la pour continuer.");
+    }
     if (current.version.id !== sendSource.versionId ||
         current.version.updated_at !== concurrencyToken || current.version.status !== "draft") {
       throw new Error("Le devis a changé. Fermez cette fenêtre, vérifiez la version puis rouvrez la préparation du PDF.");
     }
     return true;
-  }, [canSubmit, concurrencyToken, sendSource.versionId, versionId, isSubmitting]);
+  }, [canSubmit, concurrencyToken, sendSource.versionId, versionId, isSubmitting, viewGeneration]);
 
   const handlePdfPrepared = useCallback(() => {
+    if (!mountedRef.current || !currentViewRef.current.open || currentViewRef.current.generation !== viewGeneration) return;
     setIsPreparingPdf(false);
-    if (!currentViewRef.current.open || currentViewRef.current.versionId !== versionId) return;
     toast.info({
       title: "PDF préparé",
       description: "Vérifiez le document téléchargé, puis rouvrez l’envoi pour confirmer l’email.",
     });
     onClose();
     onPdfPrepared?.();
-  }, [onClose, onPdfPrepared, toast, versionId]);
+  }, [onClose, onPdfPrepared, toast, viewGeneration]);
 
   const closeModal = useCallback(() => {
     onClose();
@@ -241,7 +222,9 @@ export function SendEstimateModal({
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (isPreparingPdf) return;
+      const generation = currentViewRef.current.generation;
+      const isCurrent = () => mountedRef.current && currentViewRef.current.open && currentViewRef.current.generation === generation;
+      if (!isCurrent() || isPreparingPdf || submittingGenerationRef.current === generation) return;
       setFormError(null);
       if (!isCurrentSendSource) {
         setFormError(
@@ -253,7 +236,7 @@ export function SendEstimateModal({
         setFormError("Attendez la disponibilité du devis avant de confirmer l’envoi.");
         return;
       }
-      if (requiresDraftLock && !concurrencyToken.trim()) {
+      if (requiresDraftLock && !concurrencyToken.trim() && !pendingSubmissionRef.current) {
         setFormError(
           "Rechargez la page puis vérifiez le devis avant de confirmer l’envoi."
         );
@@ -289,96 +272,83 @@ export function SendEstimateModal({
         return;
       }
 
+      submittingGenerationRef.current = generation;
       setIsSubmitting(true);
       try {
-        const submittedFingerprint = JSON.stringify({
-          to: toTrimmed,
-          cc: ccEmails,
-          subject: subjectTrimmed,
-          message: messageTrimmed,
-        });
-        const storageKey = await getSubmissionStorageKey(
-          versionId,
-          submittedFingerprint
-        );
-        const idempotencyKey =
-          submittedFingerprintRef.current === submittedFingerprint
-            ? (idempotencyKeyRef.current ??
-              readPendingIdempotencyKey(storageKey) ??
-              globalThis.crypto.randomUUID())
-            : (readPendingIdempotencyKey(storageKey) ??
-              globalThis.crypto.randomUUID());
-        idempotencyKeyRef.current = idempotencyKey;
-        submittedFingerprintRef.current = submittedFingerprint;
-        persistPendingIdempotencyKey(storageKey, idempotencyKey);
-        const res = await fetch(`/api/estimates/${versionId}/send`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-            ...(requiresDraftLock ? {
-              "If-Match": concurrencyToken,
-              [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: getEstimateDraftLockSessionId(versionId),
-            } : {}),
-          },
-          body: JSON.stringify({
+        let pending = pendingSubmissionRef.current;
+        if (!pending) {
+          const payload = {
             to: toTrimmed,
             cc: ccEmails.length > 0 ? ccEmails : undefined,
             subject: subjectTrimmed,
             message: messageTrimmed,
-          }),
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          const errorCode =
-            data &&
-            typeof data === "object" &&
-            "error" in data &&
-            typeof (data as Record<string, unknown>).error === "object"
-              ? (data as { error?: { code?: unknown } }).error?.code
-              : null;
-          if (
-            errorCode === "ESTIMATE_EMAIL_PROVIDER_REJECTED" ||
-            errorCode === "ESTIMATE_EMAIL_PDF_UNAVAILABLE" ||
-            errorCode === "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST"
-          ) {
-            clearPendingIdempotencyKey(storageKey);
-            idempotencyKeyRef.current = null;
-            submittedFingerprintRef.current = null;
-          }
-          const errorMessage =
-            data &&
-            typeof data === "object" &&
-            "error" in data &&
-            typeof (data as Record<string, unknown>).error === "string"
-              ? ((data as Record<string, unknown>).error as string)
-              : data &&
-                  typeof data === "object" &&
-                  "error" in data &&
-                  typeof (data as Record<string, unknown>).error === "object" &&
-                  (data as { error: { message?: string } }).error?.message
-                ? (data as { error: { message: string } }).error.message
-                : "Erreur lors de l'envoi du devis.";
-          throw new Error(errorMessage);
+          };
+          const legacyRequestId = await readLegacyEstimateEmailRequestId(versionId, payload);
+          if (!isCurrent()) return;
+          pending = {
+            version: 1,
+            requestId: legacyRequestId ?? globalThis.crypto.randomUUID(),
+            payload,
+            ...(requiresDraftLock ? { concurrencyToken } : {}),
+          };
+          pendingSubmissionRef.current = pending;
+          setPendingSubmission(pending);
+          persistPendingEstimateEmail(versionId, pending);
         }
+        if (pending.requiresDraftReview && requiresDraftLock) {
+          // The user has reopened the dialog after review. Verify that source
+          // before reusing the original idempotency key and payload.
+          const current = await fetchEstimateEditorData(versionId);
+          if (!isCurrent()) return;
+          if (current.version.id !== versionId || current.version.status !== "draft" ||
+              current.version.updated_at !== concurrencyToken || !hasReviewedDraft) {
+            throw new Error(DRAFT_REVIEW_REQUIRED);
+          }
+          pending = { ...pending, concurrencyToken, requiresDraftReview: false };
+          pendingSubmissionRef.current = pending;
+          setPendingSubmission(pending);
+          persistPendingEstimateEmail(versionId, pending);
+        }
+        await sendEstimateEmailRequest({
+          versionId,
+          requestId: pending.requestId,
+          payload: pending.payload,
+          concurrencyToken: pending.concurrencyToken,
+          ...(requiresDraftLock ? { draftLockSessionId: getEstimateDraftLockSessionId(versionId) } : {}),
+        });
+        if (!isCurrent()) return;
 
+        clearPendingEstimateEmail(versionId);
+        pendingSubmissionRef.current = null;
+        setPendingSubmission(null);
         toast.success({
           title: "Devis envoyé",
           description: "L'envoi du devis est confirmé.",
         });
-        clearConfirmedIdempotencyKeys(versionId);
-        idempotencyKeyRef.current = null;
-        submittedFingerprintRef.current = null;
         onSent?.();
         closeModal();
       } catch (err) {
-        setFormError(
-          err instanceof Error ? err.message : "Erreur inconnue lors de l'envoi."
-        );
+        if (!isCurrent()) return;
+        if (err instanceof EstimateEmailSendError && err.canStartNewRequest) {
+          clearPendingEstimateEmail(versionId, pendingSubmissionRef.current?.requestId);
+          pendingSubmissionRef.current = null;
+          setPendingSubmission(null);
+        } else if (err instanceof EstimateEmailSendError && err.requiresDraftReview && requiresDraftLock && pendingSubmissionRef.current) {
+          const pending = { ...pendingSubmissionRef.current, requiresDraftReview: true };
+          pendingSubmissionRef.current = pending;
+          setPendingSubmission(pending);
+          setReviewAfterReopen(false);
+          persistPendingEstimateEmail(versionId, pending);
+        }
+        setFormError(err instanceof EstimateEmailSendError && err.requiresDraftReview && requiresDraftLock
+          ? DRAFT_REVIEW_REQUIRED : err instanceof Error ? err.message : ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE);
       } finally {
-        setIsSubmitting(false);
+        if (isCurrent()) {
+          submittingGenerationRef.current = null;
+          setIsSubmitting(false);
+        }
       }
+
     },
     [
       to,
@@ -393,6 +363,7 @@ export function SendEstimateModal({
       requiresDraftLock,
       isCurrentSendSource,
       concurrencyToken,
+      hasReviewedDraft,
       isPreparingPdf,
     ]
   );
@@ -427,14 +398,16 @@ export function SendEstimateModal({
                   Choisissez la présentation du devis et vérifiez le PDF avant de confirmer l’email.
                   La préparation du document ne déclenche aucun envoi.
                 </p>
-                <fieldset disabled={isSubmitting} aria-label="Préparation du document PDF" className="min-w-0 border-0 p-0">
+                <fieldset disabled={isSubmitting || pendingSubmission !== null} aria-label="Préparation du document PDF" className="min-w-0 border-0 p-0">
                   <EstimatePdfDownloadButton
                     versionId={versionId}
                     versionStatus={versionStatus}
                     className="self-start"
                     onBeforeGenerate={handleBeforePreparePdf}
                     onSuccess={handlePdfPrepared}
-                    onError={() => setIsPreparingPdf(false)}
+                    onError={() => {
+                      if (mountedRef.current && currentViewRef.current.generation === viewGeneration) setIsPreparingPdf(false);
+                    }}
                   />
                 </fieldset>
               </div>
@@ -449,7 +422,7 @@ export function SendEstimateModal({
                 placeholder="client@example.com"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || pendingSubmission !== null}
               />
             </Field>
             <Field>
@@ -462,7 +435,7 @@ export function SendEstimateModal({
                 value={ccRaw}
                 onChange={(e) => setCcRaw(e.target.value)}
                 aria-describedby={ccHelpId}
-                disabled={isSubmitting}
+                disabled={isSubmitting || pendingSubmission !== null}
               />
               <FieldDescription id={ccHelpId}>
                 Séparez les adresses par des virgules.
@@ -475,7 +448,7 @@ export function SendEstimateModal({
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || pendingSubmission !== null}
               />
             </Field>
             <Field>
@@ -485,7 +458,7 @@ export function SendEstimateModal({
                 rows={6}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || pendingSubmission !== null}
               />
             </Field>
 
@@ -493,14 +466,14 @@ export function SendEstimateModal({
               <Alert variant="warning" className="text-sm">
                 Le devis affiché a changé. Fermez cette fenêtre, vérifiez la version puis rouvrez l’envoi.
               </Alert>
-            ) : requiresDraftLock && !canSubmit ? (
+            ) : requiresDraftLock && !canSubmit && (!needsReviewedDraft || hasReviewedDraft) ? (
               <Alert variant={draftLock.isLockedByOther || draftLock.error ? "warning" : "info"}>
                 {draftLock.error ?? (draftLock.isLockedByOther
                   ? "Ce devis est ouvert dans une autre page ou par un autre utilisateur. Fermez cette édition avant de confirmer l’envoi."
                   : "Vérification de la disponibilité du devis…")}
               </Alert>
             ) : null}
-            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+            {formError ? <Alert variant={formError === DRAFT_REVIEW_READY ? "warning" : "danger"}>{formError}</Alert> : null}
           </DialogBody>
           <DialogFooter>
             <Button

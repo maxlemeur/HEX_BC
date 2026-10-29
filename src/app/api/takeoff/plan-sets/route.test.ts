@@ -114,8 +114,12 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       tenant_id?: string;
       plan_set_ids?: string[];
     } = {};
+    let start = 0;
+    let end = Number.MAX_SAFE_INTEGER;
 
     const builder = {
+      order: vi.fn(() => builder),
+      range: vi.fn((from: number, to: number) => { start = from; end = to; return builder; }),
       eq: vi.fn((column: string, value: string) => {
         if (column === "tenant_id") {
           filters.tenant_id = value;
@@ -149,7 +153,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           return true;
         });
 
-        return Promise.resolve({ data: filtered, error: null }).then(
+        return Promise.resolve({ data: filtered.slice(start, end + 1), error: null, count: filtered.length }).then(
           onFulfilled,
           onRejected
         );

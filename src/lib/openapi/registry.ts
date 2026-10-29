@@ -1,3 +1,34 @@
+import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
+import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
+import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
+import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
+import { takeoffJobActionResponseSchema as sharedTakeoffJobActionDataSchema } from "@/lib/takeoff/job-response-contracts";
+import { takeoffApplyResponseSchema as sharedTakeoffJobApplyDataSchema } from "@/lib/takeoff/apply-response-contracts";
+import { takeoffPreviewConversionResultSchema as sharedTakeoffPreviewConversionDataSchema } from "@/lib/takeoff/apply-response-contracts";
+import { takeoffJobCompareResponseSchema as sharedTakeoffJobCompareDataSchema } from "@/lib/takeoff/compare-response-contracts";
+import { takeoffRiskRadarResponseSchema as sharedTakeoffRiskRadarDataSchema } from "@/lib/takeoff/risk-response-contracts";
+import { takeoffRiskSeveritySchema as sharedTakeoffRiskSeveritySchema } from "@/lib/takeoff/risk-response-contracts";
+import { takeoffRiskStatusSchema as sharedTakeoffRiskStatusSchema } from "@/lib/takeoff/risk-response-contracts";
+import { takeoffRiskScopeTypeSchema as sharedTakeoffRiskScopeTypeSchema } from "@/lib/takeoff/risk-response-contracts";
+import { saveTakeoffDpgfManualLinkResponseSchema as sharedTakeoffDpgfManualLinkResponseDataSchema } from "@/lib/takeoff/review-response-contracts";
+import { saveTakeoffReviewDecisionResponseSchema as sharedTakeoffDpgfReviewDecisionResponseDataSchema } from "@/lib/takeoff/review-response-contracts";
+import { updateTakeoffRiskAlertStatusResponseSchema as sharedTakeoffRiskAlertStatusResponseDataSchema } from "@/lib/takeoff/risk-response-contracts";
+import { estimateCreateResponseSchema, estimateStatusResponseSchema, estimateVersionIdResponseSchema, estimateVerifySealResponseSchema, estimateItemWriteResponseSchema, estimateBulkUpdateResponseSchema, estimateEventsResponseSchema, estimateSettingsResponseSchema, estimatePromoteVariantResponseSchema } from "@/lib/estimates/write-response-contracts";
+import { takeoffDpgfComparisonResponseSchema, takeoffDpgfComparisonViewSchema, takeoffDpgfReviewDecisionSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
+import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
+import { estimateItemDeleteResponseSchema, estimateItemsMoveResponseSchema, estimateItemsReorderResponseSchema } from "@/lib/estimates/item-structure-contracts";
+import {
+  takeoffPriceSuggestionResponseSchema as takeoffPriceSuggestionResponseDataSchema,
+  takeoffPriceSuggestionReviewResponseSchema as takeoffPriceSuggestionReviewResponseDataSchema,
+} from "@/lib/takeoff/price-suggestion-contracts";
+import {
+  requestTakeoffPriceSuggestionSchema as takeoffPriceSuggestionRequestSchema,
+  reviewTakeoffPriceSuggestionSchema as takeoffPriceSuggestionReviewRequestSchema,
+} from "@/lib/takeoff/schemas";
+import { estimateEditorResponseSchema } from "@/lib/estimates/editor-read-contracts";
+import {
+  estimateBatchCommittedResultSchema as estimateBatchCommittedSchema, estimateBatchResultSchema,
+} from "@/lib/estimates/batch-contracts";
 import { z } from "zod";
 import { sourceCoverageOperations } from "@/lib/openapi/registry-source-coverage";
 import { purchaseReceiptSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
@@ -43,7 +74,6 @@ export type {
 } from "@/lib/openapi/registry-helpers";
 
 import {
-  batchOperationSchema,
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateAssemblySchema,
@@ -87,7 +117,7 @@ import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
 import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
-import { estimateItemV3ResponseFields, estimateVersionV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
+import { estimateItemV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 const uuidSchema = z.string().uuid("Identifiant invalide.");
@@ -248,62 +278,6 @@ const supplierAlternativeKindSchema = z.enum([
   "preferred_supplier",
 ]);
 const changelogCacheStatusSchema = z.enum(["hit", "miss", "stale"]);
-const batchOperationTypeSchema = z.enum(["create", "update", "delete", "reorder"]);
-
-const estimateProjectSchema = z
-  .object({
-    id: uuidSchema,
-    tenant_id: uuidSchema.optional(),
-    user_id: uuidSchema.optional(),
-    name: z.string(),
-    reference: z.string().nullable().optional(),
-    client_name: z.string().nullable().optional(),
-    site_address: z.string().max(1000).nullable().optional(),
-    notes: z.string().nullable().optional(),
-    is_archived: z.boolean().optional(),
-  })
-  .passthrough();
-
-const estimateVersionSchema = z
-  .object({
-    id: uuidSchema,
-    tenant_id: uuidSchema.optional(),
-    project_id: uuidSchema,
-    version_number: z.number().int(),
-    status: estimateStatusSchema,
-    title: z.string().nullable().optional(),
-    exclusions: z.string().nullable().optional(),
-    date_devis: z.string().optional(),
-    validite_jours: z.number().int().optional(),
-    margin_multiplier: z.number().optional(),
-    margin_mode: z.string().optional(),
-    currency: z.string().optional(),
-    margin_bp: z.number().int().optional(),
-    discount_bp: z.number().int().optional(),
-    discount_amount_cents: z.number().int().min(0).max(2147483647).nullable().optional(),
-    discount_mode: z.string().optional(),
-    discount_steps: z.array(z.number()).optional(),
-    global_coefficient: z.number().optional(),
-    tax_rate_bp: z.number().int().optional(),
-    rounding_mode: z.string().optional(),
-    rounding_step_cents: z.number().int().optional(),
-    calc_engine_version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    ...estimateVersionV3ResponseFields,
-    total_ht_cents: z.number().int().nullable().optional(),
-    total_tax_cents: z.number().int().nullable().optional(),
-    total_ttc_cents: z.number().int().nullable().optional(),
-    parent_version_id: uuidSchema.nullable().optional(),
-    variant_label: z.string().nullable().optional(),
-    seal_hash: z.string().nullable().optional(),
-    seal_payload_version: z.number().int().min(1).max(5).nullable().optional(),
-    updated_at: z.string().optional(),
-    created_at: z.string().optional(),
-    estimate_projects: z
-      .union([estimateProjectSchema, z.array(estimateProjectSchema)])
-      .nullable()
-      .optional(),
-  })
-  .passthrough();
 
 const estimateItemSchema = z
   .object({
@@ -445,28 +419,6 @@ const suggestionLearningPurgeResultSchema = suggestionLearningStateSchema.extend
   deleted_count: z.number().int(),
   retention_months: z.number().int(),
 });
-
-const marginTierSchema = z
-  .object({
-    id: uuidSchema,
-    threshold_cents: z.number().int(),
-    multiplier: z.number(),
-    position: z.number().int(),
-  })
-  .passthrough();
-
-const estimateVersionEventSchema = z
-  .object({
-    id: uuidSchema,
-    estimate_version_id: uuidSchema,
-    event_type: z.string(),
-    metadata: z.unknown(),
-    created_by: uuidSchema.nullable(),
-    actor_name: z.string().nullable(),
-    occurred_at: z.string(),
-    created_at: z.string(),
-  })
-  .passthrough();
 
 const estimateListItemSchema = z.object({
   project_id: uuidSchema,
@@ -740,48 +692,6 @@ const estimatePurchaseOrderDraftPreparationSummarySchema = z.object({
   missing_unit_price_lines: z.number().int(),
 });
 
-const estimateBatchBaseSchema = z.object({
-  version: estimateVersionTokenSchema,
-  results: z.array(
-    z.union([
-      z.object({
-        index: z.number().int(),
-        op: batchOperationTypeSchema,
-        status: z.literal("ok"),
-        data: z.unknown(),
-      }),
-      z.object({
-        index: z.number().int(),
-        op: batchOperationTypeSchema,
-        status: z.literal("error"),
-        code: z.string(),
-        message: z.string(),
-        details: z.unknown().optional(),
-      }),
-    ])
-  ),
-});
-
-const estimateBatchCommittedSchema = estimateBatchBaseSchema.extend({
-  committed: z.literal(true),
-  totals: z.object({
-    total_ht_cents: z.number().int().nonnegative(),
-    total_tax_cents: z.number().int().nonnegative(),
-    total_ttc_cents: z.number().int().nonnegative(),
-  }),
-  receipt: z.object({
-    operation_key: uuidSchema, actor_id: uuidSchema, version_id: uuidSchema,
-    expected_updated_at: z.string(), committed_at: z.string(),
-    operations: z.array(batchOperationSchema).min(1).max(1000),
-  }),
-  replayed: z.boolean(),
-  current_version: estimateVersionTokenSchema.extend({ status: estimateStatusSchema }),
-});
-const estimateBatchResultSchema = z.discriminatedUnion("committed", [
-  estimateBatchCommittedSchema,
-  estimateBatchBaseSchema.extend({ committed: z.literal(false) }),
-]);
-
 const estimateGatingFlagSchema = z.object({
   key: z.string(),
   severity: z.enum(["blocking", "warning"]),
@@ -971,7 +881,6 @@ const estimateAssemblyMemberSchema = z
   })
   .passthrough();
 
-
 const estimateAssemblyDetailSchema = estimateAssemblySummarySchema.extend({
   items: z.array(estimateAssemblyItemSchema),
   members: z.array(estimateAssemblyMemberSchema),
@@ -981,51 +890,21 @@ const estimateListDataSchema = z.object({
   items: z.array(estimateListItemSchema),
 });
 
-const estimateCreatedDataSchema = z.object({
-  project: estimateProjectSchema,
-  version: estimateVersionSchema,
-});
+const estimateCreatedDataSchema = estimateCreateResponseSchema;
 
-const estimateVersionDataSchema = z.object({
-  version: estimateVersionSchema,
-});
+const estimateVersionDataSchema = estimateStatusResponseSchema;
 
-const estimateVersionDetailsDataSchema = z.object({
-  version: estimateVersionSchema,
-  items: z.array(estimateItemSchema),
-  categories: z.array(estimateCategorySchema),
-  supply_types: z.array(supplyTypeSchema),
-  labor_roles: z.array(laborRoleSchema),
-  suggestion_rules: z.array(suggestionRuleSchema),
-  margin_tiers: z.array(marginTierSchema),
-});
+const estimateVersionDetailsDataSchema = estimateEditorResponseSchema;
 
-const estimateVersionIdDataSchema = z.object({
-  version_id: uuidSchema,
-});
+const estimateVersionIdDataSchema = estimateVersionIdResponseSchema;
 
-const estimateSendDataSchema = z.object({
-  message_id: z.string().nullable(),
-});
+const estimateSendDataSchema = sharedEstimateSendDataSchema;
 
 const deletedIdDataSchema = z.object({
   deleted_id: uuidSchema,
 });
 
-const estimateVerifySealDataSchema = z.object({
-  valid: z.boolean(),
-  computed_hash: z.string(),
-  stored_hash: z.string().nullable(),
-  seal_payload_version: z.number().int().nullable().describe(
-    "Marqueur du sceau : 5 = sceau lié à l'offre (contrat client et PDF) ; 1 à 4 = sceau historique ; nul sans sceau."
-  ),
-  client_contract_version: z.union([z.literal(1), z.literal(2)]).nullable().describe(
-    "Marqueur 5 : contrat client 1 (moteurs 1 et 2) ou 2 (moteur 3) ; nul sinon."
-  ),
-  calc_payload_version: z.number().int().nullable().describe(
-    "Charge de calcul hachée : 4 (contrat 1) ou 6 (contrat 2, moteur 3) sous le marqueur 5, charge historique retrouvée sinon ; nulle si aucune."
-  ),
-});
+const estimateVerifySealDataSchema = estimateVerifySealResponseSchema;
 
 const estimateItemsDataSchema = z.object({
   items: z.array(estimateItemSchema),
@@ -1054,43 +933,14 @@ const estimateAssemblyPersistedInsertionFailureSchema = z.object({
   }),
 });
 
-const estimateItemDataSchema = z.object({
-  version: estimateVersionTokenSchema,
-  item: estimateItemSchema,
-});
+const estimateItemDataSchema = estimateItemWriteResponseSchema;
 
-const estimateItemCreatedDataSchema = estimateItemDataSchema.extend({
-  version: estimateVersionTokenSchema,
-});
+const estimateItemCreatedDataSchema = estimateItemWriteResponseSchema;
 
-const estimateItemsReorderDataSchema = z.object({
-  version: estimateVersionTokenSchema,
-  parent_id: uuidSchema.nullable(),
-  ordered_ids: z.array(uuidSchema),
-  updated_count: z.number().int(),
-});
+const estimateItemsReorderDataSchema = estimateItemsReorderResponseSchema;
+const estimateItemsMoveDataSchema = estimateItemsMoveResponseSchema;
 
-const estimateItemsMoveDataSchema = z.object({
-  version: estimateVersionTokenSchema,
-  item_id: uuidSchema,
-  from_parent_id: uuidSchema.nullable(),
-  to_parent_id: uuidSchema.nullable(),
-  ordered_source_ids: z.array(uuidSchema),
-  ordered_target_ids: z.array(uuidSchema),
-  updated_count: z.number().int(),
-});
-
-const estimateItemsBulkDataSchema = z.object({
-  updated_count: z.number().int(),
-  version: estimateVersionTokenSchema,
-  totals: z.object({
-    total_ht_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-    total_tax_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-    total_ttc_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  }).describe(
-    "Totaux canoniques confirmes par le serveur apres une sauvegarde V2. Les trois montants sont des entiers surs non negatifs en centimes et total_ht_cents + total_tax_cents = total_ttc_cents. Ce bloc peut etre absent sur les anciens chemins V1 ou sans modification."
-  ).optional(),
-});
+const estimateItemsBulkDataSchema = estimateBulkUpdateResponseSchema;
 
 const estimateSupplierComparisonsDataSchema = z.object({
   stale_price_days: z.number().int().min(1).max(3650).describe(
@@ -1203,9 +1053,7 @@ const anomalyHistoryDataSchema = z.union([
   anomalyHistoryTrendDataSchema,
 ]);
 
-const estimateEventsDataSchema = z.object({
-  events: z.array(estimateVersionEventSchema),
-});
+const estimateEventsDataSchema = estimateEventsResponseSchema;
 
 const estimateGatingDataSchema = z.object({
   gating: estimateGatingSchema,
@@ -1277,149 +1125,22 @@ const estimateAssemblyDataSchema = z.object({
 });
 
 const estimateBatchDataSchema = estimateBatchResultSchema;
-const takeoffDispatchStatusSchema = z.enum([
-  "started",
-  "queued",
-  "trigger_failed",
-]);
-const takeoffDispatchOutcomeSchema = z.enum([
-  "accepted",
-  "configuration_missing",
-  "http_error",
-  "timeout",
-  "network_error",
-]);
-const takeoffJobDispatchSchema = z.object({
-  status: z.enum([
-    "accepted",
-    "queued_for_recovery",
-    "persistence_unconfirmed",
-  ]),
-  correlation_id: uuidSchema,
-  persisted: z.boolean(),
-});
-const takeoffJobCreateDataSchema = z.object({
-  id: uuidSchema,
-  status: z.string(),
-  level: z.literal("A"),
-  source_file_name: z.string().nullable(),
-  estimate_version_id: uuidSchema,
-  created_at: z.string(),
-  dispatch: takeoffJobDispatchSchema,
-});
+
+const takeoffJobCreateDataSchema = sharedTakeoffJobCreateDataSchema;
 const takeoffJobCreateFormDataSchema = z.object({
   file: z.any(),
   estimate_version_id: uuidSchema,
   level: z.enum(["A", "B", "C"]),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
 });
-const takeoffJobMetricsSchema = z.object({
-  token_count: z.number().int().nullable(),
-  cost_cents: z.number().int().nullable(),
-  duration_ms: z.number().int().nullable(),
-});
-const takeoffJobSummarySchema = z.object({
-  id: uuidSchema,
-  estimate_version_id: uuidSchema,
-  status: takeoffJobStatusSchema,
-  level: takeoffLevelSchema,
-  source_file_name: z.string().nullable(),
-  source_file_type: z.string().nullable(),
-  source_file_size_bytes: z.number().int().nullable(),
-  plan_set_id: uuidSchema.nullable().optional(),
-  prompt_version: z.string().nullable(),
-  schema_version: z.string().nullable(),
-  model: z.string().nullable(),
-  thinking_level: z.string().nullable(),
-  media_resolution: z.string().nullable(),
-  retry_count: z.number().int().min(0),
-  error_code: z.string().nullable(),
-  error_message: z.string().nullable(),
-  dispatch_status: takeoffDispatchStatusSchema.nullable().optional(),
-  dispatch_outcome: takeoffDispatchOutcomeSchema.nullable().optional(),
-  dispatch_trigger: z
-    .enum(["create", "retry", "manual", "reconcile"])
-    .nullable()
-    .optional(),
-  dispatch_correlation_id: uuidSchema.nullable().optional(),
-  dispatch_status_code: z.number().int().min(100).max(599).nullable().optional(),
-  dispatch_updated_at: z.string().nullable().optional(),
-  started_at: z.string().nullable(),
-  completed_at: z.string().nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  items_count: z.number().int().min(0).nullable().optional(),
-  metrics: takeoffJobMetricsSchema,
-});
-const takeoffJobPaginationSchema = z.object({
-  limit: z.number().int().min(1),
-  offset: z.number().int().min(0),
-  total: z.number().int().min(0),
-});
-const takeoffJobStatusCountersSchema = z.object({
-  total: z.number().int().min(0),
-  processing: z.number().int().min(0),
-  completed: z.number().int().min(0),
-  failed: z.number().int().min(0),
-  canceled: z.number().int().min(0),
-});
-const takeoffJobListDataSchema = z.object({
-  jobs: z.array(takeoffJobSummarySchema),
-  counters: takeoffJobStatusCountersSchema,
-  pagination: takeoffJobPaginationSchema,
-});
-const takeoffJobResultSchema = z.object({
-  id: uuidSchema,
-  extracted_json: z.unknown(),
-  warnings: z.array(z.unknown()),
-  tables: z.array(z.unknown()),
-  provider_meta: z.record(z.string(), z.unknown()),
-  raw_response: z.unknown().nullable(),
-  confidence: z.number().nullable(),
-  token_count: z.number().int().nullable(),
-  cost_cents: z.number().int().nullable(),
-  duration_ms: z.number().int().nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
-});
-const takeoffJobItemSchema = z.object({
-  id: uuidSchema,
-  designation: z.string(),
-  quantity: z.number(),
-  unit: z.string(),
-  confidence: z.number().nullable(),
-  evidence: z.string().nullable(),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  metadata: z.record(z.string(), z.unknown()),
-  is_excluded: z.boolean(),
-  is_verified: z.boolean(),
-  verified_at: z.string().nullable(),
-  verified_by: uuidSchema.nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
-});
-const takeoffJobDetailDataSchema = z.object({
-  job: takeoffJobSummarySchema,
-  result: takeoffJobResultSchema.nullable(),
-  items: z.object({
-    data: z.array(takeoffJobItemSchema),
-    pagination: takeoffJobPaginationSchema,
-  }),
-});
-const takeoffJobActionDataSchema = z.object({
-  job: takeoffJobSummarySchema,
-  dispatch: takeoffJobDispatchSchema.optional(),
-});
+
+const takeoffJobListDataSchema = sharedTakeoffJobListDataSchema;
+
+
+const takeoffJobDetailDataSchema = sharedTakeoffJobDetailDataSchema;
+const takeoffJobActionDataSchema = sharedTakeoffJobActionDataSchema;
 const takeoffApplyStrategySchema = z.enum(["append", "replace", "merge"]);
-const takeoffApplyOverrideActionSchema = z.enum([
-  "rename",
-  "set_price",
-  "set_category",
-  "apply_assembly",
-  "skip",
-  "none",
-]);
+
 const takeoffApplyOverrideRenameParamsSchema = z.object({
   designation: z.string().trim().min(1, "La designation est requise."),
 });
@@ -1475,497 +1196,42 @@ const takeoffJobApplyRequestSchema = z
     overrides: z.array(takeoffApplyOverrideSchema).optional(),
   })
   .strict();
-const takeoffApplyScopeSchema = z.enum(["section", "version"]);
-const takeoffJobApplySummarySchema = z.object({
-  scope: takeoffApplyScopeSchema,
-  created_count: z.number().int().min(0),
-  updated_count: z.number().int().min(0),
-  ignored_count: z.number().int().min(0),
-  created_ids: z.array(uuidSchema),
-  item_links: z.array(
-    z.object({
-      takeoff_item_id: uuidSchema,
-      estimate_item_id: uuidSchema,
-    })
-  ),
-});
-const takeoffJobApplyDataSchema = z.object({
-  job: takeoffJobSummarySchema,
-  summary: takeoffJobApplySummarySchema,
-});
-const takeoffPreviewConversionStateSchema = z.object({
-  designation: z.string(),
-  quantity: z.number(),
-  unit: z.string(),
-  is_excluded: z.boolean(),
-  category_id: uuidSchema.nullable(),
-  unit_price_cents: z.number().int().min(0).nullable(),
-  assembly_id: uuidSchema.nullable(),
-});
-const takeoffPreviewConversionSummarySchema = z.object({
-  total_count: z.number().int().min(0),
-  included_count: z.number().int().min(0),
-  transformed_count: z.number().int().min(0),
-  overridden_count: z.number().int().min(0),
-  excluded_by_mapping_count: z.number().int().min(0),
-  assembly_insertions_count: z.number().int().min(0),
-});
-const takeoffPreviewConversionItemSchema = z.object({
-  item_id: uuidSchema,
-  source_order: z.number().int().min(0),
-  rule_id: uuidSchema.nullable(),
-  rule_name: z.string().nullable(),
-  action: takeoffApplyOverrideActionSchema,
-  action_params: z.record(z.string(), z.unknown()),
-  applied_by: z.enum(["none", "rule", "override"]),
-  original: takeoffPreviewConversionStateSchema,
-  transformed: takeoffPreviewConversionStateSchema,
-});
-const takeoffPreviewConversionDataSchema = z.object({
-  job_id: uuidSchema,
-  strategy: takeoffApplyStrategySchema,
-  target_section_id: uuidSchema.nullable(),
-  summary: takeoffPreviewConversionSummarySchema,
-  items: z.array(takeoffPreviewConversionItemSchema),
-});
-const takeoffDiffMatchStrategySchema = z.enum([
-  "designation_fuzzy",
-  "designation_plus_page_fuzzy",
-]);
-const takeoffDiffFieldSchema = z.object({
-  field: z.enum([
-    "designation",
-    "quantity",
-    "unit",
-    "source_page",
-    "confidence",
-    "evidence",
-  ]),
-  label: z.string(),
-  kind: z.enum(["text", "number"]),
-  before_value: z.union([z.string(), z.number(), z.null()]),
-  after_value: z.union([z.string(), z.number(), z.null()]),
-});
-const takeoffDiffAddedEntrySchema = z.object({
-  key: z.string(),
-  change_type: z.literal("added"),
-  other_item: takeoffJobItemSchema,
-});
-const takeoffDiffRemovedEntrySchema = z.object({
-  key: z.string(),
-  change_type: z.literal("removed"),
-  base_item: takeoffJobItemSchema,
-});
-const takeoffDiffChangedEntrySchema = z.object({
-  key: z.string(),
-  change_type: z.literal("changed"),
-  base_item: takeoffJobItemSchema,
-  other_item: takeoffJobItemSchema,
-  match_score: z.number(),
-  match_strategy: takeoffDiffMatchStrategySchema,
-  delta: z.array(takeoffDiffFieldSchema),
-});
-const takeoffDiffUnchangedEntrySchema = z.object({
-  key: z.string(),
-  change_type: z.literal("unchanged"),
-  base_item: takeoffJobItemSchema,
-  other_item: takeoffJobItemSchema,
-  match_score: z.number(),
-  match_strategy: takeoffDiffMatchStrategySchema,
-});
-const takeoffJobCompareSummarySchema = z.object({
-  added: z.number().int().min(0),
-  removed: z.number().int().min(0),
-  changed: z.number().int().min(0),
-  unchanged: z.number().int().min(0),
-  total_base: z.number().int().min(0),
-  total_other: z.number().int().min(0),
-});
-const takeoffJobCompareDataSchema = z.object({
-  base_job_id: uuidSchema,
-  other_job_id: uuidSchema,
-  threshold: z.number().min(0).max(1),
-  summary: takeoffJobCompareSummarySchema,
-  added: z.array(takeoffDiffAddedEntrySchema),
-  removed: z.array(takeoffDiffRemovedEntrySchema),
-  changed: z.array(takeoffDiffChangedEntrySchema),
-  unchanged: z.array(takeoffDiffUnchangedEntrySchema),
-});
-const takeoffDpgfComparisonViewSchema = z.enum(["all", "exceptions_only"]);
-const takeoffDpgfComparisonEvidenceKindSchema = z.enum([
-  "fact",
-  "hypothesis",
-  "inference",
-]);
-const takeoffDpgfComparisonEvidenceTypeSchema = z.enum([
-  "dpgf",
-  "takeoff",
-  "plan_zone",
-  "formula",
-  "price_source",
-  "comment",
-]);
-const takeoffDpgfReviewStatusSchema = z.enum([
-  "reliable_match",
-  "to_confirm",
-  "significant_gap",
-  "unlinked",
-  "forced_manual",
-]);
-const takeoffDpgfReviewDecisionSchema = z.enum([
-  "keep_dpgf",
-  "keep_takeoff",
-  "manual_fix",
-  "out_of_scope",
-]);
-const takeoffDpgfComparisonDpgfLineSchema = z.object({
-  estimate_item_id: uuidSchema,
-  title: z.string(),
-  description: z.string().nullable(),
-  quantity: z.number().positive(),
-  unit: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  source_file_name: z.string().nullable(),
-  position: z.number().int().min(0),
-});
-const takeoffDpgfComparisonTakeoffLineSchema = z.object({
-  item_id: uuidSchema,
-  designation: z.string(),
-  quantity: z.number().positive(),
-  unit: z.string(),
-  source_page: z.number().int().nullable(),
-  source_file_name: z.string().nullable(),
-  confidence: z.number().min(0).max(1).nullable(),
-  evidence: z.string().nullable(),
-  metadata: z.record(z.string(), z.unknown()),
-});
-const takeoffDpgfComparisonProofSchema = z.object({
-  proof_id: z.string(),
-  type: takeoffDpgfComparisonEvidenceTypeSchema,
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-  label: z.string(),
-  source: z.string(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  note: z.string().nullable(),
-});
-const takeoffDpgfReviewDecisionRecordSchema = z.object({
-  id: uuidSchema,
-  tenant_id: uuidSchema,
-  version_id: uuidSchema,
-  takeoff_job_id: uuidSchema,
-  estimate_item_id: uuidSchema,
-  decision: takeoffDpgfReviewDecisionSchema,
-  reason: z.string().nullable(),
-  review_reference: z.string(),
-  line_label: z.string(),
-  line_position: z.number().int().min(0),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  decided_at: z.string(),
-  updated_at: z.string(),
-  decided_by: uuidSchema.nullable(),
-  source: z.enum(["current_version", "carried_over"]),
-  carried_over_from_version_id: uuidSchema.nullable(),
-  carried_over_from_version_number: z.number().int().positive().nullable(),
-});
-const takeoffDpgfUnusedTakeoffItemSchema = z.object({
-  item_id: uuidSchema,
-  designation: z.string(),
-  quantity: z.number().positive(),
-  unit: z.string(),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  evidence: z.string().nullable(),
-});
-const takeoffPriceSuggestionStatusSchema = z.enum([
-  "pending",
-  "applied",
-  "kept_current",
-  "rejected",
-]);
-const takeoffPriceSuggestionActionSchema = z.enum([
-  "apply_low",
-  "apply_target",
-  "apply_high",
-  "keep_current",
-  "reject",
-]);
-const takeoffPriceSuggestionSourceKindSchema = z.enum([
-  "history",
-  "pricebook",
-  "similar_item",
-  "external_reference",
-]);
-const takeoffPriceSuggestionConfidenceLabelSchema = z.enum([
-  "low",
-  "medium",
-  "high",
-]);
-const takeoffPriceSuggestionFactorSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  value: z.string(),
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-});
-const takeoffPriceSuggestionSourceSchema = z.object({
-  source_id: z.string().min(1),
-  source_kind: takeoffPriceSuggestionSourceKindSchema,
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-  label: z.string(),
-  source_ref: z.string(),
-  price_cents: z.number().int().min(0),
-  freshness_label: z.string().nullable(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  rank: z.number().int().min(1),
-  is_outlier: z.boolean(),
-  source_record_table: z.string().nullable(),
-  source_record_id: z.string().nullable(),
-  metadata: z.record(z.string(), z.unknown()),
-});
-const takeoffPriceSuggestionSnapshotSchema = z.object({
-  suggestion_id: uuidSchema,
-  line_id: uuidSchema,
-  version_id: uuidSchema,
-  job_id: uuidSchema,
-  current_price_cents: z.number().int().min(0).nullable(),
-  low_cents: z.number().int().min(0),
-  target_cents: z.number().int().min(0),
-  high_cents: z.number().int().min(0),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  confidence_label: takeoffPriceSuggestionConfidenceLabelSchema,
-  candidate_count: z.number().int().min(0),
-  outlier_count: z.number().int().min(0),
-  justification: z.string(),
-  factors: z.array(takeoffPriceSuggestionFactorSchema),
-  summary: z.record(z.string(), z.unknown()),
-  status: takeoffPriceSuggestionStatusSchema,
-  selected_action: takeoffPriceSuggestionActionSchema.nullable(),
-  selected_price_cents: z.number().int().min(0).nullable(),
-  review_note: z.string().nullable(),
-  reviewed_at: z.string().nullable(),
-  reviewed_by: uuidSchema.nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  sources: z.array(takeoffPriceSuggestionSourceSchema),
-});
-const takeoffRiskSeveritySchema = z.enum(["info", "warning", "critical"]);
-const takeoffRiskStatusSchema = z.enum([
-  "to_process",
-  "assumed",
-  "false_positive",
-]);
-const takeoffRiskScopeTypeSchema = z.enum(["project", "lot", "line"]);
-const takeoffRiskMarginBucketSchema = z.enum([
-  "negative",
-  "thin",
-  "healthy",
-  "unknown",
-]);
-const takeoffRiskCauseCodeSchema = z.enum([
-  "missing_proof",
-  "dpgf_takeoff_gap",
-  "atypical_price",
-  "insufficient_margin",
-  "vat_inconsistency",
-  "missing_piece",
-]);
-const takeoffRiskProvenanceEntrySchema = z.object({
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-  label: z.string(),
-  source: z.string(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  note: z.string().nullable(),
-});
-const takeoffDpgfLineRiskSummarySchema = z.object({
-  score: z.number().int().min(0).max(100),
-  severity: takeoffRiskSeveritySchema,
-  causes: z.array(z.string()),
-  status: takeoffRiskStatusSchema.nullable(),
-});
-const takeoffRiskAlertSchema = z.object({
-  alert_id: uuidSchema,
-  scope_type: takeoffRiskScopeTypeSchema,
-  scope_id: uuidSchema.nullable(),
-  scope_label: z.string(),
-  line_id: uuidSchema.nullable(),
-  lot_id: uuidSchema.nullable(),
-  cause_code: takeoffRiskCauseCodeSchema,
-  cause_label: z.string(),
-  severity: takeoffRiskSeveritySchema,
-  risk_score: z.number().int().min(0).max(100),
-  status: takeoffRiskStatusSchema,
-  margin_bucket: takeoffRiskMarginBucketSchema,
-  reason_labels: z.array(z.string()),
-  provenance: z.array(takeoffRiskProvenanceEntrySchema),
-  review_note: z.string().nullable(),
-  reviewed_at: z.string().nullable(),
-  reviewed_by: uuidSchema.nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  metadata: z.record(z.string(), z.unknown()),
-});
-const takeoffRiskRadarScopeSummarySchema = z.object({
-  scope_type: z.enum(["project", "lot"]),
-  scope_id: uuidSchema.nullable(),
-  scope_label: z.string(),
-  score: z.number().int().min(0).max(100),
-  severity: takeoffRiskSeveritySchema,
-  open_alerts_count: z.number().int().min(0),
-  critical_alerts_count: z.number().int().min(0),
-  top_causes: z.array(z.string()),
-});
-const takeoffRiskRadarSummarySchema = z.object({
-  to_process_count: z.number().int().min(0),
-  assumed_count: z.number().int().min(0),
-  false_positive_count: z.number().int().min(0),
-  critical_count: z.number().int().min(0),
-  warning_count: z.number().int().min(0),
-  info_count: z.number().int().min(0),
-  top_causes: z.array(z.string()),
-  project_score: z.number().int().min(0).max(100),
-  project_severity: takeoffRiskSeveritySchema,
-});
-const takeoffDpgfComparisonRowSchema = z.object({
-  line_id: uuidSchema,
-  line_label: z.string(),
-  dpgf: takeoffDpgfComparisonDpgfLineSchema,
-  linked_takeoff_items: z.array(takeoffDpgfComparisonTakeoffLineSchema),
-  dpgf_quantity: z.number().nullable(),
-  takeoff_quantity: z.number().nullable(),
-  quantity_unit: z.string().nullable(),
-  matching_score: z.number().min(0).max(1),
-  confidence_score: z.number().min(0).max(1),
-  review_status: takeoffDpgfReviewStatusSchema,
-  proofs: z.array(takeoffDpgfComparisonProofSchema),
-  suggested_decision: takeoffDpgfReviewDecisionSchema.nullable(),
-  applied_decision: takeoffDpgfReviewDecisionRecordSchema.nullable(),
-  delta_absolute: z.number().nullable(),
-  delta_percent: z.number().nullable(),
-  is_exception: z.boolean(),
-  manual_link_count: z.number().int().min(0),
-  matched_by: z.enum(["auto", "manual"]).nullable(),
-  risk: takeoffDpgfLineRiskSummarySchema.nullable(),
-});
-const takeoffDpgfComparisonSummarySchema = z.object({
-  reliable_matches: z.number().int().min(0),
-  to_confirm: z.number().int().min(0),
-  significant_gaps: z.number().int().min(0),
-  forced_manual: z.number().int().min(0),
-  lines_without_proof: z.number().int().min(0),
-  unused_takeoff_items: z.number().int().min(0),
-  total_lines: z.number().int().min(0),
-});
-const takeoffDpgfComparisonDataSchema = z.object({
-  version_id: uuidSchema,
-  job_id: uuidSchema,
-  view: takeoffDpgfComparisonViewSchema,
-  threshold: z.number().min(0).max(1),
-  summary: takeoffDpgfComparisonSummarySchema,
-  rows: z.array(takeoffDpgfComparisonRowSchema),
-  manual_link_candidates: z.array(takeoffDpgfUnusedTakeoffItemSchema),
-  unused_takeoff_items: z.array(takeoffDpgfUnusedTakeoffItemSchema),
-  pagination: z.object({
-    page_size: z.number().int().min(1),
-    next_cursor: z.string().nullable(),
-    total: z.number().int().min(0),
-  }),
-});
-const takeoffRiskRadarDataSchema = z.object({
-  version_id: uuidSchema,
-  job_id: uuidSchema,
-  summary: takeoffRiskRadarSummarySchema,
-  project: takeoffRiskRadarScopeSummarySchema,
-  lots: z.array(takeoffRiskRadarScopeSummarySchema),
-  items: z.array(takeoffRiskAlertSchema),
-});
-const takeoffLineEvidenceStatusSchema = z.enum([
-  "active",
-  "invalidated",
-  "replaced",
-]);
-const takeoffLineEvidenceEntrySchema = z.object({
-  evidence_id: uuidSchema,
-  type: takeoffDpgfComparisonEvidenceTypeSchema,
-  kind: takeoffDpgfComparisonEvidenceKindSchema,
-  label: z.string(),
-  source: z.string(),
-  source_file_name: z.string().nullable(),
-  source_page: z.number().int().nullable(),
-  confidence_score: z.number().min(0).max(1).nullable(),
-  note: z.string().nullable(),
-  created_at: z.string(),
-  author_name: z.string().nullable(),
-  status: takeoffLineEvidenceStatusSchema,
-  supersedes_evidence_id: uuidSchema.nullable(),
-  replaced_by_evidence_id: uuidSchema.nullable(),
-});
-const takeoffLineEvidencePanelDataSchema = z.object({
-  line_id: uuidSchema,
-  version_id: uuidSchema,
-  job_id: uuidSchema,
-  evidences: z.array(takeoffLineEvidenceEntrySchema),
-  history: z.array(takeoffLineEvidenceEntrySchema),
-});
-const takeoffPriceSuggestionRequestSchema = z.object({
-  version_id: uuidSchema,
-  estimate_item_id: uuidSchema,
-  force_refresh: z.boolean().optional(),
-});
-const takeoffPriceSuggestionResponseDataSchema = z.object({
-  suggestion: takeoffPriceSuggestionSnapshotSchema,
-});
-const takeoffPriceSuggestionReviewRequestSchema = z.object({
-  version_id: uuidSchema,
-  action: takeoffPriceSuggestionActionSchema,
-  review_note: z.string().min(1).max(2000),
-});
-const takeoffPriceSuggestionReviewResponseDataSchema = z.object({
-  suggestion: takeoffPriceSuggestionSnapshotSchema,
-  applied_item: z
-    .object({
-      id: uuidSchema,
-      unit_price_ht_cents: z.number().int().min(0).nullable(),
-      updated_at: z.string(),
-    })
-    .nullable(),
-});
-const takeoffDpgfManualLinkSchema = z.object({
-  id: uuidSchema,
-  tenant_id: uuidSchema,
-  version_id: uuidSchema,
-  takeoff_job_id: uuidSchema,
-  estimate_item_id: uuidSchema,
-  takeoff_item_id: uuidSchema,
-  created_at: z.string(),
-  updated_at: z.string(),
-  linked_by: uuidSchema.nullable(),
-});
+
+
+const takeoffJobApplyDataSchema = sharedTakeoffJobApplyDataSchema;
+
+const takeoffPreviewConversionDataSchema = sharedTakeoffPreviewConversionDataSchema;
+
+const takeoffJobCompareDataSchema = sharedTakeoffJobCompareDataSchema;
+
+const takeoffRiskSeveritySchema = sharedTakeoffRiskSeveritySchema;
+const takeoffRiskStatusSchema = sharedTakeoffRiskStatusSchema;
+const takeoffRiskScopeTypeSchema = sharedTakeoffRiskScopeTypeSchema;
+
+const takeoffDpgfComparisonDataSchema = takeoffDpgfComparisonResponseSchema;
+const takeoffRiskRadarDataSchema = sharedTakeoffRiskRadarDataSchema;
+
+const takeoffLineEvidencePanelDataSchema = takeoffLineEvidencePanelResponseSchema;
+
 const takeoffDpgfManualLinkRequestSchema = z.object({
   version_id: uuidSchema,
   estimate_item_id: uuidSchema,
   takeoff_item_ids: z.array(uuidSchema),
 });
-const takeoffDpgfManualLinkResponseDataSchema = z.object({
-  links: z.array(takeoffDpgfManualLinkSchema),
-});
+const takeoffDpgfManualLinkResponseDataSchema = sharedTakeoffDpgfManualLinkResponseDataSchema;
 const takeoffDpgfReviewDecisionRequestSchema = z.object({
   version_id: uuidSchema,
   estimate_item_id: uuidSchema,
   decision: takeoffDpgfReviewDecisionSchema,
   reason: z.string().max(2000).nullable().optional(),
 });
-const takeoffDpgfReviewDecisionResponseDataSchema = z.object({
-  decision: takeoffDpgfReviewDecisionRecordSchema,
-});
+const takeoffDpgfReviewDecisionResponseDataSchema = sharedTakeoffDpgfReviewDecisionResponseDataSchema;
 const takeoffRiskAlertStatusRequestSchema = z.object({
   version_id: uuidSchema,
   status: takeoffRiskStatusSchema,
   review_note: z.string().max(2000).nullable().optional(),
 });
-const takeoffRiskAlertStatusResponseDataSchema = z.object({
-  alert: takeoffRiskAlertSchema,
-});
+const takeoffRiskAlertStatusResponseDataSchema = sharedTakeoffRiskAlertStatusResponseDataSchema;
 const takeoffMetricsKpisSchema = z.object({
   totalJobs: z.number().int().min(0),
   completedJobs: z.number().int().min(0),
@@ -2345,6 +1611,7 @@ const takeoffPlanSetDataSchema = z.object({
 const takeoffPlanSetDeleteDataSchema = z.object({
   deleted: z.literal(true),
   plan_set_id: uuidSchema,
+  dossier_synchronized: z.boolean(),
   cleanup: takeoffCleanupStatusSchema,
 });
 const takeoffPlanFilesDataSchema = z.object({
@@ -2361,6 +1628,7 @@ const takeoffPlanFileDeleteDataSchema = z.object({
   deleted: z.literal(true),
   plan_set_id: uuidSchema,
   file_id: uuidSchema,
+  dossier_synchronized: z.boolean(),
   cleanup: takeoffCleanupStatusSchema,
 });
 
@@ -2394,10 +1662,7 @@ const apiDeletedIdSchemaDefinition = successResponseSchemaDefinition(
 );
 const apiEstimateItemDeletedSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemDeletedResponse",
-  deletedIdDataSchema.extend({
-    deleted_ids: z.array(uuidSchema),
-    version: estimateVersionTokenSchema,
-  })
+  estimateItemDeleteResponseSchema
 );
 const apiEstimateVerifySealSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateVerifySealResponse",
@@ -4164,6 +3429,8 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [
       takeoffPlanSetEstimateVersionIdQueryParameter,
       takeoffPlanSetLimitQueryParameter,
+      queryParameter({ name: "project_id", description: "Filtrer les jeux par affaire.", schemaName: "TakeoffPlanSetProjectIdQueryParameter", schema: uuidSchema, required: false }),
+      queryParameter({ name: "import_default_only", description: "Sélectionner le jeu d’import de l’affaire sans limite de pagination.", schemaName: "TakeoffPlanSetImportDefaultQueryParameter", schema: z.boolean(), required: false }),
     ],
     responses: {
       "200": jsonResponse(
@@ -4357,14 +3624,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Version et toutes les lignes confirmées après sauvegarde atomique.",
-        successResponseSchemaDefinition("ApiEstimateSettingsResponse", z.object({
-          version: estimateVersionSchema.extend({
-            updated_at: z.string(), content_revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-            total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
-            rounding_adjustment_cents: z.number().int(),
-          }),
-          items: z.array(estimateItemSchema),
-        }))
+        successResponseSchemaDefinition("ApiEstimateSettingsResponse", estimateSettingsResponseSchema)
       ),
       "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED ou CONTEXT_CHANGED : aucun réglage ni montant enregistré.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
@@ -4459,7 +3719,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Variante promue avec succes.",
-        apiEstimateVersionSchemaDefinition
+        successResponseSchemaDefinition("ApiEstimatePromoteVariantResponse", estimatePromoteVariantResponseSchema)
       ),
     },
   },

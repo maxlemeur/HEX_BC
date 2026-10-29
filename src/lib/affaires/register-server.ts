@@ -1009,23 +1009,11 @@ async function deactivateMissingSyncEntries(input: {
   supabase: Supabase;
   projectId: string;
   originKind: AffaireRegisterEntryOriginKind;
-  existingSyncKeys: string[];
   activeSyncKeys: Set<string>;
   actorUserId?: string | null;
   reason: string;
 }) {
-  if (input.existingSyncKeys.length === 0) {
-    return;
-  }
-
-  const staleSyncKeys = input.existingSyncKeys.filter(
-    (syncKey) => !input.activeSyncKeys.has(syncKey)
-  );
-  if (staleSyncKeys.length === 0) {
-    return;
-  }
-
-  const { data, error } = await readAllRowsInChunks(staleSyncKeys, (pageIds) => input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("affaire_register_entries" as never)
     .select(
       "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
@@ -1033,8 +1021,8 @@ async function deactivateMissingSyncEntries(input: {
     )
     .eq("project_id", input.projectId)
     .eq("origin_kind", input.originKind)
-    .eq("is_active", true)
-    .in("sync_key", pageIds));
+    .eq("kind", "missing_piece")
+    .eq("is_active", true));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de désactiver le registre sync.");
@@ -1042,7 +1030,8 @@ async function deactivateMissingSyncEntries(input: {
 
   const rows = ((data ?? []) as unknown[])
     .map((row) => normalizeAffaireRegisterEntryRow(row))
-    .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null);
+    .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null)
+    .filter((row) => row.sync_key?.startsWith("missing_piece:") && row.sync_key !== "missing_piece:missing_plans" && !input.activeSyncKeys.has(row.sync_key));
 
   for (const row of rows) {
     const nextStatus =
@@ -1287,7 +1276,6 @@ async function upsertSyncedEntries(input: {
       supabase: input.supabase,
       projectId: input.project.id,
       originKind: input.rows[0]?.originKind ?? "system",
-      existingSyncKeys: Array.from(existingBySyncKey.keys()),
       activeSyncKeys,
       actorUserId: input.actorUserId ?? null,
       reason: input.reason,
@@ -1346,7 +1334,7 @@ export async function syncAffaireRegisterMissingPieces(input: {
   }>;
   actorUserId?: string | null;
 }) {
-  const rows = input.missingPieces.map((piece) => ({
+  const rows = input.missingPieces.filter((piece) => piece.code !== "missing_plans").map((piece) => ({
     kind: "missing_piece" as const,
     code: piece.code,
     text: piece.label,
@@ -1364,6 +1352,16 @@ export async function syncAffaireRegisterMissingPieces(input: {
     actorUserId: input.actorUserId ?? null,
     reason: "intake.missing_pieces_sync",
   });
+  return syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });
+}
+
+/** Plan state is reread and written in one database transaction, never from a stale UI snapshot. */
+export async function syncAffairePlanGap(input: { projectId: string; actorUserId?: string | null }) {
+  const { data, error } = await createServiceRoleClient().rpc("reconcile_affaire_plan_gap" as never, {
+    p_project_id: input.projectId, p_actor_user_id: input.actorUserId ?? null,
+  } as never);
+  if (error) throw mapSupabaseError(error, "Impossible de synchroniser les plans du dossier.");
+  return data === true;
 }
 
 export async function fetchAffaireRegisterGateSummary(input: {

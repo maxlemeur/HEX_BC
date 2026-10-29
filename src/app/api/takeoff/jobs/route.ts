@@ -1,3 +1,5 @@
+import { parseTakeoffJobCreateResponse, parseTakeoffJobListResponse } from "@/lib/takeoff/job-response-contracts";
+import { parseEstimateVersionId, parseTakeoffLevel } from "@/lib/takeoff/job-creation-input";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -69,7 +71,7 @@ export async function GET(request: Request) {
   try {
     const query = parseListTakeoffJobsQuery(toQueryObject(request));
     const data = await listTakeoffJobs(query);
-    return ok(data);
+    return ok(parseTakeoffJobListResponse(data, { versionId: query.estimate_version_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {
@@ -116,7 +118,7 @@ export async function POST(request: Request) {
     }
 
     return ok(
-      {
+      parseTakeoffJobCreateResponse({
         ...data,
         dispatch: {
           status: triggerResult.triggered
@@ -127,7 +129,7 @@ export async function POST(request: Request) {
           correlation_id: triggerResult.correlationId,
           persisted: dispatchPersisted,
         },
-      },
+      }, { versionId: parseEstimateVersionId(formData), level: parseTakeoffLevel(formData) }),
       201
     );
   } catch (error) {

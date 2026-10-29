@@ -53,6 +53,18 @@ describe("POST /api/estimates/[versionId]/items/move", () => {
     expect(vi.mocked(moveEstimateItem)).not.toHaveBeenCalled();
   });
 
+  it("returns 500 for an incoherent receipt after a single mutation", async () => {
+    const input = { item_id: ITEM_ID, from_parent_id: SOURCE_PARENT_ID, to_parent_id: TARGET_PARENT_ID,
+      ordered_source_ids: [], ordered_target_ids: [ITEM_ID] };
+    vi.mocked(moveEstimateItem).mockResolvedValue({ ...input, updated_count: 2,
+      version: { id: VERSION_ID, updated_at: "2026-10-28T12:00:00.123456Z" } });
+    const response = await POST(new Request(`http://localhost/api/estimates/${VERSION_ID}/items/move`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+    }), makeParams());
+    expect(response.status).toBe(500);
+    expect(vi.mocked(moveEstimateItem)).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards move conflicts from the server", async () => {
     vi.mocked(moveEstimateItem).mockRejectedValue(
       conflict("La liste de deplacement est obsolete.", {

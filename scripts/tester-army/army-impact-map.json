@@ -12,6 +12,7 @@
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/deslop-components.e2e.ts",
+      "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
       "e2e/army/critical/estimate-integrity.e2e.ts",
       "e2e/army/critical/hub-launch-metre.e2e.ts",
@@ -216,6 +217,7 @@
       "e2e/army/critical/prehydration-auth.e2e.ts"
     ],
     "wizard": [
+      "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
       "e2e/army/critical/bulk-edit-sync-sources.e2e.ts",
       "e2e/army/critical/bulk-edit-sync.e2e.ts",
       "e2e/army/critical/bulk-move.e2e.ts",
@@ -274,6 +276,7 @@
       "e2e/army/local/legacy-currency-parity.e2e.ts"
     ],
     "affaire-hub": [
+      "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
       "e2e/army/critical/hub-launch-metre.e2e.ts",
       "e2e/army/critical/hub-plans-card.e2e.ts",
@@ -289,6 +292,7 @@
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts"
     ],
     "plans": [
+      "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
       "e2e/army/critical/hub-launch-metre.e2e.ts",
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
@@ -654,6 +658,11 @@
       ]
     },
     {
+      "id": "dogfood-dpgf-fixture",
+      "paths": ["public/exemple-dpgf.xlsx"],
+      "journeys": ["e2e/army/critical/dogfood-dpgf-plans.e2e.ts"]
+    },
+    {
       "id": "plan-fixture",
       "note": "Lu par uploadSamplePlan (plans-support.ts).",
       "paths": [
@@ -667,11 +676,12 @@
     },
     {
       "id": "tabular-pdf-fixture",
-      "note": "PDF tabulaire importé par US-2.2.",
+      "note": "PDF tabulaire importé par US-2.2 et la recette du dossier.",
       "paths": [
         "e2e/fixtures/us22_live_tabular.pdf"
       ],
       "journeys": [
+        "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
         "e2e/army/takeoff/team-b-user-stories.e2e.ts"
       ]
     },
@@ -766,7 +776,7 @@
         "src/components/affaires/IntakeDocumentTable*",
         "e2e/army/critical/google-drive-local-store.ts"
       ],
-      "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts"]
+      "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts", "e2e/army/critical/dogfood-dpgf-plans.e2e.ts"]
     },
     {
       "id": "intake-dossier",
@@ -776,6 +786,7 @@
         "src/app/api/affaires/**"
       ],
       "journeys": [
+        "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts"
       ]
     },
@@ -788,6 +799,7 @@
         "src/components/mappings/**"
       ],
       "journeys": [
+        "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
         "e2e/army/takeoff/import-format-completion.e2e.ts"
       ]
     },

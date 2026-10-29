@@ -1,3 +1,4 @@
+import { parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -59,7 +60,7 @@ export async function POST(
       };
     }
 
-    return ok({ ...data, ...(dispatch ? { dispatch } : {}) });
+    return ok(parseTakeoffJobActionResponse({ ...data, ...(dispatch ? { dispatch } : {}) }, { jobId, command: "reconcile" }));
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

@@ -1,0 +1,54 @@
+Retours des cinq conversations LLGs pour préparer le skill de métré et quantitatif
+Collecte du 20 octobre 2026
+
+Les cinq conversations ont livré leur retour d’expérience : LLGs - Inox, LLGs - Robinetterie, LLGs - PVC, LLGs - Calorifuge et LLGs - Supportage. Leurs réponses intégrales figurent dans les cinq fichiers numérotés de ce dossier. Elles décrivent les méthodes utiles, les erreurs corrigées, les ressources retrouvées et 25 cas tests proposés, avec des recoupements. Ces tests n’ont pas été exécutés dans cette collecte.
+
+La proposition commune est d’enrichir le skill metres existant avec un socle partagé et des références propres aux cinq lots. Aucun skill n’a été créé ou modifié.
+
+Le socle à préparer
+
+1. Distinguer trois dimensions : preuve disponible, nature de quantité et approbation. Une estimation approuvée pour une consultation reste une estimation. Conserver séparément le relevé brut, la quantité documentaire issue d’un devis, les réserves, les options et la quantité d’approvisionnement.
+
+2. Associer chaque occurrence physique à des preuves précises : fichier et révision, page, vue, repère, coordonnées ; pour Excel, classeur, onglet, cellule, formule et valeur mémorisée. Voir un même objet sur un plan, une coupe et une 3D ne crée pas trois objets. Plusieurs copies identiques d’une fiche technique ne constituent pas des preuves indépendantes.
+
+3. Relier les éléments : tronçon, raccord, organe, ensemble de raccordement, isolation, support, composants et article commercial. Affecter chaque composant à un lot fournisseur et distinguer composants complémentaires, kits et alternatives exclusives.
+
+4. Versionner le périmètre et les décisions. Un ajout de niveau, une exclusion de réseau ou une substitution doit déclencher la revue des listes dépendantes. Une modification de consultation ne réécrit pas rétroactivement le relevé géométrique. Les versions qui se remplacent ne s’additionnent pas.
+
+5. Séparer les transformations : longueur d’axe, longueur nette justifiée, réserve, arrondi et conditionnement. Une cellule vide reste inconnue ; zéro reste une valeur explicite. La lecture de la valeur mémorisée d’une formule Excel ne constitue pas un recalcul.
+
+6. Contrôler le rendu des PDF lorsque l’association entre texte, symbole ou rubrique affecte une décision. Les couleurs, l’ordre du texte extrait et les objets vectoriels servent au repérage mais ne suffisent pas seuls à valider un quantitatif.
+
+Apport particulier de chaque lot
+
+Inox : identité technique complète des tubes et raccords, DN distinct du diamètre extérieur, nuance, angle, assemblage, filetage, unions et interfaces. Les scripts de rapprochement par rang de ligne doivent être retravaillés.
+
+Robinetterie : distinction organe physique, ensemble nécessaire au montage et articles d’achat. Décomposer les inclusions, relier les extrémités et suivre les substitutions acceptées. La lecture visuelle de la FT a corrigé une mention ATEX attribuée à tort au montage des brides.
+
+PVC : classer d’abord la fonction du réseau, puis les caractéristiques. Distinguer condensats d’UI, condensats vapeur, EU/EV et EP ; documenter chaque emboîture. Une continuité probable de colonne ne fournit ni sa longueur ni son diamètre.
+
+Calorifuge : relier géométrie et prescription (diamètre extérieur, épaisseur, matériau, finition). Sécuriser les conversions mètres/pièces et les surfaces. L’essai de retrait uniforme de pixels autour des raccords a été abandonné : il ne prouvait pas une longueur nette. Les classeurs V03 ont été retrouvés par le chat, mais restent des états historiques.
+
+Supportage : distinguer longueur de tuyaux, cheminement, stations d’appui et nomenclature. Traiter les appuis communs, traverses, suspentes, fixations, débits et traits de scie. Le cas 60/150 illustre un changement de périmètre mal propagé ; l’écart documentaire ne vaut pas un comptage des appuis du complément.
+
+Ressources et précautions de réemploi
+
+Les réponses détaillées donnent les chemins des CSV/JSON de pointage, manifestes, captures, notes de calcul, classeurs et scripts inspectés. Plusieurs scripts contiennent des coordonnées, quantités ou correspondances propres à LLG. Leur réemploi exige une adaptation et une vérification sur des données indépendantes. Les vérifications de ressources indiquées sont celles rapportées par chaque conversation ; cette collecte ne constitue pas une nouvelle validation de tous les métrés ou scripts.
+
+Les choix LLG (entraxe de 2 m, marges, hauteurs conventionnelles, quantités retenues, regroupements et exclusions) doivent rester des paramètres ou décisions de projet. Ils ne deviennent pas des constantes générales du skill.
+
+Suite proposée pour une future création ou révision
+
+Commencer par le schéma de données et le sens des statuts. Définir ensuite les conventions de mesure et d’arrondi, puis les relations entre occurrences, ensembles et articles. Extraire seulement les scripts dont l’utilité est démontrée. Tester enfin les cas ambigus, les changements de révision, les transferts entre lots, les kits/alternatives et les valeurs vides.
+
+Les cinq réponses sont des matériaux de conception. Les propositions n’ont pas encore été approuvées comme nouvelles règles du skill.
+
+Fichiers du recueil
+
+01_inox.txt : LLGs - Inox
+02_robinetterie.txt : LLGs - Robinetterie
+03_pvc.txt : LLGs - PVC
+04_calorifuge.txt : LLGs - Calorifuge
+05_supportage.txt : LLGs - Supportage
+collecte.json : demandes, identifiants des conversations et état final
+reponses_completes.json : réponses intégrales structurées pour un traitement ultérieur

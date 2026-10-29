@@ -213,6 +213,7 @@ describe("ACTUEL — reprise d'une synchronisation intake partiellement échoué
     const replay = createIntakeFake();
     replay.planSets.push(...first.planSets);
     replay.planFiles.push(...first.planFiles);
+    for (const [path, blob] of first.planObjects) replay.planObjects.set(path, blob);
     const result = await syncTakeoffPlanSetFromAffaireIntake({
       supabase: replay.fake.client as never,
       project: { id: M3_PROJECT_ID, tenant_id: M3_TENANT_ID },

@@ -3,7 +3,8 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
+import { useEstimateEditorHistoryController, type EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
+import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import { useEstimateEditorBulkController } from "@/hooks/useEstimateEditorBulkController";
 import type {
   EditorEstimateItem,
@@ -131,6 +132,7 @@ function createBulkResult(updatedAt: string, updatedCount = 1) {
 }
 
 type HarnessInput = {
+  document?: EstimateEditorDocument;
   items?: EditorEstimateItem[];
   version?: EstimateVersionRow | null;
   isMutationBlocked?: boolean;
@@ -149,7 +151,8 @@ function createHarness(input: HarnessInput = {}) {
         | EditorEstimateItem[]
         | ((previous: EditorEstimateItem[]) => EditorEstimateItem[])
     ) => {
-      items = typeof update === "function" ? update(items) : update;
+      if (input.document) input.document.setDraftItems(update);
+      else items = typeof update === "function" ? update(items) : update;
     }
   );
   const setTotalsOutOfSync = vi.fn();
@@ -194,11 +197,12 @@ function createHarness(input: HarnessInput = {}) {
 
   const rendered = renderHook(() =>
     useEstimateEditorBulkController({
+      document: input.document,
       isMutationBlocked: input.isMutationBlocked ?? false,
       mutationBlockedMessage: "Mutation interdite.",
       isLaborSplitEnabled: input.isLaborSplitEnabled ?? true,
-      getItemsSnapshot: () => items,
-      getVersionSnapshot: () => version,
+      getItemsSnapshot: () => input.document?.getSnapshot().items ?? items,
+      getVersionSnapshot: () => input.document?.getSnapshot().version ?? version,
       setItems,
       setTotalsOutOfSync,
       reportError,
@@ -220,8 +224,8 @@ function createHarness(input: HarnessInput = {}) {
 
   return {
     ...rendered,
-    getItems: () => items,
-    getVersion: () => version,
+    getItems: () => input.document?.getSnapshot().items ?? items,
+    getVersion: () => input.document?.getSnapshot().version ?? version,
     setItems,
     setTotalsOutOfSync,
     reportError,
@@ -253,7 +257,9 @@ beforeEach(() => {
   clientMocks.bulkUpdateEstimateItems.mockReset().mockResolvedValue(
     createBulkResult("token-next")
   );
-  clientMocks.deleteEstimateItem.mockReset().mockResolvedValue(undefined);
+  clientMocks.deleteEstimateItem.mockReset().mockImplementation(async (versionId: string, id: string) => ({
+    versionToken: { id: versionId, updated_at: "token-delete" }, deletedIds: [id],
+  }));
 });
 
 afterEach(() => {
@@ -760,7 +766,7 @@ describe("useEstimateEditorBulkController", () => {
     ];
     const failure = new Error("second delete failed");
     clientMocks.deleteEstimateItem
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ versionToken: { id: "version-1", updated_at: "token-delete" }, deletedIds: ["line-a"] })
       .mockRejectedValueOnce(failure);
     const harness = createHarness({ items: lines });
     harness.handleVersionConflict.mockReturnValue(false);
@@ -780,6 +786,101 @@ describe("useEstimateEditorBulkController", () => {
     expect(harness.reportError).toHaveBeenLastCalledWith(
       "Suppression partielle détectée (1/3) : public:second delete failed. La version a été rechargee; vérifiez les lignes puis réessayez."
     );
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("bulk receipts accepted by the document", () => {
+  function documentWithLines() {
+    const scope = { actorId: "actor-1", tenantId: "tenant-1", versionId: "version-1" };
+    const document = new EstimateEditorDocument(scope);
+    document.setConfirmedVersion({ ...createVersion({ tenant_id: scope.tenantId, calc_engine_version: 1,
+      updated_at: "2026-10-28T10:00:00.123456Z" }), estimate_projects: null });
+    document.acceptItems([createLine("line-a"), createLine("line-b", { position: 2 })]);
+    return { document, scope };
+  }
+
+  it("ignores a stale successful bulk receipt after a newer read, including its success history", async () => {
+    const { document } = documentWithLines();
+    const request = createDeferred<ReturnType<typeof createBulkResult>>();
+    clientMocks.bulkUpdateEstimateItems.mockReturnValueOnce(request.promise);
+    const harness = createHarness({ document });
+    let completion!: Promise<void>;
+    act(() => { completion = harness.result.current.actions.applyBulkMajoration(["line-a"], 2); });
+    await waitFor(() => expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(1));
+    act(() => document.transaction(() => {
+      document.setConfirmedVersion((version) => version && { ...version, updated_at: "2026-10-28T10:00:00.123458Z" });
+      document.acceptItems(document.getSnapshot().confirmedItems.map((item) => item.id === "line-a" ? { ...item, h_mo_majoration: 3 } : item));
+    }));
+    await act(async () => { request.resolve(createBulkResult("2026-10-28T10:00:00.123457Z")); await completion; });
+    expect(document.getSnapshot().version?.updated_at).toBe("2026-10-28T10:00:00.123458Z");
+    expect(document.getSnapshot().items[0].h_mo_majoration).toBe(3);
+    expect(document.getSnapshot().confirmedItems[0].h_mo_majoration).toBe(3);
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+    expect(harness.setTotalsOutOfSync).not.toHaveBeenCalledWith(false);
+  });
+
+  it.each(["undo", "redo"] as const)("keeps the real history pointer when a stale %s receipt is superseded", async (direction) => {
+    const { document } = documentWithLines();
+    clientMocks.bulkUpdateEstimateItems.mockResolvedValueOnce(createBulkResult("2026-10-28T10:00:00.123457Z"));
+    const harness = createHarness({ document });
+    const history = renderHook(() => useEstimateEditorHistoryController({ scopeKey: "actor-1:tenant-1:version-1", reportError: vi.fn() }));
+    await act(async () => { await harness.result.current.actions.applyBulkMajoration(["line-a"], 2); });
+    act(() => { history.result.current.actions.push(readHistoryCommand(harness.pushHistoryCommand)); });
+    if (direction === "redo") {
+      clientMocks.bulkUpdateEstimateItems.mockResolvedValueOnce(createBulkResult("2026-10-28T10:00:00.123458Z"));
+      await act(async () => { await history.result.current.actions.undo(); });
+    }
+    const pending = createDeferred<ReturnType<typeof createBulkResult>>();
+    clientMocks.bulkUpdateEstimateItems.mockReturnValueOnce(pending.promise);
+    let completed!: Promise<void>;
+    act(() => { completed = history.result.current.actions[direction](); });
+    await waitFor(() => expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(direction === "undo" ? 2 : 3));
+    act(() => document.transaction(() => {
+      document.setConfirmedVersion((version) => version && { ...version, updated_at: "2026-10-28T10:00:00.123460Z" });
+      document.acceptItems(document.getSnapshot().confirmedItems.map((item) => item.id === "line-a" ? { ...item, h_mo_majoration: 4 } : item));
+    }));
+    await act(async () => { pending.resolve(createBulkResult("2026-10-28T10:00:00.123459Z")); await completed; });
+    expect(document.getSnapshot().items[0].h_mo_majoration).toBe(4);
+    expect(history.result.current.state.canUndo).toBe(direction === "undo");
+    expect(history.result.current.state.canRedo).toBe(direction === "redo");
+    expect(history.result.current.state.feedback).toBeNull();
+  });
+
+  it("publishes accepted rows and their token in one document notification", async () => {
+    const { document } = documentWithLines();
+    const request = createDeferred<ReturnType<typeof createBulkResult>>();
+    clientMocks.bulkUpdateEstimateItems.mockReturnValueOnce(request.promise);
+    const harness = createHarness({ document });
+    let completion!: Promise<void>;
+    act(() => { completion = harness.result.current.actions.applyBulkMajoration(["line-a"], 2); });
+    await waitFor(() => expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(1));
+    const observed: Array<{ token: string | undefined; majoration: number }> = [];
+    const stop = document.subscribe(() => observed.push({ token: document.getSnapshot().version?.updated_at,
+      majoration: document.getSnapshot().confirmedItems[0].h_mo_majoration }));
+    await act(async () => { request.resolve(createBulkResult("2026-10-28T10:00:00.123457Z")); await completion; });
+    stop();
+    expect(observed).toEqual([{ token: "2026-10-28T10:00:00.123457Z", majoration: 2 }]);
+  });
+
+  it("stops a legacy multi-delete between requests when the actor changes", async () => {
+    const { document, scope } = documentWithLines();
+    const initial = document.getSnapshot();
+    const request = createDeferred<{ versionToken: { id: string; updated_at: string }; deletedIds: string[] }>();
+    clientMocks.deleteEstimateItem.mockReturnValueOnce(request.promise);
+    const harness = createHarness({ document });
+    let completion!: Promise<void>;
+    act(() => { completion = harness.result.current.actions.bulkDeleteLines(["line-a", "line-b"]); });
+    await waitFor(() => expect(clientMocks.deleteEstimateItem).toHaveBeenCalledTimes(1));
+    act(() => {
+      document.changeScope({ ...scope, actorId: "actor-2" });
+      document.setConfirmedVersion(initial.version);
+      document.acceptItems(initial.confirmedItems);
+    });
+    await act(async () => { request.resolve({ versionToken: { id: scope.versionId, updated_at: "2026-10-28T10:00:00.123457Z" }, deletedIds: ["line-a"] }); await completion; });
+    expect(clientMocks.deleteEstimateItem).toHaveBeenCalledTimes(1);
+    expect(document.getSnapshot().confirmedItems).toEqual(initial.confirmedItems);
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
 });

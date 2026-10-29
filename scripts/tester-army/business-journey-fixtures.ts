@@ -238,7 +238,8 @@ async function documentsFixture(context: CalcV3FixtureContext, kind: "brief" | "
     records.push(record("affaire_briefs", { ...common(context), id: briefId, project_id: project.projectId,
       upload_id: uploadId, created_by: context.owner.userId, updated_by: context.owner.userId, confirmed_by: context.owner.userId,
       status: "confirme", summary: "ARMY brief synthétique", project_object: "ARMY travaux fictifs",
-      scope: ["ARMY calorifuge sans justificatif", "ARMY supportage associé au document"], confirmed_at: new Date().toISOString() }));
+      scope: ["ARMY calorifuge sans justificatif", "ARMY supportage associé au document"],
+      missing_elements: ["Plans manquants"], confirmed_at: new Date().toISOString() }));
     records.push(record("affaire_brief_source_links", { ...common(context), id: randomUUID(), project_id: project.projectId,
       brief_id: briefId, source_document_id: files[0].id, created_by: context.owner.userId,
       block_key: "scope", entry_index: 1, source_file_name: files[0].fileName }));

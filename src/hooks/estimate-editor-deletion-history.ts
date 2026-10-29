@@ -42,7 +42,7 @@ type DeletionRestorerOptions = {
     remainingParents: Map<string | null, string[]>,
     idMap?: Map<string, string>,
     isCurrentScope?: () => boolean
-  ) => Promise<void>;
+  ) => Promise<void | boolean>;
   setItems: Dispatch<SetStateAction<EditorEstimateItem[]>>;
   onRestored: (idMap: Map<string, string>) => void;
 };
@@ -115,7 +115,7 @@ export function createEstimateDeletionRestorer(options: DeletionRestorerOptions)
       }
 
       try {
-        await options.applySiblingOrder(options.versionId, remainingParents, recreated.idMap, isCurrentScope);
+        if ((await options.applySiblingOrder(options.versionId, remainingParents, recreated.idMap, isCurrentScope)) === false) return false;
         if (!isCurrentScope()) return;
         if (remainingParents.size !== 0) throw new Error("La remise en ordre est incomplète.");
       } catch (error) {

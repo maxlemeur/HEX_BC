@@ -294,6 +294,26 @@ describe("executeEstimateBatch", () => {
     expect(db.forbiddenWrite).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { quantity: "not-a-number" },
+    { unit_price_ht_cents: 1000.5 },
+    { line_total_ttc_cents: 1199 },
+  ])("does not publish a malformed stored line as a confirmed save: %j", async (patch) => {
+    const operations: BatchOperationInput[] = [{ op: "update", id: ITEM_ID, data: { quantity: 1 } }];
+    db.commit.mockResolvedValue({ data: {
+      committed: true, version: { id: VERSION_ID, updated_at: NEXT_TOKEN },
+      results: [{ index: 0, op: "update", status: "ok", data: { item: { ...line(), ...patch } } }],
+      totals: { total_ht_cents: 1000, total_tax_cents: 200, total_ttc_cents: 1200 },
+      receipt: { operation_key: OPERATION_KEY, actor_id: ACTOR_ID, version_id: VERSION_ID,
+        expected_updated_at: UPDATED_AT, operations, committed_at: NEXT_TOKEN },
+      replayed: false, current_version: { id: VERSION_ID, updated_at: NEXT_TOKEN, status: "draft" },
+    }, error: null });
+    await expect(executeEstimateBatch(VERSION_ID, operations, OPTIONS))
+      .rejects.toMatchObject({ status: 503, code: "BATCH_OUTCOME_UNKNOWN" });
+    expect(db.commit).toHaveBeenCalledTimes(1);
+    expect(db.forbiddenWrite).not.toHaveBeenCalled();
+  });
+
   // TI-534: the projection checked by the database (D12) carries the FO provision its trigger gives each v3 line.
   it("projects a v3 line with the FO provision of its supply type, on a supply type change and at creation", async () => {
     const TUBE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";

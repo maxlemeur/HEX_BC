@@ -9,6 +9,7 @@ import {
   ACCEPTED_FILE_TYPES,
   TERMINAL_IMPORT_STATUSES,
   VALID_EXTENSIONS,
+  type IntakeDpgfCandidate,
 } from "./types";
 import { UploadIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -18,16 +19,25 @@ import { cn } from "@/lib/utils";
 type UploadStepProps = {
   projectId: string;
   onImportReady: (importId: string) => void;
+  intakeDpgfCandidates?: IntakeDpgfCandidate[];
 };
+
+const NO_INTAKE_CANDIDATES: IntakeDpgfCandidate[] = [];
 
 function getFileExtension(name: string): string | null {
   const ext = name.split(".").pop()?.trim().toLowerCase();
   return ext && ext.length > 0 ? ext : null;
 }
 
-export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
+export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO_INTAKE_CANDIDATES }: UploadStepProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dossierRequestRef = useRef<AbortController | null>(null);
+  const [dossierDocumentId, setDossierDocumentId] = useState(
+    intakeDpgfCandidates.length === 1 ? intakeDpgfCandidates[0].documentId : ""
+  );
+  const [isLoadingDossierFile, setIsLoadingDossierFile] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [sourceDocumentId, setSourceDocumentId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isReviewingPdf, setIsReviewingPdf] = useState(false);
@@ -65,7 +75,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
     }
   }, [imports, lastImportId, onImportReady]);
 
-  const handleFileSelect = useCallback((file: File) => {
+  const handleFileSelect = useCallback((file: File, sourceDocumentId?: string | null) => {
     invalidatePendingPdfReview();
     setFileError(null);
     setPdfReview(null);
@@ -81,13 +91,14 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
     }
 
     setSelectedFile(file);
+    setSourceDocumentId(sourceDocumentId ?? null);
     if (ext !== "pdf") {
       return;
     }
 
     const requestId = pdfReviewRequestIdRef.current;
     setIsReviewingPdf(true);
-    void reviewTabularPdfFile(file)
+    void (sourceDocumentId ? reviewTabularPdfFile(file, sourceDocumentId) : reviewTabularPdfFile(file))
       .then((review) => {
         if (pdfReviewRequestIdRef.current !== requestId) {
           return;
@@ -118,16 +129,64 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
       });
   }, [invalidatePendingPdfReview, reviewTabularPdfFile]);
 
+  useEffect(() => {
+    if (!dossierDocumentId) return;
+    const controller = new AbortController();
+    dossierRequestRef.current = controller;
+    setSelectedFile(null);
+    setPdfReview(null);
+    setFileError(null);
+    setIsLoadingDossierFile(true);
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(dossierDocumentId)}`,
+          { signal: controller.signal, cache: "no-store" }
+        );
+        if (!response.ok) throw new Error("Impossible de récupérer cette DPGF. Actualisez le dossier ou choisissez un autre fichier.");
+        const payload = await response.json() as { data?: {
+          documentId: string; fileName: string; mimeType: string | null; sizeBytes: number; downloadUrl: string;
+        } };
+        const source = payload.data;
+        if (!source || source.documentId !== dossierDocumentId || !source.downloadUrl) {
+          throw new Error("Réponse invalide pour la DPGF du dossier.");
+        }
+        const download = await fetch(source.downloadUrl, { signal: controller.signal, cache: "no-store" });
+        if (!download.ok) throw new Error("Impossible de télécharger la DPGF du dossier.");
+        const blob = await download.blob();
+        if (blob.size !== source.sizeBytes) throw new Error("La copie DPGF est incomplète. Actualisez le dossier.");
+        if (!controller.signal.aborted) {
+          setIsLoadingDossierFile(false);
+          handleFileSelect(new File([blob], source.fileName, { type: source.mimeType ?? blob.type }), source.documentId);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setIsLoadingDossierFile(false);
+          setFileError(error instanceof Error ? error.message : "Impossible de récupérer la DPGF du dossier.");
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, [dossierDocumentId, handleFileSelect, projectId]);
+
+  const selectLocalFile = useCallback((file: File) => {
+    dossierRequestRef.current?.abort();
+    setDossierDocumentId("");
+    setIsLoadingDossierFile(false);
+    handleFileSelect(file);
+  }, [handleFileSelect]);
+
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       setIsDragOver(false);
       const file = event.dataTransfer.files?.[0];
       if (file) {
-        handleFileSelect(file);
+        selectLocalFile(file);
       }
     },
-    [handleFileSelect],
+    [selectLocalFile],
   );
 
   const handleSubmit = useCallback(async () => {
@@ -152,9 +211,12 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
         file: selectedFile,
         pdfReview,
         approvedTables: approvedPdfTables,
+        ...(sourceDocumentId ? { sourceDocumentId } : {}),
       });
     } else {
-      success = await importFile(selectedFile);
+      success = sourceDocumentId
+        ? await importFile(selectedFile, { sourceDocumentId })
+        : await importFile(selectedFile);
     }
 
     if (success) {
@@ -172,6 +234,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
     isSubmitting,
     pdfReview,
     selectedFile,
+    sourceDocumentId,
   ]);
 
   const waitingForParse = Boolean(lastImportId) && !isSubmitting && isPolling;
@@ -196,6 +259,31 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
         </div>
       ) : (
         <div className="rounded-lg border border-border bg-surface shadow-card p-6">
+          {intakeDpgfCandidates.length > 1 ? (
+            <div className="mb-4">
+              <label htmlFor="intake-dpgf-selection" className="text-sm font-medium">Choisir une DPGF du dossier</label>
+              <select
+                id="intake-dpgf-selection"
+                className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                value={dossierDocumentId}
+                onChange={(event) => {
+                  dossierRequestRef.current?.abort();
+                  invalidatePendingPdfReview();
+                  setSelectedFile(null);
+                  setFileError(null);
+                  setIsLoadingDossierFile(false);
+                  setDossierDocumentId(event.target.value);
+                }}
+                disabled={isSubmitting}
+              >
+                <option value="">Sélectionner une pièce</option>
+                {intakeDpgfCandidates.map((candidate) => <option key={candidate.documentId} value={candidate.documentId}>{candidate.label}</option>)}
+              </select>
+            </div>
+          ) : intakeDpgfCandidates.length === 1 && dossierDocumentId ? (
+            <p className="mb-4 text-sm text-foreground-secondary">DPGF du dossier : {intakeDpgfCandidates[0].label}</p>
+          ) : null}
+          {isLoadingDossierFile && <p role="status" className="mb-4 text-sm">Chargement de la DPGF du dossier…</p>}
           <div
             onDrop={handleDrop}
             onDragOver={(event) => {
@@ -230,7 +318,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) {
-                  handleFileSelect(file);
+                  selectLocalFile(file);
                 }
               }}
               disabled={isSubmitting}
@@ -253,6 +341,8 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
                   className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                   onClick={() => {
                     invalidatePendingPdfReview();
+                    setDossierDocumentId("");
+                    setSourceDocumentId(null);
                     setSelectedFile(null);
                     setFileError(null);
                     if (fileInputRef.current) {
@@ -320,6 +410,8 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
                   }}
                   onClearFile={() => {
                     invalidatePendingPdfReview();
+                    setDossierDocumentId("");
+                    setSourceDocumentId(null);
                     setSelectedFile(null);
                     setPdfReview(null);
                     setApprovedPdfTables([]);

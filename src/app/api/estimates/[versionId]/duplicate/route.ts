@@ -1,3 +1,5 @@
+import { parseEstimateVersionIdResponse } from "@/lib/estimates/write-response-contracts";
+import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { z } from "zod";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -19,7 +21,7 @@ export async function POST(
   try {
     const versionId = await getVersionId(params);
     const data = await duplicateEstimateVersion(versionId);
-    return ok(data, 201);
+    return ok(validateEstimateResponse(() => parseEstimateVersionIdResponse(data, versionId)), 201);
   } catch (error) {
     return toErrorResponse(error);
   }

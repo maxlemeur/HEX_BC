@@ -1,5 +1,8 @@
 "use client";
 
+import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
+
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
@@ -14,6 +17,7 @@ import {
 } from "@/lib/estimates/editor-items";
 
 type EstimateEditorOrderingControllerInput = {
+  document?: EstimateEditorDocument;
   isMutationBlocked: boolean;
   mutationBlockedMessage: string;
   getItemsSnapshot: () => EditorEstimateItem[];
@@ -26,6 +30,7 @@ type EstimateEditorOrderingControllerInput = {
 };
 
 export function useEstimateEditorOrderingController({
+  document,
   isMutationBlocked,
   mutationBlockedMessage,
   getItemsSnapshot,
@@ -36,9 +41,12 @@ export function useEstimateEditorOrderingController({
   resolveErrorMessage,
   pushHistoryCommand,
 }: EstimateEditorOrderingControllerInput) {
+  const { beginItemsOperation, isItemsOperationCurrent, rollbackItems, acceptItemsReceipt } = useEstimateEditorItemsOperation({
+    document, getItemsSnapshot, setItems,
+  });
   const persistMoveItem = useCallback(
     async (versionId: string, move: EstimateItemMovePayload) => {
-      await moveEstimateItem(versionId, {
+      return moveEstimateItem(versionId, {
         item_id: move.itemId,
         from_parent_id: move.fromParentId,
         to_parent_id: move.toParentId,
@@ -83,19 +91,21 @@ export function useEstimateEditorOrderingController({
         const index = orderedIds.indexOf(item.id);
         return index === -1 ? item : { ...item, position: index + 1 };
       });
-      setItems(updated);
+      const operation = beginItemsOperation(updated);
+      if (!isItemsOperationCurrent(operation)) return;
 
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot) {
         reportError("Version introuvable.");
-        setItems(snapshot);
+        rollbackItems(operation);
         return;
       }
       const targetVersionId = versionSnapshot.id;
 
       try {
-        await reorderEstimateItems(targetVersionId, parentId, orderedIds);
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
+        const receipt = await reorderEstimateItems(targetVersionId, parentId, orderedIds);
+        if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!acceptItemsReceipt(operation, { version: receipt.versionToken })) return;
 
         pushHistoryCommand({
           label: "reorder",
@@ -103,7 +113,7 @@ export function useEstimateEditorOrderingController({
             const currentVersion = getVersionSnapshot();
             if (!currentVersion) throw new Error("Version introuvable.");
             const undoSnapshot = getItemsSnapshot();
-            setItems(
+            const undoOperation = beginItemsOperation(
               undoSnapshot.map((item) => {
                 if (item.parent_id !== parentId) return item;
                 const index = previousOrderedIds.indexOf(item.id);
@@ -112,17 +122,19 @@ export function useEstimateEditorOrderingController({
                   : { ...item, position: index + 1 };
               })
             );
+            if (!isItemsOperationCurrent(undoOperation)) return false;
             try {
-              await reorderEstimateItems(
+              const receipt = await reorderEstimateItems(
                 currentVersion.id,
                 parentId,
                 previousOrderedIds
               );
-              if (context && !context.isCurrentScope()) return;
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              if (!acceptItemsReceipt(undoOperation, { version: receipt.versionToken })) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(undoSnapshot);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(undoOperation);
               throw error;
             }
           },
@@ -130,7 +142,7 @@ export function useEstimateEditorOrderingController({
             const currentVersion = getVersionSnapshot();
             if (!currentVersion) throw new Error("Version introuvable.");
             const redoSnapshot = getItemsSnapshot();
-            setItems(
+            const redoOperation = beginItemsOperation(
               redoSnapshot.map((item) => {
                 if (item.parent_id !== parentId) return item;
                 const index = orderedIds.indexOf(item.id);
@@ -139,25 +151,27 @@ export function useEstimateEditorOrderingController({
                   : { ...item, position: index + 1 };
               })
             );
+            if (!isItemsOperationCurrent(redoOperation)) return false;
             try {
-              await reorderEstimateItems(
+              const receipt = await reorderEstimateItems(
                 currentVersion.id,
                 parentId,
                 orderedIds
               );
-              if (context && !context.isCurrentScope()) return;
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              if (!acceptItemsReceipt(redoOperation, { version: receipt.versionToken })) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(redoSnapshot);
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(redoOperation);
               throw error;
             }
           },
         });
       } catch {
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
         reportError("Impossible de reordonner les lignes.");
-        setItems(snapshot);
+        rollbackItems(operation);
       }
     },
     [
@@ -167,7 +181,10 @@ export function useEstimateEditorOrderingController({
       mutationBlockedMessage,
       pushHistoryCommand,
       reportError,
-      setItems,
+      acceptItemsReceipt,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
       setTotalsOutOfSync,
     ]
   );
@@ -257,18 +274,20 @@ export function useEstimateEditorOrderingController({
       }
 
       reportError(null);
-      setItems(applyInterParentMoveOptimistically(snapshot, movePayload));
+      const operation = beginItemsOperation(applyInterParentMoveOptimistically(snapshot, movePayload));
+      if (!isItemsOperationCurrent(operation)) return;
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot) {
         reportError("Version introuvable.");
-        setItems(snapshot);
+        rollbackItems(operation);
         return;
       }
       const targetVersionId = versionSnapshot.id;
 
       try {
-        await persistMoveItem(targetVersionId, movePayload);
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
+        const receipt = await persistMoveItem(targetVersionId, movePayload);
+        if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!acceptItemsReceipt(operation, { version: receipt.versionToken })) return;
         setTotalsOutOfSync(false);
         pushHistoryCommand({
           label: "move-item",
@@ -276,19 +295,21 @@ export function useEstimateEditorOrderingController({
             const currentVersion = getVersionSnapshot();
             if (!currentVersion) throw new Error("Version introuvable.");
             const undoSnapshot = getItemsSnapshot();
-            setItems(
+            const undoOperation = beginItemsOperation(
               applyInterParentMoveOptimistically(
                 undoSnapshot,
                 undoMovePayload
               )
             );
+            if (!isItemsOperationCurrent(undoOperation)) return false;
             try {
-              await persistMoveItem(currentVersion.id, undoMovePayload);
-              if (context && !context.isCurrentScope()) return;
+              const receipt = await persistMoveItem(currentVersion.id, undoMovePayload);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              if (!acceptItemsReceipt(undoOperation, { version: receipt.versionToken })) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(undoSnapshot);
+              if (!isItemsOperationCurrent(undoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(undoOperation);
               throw error;
             }
           },
@@ -296,23 +317,25 @@ export function useEstimateEditorOrderingController({
             const currentVersion = getVersionSnapshot();
             if (!currentVersion) throw new Error("Version introuvable.");
             const redoSnapshot = getItemsSnapshot();
-            setItems(
+            const redoOperation = beginItemsOperation(
               applyInterParentMoveOptimistically(redoSnapshot, movePayload)
             );
+            if (!isItemsOperationCurrent(redoOperation)) return false;
             try {
-              await persistMoveItem(currentVersion.id, movePayload);
-              if (context && !context.isCurrentScope()) return;
+              const receipt = await persistMoveItem(currentVersion.id, movePayload);
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              if (!acceptItemsReceipt(redoOperation, { version: receipt.versionToken })) return false;
               setTotalsOutOfSync(false);
             } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              setItems(redoSnapshot);
+              if (!isItemsOperationCurrent(redoOperation) || (context && !context.isCurrentScope())) return false;
+              rollbackItems(redoOperation);
               throw error;
             }
           },
         });
       } catch (error) {
-        if (getVersionSnapshot()?.id !== targetVersionId) return;
-        setItems(snapshot);
+        if (!isItemsOperationCurrent(operation) || getVersionSnapshot()?.id !== targetVersionId) return;
+        rollbackItems(operation);
         reportError(
           resolveErrorMessage(
             error instanceof Error
@@ -332,7 +355,10 @@ export function useEstimateEditorOrderingController({
       reorder,
       reportError,
       resolveErrorMessage,
-      setItems,
+      acceptItemsReceipt,
+      beginItemsOperation,
+      isItemsOperationCurrent,
+      rollbackItems,
       setTotalsOutOfSync,
     ]
   );

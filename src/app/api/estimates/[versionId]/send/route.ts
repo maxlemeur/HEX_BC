@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { parseEstimateEmailReceipt } from "@/lib/email/send-estimate-contract";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { sendEstimateSchema } from "@/lib/estimates/schemas";
@@ -49,7 +50,7 @@ export async function POST(
       concurrencyToken: request.headers.get("if-match"),
       draftLockSessionId: normalizeEstimateDraftLockSessionId(request.headers.get(ESTIMATE_DRAFT_LOCK_SESSION_HEADER)),
     });
-    return ok(data);
+    return ok(parseEstimateEmailReceipt(data, { versionId, requestId: idempotencyKey }));
   } catch (error) {
     return toErrorResponse(error);
   }
