@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -15,7 +14,7 @@ import {
   callServerAction, captureScreen, chooseRounding, chooseTemplate, chooseV2FixedMargin, closePolicy, confirmTakeoffPreparationViaAction,
   createAffaireFromOnboarding, createLaborRole, createTuyauteur, createV2Affaire, createV2Version, createV3Version,
   estimateFacts, fillLabelled, fillProjectStep, insertTemplateOracle, instantiateTemplate, linkDpgfThroughHub, nextStep,
-  openPolicy3, openWizard, ownedProjectIdsNamed, policySnapshot, readPricingStep, saveTemplate, seedV2Lines,
+  openPolicy3, openWizard, ownedProjectIdsNamed, policySnapshot, readPricingStep, saveTemplate, seedSupplyLine, seedV2Lines,
   seedV2TemplateLines, seedV3TemplateLines, sentExpectation, sentVersion, serverActionId, signUpCreatorOwner,
   signUpTenantAdmin, storedVersions, submitWizard, takeLease, templateLines, tenantEstimateCounts, v3Settings,
   versionInsertsLogged, waitPageText,
@@ -430,6 +429,8 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       // Une ligne dans la v3 conserve l'accès manuel à la même préparation (HUB01).
       await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      // The prerequisite uses the API; reload the hub to read its committed line count.
+      await browser.reload();
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
       dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "auto" } });
@@ -614,27 +615,6 @@ armyTest("V3C09 the AI structure opens on a v3 without a reason, by its button a
 /* ---------- A16 : évolution de la marge ---------- */
 
 /** One priced supply line in a section, by the items API (v2) or one committed batch (v3). */
-async function seedSupplyLine(ui: Ui, versionId: string, title: string, engine: 2 | 3) {
-  await takeLease(ui.browser, versionId);
-  const empty = await readEstimate(ui.browser, versionId);
-  const section = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
-    { item_type: "section", position: 1, title: `${title} lot` }, { "if-match": empty.version.updated_at });
-  expect([section.status, section.body.ok]).toEqual([201, true]);
-  const current = await readEstimate(ui.browser, versionId);
-  const line = { item_type: "line", parent_id: section.body.data.item.id, position: 1, title, line_nature: "supply_only", quantity: 1,
-    unit_price_ht_cents: 10000, tax_rate_bp: 2000, k_fo: 1, h_mo_majoration: 1, k_mo: 1 };
-  if (engine === 2) {
-    const created = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
-      { ...line, description: "u", h_mo: 0 }, { "if-match": current.version.updated_at });
-    expect([created.status, created.body.ok]).toEqual([201, true]);
-  } else {
-    const batch = await apiRequest<Envelope<{ committed: boolean }>>(ui.browser, "POST", `/api/estimates/${versionId}/batch`,
-      { operation_key: randomUUID(), operations: [{ op: "create", data: { ...line, unit_code: "u", pricing_status: "priced", h_mo_per_unit: 0 } }] },
-      { "if-match": current.version.updated_at });
-    expect([batch.status, batch.body.ok, batch.body.data?.committed]).toEqual([200, true, true]);
-  }
-  await releaseVersion(ui.browser, versionId);
-}
 
 armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on cost, a non-current v3 draft computed live, names a blank v3, and the hub shows the live net margin of the current v3 draft", capturing,
   async ({ app, screen, browser, army }) => {

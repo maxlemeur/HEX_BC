@@ -6,17 +6,17 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
-import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
+import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import { buildTakeoffUploadPath, deriveDeterministicJobId, prepareTakeoffUploadSource } from "@/lib/takeoff/job-creation-input";
-import { localClient } from "../takeoff/native-ui";
+import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
+import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 
 let localServer: ChildProcess;
@@ -29,8 +29,18 @@ const liveProbePath = path.resolve(".private/chatgpt-local-live-probe.json");
 let liveProbe: { accessToken: string; model: string; expiresAt: number; reasoningEffort?: string | null } | null = null;
 let livePdfWitnessPassed = false;
 const businessProbePath = path.resolve(".private/chatgpt-local-business-probe.json");
-const transportLog = path.resolve(".e2e/army/critical/artifacts/chatgpt-transport.jsonl");
-const decisionsControl = path.resolve(".e2e/army/critical/artifacts/decisions-control.json");
+let transportLog: string;
+let decisionsControl: string;
+let fixtureEmail: string;
+let serverWorkspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
+async function localClient() {
+  const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const login = await client.auth.signInWithPassword({ email: fixtureEmail, password: process.env.E2E_LOGIN_PASSWORD! });
+  if (login.error) throw new Error("ChatGPT fixture login failed.");
+  return { client, userId: login.data.user!.id };
+}
 async function setDecisionsControl(input: { hold?: boolean; timeoutWriting?: boolean }) {
   const temporary = `${decisionsControl}.tmp`;
   await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, ...input }));
@@ -55,11 +65,16 @@ beforeAll(async () => {
   const port = address.port;
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
   localOrigin = `http://127.0.0.1:${port}`;
+  fixtureEmail = (await createLocalChatGptOwner()).email;
+  serverWorkspace = await prepareChatGptServerWorkspace();
+  const artifacts = path.resolve(".e2e/army/critical/artifacts", serverWorkspace.id);
+  transportLog = path.join(artifacts, "chatgpt-transport.jsonl");
+  decisionsControl = path.join(artifacts, "decisions-control.json");
   await mkdir(path.dirname(transportLog), { recursive: true });
   await writeFile(transportLog, "");
   await setDecisionsControl({});
   localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port), "--webpack"], {
-    cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development",
+    cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...serverWorkspace.environment,
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
       ARMY_CHATGPT_TRANSPORT_LOG: transportLog, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
       ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
@@ -73,32 +88,8 @@ beforeAll(async () => {
     if (localServer.exitCode !== null) throw new Error("ChatGPT local server exited before readiness.");
     return fetch(`${localOrigin}/login`).then((response) => response.ok).catch(() => false);
   }, { timeout: 90_000 }).toBe(true);
-  // next dev compiles routes on demand. Prepare the dashboard, profile and
-  // callback before the UI flow, using a separate session on the owned backend.
-  // The browser still signs in through the form with the unchanged assertions.
-  const cookies = new Map<string, string>();
-  const warmup = createServerClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    cookies: {
-      getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
-      setAll: (values) => { for (const { name, value } of values) cookies.set(name, value); },
-    },
-  });
-  try {
-    const login = await warmup.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
-    expect(login.error).toBeNull();
-    for (const [pathname, status] of [["/dashboard", 200], ["/dashboard/profile", 200], ["/auth/chatgpt/callback", 303]] as const) {
-      // No state or cookie on the warmup callback: it rejects before reading a
-      // pending transaction. The test below still exercises real PKCE/refusal.
-      const response = await fetch(`${localOrigin}${pathname}`, {
-        headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") },
-        redirect: "manual", signal: AbortSignal.timeout(90_000),
-      });
-      expect(response.status).toBe(status);
-      await response.text();
-    }
-  } finally {
-    await warmup.auth.signOut({ scope: "local" });
-  }
+  await serverWorkspace.assertReady();
+  await warmChatGptServer(localOrigin, fixtureEmail);
 });
 
 afterAll(async () => {
@@ -107,14 +98,15 @@ afterAll(async () => {
     await new Promise<void>((resolve) => localServer.once("exit", () => resolve()));
   }
   if (fixtureStore) await rm(fixtureStore, { force: true });
-  if (localOrigin) {
+  if (localOrigin && transportLog) {
     // Keep only compilation/readiness and non-sensitive dashboard/login timings.
     const timings = diagnostics.join("").split("\n").filter(line =>
-      /(?:Compiling|Ready in|(?:GET|POST) \/(?:dashboard|login)(?:[/? ]))/.test(line))
+      /(?:Compiling|Ready in|Local Next process exited|restarting|Restarting|FATAL ERROR|heap limit|allocation failed|(?:GET|POST) \/(?:dashboard|login)(?:[/? ]))/.test(line))
       .map(line => line.replace(/(\/(?:dashboard|login)[^?\s]*)\?[^\s]*/g, "$1?[redacted]"));
     await mkdir(path.dirname(transportLog), { recursive: true });
     await writeFile(path.join(path.dirname(transportLog), `chatgpt-local-server-${new URL(localOrigin).port}.log`), timings.join("\n"));
   }
+  await serverWorkspace?.cleanup();
 });
 
 // Regression: even if an old server key exists, no connection must never create
@@ -122,7 +114,7 @@ afterAll(async () => {
 test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   await app.open(`${localOrigin}/login`);
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
   await screen.getByLabel(/Mot de passe/).fill(account.password);
@@ -168,7 +160,7 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("LOCAL02 requires a separate temporary ChatGPT profile.");
   try {
-    const account = credentials.user("army");
+    const account = { ...credentials.user("army"), username: fixtureEmail };
     await app.open(`${localOrigin}/login`);
     await screen.getByLabel("Email", { exact: true }).fill(account.username);
     await screen.getByLabel(/Mot de passe/).fill(account.password);
@@ -189,7 +181,7 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     expect(row.error).toBeNull();
     const draft = row.data!.draft as { processing: { level: string; provider: string } };
     draft.processing.provider = "gemini";
-    const { client: worker } = await localTakeoffWorkerClient(army, estimate.versionId);
+    const { client: worker } = await localTakeoffWorkerClient(army, estimate.versionId, fixtureEmail);
     const update = await worker.from("takeoff_preparations").update({ draft, revision: row.data!.revision + 1 }).eq("project_id", estimate.projectId).select("project_id").single();
     expect(update.error).toBeNull();
     await browser.reload();
@@ -244,7 +236,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     if (failure === "disconnected") delete selected.accessToken;
     else { selected.expiresAt = 0; delete selected.refreshToken; }
     await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
-    const account = credentials.user("army");
+    const account = { ...credentials.user("army"), username: fixtureEmail };
     await app.open(`${localOrigin}/login`);
     await screen.getByLabel("Email", { exact: true }).fill(account.username);
     await screen.getByLabel(/Mot de passe/).fill(account.password);
@@ -278,7 +270,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
 test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   await app.open(`${localOrigin}/login`);
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
   await screen.getByLabel(/Mot de passe/).fill(account.password);
@@ -290,7 +282,7 @@ test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Historique fournisseur" }, army);
   const beforeEstimate = await readEstimate(browser, estimate.versionId);
   const { userId } = await localClient();
-  const { client, tenantId } = await localTakeoffWorkerClient(army, estimate.versionId);
+  const { client, tenantId } = await localTakeoffWorkerClient(army, estimate.versionId, fixtureEmail);
   const jobId = randomUUID();
   const job = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
     created_by: userId, level: "A", status: "failed", source_file_name: "historique.csv", source_file_type: "text/csv",
@@ -427,7 +419,7 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("LOCAL05 requires a separate temporary ChatGPT profile.");
   try {
-    const account = credentials.user("army");
+    const account = { ...credentials.user("army"), username: fixtureEmail };
     await app.open(`${localOrigin}/login`);
     await screen.getByLabel("Email", { exact: true }).fill(account.username);
     await screen.getByLabel(/Mot de passe/).fill(account.password);
@@ -485,7 +477,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   // Earlier LOCAL journeys also use Decisions; count only this scenario's calls.
   const transportBefore = (await readFile(transportLog, "utf8")).trim();
   const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   await app.open(`${localOrigin}/login`);
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
   await screen.getByLabel(/Mot de passe/).fill(account.password);
@@ -556,7 +548,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
 test("ChatGPT local: profile starts PKCE authorization and recovers from declined consent", {
   tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   let authorization: { host: string; clientId: string | null; challengeMethod: string | null; planScope: boolean } | null = null;
   await browser.route("https://auth.openai.com/**", async (route) => {
     // This is an injected consent refusal, not evidence of live ChatGPT sign-in.
@@ -594,7 +586,7 @@ async function preparePlanFixture(unsetPreferences = false) {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   if (backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST) throw new Error("Owned local backend required.");
   const client = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
-  const login = await client.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
+  const login = await client.auth.signInWithPassword({ email: fixtureEmail, password: process.env.E2E_LOGIN_PASSWORD! });
   expect(login.error).toBeNull();
   const userId = login.data.user!.id;
   const membership = await client.from("tenant_memberships").select("tenant_id, tenants!inner(is_active)").eq("user_id", userId)
@@ -622,7 +614,7 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   const transportBefore = (await readFile(transportLog, "utf8")).trim();
   const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
   const model = liveProbe?.model ?? "army-plan-model";
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   await app.open(`${localOrigin}/login`);
   await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
@@ -676,7 +668,7 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   const newProfileWithoutPreferences = await preparePlanFixture(Boolean(liveProbe));
   const transportBefore = (await readFile(transportLog, "utf8")).trim();
   const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   await app.open(`${localOrigin}/login`);
   await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
@@ -769,7 +761,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   };
   expect(createHash("sha256").update(await readFile(probe.pdfPath)).digest("hex")).toBe(probe.sha256);
   await preparePlanFixture();
-  const account = credentials.user("army");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
   await app.open(`${localOrigin}/login`);
   await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
@@ -880,4 +872,33 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   }
   const screenshot = await app.screenshot("private-business-pdf-result");
   await recordEvidence(army, "chatgpt-private-business-pdf", { ...businessEvidence, businessAssertionsPassedBeforeUi: true, screenshot });
+});
+
+// The creator/copy journey moved from the production fixture: new AI jobs are local-only.
+// Keep its business assertions and timeout, using the same disposable realm as other ChatGPT journeys.
+test("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and a v3 source is copied as a v3", {
+  tags: ["critical", "local", "chatgpt", "engine-v3", "creators"], session: "army", timeout: 600_000,
+}, async ({ app, screen, browser }) => {
+  await preparePlanFixture();
+  try {
+    const account = { ...credentials.user("army"), username: fixtureEmail };
+    await app.open(`${localOrigin}/login`);
+    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel(/Mot de passe/).fill(account.password);
+    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard/);
+    const { client, userId } = await localClient();
+    const member = await client.from("tenant_memberships").select("tenant_id").eq("user_id", userId).single();
+    expect(member.error).toBeNull();
+    const prefix = `ARMY-local-v3-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = { app: { ...app, baseUrl: localOrigin, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    if (!serverWorkspace) throw new Error("Owned development workspace unavailable.");
+    await restrictCriticalBrowser(browser, ui.app, army);
+    await verifyV3TakeoffCreation(ui, army, { userId, tenantId: member.data!.tenant_id },
+      path.resolve(`.e2e/army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`));
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
 });

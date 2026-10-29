@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+const armyDevServer = process.env.E2E_ARMY === "1" && process.env.NODE_ENV === "development"
+  ? process.env.E2E_ARMY_DEV_SERVER_ID : undefined;
+if (armyDevServer && !/^[a-z0-9-]{1,64}$/.test(armyDevServer)) throw new Error("Invalid Army development server ID.");
+
 const nextConfig: NextConfig = {
   // The server-side spreadsheet parser runs in a Node worker. Keep these
   // packages external so their runtime files can be traced for that worker.
@@ -10,8 +14,8 @@ const nextConfig: NextConfig = {
   },
   ...(process.env.E2E_ARMY === "1"
     ? {
-        distDir: ".e2e/army/next",
-        typescript: { tsconfigPath: ".e2e/army/tsconfig.json" },
+        distDir: `.e2e/army/next${armyDevServer ? `-${armyDevServer}` : ""}`,
+        typescript: { tsconfigPath: `.e2e/army/tsconfig${armyDevServer ? `-${armyDevServer}` : ""}.json` },
       }
     : {}),
   outputFileTracingIncludes: {

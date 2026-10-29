@@ -340,8 +340,8 @@ export async function instantiateTemplate(ui: Ui, army: ArmyState, templateId: s
 /* ---------- Actions serveur ---------- */
 
 /** Built id of a server action by its exported name, in the build the runner serves (`.e2e/army/next`). */
-export async function serverActionId(name: string) {
-  const reference = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as
+export async function serverActionId(name: string, manifest = ".e2e/army/next/server/server-reference-manifest.json") {
+  const reference = JSON.parse(await readFile(manifest, "utf8")) as
     { node: Record<string, { exportedName?: string }> };
   const found = Object.entries(reference.node).filter(([, entry]) => entry.exportedName === name);
   if (found.length !== 1) throw new Error(`Built server action ${name} is missing or ambiguous.`);
@@ -691,4 +691,26 @@ export async function linkDpgfThroughHub(ui: Ui, army: ArmyState, projectId: str
   await recordEvidence(army, "v3c-linked-dpgf", { projectId, filename, fixturePath, csv, source });
   expect(importId).toMatch(UUID);
   return { importId, filename, lines };
+}
+
+export async function seedSupplyLine(ui: Ui, versionId: string, title: string, engine: 2 | 3) {
+  await takeLease(ui.browser, versionId);
+  const empty = await readEstimate(ui.browser, versionId);
+  const section = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
+    { item_type: "section", position: 1, title: `${title} lot` }, { "if-match": empty.version.updated_at });
+  expect([section.status, section.body.ok]).toEqual([201, true]);
+  const current = await readEstimate(ui.browser, versionId);
+  const line = { item_type: "line", parent_id: section.body.data.item.id, position: 1, title, line_nature: "supply_only", quantity: 1,
+    unit_price_ht_cents: 10000, tax_rate_bp: 2000, k_fo: 1, h_mo_majoration: 1, k_mo: 1 };
+  if (engine === 2) {
+    const created = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
+      { ...line, description: "u", h_mo: 0 }, { "if-match": current.version.updated_at });
+    expect([created.status, created.body.ok]).toEqual([201, true]);
+  } else {
+    const batch = await apiRequest<Envelope<{ committed: boolean }>>(ui.browser, "POST", `/api/estimates/${versionId}/batch`,
+      { operation_key: randomUUID(), operations: [{ op: "create", data: { ...line, unit_code: "u", pricing_status: "priced", h_mo_per_unit: 0 } }] },
+      { "if-match": current.version.updated_at });
+    expect([batch.status, batch.body.ok, batch.body.data?.committed]).toEqual([200, true, true]);
+  }
+  await releaseVersion(ui.browser, versionId);
 }
