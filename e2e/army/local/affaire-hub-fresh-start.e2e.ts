@@ -40,14 +40,14 @@ const pricedLine = (army: ArmyState) => ({
 async function readHub(ui: Ui, projectId: string) {
   await ui.app.open(`/dashboard/affaires/${projectId}#financial`);
   await ui.browser.reload();
-  const study = ui.screen.getByRole("button", /Étude Structure, métrés et prix/);
-  const studyExpanded = await ui.browser.evaluate(() => document.getElementById("journey-etude") !== null);
-  if (await study.count() && !studyExpanded) await study.click();
   // One render decides the layout: the financial summary (full hub) or the manual path of the upload card. The
   // intake region is no signal: in the fresh start it is rendered empty, hence hidden.
   const summary = ui.screen.getByRole("heading", "Résumé financier", { exact: true });
   const manual = ui.screen.getByRole("link", "Continuer en manuel", { exact: true });
   await expect.poll(async () => (await summary.isVisible()) || (await manual.isVisible()), { timeout: 60_000 }).toBe(true);
+  const study = ui.screen.getByRole("button", /Étude Structure, métrés et prix/);
+  const studyExpanded = await ui.browser.evaluate(() => document.getElementById("journey-etude") !== null);
+  if (await study.count() && !studyExpanded) await study.click();
   return ui.browser.evaluate((cards) => {
     const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
     const headingOf = (title: string) => Array.from(document.querySelectorAll("h2")).find((node) => text(node) === title) ?? null;
@@ -66,7 +66,7 @@ async function readHub(ui: Ui, projectId: string) {
       } : null,
       // The badge text runs into the first item (« 1 versionV1 … »): no word boundary after it.
       versionCount: versions ? (text(versions).match(/(\d+) versions?/)?.[1] ?? null) : null,
-      newAffaire: Array.from(document.querySelectorAll("h2")).some(node => text(node) === "Ajoutez le dossier de consultation" && node.getClientRects().length > 0),
+      newAffaire: text(document.querySelector("main")).includes("Étape 1 sur 6 · Dossier"),
       editLink: links.map((node) => text(node)).find((label) => /^Éditer V\d+$/.test(label)) ?? null,
       manualVersionId: manualLink?.getAttribute("href")?.match(/\/estimates\/([0-9a-f-]{36})\//i)?.[1] ?? null,
     };
@@ -119,7 +119,7 @@ armyTest("HFS01 a priced V1 then a blank V2 from « Créer directement » keeps 
     expect(observed).toEqual({
       created: [201, null], versions: [[1, 2, true], [2, 2, false]],
       pricedV1: { cards: [...HUB_CARDS], margin: { notice: null, kpis: true, chart: false }, versionCount: "1", editLink: "Éditer V1" },
-      blankV2: { cards: WITHOUT_MARGIN, margin: null, versionCount: "2", editLink: "Éditer V2", newAffaire: false, manual: 2 },
+      blankV2: { cards: WITHOUT_MARGIN, margin: null, versionCount: "2", editLink: "Éditer V2", newAffaire: true, manual: 2 },
       withDpgf: { cards: WITHOUT_MARGIN, margin: null, versionCount: "2", editLink: "Éditer V2" },
     });
   });
@@ -150,7 +150,7 @@ armyTest("HFS02 a priced v2 V1 then a blank v3 V2 from « Créer directement » 
       await recordEvidence(army, "hfs02", { owner, anchor, created, versions, linked, reads: { blankV3, withDpgf }, observed });
       expect(observed).toEqual({
         created: [201, null, 3], versions: [[1, 2, true], [2, 3, false]],
-        blankV3: { cards: [...HUB_CARDS], margin: notice, versionCount: "2", editLink: "Éditer V2", newAffaire: false, manual: 2 },
+        blankV3: { cards: [...HUB_CARDS], margin: notice, versionCount: "2", editLink: "Éditer V2", newAffaire: true, manual: 2 },
         withDpgf: { cards: [...HUB_CARDS], margin: notice, versionCount: "2", editLink: "Éditer V2" },
         policyUnchanged: true,
       });
