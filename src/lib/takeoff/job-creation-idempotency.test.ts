@@ -19,11 +19,12 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 const SOURCE_ID = "99999999-9999-4999-8999-999999999999";
 const base = { projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, preparationRevision: 2, level: "B" as const };
 
-function fixture() {
+function fixture(preparationSnapshot?: unknown) {
   const job = {
     id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID, sourceVersionId: SOURCE_ID }),
     estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
     source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z",
+    preparation_snapshot: preparationSnapshot,
   };
   const fake = createSupabaseFake({ tables: {
     takeoff_jobs: (query) => {
@@ -65,6 +66,18 @@ describe("prepared plan launch receipts", () => {
     const { fake, job } = fixture();
     expect((await findTakeoffJobForPlanSetLaunch({ ...base, sourceVersionId: SOURCE_ID }))?.id).toBe(job.id);
     expect(fake.queries.filter((query) => query.table === "takeoff_jobs")).toHaveLength(1);
+  });
+
+  it("rejects contradictory confirmed choices before returning even a matching receipt", async () => {
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.processing = { level: "B", provider: "auto" };
+    fixture(snapshot);
+    // Explicit Gemini could use the same effective provider as auto; changing
+    // the requested choice still requires a new confirmed preparation revision.
+    await expect(findTakeoffJobForPlanSetLaunch({ ...base, provider: "gemini" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("réglages de traitement") });
+    snapshot.preparation.processing = { level: "C", provider: "auto" };
+    await expect(findTakeoffJobForPlanSetLaunch({ ...base, sourceVersionId: SOURCE_ID })).rejects.toMatchObject({ status: 409 });
+    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 
   it.each(["gemini", "chatgpt_local"] as const)("recovers the unique target receipt across different IDs after an atomic %s conflict", async (executionProvider) => {

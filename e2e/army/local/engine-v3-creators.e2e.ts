@@ -431,7 +431,7 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
-      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "gemini" } });
       const target = await dialog.getByLabel("Version cible", { exact: true }).inputValue();
       const reasonShown = (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0;
       const launchEnabled = await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).isEnabled();
@@ -447,8 +447,14 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       const upload = screen.getByLabel("Fichier source", { exact: true });
       await expect(upload).toBeEnabled();
       await upload.setInputFiles(csvPath);
-      await fillTakeoffPreparation({ ...ui, army }, { sources: [csvName], objective: "extract_quantities", unit: "u",
+      const uploadPreparation = await fillTakeoffPreparation({ ...ui, army }, { sources: [csvName], objective: "extract_quantities", unit: "u",
         inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "" }, browser.locator("form").last());
+      await expect(uploadPreparation.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
+      await expect(uploadPreparation.getByText("Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.", { exact: true })).toBeVisible();
+      await uploadPreparation.getByText("Options avancées", { exact: true }).click();
+      await uploadPreparation.getByRole("radio", /Niveau A/).check();
+      await expect(uploadPreparation.getByRole("radio", /Niveau A/)).toBeChecked();
+      await expect(uploadPreparation.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
       const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
         screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click()]);
       const uploaded = await created.json<{ error?: { code?: string; message?: string } }>();
@@ -456,7 +462,7 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
       // l'analyse du jeu de plans est lancée sur elle (niveau B).
       await openPlanPreparation();
-      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "gemini" } });
       await saveTakeoffPreparation({ ...ui, army });
       const preparationRevision = async () => {
         const [row] = await querySql(`select revision from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
@@ -469,10 +475,17 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       });
       expect(confirmation).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
       expect(confirmation.revision).toBeGreaterThan(0);
+      const preparationProcessing = async () => {
+        const [row] = await querySql(`select draft->'processing' from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
+        if (!row) throw new Error("Owned preparation processing unavailable.");
+        return JSON.parse(row) as { level: string; provider: string };
+      };
+      const savedProcessing = await preparationProcessing();
+      expect(savedProcessing).toEqual({ level: "B", provider: "gemini" });
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
       const action = await callServerAction(browser, await serverActionId("launchTakeoffFromSourceVersionPlanSet"),
-        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B", preparationRevision: confirmation.revision });
+        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B", provider: "gemini", preparationRevision: confirmation.revision });
       const versionsAfter = await storedVersions(owner, anchor.projectId);
       const copy = versionsAfter.find((version) => !versionsBefore.some((known) => known.id === version.id)) ?? null;
       if (copy) {
@@ -489,11 +502,11 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       const reopenedDialog = await openPlanPreparation();
       await reopenedDialog.getByRole("button", /Vérifier et lancer$/).click();
       const reopenedTarget = await reopenedDialog.getByLabel("Version cible", { exact: true }).inputValue();
-      // Rejouer le même niveau B que la demande source ; le niveau recommandé peut être C.
       await reopenedDialog.getByText("Options avancées", { exact: true }).click();
       const replayLevel = reopenedDialog.getByRole("radio", "Standard", { exact: true });
-      await replayLevel.check();
       await expect(replayLevel).toBeChecked();
+      await expect(reopenedDialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
+      expect(await preparationProcessing()).toEqual(savedProcessing);
       await expect(reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
       await reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
       await expect(reopenedDialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
@@ -506,7 +519,8 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
         api: [api.status, api.code], fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, copyId: copy?.id ?? null, written, observed });
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
+        replayBoundary: "Reopen restores Standard B and explicit Gemini without changing either control; same preparation, fork and job IDs." });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },
         dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },

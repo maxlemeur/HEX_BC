@@ -40,6 +40,15 @@ version de devis, du jeu de plans ou du fichier téléversé. L'analyse et la re
 des quantités restent distinctes de leur application au devis, qui conserve son
 aperçu d'impact et sa confirmation.
 
+Le niveau d'analyse et le fournisseur choisis sont enregistrés avec cette
+préparation et restaurés à sa réouverture. Leur modification explicite invalide
+la confirmation, comme une modification du périmètre. Le serveur refuse un
+lancement dont les réglages diffèrent de l'instantané confirmé. Un ancien
+brouillon sans niveau enregistré demande ce choix avant une nouvelle
+confirmation ; ses analyses déjà créées restent consultables et exécutables.
+Le fournisseur omis signifie `auto` ; une reprise de la même demande réutilise
+le traitement existant et son fournisseur d'exécution.
+
 ## Contenu de la fiche
 
 | Partie | Données conservées |
@@ -51,6 +60,7 @@ aperçu d'impact et sa confirmation.
 | Inconnues | Question, effet bloquant ou réserve, source/page éventuelle, réponse, responsable et décision |
 | Destination | Analyse seule ou revue en vue du devis, version concernée, responsable de revue éventuel et confirmation |
 | Profil | Identifiant, nom et version du profil réutilisé, lorsqu'il existe |
+| Traitement | Niveau d'analyse et choix du fournisseur, propres à cette préparation ; aucun compte ou secret n'est enregistré |
 | Assistance acceptée | Contexte tenant/affaire/révision, empreintes, fournisseur/modèle, version de consigne, consommation connue et identifiants des propositions acceptées |
 
 Un champ inconnu reste `null`. Il ne devient pas zéro. Les listes vides restent

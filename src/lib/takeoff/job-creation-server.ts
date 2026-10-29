@@ -23,6 +23,7 @@ import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { type TakeoffLevel } from "@/lib/takeoff/types";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import type { Json } from "@/types/database";
+import { assertReplayedTakeoffProcessing } from "@/lib/takeoff/preparation-processing-server";
 import {
   TAKEOFF_PLAN_SET_LEVEL,
   type TakeoffJobRow,
@@ -196,6 +197,7 @@ export async function createTakeoffJobFromFormData(
         );
 
         if (existingFingerprint === payloadFingerprint) {
+          assertReplayedTakeoffProcessing(existingJob, { level, provider });
           return normalizeTakeoffJobRow(existingJob);
         }
 
@@ -223,7 +225,7 @@ export async function createTakeoffJobFromFormData(
       estimateVersionId,
     });
     const preparationSnapshot = await assertConfirmedTakeoffPreparation({
-      context, estimateVersionId, preparationRevision,
+      context, estimateVersionId, preparationRevision, level, provider,
       upload: { hash: createHash("sha256").update(Buffer.from(fileBytes)).digest("hex"), fileName: file.name },
     });
     if (level !== "A") {
@@ -320,6 +322,7 @@ export async function createTakeoffJobFromFormData(
             await removeUploadedFileIfPresent({
               storagePath: sourceFilePath,
             });
+            assertReplayedTakeoffProcessing(existingJob, { level, provider });
             return normalizeTakeoffJobRow(existingJob);
           }
 
@@ -455,6 +458,7 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
   await assertEstimateVersionAccessibleForTakeoff({
     ...context, estimateVersionId: existing.estimate_version_id,
   });
+  assertReplayedTakeoffProcessing(existing, { level: input.level ?? TAKEOFF_PLAN_SET_LEVEL, provider: input.provider ?? "auto" });
   return normalizeTakeoffJobRow(existing);
 }
 
@@ -489,6 +493,7 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
     context, projectId: input.projectId, estimateVersionId: input.estimateVersionId,
     preparationRevision: input.preparationRevision ?? null, planSetId: input.planSetId,
     sourceVersionId: input.sourceVersionId,
+    level, provider: input.provider ?? "auto",
   });
   const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, input.provider);
   const [geminiDeliveryConfig, planSetPageConfig] = await Promise.all([

@@ -16,13 +16,26 @@ le lancement est refusé avant le téléversement et aucun job Gemini n’est cr
    Si le port 3000 est occupé, utiliser `npm run dev:chatgpt -- --port 3015`
    et ouvrir cette même adresse avec le port 3015. Utiliser `127.0.0.1`, pas `localhost`.
 3. Dans **Mon forfait ChatGPT**, choisir **Continue with ChatGPT** et consentir
-   à l’utilisation du forfait avec un compte éligible. Choisir ensuite un modèle
+   à l’utilisation du forfait avec un compte éligible. **GPT-6.1 Terra** est
+   sélectionné par défaut si le compte le propose et qu’aucun modèle n’est encore
+   choisi. Un choix déjà enregistré est conservé. Le modèle reste modifiable
    parmi ceux réellement disponibles pour ce compte.
-4. **Tester la connexion** envoie une courte demande réelle, qui utilise le
+4. Choisir l’**Effort de raisonnement** : Automatique conserve le réglage du
+   modèle. Les niveaux supportés par Terra sont Sans raisonnement, Faible,
+   Moyen, Élevé, Très élevé et Maximum (`none`, `low`, `medium`, `high`,
+   `xhigh`, `max`). Le sélecteur conserve ceux annoncés pour votre compte.
+   [La documentation de Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
+   indique `medium` par défaut. Les choix proposés dépendent du modèle.
+   Un effort incompatible revient sur Automatique lors d’un changement de modèle,
+   avec un message explicite. Les préférences sont enregistrées par connexion,
+   conservées après recharge et transmises aux prochaines demandes ChatGPT.
+5. **Tester la connexion** envoie une courte demande réelle, qui utilise le
    forfait. **Gérer ma consommation** ouvre les limites dans ChatGPT.
 
 Les appels interactifs de classement des documents, brief, génération d’ouvrages,
-structure et explication utilisent le compte sélectionné. Les restrictions produit
+structure et explication utilisent le compte, le modèle et l’effort sélectionnés.
+Un effort supérieur peut augmenter le temps de réponse et la consommation.
+Les restrictions produit
 existantes continuent de s’appliquer : connecter un forfait ne réactive pas la V0
 de devis complet. Les images et PDF sont envoyés en ligne lorsque nécessaires ;
 leur prise en charge dépend du modèle choisi. Les métrés A (tableurs/CSV), B et C
@@ -111,7 +124,8 @@ explicite : cela ne prouve pas l’utilisation d’un abonnement réel.
 
 Pour une qualification réelle explicitement autorisée, le même parcours accepte
 `.private/chatgpt-local-live-probe.json` dans un checkout de QA isolé, contenant
-uniquement `accessToken`, `model` et `expiresAt` d’un forfait connecté (jamais de
+uniquement `accessToken`, `model`, `expiresAt` et le réglage `reasoningEffort`
+d’un forfait connecté (jamais de
 refresh token ni d’ID token). Le test exige un backend loopback, utilise le vrai
 endpoint Responses, bloque Gemini et retire le profil temporaire en fin de run.
 La preuve marque `livePlanInference: true` et conserve uniquement le modèle,
@@ -122,7 +136,10 @@ Le parcours `ChatGPT local: PDF plan` utilise aussi le plan fictif
 `e2e/fixtures/takeoff/army-chatgpt-plan.pdf` et sa vérité terrain indépendante :
 12,5 m de tuyauterie (segments de 5 m et 7,5 m) et quatre vannes. Il choisit
 explicitement ChatGPT, vérifie les quantités, les unités, la page source,
-la persistance et l’absence de transport Gemini. Le mode live décrit ci-dessus
+la persistance et l’absence de transport Gemini. La qualification live du modèle
+par défaut utilise `gpt-6.1-terra` et `reasoningEffort: "medium"`, sélectionné
+depuis le profil puis vérifié après recharge et dans la requête Responses.
+Le mode live décrit ci-dessus
 fait réellement passer ce PDF au modèle du forfait ; le mode CI conserve une
 réponse de fournisseur simulée et l’indique dans sa preuve.
 

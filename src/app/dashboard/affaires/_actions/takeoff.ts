@@ -104,6 +104,7 @@ export async function launchTakeoffFromSourceVersionPlanSet(
   await assertConfirmedTakeoffPreparation({
     context, projectId: parsed.projectId, estimateVersionId: parsed.sourceVersionId,
     preparationRevision: parsed.preparationRevision ?? null, planSetId: parsed.planSetId,
+    level: parsed.level, provider: parsed.provider ?? "auto",
   });
   const copyScope = {
     context, projectId: parsed.projectId, sourceVersionId: parsed.sourceVersionId, preparationRevision: parsed.preparationRevision!,

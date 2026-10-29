@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { z } from "zod";
+import { chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
 
 export type ChatGptOwner = { userId: string; tenantId: string };
 
@@ -15,6 +16,7 @@ const profileSchema = z.object({
   subject: z.string(),
   email: z.string(),
   model: z.string().nullable(),
+  reasoningEffort: chatGptReasoningEffortSchema.nullable().default(null),
   accessToken: z.string().optional(),
   refreshToken: z.string().optional(),
   idToken: z.string().optional(),
@@ -70,7 +72,7 @@ export async function readChatGptStore(owner: ChatGptOwner): Promise<ChatGptStor
 }
 
 export async function saveChatGptStore(owner: ChatGptOwner, store: ChatGptStore) {
-  await writePrivateJson(path.join(await localChatGptDirectory(), `${ownerKey(owner)}.json`), store);
+  await writePrivateJson(path.join(await localChatGptDirectory(), `${ownerKey(owner)}.json`), storeSchema.parse(store));
 }
 
 // Serialize rotating refresh tokens and account changes across Next.js processes.

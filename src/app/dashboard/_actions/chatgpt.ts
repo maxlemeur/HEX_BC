@@ -7,7 +7,8 @@ import {
   assertLocalChatGptHost, beginLocalChatGptSignIn, CHATGPT_COOKIE,
   disconnectLocalChatGpt, getLocalChatGptState, isLocalChatGptEnabled, selectLocalChatGptProfile,
 } from "@/lib/ai/chatgpt-local-auth";
-import { callLocalChatGptStructured, listLocalChatGptModels, selectLocalChatGptModel } from "@/lib/ai/chatgpt-local-inference";
+import { callLocalChatGptStructured, listLocalChatGptModels, selectLocalChatGptModel, selectLocalChatGptPreferences } from "@/lib/ai/chatgpt-local-inference";
+import { chatGptPreferencesSchema, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
 async function context() {
@@ -46,6 +47,11 @@ export async function chooseChatGptModel(model: string) {
   await selectLocalChatGptModel(owner, z.string().min(1).max(200).parse(model));
 }
 
+export async function chooseChatGptPreferences(input: ChatGptPreferences) {
+  const { owner } = await context();
+  return selectLocalChatGptPreferences(owner, chatGptPreferencesSchema.parse(input));
+}
+
 export async function disconnectChatGpt() {
   const { owner } = await context();
   return disconnectLocalChatGpt(owner);
@@ -57,5 +63,5 @@ export async function testChatGptConnection() {
     prompt: 'Retourne exactement {"connection":"ok"}.',
     schema: z.object({ connection: z.literal("ok") }), maxRetries: 0,
   });
-  return { success: result.data.connection === "ok", model: result.model };
+  return { success: result.data.connection === "ok", model: result.model, reasoningEffort: result.reasoningEffort };
 }

@@ -290,6 +290,7 @@
     "20261028230728_preserve_confirmed_brief_after_plan_reconciliation.sql": "69696dd50d879ad1cad13e2bd829db67108f616dc7e42fa66a73d022c57029ef",
     "20261029002420_takeoff_preparations.sql": "5cf7fcebaf5489496f6a802719d5539420e3964679e012d1d252cc17f19e95d8",
     "20261029024800_google_drive_links.sql": "20583afc33df0064c30cb33aa63b9d99c147f389a38f73ab4bd33dc9fb24cee0",
-    "20261029033000_google_drive_plan_working_copies.sql": "7e4a20dedf0a43d483ee69513724282a91580bcba57404b447ca3fb683ac4c46"
+    "20261029033000_google_drive_plan_working_copies.sql": "7e4a20dedf0a43d483ee69513724282a91580bcba57404b447ca3fb683ac4c46",
+    "20261029082013_enforce_takeoff_preparation_processing.sql": "c8c20b74860b473720b30d667d33cb731a2cc3f035d8b926293faef706fd77b7"
   }
 }

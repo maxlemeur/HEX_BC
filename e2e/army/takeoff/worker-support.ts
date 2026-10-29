@@ -81,7 +81,7 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string) {
   await source.setInputFiles(filePath);
   await expect(ui.screen.getByText(fileName, { exact: true })).toBeVisible();
   await fillTakeoffPreparation(ui, { sources: [fileName], objective: "extract_quantities", unit: "Unités des lignes sources",
-    inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "" }, ui.browser.locator("form").last());
+    inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A", provider: "gemini" } }, ui.browser.locator("form").last());
   await expect(ui.screen.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
   const [response] = await Promise.all([
     ui.browser.waitForResponse("**/api/takeoff/jobs", { timeout: 30_000 }),
@@ -108,9 +108,7 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
   await openTakeoffPreparation(ui);
   const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], objective: "extract_quantities", unit: "Unités des lignes sources",
-    inclusions: "Toutes les lignes du tableau", levels: "Tous", zones: "Toutes", exclusions: "" });
-  await dialog.getByText("Options avancées", { exact: true }).click();
-  await dialog.getByRole("radio", "Standard", { exact: true }).check();
+    inclusions: "Toutes les lignes du tableau", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "B", provider: "gemini" } });
   await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   const jobs = ownedTakeoffJobs(ui.browser, ids);
   await expect.poll(async () => (await jobs.list()).length).toBe(1);

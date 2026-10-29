@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
-import { applyTakeoffPreparationProposal, createTakeoffPreparationQuestion, orderTakeoffPreparationQuestions, type TakeoffPreparationProposal } from "@/lib/takeoff/preparation-assistance";
+import { applyTakeoffPreparationProposal, createTakeoffPreparationQuestion, orderTakeoffPreparationQuestions, preparationProposalFieldSchema, type TakeoffPreparationProposal } from "@/lib/takeoff/preparation-assistance";
 
 function draft() {
   const preparation = createEmptyTakeoffPreparation();
@@ -22,10 +22,14 @@ describe("explicit acceptance of preparation proposals", () => {
   it("adds sourced scope content without deleting existing input or confirming it", () => {
     const preparation = draft();
     preparation.scope.levels = ["RDC"];
+    preparation.processing = { level: "C", provider: "chatgpt" };
     const result = applyTakeoffPreparationProposal(preparation, proposal);
     expect(result.scope.levels).toEqual(["RDC", "R+1"]);
     expect(result.scope.confirmed).toBe(false);
     expect(preparation.scope.levels).toEqual(["RDC"]);
+    expect(result.processing).toEqual({ level: "C", provider: "chatgpt" });
+    expect(preparationProposalFieldSchema.safeParse("processing.provider").success).toBe(false);
+    expect(preparationProposalFieldSchema.safeParse("processing.level").success).toBe(false);
   });
 
   it("never overwrites confirmed scope, an existing objective or a recorded unit", () => {

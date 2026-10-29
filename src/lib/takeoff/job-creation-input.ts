@@ -45,6 +45,7 @@ const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
 
 export type TakeoffJobRow = TakeoffJobResponse & {
   source_file_path?: string | null;
+  preparation_snapshot?: unknown;
 };
 
 export type TakeoffJobCreateResponse = TakeoffJobResponse;
