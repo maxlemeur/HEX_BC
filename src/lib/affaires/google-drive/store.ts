@@ -98,9 +98,10 @@ async function rearmFinishedLot(db: Database, tenantId: string, uploadId: string
  */
 export async function rearmLotsFailedWithConnection(member: { supabase: unknown; tenantId: string }, connectionId: string) {
   const db = member.supabase as Database;
-  const { data, error } = await db.from("affaire_intake_documents").select("upload_id")
+  // Across every affaire of the account: paged past the API's row cap.
+  const { data, error } = await readAllRows(() => db.from("affaire_intake_documents").select("id,upload_id", { count: "exact" })
     .eq("tenant_id", member.tenantId).eq("drive_connection_id", connectionId)
-    .eq("classification_status", "failed").is("deleted_at", null);
+    .eq("classification_status", "failed").is("deleted_at", null));
   if (error) return [];
   const rearmed: string[] = [];
   for (const uploadId of new Set(((data ?? []) as Array<{ upload_id: string }>).map((row) => row.upload_id))) {

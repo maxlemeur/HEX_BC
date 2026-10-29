@@ -55,7 +55,8 @@ export function memoryBackend() {
       if (this.operation === "update") { found.forEach(([, row]) => Object.assign(row, this.value)); return { data: found.map(([, row]) => row), error: null }; }
       if (this.operation === "delete") { found.forEach(([id]) => table.delete(id)); return { data: found.map(([, row]) => row), error: null }; }
       const count = found.length;
-      found = found.slice(this.start, this.end + 1);
+      // Like the API's max_rows (supabase/config.toml), one read returns at most 1 000 rows.
+      found = found.slice(this.start, Math.min(this.end + 1, this.start + 1000));
       const selected = this.selection.split(",").map((column) => column.trim()).filter(Boolean);
       const data = found.map(([, row]) => Object.fromEntries(selected.map((column) => [column, row[column] ?? null])));
       return { data: this.one ? data[0] ?? null : data, error: null, count };

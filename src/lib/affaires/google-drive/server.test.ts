@@ -167,6 +167,18 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     // Pieces linked with another account are left alone.
     expect(await rearmLotsFailedWithConnection(backend.access.context, "another_connection")).toEqual([]);
   });
+  it("analyses again after a reconnection a lot whose failed pieces come past the first 1 000", async () => {
+    const lot = (id: string) => ({ id, tenant_id: "tenant_demo", project_id: "project_demo", status: "failed", attempt_count: 3 });
+    backend.rows("affaire_intake_uploads").set("lot_large", lot("lot_large"));
+    backend.rows("affaire_intake_uploads").set("lot_after", lot("lot_after"));
+    const piece = (index: number, uploadId: string) => backend.rows("affaire_intake_documents").set(`piece_${index}`, {
+      id: `piece_${index}`, upload_id: uploadId, tenant_id: "tenant_demo", drive_connection_id: connectionId,
+      classification_status: "failed", deleted_at: null });
+    for (let index = 0; index < 1000; index += 1) piece(index, "lot_large");
+    piece(1000, "lot_after");
+    expect(await rearmLotsFailedWithConnection(backend.access.context, connectionId)).toEqual(["lot_large", "lot_after"]);
+    expect(backend.rows("affaire_intake_uploads").get("lot_after")).toMatchObject({ status: "queued", attempt_count: 0 });
+  });
   it("arms again a lot that an interrupted request left being recorded", async () => {
     const first = await link();
     const upload = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
