@@ -242,6 +242,9 @@ describe("GoogleDriveImport (route and Google simulated)", () => {
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Compte Google" }), OTHER_ACCOUNT);
     await waitFor(() => expect(posted("list").at(-1)).toEqual({ action: "list", connectionId: OTHER_ACCOUNT, location: { kind: "folder", folderId: "root" } }));
     expect(window.localStorage.getItem("mergeone.google-drive.last-connection")).toBe(OTHER_ACCOUNT);
+    // The switch ends the busy state: the panel stays usable without a reload.
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Compte Google" })).toBeEnabled());
+    for (const button of screen.getAllByRole("button", { name: "Fermer" })) expect(button).toBeEnabled();
   });
   it("asks to reconnect an account whose access Google revoked", async () => {
     state = { ...state, connections: [{ ...connection(), status: "reconnect_required" }] };
@@ -259,6 +262,7 @@ describe("GoogleDriveImport (route and Google simulated)", () => {
     expect(posted("disconnect")).toEqual([{ action: "disconnect", connectionId: ACCOUNT }]);
     expect(screen.getByRole("link", { name: "Ajouter un compte Google" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: /Dossier ouvert/ })).toBeNull();
+    for (const button of screen.getAllByRole("button", { name: "Fermer" })) expect(button).toBeEnabled();
   });
   it("opens without its own trigger only when another surface asks for this affaire", async () => {
     render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} showTrigger={false} />);

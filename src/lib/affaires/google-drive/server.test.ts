@@ -149,6 +149,16 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     expect(resumed.uploads).toEqual(first.uploads);
     expect(upload).toMatchObject({ status: "queued", last_error: null });
   });
+  it("arms again such a lot when the Drive panel opens, since its files can no longer be selected", async () => {
+    const first = await link();
+    const upload = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    Object.assign(upload, { status: "failed", last_error: "Liens Drive en cours d'enregistrement.", created_at: new Date(Date.now() - 60_000).toISOString() });
+    await driveState("project_demo");
+    expect(upload).toMatchObject({ status: "failed" });
+    upload.created_at = new Date(Date.now() - 180_000).toISOString();
+    expect((await driveState("project_demo")).links).toHaveLength(1);
+    expect(upload).toMatchObject({ status: "queued", last_error: null });
+  });
   it("renews an access token that Google stopped accepting", async () => {
     const list = () => execute({ action: "list", connectionId, location: { kind: "folder", folderId: "folder_demo" } });
     await list();

@@ -67,6 +67,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
   const folderHeading = useRef<HTMLHeadingElement>(null);
   const controller = useRef<AbortController | undefined>(undefined);
   const generation = useRef(0);
+  const runs = useRef(0);
   const mounted = useRef(true);
   const returned = useRef<{ outcome: DriveOAuthOutcome; connectionId: string | null } | null>(null);
   const completedUploads = useRef(new Set<string>());
@@ -146,11 +147,12 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     if (uploadId) onUploadComplete(uploadId);
   }
   async function run(action: () => Promise<void>) {
-    const current = generation.current;
+    // Its own counter: switching or removing an account starts a new browsing generation itself.
+    const current = ++runs.current;
     setBusy(true); setMessage(""); setNotice(""); controller.current = new AbortController();
     try { await action(); }
-    catch (error) { if (mounted.current && current === generation.current) setMessage(error instanceof Error ? error.message : "Action interrompue."); }
-    finally { if (mounted.current && current === generation.current) setBusy(false); }
+    catch (error) { if (mounted.current && current === runs.current) setMessage(error instanceof Error ? error.message : "Action interrompue."); }
+    finally { if (mounted.current && current === runs.current) setBusy(false); }
   }
   async function post<T>(body: Record<string, unknown>) {
     return responseData<T>(await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },

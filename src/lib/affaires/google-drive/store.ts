@@ -72,6 +72,17 @@ export async function removeDriveFolderLink(access: Access) {
 }
 
 /**
+ * Arms again the lots of this affaire that an interrupted link request left being recorded,
+ * once they are clearly stale. Opening the Drive panel or linking files runs it.
+ */
+export async function resumeStaleDriveLots(access: Access) {
+  const { data } = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("status", "failed")
+    .eq("last_error", RECORDING).lt("created_at", new Date(Date.now() - 120_000).toISOString()).select("id");
+  return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
+}
+
+/**
  * Records each selected Drive file as a piece of the affaire, without transferring its content.
  * One selection is one intake upload, armed once after its last link so that the classifier
  * reads the files from Drive and regenerates the brief and missing pieces from the whole lot.
@@ -96,12 +107,7 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
       ? { fileId: file.id, name: file.name, status: "linked", message: "Lien rattaché à ce compte Google.", documentId: link.documentId }
       : { fileId: file.id, name: file.name, status: "failed", message: "Lien non rattaché à ce compte. Réessayez." });
   }
-  // A lot left being recorded by an interrupted request is armed again once it is clearly stale.
-  const pending = [...new Set(input.files.flatMap(({ file }) => active.get(file.id)?.uploadId ?? []))];
-  const rearmed = pending.length ? await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).in("id", pending).eq("status", "failed")
-    .eq("last_error", RECORDING).lt("created_at", new Date(Date.now() - 120_000).toISOString()).select("id") : { data: [] };
-  const resumed = ((rearmed.data ?? []) as Array<{ id: string }>).map((row) => row.id);
+  const resumed = await resumeStaleDriveLots(access);
   if (!candidates.length) return { results, uploadId: null, resumed };
   const uploadId = randomUUID();
   // Not queued yet: a recovery worker must not classify a lot that is still being recorded.
@@ -141,8 +147,8 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
   const queued = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
   if (queued.error) {
-    // The lot stays "being recorded": selecting these files again later arms it.
-    const message = "Lien enregistré, analyse non lancée. Sélectionnez de nouveau ce fichier dans quelques minutes.";
+    // The lot stays "being recorded": opening the Drive panel again later arms it.
+    const message = "Lien enregistré, analyse non lancée. Rouvrez Google Drive dans quelques minutes pour la relancer.";
     const fresh = new Set(candidates.map(({ file }) => file.id));
     return { results: results.map((result) => result.status === "linked" && fresh.has(result.fileId) ? { ...result, message } : result), uploadId: null, resumed };
   }

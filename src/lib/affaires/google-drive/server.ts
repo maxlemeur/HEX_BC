@@ -6,7 +6,7 @@ import { disconnectDriveConnection, driveAccessToken, forgetDriveAccess, listDri
 import { DriveError } from "./errors";
 import { GoogleDriveReader } from "./provider";
 import { driveConfiguration } from "./secrets";
-import { DriveStoreError, linkDriveFiles, readDriveFolderLink, readDriveLinks, removeDriveFolderLink, saveDriveFolderLink } from "./store";
+import { DriveStoreError, linkDriveFiles, readDriveFolderLink, readDriveLinks, removeDriveFolderLink, resumeStaleDriveLots, saveDriveFolderLink } from "./store";
 
 export function toDriveApiError(error: unknown) {
   if (error instanceof DriveError) return new ApiError({ status: error.status, code: error.code, message: error.message });
@@ -21,6 +21,8 @@ const member = (access: Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAd
 export async function driveState(projectId: string): Promise<DriveState> {
   const access = await requireAffaireProjectOwnerOrAdmin(projectId);
   const enabled = driveConfiguration().enabled;
+  // A lot an interrupted link request left unarmed is resumed here: its files show as already linked.
+  if (enabled) await resumeStaleDriveLots(access);
   return guarded(async () => ({
     enabled, projectName: access.project.name,
     connections: enabled ? await listDriveConnections(member(access)) : [],
