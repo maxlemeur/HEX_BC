@@ -3,7 +3,7 @@ import { z } from "zod";
 
 vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers({ host: "127.0.0.1:3000" })) }));
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn().mockResolvedValue({ userId: "user", tenantId: "tenant" }) }));
-vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn().mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"] }] }) }));
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn().mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "army-plan-model", accessToken: "fixture", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"] }] }) }));
 vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: vi.fn() }));
 vi.mock("@/lib/takeoff/gemini-client", () => ({ callGeminiStructured: vi.fn().mockResolvedValue({ data: { ok: true }, model: "gemini-model" }) }));
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";

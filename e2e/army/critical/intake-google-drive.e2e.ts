@@ -192,6 +192,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
       .map((animation) => animation.finished.catch(() => undefined)));
     return true;
   });
+  await screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Tous/).click();
   await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
   await browser.evaluate(() => { document.querySelector("[data-document-id]")?.scrollIntoView({ block: "center" }); return true; });
   await settleMotion();

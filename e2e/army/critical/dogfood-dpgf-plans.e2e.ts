@@ -82,7 +82,10 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
   await details.getByRole("button", "Reclasser", { exact: true }).click();
   await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "dpgf" });
   await details.getByRole("button", "Valider", { exact: true }).click();
+  // The document desk keeps the dialog open while classification is pending.
+  await expect(details.getByRole("button", "Supprimer la copie", { exact: true })).toBeEnabled();
   await details.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(details).toBeHidden();
   const activeGaps = async () => {
     const result = await client.from("affaire_register_entries").select("code").eq("project_id", ids.projectId)
       .eq("kind", "missing_piece").eq("is_active", true);
@@ -266,7 +269,10 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   await details.getByRole("button", "Reclasser", { exact: true }).click();
   await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "plans" });
   await details.getByRole("button", "Valider", { exact: true }).click();
+  // The document desk keeps the dialog open while classification is pending.
+  await expect(details.getByRole("button", "Supprimer la copie", { exact: true })).toBeEnabled();
   await details.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(details).toBeHidden();
   await expect.poll(async () => (await readPlanSets(ui.browser, ids.projectId)).length, { timeout: 30_000 }).toBe(1);
   const [set] = await readPlanSets(ui.browser, ids.projectId);
   await expect.poll(async () => (await readPlanFiles(ui.browser, set.id)).length, { timeout: 30_000 }).toBe(1);
@@ -280,6 +286,7 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   const refused = await ui.browser.evaluate(async ({ setId, fileId }) => (await fetch(`/api/takeoff/plan-sets/${setId}/files/${fileId}`, { method: "DELETE" })).status,
     { setId: set.id, fileId: plan.id });
   expect(refused).toBe(409);
+  await ui.screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Validés/).click();
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   await ui.screen.getByRole("button", "Supprimer la copie", { exact: true }).click();
   await ui.screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
