@@ -1305,5 +1305,65 @@ select is(
   'F27-19 the contract 2 of an issued v3 cannot be rewritten'
 );
 
+-- Regression for the actual IO01 PDF timeout: use the pinned 2 031-item
+-- workbook, not a smaller synthetic tree. These pure validator checks also
+-- reject malicious parent/duplicate IDs independently of application rendering.
+\ir ../fixtures/large-v3-workbook.sql
+create temporary table c2_large as
+with recursive nodes as materialized (
+  select item, (item->>'id')::uuid id, (item->>'parent_id')::uuid parent_id, ord
+  from lb29_workbook, jsonb_array_elements(items) with ordinality entry(item,ord)
+), tree as (
+  select nodes.*, 0 depth from nodes where parent_id is null
+  union all select child.*, parent.depth+1 from nodes child join tree parent on child.parent_id=parent.id
+), contributions as (
+  select parent_id ancestor_id, (item->>'line_total_ht_cents')::bigint amount
+  from nodes where item->>'item_type'='line'
+  union all select parent.parent_id, contributions.amount
+  from contributions join nodes parent on parent.id=contributions.ancestor_id
+  where parent.parent_id is not null
+), sums as (
+  select ancestor_id, sum(amount) amount from contributions group by ancestor_id
+), rows as (
+  select jsonb_agg(jsonb_build_object('kind',item->'item_type','id',id,'parentId',parent_id,
+    'position',(item->>'position')::integer,'depth',depth,'title',item->>'title') ||
+    case when item->>'item_type'='section' then jsonb_build_object('number',ord::text,'saleHtCents',coalesce(sums.amount,0))
+    else jsonb_build_object('quantity',item->'quantity','unitCode',item->'unit_code','unitLabel',unit.symbol,
+      'pricingStatus',item->'pricing_status','taxRateBp',item->'tax_rate_bp',
+      'unitSaleHtCents',case when item->>'pricing_status'='priced' then item->'pu_ht_cents' else 'null'::jsonb end,
+      'saleHtCents',item->'line_total_ht_cents') end order by ord) value
+  from tree left join sums on sums.ancestor_id=tree.id
+  left join public.measurement_units unit on unit.code=item->>'unit_code'
+), total as (
+  select sum((item->>'line_total_ht_cents')::bigint) gross from nodes where item->>'item_type'='line'
+)
+select pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120','S2') ||
+  jsonb_build_object('rows',rows.value,'totals',jsonb_build_object('grossHtCents',gross,'commercialDiscountCents',0,
+    'discountIntent',jsonb_build_object('kind','none'),'commercialRoundingCents',0,'netHtCents',gross,
+    'taxByRate',jsonb_build_array(jsonb_build_object('rateBp',2000,'baseHtCents',gross,'taxCents',round(gross*0.2))),
+    'taxCents',round(gross*0.2),'payableTtcCents',gross+round(gross*0.2),'reverseCharge',false)) snapshot
+from rows,total;
+
+select is((select jsonb_array_length(snapshot->'rows') from c2_large),2031,'the PDF validator uses the full public IO01 workbook');
+select ok((select public.estimate_offer_client_valid_v2(snapshot,pg_temp.c2_layout()) from c2_large),'the full IO01 contract is valid');
+select ok((select not public.estimate_offer_client_valid_v2(jsonb_set(snapshot,'{rows,1,parentId}',to_jsonb(gen_random_uuid())),pg_temp.c2_layout()) from c2_large),'the large contract rejects a missing parent');
+select ok((select not public.estimate_offer_client_valid_v2(jsonb_set(snapshot,'{rows,1,id}',snapshot#>'{rows,0,id}'),pg_temp.c2_layout()) from c2_large),'the large contract rejects duplicate IDs before indexing');
+create temporary table c2_large_timings(run integer, elapsed_ms numeric, valid boolean);
+do $benchmark$
+declare run integer; started timestamptz; result boolean; payload jsonb;
+begin
+  select snapshot into payload from c2_large;
+  for run in 1..7 loop
+    started:=clock_timestamp();
+    result:=public.estimate_offer_client_valid_v2(payload,pg_temp.c2_layout());
+    insert into c2_large_timings values(run,extract(epoch from clock_timestamp()-started)*1000,result);
+  end loop;
+end;
+$benchmark$;
+select ok((select bool_and(valid) from c2_large_timings),'every measured validation preserves the result');
+select diag(format('full IO01 contract validator, 7 samples ms: %s; median: %s',
+  (select string_agg(round(elapsed_ms,2)::text,', ' order by run) from c2_large_timings),
+  (select percentile_cont(0.5) within group(order by elapsed_ms) from c2_large_timings)));
+
 select * from finish();
 rollback;
