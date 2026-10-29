@@ -9,6 +9,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   isTakeoffEnabled: vi.fn(),
 }));
 
+import { DriveError } from "@/lib/affaires/google-drive/errors";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -355,6 +356,112 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
     expect(harness.removedPaths).toEqual([
       `${TENANT_ID}/plan-set-existing/plan-file-stale/old-plan.pdf`,
     ]);
+  });
+
+  describe("plans linked from Google Drive (Google simulated)", () => {
+    const drivePlan = (overrides: Record<string, unknown> = {}) => ({ id: "doc-drive", tenant_id: TENANT_ID, upload_id: "upload-drive",
+      created_by: USER_ID, storage_path: null, file_name: "plan-drive.pdf", mime_type: "application/pdf", size_bytes: 5,
+      upload_status: "uploaded", classification_status: "classified", document_kind: "plans", plan_copy_generation: "generation-1",
+      source_provider: "google_drive", drive_connection_id: "connection-1", drive_file_id: "drive_plan", ...overrides });
+    const storedPlan = { id: "doc-stored", upload_id: "upload-drive", created_by: USER_ID, storage_path: `${TENANT_ID}/${PROJECT_ID}/upload-drive/doc-stored/plan.pdf`,
+      file_name: "plan.pdf", mime_type: "application/pdf", size_bytes: 5, upload_status: "uploaded", classification_status: "classified", document_kind: "plans" };
+
+    it("keeps one métré working copy of a Drive plan, read with the account that linked it", async () => {
+      const harness = createHarness();
+      // Drive now holds a longer revision than the size recorded at link time: the copy records what it read.
+      const readDriveDocument = vi.fn(async () => ({ bytes: new TextEncoder().encode("pdf-drive") }));
+      const input = { supabase: harness.supabase, project: { id: PROJECT_ID, tenant_id: TENANT_ID }, documents: [drivePlan()], readDriveDocument };
+      expect(await syncTakeoffPlanSetFromAffaireIntake(input)).toEqual({ syncedDocumentCount: 1, removedDocumentCount: 0 });
+      expect(readDriveDocument).toHaveBeenCalledWith({ tenant_id: TENANT_ID, mime_type: "application/pdf", drive_connection_id: "connection-1", drive_file_id: "drive_plan" });
+      expect(harness.planFiles).toEqual([expect.objectContaining({ file_name: "plan-drive.pdf", file_size_bytes: 9, metadata: expect.objectContaining({
+        source: "affaire-intake", intake_document_id: "doc-drive", intake_storage_path: null, intake_drive_file_id: "drive_plan", intake_generation: "generation-1" }) })]);
+      expect(await harness.planStorageFiles.get(harness.planFiles[0].file_path)?.text()).toBe("pdf-drive");
+      // Back later: the complete copy is kept, without reading Drive again.
+      expect(await syncTakeoffPlanSetFromAffaireIntake(input)).toEqual({ syncedDocumentCount: 0, removedDocumentCount: 0 });
+      expect(readDriveDocument).toHaveBeenCalledTimes(1);
+      expect(harness.planFiles).toHaveLength(1);
+    });
+
+    it("leaves a Drive plan without a copy while its account cannot read it, and still copies the other plans", async () => {
+      const harness = createHarness({ intakeFiles: { [storedPlan.storage_path]: new Blob(["pdf-a"]) } });
+      const readDriveDocument = vi.fn(async () => { throw new DriveError(409, "DRIVE_AUTH_EXPIRED", "L'accès Google du compte qui a lié ce fichier a expiré."); });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const result = await syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project: { id: PROJECT_ID, tenant_id: TENANT_ID },
+        documents: [drivePlan(), storedPlan], readDriveDocument });
+      expect(result).toEqual({ syncedDocumentCount: 1, removedDocumentCount: 0 });
+      expect(harness.planFiles.map((file) => file.metadata.intake_document_id)).toEqual(["doc-stored"]);
+      expect(warn).toHaveBeenCalledWith("Drive plan working copy skipped", { documentId: "doc-drive", reason: expect.stringContaining("DRIVE_AUTH_EXPIRED") });
+      warn.mockRestore();
+    });
+
+    it("reports a Drive read that fails for another reason than Google", async () => {
+      const harness = createHarness();
+      const readDriveDocument = vi.fn(async () => { throw new Error("socket closed"); });
+      await expect(syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project: { id: PROJECT_ID, tenant_id: TENANT_ID },
+        documents: [drivePlan()], readDriveDocument })).rejects.toThrow("Intake plan sync failed for 1 document(s): doc-drive");
+      expect(harness.planFiles).toEqual([]);
+    });
+
+    it("retires the working copy once the Drive piece is no longer a plan", async () => {
+      const harness = createHarness();
+      const readDriveDocument = vi.fn(async () => ({ bytes: new TextEncoder().encode("pdf-drive") }));
+      const project = { id: PROJECT_ID, tenant_id: TENANT_ID };
+      await syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project, documents: [drivePlan()], readDriveDocument });
+      const [copy] = harness.planFiles;
+      const result = await syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project,
+        documents: [drivePlan({ document_kind: "cctp", plan_copy_generation: "generation-2" })], readDriveDocument });
+      expect(result).toEqual({ syncedDocumentCount: 0, removedDocumentCount: 1 });
+      expect(harness.planFiles).toEqual([]);
+      expect(harness.removedPaths).toEqual([copy.file_path]);
+    });
+
+    it("lets the first of two syncs reading different Drive revisions complete the copy", async () => {
+      const harness = createHarness({ planSets: [{ id: "plan-set-existing", estimate_version_id: null, name: "Plans import",
+        metadata: { source: "import-flow", default_import_plan_set: true } }] });
+      const project = { id: PROJECT_ID, tenant_id: TENANT_ID };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      await Promise.all([
+        syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project, documents: [drivePlan()],
+          readDriveDocument: async () => ({ bytes: new TextEncoder().encode("pdf-drive") }) }),
+        syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project, documents: [drivePlan()],
+          readDriveDocument: async () => ({ bytes: new TextEncoder().encode("pdf-drive-v2") }) }),
+      ]);
+      // The later reader never uploads bytes of another size under the first one's reservation.
+      expect(harness.planFiles).toEqual([expect.objectContaining({ file_size_bytes: 9 })]);
+      expect(harness.uploadedPaths).toHaveLength(1);
+      expect(await harness.planStorageFiles.get(harness.planFiles[0].file_path)?.text()).toBe("pdf-drive");
+      expect(warn).toHaveBeenCalledWith("Drive plan working copy skipped", { documentId: "doc-drive", reason: expect.stringContaining("another Drive revision") });
+      warn.mockRestore();
+    });
+
+    it("renews the caller's lease before each Drive read, and stops when it is lost", async () => {
+      const project = { id: PROJECT_ID, tenant_id: TENANT_ID };
+      const order: string[] = [];
+      const renewed = createHarness();
+      await syncTakeoffPlanSetFromAffaireIntake({ supabase: renewed.supabase, project, documents: [drivePlan()],
+        beforeDriveRead: async () => { order.push("renew"); },
+        readDriveDocument: async () => { order.push("read"); return { bytes: new TextEncoder().encode("pdf-drive") }; } });
+      expect(order).toEqual(["renew", "read"]);
+      const lost = new Error("lease lost");
+      const harness = createHarness();
+      const readDriveDocument = vi.fn(async () => ({ bytes: new TextEncoder().encode("pdf-drive") }));
+      await expect(syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project, documents: [drivePlan()],
+        beforeDriveRead: async () => { throw lost; }, readDriveDocument })).rejects.toBe(lost);
+      expect(readDriveDocument).not.toHaveBeenCalled();
+      expect(harness.planFiles).toEqual([]);
+    });
+
+    it("refuses to complete a Drive reservation with bytes of another size", async () => {
+      const harness = createHarness();
+      const project = { id: PROJECT_ID, tenant_id: TENANT_ID };
+      await syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project, documents: [drivePlan()],
+        readDriveDocument: async () => ({ bytes: new TextEncoder().encode("pdf-drive") }) });
+      harness.planStorageFiles.delete(harness.planFiles[0].file_path);
+      await expect(syncTakeoffPlanSetFromAffaireIntake({ supabase: harness.supabase, project, documents: [drivePlan()],
+        readDriveDocument: async () => ({ bytes: new TextEncoder().encode("pdf-drive-v2") }) }))
+        .rejects.toThrow("Une copie de plan est incomplète. Retirez le lien Google Drive du dossier puis liez de nouveau le fichier.");
+      expect(harness.uploadedPaths).toHaveLength(1);
+    });
   });
 
   it("does not create an empty import plan set when no eligible PDF plan exists", async () => {

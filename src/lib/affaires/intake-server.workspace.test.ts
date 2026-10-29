@@ -16,8 +16,9 @@ vi.mock("@/lib/affaires/register-server", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { fetchAffaireIntakeWorkspace, reconcileAffairePlanPresence } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace, reconcileAffairePlanPresence, refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
+import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import { syncAffairePlanGap } from "@/lib/affaires/register-server";
 import { hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -297,10 +298,29 @@ describe("reconcileAffairePlanPresence", () => {
     await expect(reconcileAffairePlanPresence(PROJECT_ID)).resolves.toEqual({ changed: expected });
   });
 
+  it("reads plans linked from Google Drive to keep their métré working copy", async () => {
+    vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockResolvedValue({ syncedDocumentCount: 0, removedDocumentCount: 0 });
+    vi.mocked(syncAffairePlanGap).mockResolvedValue(false);
+    await reconcileAffairePlanPresence(PROJECT_ID);
+    expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenCalledWith(expect.objectContaining({ readDriveDocument: readLinkedDriveDocument }));
+  });
+
   it("still refreshes the gap before reporting a failed copy repair", async () => {
     vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockRejectedValue(new Error("copy failed"));
     vi.mocked(syncAffairePlanGap).mockResolvedValue(false);
     await expect(reconcileAffairePlanPresence(PROJECT_ID)).rejects.toThrow("copy failed");
     expect(syncAffairePlanGap).toHaveBeenCalledWith({ projectId: PROJECT_ID, actorUserId: USER_ID });
+  });
+});
+
+describe("refreshAffaireIntakeFromActiveDocuments", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("reads plans linked from Google Drive, except for a deletion that must not wait on Drive", async () => {
+    const input = { supabase: createSupabaseMock([]) as never, project: createProjectRow(), uploadId: FIRST_UPLOAD_ID, actorUserId: USER_ID };
+    await refreshAffaireIntakeFromActiveDocuments(input);
+    expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenLastCalledWith(expect.objectContaining({ readDriveDocument: readLinkedDriveDocument }));
+    await refreshAffaireIntakeFromActiveDocuments({ ...input, readDrive: false });
+    expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenLastCalledWith(expect.objectContaining({ readDriveDocument: undefined }));
   });
 });

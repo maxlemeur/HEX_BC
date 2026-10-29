@@ -39,14 +39,14 @@ describe("deleteAffaireIntakeDocument", () => {
     vi.clearAllMocks();
   });
 
-  it("refreshes the register, synced plans and brief after removing an uploaded piece", async () => {
+  it("refreshes the register, synced plans and brief after removing an uploaded piece, without waiting on Drive", async () => {
     deletingWith({ uploadId: "upload-1", wasUploaded: true });
 
     await deleteAffaireIntakeDocument({ projectId: PROJECT_ID, documentId: DOCUMENT_ID });
 
     expect(syncAffaireIntakeDocumentPrioritiesMock).toHaveBeenCalledExactlyOnceWith({ supabase: "owner-client", projectId: PROJECT_ID });
     expect(refreshAffaireIntakeFromActiveDocumentsMock).toHaveBeenCalledExactlyOnceWith({
-      supabase: "owner-client", project: { id: PROJECT_ID }, uploadId: "upload-1", actorUserId: "user-1",
+      supabase: "owner-client", project: { id: PROJECT_ID }, uploadId: "upload-1", actorUserId: "user-1", readDrive: false,
     });
   });
 

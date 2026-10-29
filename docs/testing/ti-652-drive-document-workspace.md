@@ -38,10 +38,23 @@ du fichier a changé depuis son lien. Comme tout import, il conserve son fichier
 dans `dpgf-imports`, y compris après le retrait du lien. Si l’accès Google du compte
 qui a lié le fichier a expiré, le message demande à son membre de le reconnecter.
 
-Les plans liés depuis Drive ne sont pas encore envoyés au métré et ne lèvent pas la
-pièce manquante « plans ». Décision de Thanh (28/10/2026) : ils garderont une copie de
-travail réservée au métré, supprimée avec le lien, à construire maintenant que la
-refonte de la synchronisation des plans est fusionnée.
+Un plan lié depuis Drive garde une seule copie : sa copie de travail pour le métré
+(décision de Thanh, 28/10/2026). Le dossier, lui, ne garde que le lien. La
+synchronisation des plans lit le fichier dans Drive, côté serveur et avec le compte
+du membre qui l’a lié, puis le dépose dans le jeu « Plans import » comme une copie
+de plan du dossier (`intake_storage_path` nul, `intake_drive_file_id` renseigné).
+Cette copie suit les mêmes gardes que celles des pièces stockées : génération,
+nettoyage réservé, suppression refusée tant que le lien vit. Elle est retirée avec le
+lien ou quand la pièce n’est plus classée en plans. Une fois complète, elle lève la
+pièce manquante « plans », en TypeScript comme dans `affaire_has_stored_plan`. Si
+Drive est désactivé, si le compte a été retiré, si l’accès a expiré ou si la lecture
+est coupée, la copie est simplement reportée à la synchronisation suivante, sans
+faire échouer le métré. La suppression d’une pièce n’attend pas Drive pour les
+autres plans liés, et le worker renouvelle son bail avant chaque lecture. Une copie
+déjà faite reste en place quand le compte est retiré. Si une réservation de copie n’a
+jamais reçu ses octets et que le fichier a changé dans Drive depuis, la
+synchronisation demande de retirer puis relier le fichier. Les pièces Drive ne
+servent pas encore de références sources vérifiées.
 
 ### Sécurité
 
@@ -97,11 +110,26 @@ partagé avant le déploiement de ce code.
   pas de copie stockée pour un lien, lien unique actif, retrait puis nouveau lien,
   isolation du tenant, suppression d’un compte qui conserve les pièces (y compris
   retirées), compte Google partagé signalé au serveur, comptes retirés avec le membre.
+- Copie de travail des plans Drive (Google simulé) : synchronisation unitaire (une
+  seule copie, relue une seule fois ; report si Drive refuse ; retrait au
+  reclassement ; réservation d’une autre taille refusée ; deux synchronisations
+  concurrentes sur deux révisions ; bail renouvelé avant chaque lecture), lecture
+  coupée en cours de flux, suppression sans lecture Drive, présence des plans
+  (copie d’une autre affaire non comptée), et pgTAP
+  `google-drive-plan-copies.test.sql` (copie nommant un autre fichier, un chemin
+  stocké ou une autre génération refusée ; octets acceptés sans objet
+  `affaire-intake` ; plan compté seulement une fois la copie complète ; suppression et
+  nettoyage refusés tant que le lien vit ; copie d’une autre affaire non comptée ;
+  octets refusés pendant le retrait du lien, après le reclassement et après le
+  retrait ; compte retiré : copie gardée, aucune nouvelle copie ; reclassement :
+  copie périmée retirée).
 - TesterArmy DRV01 (Drive désactivé, aucun jeton accepté depuis le navigateur) et
-  DRV02 (liens sous RLS locale réelle, sans copie, conservés après rechargement,
-  retrait confirmé dans l’UI, nouveau lien). Métadonnées Drive et jeton fictifs :
-  le consentement Google, les appels Google et la lecture par le worker ne sont pas
-  couverts par ces campagnes.
+  DRV02 (liens sous RLS locale réelle, sans copie dans le dossier, conservés après
+  rechargement ; copie de travail d’un plan comptée comme plan puis retirée avec le
+  lien confirmé dans l’UI ; nouveau lien). Métadonnées Drive et jeton fictifs : le
+  consentement Google, les appels Google et la lecture par le worker ou par la
+  synchronisation des plans ne sont pas couverts par ces campagnes (DRV02 écrit la
+  copie de travail comme le fait la synchronisation, sans lire Drive).
 
 ## Historique : copies Drive (qualification du 25 octobre 2026)
 

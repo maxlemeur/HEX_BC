@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 import { localClient } from "../takeoff/native-ui";
@@ -91,6 +92,22 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 })
     .eq("project_id", ids.projectId)).error).toBeNull();
   expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
+  // A Drive plan keeps one métré working copy, which the plan sync makes after reading the file with the
+  // linker's account. No Google here: the member writes that copy as the sync does, a reservation then
+  // its bytes, under the real RLS and Storage guards.
+  const source = (await client.from("affaire_intake_documents").select("upload_id,classified_at,plan_copy_generation").eq("id", linked.id).single()).data!;
+  const planSet = await client.from("plan_sets").insert({ tenant_id: project.data!.tenant_id, project_id: ids.projectId, name: "Plans import" }).select("id").single();
+  expect(planSet.error).toBeNull();
+  const copyId = randomUUID().replace(/^(.{14})4/, "$15");
+  const copyPath = `${project.data!.tenant_id}/${planSet.data!.id}/${copyId}/plan-poc-fictif.pdf`;
+  const copyBytes = new TextEncoder().encode("%PDF-1.4\n% copie de travail fictive\n%%EOF\n");
+  expect((await client.from("plan_files").insert({ id: copyId, tenant_id: project.data!.tenant_id, plan_set_id: planSet.data!.id, file_path: copyPath,
+    file_name: "plan-poc-fictif.pdf", file_type: "application/pdf", file_size_bytes: copyBytes.byteLength,
+    metadata: { source: "affaire-intake", intake_document_id: linked.id, intake_upload_id: source.upload_id, intake_storage_path: null,
+      intake_drive_file_id: file.id, intake_classified_at: source.classified_at, intake_generation: source.plan_copy_generation } })).error).toBeNull();
+  expect((await client.storage.from("plan-files").upload(copyPath, copyBytes, { contentType: "application/pdf", upsert: false })).error).toBeNull();
+  const hasStoredPlan = async () => (await server.rpc("affaire_has_stored_plan", { p_project_id: ids.projectId })).data;
+  expect(await hasStoredPlan()).toBe(true);
   const openDriveLinks = async () => {
     await screen.getByText("Ajouter depuis Google Drive", { exact: true }).click();
     await screen.getByText("Fichiers Drive liés à l’affaire", { exact: true }).click();
@@ -117,9 +134,11 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).click();
   await screen.getByText("Fichier dans Google Drive", { exact: true }).click();
   await expect(screen.getByText("MergeOne garde un lien : le fichier reste dans Google Drive, sans copie dans l’affaire. Une modification dans Drive n’est pas réanalysée automatiquement.", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Pour le métré, un plan PDF lié garde une copie de travail, retirée avec le lien.", { exact: true })).toBeVisible();
   await settleMotion();
   const linkScreenshot = await relativeOutputPath(await app.screenshot("TI652-document-drive-link"));
   await screen.getByRole("button", { name: "Retirer le lien", exact: true }).click();
+  await expect(screen.getByText(`Le lien vers « ${file.name} » sera retiré du dossier de l’affaire, avec la copie de travail du plan pour le métré. Le fichier reste dans Google Drive. Les lignes de chiffrage et les références historiques existantes restent conservées.`, { exact: true })).toBeVisible();
   await screen.getByRole("button", { name: "Annuler", exact: true }).click();
   expect((await documents())[0].deleted_at).toBeNull();
   await screen.getByRole("button", { name: "Retirer le lien", exact: true }).click();
@@ -132,6 +151,10 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect(tombstone).toMatchObject({ storage_path: null, upload_status: "rejected", drive_file_id: file.id });
   expect(tombstone.deleted_at).toBeTruthy();
   expect(await store.readDriveLinks(access)).toEqual([]);
+  // The working copy went with the link: neither its row nor its bytes remain, and the plan no longer counts.
+  expect((await client.from("plan_files").select("id").eq("id", copyId)).data).toEqual([]);
+  expect((await client.storage.from("plan-files").download(copyPath)).data).toBeNull();
+  expect(await hasStoredPlan()).toBe(false);
   let foreignMessage = "";
   try { await store.deleteIntakeDocumentCopy(wrongTenant, linked.id); } catch (error) { foreignMessage = (error as Error).message; }
   expect(foreignMessage).toBe("Document introuvable dans cette affaire. Actualisez le dossier.");
@@ -158,5 +181,6 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
   await recordEvidence(army, "DRV02-drive-links", { ids, documentIds: (await documents()).map((document) => document.id),
     dossierScreenshot, linkScreenshot, noStoredCopy: true, replayLinksOnce: true, folderRemembered: true, removalConfirmedInUi: true, relinkAfterRemoval: true, dpgfRead,
-    boundary: "Real local RLS and HTTP/UI. Fictional Drive metadata and sealed token; no Google or OAuth, no worker read (classification settled under owner RLS)." });
+    planWorkingCopy: { countedAsPlan: true, removedWithLink: true },
+    boundary: "Real local RLS and HTTP/UI. Fictional Drive metadata and sealed token; no Google or OAuth, no worker read (classification settled under owner RLS); the métré working copy is written by the member as the plan sync does, without a Drive read." });
 });

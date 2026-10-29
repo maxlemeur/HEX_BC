@@ -2230,19 +2230,14 @@ async function refreshAffaireBriefFromDocuments(input: {
   actorUserId?: string | null;
   renewLease?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
+  /** False when the caller must not wait on Drive (a deletion only retires copies). */
+  readDrive?: boolean;
 }) {
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded"
   );
-  const missingPieces = await getMissingPiecesForProject(input);
 
-  await syncAffaireRegisterMissingPieces({
-    supabase: input.supabase as never,
-    project: input.project,
-    missingPieces,
-    actorUserId: input.actorUserId ?? null,
-  });
-
+  // Before the missing pieces: a Drive plan counts once its métré working copy exists.
   try {
     await syncTakeoffPlanSetFromAffaireIntake({
       supabase: input.supabase as never,
@@ -2251,14 +2246,26 @@ async function refreshAffaireBriefFromDocuments(input: {
         tenant_id: input.project.tenant_id,
       },
       documents: input.documents,
+      readDriveDocument: input.readDrive === false ? undefined : readLinkedDriveDocument,
+      beforeDriveRead: input.renewLease,
     });
   } catch (error) {
+    if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw error;
     console.error("Affaire intake takeoff sync failed", {
       uploadId: input.uploadId,
       projectId: input.project.id,
       error,
     });
   }
+
+  const missingPieces = await getMissingPiecesForProject(input);
+
+  await syncAffaireRegisterMissingPieces({
+    supabase: input.supabase as never,
+    project: input.project,
+    missingPieces,
+    actorUserId: input.actorUserId ?? null,
+  });
 
   if (uploadedDocuments.length === 0) {
     return null;
@@ -2301,7 +2308,7 @@ async function getMissingPiecesForProject(input: {
     document.upload_status === "uploaded" && document.classification_status === "classified" && document.document_kind === "plans"
   );
   const hasIntakePlan = candidatePlans.length > 0 && await hasStoredIntakePlan({
-    supabase: input.supabase as never, documents: candidatePlans,
+    supabase: input.supabase as never, projectId: input.project.id, documents: candidatePlans,
   });
   const missing = buildAffaireIntakeMissingPieces(activeDocuments
     .filter((document) => hasIntakePlan || !candidatePlans.includes(document))
@@ -2349,6 +2356,7 @@ export async function reconcileAffairePlanPresence(projectId: string) {
       supabase: context.supabase as never,
       project: { id: project.id, tenant_id: project.tenant_id },
       documents,
+      readDriveDocument: readLinkedDriveDocument,
     });
     planCopiesChanged = planSync.syncedDocumentCount > 0 || planSync.removedDocumentCount > 0;
   } catch (error) {
@@ -3455,6 +3463,7 @@ export async function refreshAffaireIntakeFromActiveDocuments(input: {
   project: AffaireProjectAccessRow;
   uploadId: string;
   actorUserId: string;
+  readDrive?: boolean;
 }) {
   const { data, error } = await resolveSupabaseQuery<{
     data: unknown[];
@@ -3480,6 +3489,7 @@ export async function refreshAffaireIntakeFromActiveDocuments(input: {
     uploadId: input.uploadId,
     documents,
     actorUserId: input.actorUserId,
+    readDrive: input.readDrive,
   });
 }
 

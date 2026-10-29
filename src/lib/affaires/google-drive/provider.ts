@@ -79,7 +79,10 @@ export class GoogleDriveReader {
     let size = 0;
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        // A stream cut or timed out mid-body is a Drive interruption, like a failed request.
+        const { done, value } = await reader.read().catch(() => {
+          throw new DriveError(422, "DRIVE_NETWORK", "Connexion Drive interrompue. Réessayez dans un instant.");
+        });
         if (done) break;
         size += value.byteLength;
         if (size > DRIVE_MAX_FILE_BYTES || size > Number(file.size)) {

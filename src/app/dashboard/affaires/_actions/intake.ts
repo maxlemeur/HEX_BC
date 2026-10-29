@@ -89,10 +89,11 @@ export async function deleteAffaireIntakeDocument(input: { projectId: string; do
     // existing tombstone changes nothing, keeping later brief edits and confirmation.
     result = await deleteIntakeDocumentCopy(access, parsed.documentId, async ({ uploadId, wasUploaded }) => {
       await syncPriorities();
-      // Only an uploaded piece fed the register, the synced plans and the brief.
+      // Only an uploaded piece fed the register, the synced plans and the brief. A deletion
+      // retires copies without waiting on Drive for the working copies of other linked plans.
       if (wasUploaded) {
         await refreshAffaireIntakeFromActiveDocuments({ supabase: access.context.supabase, project: access.project,
-          uploadId, actorUserId: access.context.userId });
+          uploadId, actorUserId: access.context.userId, readDrive: false });
       }
     });
   } catch (error) {
