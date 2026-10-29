@@ -17952,7 +17952,7 @@
           }
         ],
         "requestBody": {
-          "description": "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto, chatgpt, gemini).",
+          "description": "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto ou chatgpt). Le forfait ChatGPT local doit être connecté.",
           "required": true,
           "content": {
             "multipart/form-data": {
@@ -61068,8 +61068,7 @@
             "type": "string",
             "enum": [
               "auto",
-              "chatgpt",
-              "gemini"
+              "chatgpt"
             ]
           },
           "preparation_revision": {

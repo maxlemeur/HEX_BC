@@ -128,7 +128,7 @@ describe("TakeoffPreparationPanel", () => {
     await user.click(screen.getByText("Options avancées"));
     expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
     expect(screen.getByLabelText("Fournisseur IA")).toHaveValue("chatgpt");
-    expect(await screen.findByText(/Le fournisseur ChatGPT enregistré est actuellement indisponible/)).toBeInTheDocument();
+    expect(await screen.findByText(/Connectez votre forfait ChatGPT et choisissez un modèle/)).toBeInTheDocument();
     expect(actions.save).not.toHaveBeenCalled();
     await user.click(screen.getByRole("radio", { name: "Rapide" }));
     await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));

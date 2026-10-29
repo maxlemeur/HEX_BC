@@ -3,11 +3,12 @@ import "server-only";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
-import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { CallGeminiStructuredOptions, CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import type { TakeoffProvider } from "@/lib/takeoff/types";
@@ -20,23 +21,32 @@ export function parseTakeoffProvider(value: unknown): TakeoffProvider {
   return parsed.data;
 }
 
-export async function getTakeoffExecutionOwner(supabase: ServerSupabaseClient, owner: ChatGptOwner, requestedProvider: TakeoffProvider = "auto") {
-  const provider = parseTakeoffProvider(requestedProvider);
-  if (provider === "gemini") return {};
+export function assertTakeoffProviderAvailable(provider: TakeoffProvider) {
+  if (provider === "gemini") throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    message: "Cet ancien fournisseur n’est plus disponible. Choisissez le forfait ChatGPT local et confirmez à nouveau la préparation." });
+}
+
+export async function getTakeoffExecutionOwner(supabase: ServerSupabaseClient, owner: ChatGptOwner, requestedProvider: TakeoffProvider = "auto"): Promise<{
+  execution_provider?: never; execution_host_id?: never;
+} | { execution_provider: "chatgpt_local"; execution_host_id: string }> {
+  assertTakeoffProviderAvailable(parseTakeoffProvider(requestedProvider));
   if (!isLocalChatGptEnabled()) {
-    if (provider === "chatgpt") throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté." });
-    return {};
   }
   assertLocalChatGptHost((await headers()).get("host"));
   const store = await readChatGptStore(owner);
   if (!store.selectedId) {
-    if (provider === "chatgpt") throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Connectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré." });
-    return {};
   }
-  if (!store.profiles.find((profile) => profile.id === store.selectedId)?.model) {
-    throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+  const profile = store.profiles.find((entry) => entry.id === store.selectedId);
+  if (!profile || !hasLocalChatGptPlanAccess(profile)) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Reconnectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré." });
+  }
+  if (!profile.model) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré." });
   }
   // Refuse admission before uploading anything if the shared schema is old.
@@ -54,6 +64,26 @@ export async function assertLocalTakeoffExecutionHost(job: TakeoffJobProcessingR
       message: "Ce métré est réservé au forfait ChatGPT sur son Mac d’origine. Relancez-le depuis ce Mac." });
   }
   return job.execution_host_id;
+}
+
+/** Before requeueing, verify the persisted creator, plan and originating Mac. */
+export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClient, tenantId: string, job: {
+  execution_provider?: string | null; execution_host_id?: string | null; created_by?: string | null;
+}) {
+  assertTakeoffJobUsesLocalProvider(job);
+  if (job.execution_provider !== "chatgpt_local") return;
+  if (!job.created_by) throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    message: "Le créateur du métré n’est plus disponible. Préparez une nouvelle analyse." });
+  // Job and operator authorization precede this privileged, tenant-scoped read.
+  const membership = await createServiceRoleClient().from("tenant_memberships").select("user_id, tenants!inner(is_active)")
+    .eq("user_id", job.created_by).eq("tenant_id", tenantId).eq("tenants.is_active", true).maybeSingle();
+  if (membership.error || !membership.data) throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    message: "Le créateur n’a plus d’accès actif à cette affaire. Préparez une nouvelle analyse." });
+  const owner = await getTakeoffExecutionOwner(supabase, { userId: job.created_by, tenantId }, "chatgpt");
+  if (!owner.execution_host_id || owner.execution_host_id !== job.execution_host_id) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Relancez ce métré depuis le Mac d’origine avec le forfait ChatGPT du créateur connecté." });
+  }
 }
 
 type LocalTakeoffProvider = {

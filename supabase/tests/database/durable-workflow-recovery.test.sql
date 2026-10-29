@@ -476,5 +476,40 @@ select ok(
   'intake claim is service-role only'
 );
 
+-- Local-only recovery must preserve historical provider jobs, keep recovering
+-- stale local jobs, and allow intake through even with an older legacy job.
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, execution_provider, execution_host_id, processing_strategy)
+values ('71000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
+  '40000000-0000-4000-8000-000000000001', 'A', 'pending', 'chatgpt_local',
+  'urn:uuid:71000000-0000-4000-8000-000000000002', 'sync');
+select is((select count(*)::integer from public.claim_local_takeoff_job(
+  '71000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
+  'urn:uuid:71000000-0000-4000-8000-000000000002', '2026-08-12 08:00:00+00',
+  '71000000-0000-4000-8000-000000000003', '2026-08-12 08:30:00+00', 'fixture', 'fixture')),
+  1, 'the local fixture acquires its processing lease');
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, processing_strategy, started_at, processing_lease_token, processing_lease_expires_at)
+values ('71000000-0000-4000-8000-000000000004', '20000000-0000-4000-8000-000000000001',
+  '40000000-0000-4000-8000-000000000001', 'A', 'processing', 'sync', '2026-08-12 08:00:00+00',
+  '71000000-0000-4000-8000-000000000006', '2026-08-12 08:30:00+00');
+select is((select count(*)::integer from public.recover_stale_local_takeoff_jobs('2026-08-12 09:00:00+00', interval '10 minutes')),
+  1, 'only the expired local ChatGPT job is recovered');
+select is((select status::text from public.takeoff_jobs where id = '71000000-0000-4000-8000-000000000001'),
+  'failed', 'the expired local job requires manual review');
+select is((select status::text from public.takeoff_jobs where id = '71000000-0000-4000-8000-000000000004'),
+  'processing', 'an expired historical Gemini job remains unchanged');
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, created_at)
+select gen_random_uuid(), '20000000-0000-4000-8000-000000000001', '40000000-0000-4000-8000-000000000001',
+  'A', 'pending', '1900-01-01 00:00:00+00' from generate_series(1, 1);
+insert into public.affaire_intake_uploads (id, tenant_id, project_id, status, created_at)
+values ('71000000-0000-4000-8000-000000000005', '20000000-0000-4000-8000-000000000001',
+  '30000000-0000-4000-8000-000000000001', 'queued', '2000-01-01 00:00:00+00');
+select is((select work_id from public.list_due_affaire_intake_workflows('2026-08-12 09:00:00+00', 1)),
+  '71000000-0000-4000-8000-000000000005'::uuid, 'historical jobs cannot starve intake recovery');
+select ok(has_function_privilege('service_role', 'public.recover_stale_local_takeoff_jobs(timestamptz,interval)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.recover_stale_local_takeoff_jobs(timestamptz,interval)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.list_due_affaire_intake_workflows(timestamptz,integer)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.list_due_affaire_intake_workflows(timestamptz,integer)', 'EXECUTE'),
+  'local recovery functions are service-role only');
+
 select * from finish();
 rollback;

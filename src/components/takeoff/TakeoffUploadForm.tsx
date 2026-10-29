@@ -293,6 +293,7 @@ export function TakeoffUploadForm({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [queuedForRecovery, setQueuedForRecovery] = useState(false);
+  const [existingAnalysis, setExistingAnalysis] = useState(false);
   const [recoveryUnconfirmed, setRecoveryUnconfirmed] = useState(false);
   const controlsDisabled = !isHydrated || submitState === "loading";
   const uploadRules = resolveAllowedLevelOptions(normalizedAllowedLevels);
@@ -486,8 +487,11 @@ export function TakeoffUploadForm({
         job.dispatch?.status === "persistence_unconfirmed";
       setQueuedForRecovery(isQueuedForRecovery);
       setRecoveryUnconfirmed(isRecoveryUnconfirmed);
+      setExistingAnalysis(job.status !== "pending");
       setAnnouncement(
-        isRecoveryUnconfirmed
+        job.status !== "pending"
+          ? "Analyse existante retrouvée. Ouverture du suivi."
+          : isRecoveryUnconfirmed
           ? "Analyse créée, mais ni son démarrage immédiat ni sa reprise automatique n'ont pu être confirmés. Ouvrez le suivi pour réessayer."
           : isQueuedForRecovery
             ? "Analyse enregistrée. Son démarrage est en attente et sera relancé automatiquement. Redirection en cours."
@@ -758,7 +762,7 @@ export function TakeoffUploadForm({
 
       </form>
 
-      {submitState === "success" && <p role="status" className="mt-4 text-sm text-foreground">{recoveryUnconfirmed ? "Reprise à vérifier" : queuedForRecovery ? "Extraction en attente" : "Extraction lancée"}. {announcement}</p>}
+      {submitState === "success" && <p role="status" className="mt-4 text-sm text-foreground">{existingAnalysis ? "Analyse existante" : recoveryUnconfirmed ? "Reprise à vérifier" : queuedForRecovery ? "Extraction en attente" : "Extraction lancée"}. {announcement}</p>}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

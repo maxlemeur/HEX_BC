@@ -564,6 +564,14 @@ export class TakeoffError extends ApiError {
   }
 }
 
+/** Execution ownership is immutable in the database; historical results remain readable. */
+export function assertTakeoffJobUsesLocalProvider(job: { execution_provider?: string | null }) {
+  if (job.execution_provider === "gemini") {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Cet ancien métré ne peut plus être relancé. Préparez une nouvelle analyse avec le forfait ChatGPT local." });
+  }
+}
+
 export function toTakeoffError(
   error: unknown,
   options: ToTakeoffErrorOptions = {}

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { mapSupabaseError } from "@/lib/estimates/errors";
+import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
@@ -167,6 +168,7 @@ export async function reconcileTakeoffJobNow(
     tenantId,
     jobId: normalizedJobId,
   });
+  await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
   const operatorState = resolveTakeoffOperatorState({
     status: existingJob.status,
     processingStrategy: existingJob.processing_strategy,
@@ -311,6 +313,7 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
+  await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 
   if (existingJob.status !== "failed" && existingJob.status !== "canceled") {
     throw buildTerminalStatusConflictError({
@@ -434,6 +437,7 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
     tenantId,
     jobId: normalizedJobId,
   });
+  await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 
   if (existingJob.status !== "failed") {
     throw buildTerminalStatusConflictError({

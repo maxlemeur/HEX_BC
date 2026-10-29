@@ -10,7 +10,7 @@ import { launchWorkerCsv, launchWorkerPdf, startOwnedWorker } from "./worker-sup
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
 
-armyTest("TKW01 real CSV upload runs the owned worker once and applies exact quantities through the UI", options, async (ui) => {
+armyTest("TKW01 a stored historical CSV runs the controlled worker once and applies exact quantities through the UI", options, async (ui) => {
   const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW01");
   const worker = startOwnedWorker(ui, ids, jobId);
   const completed = await worker.done;
@@ -93,7 +93,7 @@ armyTest("TKW01 real CSV upload runs the owned worker once and applies exact qua
     items: after.items.map(({ id, title, quantity, source_job_id }) => ({ id, title, quantity, source_job_id })) });
 });
 
-armyTest("TKW02 provider failure persists and a real manual retry completes the same job without duplicate results", options, async (ui) => {
+armyTest("TKW02 a historical provider failure persists and cannot be retried", options, async (ui) => {
   const { ids, jobId } = await launchWorkerCsv(ui, "TKW02");
   const failed = await startOwnedWorker(ui, ids, jobId, "transient").done;
   expect(failed.outcome).toMatchObject({ status: "failed_retryable", retryable: true, should_requeue: true });
@@ -104,38 +104,12 @@ armyTest("TKW02 provider failure persists and a real manual retry completes the 
   expect(failed.results).toEqual([{ id: failed.resultIds[0], failed: true,
     errorCode: "AI_TIMEOUT", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff`);
-  const retry = ui.screen.getByRole("button", "Relancer", { exact: true });
-  // Wait on the actual persisted retry schedule; do not modify time or job state.
-  await expect.poll(() => Date.now() >= Date.parse(failed.job.nextRetryAt!), { timeout: 20_000 }).toBe(true);
-  // Eligibility is server-owned and includes its real retry backoff.
-  await expect.poll(async () => {
-    const response = await apiRequest<{ data: { jobs: Array<{ id: string; can_resubmit?: boolean }> } }>(
-      ui.browser, "GET", `/api/takeoff/jobs?estimate_version_id=${ids.versionId}`);
-    return response.body.data.jobs.find((job) => job.id === jobId)?.can_resubmit;
-  }, { timeout: 20_000 }).toBe(true);
-  await ui.browser.reload();
-  await expect(retry).toBeEnabled();
-  const [retried] = await Promise.all([
-    ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/retry`),
-    retry.click(),
-  ]);
-  expect(retried.status).toBe(200);
-  const retryBody = await retried.json<{ data: { job: { id: string; status: string }; dispatch: { status: string; persisted: boolean } } }>();
-  expect(retryBody.data.job).toMatchObject({ id: jobId, status: "pending" });
-  expect(retryBody.data.dispatch).toMatchObject({ status: "queued_for_recovery", persisted: true });
-  const duplicate = await apiRequest<{ ok: boolean }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/retry`);
-  expect(duplicate.status).toBe(409);
-  const completed = await startOwnedWorker(ui, ids, jobId).done;
-  expect(completed.outcome.status).toBe("completed");
-  expect(completed.job.retryCount).toBe(1);
-  expect(completed.resultIds).toHaveLength(1);
-  expect(completed.resultIds).not.toEqual(failed.resultIds);
-  expect(completed.results[0]).toMatchObject({ failed: false, errorCode: null });
-  expect(completed.items).toHaveLength(2);
-  await ui.browser.reload();
-  await expect(ui.screen.getByRole("link", "Revue", { exact: true })).toBeVisible();
-  await recordEvidence(ui.army, "TKW02-failure-retry", { ids, jobId, failed, retry: retryBody.data, duplicateStatus: duplicate.status, completed });
+  const retry = await apiRequest<{ error: { code: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/retry`);
+  expect([retry.status, retry.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.body.data.job).toMatchObject({ status: "failed", can_resubmit: false });
+  await recordEvidence(ui.army, "TKW02-failure-retry", { ids, jobId, failed, retryStatus: retry.status,
+    boundary: "Historical job: retry refused. LOCAL05 exercises concurrent retry of a local ChatGPT job." });
 });
 
 armyTest("TKW03 cancel during the real provider boundary prevents late result persistence", options, async (ui) => {
@@ -208,74 +182,22 @@ type ActionEnvelope = {
   error?: { code: string; details?: { provider_batch_id?: string; provider_batch_state?: string } };
 };
 
-armyTest("TKW06 concurrent resubmissions of a canceled UI upload reset the same job once, then one owned worker completes without changing the estimate", options, async (ui) => {
-  const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW06");
-  await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} retained estimate line`, { quantity: 2, unit_price_ht_cents: 1250 });
-  const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
-  expect(released.status).toBe(200);
+armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical job", options, async (ui) => {
+  const { ids, jobId } = await launchWorkerCsv(ui, "TKW06");
   const before = await readEstimate(ui.browser, ids.versionId);
-  expect([before.version.total_ht_cents, before.version.total_tax_cents, before.version.total_ttc_cents]).toEqual([2500, 500, 3000]);
-
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff`);
-  const [canceled] = await Promise.all([
-    ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/cancel`),
-    ui.screen.getByRole("button", "Annuler", { exact: true }).click(),
-  ]);
+  const canceled = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/cancel`);
   expect(canceled.status).toBe(200);
-  const cancelBody = await canceled.json<ActionEnvelope>();
-  expect(cancelBody.data).toMatchObject({ command: "cancel", outcome: "applied", job: { id: jobId, status: "canceled", retry_count: 0 } });
-  const submissions = await Promise.all([0, 1].map(() =>
-    apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`)));
-  expect(submissions.map(response => response.status).sort()).toEqual([200, 409]);
-  const applied = submissions.find(response => response.status === 200)!;
-  const refused = submissions.find(response => response.status === 409)!;
-  expect(applied.body.ok).toBe(true);
-  expect(applied.body.data).toMatchObject({
-    command: "resubmit", outcome: "applied", job: { id: jobId, status: "pending", retry_count: 1 },
-    dispatch: { status: "queued_for_recovery", persisted: true },
-  });
-  expect([refused.body.ok, refused.body.error?.code]).toEqual([false, "CONFLICT"]);
-  const queued = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
-  expect([queued.status, queued.body.ok]).toEqual([200, true]);
-  expect(queued.body.data.job).toMatchObject({
-    id: jobId, status: "pending", retry_count: 1, dispatch_trigger: "retry",
-    dispatch_correlation_id: applied.body.data.dispatch!.correlation_id,
-  });
-  expect(["queued", "trigger_failed"]).toContain(queued.body.data.job.dispatch_status);
-  expect(queued.body.data.result).toBeNull();
-  expect(queued.body.data.items.data).toEqual([]);
-
-  const completed = await startOwnedWorker(ui, ids, jobId).done;
-  expect(completed.outcome.status).toBe("completed");
-  expect(completed.job).toMatchObject({ id: jobId, status: "completed", retryCount: 1 });
-  expect(completed.providerCalls).toBe(1);
-  expect(completed.resultIds).toHaveLength(1);
-  expect(completed.items.map(({ designation, quantity, unit, source_file_name, source_page }) =>
-    ({ designation, quantity, unit, source_file_name, source_page }))).toEqual([
-    { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_file_name: fileName, source_page: 1 },
-    { designation: "ARMY worker valve", quantity: 3, unit: "u", source_file_name: fileName, source_page: 1 },
-  ]);
-  const replay = await startOwnedWorker(ui, ids, jobId).done;
-  expect(replay.outcome.status).toBe("noop_terminal");
-  expect(replay.providerCalls).toBe(0);
-  expect(replay.resultIds).toEqual(completed.resultIds);
-  expect(replay.results).toEqual(completed.results);
-  expect(replay.items).toEqual(completed.items);
-  await ui.browser.reload();
-  const persisted = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
-  expect(persisted.status).toBe(200);
-  expect(persisted.body.data.job).toMatchObject({ id: jobId, status: "completed", retry_count: 1 });
-  expect(persisted.body.data.items.data.map(item => item.id).sort()).toEqual(completed.items.map(item => item.id).sort());
-  const after = await readEstimate(ui.browser, ids.versionId);
-  expect(after.items).toEqual(before.items);
-  expect([after.version.total_ht_cents, after.version.total_tax_cents, after.version.total_ttc_cents]).toEqual([2500, 500, 3000]);
-  await recordEvidence(ui.army, "TKW06-concurrent-resubmit", {
-    ids, jobId, cancel: cancelBody.data, submissions, queued: queued.body.data.job, completed, replay,
-    estimateTotals: [2500, 500, 3000], estimateUnchanged: true, retainedItemIds: after.items.map(item => item.id),
-  });
+  const attempts = await Promise.all([0, 1].map(() =>
+    apiRequest<{ error: { code: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`)));
+  expect(attempts.map(response => [response.status, response.body.error.code])).toEqual([[422, "AI_PROVIDER"], [422, "AI_PROVIDER"]]);
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.body.data.job).toMatchObject({ id: jobId, status: "canceled", retry_count: 0, can_resubmit: false });
+  expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
+  await recordEvidence(ui.army, "TKW06-historical-resubmit", { ids, jobId, attempts: attempts.map(response => response.status), unchanged: true,
+    boundary: "Historical provider is blocked. LOCAL05 exercises concurrent resubmission for a ChatGPT job." });
 });
 
-armyTest("TKW07 a failed batch reconcile resets scheduling once and preserves its provider reference, while a live lease makes a later reconcile a no-op", options, async (ui) => {
+armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", options, async (ui) => {
   const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW07");
   await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} retained batch estimate line`, { quantity: 2, unit_price_ht_cents: 1250 });
   expect((await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
@@ -343,78 +265,16 @@ armyTest("TKW07 a failed batch reconcile resets scheduling once and preserves it
   const seeded = await readState();
   expect(seeded).toMatchObject({ id: jobId, status: "failed", retryCount: 1, attempts: 3, batchId, batchState: "running", fileName,
     errorCode: "AI_TIMEOUT", leaseToken: null, leaseExpiresAt: null, resultIds: [], itemIds: [] });
-  const protectedBatch = [];
-  // While failed, both commands reach the active-provider-batch guard rather than
-  // merely the processing-status guard. Neither may orphan the existing batch.
-  for (const command of ["retry", "resubmit"]) {
-    const refused = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/${command}`);
-    expect([refused.status, refused.body.ok, refused.body.error?.code]).toEqual([409, false, "CONFLICT"]);
-    expect(refused.body.error?.details).toMatchObject({ provider_batch_id: batchId, provider_batch_state: "running" });
-    protectedBatch.push({ phase: "failed-live-batch", command, status: refused.status, code: refused.body.error?.code });
+  const refused = [];
+  for (const command of ["retry", "resubmit", "reconcile"]) {
+    const response = await apiRequest<{ error: { code: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/${command}`);
+    expect([response.status, response.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+    expect(await readState()).toEqual(seeded);
+    refused.push({ command, status: response.status });
   }
-  expect(await readState()).toEqual(seeded);
-  const [requestClockBefore] = await querySql("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint;\n");
-  const reconcileWindowStartMs = Number(requestClockBefore);
-  // PostgreSQL and the app run on this native host. Allow at most 1 s of clock skew.
-  const reconcileClockToleranceMs = 1000;
-  expect(Date.parse(seeded.dueAt!)).toBeLessThan(reconcileWindowStartMs - 5 * 60_000);
-  const reconcile = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/reconcile`);
-  expect([reconcile.status, reconcile.body.ok]).toEqual([200, true]);
-  expect(reconcile.body.data).toMatchObject({ command: "reconcile", outcome: "applied",
-    job: { id: jobId, status: "processing", retry_count: 1, provider_batch_id: batchId, provider_batch_state: "running", provider_reconcile_attempt_count: 0 },
-    dispatch: { status: "queued_for_recovery", persisted: true } });
-  const resumed = await readState();
-  const [requestClockAfter] = await querySql("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint;\n");
-  const reconcileWindowEndMs = Number(requestClockAfter);
-  expect(Date.parse(resumed.dueAt!)).toBeGreaterThanOrEqual(reconcileWindowStartMs - reconcileClockToleranceMs);
-  expect(Date.parse(resumed.dueAt!)).toBeLessThanOrEqual(reconcileWindowEndMs + reconcileClockToleranceMs);
-  expect(resumed).toMatchObject({ id: jobId, status: "processing", retryCount: 1, attempts: 0, batchId, batchState: "running", fileName,
-    errorCode: null, completedAt: null, lastErrorAt: null, leaseToken: null, leaseExpiresAt: null, resultIds: [], itemIds: [],
-    dispatch: { trigger: "reconcile", correlationId: reconcile.body.data.dispatch!.correlation_id } });
-  expect(["queued", "trigger_failed"]).toContain(resumed.dispatch.status);
-  for (const command of ["retry", "resubmit"]) {
-    const refused = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/${command}`);
-    expect([refused.status, refused.body.ok, refused.body.error?.code]).toEqual([409, false, "CONFLICT"]);
-    protectedBatch.push({ phase: "processing-live-batch", command, status: refused.status, code: refused.body.error?.code });
-  }
-  expect(await readState()).toEqual(resumed);
-
-  const leaseToken = randomUUID();
-  const leased = await querySql(`BEGIN;
-    DO $army_tkw07$ DECLARE affected integer; BEGIN
-      IF current_user <> 'postgres' THEN RAISE EXCEPTION 'Native fixture owner required'; END IF;
-      UPDATE public.takeoff_jobs j SET provider_reconcile_lease_token = '${leaseToken}'::uuid,
-        provider_reconcile_lease_expires_at = clock_timestamp() + interval '10 minutes'
-        WHERE ${ownedJob} AND j.status = 'processing' AND j.provider_batch_id = '${batchId}'
-          AND j.provider_reconcile_attempt_count = 0 AND j.provider_reconcile_lease_token IS NULL;
-      GET DIAGNOSTICS affected = ROW_COUNT;
-      IF affected <> 1 THEN RAISE EXCEPTION 'Exactly one owned resumed batch must receive its lease'; END IF;
-    END $army_tkw07$;
-    COMMIT;
-    SELECT 'ARMY_BATCH_LEASE_PREPARED';\n`);
-  expect(leased).toContain("ARMY_BATCH_LEASE_PREPARED");
-  const liveLease = await readState();
-  expect(liveLease.leaseToken).toBe(leaseToken);
-  expect(Date.parse(liveLease.leaseExpiresAt!)).toBeGreaterThan(Date.now() + 5 * 60_000);
-  const noop = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/reconcile`);
-  expect([noop.status, noop.body.ok]).toEqual([200, true]);
-  expect(noop.body.data).toMatchObject({ command: "reconcile", outcome: "noop", job: { id: jobId, status: "processing", provider_reconcile_attempt_count: 0 } });
-  expect(noop.body.data.dispatch).toBeUndefined();
-  const persisted = await readState();
-  expect(persisted).toEqual(liveLease);
-  await ui.browser.reload();
-  const detail = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
-  expect(detail.status).toBe(200);
-  expect(detail.body.data.job).toMatchObject({ id: jobId, status: "processing", provider_batch_id: batchId, provider_batch_state: "running", retry_count: 1 });
-  expect(detail.body.data.result).toBeNull();
-  expect(detail.body.data.items.data).toEqual([]);
-  const after = await readEstimate(ui.browser, ids.versionId);
-  expect(after.items).toEqual(before.items);
-  expect([after.version.total_ht_cents, after.version.total_tax_cents, after.version.total_ttc_cents]).toEqual([2500, 500, 3000]);
-  await recordEvidence(ui.army, "TKW07-batch-scheduling-only", {
-    ids, jobId, batchId, seeded, reconcile: reconcile.body.data, resumed, protectedBatch, liveLease, noop: noop.body.data, persisted,
-    reconcileWindow: { startMs: reconcileWindowStartMs, endMs: reconcileWindowEndMs, clockToleranceMs: reconcileClockToleranceMs },
-    estimateTotals: [2500, 500, 3000], estimateUnchanged: true,
-    boundary: "Local owned UI upload only. Fictitious batch reference; scheduling, durable dispatch and lease protection exercised without invoking a provider or processor. TKW01-06 cover the real controlled processors separately.",
-  });
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.body.data.job).toMatchObject({ id: jobId, status: "failed", can_reconcile: false, can_resubmit: false });
+  expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
+  await recordEvidence(ui.army, "TKW07-historical-batch", { ids, jobId, batchId, seeded, refused, unchanged: true,
+    boundary: "An owned historical batch reference is preserved; no provider or remote dispatch is invoked." });
 });

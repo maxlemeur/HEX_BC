@@ -45,7 +45,6 @@
     "check:performance": "node --import tsx scripts/check-performance-budgets.ts",
     "check:pdf-runtime": "node scripts/check-pdf-runtime.mjs",
     "check:xlsx-runtime": "node scripts/check-xlsx-runtime.mjs",
-    "benchmark:takeoff:provider": "node --env-file-if-exists=.env.local --import tsx scripts/run-takeoff-provider-benchmark.ts",
     "lint": "eslint . --max-warnings=0 --cache --cache-strategy content --cache-location .next/cache/eslint/.eslintcache",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",

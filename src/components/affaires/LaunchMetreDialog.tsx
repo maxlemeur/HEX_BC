@@ -220,6 +220,7 @@ function LaunchMetreDialogContent({
   const [launchSuccess, setLaunchSuccess] = useState(false);
   const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
   const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
+  const [launchExistingAnalysis, setLaunchExistingAnalysis] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [targetSelectionKey, setTargetSelectionKey] = useState(0);
@@ -379,6 +380,7 @@ function LaunchMetreDialogContent({
       let resolvedVersionId = selectedOption.id;
       let queuedForRecovery = false;
       let recoveryUnconfirmed = false;
+      let existingStatus: string | undefined;
 
       if (selectedOption.mode === "existing_draft") {
         const result = unwrapTakeoffActionResult(await launchPreparedTakeoffFromPlanSetAction({
@@ -390,6 +392,7 @@ function LaunchMetreDialogContent({
           ...(provider !== "auto" ? { provider } : {}),
         }));
         createdJobId = result.jobId;
+        existingStatus = result.existingStatus;
         queuedForRecovery = result.dispatch?.status === "queued_for_recovery";
         recoveryUnconfirmed =
           result.dispatch?.status === "persistence_unconfirmed";
@@ -403,6 +406,7 @@ function LaunchMetreDialogContent({
           ...(provider !== "auto" ? { provider } : {}),
         }));
         createdJobId = result.jobId;
+        existingStatus = result.existingStatus;
         queuedForRecovery = result.dispatch?.status === "queued_for_recovery";
         recoveryUnconfirmed =
           result.dispatch?.status === "persistence_unconfirmed";
@@ -415,12 +419,16 @@ function LaunchMetreDialogContent({
       }
 
       const toastPayload = {
-        title: recoveryUnconfirmed
+        title: existingStatus
+          ? "Analyse existante retrouvée"
+          : recoveryUnconfirmed
           ? "Analyse créée, reprise à vérifier"
           : queuedForRecovery
             ? "Analyse enregistrée, démarrage en attente"
             : "Analyse transmise au traitement",
-        description: recoveryUnconfirmed
+        description: existingStatus
+          ? `${resolvedVersionLabel} — consultez cette analyse dans le centre d’activité.`
+          : recoveryUnconfirmed
           ? `${resolvedVersionLabel} — le démarrage immédiat et l'enregistrement de la reprise n'ont pas pu être confirmés. Ouvrez le centre d'activité pour réessayer avec l'identifiant ${createdJobId}.`
           : queuedForRecovery
             ? `${resolvedVersionLabel} — la demande est conservée et sera reprise automatiquement. Suivez son état dans le centre d'activité des métrés.`
@@ -435,6 +443,7 @@ function LaunchMetreDialogContent({
       setLaunchSuccessVersionLabel(resolvedVersionLabel);
       setLaunchQueuedForRecovery(queuedForRecovery);
       setLaunchRecoveryUnconfirmed(recoveryUnconfirmed);
+      setLaunchExistingAnalysis(Boolean(existingStatus));
       setLaunchSuccess(true);
       onLaunched?.(createdJobId, resolvedVersionId);
     } catch (error) {
@@ -468,7 +477,9 @@ function LaunchMetreDialogContent({
                 <CheckIcon stroke="var(--success)" strokeWidth="2.5" aria-hidden="true" />
               </div>
               <p className="text-sm font-semibold text-foreground">
-                {launchRecoveryUnconfirmed
+                {launchExistingAnalysis
+                  ? "Analyse existante retrouvée"
+                  : launchRecoveryUnconfirmed
                   ? "Analyse créée, reprise à vérifier"
                   : launchQueuedForRecovery
                     ? "Analyse enregistrée, démarrage en attente"
@@ -478,7 +489,9 @@ function LaunchMetreDialogContent({
                 {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
                 {selectedPlanSet?.fileCount ?? 0} fichier
                 {(selectedPlanSet?.fileCount ?? 0) > 1 ? "s" : ""}.
-                {launchRecoveryUnconfirmed
+                {launchExistingAnalysis
+                  ? " Consultez son état dans le centre d’activité."
+                  : launchRecoveryUnconfirmed
                   ? " La reprise automatique n'a pas pu être confirmée : ouvrez le centre d'activité et relancez ce job."
                   : launchQueuedForRecovery
                     ? " La demande est conservée et sera reprise automatiquement."

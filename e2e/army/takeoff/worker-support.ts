@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect } from "e2e";
 
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/plans-support";
-import { fillTakeoffPreparation, openTakeoffPreparation } from "../critical/preparation-support";
+import { localTakeoffWorkerClient } from "./fixtures";
+import { localClient } from "./native-ui";
 
 export type WorkerUi = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 export type WorkerResult = {
@@ -75,26 +77,21 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string) {
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, fileName);
   await writeFile(filePath, "designation;quantity;unit\nARMY worker pipe;12.5;m\nARMY worker valve;3;u\n");
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-  const source = ui.screen.getByLabel("Fichier source", { exact: true });
-  await expect(source).toBeEnabled();
-  await source.setInputFiles(filePath);
-  await expect(ui.screen.getByText(fileName, { exact: true })).toBeVisible();
-  await fillTakeoffPreparation(ui, { sources: [fileName], objective: "extract_quantities", unit: "Unités des lignes sources",
-    inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A", provider: "gemini" } }, ui.browser.locator("form").last());
-  await expect(ui.screen.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
-  const [response] = await Promise.all([
-    ui.browser.waitForResponse("**/api/takeoff/jobs", { timeout: 30_000 }),
-    ui.screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click(),
-  ]);
-  expect(response.status).toBe(201);
-  const body = await response.json<{ ok: boolean; data: { id: string; status: string; level: string; dispatch?: { status: string } } }>();
-  expect(body.ok).toBe(true);
-  expect(body.data).toMatchObject({ status: "pending", level: "A" });
-  const jobId = body.data.id;
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const { userId } = await localClient();
+  const jobId = randomUUID();
+  const sourcePath = `${tenantId}/${jobId}/${fileName}`;
+  const bytes = await readFile(filePath);
+  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "text/csv" });
+  expect(uploaded.error).toBeNull();
+  const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
+    created_by: userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
+    source_file_type: "text/csv", source_file_size_bytes: bytes.length, execution_provider: "gemini" }).select("id").single();
+  expect(inserted.error).toBeNull();
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
   await expect(ui.browser).toHaveURL(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
   await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version,
-    dispatch: body.data.dispatch ?? null, boundary: "Real UI upload and dispatch persistence; Edge transport blocked. Owned Node worker uses real DB/Storage/processors and a controlled Gemini boundary." });
+    boundary: "Historical pending job and stored CSV are seeded on the owned stack. The worker uses real DB/Storage/processors and a controlled provider; local ChatGPT upload is covered separately." });
   return { ids, jobId, fileName, before };
 }
 
@@ -105,13 +102,17 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} existing base`);
   const plans = await createPlanSet(ui, ui.army, ids, `${ui.army.runPrefix} plans`);
   const file = await uploadSamplePlan(ui, ui.army, plans);
-  await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
-  await openTakeoffPreparation(ui);
-  const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], objective: "extract_quantities", unit: "Unités des lignes sources",
-    inclusions: "Toutes les lignes du tableau", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "B", provider: "gemini" } });
-  await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const { userId } = await localClient();
+  const jobId = randomUUID();
+  const plan = await client.from("plan_files").select("file_path").eq("id", file.id).single();
+  expect(plan.error).toBeNull();
+  const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
+    plan_set_id: plans.id, created_by: userId, level: "B", status: "pending", source_file_name: file.file_name,
+    source_file_path: plan.data!.file_path, source_file_type: file.file_type, source_file_size_bytes: file.file_size_bytes,
+    execution_provider: "gemini" }).select("id").single();
+  expect(inserted.error).toBeNull();
   const jobs = ownedTakeoffJobs(ui.browser, ids);
-  await expect.poll(async () => (await jobs.list()).length).toBe(1);
   const [job] = await jobs.list();
   expect(job).toMatchObject({ estimate_version_id: ids.versionId, status: "pending", level: "B", source_file_name: file.file_name });
   await recordEvidence(ui.army, "TKW04-real-plan-created", { ids, planSetId: plans.id, file, job });

@@ -11,10 +11,12 @@ import { credentials, expect } from "e2e";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
-import { createPlanSet, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
+import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
+import { buildTakeoffUploadPath, deriveDeterministicJobId, prepareTakeoffUploadSource } from "@/lib/takeoff/job-creation-input";
 import { localClient } from "../takeoff/native-ui";
+import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 
 let localServer: ChildProcess;
 let localOrigin: string;
@@ -58,7 +60,7 @@ beforeAll(async () => {
   localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port)], {
     cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development",
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
-      ARMY_CHATGPT_TRANSPORT_LOG: transportLog,
+      ARMY_CHATGPT_TRANSPORT_LOG: transportLog, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
       ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -78,6 +80,367 @@ afterAll(async () => {
     await new Promise<void>((resolve) => localServer.once("exit", () => resolve()));
   }
   if (fixtureStore) await rm(fixtureStore, { force: true });
+});
+
+// Regression: even if an old server key exists, no connection must never create
+// a billable Gemini job or route drafting assistance to that API.
+test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  const account = credentials.user("army");
+  await app.open(`${localOrigin}/login`);
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-local-only-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Sans forfait connecté" }, army);
+  const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
+  const file = await uploadSamplePlan(ui, army, planSet);
+  const jobs = ownedTakeoffJobs(browser, estimate);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
+  await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
+  await dialog.getByText("Assistance au cadrage", { exact: true }).click();
+  await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
+  await expect(dialog.getByText(/Aucune assistance rédactionnelle n.est configurée/).first()).toBeVisible();
+  await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+  await expect(dialog.getByText(/Connectez votre forfait ChatGPT/).first()).toBeVisible();
+  expect(await jobs.list()).toEqual([]);
+  const forged = await browser.evaluate(async (versionId) => {
+    const form = new FormData();
+    form.set("file", new File(["designation;quantity;unit\nTube;12;m"], "fixture.csv", { type: "text/csv" }));
+    form.set("estimate_version_id", versionId);
+    form.set("level", "A");
+    form.set("provider", "gemini");
+    const response = await fetch("/api/takeoff/jobs", { method: "POST", body: form });
+    return { status: response.status, body: await response.json() };
+  }, estimate.versionId);
+  expect(forged.status).toBe(422);
+  expect(forged.body.error.code).toBe("AI_PROVIDER");
+  expect(await jobs.list()).toEqual([]);
+  const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+  expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+  await recordEvidence(army, "local-only-no-provider", { estimate, geminiKeyFixturePresent: true,
+    noGeminiOption: true, assistanceUnavailable: true, noJobsCreated: true, forgedProviderRejected: forged.status, forbiddenRequests: 0 });
+});
+
+test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("LOCAL02 requires a separate temporary ChatGPT profile.");
+  try {
+    const account = credentials.user("army");
+    await app.open(`${localOrigin}/login`);
+    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel(/Mot de passe/).fill(account.password);
+    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard/);
+    const prefix = `ARMY-local-legacy-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Ancienne préparation" }, army);
+    const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
+    const file = await uploadSamplePlan(ui, army, planSet);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
+    await saveTakeoffPreparation({ ...ui, army });
+    const { client } = await localClient();
+    const row = await client.from("takeoff_preparations").select("draft,revision").eq("project_id", estimate.projectId).single();
+    expect(row.error).toBeNull();
+    const draft = row.data!.draft as { processing: { level: string; provider: string } };
+    draft.processing.provider = "gemini";
+    const { client: worker } = await localTakeoffWorkerClient(army, estimate.versionId);
+    const update = await worker.from("takeoff_preparations").update({ draft, revision: row.data!.revision + 1 }).eq("project_id", estimate.projectId).select("project_id").single();
+    expect(update.error).toBeNull();
+    await browser.reload();
+    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    await dialog.getByRole("button", /Vérifier et lancer$/).click();
+    await dialog.getByText("Options avancées", { exact: true }).click();
+    const picker = dialog.getByLabel("Fournisseur IA", { exact: true });
+    await expect(picker).toHaveValue("gemini");
+    await expect(dialog.getByText(/ancien fournisseur.*indisponible/i).first()).toBeVisible();
+    await picker.selectOption({ value: "chatgpt" });
+    await expect(picker).toHaveValue("chatgpt");
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    const jobs = ownedTakeoffJobs(browser, estimate);
+    await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
+    const [job] = await jobs.list();
+    const detail = () => apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${job.id}`);
+    await expect.poll(async () => {
+      const job = (await detail()).body.data.job;
+      if (job.status === "failed") throw new Error(`Local plan-set fixture failed: ${job.error_code ?? "unknown"}`);
+      return job.status;
+    }, { timeout: 150_000 }).toBe("completed");
+    const result = (await detail()).body.data;
+    expect(result.result?.provider_meta).toMatchObject({ provider: "chatgpt" });
+    const stored = await client.from("takeoff_jobs").select("execution_provider,preparation_snapshot").eq("id", job.id).single();
+    expect(stored.error).toBeNull();
+    expect(stored.data).toMatchObject({ execution_provider: "chatgpt_local", preparation_snapshot: { preparation: { processing: { level: "B", provider: "chatgpt" } } } });
+    const snapshot = stored.data!.preparation_snapshot as unknown as { preparation_revision: number; preparation: { sources: Array<{ active: boolean; content_hash: string; document_id: string; revision: string; plan_set_id: string }> } };
+    const activeSources = snapshot.preparation.sources.filter(source => source.active);
+    expect(snapshot.preparation_revision).toBeGreaterThan(0);
+    expect(activeSources).toHaveLength(1);
+    expect(activeSources[0]).toMatchObject({ document_id: file.id, revision: "A", plan_set_id: planSet.id });
+    expect(activeSources[0].content_hash).toMatch(/^[a-f0-9]{64}$/);
+    const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+    expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+    await recordEvidence(army, "local-only-legacy-draft", { estimate, jobId: job.id, restoredLegacyChoice: true,
+      chosenProvider: "chatgpt", resultProvider: result.result?.provider_meta, forbiddenRequests: 0,
+      boundary: "Fictional plan and ChatGPT transport fixture on an owned local backend." });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expired"]] as const) test(`${testId} an unusable selected ChatGPT profile does not create a job`, {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("LOCAL04 requires a separate temporary ChatGPT profile.");
+  try {
+    const store = JSON.parse(await readFile(fixtureStore!, "utf8"));
+    const selected = store.profiles.find((profile: { id: string }) => profile.id === store.selectedId);
+    if (failure === "disconnected") delete selected.accessToken;
+    else { selected.expiresAt = 0; delete selected.refreshToken; }
+    await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
+    const account = credentials.user("army");
+    await app.open(`${localOrigin}/login`);
+    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel(/Mot de passe/).fill(account.password);
+    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard/);
+    const prefix = `ARMY-local-disconnected-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Compte déconnecté" }, army);
+    const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
+    const file = await uploadSamplePlan(ui, army, planSet);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
+    await dialog.getByText("Assistance au cadrage", { exact: true }).click();
+    await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
+    await expect(dialog.getByText(/Reconnectez.*ChatGPT/i).first()).toBeVisible();
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(dialog.getByText(/Reconnectez.*ChatGPT/i).first()).toBeVisible();
+    expect(await ownedTakeoffJobs(browser, estimate).list()).toEqual([]);
+    const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+    expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+    await recordEvidence(army, "local-disconnected-profile", { estimate, selectedModelRetained: true, failure,
+      noJobCreated: true, forbiddenRequests: 0 });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  const account = credentials.user("army");
+  await app.open(`${localOrigin}/login`);
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-local-history-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Historique fournisseur" }, army);
+  const beforeEstimate = await readEstimate(browser, estimate.versionId);
+  const { userId } = await localClient();
+  const { client, tenantId } = await localTakeoffWorkerClient(army, estimate.versionId);
+  const jobId = randomUUID();
+  const job = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
+    created_by: userId, level: "A", status: "failed", source_file_name: "historique.csv", source_file_type: "text/csv",
+    source_file_size_bytes: 20, execution_provider: "gemini", processing_strategy: "batch", provider_batch_id: "batches/army-history",
+    provider_batch_state: "running", provider_reconcile_due_at: "2020-01-01T00:00:00Z", error_code: "AI_TIMEOUT" }).select("id").single();
+  expect(job.error).toBeNull();
+  const read = async () => {
+    const result = await client.from("takeoff_jobs").select("status,retry_count,provider_batch_id,provider_batch_state,provider_reconcile_due_at,error_code,dispatch_status")
+      .eq("id", jobId).single();
+    expect(result.error).toBeNull();
+    return result.data;
+  };
+  const before = await read();
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.status).toBe(200);
+  expect(detail.body.data.job).toMatchObject({ id: jobId, can_resubmit: false, can_reconcile: false });
+  for (const command of ["retry", "resubmit", "reconcile"]) {
+    const response = await apiRequest<{ error: { code: string } }>(browser, "POST", `/api/takeoff/jobs/${jobId}/${command}`);
+    expect([response.status, response.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+    expect(await read()).toEqual(before);
+  }
+  const internal = await fetch(`${localOrigin}/api/internal/takeoff/process-job`, { method: "POST",
+    headers: { "content-type": "application/json", "x-takeoff-worker-secret": "army-worker-fixture" },
+    body: JSON.stringify({ job_id: jobId, trigger: "reconcile" }) });
+  expect(internal.status).toBe(422);
+  expect(await read()).toEqual(before);
+  const key = `legacy-${randomUUID()}`;
+  const csv = "designation;quantity;unit\nTube;12;m";
+  const file = new File([csv], "legacy.csv", { type: "text/csv" });
+  const fingerprint = prepareTakeoffUploadSource({ file, content: Buffer.from(csv), estimateVersionId: estimate.versionId,
+    level: "A", provider: "auto" }).payloadFingerprint;
+  const replayId = deriveDeterministicJobId(tenantId, key);
+  const replayPath = buildTakeoffUploadPath({ tenantId, jobId: replayId, payloadFingerprint: fingerprint,
+    attemptId: randomUUID(), sourceFileName: file.name });
+  const legacyReplay = await client.from("takeoff_jobs").insert({ id: replayId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
+    created_by: userId, level: "A", status: "pending", source_file_name: file.name, source_file_type: file.type,
+    source_file_size_bytes: file.size, source_file_path: replayPath, execution_provider: "gemini" }).select("id").single();
+  expect(legacyReplay.error).toBeNull();
+  const replay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
+    const form = new FormData();
+    form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
+    form.set("estimate_version_id", versionId);
+    form.set("level", "A");
+    const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
+    return { status: response.status, body: await response.json() };
+  }, { versionId: estimate.versionId, keyValue: key, csvValue: csv });
+  expect([replay.status, replay.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+  if (!await preparePlanFixture()) throw new Error("The foreign-host test requires its own temporary profile.");
+  try {
+    const foreignKey = `foreign-${randomUUID()}`;
+    const foreignId = deriveDeterministicJobId(tenantId, foreignKey);
+    const foreignPath = buildTakeoffUploadPath({ tenantId, jobId: foreignId, payloadFingerprint: fingerprint,
+      attemptId: randomUUID(), sourceFileName: file.name });
+    const foreign = await client.from("takeoff_jobs").insert({ id: foreignId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
+      created_by: userId, level: "A", status: "pending", source_file_name: file.name, source_file_type: file.type,
+      source_file_size_bytes: file.size, source_file_path: foreignPath, execution_provider: "chatgpt_local",
+      execution_host_id: "urn:uuid:ffffffff-ffff-4fff-8fff-ffffffffffff", processing_strategy: "sync" }).select("id").single();
+    expect(foreign.error).toBeNull();
+    const foreignReplay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
+      const form = new FormData();
+      form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
+      form.set("estimate_version_id", versionId);
+      form.set("level", "A");
+      const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
+      return { status: response.status, body: await response.json() };
+    }, { versionId: estimate.versionId, keyValue: foreignKey, csvValue: csv });
+    expect([foreignReplay.status, foreignReplay.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+    const failedForeign = await client.from("takeoff_jobs").update({ status: "failed", error_code: "AI_TIMEOUT" }).eq("id", foreignId).select("status,dispatch_status,retry_count").single();
+    expect(failedForeign.error).toBeNull();
+    const refusedRetry = await apiRequest<{ error: { code: string } }>(browser, "POST", `/api/takeoff/jobs/${foreignId}/retry`);
+    expect([refusedRetry.status, refusedRetry.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+    const afterForeign = await client.from("takeoff_jobs").select("status,dispatch_status,retry_count").eq("id", foreignId).single();
+    expect(afterForeign.data).toEqual(failedForeign.data);
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+  const finishedKey = `finished-${randomUUID()}`;
+  const finishedId = deriveDeterministicJobId(tenantId, finishedKey);
+  const finishedPath = buildTakeoffUploadPath({ tenantId, jobId: finishedId, payloadFingerprint: fingerprint,
+    attemptId: randomUUID(), sourceFileName: file.name });
+  const finished = await client.from("takeoff_jobs").insert({ id: finishedId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
+    created_by: userId, level: "A", status: "pending", source_file_name: file.name, source_file_type: file.type,
+    source_file_size_bytes: file.size, source_file_path: finishedPath, execution_provider: "chatgpt_local",
+    execution_host_id: "urn:uuid:ffffffff-ffff-4fff-8fff-ffffffffffff", processing_strategy: "sync" }).select("id").single();
+  expect(finished.error).toBeNull();
+  const markFinished = await client.from("takeoff_jobs").update({ status: "completed" }).eq("id", finishedId).select("status,dispatch_status").single();
+  expect(markFinished.error).toBeNull();
+  const finishedReplay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
+    const form = new FormData();
+    form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
+    form.set("estimate_version_id", versionId);
+    form.set("level", "A");
+    const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
+    return { status: response.status, body: await response.json() };
+  }, { versionId: estimate.versionId, keyValue: finishedKey, csvValue: csv });
+  expect(finishedReplay.status).toBe(201);
+  expect(finishedReplay.body.data).toMatchObject({ id: finishedId, status: "completed" });
+  expect(finishedReplay.body.data.dispatch).toBeUndefined();
+  const afterFinished = await client.from("takeoff_jobs").select("status,dispatch_status").eq("id", finishedId).single();
+  expect(afterFinished.data).toEqual(markFinished.data);
+  const explicitKey = `explicit-${randomUUID()}`;
+  const explicitId = deriveDeterministicJobId(tenantId, explicitKey);
+  const explicitFingerprint = prepareTakeoffUploadSource({ file, content: Buffer.from(csv), estimateVersionId: estimate.versionId,
+    level: "A", provider: "gemini" }).payloadFingerprint;
+  const explicitPath = buildTakeoffUploadPath({ tenantId, jobId: explicitId, payloadFingerprint: explicitFingerprint,
+    attemptId: randomUUID(), sourceFileName: file.name });
+  const explicitJob = await client.from("takeoff_jobs").insert({ id: explicitId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
+    created_by: userId, level: "A", status: "completed", source_file_name: file.name, source_file_type: file.type,
+    source_file_size_bytes: file.size, source_file_path: explicitPath, execution_provider: "gemini" }).select("id").single();
+  expect(explicitJob.error).toBeNull();
+  const explicitReplay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
+    const form = new FormData();
+    form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
+    form.set("estimate_version_id", versionId);
+    form.set("level", "A");
+    form.set("provider", "gemini");
+    const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
+    return { status: response.status, body: await response.json() };
+  }, { versionId: estimate.versionId, keyValue: explicitKey, csvValue: csv });
+  expect(explicitReplay.status).toBe(201);
+  expect(explicitReplay.body.data).toMatchObject({ id: explicitId, status: "completed" });
+  expect(explicitReplay.body.data.dispatch).toBeUndefined();
+  expect((await readEstimate(browser, estimate.versionId)).items).toEqual(beforeEstimate.items);
+  const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+  expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+  await recordEvidence(army, "local-historical-provider", { estimate, jobId, before, after: await read(),
+    rejected: ["retry", "resubmit", "reconcile", "internal-worker", "legacy-upload-replay", "foreign-host-replay", "foreign-host-retry"],
+    finishedReceiptReplay: true, finishedExplicitGeminiReplay: true, resultRemainsReadable: true, forbiddenRequests: 0 });
+});
+
+if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubmitted once concurrently", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("LOCAL05 requires a separate temporary ChatGPT profile.");
+  try {
+    const account = credentials.user("army");
+    await app.open(`${localOrigin}/login`);
+    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel(/Mot de passe/).fill(account.password);
+    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard/);
+    const prefix = `ARMY-local-retry-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Reprise ChatGPT locale" }, army);
+    const before = await readEstimate(browser, estimate.versionId);
+    const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
+    await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
+    await ui.app.open(`/dashboard/estimates/${estimate.versionId}/takeoff/new`);
+    const source = screen.getByLabel("Fichier source", { exact: true });
+    await expect(source).toBeEnabled();
+    await source.setInputFiles(csv);
+    await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(csv)], objective: "extract_quantities", unit: "Unités des lignes sources",
+      inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A" } }, browser.locator("form").last());
+    await setDecisionsControl({ timeoutWriting: true });
+    const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
+      screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
+    expect(created.status).toBe(201);
+    const jobId = (await created.json<{ data: { id: string } }>()).data.id;
+    const read = () => apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
+    await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("failed");
+    const failed = (await read()).body.data;
+    expect(failed.items.data).toEqual([]);
+    expect(failed.job.completed_at).toBeTruthy();
+    await expect.poll(() => Date.now() >= Date.parse(failed.job.completed_at!) + 5_000, { timeout: 20_000 }).toBe(true);
+    await setDecisionsControl({});
+    const attempts = await Promise.all([0, 1].map(() => apiRequest(browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`)));
+    expect(attempts.map(attempt => attempt.status).sort()).toEqual([200, 409]);
+    await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
+    const completed = (await read()).body.data;
+    expect(completed.job.retry_count).toBe(1);
+    expect(completed.result?.provider_meta).toMatchObject({ provider: "chatgpt" });
+    expect(completed.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
+    expect((await readEstimate(browser, estimate.versionId)).items).toEqual(before.items);
+    const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+    expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+    await recordEvidence(army, "local-concurrent-resubmit", { estimate, jobId, attemptStatuses: attempts.map(attempt => attempt.status),
+      finalStatus: completed.job.status, retryCount: completed.job.retry_count, provider: "chatgpt", estimateUnchanged: true,
+      boundary: "Simulated Responses timeout and success on an owned local backend; no paid API." });
+  } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
 });
 
 // This test uses a fictional Decisions response on an owned backend. It never calls the paid API.
@@ -273,6 +636,8 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   tags: ["critical", "local", "chatgpt"], session: "army", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
   const newProfileWithoutPreferences = await preparePlanFixture(Boolean(liveProbe));
+  const transportBefore = (await readFile(transportLog, "utf8")).trim();
+  const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
   const account = credentials.user("army");
   await app.open(`${localOrigin}/login`);
   await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
@@ -317,7 +682,7 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
     inclusions: "Toutes les quantités documentées", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "C" } }, browser.locator("form").last());
   const picker = screen.getByLabel("Fournisseur IA", { exact: true });
   await expect(picker).toBeVisible();
-  await picker.selectOption({ value: "gemini" });
+  await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
   await picker.selectOption({ value: "chatgpt" });
   await expect(picker).toHaveValue("chatgpt");
   const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
@@ -342,7 +707,7 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   expect(detail.job.metrics.token_count).toBeGreaterThan(0);
   const transport = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
   expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
-  expect(transport.filter(entry => entry.inputKind === "pdf")).toEqual([
+  expect(transport.slice(transportStart).filter(entry => entry.inputKind === "pdf")).toEqual([
     { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model: detail.job.model, sourceMatched: true, inputKind: "pdf",
       ...(liveProbe ? { reasoningEffort: liveProbe.reasoningEffort ?? null } : {}) },
   ]);

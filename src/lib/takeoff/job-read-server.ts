@@ -51,6 +51,7 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "estimate_version_id",
   "status",
   "level",
+  "execution_provider",
   "processing_strategy",
   "provider_batch_id",
   "provider_batch_state",
@@ -91,6 +92,7 @@ export const TAKEOFF_JOB_DETAIL_SELECT = [
   TAKEOFF_JOB_LIST_SELECT,
   "source_file_path",
   "created_by",
+  "execution_host_id",
 ].join(", ");
 
 const TAKEOFF_RESULT_SELECT = [
@@ -279,6 +281,8 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
 
 export type TakeoffJobDetailRow = {
   id: string;
+  execution_provider?: "gemini" | "chatgpt_local";
+  execution_host_id?: string | null;
   estimate_version_id: string;
   status: string;
   level: string;
@@ -352,7 +356,8 @@ export type AuthenticatedTakeoffContext = Awaited<
 
 function decorateTakeoffJobSummaryWithOperatorState(
   job: TakeoffJobSummary,
-  tenantRole?: string | null
+  tenantRole?: string | null,
+  legacyProvider = false,
 ): TakeoffJobSummary {
   const operatorState = resolveTakeoffOperatorState({
     status: job.status,
@@ -371,9 +376,9 @@ function decorateTakeoffJobSummaryWithOperatorState(
     ...job,
     operator_state: operatorState.state,
     operator_state_label: operatorState.label,
-    can_reconcile: operatorState.canReconcile,
+    can_reconcile: !legacyProvider && operatorState.canReconcile,
     can_cancel: operatorState.canCancel,
-    can_resubmit: operatorState.canResubmit,
+    can_resubmit: !legacyProvider && operatorState.canResubmit,
   };
 }
 
@@ -383,7 +388,8 @@ export function normalizeTakeoffJobSummaryRow(
 ): TakeoffJobSummary {
   return decorateTakeoffJobSummaryWithOperatorState(
     parseTakeoffResponse(takeoffJobSummarySchema, row),
-    tenantRole
+    tenantRole,
+    typeof row === "object" && row !== null && "execution_provider" in row && row.execution_provider === "gemini"
   );
 }
 

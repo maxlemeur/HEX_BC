@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { callOpenAiDecisions, getOpenAiDecisionsCapability, type OpenAiDecisionQuestion } from "@/lib/ai/decisions";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
@@ -39,17 +39,15 @@ export async function getTakeoffPreparationAssistanceCapabilities(owner: ChatGpt
     const store = await readChatGptStore(owner);
     if (store.selectedId) {
       const profile = store.profiles.find((entry) => entry.id === store.selectedId);
-      writing = { status: profile?.model ? "available" : "unavailable", provider: "chatgpt", billing: "chatgpt_plan",
-        message: profile?.model ? "L’assistance utilise le compte ChatGPT et son modèle sélectionné. Aucun autre fournisseur n’est utilisé en cas d’échec."
-          : "Choisissez le modèle du compte ChatGPT dans Mon profil. La préparation manuelle reste disponible.",
+      const connected = Boolean(profile && hasLocalChatGptPlanAccess(profile));
+      writing = { status: connected && profile?.model ? "available" : "unavailable", provider: "chatgpt", billing: "chatgpt_plan",
+        message: !connected ? "Reconnectez votre forfait ChatGPT dans Mon profil. La préparation manuelle reste disponible."
+          : profile?.model ? "L’assistance utilise le compte ChatGPT et son modèle sélectionné. Aucun autre fournisseur n’est utilisé en cas d’échec."
+            : "Choisissez le modèle du compte ChatGPT dans Mon profil. La préparation manuelle reste disponible.",
       };
       return { writing, decisions: getOpenAiDecisionsCapability() };
     }
   }
-  if (process.env.GEMINI_API_KEY?.trim()) writing = {
-    status: "available", provider: "gemini", billing: "api",
-    message: "L’assistance utilise l’API IA configurée sur le serveur, avec sa consommation API.",
-  };
   return { writing, decisions: getOpenAiDecisionsCapability() };
 }
 

@@ -28,14 +28,14 @@ export function TakeoffProviderSelect({ value, onChange, disabled, preserveAutom
         onChange={(event) => onChange(event.target.value as TakeoffProvider)}
         className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
         aria-describedby={`${id}-help`}>
-        <option value="auto">Automatique — {preserveAutomaticChoice ? "fournisseur de la demande confirmée" : available ? "forfait ChatGPT" : "Gemini"}</option>
+        <option value="auto">{preserveAutomaticChoice ? "Automatique — fournisseur de la demande confirmée" : "Automatique — forfait ChatGPT local"}</option>
         <option value="chatgpt" disabled={!available}>ChatGPT — forfait local{connection?.model ? ` (${connection.model})` : loaded ? " indisponible ou à connecter" : " vérification…"}</option>
-        <option value="gemini">Gemini — API</option>
+        {value === "gemini" && <option value="gemini" disabled>Ancien fournisseur indisponible — choisissez ChatGPT</option>}
       </select>
-      {loaded && !available && value === "chatgpt" && <p role="status" className="text-xs text-warning">Le fournisseur ChatGPT enregistré est actuellement indisponible. Reconnectez-le ou choisissez explicitement un autre fournisseur.</p>}
+      {value === "gemini" && <p role="status" className="text-xs text-warning">Cet ancien fournisseur est indisponible. Choisissez ChatGPT et confirmez à nouveau la préparation.</p>}
+      {loaded && !available && value !== "gemini" && <p role="status" className="text-xs text-warning">Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré.</p>}
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
-        ChatGPT consomme les limites de votre forfait. Gemini utilise la configuration API de MergeOne.
-        Le fournisseur choisi reste fixé pour cette extraction.
+        Le métré utilise le forfait ChatGPT local et consomme ses limites. Le fournisseur reste fixé pour cette extraction.
         {" "}<Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link>
       </p>
     </div>

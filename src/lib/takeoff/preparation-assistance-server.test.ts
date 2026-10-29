@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers({ host: "127.0.0.1:3000" })) }));
-vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ isLocalChatGptEnabled: vi.fn().mockReturnValue(false), assertLocalChatGptHost: vi.fn() }));
+vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ isLocalChatGptEnabled: vi.fn().mockReturnValue(false), assertLocalChatGptHost: vi.fn(), hasLocalChatGptPlanAccess: (profile: { accessToken?: string; refreshToken?: string; scopes: string[] }) => Boolean(profile.accessToken && profile.refreshToken && profile.scopes.includes("chatgpt.tokens.use.direct")) }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn() }));
 vi.mock("@/lib/ai/structured-ai", () => ({ callStructuredAi: vi.fn() }));
 vi.mock("@/lib/ai/decisions", () => ({ getOpenAiDecisionsCapability: vi.fn(), callOpenAiDecisions: vi.fn() }));
@@ -26,9 +26,10 @@ const generated = { proposals: [
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("GEMINI_API_KEY", "fixture-not-used");
-  vi.mocked(isLocalChatGptEnabled).mockReturnValue(false);
+  vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile-a", profiles: [{ id: "profile-a", model: "fixture-model", accessToken: "fixture", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"] }] } as never);
   vi.mocked(getOpenAiDecisionsCapability).mockReturnValue({ status: "disabled", model: "gpt-6-luna", billing: "separate_api", message: "Désactivé" });
-  vi.mocked(callStructuredAi).mockResolvedValue({ data: generated, provider: "gemini", model: "fixture-model", tokenCount: 10 } as never);
+  vi.mocked(callStructuredAi).mockResolvedValue({ data: generated, provider: "chatgpt", model: "fixture-model", tokenCount: 10 } as never);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -80,7 +81,7 @@ describe("structured preparation assistance", () => {
 
   it("keeps a selected but unconfigured ChatGPT account distinct from the paid API", async () => {
     vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
-    vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile-a", profiles: [{ id: "profile-a", model: null }] } as never);
+    vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile-a", profiles: [{ id: "profile-a", model: null, accessToken: "fixture", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"] }] } as never);
     const capabilities = await getTakeoffPreparationAssistanceCapabilities(owner);
     expect(capabilities.writing).toMatchObject({ status: "unavailable", provider: "chatgpt", billing: "chatgpt_plan" });
     const result = await generateTakeoffPreparationAssistance(input());

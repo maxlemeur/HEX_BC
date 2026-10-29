@@ -3,7 +3,7 @@ import { z } from "zod";
 
 vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers({ host: "127.0.0.1:3000" })) }));
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn().mockResolvedValue({ userId: "user", tenantId: "tenant" }) }));
-vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn().mockResolvedValue({ selectedId: "profile", profiles: [] }) }));
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn().mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"] }] }) }));
 vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: vi.fn() }));
 vi.mock("@/lib/takeoff/gemini-client", () => ({ callGeminiStructured: vi.fn().mockResolvedValue({ data: { ok: true }, model: "gemini-model" }) }));
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -19,9 +19,10 @@ it("never falls back to the paid API after a selected ChatGPT connection fails",
   await expect(callStructuredAi(options)).rejects.toThrow("quota");
   expect(callGeminiStructured).not.toHaveBeenCalled();
 });
-it("uses the existing provider outside the local opt-in without accessing local identities", async () => {
+it("refuses inference outside the local opt-in without using a paid provider", async () => {
   vi.stubEnv("NODE_ENV", "production");
-  expect((await callStructuredAi(options)).provider).toBe("gemini");
+  await expect(callStructuredAi(options)).rejects.toThrow(/ChatGPT.*local/);
+  expect(callGeminiStructured).not.toHaveBeenCalled();
   expect(getAuthenticatedContext).not.toHaveBeenCalled();
 });
 it("uses the verified workflow creator without consulting HTTP identity", async () => {

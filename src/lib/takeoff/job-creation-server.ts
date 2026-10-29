@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, assertTakeoffProviderAvailable, getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { createHash, randomUUID } from "node:crypto";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
@@ -198,6 +198,7 @@ export async function createTakeoffJobFromFormData(
 
         if (existingFingerprint === payloadFingerprint) {
           assertReplayedTakeoffProcessing(existingJob, { level, provider });
+          if (existingJob.status === "pending") await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
           return normalizeTakeoffJobRow(existingJob);
         }
 
@@ -216,6 +217,7 @@ export async function createTakeoffJobFromFormData(
       }
     }
 
+    assertTakeoffProviderAvailable(provider);
     await assertTakeoffEnabled(tenantId, { supabase });
     await assertEstimateVersionAccessibleAsDraft({
       supabase,
@@ -323,6 +325,7 @@ export async function createTakeoffJobFromFormData(
               storagePath: sourceFilePath,
             });
             assertReplayedTakeoffProcessing(existingJob, { level, provider });
+            if (existingJob.status === "pending") await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
             return normalizeTakeoffJobRow(existingJob);
           }
 
@@ -459,6 +462,7 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
     ...context, estimateVersionId: existing.estimate_version_id,
   });
   assertReplayedTakeoffProcessing(existing, { level: input.level ?? TAKEOFF_PLAN_SET_LEVEL, provider: input.provider ?? "auto" });
+  if (existing.status === "pending") await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
   return normalizeTakeoffJobRow(existing);
 }
 
@@ -481,6 +485,7 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
   const existing = await findTakeoffJobForPlanSetLaunch(input);
   if (existing) return existing;
 
+  assertTakeoffProviderAvailable(parseTakeoffProvider(input.provider));
   await assertTakeoffEnabled(tenantId, { supabase });
   await assertEstimateVersionAccessibleAsDraft({
     supabase,

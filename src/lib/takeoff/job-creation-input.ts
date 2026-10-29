@@ -44,6 +44,9 @@ const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
 });
 
 export type TakeoffJobRow = TakeoffJobResponse & {
+  execution_provider?: "gemini" | "chatgpt_local";
+  execution_host_id?: string | null;
+  created_by?: string | null;
   source_file_path?: string | null;
   preparation_snapshot?: unknown;
 };

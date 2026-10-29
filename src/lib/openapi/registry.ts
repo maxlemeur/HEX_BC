@@ -1131,7 +1131,7 @@ const takeoffJobCreateFormDataSchema = z.object({
   file: z.any(),
   estimate_version_id: uuidSchema,
   level: z.enum(["A", "B", "C"]),
-  provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
+  provider: z.enum(["auto", "chatgpt"]).optional(),
   preparation_revision: z.string().regex(/^[1-9]\d*$/),
 });
 
@@ -2693,7 +2693,7 @@ const generateEstimatePdfBody = jsonBody({
 const createTakeoffJobBody = multipartBody({
   name: "CreateTakeoffJobFormDataRequest",
   description:
-    "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto, chatgpt, gemini).",
+    "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto ou chatgpt). Le forfait ChatGPT local doit être connecté.",
   schema: takeoffJobCreateFormDataSchema,
 });
 const applyTakeoffJobBody = jsonBody({
