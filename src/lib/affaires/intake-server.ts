@@ -1156,10 +1156,11 @@ async function readDpgfFromDrive<T>(read: () => Promise<T>) {
 }
 
 /**
- * A Drive piece has no stored copy: its downloadUrl is contentUrl, served by the same route
- * with the account of the member who linked it, and its size is Drive's current one.
+ * A Drive piece has no stored copy and no downloadUrl: the server reads it from Drive for the
+ * PDF review and the import. Its current Drive metadata is checked here so a lost access shows
+ * up when the DPGF is chosen.
  */
-export async function getAffaireIntakeDpgfDownload(projectId: string, documentId: string, contentUrl: string) {
+export async function getAffaireIntakeDpgfDownload(projectId: string, documentId: string) {
   const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
   if (!document.storage_path) {
     const file = await readDpgfFromDrive(() => readLinkedDriveFile(document));
@@ -1168,7 +1169,7 @@ export async function getAffaireIntakeDpgfDownload(projectId: string, documentId
       fileName: document.file_name,
       mimeType: document.mime_type,
       sizeBytes: Number(file.size),
-      downloadUrl: contentUrl,
+      downloadUrl: null,
     };
   }
   const { data: signed, error: signedError } = await context.supabase.storage
@@ -1190,9 +1191,9 @@ export async function getAffaireIntakeDpgfDownload(projectId: string, documentId
 export async function readAffaireIntakeDpgfFile(projectId: string, documentId: string) {
   const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
   if (!document.storage_path) {
-    // Read from Drive for this request only, nothing is stored.
+    // The current Drive content, read with the account of the member who linked it.
     const { bytes } = await readDpgfFromDrive(() => readLinkedDriveDocument(document));
-    return new File([new Uint8Array(bytes)], document.file_name, { type: document.mime_type ?? "application/octet-stream" });
+    return new File([bytes], document.file_name, { type: document.mime_type ?? "application/octet-stream" });
   }
   const { data: blob, error } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET)
     .download(document.storage_path);

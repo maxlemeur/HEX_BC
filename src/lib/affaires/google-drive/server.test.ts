@@ -4,7 +4,7 @@ vi.mock("@/lib/affaires/intake-server", () => ({ requireAffaireProjectOwnerOrAdm
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => backendRef.current!.supabase }));
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { saveDriveConnection } from "./connections";
-import { readLinkedDriveDocument } from "./content";
+import { readLinkedDriveDocument, readLinkedDriveFile } from "./content";
 import type { DriveRequest } from "./contracts";
 import { driveState, executeDriveRequest } from "./server";
 import { driveConfiguration } from "./secrets";
@@ -173,13 +173,22 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
   });
   it("lets the classifier read a linked piece with the linker's account, bounded and unchanged", async () => {
     await link();
-    const [document] = [...backend.rows("affaire_intake_documents").values()] as Array<{ tenant_id: string; drive_connection_id: string | null; drive_file_id: string | null }>;
+    const [document] = [...backend.rows("affaire_intake_documents").values()] as Array<{ tenant_id: string; mime_type: string | null; drive_connection_id: string | null; drive_file_id: string | null }>;
     const read = await readLinkedDriveDocument(document);
     expect(read.bytes.toString()).toBe("plans");
     expect(read.file.version).toBe("1");
-    await expect(readLinkedDriveDocument({ ...document, tenant_id: "another_tenant" })).rejects.toMatchObject({ code: "DRIVE_CONNECTION_NOT_FOUND" });
+    await expect(readLinkedDriveDocument({ ...document, tenant_id: "another_tenant" })).rejects.toMatchObject({ code: "DRIVE_CONNECTION_REMOVED" });
     await expect(readLinkedDriveDocument({ ...document, drive_connection_id: null })).rejects.toThrow("a été retiré");
+    await expect(readLinkedDriveDocument({ ...document, mime_type: "text/csv" })).rejects.toMatchObject({ status: 409, code: "DRIVE_FORMAT_CHANGED" });
     google.files.get("plan_demo")!.size = "50";
     await expect(readLinkedDriveDocument(document)).rejects.toThrow("incomplète");
+  });
+  it("asks the linker, not the reader, to reconnect an account Google stopped accepting", async () => {
+    await link();
+    const [document] = [...backend.rows("affaire_intake_documents").values()] as Array<{ tenant_id: string; mime_type: string | null; drive_connection_id: string | null; drive_file_id: string | null }>;
+    google.responses.set("plan_demo", 401);
+    const failure = await readLinkedDriveFile(document).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ status: 409, code: "DRIVE_EXPIRED" });
+    expect((failure as Error).message).toContain("son membre doit reconnecter ce compte");
   });
 });

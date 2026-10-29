@@ -14,7 +14,6 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DOCUMENT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-const CONTENT_URL = `http://localhost:3000/api/affaires/${PROJECT_ID}/intake/files/${DOCUMENT_ID}?content=1`;
 const MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const driveDocument = {
@@ -51,13 +50,13 @@ function signIn(supabase: ReturnType<typeof supabaseWith>) {
 describe("dossier DPGF linked from Google Drive", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("serves a Drive piece through the content URL, with Drive's current size and no stored copy", async () => {
+  it("describes a Drive piece with Drive's current size and no download URL or stored copy", async () => {
     const supabase = supabaseWith(driveDocument);
     signIn(supabase);
     vi.mocked(readLinkedDriveFile).mockResolvedValue({ size: "14" } as never);
 
-    await expect(getAffaireIntakeDpgfDownload(PROJECT_ID, DOCUMENT_ID, CONTENT_URL)).resolves.toEqual({
-      documentId: DOCUMENT_ID, fileName: "DPGF lot 1.xlsx", mimeType: MIME, sizeBytes: 14, downloadUrl: CONTENT_URL,
+    await expect(getAffaireIntakeDpgfDownload(PROJECT_ID, DOCUMENT_ID)).resolves.toEqual({
+      documentId: DOCUMENT_ID, fileName: "DPGF lot 1.xlsx", mimeType: MIME, sizeBytes: 14, downloadUrl: null,
     });
     expect(readLinkedDriveFile).toHaveBeenCalledWith(driveDocument);
     expect(supabase.storage.from).not.toHaveBeenCalled();
@@ -89,7 +88,7 @@ describe("dossier DPGF linked from Google Drive", () => {
   it("refuses a piece with neither a stored copy nor a Drive link", async () => {
     signIn(supabaseWith({ ...driveDocument, drive_file_id: null, drive_connection_id: null }));
 
-    await expect(getAffaireIntakeDpgfDownload(PROJECT_ID, DOCUMENT_ID, CONTENT_URL)).rejects.toMatchObject({ status: 404 });
+    await expect(getAffaireIntakeDpgfDownload(PROJECT_ID, DOCUMENT_ID)).rejects.toMatchObject({ status: 404 });
     expect(readLinkedDriveFile).not.toHaveBeenCalled();
   });
 });

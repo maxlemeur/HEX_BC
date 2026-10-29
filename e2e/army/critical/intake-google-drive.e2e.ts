@@ -134,11 +134,24 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   const relinked = await store.linkDriveFiles(access, { connectionId, files: [{ file, folder }] });
   expect(relinked.results.map(({ status }) => status)).toEqual(["linked"]);
   expect((await documents()).filter((document) => !document.deleted_at)).toMatchObject([{ storage_path: null, drive_file_id: file.id }]);
+  // The dossier DPGF import reads a Drive piece on the server: with Drive off it says so, a removed link is gone.
+  const relinkedId = (await documents()).find((document) => !document.deleted_at)!.id;
+  expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "dpgf", confidence: 0.9 })
+    .eq("id", relinkedId)).error).toBeNull();
+  const dpgfRead = await browser.evaluate(async ({ projectId, live, removed }) => {
+    const read = async (documentId: string) => {
+      const response = await fetch(`/api/affaires/${projectId}/intake/files/${documentId}`, { cache: "no-store" });
+      return { status: response.status, cache: response.headers.get("cache-control"), code: (await response.json()).error?.code ?? null };
+    };
+    return { live: await read(live), removed: await read(removed) };
+  }, { projectId: ids.projectId, live: relinkedId, removed: linked.id });
+  expect(dpgfRead).toEqual({ live: { status: 503, cache: "private, no-store", code: "DRIVE_DISABLED" },
+    removed: { status: 404, cache: "private, no-store", code: "NOT_FOUND" } });
   // Removing the account keeps the affaire's pieces, which then name no account.
   expect((await client.from("google_drive_connections").delete().eq("id", connectionId)).error).toBeNull();
   expect((await store.readDriveLinks(access)).map(({ source }) => source.connectionAvailable)).toEqual([false]);
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
   await recordEvidence(army, "DRV02-drive-links", { ids, documentIds: (await documents()).map((document) => document.id),
-    dossierScreenshot, linkScreenshot, noStoredCopy: true, replayLinksOnce: true, folderRemembered: true, removalConfirmedInUi: true, relinkAfterRemoval: true,
+    dossierScreenshot, linkScreenshot, noStoredCopy: true, replayLinksOnce: true, folderRemembered: true, removalConfirmedInUi: true, relinkAfterRemoval: true, dpgfRead,
     boundary: "Real local RLS and HTTP/UI. Fictional Drive metadata and sealed token; no Google or OAuth, no worker read (classification settled under owner RLS)." });
 });

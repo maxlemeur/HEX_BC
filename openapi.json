@@ -790,7 +790,7 @@
           "Affaires"
         ],
         "summary": "Préparer la lecture d'une DPGF du dossier",
-        "description": "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible. Une pièce liée depuis Google Drive n'a pas de copie : son URL est cette route avec content=1, qui lit le fichier dans Drive avec le compte du membre qui l'a lié.",
+        "description": "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible. Une pièce liée depuis Google Drive n'a pas de copie : downloadUrl est null, sizeBytes est sa taille actuelle dans Drive, et l'analyse comme l'import la lisent côté serveur avec le compte du membre qui l'a liée.",
         "parameters": [
           {
             "name": "projectId",
@@ -809,20 +809,11 @@
             "schema": {
               "$ref": "#/components/schemas/ReadAffaireIntakeDpgfDocumentIdParameter"
             }
-          },
-          {
-            "name": "content",
-            "in": "query",
-            "description": "Retourne les octets de la pièce en pièce jointe privée, au lieu de la réponse JSON.",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/ReadAffaireIntakeDpgfContentParameter"
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Pièce disponible pour l'import, ou ses octets avec content=1.",
+            "description": "Pièce disponible pour l'import.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23500,10 +23491,6 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
-      "ReadAffaireIntakeDpgfContentParameter": {
-        "type": "string",
-        "const": "1"
-      },
       "AffaireIntakeDpgfDownloadResponse": {
         "type": "object",
         "properties": {
@@ -23534,8 +23521,15 @@
                 "maximum": 9007199254740991
               },
               "downloadUrl": {
-                "type": "string",
-                "format": "uri"
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [

@@ -278,4 +278,26 @@ describe("useImportFlow", () => {
     ]);
     expect(payload.tables[0]?.page).toBe(2);
   });
+
+  it("shows why the server could not read a dossier DPGF linked from Drive", async () => {
+    const message = "Le format du fichier a changé dans Drive depuis son lien. Retirez le lien puis liez de nouveau le fichier.";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false, error: { code: "DRIVE_FORMAT_CHANGED", message } }, 409));
+    vi.stubGlobal("fetch", fetchMock);
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    const documentId = "22222222-2222-4222-8222-222222222222";
+    const { result } = renderHook(() => useImportFlow({ projectId }));
+    await waitFor(() => expect(result.current.isLoadingImports).toBe(false));
+
+    let success = true;
+    await act(async () => {
+      success = await result.current.importFile(new File([], "dpgf.xlsx"), { sourceDocumentId: documentId });
+    });
+
+    expect(success).toBe(false);
+    expect(result.current.submitError).toBe(message);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(`/api/affaires/${projectId}/intake/files/${documentId}`);
+  });
 });

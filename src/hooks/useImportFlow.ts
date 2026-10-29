@@ -325,7 +325,11 @@ async function postIntakeDpgfAction(projectId: string, documentId: string, body:
   const response = await fetch(`/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(documentId)}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(await extractErrorMessage(response, "Impossible de traiter la DPGF du dossier."));
+  if (!response.ok) {
+    // This route answers { ok: false, error: { code, message } }, such as a Drive file changed since its link.
+    const payload = await response.clone().json().catch(() => null) as { error?: { message?: unknown } } | null;
+    throw new Error(coerceString(payload?.error?.message) ?? await extractErrorMessage(response, "Impossible de traiter la DPGF du dossier."));
+  }
   return response;
 }
 

@@ -28,11 +28,13 @@ sans nouvelle pièce. Un compte dont Google a révoqué l’accès est signalé 
 reconnecter ». Un membre retiré d’un tenant perd les comptes Google ajoutés dans ce
 tenant, et le classement ne lit plus jamais un fichier avec le compte d’un ancien membre.
 
-Une DPGF liée depuis Drive s’importe depuis le dossier comme une copie : MergeOne la
+Une DPGF liée depuis Drive s’importe depuis le dossier comme une copie : le serveur la
 lit dans Drive au moment de la revue PDF et de l’import, avec le compte du membre qui
-l’a liée, et le navigateur la reçoit par `GET …/intake/files/{documentId}?content=1`
-(réponse privée, non mise en cache, en pièce jointe). La version importée est celle
-présente dans Drive à ce moment.
+l’a liée ; le navigateur n’en reçoit que le nom et la taille actuelle. La version
+importée est celle présente dans Drive à ce moment, et l’import est refusé si le format
+du fichier a changé depuis son lien. Comme tout import, il conserve son fichier source
+dans `dpgf-imports`, y compris après le retrait du lien. Si l’accès Google du compte
+qui a lié le fichier a expiré, le message demande à son membre de le reconnecter.
 
 Les plans liés depuis Drive ne sont pas encore envoyés au métré et ne lèvent pas la
 pièce manquante « plans ». Décision de Thanh (28/10/2026) : ils garderont une copie de
