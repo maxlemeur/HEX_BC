@@ -303,7 +303,7 @@ export function DashboardShell({
     >
       <a
         href="#dashboard-main-content"
-        className="sr-only fixed left-3 top-3 z-[70] rounded-lg bg-surface px-4 py-3 font-semibold text-primary shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+        className="sr-only fixed! left-3 top-3 z-[70] rounded-lg bg-surface px-4 py-3 font-semibold text-primary shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
       >
         Aller au contenu principal
       </a>

@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 export function PublicPage({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-surface-subtle text-foreground">
-      <a className="sr-only focus:not-sr-only focus:p-4" href="#public-content">Aller au contenu</a>
+      <a className="sr-only fixed! left-3 top-3 z-[70] rounded-lg bg-surface text-primary shadow-lg focus:not-sr-only focus:p-4" href="#public-content">Aller au contenu</a>
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-8">
           <Link href="/" aria-label="MergeOne par TIMAX — accueil" className="flex items-baseline gap-3">

@@ -110,19 +110,13 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
     if (route.request.method === "POST") submitted += 1;
     await route.fallback();
   });
-  // Read current geometry after the async dossier selection: the SDK's cached
-  // observation pointed at the adjacent container. Keep a real native pointer.
-  const submitPoint = await browser.evaluate(() => {
-    const button = [...document.querySelectorAll("button")]
-      .find(element => element.textContent?.trim() === "Lancer l'import")!;
-    button.scrollIntoView({ block: "center", behavior: "instant" });
-    const rect = button.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  });
-  await browser.mouse.move(submitPoint.x, submitPoint.y);
-  await browser.mouse.down();
-  await browser.mouse.up();
+  // Closing a deep-linked drawer can restore focus to the skip link. Focusing
+  // that accessible link must not push the whole page down or swallow a click.
+  await screen.getByRole("link", "Aller au contenu principal", { exact: true }).focus();
+  const mainTop = await browser.evaluate(() => document.querySelector("main")!.getBoundingClientRect().top);
+  await screen.getByRole("button", "Lancer l'import", { exact: true }).click();
   await expect.poll(() => submitted).toBe(1);
+  expect(await browser.evaluate(() => document.querySelector("main")!.getBoundingClientRect().top)).toBe(mainTop);
   const nextMapping = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
   const editMapping = screen.getByRole("button", "Modifier le mapping", { exact: true });
   await expect.poll(async () => (await nextMapping.isVisible()) || (await editMapping.isVisible()), { timeout: 30_000 }).toBe(true);
