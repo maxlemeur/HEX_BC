@@ -1,33 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useState } from "react";
+import { FileTextIcon } from "lucide-react";
 
-import {
-  launchTakeoffFromPlanSet,
-} from "@/app/dashboard/affaires/_actions/takeoff";
-import { useToast } from "@/components/ui-legacy/Toast";
-import { duplicateEstimateVersion } from "@/lib/estimates/client";
-import {
-  TAKEOFF_LEVEL_BUSINESS_LABELS,
-  getTakeoffSelectionWarning,
-  isTakeoffLevelCompatible,
-  type TakeoffDocumentRecommendation,
-} from "@/lib/takeoff/document-classifier";
-import type { TakeoffLevel, TakeoffProvider } from "@/lib/takeoff/types";
-import { CheckIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
+import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import { buttonVariants } from "@/components/ui/button";
-
-type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
-
-function isPlanSetTakeoffLevel(level: TakeoffLevel | null | undefined): level is PlanSetTakeoffLevel {
-  return level === "B" || level === "C";
-}
+import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 
 const RECENT_PROMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-type PromptLaunchMode = "existing_draft" | "create_draft_from_current";
 
 export function shouldShowTakeoffPrompt(input: {
   takeoffEnabled: boolean;
@@ -103,387 +84,32 @@ type TakeoffLaunchPromptProps = {
   title?: string;
 };
 
-type PromptState = "idle" | "launching" | "success" | "error";
-
-function resolveLaunchMode(input: {
-  versionId?: string | null;
-  sourceVersionId?: string | null;
-}): PromptLaunchMode | null {
-  if (input.versionId) {
-    return "existing_draft";
-  }
-
-  if (input.sourceVersionId) {
-    return "create_draft_from_current";
-  }
-
-  return null;
-}
-
-function getLaunchableLevels(recommendation: TakeoffDocumentRecommendation) {
-  return recommendation.compatibleLevels.filter(
-    (level): level is PlanSetTakeoffLevel => level === "B" || level === "C",
-  );
-}
-
 export function TakeoffLaunchPrompt({
-  projectId,
-  versionId,
-  versionLabel,
-  sourceVersionId,
-  sourceVersionLabel,
-  planSetId,
-  planSetName,
-  planFileCount,
-  launchRecommendation,
-  onLaunched,
-  onDismissTemporary,
-  onDismissPermanent,
-  compact,
-  resultsHref,
-  title,
+  projectId, versionId, sourceVersionId, planSetId, planSetName, planFileCount,
+  launchRecommendation, onLaunched, onDismissTemporary, onDismissPermanent,
+  compact, resultsHref, title, versionLabel, sourceVersionLabel,
 }: TakeoffLaunchPromptProps) {
-  const toast = useToast();
-  const launchMode = resolveLaunchMode({ versionId, sourceVersionId });
-  const [state, setState] = useState<PromptState>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [createdJobId, setCreatedJobId] = useState<string | null>(null);
-  const [queuedForRecovery, setQueuedForRecovery] = useState(false);
-  const [recoveryUnconfirmed, setRecoveryUnconfirmed] = useState(false);
-  const [launchedVersionLabel, setLaunchedVersionLabel] = useState<string | null>(null);
-  const [pendingDraftVersionId, setPendingDraftVersionId] = useState<string | null>(null);
-  const launchableLevels = useMemo(
-    () => getLaunchableLevels(launchRecommendation),
-    [launchRecommendation],
-  );
-  const [provider, setProvider] = useState<TakeoffProvider>("auto");
-  const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel | null>(
-    isPlanSetTakeoffLevel(launchRecommendation.recommendedLevel) &&
-      launchableLevels.includes(launchRecommendation.recommendedLevel)
-      ? launchRecommendation.recommendedLevel
-      : launchableLevels[0] ?? null,
-  );
-
-  const resolvedVersionLabel =
-    typeof versionLabel === "string" && versionLabel.trim().length > 0
-      ? versionLabel.trim()
-      : launchMode === "create_draft_from_current" &&
-          typeof sourceVersionLabel === "string" &&
-          sourceVersionLabel.trim().length > 0
-        ? `Nouveau brouillon depuis ${sourceVersionLabel.trim()}`
-        : "Brouillon en cours";
-
-  const levelWarning = getTakeoffSelectionWarning({
-    recommendation: launchRecommendation,
-    selectedLevel,
-  });
-
-  useEffect(() => {
-    if (
-      isPlanSetTakeoffLevel(launchRecommendation.recommendedLevel) &&
-      launchableLevels.includes(launchRecommendation.recommendedLevel)
-    ) {
-      setSelectedLevel(launchRecommendation.recommendedLevel);
-      return;
-    }
-
-    setSelectedLevel(launchableLevels[0] ?? null);
-  }, [launchRecommendation, launchableLevels]);
-
-  useEffect(() => {
-    setPendingDraftVersionId(null);
-  }, [planSetId, projectId, sourceVersionId, versionId]);
-
-  const handleLaunch = useCallback(async () => {
-    if (!selectedLevel || !launchMode) {
-      return;
-    }
-
-    if (!isTakeoffLevelCompatible(launchRecommendation, selectedLevel)) {
-      return;
-    }
-
-    setState("launching");
-    setErrorMessage(null);
-
-    try {
-      let resolvedVersionId = versionId ?? pendingDraftVersionId ?? null;
-      let resolvedVersionLabelForLaunch = resolvedVersionLabel;
-      let createdJobIdForLaunch: string | null = null;
-
-      if (launchMode === "create_draft_from_current") {
-        if (!sourceVersionId) {
-          throw new Error("Impossible de créer un brouillon cible.");
-        }
-
-        if (!resolvedVersionId) {
-          resolvedVersionId = await duplicateEstimateVersion(sourceVersionId);
-          setPendingDraftVersionId(resolvedVersionId);
-        }
-        resolvedVersionLabelForLaunch = resolvedVersionLabel;
-      }
-
-      if (!resolvedVersionId) {
-        throw new Error("Aucune version cible n'est disponible.");
-      }
-
-      const result = await launchTakeoffFromPlanSet({
-        projectId,
-        planSetId,
-        versionId: resolvedVersionId,
-        level: selectedLevel,
-        ...(provider !== "auto" ? { provider } : {}),
-      });
-      createdJobIdForLaunch = result.jobId;
-      const launchQueuedForRecovery =
-        result.dispatch?.status === "queued_for_recovery";
-      const launchRecoveryUnconfirmed =
-        result.dispatch?.status === "persistence_unconfirmed";
-
-      if (!resolvedVersionId || !createdJobIdForLaunch) {
-        throw new Error("Impossible de lancer l'analyse.");
-      }
-
-      setCreatedJobId(createdJobIdForLaunch);
-      setQueuedForRecovery(launchQueuedForRecovery);
-      setRecoveryUnconfirmed(launchRecoveryUnconfirmed);
-      setLaunchedVersionLabel(resolvedVersionLabelForLaunch);
-      setState("success");
-      const toastPayload = {
-        title: launchRecoveryUnconfirmed
-          ? "Analyse créée, reprise à vérifier"
-          : launchQueuedForRecovery
-            ? "Analyse enregistrée, démarrage en attente"
-            : "Analyse transmise au traitement",
-        description: launchRecoveryUnconfirmed
-          ? `${resolvedVersionLabelForLaunch} — ni le démarrage immédiat ni la reprise automatique n'ont pu être confirmés. Ouvrez le centre d'activité pour réessayer.`
-          : launchQueuedForRecovery
-            ? `${resolvedVersionLabelForLaunch} — la demande est conservée et sera reprise automatiquement.`
-            : `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
-      };
-      if (launchQueuedForRecovery || launchRecoveryUnconfirmed) {
-        toast.warning(toastPayload);
-      } else {
-        toast.success(toastPayload);
-      }
-      onLaunched?.(createdJobIdForLaunch, resolvedVersionId);
-    } catch (err) {
-      setState("error");
-      setErrorMessage(
-        err instanceof Error ? err.message : "Impossible de lancer l'analyse.",
-      );
-    }
-  }, [
-    launchMode,
-    launchRecommendation,
-    onLaunched,
-    planFileCount,
-    planSetId,
-    projectId,
-    resolvedVersionLabel,
-    selectedLevel,
-    provider,
-    sourceVersionId,
-    toast,
-    versionId,
-    pendingDraftVersionId,
-  ]);
-
-  const handleRetry = useCallback(() => {
-    void handleLaunch();
-  }, [handleLaunch]);
-
-  const primaryActionLabel =
-    launchMode === "create_draft_from_current"
-      ? "Créer un brouillon et analyser"
-      : "Analyser maintenant";
-
-  const promptTitle = title ?? "Lancer une première analyse";
-  const resolvedResultsHref =
-    resultsHref ?? `/dashboard/affaires/${projectId}/takeoff`;
-
-  return (
-    <div
-      role="region"
-      aria-label="Proposition d'analyse automatique"
-      className={`rounded-lg border border-primary/20 bg-primary/5 ${compact ? "px-4 py-3" : "px-5 py-4"}`}
-    >
-      <div aria-live="polite">
-        {state === "launching" && (
-          <div className="flex items-center gap-2">
-            <LoaderCircleIcon className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
-            <span className="text-xs font-medium text-primary">
-              {launchMode === "create_draft_from_current"
-                ? "Création du brouillon et lancement de l'analyse…"
-                : "Lancement de l'analyse…"}
-            </span>
-          </div>
-        )}
-
-        {state === "success" && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <CheckIcon strokeWidth="2.5" className="shrink-0 text-success" aria-hidden="true" size={14} />
-              <span className="text-xs font-medium text-success">
-                {recoveryUnconfirmed
-                  ? "Analyse créée, reprise à vérifier"
-                  : queuedForRecovery
-                    ? "Analyse enregistrée, démarrage en attente"
-                    : "Analyse transmise au traitement"}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {launchedVersionLabel ?? resolvedVersionLabel} — {planFileCount} fichier
-              {planFileCount > 1 ? "s" : ""} concerné
-              {planFileCount > 1 ? "s" : ""}.
-              {recoveryUnconfirmed
-                ? " La reprise automatique n'a pas pu être confirmée : ouvrez le suivi pour réessayer."
-                : queuedForRecovery
-                  ? " La demande sera reprise automatiquement."
-                  : " Le traitement a accepté la demande."}
-            </p>
-            {createdJobId && (
-              <Link
-                href={resolvedResultsHref}
-                className="inline-flex rounded-sm text-xs text-primary underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-              >
-                Suivre l&apos;avancement
-              </Link>
-            )}
-          </div>
-        )}
-
-        {state === "error" && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 rounded border border-danger-border bg-danger-subtle px-3 py-2">
-              <span className="text-xs text-danger">
-                {errorMessage ?? "Une erreur est survenue."}
-              </span>
-            </div>
-            <button
-              type="button"
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-              onClick={handleRetry}
-            >
-              Réessayer
-            </button>
-          </div>
-        )}
+  const [open, setOpen] = useState(false);
+  const [launched, setLaunched] = useState(false);
+  const targetId = versionId ?? sourceVersionId ?? null;
+  const targetNumber = Number((versionId ? versionLabel : sourceVersionLabel)?.match(/V(\d+)/i)?.[1] ?? 0);
+  return <>
+    <div role="region" aria-label="Préparation du métré" className={`rounded-lg border border-primary/20 bg-primary/5 ${compact ? "px-4 py-3" : "px-5 py-4"}`}>
+      <div className="flex items-center gap-2"><FileTextIcon className="size-4 text-primary" aria-hidden="true" /><h2 className="text-sm font-semibold">{launched ? "Demande d’analyse créée" : title ?? "Préparer le métré"}</h2></div>
+      <p className="mt-2 text-xs text-muted-foreground">{planSetName ?? "Plans de l'affaire"} · {planFileCount} fichier{planFileCount > 1 ? "s" : ""}. {launched ? "Suivez le traitement puis vérifiez les résultats." : "Confirmez les pièces, le périmètre et les conventions avant de lancer une analyse."}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {launched ? <Link href={resultsHref ?? `/dashboard/affaires/${projectId}/takeoff`} className={buttonVariants({ variant: "outline", size: "sm" })}>Suivre l&apos;avancement</Link> : <button type="button" className={buttonVariants({ variant: "primary", size: "sm" })} disabled={!targetId} onClick={() => setOpen(true)}>Préparer le métré</button>}
+        {onDismissTemporary && <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={onDismissTemporary}>Me rappeler plus tard</button>}
+        {onDismissPermanent && <button type="button" className="text-xs text-muted-foreground underline" onClick={onDismissPermanent}>Ne plus proposer pour cette affaire</button>}
       </div>
-
-      {state === "idle" && (
-        <>
-          <div className="flex items-center gap-2">
-            <FileTextIcon className="shrink-0 text-primary" aria-hidden="true" size={16} />
-            <span className="text-sm font-semibold text-foreground">
-              {promptTitle}
-            </span>
-          </div>
-
-          <div className="mt-2 space-y-1">
-            {planSetName ? (
-              <p className="text-xs text-muted-foreground">
-                Jeu de plans :{" "}
-                <span className="font-medium text-foreground">
-                  {planSetName}
-                </span>{" "}
-                ({planFileCount} fichier{planFileCount > 1 ? "s" : ""})
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {planFileCount} fichier{planFileCount > 1 ? "s" : ""} seront analysés.
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Niveau recommandé :{" "}
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-micro font-medium text-primary">
-                {launchRecommendation.recommendedLevel
-                  ? TAKEOFF_LEVEL_BUSINESS_LABELS[launchRecommendation.recommendedLevel]
-                  : "Choix manuel"}
-              </span>
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Version cible :{" "}
-              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-micro font-medium text-foreground-secondary">
-                {resolvedVersionLabel}
-              </span>
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Bénéfice attendu : les quantités seront extraites de vos plans pour alimenter le chiffrage.
-            </p>
-            <fieldset className="pt-1">
-              <legend className="text-xs font-medium text-muted-foreground">
-                Niveau à lancer
-              </legend>
-              <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
-                {launchableLevels.map((level) => (
-                  <label
-                    key={level}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
-                      selectedLevel === level
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-surface text-foreground-secondary"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={`takeoff-prompt-level-${planSetId}`}
-                      checked={selectedLevel === level}
-                      onChange={() => setSelectedLevel(level)}
-                    />
-                    {TAKEOFF_LEVEL_BUSINESS_LABELS[level]}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <TakeoffProviderSelect value={provider} onChange={setProvider} />
-            {levelWarning ? (
-              <div
-                className={`rounded border px-3 py-2 text-xs ${
-                  levelWarning.severity === "critical"
-                    ? "border-warning-border bg-warning-subtle text-warning"
-                    : "border-primary/15 bg-surface/80 text-foreground-secondary"
-                }`}
-                role={levelWarning.severity === "critical" ? "alert" : "status"}
-              >
-                {levelWarning.message}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={buttonVariants({ variant: "primary", size: "sm" })}
-              onClick={() => void handleLaunch()}
-              disabled={!selectedLevel || !launchMode}
-            >
-              {primaryActionLabel}
-            </button>
-            {onDismissTemporary && (
-              <button
-                type="button"
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-                onClick={onDismissTemporary}
-              >
-                Me rappeler plus tard
-              </button>
-            )}
-            {onDismissPermanent && (
-              <button
-                type="button"
-                className="rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-                onClick={onDismissPermanent}
-              >
-                Ne pas proposer pour cette affaire
-              </button>
-            )}
-          </div>
-        </>
-      )}
     </div>
-  );
+    <LaunchMetreDialog open={open} onOpenChange={setOpen} projectId={projectId}
+      currentVersion={targetId ? { id: targetId, status: versionId ? "draft" : "sent", versionNumber: targetNumber } : null}
+      availableVersions={targetId ? [{ id: targetId, versionNumber: targetNumber }] : []}
+      availablePlanSets={[{ id: planSetId, name: planSetName ?? "Plans de l'affaire", fileCount: planFileCount }]}
+      initialPlanSetId={planSetId}
+      plansContext={{ defaultPlanSetId: planSetId, defaultPlanSetName: planSetName, defaultPlanSetFileCount: planFileCount, launchRecommendation }}
+      onLaunched={(jobId, targetVersionId) => { setLaunched(true); onLaunched?.(jobId, targetVersionId); }}
+    />
+  </>;
 }

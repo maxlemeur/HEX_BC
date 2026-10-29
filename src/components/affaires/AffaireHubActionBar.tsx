@@ -166,7 +166,7 @@ export function AffaireHubActionBar({
           {showAnalyse ? (
             <DropdownMenuItem className="min-h-10 px-2" onClick={onLaunchMetre}>
               <PanelsTopLeftIcon aria-hidden="true" />
-              Analyser les plans
+              Préparer le métré
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

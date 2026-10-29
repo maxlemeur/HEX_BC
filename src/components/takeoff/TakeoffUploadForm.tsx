@@ -25,8 +25,8 @@ import {
   type TakeoffLevel,
 } from "@/lib/takeoff/client";
 import { validateTakeoffPdfUploadMetadata } from "@/lib/takeoff/pdf-validation";
-import { LoaderCircleIcon } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
+import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";
+import type { PreparationSourceOption } from "@/components/takeoff/TakeoffPreparationFields";
 import { FieldLabel } from "@/components/ui/field";
 import { Alert } from "@/components/ui/alert";
 
@@ -117,6 +117,7 @@ type TakeoffJobCreateResponse = Awaited<ReturnType<typeof createTakeoffJob>>;
 
 type TakeoffUploadFormProps = {
   versionId: string;
+  projectId?: string | null;
   level?: TakeoffLevel;
   allowedLevels?: TakeoffLevel[];
   onSuccess?: (job: TakeoffJobCreateResponse) => void;
@@ -155,7 +156,7 @@ function resolveApiErrorMessage(error: unknown) {
   }
 
   if (error.status === 409) {
-    return "Conflit détecté : cette extraction existe déjà ou la clé d'idempotence est déjà utilisée.";
+    return error.message || "La préparation ou les sources ont changé. Vérifiez-les avant de relancer l’extraction.";
   }
 
   if (error.status === 413) {
@@ -287,6 +288,7 @@ function resolvePreferredLevel(input: {
 
 export function TakeoffUploadForm({
   versionId,
+  projectId,
   level,
   allowedLevels,
   onSuccess,
@@ -309,6 +311,8 @@ export function TakeoffUploadForm({
   const [provider, setProvider] = useState<TakeoffProvider>("auto");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileFingerprint, setSelectedFileFingerprint] = useState("");
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const [uploadSource, setUploadSource] = useState<PreparationSourceOption | null>(null);
   const [stableIdempotencyKey, setStableIdempotencyKey] = useState<string | null>(
     null
   );
@@ -349,31 +353,24 @@ export function TakeoffUploadForm({
       }),
     [recommendation, selectedLevel]
   );
-  const canSubmit =
-    !controlsDisabled &&
-    selectedFile !== null &&
-    isTakeoffLevelCompatible(recommendation, selectedLevel);
+  useEffect(() => {
+    if (!selectedFile || !URL.createObjectURL) { setLocalPreviewUrl(null); return; }
+    const url = URL.createObjectURL(selectedFile);
+    setLocalPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedFile]);
 
-  const buttonLabel = (() => {
-    if (submitState === "loading") {
-      return `Envoi en cours (${uploadProgress}%)`;
-    }
-
-    if (submitState === "success") {
-      if (recoveryUnconfirmed) {
-        return "Reprise à vérifier";
-      }
-      return queuedForRecovery
-        ? "Extraction en attente"
-        : "Extraction lancée";
-    }
-
-    if (submitState === "error") {
-      return "Réessayer l'extraction";
-    }
-
-    return "Lancer l'extraction";
-  })();
+  useEffect(() => {
+    let active = true;
+    setUploadSource(null);
+    if (!selectedFile) return;
+    void selectedFile.arrayBuffer().then((bytes) => crypto.subtle.digest("SHA-256", bytes)).then((buffer) => {
+      if (!active) return;
+      const hash = Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      setUploadSource({ document_id: `upload:${hash}`, document_name: selectedFile.name, source_version: hash, kind: "plan", revision: null, pages: [], active: true, confirmed: false, plan_set_id: null, file_path: null, page_count: null, logical_document_id: null, source_updated_at: null, mime_type: selectedFile.type || null, content_hash: hash });
+    }).catch(() => { if (active) setErrorMessage("Impossible de vérifier l'identité du fichier. Sélectionnez-le à nouveau."); });
+    return () => { active = false; };
+  }, [selectedFile]);
 
   const notifySubmittingChange = useCallback(
     (isSubmitting: boolean) => {
@@ -506,8 +503,7 @@ export function TakeoffUploadForm({
     fileInputRef.current?.click();
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(preparationRevision: number) {
     if (controlsDisabled) return;
 
     const validationMessage = validateTakeoffFileSupport(
@@ -556,6 +552,7 @@ export function TakeoffUploadForm({
     try {
       const job = await createTakeoffJob({
         estimateVersionId: versionId,
+        preparationRevision,
         level: selectedLevel,
         ...(provider !== "auto" ? { provider } : {}),
         file: selectedFile,
@@ -611,7 +608,7 @@ export function TakeoffUploadForm({
         </div>
       )}
 
-      <form className="space-y-6" onSubmit={handleSubmit}>
+      <form className="space-y-6" onSubmit={(event) => event.preventDefault()}>
         <input
           id={fileInputId}
           ref={fileInputRef}
@@ -709,6 +706,7 @@ export function TakeoffUploadForm({
           </div>
         ) : null}
 
+        <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Options avancées du traitement</summary><div className="mt-3 space-y-4">
         {selectedFile && recommendation ? (
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -800,6 +798,10 @@ export function TakeoffUploadForm({
           resetTransientState();
         }} />
 
+        </div></details>
+
+        {projectId && uploadSource && submitState !== "success" ? <TakeoffPreparationPanel key={uploadSource.document_id} projectId={projectId} estimateVersionId={versionId} uploadSource={uploadSource} localPreviewUrl={localPreviewUrl} disabled={controlsDisabled || !isTakeoffLevelCompatible(recommendation, selectedLevel)} onLaunch={handleSubmit} /> : selectedFile && submitState !== "success" ? <p className="text-sm text-muted-foreground">{projectId ? "Vérification du fichier avant préparation…" : "Ouvrez cette extraction depuis son affaire pour préparer le métré."}</p> : null}
+
         {(submitState === "loading" || uploadProgress > 0) && (
           <div>
             <div
@@ -823,24 +825,10 @@ export function TakeoffUploadForm({
           </Alert>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            className={buttonVariants({ variant: "primary", size: "lg" })}
-            disabled={!canSubmit}
-          >
-            {submitState === "loading" ? (
-              <>
-                <LoaderCircleIcon aria-hidden="true" className="h-4 w-4 animate-spin" />
-                {buttonLabel}
-              </>
-            ) : (
-              buttonLabel
-            )}
-          </button>
-        </div>
+
       </form>
 
+      {submitState === "success" && <p role="status" className="mt-4 text-sm text-foreground">{recoveryUnconfirmed ? "Reprise à vérifier" : queuedForRecovery ? "Extraction en attente" : "Extraction lancée"}. {announcement}</p>}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

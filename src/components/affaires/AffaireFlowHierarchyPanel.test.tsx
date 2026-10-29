@@ -49,6 +49,33 @@ function buildSuggestion(input: Partial<CockpitSuggestion> & Pick<CockpitSuggest
 
 describe("AffaireFlowHierarchyPanel", () => {
 
+  it("keeps standalone plans preparation as the next step without requiring a DPGF and yields its CTA to the visible reminder", () => {
+    const analyzePlans = buildSuggestion({ actionId: "analyze-plans", label: "Analyser les plans", intent: "analyze_plans", preview: "Préparer une analyse des plans disponibles.", target: { kind: "open_surface", surfaceId: "launch-metre" } });
+    const props: React.ComponentProps<typeof AffaireFlowHierarchyPanel> = {
+      projectId: "project-standalone-plans",
+      currentVersion: { id: "version-standalone", projectId: "project-standalone-plans", versionNumber: 1, status: "draft", totalHtCents: 0, marginMultiplier: 1, marginPercent: 0, updatedAt: "2026-10-29T10:00:00Z" },
+      takeoffEnabled: true,
+      plansSummary: { planSetCount: 1, planFileCount: 1, totalSizeBytes: 1024, hasLegacyFallback: false, defaultPlanSetId: "plans-standalone", defaultPlanSetName: "Plans seuls", latestJob: null, coveragePercent: null, exceptionCount: null, openQuestionsCount: 0, failureReasonLabel: null },
+      intakeWorkspace: { documents: [], missingPieces: [{ code: "missing_dpgf", label: "DPGF manquant", severity: "critical" }] },
+      cockpitSuggestions: [analyzePlans],
+      preparationIsNextStep: true,
+      onExecuteSuggestion: vi.fn(),
+    };
+    const view = render(<AffaireFlowHierarchyPanel {...props} />);
+    expect(screen.getByRole("heading", { name: "Préparer le métré" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Préparer le métré" })).toHaveLength(1);
+    expect(screen.getByText("Préparation à confirmer")).toBeInTheDocument();
+    expect(screen.getByText(/Un comptage sur plans seuls ne nécessite pas de DPGF/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Ajoutez le dossier|Compléter le dossier/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("DPGF manquant")).not.toBeInTheDocument();
+    expect(screen.queryByText(/La base devis et les plans sont prêts/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Compléter le dossier si besoin" })).toHaveAttribute("href", "/dashboard/affaires/project-standalone-plans#intake");
+
+    view.rerender(<><div role="region" aria-label="Préparation du métré"><button type="button">Préparer le métré</button></div><AffaireFlowHierarchyPanel {...props} hidePreparationAction /></>);
+    expect(screen.getAllByRole("button", { name: "Préparer le métré" })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Préparer le métré" })).toBeInTheDocument();
+  });
+
   it("does not enter review mode for low-confidence documents already persisted as classified", () => {
     render(
       <AffaireFlowHierarchyPanel
@@ -786,8 +813,8 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Lancer le métré" })).toBeInTheDocument();
-    expect(screen.getByText("Analyse sous réserves")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Préparer le métré" })).toBeInTheDocument();
+    expect(screen.getByText("Préparation à confirmer")).toBeInTheDocument();
     expect(screen.getByText("Avancer sous réserves")).toBeInTheDocument();
     expect(screen.queryByText("Base de travail prête")).not.toBeInTheDocument();
     expect(screen.getByText("Base devis disponible sous réserves")).toBeInTheDocument();
@@ -1134,7 +1161,7 @@ describe("AffaireFlowHierarchyPanel", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Lancer le métré" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Préparer le métré" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Confirmer le brief" })).toHaveAttribute(
       "href",
       "/dashboard/affaires/project-not-ready#brief",

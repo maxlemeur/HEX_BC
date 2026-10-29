@@ -70,6 +70,7 @@ export function prepareTakeoffUploadSource(input: {
   estimateVersionId: string;
   level: TakeoffLevel;
   provider: TakeoffProvider;
+  preparationRevision?: number | null;
 }) {
   const sourceFileType = input.level === "A"
     ? input.file.type
@@ -83,6 +84,7 @@ export function prepareTakeoffUploadSource(input: {
     level: input.level,
     // Omitting the default retains receipts created before provider selection existed.
     ...(input.provider !== "auto" ? { provider: input.provider } : {}),
+    ...(input.preparationRevision ? { preparation_revision: input.preparationRevision } : {}),
     file_name: input.file.name,
     file_type: sourceFileType,
     file_size_bytes: input.file.size,
@@ -145,6 +147,18 @@ export function deriveDeterministicJobId(tenantId: string, idempotencyKey: strin
     hex.slice(16, 20),
     hex.slice(20, 32),
   ].join("-");
+}
+
+export function derivePlanSetTakeoffJobId(input: {
+  tenantId: string; projectId: string; planSetId: string; estimateVersionId: string;
+  sourceVersionId?: string; preparationRevision?: number | null; level?: TakeoffLevel; provider?: TakeoffProvider;
+}) {
+  return deriveDeterministicJobId(input.tenantId, JSON.stringify({
+    kind: "prepared-plan-set", project: input.projectId, set: input.planSetId,
+    version: input.sourceVersionId ?? input.estimateVersionId,
+    preparation: input.preparationRevision ?? null, level: input.level ?? TAKEOFF_PLAN_SET_LEVEL,
+    provider: input.provider ?? "auto",
+  }));
 }
 
 export function extractPayloadFingerprint(path: string | null | undefined) {

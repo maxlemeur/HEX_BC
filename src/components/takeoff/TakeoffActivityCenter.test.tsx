@@ -169,11 +169,11 @@ describe("TakeoffActivityCenter", () => {
     });
 
     expect(
-      screen.getByRole("heading", { name: "Prêt pour votre premier métré" })
+      screen.getByRole("heading", { name: "Préparez votre premier métré" })
     ).toBeInTheDocument();
     expect(screen.getByText(/Plans plomberie/)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Lancer le premier métré" })
+      screen.getByRole("button", { name: "Préparer le métré" })
     ).toBeInTheDocument();
   });
 

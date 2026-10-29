@@ -6,7 +6,7 @@ export { fetchTakeoffLineEvidencePanel } from "@/lib/takeoff/line-evidence-serve
 
 export { getTakeoffPriceSuggestion, requestTakeoffPriceSuggestion, reviewTakeoffPriceSuggestion } from "@/lib/takeoff/price-suggestion-server";
 
-export { createTakeoffJobFromFormData, createTakeoffJobFromPlanSet, hasAccessibleTakeoffJobForIdempotencyKey } from "@/lib/takeoff/job-creation-server";
+export { createTakeoffJobFromFormData, createTakeoffJobFromPlanSet, findTakeoffJobForPlanSetLaunch, hasAccessibleTakeoffJobForIdempotencyKey } from "@/lib/takeoff/job-creation-server";
 
 export type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
 

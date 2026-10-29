@@ -9,6 +9,7 @@ import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
+import { fillTakeoffPreparation } from "../critical/preparation-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 
 let localServer: ChildProcess;
@@ -150,9 +151,11 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   await expect(source).toBeEnabled();
   await source.setInputFiles(csv);
   await expect(screen.getByText(path.basename(csv), { exact: true })).toBeVisible();
-  await expect(screen.getByRole("button", "Lancer l'extraction", { exact: true })).toBeEnabled();
+  await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(csv)], objective: "extract_quantities", unit: "Unités des lignes sources",
+    inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "" }, browser.locator("form").last());
+  await expect(screen.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
   const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-    screen.getByRole("button", "Lancer l'extraction", { exact: true }).tap()]);
+    screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
   expect(created.status).toBe(201);
   const body = await created.json<{ data: { id: string } }>();
   const jobId = body.data.id;
@@ -196,14 +199,17 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   await expect(source).toBeEnabled();
   await source.setInputFiles(file);
   await expect(screen.getByText(path.basename(file), { exact: true })).toBeVisible();
+  await screen.getByText("Options avancées du traitement", { exact: true }).click();
   await screen.getByRole("radio", /Niveau C/).check();
   const picker = screen.getByLabel("Fournisseur IA", { exact: true });
   await expect(picker).toBeVisible();
   await picker.selectOption({ value: "gemini" });
   await picker.selectOption({ value: "chatgpt" });
   await expect(picker).toHaveValue("chatgpt");
+  await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(file)], objective: "extract_quantities", unit: "Unités des lignes sources",
+    inclusions: "Toutes les quantités documentées", levels: "Tous", zones: "Toutes", exclusions: "" }, browser.locator("form").last());
   const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-    screen.getByRole("button", "Lancer l'extraction", { exact: true }).tap()]);
+    screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
   const responseBody = await created.json<{ data: { id: string } }>();
   expect({ status: created.status, body: responseBody }).toMatchObject({ status: 201 });
   const jobId = responseBody.data.id;

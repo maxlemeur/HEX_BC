@@ -451,7 +451,7 @@ export function PlansMetresCard({
               onClick={onLaunchMetre}
               className={cn(buttonVariants({ variant: "outline", size: "md" }))}
             >
-              Relancer l&apos;analyse
+              Reprendre la préparation
             </button>
             <button
               type="button"
@@ -459,7 +459,7 @@ export function PlansMetresCard({
               onClick={onLaunchMetre}
               className={cn(buttonVariants({ variant: "outline", size: "md" }))}
             >
-              Changer de niveau
+              Revoir les options du métré
             </button>
             <Link
               href={`/dashboard/affaires/${projectId}/plans`}
@@ -484,7 +484,7 @@ export function PlansMetresCard({
             onClick={onLaunchMetre}
             className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
-            Analyser les plans
+            Préparer le métré
           </button>
         ) : null}
       </div>

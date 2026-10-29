@@ -73,7 +73,7 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
         { exact: true },
       ).first(),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Analyser les plans" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Préparer le métré" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Démarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
@@ -101,7 +101,7 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
         { exact: true },
       ).first(),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Analyser les plans" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Préparer le métré" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Démarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);

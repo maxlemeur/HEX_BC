@@ -70,6 +70,7 @@ import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDis
 import type { CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
+import { CockpitDecisionSuggestionCard } from "@/components/cockpit/CockpitDecisionSuggestionCard";
 import { CockpitCommandBar } from "@/components/cockpit/CockpitCommandBar";
 import { CockpitCommandPreview } from "@/components/cockpit/CockpitCommandPreview";
 import {
@@ -797,6 +798,7 @@ export function AffaireHub({
   const hasLaunchableVersionTarget = summary.currentVersion !== null;
 
   const showTakeoffPrompt =
+    dominantFlowIntent === "analyze_plans" &&
     !isReadOnlyReview &&
     shouldShowTakeoffPrompt({
       takeoffEnabled,
@@ -922,6 +924,7 @@ export function AffaireHub({
                     {commandBarSuggestions.length > 0 && (
                       <>
                         <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
+                        <CockpitDecisionSuggestionCard projectId={summary.project.id} suggestions={visibleCockpitSuggestions} />
                         <CockpitCommandBar
                           suggestions={commandBarSuggestions}
                           onExecute={handleExecuteCockpitSuggestion}
@@ -1079,6 +1082,8 @@ export function AffaireHub({
               finishLineSummary={finishLineSummary ?? null}
               structureMode={summary.structureMode ?? null}
               cockpitSuggestions={visibleCockpitSuggestions}
+              preparationIsNextStep={dominantFlowIntent === "analyze_plans"}
+              hidePreparationAction={showTakeoffPrompt}
               onExecuteSuggestion={handleExecuteCockpitSuggestion}
             />
           </div>

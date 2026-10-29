@@ -14,23 +14,26 @@ armyTest("HUB03 a fresh affaire without plans hides the plans section and launch
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
   await expect(ui.screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toBeVisible();
   await expect(ui.screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toHaveCount(0);
-  await expect(ui.screen.getByRole("button", "Analyser les plans", { exact: true })).toHaveCount(0);
+  await expect(ui.screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(0);
   await recordEvidence(ui.army, "HUB03-no-plans", { estimate, plansSection: false, launchButton: false });
 });
 
-armyTest("HUB04 the launch hero identifies the retained plan set and draft version", options, async (ui) => {
+armyTest("HUB04 the preparation hero identifies the retained plan set before launching", options, async (ui) => {
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB04`, title: "ARMY hub avec plans" }, ui.army);
   const set = await createPlanSet(ui, ui.army, estimate, "Lot CVC");
   const file = await uploadSamplePlan(ui, ui.army, set);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
-  const prompt = ui.screen.getByRole("region", "Proposition d'analyse automatique", { exact: true });
+  const prompt = ui.screen.getByRole("region", "Préparation du métré", { exact: true });
   await expect(prompt).toBeVisible();
-  await expect(prompt.getByText("Jeu de plans : Lot CVC (1 fichier)", { exact: true })).toBeVisible();
-  await expect(prompt.getByText(/Version cible :/)).toBeVisible();
-  await expect(prompt.getByText("V1 (brouillon)", { exact: true })).toBeVisible();
-  await expect(prompt.getByRole("button", "Analyser maintenant", { exact: true })).toBeVisible();
-  await recordEvidence(ui.army, "HUB04-hero", { estimate, planSetId: set.id, fileId: file.id, versionLabel: "V1 (brouillon)", fileCount: 1 });
+  await expect(prompt.getByText(/Lot CVC · 1 fichier/)).toBeVisible();
+  await prompt.getByRole("button", "Préparer le métré", { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(set.id);
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
+  await expect(dialog.getByLabel("Version cible", { exact: true })).toHaveValue(estimate.versionId);
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
+  await recordEvidence(ui.army, "HUB04-hero", { estimate, planSetId: set.id, fileId: file.id, fileCount: 1, preparationRequired: true });
 });
 
 armyTest("HUB05 carried-over exceptions target the currently linked estimate version", options, async (ui) => {

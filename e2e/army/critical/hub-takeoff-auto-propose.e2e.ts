@@ -2,22 +2,25 @@ import { expect } from "e2e";
 
 import { armyTest, createEstimateViaWizard, createLineViaApi, recordEvidence, type ArmyState } from "./fixtures";
 import { createPlanSet, duplicateHubVersion, markOwnedPlansAsIntake, ownedTakeoffJobs, requireLocalPlansBackend, uploadSamplePlan } from "./plans-support";
+import { fillTakeoffPreparation } from "./preparation-support";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "hub-auto-propose"], timeout: 180_000 };
 
-async function openHubPrompt(ui: Ui, caseId: string) {
+async function openHubPrompt(ui: Ui, caseId: string, syncedIntake = false) {
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${caseId}`, title: "ARMY hub auto-propose" }, ui.army);
   // The current hub exposes its plans sidebar once the estimate has a working base.
   await createLineViaApi(ui.browser, estimate.versionId, `${ui.army.runPrefix}-BASE`);
   const set = await createPlanSet(ui, ui.army, estimate, "Plans synchronises dossier");
   const file = await uploadSamplePlan(ui, ui.army, set);
-  await markOwnedPlansAsIntake(ui.army, estimate, set, file);
+  if (syncedIntake) await markOwnedPlansAsIntake(ui.army, estimate, set, file);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
-  const prompt = ui.screen.getByRole("region", "Proposition d'analyse automatique", { exact: true });
+  const prompt = ui.screen.getByRole("region", "Préparation du métré", { exact: true });
   const plansSection = ui.browser.locator("section").filter({ has: ui.screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true }) });
-  await expect(prompt).toBeVisible();
+  // A synthetic intake provenance document does not reconcile the register's dossier gaps.
+  // Its provenance test uses the manual entry; prompt tests use the actual standalone plan.
+  if (!syncedIntake) await expect(prompt).toBeVisible();
   await expect(plansSection).toBeVisible();
   await expectManualAnalysisAvailable(ui);
   return { estimate, set, file, prompt, plansSection };
@@ -25,7 +28,7 @@ async function openHubPrompt(ui: Ui, caseId: string) {
 
 async function expectManualAnalysisAvailable(ui: Ui) {
   await ui.screen.getByRole("button", "Plus", { exact: true }).click();
-  const action = ui.screen.getByRole("menuitem", "Analyser les plans", { exact: true });
+  const action = ui.screen.getByRole("menuitem", "Préparer le métré", { exact: true });
   await expect(action).toBeVisible();
   await expect(action).toBeEnabled();
   await ui.browser.keyboard.press("Escape");
@@ -34,7 +37,7 @@ async function expectManualAnalysisAvailable(ui: Ui) {
 
 async function openLaunchDialog(ui: Ui) {
   await ui.screen.getByRole("button", "Plus", { exact: true }).click();
-  await ui.screen.getByRole("menuitem", "Analyser les plans", { exact: true }).click();
+  await ui.screen.getByRole("menuitem", "Préparer le métré", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog");
   await expect(dialog).toBeVisible();
   return dialog;
@@ -67,7 +70,7 @@ armyTest("HUB06 a temporary prompt dismissal persists its 24-hour snooze after r
 
 armyTest("HUB07 permanent prompt dismissal keeps the manual analysis action after reload", options, async (ui) => {
   const { estimate, prompt } = await openHubPrompt(ui, "HUB07");
-  await prompt.getByRole("button", "Ne pas proposer pour cette affaire", { exact: true }).click();
+  await prompt.getByRole("button", "Ne plus proposer pour cette affaire", { exact: true }).click();
   await expect(prompt).toBeHidden();
   await expectManualAnalysisAvailable(ui);
   await ui.browser.reload();
@@ -83,9 +86,12 @@ armyTest("HUB08 launching from the prompt persists a request and hides the promp
   expect(await jobs.list()).toEqual([]);
   let launchAttempted = false;
   try {
-    await prompt.getByRole("radio", "Standard", { exact: true }).check();
+    await prompt.getByRole("button", "Préparer le métré", { exact: true }).click();
+    const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
+    await dialog.getByText("Options avancées", { exact: true }).click();
+    await dialog.getByRole("radio", "Standard", { exact: true }).check();
     launchAttempted = true;
-    await prompt.getByRole("button", "Analyser maintenant", { exact: true }).click();
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect(ui.browser.locator('[data-slot="toast"]').getByText("Analyse enregistrée, démarrage en attente", { exact: true })).toBeVisible();
     await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
     const [job] = await jobs.list();
@@ -113,14 +119,15 @@ armyTest("HUB08 launching from the prompt persists a request and hides the promp
 });
 
 armyTest("HUB09 intake-synced plans retain provenance and analysis choices in the launch dialog", options, async (ui) => {
-  const { estimate, set, plansSection } = await openHubPrompt(ui, "HUB09");
+  const { estimate, set, plansSection } = await openHubPrompt(ui, "HUB09", true);
   const provenance = /synchronis|depuis le dossier|sans reupload|affaire-intake/i;
   await expect(plansSection.getByText(provenance).first()).toBeVisible();
   const dialog = await openLaunchDialog(ui);
-  await expect(dialog.getByText("Jeu de plans à analyser", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Plans synchronises dossier", { exact: true })).toBeVisible();
-  await expect(dialog.getByText(provenance).first()).toBeVisible();
+  await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(set.id);
+  await expect(dialog.getByText("Plans synchronisés depuis les pièces confirmées du dossier. Confirmez les versions à utiliser pour ce métré.", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
   await expect(dialog.getByRole("combobox", "Version cible", { exact: true })).toBeVisible();
+  await dialog.getByText("Options avancées", { exact: true }).click();
   await expect(dialog.getByText("Niveau d'analyse", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("radio", "Détaillé", { exact: true })).toBeVisible();
@@ -132,6 +139,7 @@ armyTest("HUB10 launch dialog selects an older version as the source of a new dr
   const current = await duplicateHubVersion(ui.browser, ui.army, estimate);
   await ui.browser.reload();
   const dialog = await openLaunchDialog(ui);
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
   const selector = dialog.getByRole("combobox", "Version cible", { exact: true });
   await expect(selector).toBeVisible();
   const labels = await ui.browser.locator("#launch-metre-target-version option").allTextContents();
@@ -139,6 +147,7 @@ armyTest("HUB10 launch dialog selects an older version as the source of a new dr
   await expect(selector).toHaveValue(current.versionId);
   await selector.selectOption({ value: estimate.versionId });
   await expect(selector).toHaveValue(estimate.versionId);
-  await expect(dialog.getByRole("button", "Créer un brouillon et analyser", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Un nouveau brouillon sera créé depuis V1 avant lancement.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
   await recordEvidence(ui.army, "HUB10-version-target", { source: estimate, current, labels, selectedSourceVersionId: estimate.versionId });
 });

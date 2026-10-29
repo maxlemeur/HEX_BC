@@ -546,6 +546,8 @@ type TakeoffSourceProvenance = {
   sourceDocument?: TakeoffSourceDocumentRef;
   sourceFileNamesByPage?: readonly string[];
   sourceDocumentsByPage?: readonly TakeoffSourceDocumentRef[];
+  sourcePageNumbersByPage?: readonly number[];
+  preparationSnapshot?: DownloadedTakeoffFile["preparationSnapshot"];
 };
 
 /**
@@ -564,6 +566,8 @@ function takeoffSourceProvenance(
     sourceDocument: sourceFile.sourceDocument,
     sourceFileNamesByPage: sourceFile.sourceFileNamesByPage,
     sourceDocumentsByPage: sourceFile.sourceDocumentsByPage,
+    sourcePageNumbersByPage: sourceFile.sourcePageNumbersByPage,
+    preparationSnapshot: sourceFile.preparationSnapshot,
   };
 }
 
@@ -651,6 +655,8 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
       }
     }
 
+    const originalPage = pageIndex !== null ? input.sourcePageNumbersByPage?.[pageIndex] : undefined;
+    if (originalPage !== undefined) normalizedItem.source_page = originalPage;
     normalizedExchangeItems.push(normalizedItem);
     itemsForInsert.push({
       designation: normalizedItem.designation,
@@ -661,6 +667,11 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
       source_file_name: sourceFileName,
       source_page: normalizedItem.source_page ?? null,
       metadata: {
+        ...(input.preparationSnapshot ? {
+          preparation_revision: input.preparationSnapshot.preparation_revision,
+          quantity_nature: input.preparationSnapshot.preparation.objective === "estimate" ? "estimated" : "proposed",
+          accepted_reservations: input.preparationSnapshot.readiness.reservations,
+        } : {}),
         category: normalizedItem.category ?? null,
         original_unit: item.unit,
         normalized_unit: normalizedItem.unit,
@@ -1552,7 +1563,10 @@ async function persistTakeoffResultAndItems(input: {
         extracted_json: input.exchange,
         warnings: input.exchange.warnings,
         tables: input.exchange.tables ?? [],
-        provider_meta: input.providerMeta,
+        provider_meta: {
+          ...input.providerMeta,
+          ...(input.job.preparation_snapshot ? { preparation_snapshot: input.job.preparation_snapshot } : {}),
+        },
         raw_response: input.rawResponse,
         confidence: input.exchange.confidence ?? null,
         token_count: input.tokenCount,
@@ -2025,6 +2039,8 @@ async function persistDetectedPlanFilePageCounts(input: {
   fallbackSourceFilePath: string | null;
   fallbackPageCount: number;
 }) {
+  // A confirmed source identity stays fixed across retries and provider reconciliation.
+  if (input.sourceFile.preparationSnapshot) return;
   const sourcePageCounts = input.sourceFile.sourcePlanFilePageCounts;
   if (sourcePageCounts && sourcePageCounts.length > 0) {
     await Promise.all(
@@ -2312,6 +2328,8 @@ async function processLevelCGeminiChunks(input: {
 
   for (const chunk of chunks) {
     const chunkPrompt = getTakeoffPrompt(TAKEOFF_LEVEL_C, {
+      preparation: input.sourceFile.preparationSnapshot,
+      contextSourceHints: input.sourceFile.contextSourceHints,
       fileType: input.sourceFile.mimeType,
       schemaVersion: input.schemaVersion,
       sourceHint: createChunkPromptSourceHint({
@@ -2330,7 +2348,7 @@ async function processLevelCGeminiChunks(input: {
       const geminiResult = await input.callGemini<TakeoffExchange>({
         prompt: chunkPrompt,
         schema: TakeoffExchangeSchema,
-        files: [
+        files: [...(input.sourceFile.contextFiles ?? []),
           {
             data: Buffer.from(chunkBytes).toString("base64"),
             mimeType: "application/pdf",
@@ -2853,6 +2871,8 @@ async function processLevelBGeminiChunks(input: {
           })
         : input.sourceFile.fileName;
     const prompt = getTakeoffPrompt(TAKEOFF_LEVEL_B, {
+      preparation: input.sourceFile.preparationSnapshot,
+      contextSourceHints: input.sourceFile.contextSourceHints,
       fileType: input.sourceFile.mimeType,
       schemaVersion: input.schemaVersion,
       sourceHint,
@@ -2868,7 +2888,7 @@ async function processLevelBGeminiChunks(input: {
     const geminiResult = await input.callGemini<TakeoffExchange>({
       prompt,
       schema: TakeoffChunkExchangeSchema,
-      files: [
+      files: [...(input.sourceFile.contextFiles ?? []),
         {
           data: Buffer.from(bytesForChunk).toString("base64"),
           mimeType: "application/pdf",
@@ -3052,6 +3072,8 @@ async function executeStructuredTakeoffRun(input: {
   });
 
   const prompt = getTakeoffPrompt(input.level, {
+    preparation: input.sourceFile.preparationSnapshot,
+    contextSourceHints: input.sourceFile.contextSourceHints,
     fileType: input.sourceFile.mimeType,
     schemaVersion: input.schemaVersion,
     sourceHint: preparedLevelInput.sourceHint,
@@ -3060,7 +3082,7 @@ async function executeStructuredTakeoffRun(input: {
   const geminiResult = await input.callGemini<TakeoffExchange>({
     prompt,
     schema: TakeoffExchangeSchema,
-    files: preparedLevelInput.files,
+    files: [...(input.sourceFile.contextFiles ?? []), ...preparedLevelInput.files],
     thinkingLevel: input.modelConfig.thinkingLevel ?? undefined,
     timeoutMs: resolveGeminiTimeoutMs(),
     deliveryMode: input.deliveryMode,
@@ -3681,6 +3703,8 @@ async function processTakeoffLevel(
         sourceFile,
       });
       const prompt = getTakeoffPrompt(TAKEOFF_LEVEL_A, {
+        preparation: sourceFile.preparationSnapshot,
+        contextSourceHints: sourceFile.contextSourceHints,
         fileType: sourceFile.mimeType,
         schemaVersion,
         sourceHint: preparedLevelInput.sourceHint,
@@ -3688,7 +3712,7 @@ async function processTakeoffLevel(
       const submission = await submitGeminiBatch<TakeoffExchange>({
         prompt,
         schema: TakeoffExchangeSchema,
-        files: preparedLevelInput.files,
+        files: [...(sourceFile.contextFiles ?? []), ...preparedLevelInput.files],
         thinkingLevel: levelConfig.thinkingLevel ?? undefined,
         timeoutMs: resolveGeminiTimeoutMs(),
         onBatchLifecycleEvent,

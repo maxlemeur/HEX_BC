@@ -29,10 +29,11 @@ export default async function TakeoffNewPage({
     notFound();
   }
 
+  const projectContext = await fetchTakeoffVersionProjectContext(versionId);
   const routeDescriptor = buildTakeoffRouteHierarchy({
     kind: "estimate_launch_legacy",
     versionId,
-    ...(await fetchTakeoffVersionProjectContext(versionId)),
+    ...projectContext,
   });
 
   return (
@@ -44,8 +45,8 @@ export default async function TakeoffNewPage({
             { label: "Chiffrage", href: `/dashboard/estimates/${versionId}` },
             { label: "Métrés" },
           ]}
-          title="Lancer une extraction"
-          description="Chargez un fichier puis démarrez l'extraction"
+          title="Préparer le métré"
+          description="Chargez un fichier et confirmez le cadrage avant l’analyse"
           actions={
             <Link
               href={`/dashboard/estimates/${versionId}`}
@@ -75,7 +76,7 @@ export default async function TakeoffNewPage({
 
       <TakeoffDeprecationBanner descriptor={routeDescriptor} />
 
-      <TakeoffUploadForm versionId={versionId} />
+      <TakeoffUploadForm versionId={versionId} projectId={projectContext.projectId} />
     </div>
   );
 }

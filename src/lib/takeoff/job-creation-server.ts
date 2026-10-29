@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { inspectSourceReferencePdf, SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
@@ -21,6 +21,8 @@ import {
 import { resolveTakeoffProcessingStrategy } from "@/lib/takeoff/provider-batch";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { type TakeoffLevel } from "@/lib/takeoff/types";
+import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
+import type { Json } from "@/types/database";
 import {
   TAKEOFF_PLAN_SET_LEVEL,
   type TakeoffJobRow,
@@ -29,6 +31,7 @@ import {
   prepareTakeoffUploadSource,
   normalizeIdempotencyKey,
   deriveDeterministicJobId,
+  derivePlanSetTakeoffJobId,
   extractPayloadFingerprint,
   normalizeTakeoffJobRow,
   assertTakeoffFileIsValid,
@@ -41,6 +44,7 @@ import {
   uploadTakeoffSourceFile,
   resolvePlanSetSourceFile,
   getTakeoffJobById,
+  getTakeoffPlanSetJobByPreparation,
   assertEstimateVersionAccessibleAsDraft,
   assertEstimateVersionAccessibleForTakeoff,
   removeUploadedFileIfPresent,
@@ -140,8 +144,8 @@ export async function createTakeoffJobFromFormData(
   let jobId: string | undefined;
 
   try {
-    const { supabase, tenantId, userId, tenantRole } =
-      await getAuthenticatedContext();
+    const context = await getAuthenticatedContext();
+    const { supabase, tenantId, userId, tenantRole } = context;
     const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
     const fileEntry = formData.get("file");
 
@@ -158,6 +162,9 @@ export async function createTakeoffJobFromFormData(
     const estimateVersionId = parseEstimateVersionId(formData);
     level = parseTakeoffLevel(formData);
     const provider = parseTakeoffProvider(formData.get("provider"));
+    const rawRevision = formData.get("preparation_revision");
+    const preparationRevision = typeof rawRevision === "string" && /^\d+$/.test(rawRevision)
+      ? Number(rawRevision) : null;
 
     assertTakeoffFileIsValid(file, level);
     const fileBytes = await file.arrayBuffer();
@@ -169,6 +176,7 @@ export async function createTakeoffJobFromFormData(
         estimateVersionId,
         level,
         provider,
+        preparationRevision,
       });
 
     jobId = idempotencyKey
@@ -213,6 +221,10 @@ export async function createTakeoffJobFromFormData(
       userId,
       tenantRole,
       estimateVersionId,
+    });
+    const preparationSnapshot = await assertConfirmedTakeoffPreparation({
+      context, estimateVersionId, preparationRevision,
+      upload: { hash: createHash("sha256").update(Buffer.from(fileBytes)).digest("hex"), fileName: file.name },
     });
     if (level !== "A") {
       try {
@@ -285,6 +297,7 @@ export async function createTakeoffJobFromFormData(
         source_file_size_bytes: file.size,
         prompt_version: getTakeoffPromptVersion(level),
         created_by: userId,
+        preparation_snapshot: preparationSnapshot as unknown as Json,
         ...executionOwner,
         ...(executionOwner.execution_provider ? { processing_strategy: "sync" } : {}),
       },
@@ -417,15 +430,37 @@ export async function createTakeoffJobFromFormData(
   }
 }
 
-export async function createTakeoffJobFromPlanSet(input: {
+export type CreatePreparedPlanSetJobInput = {
   projectId: string;
   planSetId: string;
   estimateVersionId: string;
   level?: TakeoffLevel;
   provider?: import("@/lib/takeoff/types").TakeoffProvider;
-}): Promise<TakeoffJobCreateResponse> {
-  const { supabase, tenantId, userId, tenantRole } =
-    await getAuthenticatedContext();
+  preparationRevision?: number | null;
+  sourceVersionId?: string;
+};
+
+export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSetJobInput, executionProvider?: "gemini" | "chatgpt_local") {
+  const context = await getAuthenticatedContext();
+  const deterministic = await getTakeoffJobById({
+    supabase: context.supabase, tenantId: context.tenantId,
+    jobId: derivePlanSetTakeoffJobId({ ...input, tenantId: context.tenantId }),
+  });
+  const existing = deterministic ?? await getTakeoffPlanSetJobByPreparation({
+    ...input, supabase: context.supabase, tenantId: context.tenantId,
+    preparationRevision: input.preparationRevision ?? null, level: input.level ?? TAKEOFF_PLAN_SET_LEVEL,
+    executionProvider,
+  });
+  if (!existing) return null;
+  await assertEstimateVersionAccessibleForTakeoff({
+    ...context, estimateVersionId: existing.estimate_version_id,
+  });
+  return normalizeTakeoffJobRow(existing);
+}
+
+export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJobInput): Promise<TakeoffJobCreateResponse> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId, tenantRole } = context;
   const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
 
   if (level === "A") {
@@ -439,6 +474,9 @@ export async function createTakeoffJobFromPlanSet(input: {
     });
   }
 
+  const existing = await findTakeoffJobForPlanSetLaunch(input);
+  if (existing) return existing;
+
   await assertTakeoffEnabled(tenantId, { supabase });
   await assertEstimateVersionAccessibleAsDraft({
     supabase,
@@ -446,6 +484,11 @@ export async function createTakeoffJobFromPlanSet(input: {
     userId,
     tenantRole,
     estimateVersionId: input.estimateVersionId,
+  });
+  const preparationSnapshot = await assertConfirmedTakeoffPreparation({
+    context, projectId: input.projectId, estimateVersionId: input.estimateVersionId,
+    preparationRevision: input.preparationRevision ?? null, planSetId: input.planSetId,
+    sourceVersionId: input.sourceVersionId,
   });
   const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, input.provider);
   const [geminiDeliveryConfig, planSetPageConfig] = await Promise.all([
@@ -465,13 +508,14 @@ export async function createTakeoffJobFromPlanSet(input: {
     planSetId: input.planSetId,
   });
 
-  const jobId = randomUUID();
+  const jobId = derivePlanSetTakeoffJobId({ ...input, tenantId, level });
   const sourceFile = await resolvePlanSetSourceFile({
     supabase,
     tenantId,
     planSetId: input.planSetId,
     jobId,
     maxPages: planSetPageConfig.maxPdfPages,
+    selectedFileIds: preparationSnapshot.preparation.sources.filter((source) => source.active && source.kind === "plan").map((source) => source.document_id),
   });
   const planSetClassification = classifyTakeoffPlanSetSource({
     files: sourceFile.planFiles.map((planFile) => ({
@@ -498,12 +542,17 @@ export async function createTakeoffJobFromPlanSet(input: {
       source_file_size_bytes: sourceFile.sourceFileSizeBytes,
       prompt_version: getTakeoffPromptVersion(level),
       created_by: userId,
+      preparation_snapshot: preparationSnapshot as unknown as Json,
       ...executionOwner,
       ...(executionOwner.execution_provider ? { processing_strategy: "sync" } : {}),
     },
   });
 
   if (insertError || !insertedJob) {
+    if (insertError?.code === "23505") {
+      const winner = await findTakeoffJobForPlanSetLaunch(input, executionOwner.execution_provider ?? "gemini");
+      if (winner) return winner;
+    }
     if (insertError) throw takeoffJobInsertError(insertError, jobId, level);
     throw toTakeoffError(new Error("Impossible de créer le job takeoff."), {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,

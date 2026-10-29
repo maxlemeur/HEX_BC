@@ -519,10 +519,10 @@ export default function TakeoffActivityCenter({
                     }
                   : launchContext && firstUsablePlanSet
                     ? {
-                        title: "Prêt pour votre premier métré",
+                        title: "Préparez votre premier métré",
                         description:
-                          `Le jeu « ${firstUsablePlanSet.name} » est prêt. Lancez l’analyse pour obtenir vos premières quantités.`,
-                        actionLabel: "Lancer le premier métré",
+                          `Le jeu « ${firstUsablePlanSet.name} » contient des pièces. Confirmez le périmètre et les conventions avant l’analyse.`,
+                        actionLabel: "Préparer le métré",
                         onAction: () => setIsLaunchDialogOpen(true),
                       }
                     : planSets.length > 0

@@ -17,6 +17,13 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/preparation-server", () => ({
+  assertConfirmedTakeoffPreparation: vi.fn(),
+}));
+
+import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
+import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
+
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: createServiceRoleClientMock,
 }));
@@ -148,6 +155,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
   function createTakeoffJobsSelectBuilder() {
     const filters: Record<string, string> = {};
     const builder = {
+      abortSignal: vi.fn(() => builder),
       eq: vi.fn((column: string, value: string) => {
         filters[column] = value;
         return builder;
@@ -365,6 +373,7 @@ function buildTakeoffRequest(input?: {
   );
 
   formData.append("file", file);
+  formData.append("preparation_revision", "1");
   formData.append("estimate_version_id", input?.estimateVersionId ?? ESTIMATE_VERSION_ID);
   formData.append("level", input?.level ?? "A");
   if (input?.provider) formData.append("provider", input.provider);
@@ -396,6 +405,7 @@ async function createPdfBytes(pageCount = 1) {
 describe("GET /api/takeoff/jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(confirmedPreparationFixture());
   });
 
   it("returns 403 when takeoff module is disabled", async () => {
@@ -450,6 +460,7 @@ describe("GET /api/takeoff/jobs", () => {
 describe("POST /api/takeoff/jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(confirmedPreparationFixture());
     serviceRoleRemoveMock.mockResolvedValue({ data: null, error: null });
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
     vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({

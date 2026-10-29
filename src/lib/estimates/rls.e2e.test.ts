@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
+import { toPreparationPlanSource } from "@/lib/takeoff/preparation-sources";
 import type { Database, Json } from "@/types/database";
 import { assertLoopbackSupabaseUrl } from "@/test/local-supabase-ci";
 
@@ -1270,6 +1272,36 @@ async function assertGovernedEstimateProjectDeletes() {
 
 async function assertAuthenticatedTakeoffWorkflow() {
   const engineerClient = asAnyClient(users.engineer.client);
+  const uploadSource: TakeoffPreparationSource = {
+    document_id: `upload:${"a".repeat(64)}`, document_name: "rls-fixture.csv", kind: "dpgf",
+    revision: "A", source_version: "a".repeat(64), pages: [], active: true, confirmed: true,
+    plan_set_id: null, file_path: null, page_count: null, logical_document_id: null,
+    content_hash: "a".repeat(64), source_updated_at: null, mime_type: "text/csv",
+  };
+  let preparationRevision = 0;
+  const seedPreparation = async (sources: TakeoffPreparationSource[]) => {
+    const preparation = createEmptyTakeoffPreparation({ estimateVersionId: seedContext.versionId });
+    preparation.objective = "extract_quantities";
+    preparation.objective_confirmed = true;
+    preparation.scope = { ...preparation.scope, inclusions: ["RLS fixture"], confirmed: true };
+    preparation.sources = sources;
+    preparation.conventions = { ...preparation.conventions, unit: "u", measurement_basis: "documented", confirmed: true };
+    preparation.destination.confirmed = true;
+    preparationRevision += 1;
+    const confirmedAt = new Date().toISOString();
+    const snapshot = createTakeoffPreparationSnapshot({
+      preparation, confirmedBy: users.engineer.userId, confirmedAt, revision: preparationRevision,
+    });
+    const row = {
+      tenant_id: seedContext.tenantId, project_id: seedContext.projectId, revision: preparationRevision,
+      draft: preparation, confirmed_snapshot: snapshot, confirmed_at: confirmedAt,
+      confirmed_by: users.engineer.userId, updated_by: users.engineer.userId,
+    };
+    const { error } = await serviceAdmin.from("takeoff_preparations").upsert(row);
+    await assertNoError("seed server-confirmed takeoff preparation", error);
+    return snapshot;
+  };
+  let preparationSnapshot = await seedPreparation([uploadSource]);
   const seedBoundaryJob = async (
     overrides: Record<string, unknown>
   ): Promise<string> => {
@@ -1339,6 +1371,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
       source_file_path: `${seedContext.tenantId}/${jobId}/rls-fixture.csv`,
       prompt_version: "rls-e2e-v1",
       created_by: users.engineer.userId,
+      preparation_snapshot: preparationSnapshot,
     })
     .select("id, status")
     .single();
@@ -1686,6 +1719,18 @@ async function assertAuthenticatedTakeoffWorkflow() {
   await assertNoError("seed plan-set scope fixtures", planSetSeedError);
   trackRow("plan_sets", sameProjectPlanSetId);
   trackRow("plan_sets", foreignProjectPlanSetId);
+  const preparedPlanFileId = randomUUID();
+  const { data: preparedPlanFile, error: preparedPlanFileError } = await serviceAdmin
+    .from("plan_files").insert({
+      id: preparedPlanFileId, tenant_id: seedContext.tenantId, plan_set_id: sameProjectPlanSetId,
+      file_path: `${seedContext.tenantId}/${sameProjectPlanSetId}/${preparedPlanFileId}/prepared.pdf`,
+      file_name: "prepared.pdf", file_type: "application/pdf", file_size_bytes: 8, page_count: 1,
+    }).select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at,metadata").single();
+  await assertNoError("seed prepared plan-file identity", preparedPlanFileError);
+  preparationSnapshot = await seedPreparation([
+    uploadSource,
+    { ...toPreparationPlanSource(preparedPlanFile as never), revision: "A", active: true, confirmed: true, content_hash: "b".repeat(64) },
+  ]);
   const { data: visibleForeignPlanSet, error: visibleForeignPlanSetError } =
     await engineerClient
       .from("plan_sets")
@@ -1734,6 +1779,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
       prompt_version: "rls-e2e-v1",
       plan_set_id: sameProjectPlanSetId,
       created_by: users.engineer.userId,
+      preparation_snapshot: preparationSnapshot,
     });
   await assertNoError("insert same-project plan-set takeoff job", sameProjectPlanJobError);
   trackRow("takeoff_jobs", sameProjectPlanJobId);
@@ -2215,6 +2261,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
   }
 
   const rollbackJobId = randomUUID();
+  preparationSnapshot = await seedPreparation([uploadSource]);
   const { error: rollbackInsertError } = await engineerClient
     .from("takeoff_jobs")
     .insert({
@@ -2227,6 +2274,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
       source_file_path: `${seedContext.tenantId}/${rollbackJobId}/rls-fixture.csv`,
       prompt_version: "rls-e2e-v1",
       created_by: users.engineer.userId,
+      preparation_snapshot: preparationSnapshot,
     });
   await assertNoError("insert rollback takeoff job", rollbackInsertError);
   trackRow("takeoff_jobs", rollbackJobId);
@@ -2316,6 +2364,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
         source_file_path: `${seedContext.tenantId}/${budgetJobId}/rls-fixture.csv`,
         prompt_version: "rls-e2e-v1",
         created_by: users.engineer.userId,
+        preparation_snapshot: preparationSnapshot,
       });
     if (budgetInsertError) {
       if (
