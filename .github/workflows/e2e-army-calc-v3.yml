@@ -18,11 +18,14 @@ on:
           - numeric
           - resume
           - access
-          - offers
+          - offers-zero-price
+          - offers-purchase-unit
           - emission
           - emission-v3
           - resend-portal
-          - source-coverage
+          - source-coverage-decisions
+          - source-coverage-edits
+          - source-coverage-recovery
           - generated-atomic
           - generated-recovery
           - navigation-lease

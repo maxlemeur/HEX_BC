@@ -4,16 +4,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS, isCalcV3Phase, type CalcV3Phase } from "./calc-v3-phases.ts";
+import { SOURCE_COVERAGE_PHASES } from "./coverage-phases.ts";
 import { buildSourceGraph, listRepositoryFiles, loadImpactMap, matchesAny, reverseClosure } from "./select-journeys.ts";
 
 export type CalcSelection = { phases: (CalcV3Phase | "all")[]; reason: string; changedPaths: string[] };
 const all = (reason: string, changedPaths: string[] = []): CalcSelection => ({ phases: [...CALC_V3_PHASES], reason, changedPaths });
 const rules: { paths: string[]; phases: CalcV3Phase[] }[] = [
-  { paths: ["src/**/generated-ouvrage*", "src/**/generated-ouvrage*/**", "src/**/GeneratedOuvrage*", "src/**/estimate-generation*"], phases: ["components", "numeric", "resume", "access", "generated-atomic", "generated-recovery", "assembly-totals", "source-coverage"] },
-  { paths: ["src/**/source-coverage*", "src/**/source-review/**", "src/**/SourceCoverage*", "src/**/source-requirement*", "e2e/fixtures/source-coverage/**"], phases: ["source-coverage"] },
+  { paths: ["src/**/generated-ouvrage*", "src/**/generated-ouvrage*/**", "src/**/GeneratedOuvrage*", "src/**/estimate-generation*"], phases: ["components", "numeric", "resume", "access", "generated-atomic", "generated-recovery", "assembly-totals", ...SOURCE_COVERAGE_PHASES] },
+  { paths: ["src/**/source-coverage*", "src/**/source-review/**", "src/**/SourceCoverage*", "src/**/source-requirement*", "e2e/fixtures/source-coverage/**"], phases: [...SOURCE_COVERAGE_PHASES] },
   { paths: ["src/**/draft-lock*", "src/**/useEstimateDraftLock*", "src/**/useEstimateBatch*", "src/**/batch-operations*"], phases: ["journeys", "navigation-lease", "batch-client", "generated-atomic", "generated-recovery", "resume"] },
   { paths: ["src/**/email*", "src/**/portal*", "src/**/resend*", "src/**/send-route*", "src/**/send/**", "src/**/pdf*", "src/**/pdf/**", "src/**/Portal*"], phases: ["emission", "emission-v3", "resend-portal"] },
-  { paths: ["src/**/supplier-offer*", "src/**/supplier-pric*", "src/**/SupplierOffer*"], phases: ["offers"] },
+  { paths: ["src/**/supplier-offer*", "src/**/supplier-pric*", "src/**/SupplierOffer*"], phases: ["offers-zero-price", "offers-purchase-unit"] },
 ];
 
 export function selectCalcV3(root: string, paths: string[]): CalcSelection {

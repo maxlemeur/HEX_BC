@@ -5,7 +5,7 @@
 
 import { COVERAGE_PHASE_DEFINITIONS, COVERAGE_PHASES } from "./coverage-phases.ts";
 
-export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers", "emission", "emission-v3", "resend-portal", ...COVERAGE_PHASES] as const;
+export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers-zero-price", "offers-purchase-unit", "emission", "emission-v3", "resend-portal", ...COVERAGE_PHASES] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
 
 /** The developers' long-running local recipe stack (API 45585, DB 33485): never a calc-v3 target. */
@@ -102,13 +102,20 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     maxDuration: 900_000,
   },
   // Sub-lots 2.2 (A7, P-08) and 2.9 (P-18): zero-priced supplier offers, units and purchase units,
-  // on catalogue records seeded for this phase only (docs/testing/estimate-engine-v3-2.2.md, -2.9.md).
-  offers: {
+  // on catalogue records seeded for each phase (docs/testing/estimate-engine-v3-2.2.md, -2.9.md).
+  // One phase per file, so the two run in parallel jobs.
+  "offers-zero-price": {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts", "e2e/army/local/supplier-offer-purchase-unit.e2e.ts"],
+    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 4,
-      "e2e/army/local/supplier-offer-purchase-unit.e2e.ts": 5 },
+    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 4 },
+    maxDuration: 1_200_000,
+  },
+  "offers-purchase-unit": {
+    serverMode: "production",
+    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-purchase-unit.e2e.ts"],
+    setupTitle: CRITICAL_SETUP_TITLE,
+    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-purchase-unit.e2e.ts": 5 },
     maxDuration: 1_200_000,
   },
   emission: {

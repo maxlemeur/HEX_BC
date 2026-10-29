@@ -10,7 +10,7 @@ import {
 import { expectStoredTotalsMatchLines } from "../critical/version-totals-support";
 
 // Sub-lot 2.2 (A7, P-08). Contract written before the fix: docs/testing/estimate-engine-v3-2.2.md.
-// Failure modes exposed here, on catalogue records seeded for the calc-v3 "offers" phase:
+// Failure modes exposed here, on catalogue records seeded for the calc-v3 "offers-zero-price" phase:
 // - an unmarked 0 € offer wins the best price, is preselected, heads the suggestion popover
 //   or is applied from the article sheet (the line is priced 0 €);
 // - the popover writes the article designation into the line unit;
@@ -59,7 +59,7 @@ async function loadFixture(): Promise<Fixture> {
   const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
   if (fixture.schemaVersion !== "calc-v3-supplier-offers-1" || fixture.status !== "ready" ||
     !fixture.prefix.startsWith("ARMY-OZ-") || fixture.apiUrl !== process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error("Supplier-offer fixture differs from the calc-v3 offers profile.");
+    throw new Error("Supplier-offer fixture differs from the calc-v3 offers-zero-price profile.");
   }
   return fixture;
 }

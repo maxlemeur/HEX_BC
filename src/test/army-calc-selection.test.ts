@@ -13,7 +13,7 @@ describe("calc-v3 impact selection", () => {
   it("selects the directly changed journey, including formerly manual and mobile ones", () => {
     expect(selectCalcV3(root, ["e2e/army/local/mobile-journeys.e2e.ts"]).phases).toEqual(["mobile"]);
     expect(selectCalcV3(root, ["e2e/army/local/estimate-generated-atomic.e2e.ts"]).phases).toContain("generated-atomic");
-    expect(selectCalcV3(root, ["e2e/army/local/source-coverage-support.ts"]).phases).toContain("source-coverage");
+    expect(selectCalcV3(root, ["e2e/army/local/source-coverage-support.ts"]).phases).toEqual(expect.arrayContaining(["source-coverage-decisions", "source-coverage-edits", "source-coverage-recovery"]));
   });
   it("keeps scheduled, explicit and unprovable PR plans fail closed", () => {
     expect(planCalcV3(root, { NODE_ENV: "test", EVENT_NAME: "schedule" }).phases).toEqual(CALC_V3_PHASES);

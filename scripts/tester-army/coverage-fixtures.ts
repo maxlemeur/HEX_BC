@@ -4,7 +4,7 @@ import {
   type CalcV3FixtureContext, type CalcV3PhaseFixtures, type PlanRecord,
 } from "./calc-v3-fixtures";
 import { installGeneratedAtomicFault, readGeneratedAtomicFault } from "./coverage-native-fault";
-import type { CoveragePhase } from "./coverage-phases";
+import { SOURCE_COVERAGE_PHASES, type CoveragePhase } from "./coverage-phases";
 import { ensureSourceReferenceBucket } from "./storage-fixtures";
 
 const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
@@ -100,7 +100,7 @@ async function sourceCoverageFixtures(context: CalcV3FixtureContext, campaign: s
 
 export async function prepareCoverageFixtures(phase: CoveragePhase, context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
   if (phase === "mobile") return { env: {}, secretEnv: {}, identities: { owner: context.owner, viewport: "390x844" } };
-  if (phase === "source-coverage") return sourceCoverageFixtures(context, campaign);
+  if ((SOURCE_COVERAGE_PHASES as readonly string[]).includes(phase)) return sourceCoverageFixtures(context, campaign);
   if (phase === "generated-atomic" || phase === "generated-recovery") return generatedFixtures(context, campaign, phase === "generated-recovery");
   if (phase === "assembly-totals") return componentsFixtures(context, campaign, "assembly-totals");
   return journeysFixtures(context, campaign);

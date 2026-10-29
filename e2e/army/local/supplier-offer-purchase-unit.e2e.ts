@@ -9,7 +9,7 @@ import {
 } from "../critical/fixtures";
 
 // Sub-lot 2.9 (P-18). Contract written before the fix: docs/testing/estimate-engine-v3-2.9.md.
-// Failure modes exposed here, on the catalogue records of the calc-v3 "offers" phase:
+// Failure modes exposed here, on the catalogue records of the calc-v3 "offers-purchase-unit" phase:
 // - the offer form cannot declare a bar of 3 m (estimate unit, quantity per purchase unit, rounding);
 // - an offer sold by the bar is refused for a line in linear metres, or prices it per bar;
 // - an order counts metres at the metre price instead of whole bars at the bar price, ignores the
@@ -44,7 +44,7 @@ async function loadFixture(): Promise<Fixture> {
   const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
   if (fixture.schemaVersion !== "calc-v3-supplier-offers-1" || fixture.status !== "ready" ||
     !fixture.prefix.startsWith("ARMY-OZ-") || fixture.apiUrl !== process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error("Supplier-offer fixture differs from the calc-v3 offers profile.");
+    throw new Error("Supplier-offer fixture differs from the calc-v3 offers-purchase-unit profile.");
   }
   return fixture;
 }

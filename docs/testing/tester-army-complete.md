@@ -38,7 +38,7 @@ ou absent du rapport ne vaut jamais un succès. Aucun retry automatique n'est aj
 | Accès | `business-lifecycle` | Révocation d'une adhésion dédiée pendant session active et déconnexion |
 | Reprise d'ouvrages | `resume` | Neuf cas, y compris réponses perdues, état obsolète et erreurs ; aucune exclusion historique |
 | Émission | `emission`, `emission-v3`, `resend-portal` | PDF exact, outbox, idempotence, rejet, incident transitoire, résultat indéterminé/réconciliation, expiration et concurrence portail |
-| CCTP | `source-coverage` | Deux vrais PDF fictifs en Storage, hash relu, décisions et chiffrage produits dans le parcours |
+| CCTP | `source-coverage-decisions`, `source-coverage-edits`, `source-coverage-recovery` | Deux vrais PDF fictifs en Storage, hash relu, décisions et chiffrage produits dans le parcours |
 | Atomicité/reprise | `generated-atomic`, `generated-recovery`, `navigation-lease`, `batch-client`, `assembly-totals` | Prérequis autonomes ; aucun résultat final préinséré |
 | Import | `import-format-completion` (XLS/PDF), `dpgf-import` (CSV), `import-optima-v2` (XLSX) | Confirmation et valeurs persistées ; binaire XLS BIFF8 et provenance PDF |
 | Dossier | `intake-dossier` | Téléversement, repli de classification sans provider, reclassification manuelle, document principal et brief |

@@ -33,7 +33,7 @@ campagne. Un run filtré conserve sa portée et ne vaut pas campagne complète.
 | `numeric` | Saisie numérique des composants |
 | `resume` | Reprise, pagination, absence d'insertion indue, unité et exports : GR02, GR04, GR06, GR08 |
 | `access` | Refus de reprise après archivage/rétrogradation du propriétaire dédié |
-| `offers` | Prix fournisseur nul et unité d'achat, avec fixtures catalogue dédiées |
+| `offers-zero-price`, `offers-purchase-unit` | Prix fournisseur nul et unité d'achat, une phase chacun avec ses fixtures catalogue dédiées |
 | `emission` | Émission historique, fichiers réellement reçus par le collecteur local |
 | `emission-v3` | Émission et document v3, témoin v2, approbation et refus d'unité manquante |
 

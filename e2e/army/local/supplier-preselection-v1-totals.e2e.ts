@@ -8,7 +8,7 @@ import { assertOwnedLocalBackend, createdData, insertLegacyV1Draft, type Envelop
 
 // Stored version totals after a supplier preselection on a legacy V1 draft, in a suite a CI
 // workflow runs (docs/testing/version-totals-after-preselection.md, T2). OZ04 asserts the same
-// path in the calc-v3 "offers" phase, which no workflow runs; the critical P1 journey is the V2
+// path in the calc-v3 "offers-zero-price" phase; the critical P1 journey is the V2
 // guard. The public creation schema only makes V2 drafts, so the V1 draft is inserted in SQL by
 // the native owner of the owned stack, as engine-v3-fail-closed does for v3. The preselection is
 // in Expert mode only, and the UI mode is stored on the account's profile: the journey runs as its
