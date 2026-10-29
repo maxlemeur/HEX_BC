@@ -237,6 +237,7 @@ export type AffaireIntakeWorkspace = {
     documentId: string;
     fileName: string;
     uploadStatus?: AffaireIntakeDocumentUploadStatus;
+    mimeType?: string | null;
     isBeingDeleted?: boolean;
     driveSource?: DriveProvenance;
     sizeBytes?: number;
@@ -1216,7 +1217,7 @@ export async function readAffaireIntakeDpgfFile(projectId: string, documentId: s
   return new File([blob], document.file_name, { type: document.mime_type ?? blob.type });
 }
 
-async function requireAffaireProjectReadAccess(
+export async function requireAffaireProjectReadAccess(
   projectId: string
 ): Promise<{
   context: AuthenticatedContext;
@@ -3130,6 +3131,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     documentId: document.id,
     fileName: document.file_name,
     uploadStatus: document.upload_status,
+    mimeType: document.mime_type,
     isBeingDeleted: Boolean(document.deletion_token),
     driveSource: document.drive_file_id ? driveProvenance({ ...document, drive_file_id: document.drive_file_id }) : undefined,
     sizeBytes: document.size_bytes,
@@ -3388,6 +3390,10 @@ export async function reclassifyAffaireDocument(input: {
     throw notFound("Document intake introuvable.");
   }
 
+  if (document.upload_status !== "uploaded" || document.classification_status === "queued" || document.classification_status === "processing") {
+    throw conflict("Ce document n’est pas encore disponible pour le classement. Actualisez le dossier.");
+  }
+
   const classificationStatus = deriveAffaireIntakeClassificationStatus({
     documentKind: input.category,
     confidence: input.category === "a_classer" ? 0.4 : 1,
@@ -3404,7 +3410,8 @@ export async function reclassifyAffaireDocument(input: {
       ? addIssue(document.issues, "Document remis manuellement dans la file à classer.")
       : document.issues;
 
-  const { error: updateError } = await resolveSupabaseQuery<{
+  const { data: updatedDocument, error: updateError } = await resolveSupabaseQuery<{
+    data: { id: string } | null;
     error: unknown;
   }>(
     context.supabase
@@ -3420,6 +3427,12 @@ export async function reclassifyAffaireDocument(input: {
         manually_overridden_at: new Date().toISOString(),
       } as never)
       .eq("id", document.id)
+      .eq("tenant_id", context.tenantId)
+      .eq("project_id", project.id)
+      .eq("upload_status", "uploaded")
+      .in("classification_status", ["classified", "ambiguous", "failed"])
+      .is("deleted_at", null).is("deletion_token", null)
+      .select("id" as never).maybeSingle()
   );
 
   if (updateError) {
@@ -3428,6 +3441,7 @@ export async function reclassifyAffaireDocument(input: {
       updateError
     );
   }
+  if (!updatedDocument) throw conflict("Le document a changé ou n’est plus disponible. Actualisez le dossier.");
 
   await syncAffaireIntakeDocumentPriorities({
     supabase: context.supabase,

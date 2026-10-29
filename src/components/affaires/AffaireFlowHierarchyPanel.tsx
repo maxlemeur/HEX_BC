@@ -776,7 +776,7 @@ function ResultCard({
                       <div className={`text-micro font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                         {item.label}
                       </div>
-                      <p className="mt-2 truncate text-sm font-semibold text-foreground" title={item.title}>
+                      <p className="mt-2 line-clamp-2 break-all text-sm font-semibold text-foreground" title={item.title}>
                         {item.title}
                       </p>
                       {item.subtitle ? (
@@ -794,10 +794,21 @@ function ResultCard({
                         <div className={`text-micro font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                           {item.label}
                         </div>
-                        <p className="mt-2 truncate text-sm font-semibold text-foreground" title={item.title}>
+                        <p className="mt-2 line-clamp-2 break-all text-sm font-semibold text-foreground" title={item.title}>
                           {item.title}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">{item.subtitle}</p>
+                        {reviewDocs[0]?.driveSource && (
+                          <a
+                            href={reviewDocs[0].driveSource.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`Ouvrir ${reviewDocs[0].fileName} dans Google Drive`}
+                            className="mt-2 inline-block text-xs font-medium text-primary underline"
+                          >
+                            Ouvrir dans Drive
+                          </a>
+                        )}
                       </div>
                     ))}
                     <div className="mt-3 flex h-8 w-px flex-col items-center justify-center bg-white/30">
@@ -979,7 +990,7 @@ function ResultCard({
                       </div>
                       {!(card.kind === "missing" && item.isMissing) ? (
                         <>
-                          <p className="mt-2 truncate text-sm font-semibold text-foreground" title={item.title}>
+                          <p className="mt-2 line-clamp-2 break-all text-sm font-semibold text-foreground" title={item.title}>
                             {item.title}
                           </p>
                           {item.subtitle ? (

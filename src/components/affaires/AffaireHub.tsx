@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
@@ -461,6 +461,7 @@ export function AffaireHub({
   viewerProfileId,
 }: AffaireHubProps) {
   const router = useRouter();
+  const documentSearchParams = useSearchParams();
   const toast = useToast();
   const { isExpert } = useUiMode();
   const currentVersionId = summary.currentVersion?.id ?? null;
@@ -839,16 +840,22 @@ export function AffaireHub({
     (result: ConfirmUnifiedImportFlowResult) => {
       setShowImportFlow(false);
       setImportResult(result);
+      const params = new URLSearchParams(window.location.search);
+      params.set("view", "overview");
+      router.push(`/dashboard/affaires/${summary.project.id}?${params}#dpgf`);
       router.refresh();
     },
-    [router],
+    [router, summary.project.id],
   );
+
+  const hasDossierDocuments = (intakeWorkspace?.documents.length ?? 0) > 0;
 
   return (
     <div className="animate-fade-in">
       {intakeWorkspace?.canManageDocuments && intakeWorkspace.uploadId && !isReadOnlyReview ? (
         <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) router.refresh(); }} />
       ) : null}
+      {hasDossierDocuments && !showImportFlow && <div className="mb-3"><Button variant="outline" onClick={() => { const params = new URLSearchParams(documentSearchParams.toString()); params.set("view", "documents"); router.push(`/dashboard/affaires/${summary.project.id}?${params}`); }}>Ouvrir les documents</Button></div>}
       {/* Breadcrumb + edit actions (portal target while the fiche is edited) */}
       {!isReadOnlyReview ? (
         <div className="mb-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">

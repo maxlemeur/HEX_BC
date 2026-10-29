@@ -1005,6 +1005,147 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake/files/{documentId}/preview": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Ouvrir une pièce active du dossier",
+        "description": "Lecture privée sans cache, autorisée pour le lecteur de l’affaire dans son tenant actif. Les octets proviennent du stockage privé ou du compte Drive ayant lié la pièce. Les PDF, images PNG/JPEG/WebP et textes sont affichables ; les autres formats sont uniquement téléchargeables. Les pièces supprimées, en suppression ou non déposées sont refusées. Aucun jeton ni chemin Storage n’est exposé.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PreviewAffaireIntakeDocumentProjectIdParameter"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "Identifiant UUID de la pièce du dossier.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PreviewAffaireIntakeDocumentDocumentIdParameter"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "description": "Forcer le téléchargement du fichier au lieu de l’aperçu.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/PreviewAffaireIntakeDocumentDownloadParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenu binaire de la pièce, avec Content-Disposition inline ou attachment, Cache-Control private/no-store et X-Content-Type-Options nosniff.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/intake/google-drive": {
       "get": {
         "tags": [
@@ -23795,6 +23936,20 @@
             "additionalProperties": false
           }
         ]
+      },
+      "PreviewAffaireIntakeDocumentProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "PreviewAffaireIntakeDocumentDocumentIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "PreviewAffaireIntakeDocumentDownloadParameter": {
+        "type": "string",
+        "const": "1"
       },
       "ReadAffaireGoogleDriveProjectIdParameter": {
         "type": "string",

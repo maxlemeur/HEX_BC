@@ -59,6 +59,8 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
   const [listing, setListing] = useState<DriveListing>();
   const [trail, setTrail] = useState<DriveFile[]>([]);
   const [selected, setSelected] = useState<Choice[]>([]);
+  const [folderSelections, setFolderSelections] = useState<Record<string, { ids: string[]; complete: boolean }>>({});
+  const [manualIds, setManualIds] = useState<string[]>([]);
   const [results, setResults] = useState<DriveLinkResult[]>([]);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
@@ -146,7 +148,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     if (busy) return;
     generation.current++;
     controller.current?.abort();
-    setOpen(false); setListing(undefined); setSelected([]); setResults([]); setTrail([]); setMessage(""); setNotice("");
+    setOpen(false); setListing(undefined); setSelected([]); setFolderSelections({}); setManualIds([]); setResults([]); setTrail([]); setMessage(""); setNotice("");
     const uploadId = [...completedUploads.current].at(-1);
     completedUploads.current.clear();
     if (uploadId) onUploadComplete(uploadId);
@@ -172,7 +174,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     if (!account) return;
     const { revoked, stillUsed } = await post<{ revoked: boolean; stillUsed: boolean | null }>({ action: "disconnect", connectionId: account.id, grantVersion: account.grantVersion });
     generation.current++;
-    setListing(undefined); setTrail([]); setSelected([]); setConnectionId(undefined);
+    setListing(undefined); setTrail([]); setSelected([]); setFolderSelections({}); setManualIds([]); setConnectionId(undefined);
     setNotice(revoked ? `Compte ${account.email} retiré. Les fichiers déjà liés restent dans l'affaire.`
       : stillUsed ? `Compte ${account.email} retiré. Il reste connecté ailleurs dans MergeOne : son accès Google n'est pas révoqué.`
       : `Compte ${account.email} retiré de MergeOne. Révoquer MergeOne dans Google peut aussi couper les autres connexions de ce compte à l’application.`);
@@ -210,6 +212,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     if (!mounted.current || abort?.signal.aborted || current !== generation.current) return;
     setResults(fresh);
     setSelected(files.filter(({ file }) => fresh.some((result) => result.fileId === file.id && result.status === "failed")));
+    setFolderSelections({}); setManualIds([]);
     onRefresh?.();
     await refreshState();
   }
@@ -223,8 +226,59 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
   const currentFolder = listing?.location.kind === "folder" && listing.location.folderId !== "root" ? listing.folder : undefined;
   const isAffaireFolder = Boolean(currentFolder && state?.folder?.folderId === currentFolder.id);
   function toggle(file: DriveFile) {
-    setSelected((prior) => prior.some((item) => item.file.id === file.id) ? prior.filter((item) => item.file.id !== file.id)
-      : [...prior, { file, folder: currentFolder ? { id: currentFolder.id, name: currentFolder.name } : undefined }]);
+    const chosen = selected.some((item) => item.file.id === file.id);
+    const next = chosen ? selected.filter((item) => item.file.id !== file.id)
+      : [...selected, { file, folder: currentFolder ? { id: currentFolder.id, name: currentFolder.name } : undefined }];
+    setSelected(next);
+    setManualIds((prior) => chosen ? prior.filter((id) => id !== file.id) : [...prior, file.id]);
+    const ids = new Set(next.map((item) => item.file.id));
+    setFolderSelections((prior) => Object.fromEntries(Object.entries(prior).map(([id, group]) => [id,
+      { ...group, complete: group.ids.every((fileId) => ids.has(fileId)) }])));
+  }
+  async function selectFolder(folderId: string, name: string) {
+    if (!connectionId) return;
+    const previous = folderSelections[folderId];
+    if (previous?.complete) {
+      const retained = new Set([...manualIds, ...Object.entries(folderSelections).filter(([id]) => id !== folderId).flatMap(([, group]) => group.ids)]);
+      const next = selected.filter(({ file }) => !previous.ids.includes(file.id) || retained.has(file.id));
+      setSelected(next);
+      const ids = new Set(next.map((item) => item.file.id));
+      setFolderSelections((prior) => Object.fromEntries(Object.entries(prior).filter(([id]) => id !== folderId)
+        .map(([id, group]) => [id, { ...group, complete: group.ids.every((fileId) => ids.has(fileId)) }])));
+      setNotice(`Sélection du dossier « ${name} » retirée.`);
+      return;
+    }
+    const pending = [folderId];
+    const visited = new Set<string>();
+    const found = new Map<string, Choice>();
+    let ignored = 0;
+    let pages = 0;
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      let pageToken: string | undefined;
+      const tokens = new Set<string>();
+      do {
+        if (++pages > 1000) throw new Error("Ce dossier est trop volumineux pour être parcouru en une fois. Sélectionnez ses sous-dossiers séparément.");
+        const page = await list(connectionId, { kind: "folder", folderId: id }, pageToken, controller.current?.signal);
+        for (const file of page.files) {
+          const target = folderTarget(file);
+          if (target) pending.push(target);
+          else if (driveFileRejection(file)) ignored++;
+          else if (!linkedIds.has(file.id)) found.set(file.id, { file, folder: page.folder ? { id: page.folder.id, name: page.folder.name } : undefined });
+        }
+        pageToken = page.nextPageToken;
+        if (pageToken && tokens.has(pageToken)) throw new Error("La pagination Drive a été interrompue. Réessayez.");
+        if (pageToken) tokens.add(pageToken);
+      } while (pageToken);
+    }
+    const merged = new Map(selected.map((choice) => [choice.file.id, choice]));
+    for (const [id, choice] of found) merged.set(id, choice);
+    setSelected([...merged.values()]);
+    setFolderSelections((prior) => ({ ...Object.fromEntries(Object.entries(prior).map(([id, group]) => [id,
+      { ...group, complete: group.ids.every((fileId) => merged.has(fileId)) }])), [folderId]: { ids: [...found.keys()], complete: true } }));
+    setNotice(`Dossier « ${name} » parcouru, sous-dossiers compris. ${found.size} fichier(s) disponible(s)${ignored ? ` ; ${ignored} fichier(s) ignoré(s) car non pris en charge` : ""}.`);
   }
   const navigation = (label: string, location: DriveLocation, icon: React.ReactNode, active: boolean) => <button type="button" className={`mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${active ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted"}`} disabled={busy} onClick={() => void run(() => loadLocation(location))}>{icon}<span className="truncate">{label}</span></button>;
   return <>
@@ -252,18 +306,23 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
                 {navigation("Drives partagés", { kind: "shared_drives" }, <FolderIcon size={15} aria-hidden="true" />, listing.location.kind === "shared_drives")}
                 {trail.map((folder) => <button key={folder.id} type="button" className={`mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 pl-5 text-left text-xs ${folder.id === listing.folder?.id ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted"}`} disabled={busy} onClick={() => void run(() => loadLocation({ kind: "folder", folderId: folder.id }))}><FolderOpenIcon size={15} aria-hidden="true" /><span className="truncate">{folder.name}</span></button>)}
               </aside>
-              <div className="min-w-0 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 ref={folderHeading} tabIndex={-1} className="text-sm font-semibold outline-none">Dossier ouvert : {locationTitle(listing)}</h3><div className="flex flex-wrap gap-2">{currentFolder?.parents?.[0] && <button type="button" className="text-xs text-primary" disabled={busy} onClick={() => void run(() => loadLocation({ kind: "folder", folderId: currentFolder.parents![0] }))}><ArrowLeftIcon size={14} aria-hidden="true" />Retour au dossier parent</button>}<button type="button" className="text-xs text-primary" disabled={busy} onClick={() => void run(() => loadLocation(listing.location))}><RefreshCwIcon size={14} aria-hidden="true" />Actualiser</button>{currentFolder && (isAffaireFolder ? <Badge variant="neutral">Dossier de l’affaire</Badge> : <button type="button" className="text-xs text-primary underline" disabled={busy} onClick={() => void run(linkFolder)}>Lier ce dossier à l’affaire</button>)}</div></div>
+              <div className="min-w-0 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 ref={folderHeading} tabIndex={-1} className="text-sm font-semibold outline-none">Dossier ouvert : {locationTitle(listing)}</h3><div className="flex flex-wrap gap-2">{currentFolder?.parents?.[0] && <button type="button" className="text-xs text-primary" disabled={busy} onClick={() => void run(() => loadLocation({ kind: "folder", folderId: currentFolder.parents![0] }))}><ArrowLeftIcon size={14} aria-hidden="true" />Retour au dossier parent</button>}<button type="button" className="text-xs text-primary" disabled={busy} onClick={() => void run(() => loadLocation(listing.location))}><RefreshCwIcon size={14} aria-hidden="true" />Actualiser</button>{currentFolder && <button type="button" className="text-xs text-primary underline" disabled={busy} onClick={() => void run(() => selectFolder(currentFolder.id, currentFolder.name))}>{folderSelections[currentFolder.id]?.complete ? "Retirer ce dossier de la sélection" : "Sélectionner tout ce dossier"}</button>}{currentFolder && (isAffaireFolder ? <Badge variant="neutral">Dossier de l’affaire</Badge> : <button type="button" className="text-xs text-primary underline" disabled={busy} onClick={() => void run(linkFolder)}>Lier ce dossier à l’affaire</button>)}</div></div>
                 <p role="status" className="mb-3 text-xs text-muted-foreground">{loadingFolder ? "Chargement du dossier…" : `Contenu affiché : ${folderCount} ${folderCount === 1 ? "dossier" : "dossiers"} · ${fileCount} ${fileCount === 1 ? "fichier" : "fichiers"}.`}</p>
+                <p className="mb-3 text-xs text-muted-foreground">Cochez plusieurs dossiers ou fichiers. Chaque dossier choisi inclut ses sous-dossiers ; les cases des dossiers indiquent les choix faits directement.</p>
                 <label className="mb-3 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-muted-foreground"><SearchIcon size={14} aria-hidden="true" /><input className="min-w-0 flex-1 bg-transparent text-xs outline-none" aria-label="Rechercher dans le dossier Drive" placeholder="Rechercher dans ce dossier" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
                 <ul aria-label="Pièces du dossier Google Drive" aria-busy={loadingFolder}>{listing.files.filter((file) => file.name.toLocaleLowerCase("fr").includes(search.toLocaleLowerCase("fr"))).map((file) => {
                   const target = folderTarget(file);
-                  if (target) return <li key={file.id} className="border-b border-border-subtle"><button type="button" className="flex w-full items-center gap-3 p-3 text-left text-sm text-primary hover:bg-muted" disabled={busy} onClick={() => void run(() => loadLocation({ kind: "folder", folderId: target }))}><FolderIcon size={19} aria-hidden="true" />Ouvrir le dossier {file.name}<ArrowRightIcon className="ml-auto" size={14} aria-hidden="true" /></button></li>;
+                  if (target) {
+                    const group = folderSelections[target];
+                    const partial = Boolean(group && !group.complete && group.ids.some((id) => selected.some((choice) => choice.file.id === id)));
+                    return <li key={file.id} className="flex items-center border-b border-border-subtle"><input type="checkbox" className="ml-3" aria-label={`Sélectionner le dossier ${file.name}`} aria-checked={partial ? "mixed" : Boolean(group?.complete)} ref={(input) => { if (input) input.indeterminate = partial; }} checked={Boolean(group?.complete)} disabled={busy} onChange={() => void run(() => selectFolder(target, file.name))} /><button type="button" className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left text-sm text-primary hover:bg-muted" disabled={busy} onClick={() => void run(() => loadLocation({ kind: "folder", folderId: target }))}><FolderIcon size={19} aria-hidden="true" />Ouvrir le dossier {file.name}<ArrowRightIcon className="ml-auto" size={14} aria-hidden="true" /></button></li>;
+                  }
                   const rejection = driveFileRejection(file); const chosen = selected.some((item) => item.file.id === file.id);
                   const linked = linkedIds.has(file.id);
                   return <li key={file.id} className={`border-b border-border-subtle p-3 ${chosen ? "bg-primary/5" : ""}`}><label className="flex items-center gap-3"><input type="checkbox" aria-label={`Sélectionner ${file.name}`} checked={chosen} disabled={busy || linked || Boolean(rejection)} onChange={() => toggle(file)} /><FileTextIcon size={19} className="shrink-0 text-muted-foreground" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block break-all text-xs font-medium">{file.name}</span><span className="text-micro text-muted-foreground">{fileSize(file)}</span></span>{linked && <Badge variant="neutral">Déjà lié</Badge>}</label>{rejection && !linked && <p className="mt-1 pl-7 text-xs text-warning">{rejection}</p>}{orphanIds.has(file.id) && !rejection && <p className="mt-1 pl-7 text-xs text-muted-foreground">Déjà lié, sans compte Google : sélectionnez-le pour le rattacher à ce compte.</p>}</li>;
                 })}</ul>{listing.files.length === 0 && <p className="py-8 text-center text-muted-foreground">Ce dossier est vide.</p>}{listing.nextPageToken && <button type="button" className="btn btn-secondary mt-3" disabled={busy} onClick={() => void run(() => loadLocation(listing.location, true))}>Afficher la suite</button>}
               </div>
-            </div><div className="flex flex-wrap justify-between gap-2 border-t border-border bg-surface-subtle px-5 py-3 text-xs"><p><strong>{selected.length} fichier(s) sélectionné(s)</strong><span className="mt-1 block text-micro text-muted-foreground">La sélection est conservée entre les dossiers.</span></p><button type="button" disabled={busy} className="text-primary underline" onClick={() => setSelected([])}>Annuler la sélection</button></div>
+            </div><div className="flex flex-wrap justify-between gap-2 border-t border-border bg-surface-subtle px-5 py-3 text-xs"><p><strong>{selected.length} fichier(s) sélectionné(s)</strong><span className="mt-1 block text-micro text-muted-foreground">La sélection est conservée entre les dossiers.</span></p><button type="button" disabled={busy} className="text-primary underline" onClick={() => { setSelected([]); setFolderSelections({}); setManualIds([]); }}>Annuler la sélection</button></div>
           </>}
           <p className="px-5 py-3 text-xs leading-5 text-muted-foreground">En liant une pièce, vous autorisez sa lecture et son classement pour cette affaire. Ses données sont partagées avec les membres habilités de l’entreprise et peuvent être envoyées au fournisseur d’IA configuré. <Link className="text-primary underline" href="/confidentialite">Confidentialité et traitement des documents</Link>.</p>
           {results.length > 0 && <div className="space-y-3 p-5"><h3 className="font-semibold">{results.some((result) => result.status === "failed") ? "Liens enregistrés avec des fichiers à reprendre" : "Vos fichiers sont liés à l’affaire"}</h3><ul aria-live="polite">{results.map((result) => <li key={result.fileId} className="flex items-start gap-3 border-b border-border-subtle py-3">{result.status === "failed" ? <TriangleAlertIcon className="shrink-0 text-warning" size={17} aria-hidden="true" /> : <CircleCheckIcon className="shrink-0 text-success" size={17} aria-hidden="true" />}<span className="min-w-0 break-all text-xs">{result.name} : {result.message}</span></li>)}</ul><p className="text-xs text-muted-foreground">Les DPGF restent à prévisualiser et à confirmer avant toute création de lignes de chiffrage.</p><div className="flex flex-wrap gap-2">{selected.length > 0 && <button type="button" className="btn btn-secondary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Reprendre les fichiers en échec</button>}<button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setResults([]); setSelected([]); }}>Lier d’autres fichiers</button></div></div>}
@@ -272,7 +331,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
           {busy && !loadingFolder && <p role="status" className="px-5 py-3 text-sm text-primary">Opération en cours…</p>}
           {open && state && state.links.length > 0 && <details className="mx-5 mb-4 rounded-lg border border-border p-3 text-xs"><summary className="cursor-pointer font-medium">Fichiers Drive liés à l’affaire</summary><ul className="mt-3 space-y-3">{state.links.map(({ documentId, source }) => <li key={documentId}><a href={source.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{source.sourceName}</a>{source.revision && <> · révision {source.revision}</>}<p className="mt-1 text-muted-foreground">Lié le {new Date(source.linkedAt).toLocaleString("fr-FR")}{source.folderName && <> · dossier {source.folderName}</>}</p></li>)}</ul></details>}
         </div>
-        <div className="border-t border-border px-5 py-3"><p className="mb-3 flex gap-2 text-micro text-muted-foreground"><ShieldCheckIcon size={14} className="shrink-0" aria-hidden="true" />PDF, PNG/JPEG/WebP, TXT, CSV, EML, XLS/XLSX, DOC/DOCX · 50 Mo / fichier · 20 fichiers par lien. Le fichier reste dans Drive ; une copie de travail peut être conservée pour le métré ou l’import DPGF. Google Docs/Sheets/Slides exclus.</p>{selected.length > DRIVE_MAX_FILES && <p role="alert" className="mb-2 text-xs text-warning">Réduisez la sélection à 20 fichiers.</p>}<div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={close}>{results.length ? "Voir les documents de l’affaire" : "Fermer"}</button>{listing && results.length === 0 && <button type="button" className="btn btn-primary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Lier à l’affaire<ArrowRightIcon size={14} aria-hidden="true" /></button>}</div></div>
+        <div className="border-t border-border px-5 py-3"><p className="mb-3 flex gap-2 text-micro text-muted-foreground"><ShieldCheckIcon size={14} className="shrink-0" aria-hidden="true" />PDF, PNG/JPEG/WebP, TXT, CSV, EML, XLS/XLSX, DOC/DOCX · 50 Mo / fichier · 20 fichiers par lien. Le fichier reste dans Drive ; une copie de travail peut être conservée pour le métré ou l’import DPGF. Google Docs/Sheets/Slides exclus.</p>{selected.length > DRIVE_MAX_FILES && <p role="alert" className="mb-2 text-xs text-warning">Réduisez la sélection à 20 fichiers avant de la lier.</p>}<div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={close}>{results.length ? "Voir les documents de l’affaire" : "Fermer"}</button>{listing && results.length === 0 && <button type="button" className="btn btn-primary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Lier à l’affaire<ArrowRightIcon size={14} aria-hidden="true" /></button>}</div></div>
       </DialogContent>
     </Dialog>
   </>;

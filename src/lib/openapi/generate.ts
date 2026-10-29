@@ -202,6 +202,9 @@ function buildResponse(
       if (
         !entry.schema &&
         (entry.contentType === "application/pdf" ||
+          entry.contentType === "application/octet-stream" ||
+          entry.contentType.startsWith("image/") ||
+          entry.contentType === "text/plain" ||
           entry.contentType === "application/zip" ||
           entry.contentType ===
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

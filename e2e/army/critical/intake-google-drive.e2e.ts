@@ -6,6 +6,62 @@ import { localDriveStore } from "./google-drive-local-store";
 import { relativeOutputPath } from "../local/sdk-results";
 import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
 
+// Failure to cover: selecting a folder omits descendants or later pages, duplicates
+// existing links, or lets a selection exceed the API's 20-file limit.
+armyTest("DRV03 selects Drive folders across pages and preserves the 20-file limit", {
+  session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
+}, async (ui) => {
+  const { army, app, screen, browser } = ui;
+  const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV03`, title: "Dossier complet" }, army);
+  const folder = (id: string, name: string) => ({ id, name, mimeType: "application/vnd.google-apps.folder" });
+  const file = (index: number, parent: string) => ({ id: `file_${index}`, name: `plan-${index}.pdf`, mimeType: "application/pdf", size: "100", version: "1", parents: [parent] });
+  const batches: Array<Array<{ id: string; folderId?: string }>> = [];
+  const account = { id: "22222222-2222-4222-8222-222222222222", email: "fixture@example.invalid", displayName: "Compte fictif", status: "active", writeEnabled: false, grantVersion: "33333333-3333-4333-8333-333333333333", connectedAt: "2026-10-29T12:00:00Z" };
+  const state = { enabled: true, projectName: "Dossier complet", connections: [account], folder: null, links: [] };
+  await browser.route(`**/api/affaires/${ids.projectId}/intake/google-drive`, async (route) => {
+    if (route.request.method === "GET") {
+      await route.fulfill({ json: { ok: true, data: state } });
+      return;
+    }
+    const request = JSON.parse(route.request.postData ?? "{}");
+    if (request.action === "list") {
+      const id = request.location.folderId as string;
+      const files = id === "root" ? [folder("parent", "Projet"), folder("other", "Autre")]
+        : id === "parent" && !request.pageToken ? [folder("child", "Plans"), ...Array.from({ length: 10 }, (_, i) => file(i, "parent"))]
+        : id === "parent" ? Array.from({ length: 10 }, (_, i) => file(i + 10, "parent"))
+        : id === "other" ? [file(21, "other")]
+        : [file(20, "child"), { id: "native", name: "Document Google", mimeType: "application/vnd.google-apps.document" }];
+      await route.fulfill({ json: { ok: true, data: { listing: { location: request.location, folder: folder(id, id === "parent" ? "Projet" : id), files, ...(id === "parent" && !request.pageToken ? { nextPageToken: "next" } : {}) } } } });
+      return;
+    }
+    if (request.action === "link_files") {
+      batches.push(request.files);
+      await route.fulfill({ json: { ok: true, data: { results: request.files.map((item: { id: string }) => ({ fileId: item.id, name: item.id, status: "linked", message: "Lien enregistré." })), uploads: [] } } });
+      return;
+    }
+    throw new Error(`Unexpected Drive action: ${request.action}`);
+  });
+  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await screen.getByRole("button", "Choisir dans Drive", { exact: true }).click();
+  await screen.getByRole("checkbox", "Sélectionner le dossier Projet", { exact: true }).click();
+  await expect(screen.getByText("21 fichier(s) sélectionné(s)", { exact: true })).toBeVisible();
+  await expect(screen.getByText(/1 fichier.*ignoré/)).toBeVisible();
+  await screen.getByRole("checkbox", "Sélectionner le dossier Autre", { exact: true }).click();
+  await expect(screen.getByText("22 fichier(s) sélectionné(s)", { exact: true })).toBeVisible();
+  await screen.getByRole("checkbox", "Sélectionner le dossier Autre", { exact: true }).click();
+  await expect(screen.getByRole("button", "Lier à l’affaire", { exact: true })).toBeDisabled();
+  await screen.getByRole("button", "Ouvrir le dossier Projet", { exact: true }).click();
+  await screen.getByRole("button", "Ouvrir le dossier Plans", { exact: true }).click();
+  await screen.getByRole("checkbox", "Sélectionner plan-20.pdf", { exact: true }).click();
+  await expect(screen.getByText("20 fichier(s) sélectionné(s)", { exact: true })).toBeVisible();
+  await screen.getByRole("button", "Lier à l’affaire", { exact: true }).click();
+  await expect(screen.getByText("Vos fichiers sont liés à l’affaire", { exact: true })).toBeVisible();
+  expect(batches.map((batch) => batch.length)).toEqual([20]);
+  expect(new Set(batches.flat().map((item) => item.id)).size).toBe(20);
+  expect(batches.flat().every((item) => item.folderId === "parent")).toBe(true);
+  await recordEvidence(army, "DRV03-folder-selection", { batches, scope: "Fictional Drive route; browser selection and pagination only." });
+});
+
 armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links no documents", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
 }, async (ui) => {
@@ -88,6 +144,13 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect(folderLink).toMatchObject({ folderId: folder.id, folderName: folder.name, connectionId, url: `https://drive.google.com/drive/folders/${folder.id}` });
   expect(await store.readDriveLinks(wrongTenant)).toEqual([]);
   expect(await store.readDriveFolderLink(wrongTenant)).toBeNull();
+  // An uncertain Drive document can be opened from the review illustration before classification.
+  expect((await client.from("affaire_intake_documents").update({ classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.2 })
+    .eq("project_id", ids.projectId)).error).toBeNull();
+  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
+  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await expect(screen.getByRole("link", { name: `Ouvrir ${file.name} dans Google Drive`, exact: true }))
+    .toHaveAttribute("href", `https://drive.google.com/file/d/${file.id}/view`);
   // No worker runs here: settle the link as the classifier would once it has read the file in Drive.
   expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 })
     .eq("project_id", ids.projectId)).error).toBeNull();
@@ -109,7 +172,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   const hasStoredPlan = async () => (await server.rpc("affaire_has_stored_plan", { p_project_id: ids.projectId })).data;
   expect(await hasStoredPlan()).toBe(true);
   const openDriveLinks = async () => {
-    await screen.getByText("Ajouter depuis Google Drive", { exact: true }).click();
+    await screen.getByRole("button", { name: "Google Drive", exact: true }).click();
     await screen.getByText("Fichiers Drive liés à l’affaire", { exact: true }).click();
   };
   await app.open(`/dashboard/affaires/${ids.projectId}`);
@@ -127,7 +190,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
     return true;
   });
   await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
-  await expect(screen.getByText("Lien Google Drive", { exact: true })).toBeVisible();
+  await expect(screen.getByText(/Fichier lié depuis Google Drive/)).toBeVisible();
   await browser.evaluate(() => { document.querySelector("[data-document-id]")?.scrollIntoView({ block: "center" }); return true; });
   await settleMotion();
   const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-drive-links"));
