@@ -7,12 +7,10 @@ import { useCallback, useMemo, useState, useTransition } from "react";
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { exportEstimate } from "@/lib/estimates/client";
 import type { EstimateStatus } from "@/lib/estimates/status";
-import type { PurchaseOrderReadiness } from "@/lib/estimates/purchase-order-readiness";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui-legacy/Toast";
-import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 import {
   describeSubmissionReadinessGroup,
   isPdfFinishLineFlag,
@@ -34,10 +32,6 @@ type AffaireFinishLineActionsProps = {
       }
     | null;
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
-  onPreparationReadiness?: (
-    versionId: string,
-    readiness: PurchaseOrderReadiness,
-  ) => void;
 };
 
 type FeedbackState =
@@ -154,7 +148,6 @@ export function AffaireFinishLineActions({
   projectName,
   currentVersion,
   finishLineSummary,
-  onPreparationReadiness,
 }: Readonly<AffaireFinishLineActionsProps>) {
   const router = useRouter();
   const toast = useToast();
@@ -209,14 +202,7 @@ export function AffaireFinishLineActions({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Sortie devis
-          </p>
-          <h3 className="mt-2 text-sm font-semibold text-foreground">
-            PDF, email et BDC depuis le même point
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            La version à sortir reste explicite et chaque action garde son retour
-            lisible dans l&apos;affaire.
+            Documents et envoi
           </p>
         </div>
         <Badge
@@ -253,10 +239,6 @@ export function AffaireFinishLineActions({
         </div>
       ) : (
         <>
-          <div className="mt-4 rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-sm text-muted-foreground">{sendActionState.note}</p>
-          </div>
-
           <div className="mt-4 grid gap-3 xl:grid-cols-3">
             <article className="rounded-xl border border-border bg-surface p-4">
               <p className="text-sm font-semibold text-foreground">PDF du devis</p>
@@ -407,12 +389,6 @@ export function AffaireFinishLineActions({
             }}
           />
 
-          <AffaireOrderDraftsPanel
-            projectId={projectId}
-            currentVersion={currentVersion}
-            refreshSignal={finishLineSummary?.readyToOrder}
-            onPreparationReadiness={onPreparationReadiness}
-          />
         </>
       )}
     </div>

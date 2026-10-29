@@ -338,9 +338,9 @@ describe("EST-374 — Command bar contextuelle du cockpit affaire", { session: "
       new RegExp(`/dashboard/affaires/${projectId}\\?intakeFilter=a_revoir`),
     );
     await expect(
-      page.getByRole("region", { name: /Intake dossier affaire/i }),
+      page.getByRole("dialog", { name: "Documents du dossier", exact: true }),
     ).toContainText("piece-a-revoir.pdf");
-    await expect(page.getByRole("region", { name: /Intake dossier affaire/i })
+    await expect(page.getByRole("dialog", { name: "Documents du dossier", exact: true })
       .getByText("piece-a-revoir.pdf", { exact: true })).toBeVisible();
   });
 

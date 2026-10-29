@@ -60,8 +60,9 @@ test("brief document associations remain distinct from proof after edit and relo
   );
   await associatedLink.tap();
   await expect(browser).toHaveURL(new RegExp(`intakeDocument=${documentId}.*briefEntry=1#intake$`));
-  await expect(screen.getByText(FILE_NAME, { exact: true }).first()).toBeVisible();
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", FILE_NAME, { exact: true })).toBeVisible();
 
+  await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).tap();
   await brief.getByRole("button", "Modifier", { exact: true }).tap();
   await brief.getByDisplayValue(ASSOCIATED_TEXT, { exact: true }).fill(EDITED_TEXT);
   await brief.getByRole("button", "Enregistrer et revalider", { exact: true }).tap();

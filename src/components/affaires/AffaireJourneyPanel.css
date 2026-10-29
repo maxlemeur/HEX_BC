@@ -1,0 +1,45 @@
+.journey-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: 24px; align-items: start; }
+.journey-panel, .journey-facts { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.journey-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.journey-panel-heading h2 { font-size: 14px; font-weight: 600; }
+.journey-panel-heading > span { color: var(--muted-foreground); font-size: 11px; }
+.journey-stage + .journey-stage { border-top: 1px solid var(--border); }
+.journey-stage-heading { display: flex; align-items: center; gap: 16px; width: 100%; padding: 24px; text-align: left; background: transparent; border: 0; cursor: pointer; }
+.journey-stage-heading:disabled { background: var(--surface-subtle); color: var(--muted-foreground); cursor: default; }
+.journey-stage-heading > span:nth-child(2) { flex: 1; }
+.journey-stage-heading strong { display: block; font-size: 14px; font-weight: 600; }
+.journey-stage-heading small { display: block; font-size: 11px; color: var(--muted-foreground); margin-top: 5px; }
+.journey-number { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 50%; font-size: 12px; }
+.journey-number.journey-done { background: var(--success-subtle); color: var(--success); border-color: transparent; }
+.journey-number.journey-current { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.journey-stage-content { padding: 0 28px 28px 74px; }
+.journey-stage-content > h3 { font-size: 23px; font-weight: 600; line-height: 1.3; letter-spacing: -.025em; }
+.journey-description { font-size: 13px; color: var(--muted-foreground); line-height: 1.7; margin: 12px 0 20px; }
+.journey-facts { padding: 30px 26px; }
+.journey-facts > h3 { text-transform: uppercase; font-size: 10px; letter-spacing: .1em; color: var(--muted-foreground); font-weight: 600; }
+.journey-facts dl { margin: 24px 0; }
+.journey-facts dl > div { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 23px; font-size: 12px; }
+.journey-facts dt { color: var(--muted-foreground); }
+.journey-facts dd { font-weight: 550; text-align: right; }
+.journey-text-action { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; background: transparent; border: 0; color: var(--primary); font-size: 12px; font-weight: 550; cursor: pointer; }
+.journey-text-action:hover { text-decoration: underline; text-underline-offset: 3px; }
+.journey-issues { margin-top: 24px; }
+.journey-issue { display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--warning-border); background: var(--warning-subtle); border-radius: 7px; padding: 15px; }
+.journey-issue strong, .journey-additional-issue strong { font-size: 12px; font-weight: 600; }
+.journey-issue p, .journey-additional-issue p { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; margin: 5px 0; }
+.journey-issue-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); margin-top: 6px; flex-shrink: 0; }
+.journey-issue-dot.journey-critical { background: var(--danger); }
+.journey-issues summary, .journey-tools > summary, .affaire-hub-details > summary { font-size: 12px; color: var(--muted-foreground); cursor: pointer; padding: 16px 0; }
+.journey-additional-issue { padding: 12px 0; border-top: 1px solid var(--border); }
+.journey-tools { margin-top: 14px; }
+.affaire-hub-details { margin-top: 24px; }
+.affaire-hub-details > summary { border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.affaire-journey :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+@media (max-width: 900px) { .journey-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; } }
+@media (max-width: 640px) {
+  .journey-stage-heading { padding: 18px 14px; gap: 10px; }
+  .journey-stage-content { padding: 0 20px 24px; }
+  .journey-stage-heading small { font-size: 10px; }
+  .journey-stage-heading [data-slot=badge] { display: none; }
+  .journey-panel-heading { padding: 18px; }
+}

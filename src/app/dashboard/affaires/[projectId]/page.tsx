@@ -74,7 +74,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       ? parseAffaireHubDevScenario(search.devHubScenario)
       : null;
 
-  const hasOverviewQuery = search.view === "overview" || devHubScenario !== null || (search.view !== "documents" && Object.keys(search).some((key) => key.startsWith("register") || key.startsWith("approval") || key === "timelinePage"));
+  const hasOverviewQuery = search.view !== "documents" || devHubScenario !== null;
   if (!hasOverviewQuery) {
     // Document triage does not need approval projections, estimate calculations or the register.
     const [workspace, access, takeoffEnabled] = await Promise.all([

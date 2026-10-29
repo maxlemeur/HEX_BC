@@ -4,6 +4,7 @@
   "suite": {
     "journeys": [
       "e2e/army/critical/access-boundaries.e2e.ts",
+      "e2e/army/critical/affaire-pilotage-drawer.e2e.ts",
       "e2e/army/critical/affaires-legacy-identifiers.e2e.ts",
       "e2e/army/critical/auth-rejection.e2e.ts",
       "e2e/army/critical/auth.setup.e2e.ts",
@@ -796,6 +797,15 @@
       "journeys": [
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
+    },
+    {
+      "id": "affaire-parcours-drawer",
+      "paths": [
+        "src/components/affaires/AffaireJourneyPanel*",
+        "src/components/affaires/AffaireDocumentsDrawer*",
+        "e2e/army/critical/affaire-pilotage-drawer.e2e.ts"
+      ],
+      "journeys": ["e2e/army/critical/affaire-pilotage-drawer.e2e.ts", "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts", "e2e/army/local/brief-evidence.e2e.ts", "e2e/army/local/purchase-readiness.e2e.ts"]
     },
     {
       "id": "google-drive-intake",

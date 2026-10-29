@@ -634,7 +634,7 @@ export function AffaireDocumentDesk({
                         )}
                       </td>
                       <td>
-                        {eligible ? (
+                        {eligible && (state !== "valid" || category !== document.detectedCategory) ? (
                           <select
                             aria-label={`Catégorie de ${document.fileName}`}
                             disabled={busy}

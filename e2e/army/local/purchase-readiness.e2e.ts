@@ -101,36 +101,28 @@ async function preview(browser: Browser, fixture: Fixture, army: ArmyState) {
 async function surfaces(browser: Browser) {
   return browser.evaluate(() => {
     const normalize = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
-    const headings = Array.from(document.querySelectorAll("h3"))
-      .filter((heading) => ["Prêt à commander", "Préparation des achats"].includes(normalize(heading.textContent)));
-    const heading = headings[0];
-    // Both the old and agreed new title identify the actual pilotage card.
-    // Its recorded DOM has header > title wrapper > h3, then a summary sibling.
-    const card = heading?.parentElement?.parentElement?.parentElement;
     const panel = document.querySelector("#finish-line-orders");
     const snapshot = (element: Element | null | undefined) => ({
       text: normalize((element as HTMLElement | undefined)?.innerText),
       badge: normalize((element?.firstElementChild?.lastElementChild as HTMLElement | undefined)?.innerText),
     });
-    return { headingCount: headings.length, cardTitle: normalize(heading?.textContent), card: snapshot(card), panel: snapshot(panel) };
+    return { panelCount: document.querySelectorAll("#finish-line-orders").length, panel: snapshot(panel) };
   });
 }
 async function assertCounts(browser: Browser, army: ArmyState, label: string, counts: Counts, badge: string) {
-  // A completed creation triggers another canonical preview. Wait for both UI
-  // surfaces to finish that revalidation before reading their business values.
+  // Wait for the sole purchase surface to finish canonical revalidation.
   let observed!: Awaited<ReturnType<typeof surfaces>>;
   await expect.poll(async () => {
     observed = await surfaces(browser);
-    return [observed.card, observed.panel].map((surface) => ({
+    return [observed.panel].map((surface) => ({
       badge: surface.badge, countsVisible: surface.text.includes(countText(counts)),
     }));
-  }).toEqual([{ badge, countsVisible: true }, { badge, countsVisible: true }]);
+  }).toEqual([{ badge, countsVisible: true }]);
   // Assert and retain the snapshot that satisfied the poll: another read can
   // land in a subsequent revalidation's transient "Vérification" state.
   await recordEvidence(army, label, { expected: { counts, text: countText(counts), badge }, observed });
-  expect.soft(observed.headingCount).toBe(1);
-  expect.soft(observed.cardTitle).toBe("Préparation des achats");
-  for (const surface of [observed.card, observed.panel]) {
+  expect.soft(observed.panelCount).toBe(1);
+  for (const surface of [observed.panel]) {
     expect.soft(surface.text).toContain(countText(counts));
     expect.soft(surface.badge).toBe(badge);
     expect.soft(surface.text.includes("sont déjà commandables")).toBe(false);
@@ -148,7 +140,7 @@ function sourceValues(source: Awaited<ReturnType<typeof readEstimate>>) {
 readinessTest("local purchase readiness counts remaining blocked and transferred lines before and after creation", {
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
-  const href = `/dashboard/affaires/${fixture.projectId}`;
+  const href = `/dashboard/affaires/${fixture.projectId}#finish-line-orders`;
   const endpoint = `/api/estimates/${fixture.versionId}/purchase-order-drafts`;
   const panel = browser.locator("#finish-line-orders");
   const lockHeaders = { "x-estimate-draft-lock-session-id": randomUUID() };
@@ -172,14 +164,14 @@ readinessTest("local purchase readiness counts remaining blocked and transferred
   expect(blocked.summary).toMatchObject({ total_supplier_lines: 4, draftable_lines: 2, transferred_lines: 1, blocked_lines: 1 });
   expect(blocked.blocked_lines).toEqual([expect.objectContaining({ item_id: half.lineId, reason: "supplier_offer_ineligible" })]);
   expect(blocked.groups[0]).toMatchObject({ total_ht_cents: 98, total_tax_cents: 19, total_ttc_cents: 117 });
-  await app.open(href);
+  await browser.reload();
   await expect(panel.getByText(blocked.blocked_lines[0].reason_detail ?? "Conditions fournisseur à revalider", { exact: true })).toBeVisible();
   await assertCounts(browser, army, "readiness-below-minimum", blocked.summary, "Partiellement prêt");
 
   const restore = await apiRequest(browser, "PATCH", `/api/estimates/${fixture.versionId}/items`, { id: half.lineId, quantity: half.quantity }, lockHeaders);
   await recordEvidence(army, "readiness-quantity-restoration", { restore });
   expect(restore.status).toBe(200);
-  await app.open(href);
+  await browser.reload();
   await expect(panel.getByRole("rowheader", `${fixture.prefix} half Réf. ${half.reference}`, { exact: true })).toBeVisible();
   const restored = await preview(browser, fixture, army);
   expect(restored.summary).toMatchObject({ total_supplier_lines: 4, draftable_lines: 3, transferred_lines: 1, blocked_lines: 0 });
@@ -228,7 +220,7 @@ for (const failure of ["unavailable", "inconsistent-counts"] as const) {
   failureTest(`local purchase readiness ${failure} hides stale claims until canonical preview recovers`, {
     session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 150_000,
   }, async ({ app, screen, browser, fixture, army }) => {
-    const href = `/dashboard/affaires/${fixture.projectId}`;
+    const href = `/dashboard/affaires/${fixture.projectId}#finish-line-orders`;
     const panel = browser.locator("#finish-line-orders");
     await app.open(href);
     const real = await preview(browser, fixture, army);
@@ -241,7 +233,7 @@ for (const failure of ["unavailable", "inconsistent-counts"] as const) {
       timer = setTimeout(() => reject(new Error("No readiness preview override was actually fulfilled.")), 15_000);
       fixture.onOverride = () => { clearTimeout(timer); resolve(); };
     });
-    try { await Promise.all([fulfilled, app.open(href)]); }
+    try { await Promise.all([fulfilled, browser.reload()]); }
     finally { clearTimeout(timer); fixture.onOverride = undefined; }
     await recordEvidence(army, `readiness-${failure}-before-recovery-wait`, {
       real, injected: fixture.responseOverride, completedOverrides: fixture.completedOverrides, observed: await surfaces(browser),
@@ -252,7 +244,7 @@ for (const failure of ["unavailable", "inconsistent-counts"] as const) {
     const observed = await surfaces(browser);
     await recordEvidence(army, `readiness-${failure}`, { real, injected: fixture.responseOverride, observed,
       proofBoundary: "Browser GET response only; this does not inject an internal server read failure." });
-    for (const surface of [observed.card, observed.panel]) {
+    for (const surface of [observed.panel]) {
       expect.soft(surface.badge).toBe("Indisponible");
       expect.soft(surface.text).toContain(unavailableMessage);
       expect.soft(surface.text.includes(countText(real.summary))).toBe(false);
@@ -263,7 +255,7 @@ for (const failure of ["unavailable", "inconsistent-counts"] as const) {
     // The baseline may omit the required recovery action; retain that failure,
     // then use an ordinary navigation to preserve the remaining read-only proof.
     if (await reload.count() === 1) await screen.getByRole("button", "Recharger la préparation", { exact: true }).tap();
-    else await app.open(href);
+    else await browser.reload();
     await expect(panel.getByRole("button", "Recharger la préparation", { exact: true })).toHaveCount(0);
     await expect(panel.getByRole("listitem").filter({ hasText: "Quantité transférée :" })).toHaveCount(real.summary.transferred_lines);
     await expect(panel.getByRole("rowheader")).toHaveCount(real.summary.draftable_lines);

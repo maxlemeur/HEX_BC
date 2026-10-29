@@ -618,8 +618,8 @@ async function expectPilotageSection(page: Page) {
   return pilotageSection;
 }
 
-async function openAffaireHub(page: Page, projectId: string) {
-  const hubUrl = `/dashboard/affaires/${projectId}`;
+async function openAffaireHub(page: Page, projectId: string, hash = "") {
+  const hubUrl = `/dashboard/affaires/${projectId}${hash}`;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     if (attempt === 1) {
@@ -698,38 +698,30 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     let pilotageSection = await openAffaireHub(page, projectId);
 
     await expect(pilotageSection).toContainText("1 point critique à arbitrer");
-    await expect(pilotageSection).toContainText("Ajouter 4 pièces manquantes");
-    await expect(pilotageSection.getByRole("button", { name: "Ouvrir le brief" })).toBeVisible();
-    await expect(pilotageSection).toContainText("1 écart majeur sur les métrés");
+    await expect(pilotageSection.getByRole("link", { name: "Consulter le brief" })).toBeVisible();
     await expect(
       pilotageSection.getByRole("link", { name: "Ouvrir le registre" })
     ).toHaveAttribute(
       "href",
       `/dashboard/affaires/${projectId}?registerStatus=open&registerSeverity=critical&registerFocus=${criticalEntryId}#register`
     );
-    await expect(
-      pilotageSection.getByRole("link", { name: "Revoir les exceptions" })
-    ).toHaveAttribute(
-      "href",
-      `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only`
-    );
-
-    await clickWithin(pilotageSection, "button", "Ajouter des pièces");
-    await expect(
-      page.getByRole("region", { name: /Intake dossier affaire/i })
-    ).toBeVisible();
+    await clickWithin(pilotageSection, "button", "Ouvrir les documents");
+    await expect(page.getByRole("dialog", { name: "Documents du dossier", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     pilotageSection = await openAffaireHub(page, projectId);
-    await clickWithin(pilotageSection, "button", "Ouvrir le brief");
-    await expect(page.getByText("Confirmer ce brief ?")).toBeVisible();
+    await clickWithin(pilotageSection, "link", "Consulter le brief");
+    await expect(page.locator("#brief")).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
     await clickWithin(pilotageSection, "link", "Ouvrir le registre");
     await expect(
-      page.getByText("Clarifier le perimetre exact avec le client", { exact: true }).first()
+      page.locator("#register").getByText("Clarifier le perimetre exact avec le client", { exact: true }).first()
     ).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
+    if (await pilotageSection.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await pilotageSection.getByRole("button", { name: /Étude/ }).click();
+    await expect(pilotageSection).toContainText("1 écart majeur sur les métrés");
     await clickWithin(pilotageSection, "link", "Revoir les exceptions");
     await expect(page.browser).toHaveURL(
       new RegExp(
@@ -743,7 +735,7 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     await expect(page.getByRole("button", { name: "Écarts DPGF", exact: true })).toBeVisible();
   });
 
-  test("affiche une finish line lisible avec deux statuts distincts et leurs blocages", async ({ ui: page }) => {
+  test("regroupe la remise et masque les achats prématurés", async ({ ui: page }) => {
     const { versionId, projectId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("US51-FINISH"),
       title: "US-5.1 Finish line",
@@ -759,20 +751,13 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
 
     const pilotageSection = await openAffaireHub(page, projectId);
 
-    await expect(pilotageSection).toContainText("Prêt à envoyer");
-    await expect(pilotageSection).toContainText("Préparation des achats");
+    await expect(pilotageSection.getByRole("heading", { name: "Préparer la remise du devis", exact: true })).toBeVisible();
+    await expect(page.locator("#finish-line-output")).toHaveCount(1);
+    await expect(page.locator("#finish-line-orders")).toHaveCount(0);
+    await expect(pilotageSection.getByText("Finish line", { exact: true })).toHaveCount(0);
+    await expect(pilotageSection.getByRole("button", { name: "Préparer l'envoi", exact: true })).toBeDisabled();
     await expect(pilotageSection).toContainText("PDF · 1 blocage");
-    await expect(pilotageSection).toContainText("Prix manquant");
-    await expect(pilotageSection).toContainText("0 ligne préparable · 0 ligne déjà transférée · 1 ligne à corriger.");
-    await expect(
-      pilotageSection.getByRole("link", { name: "Reprendre le devis", exact: true }).first()
-    ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit`);
-    await expect(
-      pilotageSection.getByRole("link", { name: "Voir les blocages", exact: true })
-    ).toHaveAttribute("href", "#finish-line-orders");
-    await expect(
-      pilotageSection.getByRole("link", { name: "Revoir les fournisseurs" })
-    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/prices`);
+
   });
 
   test("regroupe PDF, email et BDC dans une seule zone de sortie affaire", async ({ ui: page }) => {
@@ -796,7 +781,7 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     const pilotageSection = await openAffaireHub(page, projectId);
 
     await expect(
-      pilotageSection.getByText("PDF, email et BDC depuis le même point")
+      pilotageSection.getByText("Documents et envoi", { exact: true })
     ).toBeVisible();
     await expect(
       pilotageSection.getByRole("button", { name: "Préparer le PDF", exact: true })
@@ -859,7 +844,7 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
       projectCode: "LY-42",
     });
 
-    const pilotageSection = await openAffaireHub(page, projectId);
+    const pilotageSection = await openAffaireHub(page, projectId, "#finish-line-orders");
 
     await expect(
       pilotageSection.getByText("Brouillons par fournisseur, sans ressaisie")
@@ -906,6 +891,9 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
 
     await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
 
+    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
+    await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
+    await page.getByText("Détails du dossier et du devis", { exact: true }).click();
     await expect(page.getByText("Prochaine étape")).toBeVisible();
     await expect(page.getByText("Reprise par l’ancien parcours")).toBeVisible();
     await expect(

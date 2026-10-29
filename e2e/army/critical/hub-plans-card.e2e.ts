@@ -50,7 +50,7 @@ armyTest("HUB05 carried-over exceptions target the currently linked estimate ver
   const link = await fixture.client.from("takeoff_version_links").insert({ id: linkId, tenant_id: fixture.tenantId,
     takeoff_job_id: job.jobId, source_version_id: source.versionId, target_version_id: target.versionId });
   if (link.error) throw new Error(`Owned takeoff link fixture failed: ${link.error.code}`);
-  await ui.app.open(`/dashboard/affaires/${source.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${source.projectId}#plans`);
   const exceptions = ui.screen.getByRole("button", "Voir les 1 exception", { exact: true });
   await expect(exceptions).toBeVisible();
   await exceptions.click();

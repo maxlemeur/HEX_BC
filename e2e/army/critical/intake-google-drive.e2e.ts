@@ -148,9 +148,12 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect((await client.from("affaire_intake_documents").update({ classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.2 })
     .eq("project_id", ids.projectId)).error).toBeNull();
   expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
-  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${linked.id}#intake`);
+  await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).click();
   await expect(screen.getByRole("link", { name: `Ouvrir ${file.name} dans Google Drive`, exact: true }))
     .toHaveAttribute("href", `https://drive.google.com/file/d/${file.id}/view`);
+  await screen.getByRole("dialog", "Document et détails", { exact: true }).getByRole("button", "Fermer", { exact: true }).click();
+  await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).click();
   // No worker runs here: settle the link as the classifier would once it has read the file in Drive.
   expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 })
     .eq("project_id", ids.projectId)).error).toBeNull();
@@ -183,18 +186,18 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   await browser.reload();
   await openDriveLinks();
   await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(1);
-  await browser.reload();
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${linked.id}#intake`);
   const settleMotion = async () => browser.evaluate(async () => {
     await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
       .map((animation) => animation.finished.catch(() => undefined)));
     return true;
   });
   await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
-  await expect(screen.getByText(/Fichier lié depuis Google Drive/)).toBeVisible();
   await browser.evaluate(() => { document.querySelector("[data-document-id]")?.scrollIntoView({ block: "center" }); return true; });
   await settleMotion();
   const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-drive-links"));
   await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).click();
+  await expect(screen.getByText(/Fichier lié depuis Google Drive/)).toBeVisible();
   await screen.getByText("Fichier dans Google Drive", { exact: true }).click();
   await expect(screen.getByText("Le fichier reste dans Google Drive. MergeOne conserve son lien et peut garder une copie pour le métré ou l’import DPGF. Une modification dans Drive n’est pas réanalysée automatiquement.", { exact: true })).toBeVisible();
   await expect(screen.getByText("Pour le métré, un plan PDF lié garde une copie de travail, retirée avec le lien.", { exact: true })).toBeVisible();
