@@ -22,6 +22,7 @@ export async function driveState(projectId: string): Promise<DriveState> {
   const access = await requireAffaireProjectOwnerOrAdmin(projectId);
   const enabled = driveConfiguration().enabled;
   // A lot an interrupted link request left unarmed is resumed here: its files show as already linked.
+  // This read therefore writes, and must not be cached.
   if (enabled) await resumeStaleDriveLots(access);
   return guarded(async () => ({
     enabled, projectName: access.project.name,

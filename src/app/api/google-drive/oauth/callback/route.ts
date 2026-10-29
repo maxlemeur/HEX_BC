@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { saveDriveConnection } from "@/lib/affaires/google-drive/connections";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
@@ -6,8 +6,12 @@ import { DRIVE_OAUTH_CALLBACK_PATH, DRIVE_OAUTH_COOKIE, driveOAuthReturn, exchan
   readDriveAuthorization, type DriveOAuthOutcome } from "@/lib/affaires/google-drive/oauth";
 import { GoogleDriveReader } from "@/lib/affaires/google-drive/provider";
 import { driveConfiguration } from "@/lib/affaires/google-drive/secrets";
+import { rearmLotsFailedWithConnection } from "@/lib/affaires/google-drive/store";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
 
 export const runtime = "nodejs";
+// Room for the analyses that a reconnection runs again after the response.
+export const maxDuration = 300;
 
 /** Google's return: the code is exchanged server-side and only an outcome reaches the page. */
 export async function GET(request: NextRequest) {
@@ -34,7 +38,15 @@ export async function GET(request: NextRequest) {
     const grant = await exchangeDriveCode({ clientId: configuration.clientId, clientSecret: configuration.clientSecret, code,
       verifier: authorization.verifier, redirectUri: new URL(DRIVE_OAUTH_CALLBACK_PATH, request.nextUrl.origin).toString() });
     const account = await new GoogleDriveReader(grant.accessToken, request.signal).account();
-    return finish("connected", await saveDriveConnection(member, configuration, account, grant));
+    const connectionId = await saveDriveConnection(member, configuration, account, grant);
+    // Pieces whose analysis failed with this account, for instance on an expired access, run again.
+    for (const uploadId of await rearmLotsFailedWithConnection(member, connectionId).catch(() => [])) {
+      after(async () => {
+        try { await processAffaireIntakeUpload(uploadId); }
+        catch { console.error("Drive link processing incomplete", { uploadId }); }
+      });
+    }
+    return finish("connected", connectionId);
   } catch (error) {
     const reason = error instanceof DriveError ? error.code : "unexpected";
     console.error("Google Drive connection failed", { reason });

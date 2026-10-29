@@ -25,7 +25,8 @@ compte Google reste connecté ailleurs dans MergeOne (autre tenant ou autre memb
 Google révoque en une fois tous les jetons d’un compte. Les pièces déjà liées restent
 dans l’affaire ; les sélectionner de nouveau dans Drive les rattache au compte choisi,
 sans nouvelle pièce, et relance leur analyse si elle avait échoué. Un compte dont
-Google a révoqué l’accès est signalé « à reconnecter ». Un membre retiré d’un tenant
+Google a révoqué l’accès est signalé « à reconnecter » ; le reconnecter relance
+l’analyse des pièces liées avec lui qui avait échoué. Un membre retiré d’un tenant
 perd les comptes Google ajoutés dans ce tenant, et le classement ne lit plus jamais
 un fichier avec le compte d’un ancien membre.
 
@@ -88,8 +89,8 @@ partagé avant le déploiement de ce code.
   membre refusé, lien orphelin rattaché avec relance de son analyse échouée,
   reconnexion, révocation, jeton scellé pour un autre compte refusé, lecture bornée
   par le classement ; parcours OAuth (état, cookie, refus, portée, accès durable,
-  retour) ; panneau Drive, y compris un changement de compte pendant son premier
-  chargement.
+  retour, relance des analyses échouées avec le compte reconnecté) ; panneau Drive,
+  y compris un changement de compte pendant son premier chargement.
 - pgTAP `google-drive-links.test.sql` : comptes visibles par leur seul membre,
   jeton illisible et fonction de lecture réservée au service role, enregistrement
   réservé au service role et à un membre du tenant, lien ou dossier refusé avec le compte d’un autre membre,

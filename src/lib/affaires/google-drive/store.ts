@@ -83,12 +83,29 @@ export async function resumeStaleDriveLots(access: Access) {
 }
 
 // A finished lot runs again, with a fresh retry budget: its failed pieces are analysed anew.
-async function rearmFinishedLot(access: Access, uploadId: string) {
-  const { data, error } = await database(access).from("affaire_intake_uploads")
+async function rearmFinishedLot(db: Database, tenantId: string, uploadId: string) {
+  const { data, error } = await db.from("affaire_intake_uploads")
     .update({ status: "queued", last_error: null, next_retry_at: null, attempt_count: 0 })
-    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("id", uploadId)
+    .eq("tenant_id", tenantId).eq("id", uploadId)
     .in("status", ["ready", "partial_failure", "failed"]).select("id");
   return !error && Boolean((data as unknown[] | null)?.length);
+}
+
+/**
+ * Once a member reconnects a Google account, the lots holding pieces linked with it whose
+ * analysis failed run again: that failure may be the expired access. Read under the member's RLS.
+ */
+export async function rearmLotsFailedWithConnection(member: { supabase: unknown; tenantId: string }, connectionId: string) {
+  const db = member.supabase as Database;
+  const { data, error } = await db.from("affaire_intake_documents").select("upload_id")
+    .eq("tenant_id", member.tenantId).eq("drive_connection_id", connectionId)
+    .eq("classification_status", "failed").is("deleted_at", null);
+  if (error) return [];
+  const rearmed: string[] = [];
+  for (const uploadId of new Set(((data ?? []) as Array<{ upload_id: string }>).map((row) => row.upload_id))) {
+    if (await rearmFinishedLot(db, member.tenantId, uploadId)) rearmed.push(uploadId);
+  }
+  return rearmed;
 }
 
 /**
@@ -119,7 +136,7 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
       continue;
     }
     // Its analysis may have failed for want of that account: it runs again with this one.
-    const retried = row.classification_status === "failed" && (rearmed.has(link.uploadId) || await rearmFinishedLot(access, link.uploadId));
+    const retried = row.classification_status === "failed" && (rearmed.has(link.uploadId) || await rearmFinishedLot(database(access), context.tenantId, link.uploadId));
     if (retried) rearmed.add(link.uploadId);
     results.push({ fileId: file.id, name: file.name, status: "linked", documentId: link.documentId,
       message: retried ? "Lien rattaché à ce compte Google. Analyse relancée." : "Lien rattaché à ce compte Google." });

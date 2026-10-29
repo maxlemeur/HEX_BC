@@ -9,6 +9,7 @@ import type { DriveRequest } from "./contracts";
 import { driveState, executeDriveRequest } from "./server";
 import { driveConfiguration } from "./secrets";
 import { fakeDrive, memoryBackend } from "./memory.test-utils";
+import { rearmLotsFailedWithConnection } from "./store";
 
 const TOKEN_KEY = Buffer.alloc(32, 7).toString("base64");
 describe("Drive accounts kept on the server and pieces linked without copies (Google simulated)", () => {
@@ -149,6 +150,22 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     expect(again.uploads).toEqual(first.uploads);
     expect(upload).toMatchObject({ status: "queued", last_error: null, attempt_count: 0 });
     expect(document.drive_connection_id).toBe(connectionId);
+  });
+  it("analyses again, after a reconnection, the pieces whose analysis failed with that account", async () => {
+    const first = await link([{ id: "plan_demo" }]);
+    const other = await link([{ id: "cctp_demo" }]);
+    const upload = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    const untouched = backend.rows("affaire_intake_uploads").get(other.uploads[0])!;
+    const [plan, cctp] = [...backend.rows("affaire_intake_documents").values()];
+    Object.assign(upload, { status: "failed", attempt_count: 1 });
+    Object.assign(plan, { classification_status: "failed" });
+    Object.assign(untouched, { status: "ready" });
+    Object.assign(cctp, { classification_status: "classified" });
+    expect(await rearmLotsFailedWithConnection(backend.access.context, connectionId)).toEqual(first.uploads);
+    expect(upload).toMatchObject({ status: "queued", last_error: null, attempt_count: 0 });
+    expect(untouched).toMatchObject({ status: "ready" });
+    // Pieces linked with another account are left alone.
+    expect(await rearmLotsFailedWithConnection(backend.access.context, "another_connection")).toEqual([]);
   });
   it("arms again a lot that an interrupted request left being recorded", async () => {
     const first = await link();

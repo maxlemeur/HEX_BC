@@ -2,8 +2,14 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
 vi.mock("@/lib/affaires/google-drive/connections", () => ({ saveDriveConnection: vi.fn() }));
+vi.mock("@/lib/affaires/google-drive/store", () => ({ rearmLotsFailedWithConnection: vi.fn() }));
+vi.mock("@/lib/affaires/intake-server", () => ({ processAffaireIntakeUpload: vi.fn() }));
+vi.mock("next/server", async (importOriginal) => ({ ...await importOriginal<typeof import("next/server")>(), after: vi.fn() }));
+import { after } from "next/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { saveDriveConnection } from "@/lib/affaires/google-drive/connections";
+import { rearmLotsFailedWithConnection } from "@/lib/affaires/google-drive/store";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
 import { beginDriveAuthorization, DRIVE_OAUTH_COOKIE } from "@/lib/affaires/google-drive/oauth";
 import { fakeDrive } from "@/lib/affaires/google-drive/memory.test-utils";
 import { GET as start } from "../start/route";
@@ -32,6 +38,7 @@ beforeEach(() => {
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fictitious-service-role");
   vi.mocked(getAuthenticatedContext).mockResolvedValue({ userId: "user_demo", tenantId: "tenant_demo" } as never);
   vi.mocked(saveDriveConnection).mockResolvedValue("22222222-2222-4222-8222-222222222222");
+  vi.mocked(rearmLotsFailedWithConnection).mockResolvedValue([]);
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
 describe("Google Drive OAuth routes", () => {
@@ -57,6 +64,22 @@ describe("Google Drive OAuth routes", () => {
     expect(response.headers.get("set-cookie")).toMatch(/Max-Age=0/);
     expect(location.toString()).not.toMatch(/token|code=/);
   });
+  it("runs again, once the account is reconnected, the analyses that failed with it", async () => {
+    vi.mocked(rearmLotsFailedWithConnection).mockResolvedValue(["upload_failed"]);
+    const { url, cookie } = begin();
+    expect(outcome(await callback({ state: url.searchParams.get("state")!, code: "fictitious-code" }, cookie))).toBe("connected");
+    expect(rearmLotsFailedWithConnection).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_demo", tenantId: "tenant_demo" }),
+      "22222222-2222-4222-8222-222222222222");
+    expect(after).toHaveBeenCalledTimes(1);
+    await (vi.mocked(after).mock.calls[0][0] as () => Promise<void>)();
+    expect(processAffaireIntakeUpload).toHaveBeenCalledWith("upload_failed");
+  });
+  it("keeps the reconnection when the failed analyses cannot be armed again", async () => {
+    vi.mocked(rearmLotsFailedWithConnection).mockRejectedValue(new Error("unavailable"));
+    const { url, cookie } = begin();
+    expect(outcome(await callback({ state: url.searchParams.get("state")!, code: "fictitious-code" }, cookie))).toBe("connected");
+    expect(after).not.toHaveBeenCalled();
+  });
   it.each([
     ["a wrong state", (state: string) => ({ state: `${state}x`, code: "c" }), "expired"],
     ["a refusal at Google", (state: string) => ({ state, error: "access_denied" }), "refused"],
@@ -66,6 +89,7 @@ describe("Google Drive OAuth routes", () => {
     expect(outcome(await callback(query(url.searchParams.get("state")!), cookie))).toBe(expected);
     expect(google.fetchMock).not.toHaveBeenCalled();
     expect(saveDriveConnection).not.toHaveBeenCalled();
+    expect(rearmLotsFailedWithConnection).not.toHaveBeenCalled();
   });
   it("refuses a return without the cookie or for another member", async () => {
     const { url, cookie } = begin();
