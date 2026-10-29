@@ -128,9 +128,11 @@ export async function generateTakeoffPreparationAssistance(input: {
       result.provenance.model = generated.model;
       result.provenance.token_count = generated.tokenCount;
       result.message = "Propositions à confirmer : consultez les sources avant de compléter votre préparation.";
-    } catch {
+    } catch (error) {
       result.status = "failed";
-      result.message = "L’assistance rédactionnelle a échoué. Vos données sont conservées ; continuez manuellement.";
+      result.message = capabilities.writing.provider === "chatgpt" && error instanceof Error && error.name === "TimeoutError"
+        ? "L’assistance ChatGPT a dépassé son délai. Vous pouvez réduire temporairement l’effort dans Mon profil ou continuer manuellement. Si vous lancez le métré avec ChatGPT, il utilisera aussi le réglage choisi."
+        : "L’assistance rédactionnelle a échoué. Vos données sont conservées ; continuez manuellement.";
     }
   }
 

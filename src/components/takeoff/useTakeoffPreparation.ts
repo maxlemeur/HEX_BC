@@ -22,12 +22,21 @@ export function useTakeoffPreparation(projectId: string) {
   const revision = useRef<number | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const mounted = useRef(true);
+  const loadSequence = useRef(0);
 
   const reload = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    const draftAtStart = currentDraft.current;
     setSaveState("loading");
     setError(null);
     try {
       const result = unwrapTakeoffActionResult(await loadTakeoffPreparationAction(projectId));
+      if (!mounted.current || sequence !== loadSequence.current) return;
+      if (currentDraft.current !== draftAtStart) {
+        setError("La préparation a été modifiée pendant le chargement. Vos réponses sont conservées ; reprenez la dernière version si nécessaire.");
+        setSaveState("error");
+        return;
+      }
       revision.current = result.revision;
       savedJson.current = JSON.stringify(result.draft);
       currentDraft.current = result.draft;
@@ -35,15 +44,17 @@ export function useTakeoffPreparation(projectId: string) {
       setDraft(result.draft);
       setSaveState("saved");
     } catch (cause) {
+      if (!mounted.current || sequence !== loadSequence.current) return;
       setError(cause instanceof TakeoffActionError ? cause.message : "Impossible de retrouver la préparation.");
       setSaveState("error");
     }
   }, [projectId]);
 
   useEffect(() => {
+    const sequence = loadSequence;
     mounted.current = true;
     void reload();
-    return () => { mounted.current = false; };
+    return () => { mounted.current = false; sequence.current++; };
   }, [reload]);
 
   const updateDraft = useCallback((next: TakeoffPreparation) => {

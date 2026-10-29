@@ -61,6 +61,15 @@ lancement, et n'utilisent que le compte E2E désigné (voir `AGENTS.md`). La val
 lue dans un `.env` est ignorée ; ne pas l'exporter dans un profil de shell ni la
 passer par `node --env-file`, qui la rendraient permanente.
 
+Pour un essai partagé autorisé, le compte « ARMY TesterArmy QA » dispose d'un
+fichier d'accès dans le dossier privé **MergeOne** du Drive du propriétaire.
+Sur chaque poste, le récupérer dans `.private/shared-qa-credentials.json` avec
+des permissions réservées à l'utilisateur ; ce chemin est ignoré par Git. Les
+secrets GitHub `E2E_LOGIN_EMAIL` et `E2E_LOGIN_PASSWORD` servent aux automatisations
+et ne sont pas lisibles pour restaurer un poste. Ne jamais recopier le mot de
+passe dans le dépôt ou les preuves. Les campagnes ordinaires continuent à utiliser
+leur compte local éphémère.
+
 ## Organisation et écriture des parcours
 
 - `army/critical/` : parcours métier et accès ; `army/extended/` : compléments

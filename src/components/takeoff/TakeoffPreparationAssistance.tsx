@@ -1,12 +1,14 @@
 "use client";
 
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 import { assistTakeoffPreparationAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import { buttonVariants } from "@/components/ui/button";
 import { TakeoffPreparationSourcePreview } from "@/components/takeoff/TakeoffPreparationSourcePreview";
 import { Textarea } from "@/components/ui/textarea";
+import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS } from "@/lib/affaires/intake";
 import {
   applyTakeoffPreparationProposal,
   attachTakeoffPreparationAssistanceProvenance,
@@ -40,9 +42,16 @@ export function TakeoffPreparationAssistance({ projectId, draft, onChange, save,
   latestDraft.current = draft;
   const stale = result !== null && baseDraft.current !== JSON.stringify(draft);
 
+  useEffect(() => {
+    if (stale) onOrderQuestions([]);
+  }, [onOrderQuestions, stale]);
+
   async function propose() {
     setBusy(true);
     setError(null);
+    setResult(null);
+    setAccepted([]);
+    onOrderQuestions([]);
     try {
       const expectedRevision = await save();
       const before = JSON.stringify(latestDraft.current);
@@ -77,9 +86,20 @@ export function TakeoffPreparationAssistance({ projectId, draft, onChange, save,
         {error && <p className="text-sm text-warning">{error} Vos réponses sont conservées et la saisie manuelle reste disponible.</p>}
         {result && <>
           <p className="text-sm text-muted-foreground">{result.message}</p>
+          {result.status === "failed" && result.capabilities.writing.provider === "chatgpt" && <Link href="/dashboard/profile" className="text-sm text-primary underline">Ouvrir Mon profil</Link>}
           <p className="text-xs text-muted-foreground">{result.capabilities.writing.message} {result.capabilities.writing.billing === "chatgpt_plan" ? "Consommation : forfait ChatGPT local." : result.capabilities.writing.billing === "api" ? "Consommation : API configurée." : ""}</p>
           <p className="text-xs text-muted-foreground">Decisions : {result.decisions.message} Accès API distinct de la connexion ChatGPT.</p>
           {stale && <p className="text-sm text-warning">Le cadrage a changé depuis ces propositions. Relancez l&apos;assistance pour les actualiser.</p>}
+          {!stale && (result.decisions.status === "available" || result.decisions.status === "partial") && result.decisions.document_classifications.length > 0 && <div className="space-y-2 rounded-lg border border-border bg-surface p-3 text-sm">
+            <p className="font-medium">Classement proposé des pièces</p>
+            <p className="text-xs text-muted-foreground">Basé sur les informations disponibles. Vérifiez chaque pièce : ce classement ne la modifie pas.</p>
+            <ul aria-label="Propositions de classement des pièces" className="space-y-2">
+              {result.decisions.document_classifications.map((classification) => <li key={classification.document_id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <span className="min-w-0 break-words">{sources([classification.document_id])}</span>
+                <span className="text-xs text-muted-foreground">{classification.status === "proposed" && classification.document_kind ? `${AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[classification.document_kind]} · À confirmer` : "À classer"}</span>
+              </li>)}
+            </ul>
+          </div>}
           {result.proposals.map((proposal) => <div key={proposal.id} className="space-y-2 rounded-lg border border-border bg-surface p-3 text-sm">
             <p className="font-medium">{FIELD_LABELS[proposal.field]} · {accepted.includes(proposal.id) ? "Ajouté au brouillon, à confirmer" : "Proposition à confirmer"}</p>
             <p>{proposal.field === "objective" ? proposal.values.map((value) => value in TAKEOFF_PREPARATION_OBJECTIVES ? TAKEOFF_PREPARATION_OBJECTIVES[value as keyof typeof TAKEOFF_PREPARATION_OBJECTIVES] : value).join(" · ") : proposal.values.join(" · ")}</p>

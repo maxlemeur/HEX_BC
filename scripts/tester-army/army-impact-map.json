@@ -780,6 +780,7 @@
         "e2e/army/critical/hub-launch-metre.e2e.ts",
         "e2e/army/critical/hub-plans-card.e2e.ts",
         "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+        "e2e/army/local/chatgpt-local.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
@@ -867,6 +868,7 @@
         "src/app/dashboard/_actions/chatgpt.ts",
         "src/app/dashboard/profile/**",
         "src/app/auth/chatgpt/**",
+        "e2e/army/local/chatgpt-provider-fixture.mjs",
         "e2e/army/local/profile-provider-fixture.mjs",
         "scripts/dev-chatgpt-local.mjs"
       ],

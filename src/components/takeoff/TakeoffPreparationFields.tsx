@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 
 import { TakeoffPreparationSourcePreview } from "@/components/takeoff/TakeoffPreparationSourcePreview";
@@ -27,16 +27,17 @@ type Props = {
   orderedQuestionIds?: string[];
 };
 
-function ListField({ label, values, onChange }: { label: string; values: string[]; onChange: (values: string[]) => void }) {
+function ListField({ label, values, onChange, multiline = false }: { label: string; values: string[]; onChange: (values: string[]) => void; multiline?: boolean }) {
   const id = useId();
   const [text, setText] = useState(values.join(", "));
   useEffect(() => {
     const parsed = text.split(",").map((value) => value.trim()).filter(Boolean);
     if (JSON.stringify(parsed) !== JSON.stringify(values)) setText(values.join(", "));
   }, [text, values]);
+  const field = { id, value: text, onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setText(event.target.value); onChange(event.target.value.split(",").map((value) => value.trim()).filter(Boolean)); }, placeholder: "Séparez les valeurs par une virgule" };
   return <label htmlFor={id} className="block space-y-1 text-sm font-medium">
     <span>{label}</span>
-    <Input id={id} value={text} onChange={(event) => { setText(event.target.value); onChange(event.target.value.split(",").map((value) => value.trim()).filter(Boolean)); }} placeholder="Séparez les valeurs par une virgule" />
+    {multiline ? <Textarea {...field} rows={3} /> : <Input {...field} />}
   </label>;
 }
 
@@ -125,8 +126,8 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
       <ListField label="Réseaux" values={draft.scope.networks} onChange={(values) => changeScope("networks", values)} />
       <ListField label="Niveaux" values={draft.scope.levels} onChange={(values) => changeScope("levels", values)} />
       <ListField label="Zones" values={draft.scope.zones} onChange={(values) => changeScope("zones", values)} />
-      <ListField label="Inclusions" values={draft.scope.inclusions} onChange={(values) => changeScope("inclusions", values)} />
-      <ListField label="Exclusions" values={draft.scope.exclusions} onChange={(values) => changeScope("exclusions", values)} />
+      <ListField label="Inclusions" values={draft.scope.inclusions} onChange={(values) => changeScope("inclusions", values)} multiline />
+      <ListField label="Exclusions" values={draft.scope.exclusions} onChange={(values) => changeScope("exclusions", values)} multiline />
     </div>
     <PreparationConfirmation label="Je confirme ce périmètre" checked={draft.scope.confirmed} onChange={(checked) => onChange({ ...draft, scope: { ...draft.scope, confirmed: checked } })} />
   </div>;

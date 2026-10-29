@@ -80,6 +80,33 @@ globalThis.fetch = async (input, init) => {
     throw new Error("ChatGPT probe forbids Gemini and Edge dispatch.");
   }
   if (url.origin !== "https://api.openai.com") return originalFetch(input, init);
+  if (!liveProbe && url.pathname === "/v1/decisions") {
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-decisions-fixture");
+    const request = JSON.parse(init.body);
+    assert.equal(request.model, "gpt-6-luna");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length }) + "\n");
+    const deadline = Date.now() + 15_000;
+    while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).hold) {
+      if (Date.now() >= deadline) throw new Error("The controlled Decisions response was not released.");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const answers = request.questions.map((question) => {
+      if (question.type === "choice") {
+        const preferred = question.name.startsWith("document_") ? "plans" : "sources";
+        const choice = question.choices.find((candidate) => candidate.value === preferred) ?? question.choices[0];
+        return { name: question.name, type: "choice", choice: choice.value, confidence: 0.8,
+          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === choice.value ? 1 : 0 })) };
+      }
+      assert.equal(question.type, "score");
+      return { name: question.name, type: "score", score: 2, confidence: 0.8,
+        probabilities: question.levels.map((level, value) => ({ label: level.label, value, probability: value === 2 ? 1 : 0 })) };
+    });
+    return Response.json({ model: "gpt-6-luna", answers, usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } });
+  }
+  if (!liveProbe && url.pathname === "/v1/responses" && JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).timeoutWriting) {
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture-timeout" }) + "\n");
+    throw new DOMException("Simulated provider timeout", "TimeoutError");
+  }
   const body = url.pathname === "/v1/responses" ? JSON.parse(init.body) : null;
   const pdf = body?.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
     .find(part => part.type === "input_file");

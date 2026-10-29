@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
@@ -11,7 +11,7 @@ import { credentials, expect } from "e2e";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
-import { createPlanSet, readPlanFiles } from "../critical/plans-support";
+import { createPlanSet, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import { localClient } from "../takeoff/native-ui";
@@ -27,6 +27,12 @@ let liveProbe: { accessToken: string; model: string; expiresAt: number; reasonin
 let livePdfWitnessPassed = false;
 const businessProbePath = path.resolve(".private/chatgpt-local-business-probe.json");
 const transportLog = path.resolve(".e2e/army/critical/artifacts/chatgpt-transport.jsonl");
+const decisionsControl = path.resolve(".e2e/army/critical/artifacts/decisions-control.json");
+async function setDecisionsControl(input: { hold?: boolean; timeoutWriting?: boolean }) {
+  const temporary = `${decisionsControl}.tmp`;
+  await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, ...input }));
+  await rename(temporary, decisionsControl);
+}
 
 beforeAll(async () => {
   // Use the campaign's disposable local backend, never ambient .env credentials.
@@ -48,10 +54,12 @@ beforeAll(async () => {
   localOrigin = `http://127.0.0.1:${port}`;
   await mkdir(path.dirname(transportLog), { recursive: true });
   await writeFile(transportLog, "");
+  await setDecisionsControl({});
   localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port)], {
     cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development",
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
-      ARMY_CHATGPT_TRANSPORT_LOG: transportLog },
+      ARMY_CHATGPT_TRANSPORT_LOG: transportLog,
+      ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
     stdio: ["ignore", "pipe", "pipe"],
   });
   for (const stream of [localServer.stdout, localServer.stderr]) stream?.on("data", (chunk) => {
@@ -70,6 +78,78 @@ afterAll(async () => {
     await new Promise<void>((resolve) => localServer.once("exit", () => resolve()));
   }
   if (fixtureStore) await rm(fixtureStore, { force: true });
+});
+
+// This test uses a fictional Decisions response on an owned backend. It never calls the paid API.
+if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visible for review without changing the preparation", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  const account = credentials.user("army");
+  await app.open(`${localOrigin}/login`);
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-decisions-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Préparation Decisions" }, army);
+  const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
+  const file = await uploadSamplePlan(ui, army, planSet);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  await saveTakeoffPreparation({ ...ui, army });
+  const { client } = await localClient();
+  const read = async () => {
+    const result = await client.from("takeoff_preparations").select("revision,draft,confirmed_snapshot").eq("project_id", estimate.projectId).single();
+    expect(result.error).toBeNull();
+    return result.data!;
+  };
+  const before = await read();
+  await dialog.getByText("Assistance au cadrage", { exact: true }).click();
+  await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
+  await expect(dialog.getByText(/Decisions : Classement proposé à confirmer/)).toBeVisible();
+  const classifications = dialog.getByRole("list", "Propositions de classement des pièces", { exact: true });
+  await expect(classifications).toBeVisible();
+  await expect(classifications.getByText(file.file_name, { exact: true })).toBeVisible();
+  await expect(classifications.getByText("Plans · À confirmer", { exact: true })).toBeVisible();
+  expect(await read()).toEqual(before);
+  expect(before.confirmed_snapshot).toBeNull();
+  const observed = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+  expect(observed.filter(entry => entry.provider === "decisions-fixture")).toHaveLength(1);
+  expect(observed.filter(entry => entry.provider === "forbidden")).toEqual([]);
+  // A provider timeout leaves the draft intact and gives the user a route to
+  // adjust the account's effort; it does not change that setting implicitly.
+  if (!await preparePlanFixture()) throw new Error("DEC01 requires its own temporary ChatGPT fixture.");
+  try {
+    await setDecisionsControl({ timeoutWriting: true });
+    await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
+    await expect(dialog.getByText(/L.assistance ChatGPT a dépassé son délai/)).toBeVisible();
+    await expect(dialog.getByRole("link", "Ouvrir Mon profil", { exact: true })).toHaveAttribute("href", "/dashboard/profile");
+    await expect(classifications.getByText("Plans · À confirmer", { exact: true })).toBeVisible();
+    expect(await read()).toEqual(before);
+    await setDecisionsControl({ hold: true });
+    try {
+      await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
+      await expect.poll(async () => (await readFile(transportLog, "utf8")).trim().split("\n")
+        .map(line => JSON.parse(line)).filter(entry => entry.provider === "decisions-fixture").length).toBe(3);
+      const changed = await client.from("plan_files").update({ file_hash: "b".repeat(64) }).eq("id", file.id).select("id").single();
+      expect(changed.error).toBeNull();
+    } finally {
+      await setDecisionsControl({});
+    }
+    await expect(dialog.getByText(/Les sources ou la préparation ont changé pendant l.assistance/)).toBeVisible();
+    await expect(classifications).toHaveCount(0);
+    await expect(dialog.getByRole("button", "Voir la prochaine étape proposée", { exact: true })).toHaveCount(0);
+    await recordEvidence(army, "decisions-classification", { estimate, planSetId: planSet.id, file,
+      displayed: "Plans · À confirmer", unchangedPreparation: true, timeoutRecoveryVisible: true, staleResultRemovedAfterSourceChange: true, externalApiCalled: false,
+      screenshot: await app.screenshot("decisions-classification") });
+  } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
 });
 
 test("ChatGPT local: profile starts PKCE authorization and recovers from declined consent", {
@@ -138,6 +218,8 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
   await preparePlanFixture();
+  const transportBefore = (await readFile(transportLog, "utf8")).trim();
+  const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
   const model = liveProbe?.model ?? "army-plan-model";
   const account = credentials.user("army");
   await app.open(`${localOrigin}/login`);
@@ -174,7 +256,9 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   expect(detail.result?.provider_meta).toMatchObject({ provider: "chatgpt", model });
   expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
   expect(detail.job.metrics.token_count).toBeGreaterThan(0);
-  expect((await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line))).toEqual([
+  const transport = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+  expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
+  expect(transport.slice(transportStart)).toEqual([
     { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model, sourceMatched: true,
       ...(liveProbe ? { reasoningEffort: liveProbe.reasoningEffort ?? null } : {}) },
   ]);

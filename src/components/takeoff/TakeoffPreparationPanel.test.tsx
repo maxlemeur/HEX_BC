@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UserProvider, useUserContext } from "@/components/UserContext";
@@ -76,6 +77,47 @@ function processingControls({ processing, onProcessingChange, isConfirmed }: Pre
 }
 
 describe("TakeoffPreparationPanel", () => {
+  it("keeps the source revision and objective when an initial load arrives late", async () => {
+    const original = state();
+    const pending: Array<(value: ReturnType<typeof success<typeof original>>) => void> = [];
+    actions.load.mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
+    render(<StrictMode><TakeoffPreparationPanel {...props} onLaunch={vi.fn()} /></StrictMode>);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => { pending[0](success(original)); });
+
+    // The UI may wait for the newest request; if it is already editable, the
+    // late response must not erase what the user enters before it completes.
+    const editableBeforeLatest = screen.queryByRole("button", { name: /Mes documents/ }) !== null;
+    if (!editableBeforeLatest) await act(async () => { pending[1](success(original)); });
+    fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
+    fireEvent.change(screen.getByLabelText(`Révision de ${SOURCE.document_name}`), { target: { value: "B" } });
+    fireEvent.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
+    fireEvent.change(screen.getByLabelText("Objectif du métré"), { target: { value: "extract_quantities" } });
+    if (editableBeforeLatest) await act(async () => { pending[1](success(original)); });
+
+    expect(screen.getByLabelText("Objectif du métré")).toHaveValue("extract_quantities");
+    fireEvent.click(screen.getByRole("button", { name: /Mes documents/ }));
+    expect(screen.getByLabelText(`Révision de ${SOURCE.document_name}`)).toHaveValue("B");
+  });
+
+  it("keeps edits made while recovering a preparation and does not silently replace them", async () => {
+    actions.save.mockRejectedValueOnce(new Error("Save failed"));
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Ce que je veux mesurer/ }));
+    fireEvent.change(screen.getByLabelText("Exclusions"), { target: { value: "RDC, Zone 2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await screen.findByText(/L.enregistrement a échoué/);
+    let finishReload: (value: ReturnType<typeof success<ReturnType<typeof state>>>) => void = () => undefined;
+    const original = state();
+    actions.load.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre la dernière préparation" }));
+    fireEvent.change(screen.getByLabelText("Exclusions"), { target: { value: "RDC, Zone 3" } });
+    await act(async () => { finishReload(success(original)); });
+    expect(screen.getByLabelText("Exclusions")).toHaveValue("RDC, Zone 3");
+    expect(screen.getByText(/modifiée pendant le chargement/)).toBeInTheDocument();
+    expect(actions.save).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves incompatible saved settings until an explicit repair rather than using the new source recommendation", async () => {
     stored.processing = { level: "C", provider: "chatgpt" };
     storedConfirmedAt = "2026-10-29T12:00:00Z";
