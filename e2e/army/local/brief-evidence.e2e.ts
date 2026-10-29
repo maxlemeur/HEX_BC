@@ -63,6 +63,7 @@ test("brief document associations remain distinct from proof after edit and relo
   await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", FILE_NAME, { exact: true })).toBeVisible();
 
   await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).tap();
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).not.toBeVisible();
   await expect(brief).toBeVisible();
   await brief.getByRole("button", "Modifier", { exact: true }).tap();
   await brief.getByDisplayValue(ASSOCIATED_TEXT, { exact: true }).fill(EDITED_TEXT);

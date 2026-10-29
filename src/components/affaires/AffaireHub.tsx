@@ -1348,7 +1348,7 @@ export function AffaireHub({
               setDetailsOpen(true);
               const params = new URLSearchParams(documentSearchParams.toString());
               for (const key of ["intakeDocument", "briefBlock", "briefEntry"]) params.delete(key);
-              router.replace(`/dashboard/affaires/${summary.project.id}${params.size ? `?${params}` : ""}#brief`, { scroll: false });
+              window.history.replaceState(null, "", `/dashboard/affaires/${summary.project.id}${params.size ? `?${params}` : ""}#brief`);
             }
           }}
           projectId={summary.project.id}
