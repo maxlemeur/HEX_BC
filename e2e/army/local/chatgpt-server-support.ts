@@ -18,6 +18,9 @@ export async function createLocalChatGptOwner() {
   if (error || !data.session || !data.user) throw new Error("Could not create the owned ChatGPT fixture account.");
   const member = await client.from("tenant_memberships").select("tenant_id,role").eq("user_id", data.user.id).single();
   if (member.error || !member.data || member.data.role !== "admin") throw new Error("The ChatGPT fixture must own exactly one tenant.");
+  const tenant = await client.from("tenants").update({ name: `ARMY ChatGPT ${data.user.id}` })
+    .eq("id", member.data.tenant_id).eq("created_by", data.user.id).select("id").single();
+  if (tenant.error || !tenant.data) throw new Error("Could not name the owned ARMY ChatGPT tenant.");
   const service = createClient(backend.origin, process.env.SUPABASE_SERVICE_ROLE_KEY!, options);
   const policy = await service.rpc("set_tenant_calc_policy", {
     p_tenant_id: member.data.tenant_id, p_actor_user_id: data.user.id, p_new_estimate_calc_engine: 2,

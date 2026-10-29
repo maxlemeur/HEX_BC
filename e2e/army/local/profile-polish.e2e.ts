@@ -243,7 +243,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     await expect(screen.getByText("Connexion vérifiée avec gpt-6.1-terra. Cette vérification a utilisé votre forfait.", { exact: true })).toBeVisible();
     await setMode("connection-error");
     await screen.getByRole("button", "Tester la connexion", { exact: true }).tap();
-    const connectionError = screen.getByRole("alert").getByText("ChatGPT n’a pas terminé la demande. Vérifiez la connexion dans Mon profil.", { exact: true });
+    const connectionError = screen.getByRole("alert").getByText("ChatGPT limite les demandes. Réessayez plus tard ou consultez votre consommation dans Mon profil.", { exact: true });
     await expect(connectionError).toBeVisible();
     await manage();
     await expect(connectionError).toBeVisible();
@@ -251,7 +251,8 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     await manage();
     await setMode("models-error");
     await screen.getByRole("button", "Actualiser les modèles", { exact: true }).tap();
-    await expect(connectionError).toBeVisible();
+    const modelsError = screen.getByRole("alert").getByText("ChatGPT n’a pas terminé la demande. Vérifiez la connexion dans Mon profil.", { exact: true });
+    await expect(modelsError).toBeVisible();
     await expect(model).toHaveValue("gpt-6.1-terra");
     await expect(effort).toHaveValue("max");
     await setMode("normal");

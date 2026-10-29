@@ -9,13 +9,14 @@ import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
-import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
+import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import { buildTakeoffUploadPath, deriveDeterministicJobId, prepareTakeoffUploadSource } from "@/lib/takeoff/job-creation-input";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
+import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 
 let localServer: ChildProcess;
@@ -180,7 +181,7 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     expect(row.error).toBeNull();
     const draft = row.data!.draft as { processing: { level: string; provider: string } };
     draft.processing.provider = "gemini";
-    const { client: worker } = await localTakeoffWorkerClient(army, estimate.versionId);
+    const { client: worker } = await localTakeoffWorkerClient(army, estimate.versionId, fixtureEmail);
     const update = await worker.from("takeoff_preparations").update({ draft, revision: row.data!.revision + 1 }).eq("project_id", estimate.projectId).select("project_id").single();
     expect(update.error).toBeNull();
     await browser.reload();
@@ -281,7 +282,7 @@ test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Historique fournisseur" }, army);
   const beforeEstimate = await readEstimate(browser, estimate.versionId);
   const { userId } = await localClient();
-  const { client, tenantId } = await localTakeoffWorkerClient(army, estimate.versionId);
+  const { client, tenantId } = await localTakeoffWorkerClient(army, estimate.versionId, fixtureEmail);
   const jobId = randomUUID();
   const job = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
     created_by: userId, level: "A", status: "failed", source_file_name: "historique.csv", source_file_type: "text/csv",
@@ -871,4 +872,33 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   }
   const screenshot = await app.screenshot("private-business-pdf-result");
   await recordEvidence(army, "chatgpt-private-business-pdf", { ...businessEvidence, businessAssertionsPassedBeforeUi: true, screenshot });
+});
+
+// The creator/copy journey moved from the production fixture: new AI jobs are local-only.
+// Keep its business assertions and timeout, using the same disposable realm as other ChatGPT journeys.
+test("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and a v3 source is copied as a v3", {
+  tags: ["critical", "local", "chatgpt", "engine-v3", "creators"], session: "army", timeout: 600_000,
+}, async ({ app, screen, browser }) => {
+  await preparePlanFixture();
+  try {
+    const account = { ...credentials.user("army"), username: fixtureEmail };
+    await app.open(`${localOrigin}/login`);
+    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel(/Mot de passe/).fill(account.password);
+    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard/);
+    const { client, userId } = await localClient();
+    const member = await client.from("tenant_memberships").select("tenant_id").eq("user_id", userId).single();
+    expect(member.error).toBeNull();
+    const prefix = `ARMY-local-v3-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = { app: { ...app, baseUrl: localOrigin, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    if (!serverWorkspace) throw new Error("Owned development workspace unavailable.");
+    await restrictCriticalBrowser(browser, ui.app, army);
+    await verifyV3TakeoffCreation(ui, army, { userId, tenantId: member.data!.tenant_id },
+      path.resolve(`.e2e/army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`));
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
 });
