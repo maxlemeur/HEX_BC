@@ -246,6 +246,26 @@ describe("GoogleDriveImport (route and Google simulated)", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Compte Google" })).toBeEnabled());
     for (const button of screen.getAllByRole("button", { name: "Fermer" })) expect(button).toBeEnabled();
   });
+  it("keeps the account chosen during a slow first listing, not the late answer of the previous one", async () => {
+    state = { ...state, folder: null, connections: [connection(), connection(OTHER_ACCOUNT, "maxime@example.invalid")] };
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => { release = resolve; });
+    answer = (request) => {
+      if (request.action !== "list") return undefined;
+      if (request.connectionId === OTHER_ACCOUNT) return response({ listing: { location: request.location, folder: { id: "root_demo", name: "Mon Drive", mimeType: folder.mimeType }, files: [shared] } });
+      return slow.then(() => response({ listing: listingFor(request.location!) }));
+    };
+    render(<GoogleDriveImport projectId="project_demo" onUploadComplete={onUploadComplete} />);
+    await openPanel();
+    await waitFor(() => expect(posted("list")).toHaveLength(1));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Compte Google" }), OTHER_ACCOUNT);
+    expect(await screen.findByRole("button", { name: "Ouvrir le dossier Drive de Maxime" })).toBeVisible();
+    // Let the first account's late answer arrive.
+    await act(async () => { release(); await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect(screen.queryByRole("button", { name: "Ouvrir le dossier Dossier fictif" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ouvrir le dossier Drive de Maxime" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Compte Google" })).toHaveValue(OTHER_ACCOUNT);
+  });
   it("asks to reconnect an account whose access Google revoked", async () => {
     state = { ...state, connections: [{ ...connection(), status: "reconnect_required" }] };
     answer = (request) => request.action === "list" ? failure("Accès Google expiré. Reconnectez ce compte.", 401) : undefined;

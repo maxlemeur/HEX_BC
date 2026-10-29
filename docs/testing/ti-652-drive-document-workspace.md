@@ -24,9 +24,10 @@ Retirer un compte efface le jeton et révoque l’accès chez Google, sauf si le
 compte Google reste connecté ailleurs dans MergeOne (autre tenant ou autre membre) :
 Google révoque en une fois tous les jetons d’un compte. Les pièces déjà liées restent
 dans l’affaire ; les sélectionner de nouveau dans Drive les rattache au compte choisi,
-sans nouvelle pièce. Un compte dont Google a révoqué l’accès est signalé « à
-reconnecter ». Un membre retiré d’un tenant perd les comptes Google ajoutés dans ce
-tenant, et le classement ne lit plus jamais un fichier avec le compte d’un ancien membre.
+sans nouvelle pièce, et relance leur analyse si elle avait échoué. Un compte dont
+Google a révoqué l’accès est signalé « à reconnecter ». Un membre retiré d’un tenant
+perd les comptes Google ajoutés dans ce tenant, et le classement ne lit plus jamais
+un fichier avec le compte d’un ancien membre.
 
 Une DPGF liée depuis Drive s’importe depuis le dossier comme une copie : le serveur la
 lit dans Drive au moment de la revue PDF et de l’import, avec le compte du membre qui
@@ -84,9 +85,11 @@ partagé avant le déploiement de ce code.
 - Unitaires (Google simulé) : persistance d’un compte sans exposer son jeton,
   renouvellement de l’accès, navigation Partagés avec moi / Drives partagés, lien
   unique sans téléchargement, échecs partiels, dossier d’affaire, compte d’un autre
-  membre refusé, reconnexion, révocation, jeton scellé pour un autre compte refusé,
-  lecture bornée par le classement ; parcours OAuth (état, cookie, refus, portée,
-  accès durable, retour) ; panneau Drive.
+  membre refusé, lien orphelin rattaché avec relance de son analyse échouée,
+  reconnexion, révocation, jeton scellé pour un autre compte refusé, lecture bornée
+  par le classement ; parcours OAuth (état, cookie, refus, portée, accès durable,
+  retour) ; panneau Drive, y compris un changement de compte pendant son premier
+  chargement.
 - pgTAP `google-drive-links.test.sql` : comptes visibles par leur seul membre,
   jeton illisible et fonction de lecture réservée au service role, enregistrement
   réservé au service role et à un membre du tenant, lien ou dossier refusé avec le compte d’un autre membre,

@@ -82,6 +82,15 @@ export async function resumeStaleDriveLots(access: Access) {
   return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
 }
 
+// A finished lot runs again, with a fresh retry budget: its failed pieces are analysed anew.
+async function rearmFinishedLot(access: Access, uploadId: string) {
+  const { data, error } = await database(access).from("affaire_intake_uploads")
+    .update({ status: "queued", last_error: null, next_retry_at: null, attempt_count: 0 })
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("id", uploadId)
+    .in("status", ["ready", "partial_failure", "failed"]).select("id");
+  return !error && Boolean((data as unknown[] | null)?.length);
+}
+
 /**
  * Records each selected Drive file as a piece of the affaire, without transferring its content.
  * One selection is one intake upload, armed once after its last link so that the classifier
@@ -92,6 +101,7 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
   const results: DriveLinkResult[] = [];
   const active = new Map((await readDriveLinks(access)).map((link) => [link.source.fileId, link]));
   const candidates = input.files.filter(({ file }) => !active.has(file.id));
+  const rearmed = new Set<string>();
   for (const { file } of input.files) {
     const link = active.get(file.id);
     if (!link) continue;
@@ -102,12 +112,19 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
     // Its Google account was removed: the link is attached to the account chosen now.
     const attached = await database(access).from("affaire_intake_documents").update({ drive_connection_id: input.connectionId })
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", link.documentId)
-      .is("drive_connection_id", null).is("deleted_at", null).select("id");
-    results.push(!attached.error && (attached.data as unknown[] | null)?.length
-      ? { fileId: file.id, name: file.name, status: "linked", message: "Lien rattaché à ce compte Google.", documentId: link.documentId }
-      : { fileId: file.id, name: file.name, status: "failed", message: "Lien non rattaché à ce compte. Réessayez." });
+      .is("drive_connection_id", null).is("deleted_at", null).select("id,classification_status");
+    const row = attached.error ? undefined : (attached.data as Array<{ classification_status: string }> | null)?.[0];
+    if (!row) {
+      results.push({ fileId: file.id, name: file.name, status: "failed", message: "Lien non rattaché à ce compte. Réessayez." });
+      continue;
+    }
+    // Its analysis may have failed for want of that account: it runs again with this one.
+    const retried = row.classification_status === "failed" && (rearmed.has(link.uploadId) || await rearmFinishedLot(access, link.uploadId));
+    if (retried) rearmed.add(link.uploadId);
+    results.push({ fileId: file.id, name: file.name, status: "linked", documentId: link.documentId,
+      message: retried ? "Lien rattaché à ce compte Google. Analyse relancée." : "Lien rattaché à ce compte Google." });
   }
-  const resumed = await resumeStaleDriveLots(access);
+  const resumed = [...new Set([...rearmed, ...await resumeStaleDriveLots(access)])];
   if (!candidates.length) return { results, uploadId: null, resumed };
   const uploadId = randomUUID();
   // Not queued yet: a recovery worker must not classify a lot that is still being recorded.

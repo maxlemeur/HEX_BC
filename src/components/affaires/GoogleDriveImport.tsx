@@ -116,6 +116,9 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     const back = returned.current;
     returned.current = null;
     if (back) (back.outcome === "connected" ? setNotice : setMessage)(DRIVE_OAUTH_OUTCOMES[back.outcome]);
+    // An account switched or removed meanwhile supersedes this first listing.
+    const initial = generation.current;
+    const current = () => !abort.signal.aborted && initial === generation.current;
     void fetchDriveState(endpoint, abort.signal).then(async (data) => {
       if (abort.signal.aborted) return;
       setState(data);
@@ -128,13 +131,14 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
       const start: DriveLocation = data.folder && !back?.connectionId ? { kind: "folder", folderId: data.folder.folderId } : ROOT;
       setLoadingFolder(true);
       try {
-        setListing(await listDrive(endpoint, account, start, undefined, abort.signal).catch(async (error: Error) => {
-          if (start === ROOT) throw error;
+        const first = await listDrive(endpoint, account, start, undefined, abort.signal).catch(async (error: Error) => {
+          if (start === ROOT || !current()) throw error;
           setMessage(`Dossier de l'affaire inaccessible avec ce compte : ${error.message}`);
           return listDrive(endpoint, account, ROOT, undefined, abort.signal);
-        }));
-      } finally { if (!abort.signal.aborted) setLoadingFolder(false); }
-    }).catch((error: Error) => { if (!abort.signal.aborted) setMessage(error.message); });
+        });
+        if (current()) setListing(first);
+      } finally { if (current()) setLoadingFolder(false); }
+    }).catch((error: Error) => { if (current()) setMessage(error.message); });
     return () => abort.abort();
   }, [endpoint, open]);
   function close() {

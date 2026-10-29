@@ -138,6 +138,18 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     expect(backend.rows("affaire_intake_documents").size).toBe(1);
     expect(document.drive_connection_id).toBe(connectionId);
   });
+  it("analyses again a reattached piece whose analysis failed without its account", async () => {
+    const first = await link();
+    const upload = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    const [document] = [...backend.rows("affaire_intake_documents").values()];
+    Object.assign(upload, { status: "failed", attempt_count: 3 });
+    Object.assign(document, { drive_connection_id: null, classification_status: "failed" });
+    const again = await link();
+    expect(again.results).toEqual([expect.objectContaining({ fileId: "plan_demo", status: "linked", message: "Lien rattaché à ce compte Google. Analyse relancée." })]);
+    expect(again.uploads).toEqual(first.uploads);
+    expect(upload).toMatchObject({ status: "queued", last_error: null, attempt_count: 0 });
+    expect(document.drive_connection_id).toBe(connectionId);
+  });
   it("arms again a lot that an interrupted request left being recorded", async () => {
     const first = await link();
     const upload = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
