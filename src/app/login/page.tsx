@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LegalLinks } from "@/components/public/legal-links";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence, MotionConfig, useReducedMotion } from "motion/react";
@@ -211,6 +212,7 @@ export default function LoginPage() {
         <div className="relative flex w-full flex-1 items-start justify-center overflow-hidden bg-surface-subtle px-4 py-10 sm:px-10 sm:py-12 lg:w-[55%] lg:items-center lg:px-16">
           <LoginPipeEcho />
 
+          <div className="relative w-full max-w-md">
           <form
             className="relative w-full max-w-md space-y-6 animate-in fade-in-0 duration-500 motion-reduce:animate-none"
             method="post"
@@ -312,6 +314,8 @@ export default function LoginPage() {
               </Link>
             </p>
           </form>
+          <div className="mt-8"><LegalLinks /></div>
+          </div>
         </div>
       </main>
     </MotionConfig>

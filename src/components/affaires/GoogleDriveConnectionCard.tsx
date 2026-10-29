@@ -157,6 +157,13 @@ export function GoogleDriveConnectionCard() {
         connexion démarre en lecture seule.
       </p>
       {error && <Alert variant="danger">{error}</Alert>}
+      <p className="mb-4 text-sm leading-6 text-muted-foreground">
+        La lecture autorisée par Google porte sur tout le Drive accessible au compte.
+        Les pièces choisies pour une affaire peuvent être partagées avec ses membres,
+        copiées pour l’import ou le métré, et analysées par le fournisseur d’IA configuré.
+        Consultez la <a className="text-primary underline" href="/confidentialite">politique de confidentialité</a>{" "}
+        et les <a className="text-primary underline" href="/suppression-des-donnees">options de suppression</a>.
+      </p>
       {notice && (
         <p role="status" className="mb-4 text-sm text-foreground">
           {notice}

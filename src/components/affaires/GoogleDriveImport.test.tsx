@@ -211,11 +211,13 @@ describe("GoogleDriveImport (route and Google simulated)", () => {
     expect(screen.getAllByRole("status")[0]).toHaveTextContent(
       "Chargement du dossier…",
     );
-    finishNavigation(
-      response({
-        listing: listingFor({ kind: "folder", folderId: archives.id }),
-      }),
-    );
+    await act(async () => {
+      finishNavigation(
+        response({
+          listing: listingFor({ kind: "folder", folderId: archives.id }),
+        }),
+      );
+    });
     expect(
       await screen.findByRole("heading", { name: "Dossier ouvert : Archives" }),
     ).toHaveFocus();
