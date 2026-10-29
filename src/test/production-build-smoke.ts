@@ -545,7 +545,7 @@ async function waitForHomePage(input: {
         fetch: input.dependencies.fetch,
         baseUrl: input.baseUrl,
         path: "/",
-        bodyMarker: "Vos devis",
+        bodyMarker: "Vos affaires, du dossier au devis.",
         contentType: "text/html",
         requestTimeoutMs: input.options.requestTimeoutMs,
       })
@@ -659,6 +659,20 @@ export async function runProductionBuildSmoke(
       contentType: "text/html",
       requestTimeoutMs: options.requestTimeoutMs,
     });
+    for (const [path, bodyMarker] of [
+      ["/confidentialite", "Politique de confidentialité"],
+      ["/conditions", "Conditions d’utilisation"],
+      ["/suppression-des-donnees", "Supprimer vos données ou déconnecter Drive"],
+    ]) {
+      await assertTextResponse({
+        fetch: dependencies.fetch,
+        baseUrl,
+        path,
+        bodyMarker,
+        contentType: "text/html",
+        requestTimeoutMs: options.requestTimeoutMs,
+      });
+    }
     await assertDashboardRedirect({
       fetch: dependencies.fetch,
       baseUrl,

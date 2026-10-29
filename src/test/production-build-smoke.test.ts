@@ -54,12 +54,23 @@ function createHarness(
       const path = new URL(url).pathname;
       if (path === "/") {
         return new Response(
-          '<html>Vos devis<script src="/_next/static/chunks/app-build.js"></script></html>',
+          '<html>Vos affaires, du dossier au devis.<script src="/_next/static/chunks/app-build.js"></script></html>',
           {
           headers: { "content-type": "text/html; charset=utf-8" },
           status: 200,
           }
         );
+      }
+      const legalPages: Record<string, string> = {
+        "/confidentialite": "Politique de confidentialité",
+        "/conditions": "Conditions d’utilisation",
+        "/suppression-des-donnees": "Supprimer vos données ou déconnecter Drive",
+      };
+      if (legalPages[path]) {
+        return new Response(`<html>${legalPages[path]}</html>`, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+          status: 200,
+        });
       }
       if (path === "/login") {
         return new Response("<html>Connexion</html>", {
@@ -129,6 +140,9 @@ describe("production build smoke", () => {
     expect(harness.requests).toEqual([
       "/",
       "/login",
+      "/confidentialite",
+      "/conditions",
+      "/suppression-des-donnees",
       "/dashboard",
       "/_next/static/chunks/app-build.js",
     ]);
