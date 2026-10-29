@@ -428,7 +428,9 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       await browser.keyboard.press("Escape");
       // Une ligne dans la v3 conserve l'accès manuel à la même préparation (HUB01).
       await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
-      await app.open(`/dashboard/affaires/${anchor.projectId}#plans`);
+      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      // The prerequisite uses the API; reload the hub to read its committed line count.
+      await browser.reload();
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
       dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "auto" } });
