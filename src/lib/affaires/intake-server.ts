@@ -19,6 +19,7 @@ import {
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { proposeAffaireIntakeCategory } from "@/lib/affaires/intake-decisions";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
@@ -2070,7 +2071,11 @@ async function generateAffaireBriefDraft(input: {
     generated = result.data;
   } catch (error) {
     if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
-    console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error: error.cause });
+    const cause = error.cause;
+    const errorCode = cause instanceof TakeoffError && Object.values(TakeoffErrorCode).some((code) => code === cause.code)
+      ? cause.code
+      : "PROVIDER_ERROR";
+    console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error_code: errorCode });
   }
 
   const generation = mergeGeneratedAffaireBriefWithFallback({
@@ -2696,6 +2701,7 @@ export async function createAffaireIntakeUpload(
 }
 
 export const __securityTesting__ = {
+  generateAffaireBriefDraft,
   validateAffaireIntakeUploadBatch,
   validateSpreadsheetBudget,
   buildSpreadsheetSnippet,
