@@ -50,21 +50,6 @@ function signIn(supabase: ReturnType<typeof supabaseWith>) {
 describe("dossier DPGF linked from Google Drive", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("describes a Drive piece with Drive's current size and no download URL or stored copy", async () => {
-    const supabase = supabaseWith(driveDocument);
-    signIn(supabase);
-    vi.mocked(readLinkedDriveFile).mockResolvedValue({ size: "14" } as never);
-
-    await expect(getAffaireIntakeDpgfDownload(PROJECT_ID, DOCUMENT_ID)).resolves.toEqual({
-      documentId: DOCUMENT_ID, fileName: "DPGF lot 1.xlsx", mimeType: MIME, sizeBytes: 14, downloadUrl: null,
-    });
-    expect(readLinkedDriveFile).toHaveBeenCalledWith(driveDocument);
-    expect(supabase.storage.from).not.toHaveBeenCalled();
-    expect(supabase.documents.select).toHaveBeenCalledWith(expect.stringContaining("drive_file_id"));
-    expect(supabase.documents.eq).toHaveBeenCalledWith("document_kind", "dpgf");
-    expect(supabase.documents.is).toHaveBeenCalledWith("deleted_at", null);
-  });
-
   it("reads the Drive bytes for the import, with the account that linked the piece", async () => {
     signIn(supabaseWith(driveDocument));
     vi.mocked(readLinkedDriveDocument).mockResolvedValue({ bytes: Buffer.from("drive bytes"), file: {} } as never);

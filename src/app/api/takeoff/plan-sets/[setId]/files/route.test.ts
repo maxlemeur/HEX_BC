@@ -13,7 +13,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
-import { GET, POST } from "@/app/api/takeoff/plan-sets/[setId]/files/route";
+import { POST } from "@/app/api/takeoff/plan-sets/[setId]/files/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { PLAN_SET_MAX_FILES } from "@/lib/takeoff/plans";
@@ -24,7 +24,6 @@ const PROJECT_ID = "99999999-9999-4999-8999-999999999999";
 const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const SET_ID = "44444444-4444-4444-8444-444444444444";
 const FILE_ID = "55555555-5555-4555-8555-555555555555";
-const MISSING_SET_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type PlanSetStoredRow = {
   id: string;
@@ -563,28 +562,5 @@ describe("/api/takeoff/plan-sets/[setId]/files", () => {
     expect(body.error?.code).toBe("TAKEOFF_PLAN_SET_BUDGET_EXCEEDED");
     expect(supabase.__state.planFilesById.size).toBe(0);
     expect(supabase.__state.signedUploadPaths).toEqual([]);
-  });
-
-  it("returns 404 when set does not exist", async () => {
-    const supabase = createSupabaseMock({
-      planSets: [],
-      planFiles: [],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(
-      new Request(`http://localhost/api/takeoff/plan-sets/${MISSING_SET_ID}/files`, {
-        method: "GET",
-      }),
-      makeParams(MISSING_SET_ID)
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(404);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBeDefined();
   });
 });

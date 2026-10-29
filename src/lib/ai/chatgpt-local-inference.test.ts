@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ getLocalChatGptCredential: vi.fn().mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", profileId: "profile-a" }) }));
-import { callLocalChatGptStructured, listLocalChatGptModels, readChatGptResponse } from "@/lib/ai/chatgpt-local-inference";
+import { callLocalChatGptStructured, readChatGptResponse } from "@/lib/ai/chatgpt-local-inference";
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 
 const owner = { userId: "user", tenantId: "tenant" };
@@ -66,17 +66,6 @@ describe("ChatGPT plan inference", () => {
     expect(body.input[1].content[1]).toMatchObject({ type: "input_file", file_data: "data:application/pdf;base64,cGRm" });
     fetchMock.mockResolvedValue(stream([completed]));
     await expect(callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.literal(99) }) })).rejects.toThrow();
-  });
-  it("discovers only account-visible models preserving their order", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ models: [
-      { slug: "second", display_name: "Second", visibility: "list" },
-      { slug: "hidden", display_name: "Hidden", visibility: "hidden" },
-      { slug: "first", display_name: "First", visibility: "list" },
-    ] })));
-    expect(await listLocalChatGptModels(owner)).toEqual([
-      { id: "second", name: "Second", reasoningEfforts: [], defaultReasoningEffort: null },
-      { id: "first", name: "First", reasoningEfforts: [], defaultReasoningEffort: null },
-    ]);
   });
   it("sends the persisted reasoning effort on the actual Responses request independently of Gemini settings", async () => {
     vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "gpt-6.1-terra", reasoningEffort: "max" });

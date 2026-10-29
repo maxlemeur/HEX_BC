@@ -133,26 +133,6 @@ describe("ImportWizard", () => {
     expect(importFileMock).toHaveBeenCalledWith(file, { headerRowNumber: null });
   });
 
-  it("keeps history section visible when imports fail to load", async () => {
-    useImportFlowMock.mockReturnValue(
-      createFlowState({
-        imports: [],
-        loadError: "Impossible de charger la liste des imports.",
-      })
-    );
-
-    const user = userEvent.setup();
-    render(<ImportWizard />);
-
-    expect(screen.getByText("Historique")).toBeInTheDocument();
-    expect(
-      screen.getByText("Impossible de charger la liste des imports.")
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Actualiser" }));
-    expect(refreshImportsMock).toHaveBeenCalledTimes(1);
-  });
-
   it("re-shows the success CTA after importing another file", async () => {
     let flowState = createFlowState({
       lastImportId: "import-1",

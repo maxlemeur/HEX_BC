@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertDispatchMatchesSubmission, canRearmUnfrozenEmailRequest, hashSubmission, isTerminalDelivery, resolvePortalOrigin } from "@/lib/email/send-estimate-plan";
+import { assertDispatchMatchesSubmission, canRearmUnfrozenEmailRequest, hashSubmission } from "@/lib/email/send-estimate-plan";
 import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";
 import { actorUserId, dispatch, versionId } from "@/lib/email/estimate-email.test-utils";
 
@@ -37,13 +37,5 @@ describe("email replay decisions", () => {
     }
     expect(canRearmUnfrozenEmailRequest({ ...input, completedReplay: { ...frozen, status: "failed" } })).toBe(false);
     expect(canRearmUnfrozenEmailRequest({ ...input, payload: { ...payload, subject: "Changed" } })).toBe(false);
-  });
-
-  it("distinguishes a completed provider submission from queued or uncertain delivery", () => {
-    expect((["sent", "delivered", "bounced"] as const).map(isTerminalDelivery)).toEqual([true, true, true]);
-    expect(isTerminalDelivery("unknown")).toBe(false);
-    expect(isTerminalDelivery("queued")).toBe(false);
-    expect(resolvePortalOrigin(requestUrl)).toBe("https://example.test");
-    expect(() => resolvePortalOrigin(requestUrl, "https://user:pass@example.test")).toThrow();
   });
 });

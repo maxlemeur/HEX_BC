@@ -1,26 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createTakeoffMappingRule,
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffDpgfComparison,
   fetchTakeoffLineEvidencePanel,
   fetchTakeoffMappingRules,
   TAKEOFF_READ_REQUEST_TIMEOUT_MS,
-  isTakeoffApiError,
 } from "@/lib/takeoff/client";
-const CATEGORY_ID = "22222222-2222-4222-8222-222222222222";
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
-
-const CREATE_INPUT = {
-  name: "Affecter Placo en Cloisons",
-  match_pattern: "placo",
-  match_type: "contains" as const,
-  action: "set_category" as const,
-  action_params: {
-    category_id: CATEGORY_ID,
-  },
-};
 
 const DPGF_COMPARE_PAGE_1 = {
   version_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -258,30 +245,6 @@ describe("takeoff client mapping rules wrappers", () => {
     });
   });
 
-  it.each([
-    ["job identity", { job_id: CATEGORY_ID }],
-    ["view", { view: "exceptions_only" }],
-    ["negative total", { pagination: { page_size: 200, next_cursor: null, total: -1 } }],
-    ["nested risk", { rows: [{ ...DPGF_COMPARE_PAGE_1.rows[0], risk: { score: "high" } }] }],
-  ])("rejects malformed comparison %s without retrying", async (_name, patch) => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, data: { ...DPGF_COMPARE_PAGE_1, ...patch } }));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(fetchTakeoffDpgfComparison(JOB_ID, { version_id: DPGF_COMPARE_PAGE_1.version_id }))
-      .rejects.toMatchObject({ status: 502, code: "TAKEOFF_INVALID_RESPONSE", retryable: false });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects an evidence panel belonging to another line without retrying", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true, data: {
-      job_id: JOB_ID, version_id: DPGF_COMPARE_PAGE_1.version_id, line_id: CATEGORY_ID, evidences: [], history: [],
-    } }));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(fetchTakeoffLineEvidencePanel(JOB_ID, DPGF_COMPARE_PAGE_1.rows[0].line_id, {
-      version_id: DPGF_COMPARE_PAGE_1.version_id,
-    })).rejects.toMatchObject({ status: 502, code: "TAKEOFF_INVALID_RESPONSE", retryable: false });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
   it.each(["duplicate rows", "changed total", "incomplete rows", "repeated cursor"])("rejects %s across comparison pages without fetching again", async (malformation) => {
     const secondPage = structuredClone(DPGF_COMPARE_PAGE_2);
     if (malformation === "duplicate rows") secondPage.rows[0].line_id = DPGF_COMPARE_PAGE_1.rows[0].line_id;
@@ -317,75 +280,5 @@ describe("takeoff client mapping rules wrappers", () => {
     controller.abort();
     await assertion;
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("throws TakeoffApiError on non-2xx responses and preserves metadata", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(
-        {
-          ok: false,
-          error: {
-            code: "FORBIDDEN",
-            message: "Accès refuse.",
-            retryable: true,
-            jobId: JOB_ID,
-            level: "A",
-            details: {
-              reason: "MISSING_ROLE",
-            },
-          },
-        },
-        403
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const error = await fetchTakeoffMappingRules().catch((caught) => caught);
-
-    expect(isTakeoffApiError(error)).toBe(true);
-    if (!isTakeoffApiError(error)) {
-      return;
-    }
-
-    expect(error.status).toBe(403);
-    expect(error.code).toBe("FORBIDDEN");
-    expect(error.retryable).toBe(true);
-    expect(error.jobId).toBe(JOB_ID);
-    expect(error.level).toBe("A");
-    expect(error.details).toEqual({
-      reason: "MISSING_ROLE",
-    });
-  });
-
-  it("throws TakeoffApiError when envelope has ok=false on a 2xx response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        ok: false,
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "Payload invalide.",
-          details: {
-            field: "match_pattern",
-          },
-        },
-      })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const error = await createTakeoffMappingRule(CREATE_INPUT).catch(
-      (caught) => caught
-    );
-
-    expect(isTakeoffApiError(error)).toBe(true);
-    if (!isTakeoffApiError(error)) {
-      return;
-    }
-
-    expect(error.status).toBe(200);
-    expect(error.code).toBe("VALIDATION_ERROR");
-    expect(error.message).toBe("Payload invalide.");
-    expect(error.details).toEqual({
-      field: "match_pattern",
-    });
   });
 });

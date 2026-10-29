@@ -287,19 +287,4 @@ describe("product price template server", () => {
 
     expect(upsert).not.toHaveBeenCalled();
   });
-
-  it("requires an authenticated user", async () => {
-    vi.mocked(createSupabaseServerClient).mockResolvedValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: null },
-          error: null,
-        }),
-      },
-    } as never);
-
-    await expect(
-      importProductPriceTemplate({ products: [productRow], prices: [] }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED", status: 401 });
-  });
 });

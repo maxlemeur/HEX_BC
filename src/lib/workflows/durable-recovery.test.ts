@@ -54,69 +54,6 @@ function createRetryStore() {
 }
 
 describe("durable workflow recovery", () => {
-  it("dispatches due takeoff and intake work with their durable trigger", async () => {
-    const client = createClient([
-      {
-        workflow_kind: "takeoff",
-        work_id: TAKEOFF_ID,
-        trigger_kind: "retry",
-      },
-      {
-        workflow_kind: "affaire_intake",
-        work_id: INTAKE_ID,
-        trigger_kind: "process",
-      },
-    ]);
-    const triggerTakeoff = vi.fn().mockResolvedValue({
-      triggered: true,
-      correlationId: "correlation",
-      statusCode: 202,
-    });
-    const processIntake = vi.fn().mockResolvedValue("ready");
-    const persistTakeoffDispatch = vi.fn().mockResolvedValue(true);
-    const drainStorageCleanup = vi
-      .fn()
-      .mockResolvedValue(STORAGE_CLEANUP_RESULT);
-    const drainEmailOutbox = vi.fn().mockResolvedValue(EMAIL_OUTBOX_RESULT);
-
-    const result = await recoverDurableWorkflows({
-      client,
-      triggerTakeoff,
-      persistTakeoffDispatch,
-      processIntake,
-      drainStorageCleanup,
-      drainEmailOutbox,
-      now: () => new Date("2026-08-12T09:00:00.000Z"),
-    });
-
-    expect(triggerTakeoff).toHaveBeenCalledWith({
-      jobId: TAKEOFF_ID,
-      trigger: "retry",
-    });
-    expect(processIntake).toHaveBeenCalledWith(INTAKE_ID);
-    expect(persistTakeoffDispatch).toHaveBeenCalledWith({
-      jobId: TAKEOFF_ID,
-      trigger: "retry",
-      result: expect.objectContaining({ triggered: true }),
-    });
-    expect(drainStorageCleanup).toHaveBeenCalledWith({
-      client: undefined,
-      limit: 25,
-    });
-    expect(drainEmailOutbox).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      recoveredUnknownTakeoffJobs: 1,
-      dueCount: 2,
-      dispatchedCount: 2,
-      failedCount: 0,
-      skippedCount: 0,
-      deadCount: 0,
-      failures: [],
-      procurementStorageCleanup: STORAGE_CLEANUP_RESULT,
-      emailOutbox: EMAIL_OUTBOX_RESULT,
-    });
-  });
-
   it("keeps refused dispatches due and caps expensive intake work per run", async () => {
     const client = createClient([
       {

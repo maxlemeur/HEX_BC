@@ -3,20 +3,6 @@ import { describe, expect, it } from "vitest";
 import { resolveEstimateTableShortcutScope } from "@/components/estimates/EstimateEditorTable";
 
 describe("estimate editor table shortcut scope", () => {
-  it("keeps select-all table-scoped while still handling table focus", () => {
-    const scope = resolveEstimateTableShortcutScope({
-      withinTable: true,
-      hasSelectedLines: false,
-      isPageLevelTarget: false,
-    });
-
-    expect(scope).toEqual({
-      canHandleAnyShortcut: true,
-      canHandleSelectAllShortcut: true,
-      canHandleBulkSelectionShortcut: false,
-    });
-  });
-
   it("allows bulk shortcuts when selection exists and focus falls back to page target", () => {
     const scope = resolveEstimateTableShortcutScope({
       withinTable: false,

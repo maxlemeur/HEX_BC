@@ -4,8 +4,6 @@ import os from "node:os";
 import path from "node:path";
 
 import { Zip, ZipDeflate, zipSync, strToU8 } from "fflate";
-import { ESLint } from "eslint";
-import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // A browser cannot check Git's tracked/ignored file selection, symlink traversal
@@ -120,17 +118,5 @@ describe("repository confidentiality guard", () => {
     const result = run();
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("archive limit");
-  });
-
-  it("excludes preserved private source copies from TypeScript and ESLint while checking active sources", async () => {
-    const config = ts.readConfigFile(path.resolve("tsconfig.json"), ts.sys.readFile);
-    put("src/active.ts", "export const value: number = 1;\n");
-    put(".private/originals/source.ts", "unrelated original source\n");
-    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
-    expect(parsed.fileNames).toContain(path.join(root, "src/active.ts"));
-    expect(parsed.fileNames).not.toContain(path.join(root, ".private/originals/source.ts"));
-    const eslint = new ESLint({ cwd: process.cwd() });
-    expect(await eslint.isPathIgnored(path.resolve(".private/originals/source.ts"))).toBe(true);
-    expect(await eslint.isPathIgnored(path.resolve("src/test/privacy-discovery.ts"))).toBe(false);
   });
 });

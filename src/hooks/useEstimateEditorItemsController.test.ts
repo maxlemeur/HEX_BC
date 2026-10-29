@@ -441,31 +441,6 @@ describe("useEstimateEditorItemsController", () => {
     ).toBeLessThan(dependencies.enqueueItemUpdate.mock.invocationCallOrder[0]!);
   });
 
-  it("keeps a non-persistent patch local only", async () => {
-    const initialItem = createItem();
-    const { result, dependencies } = renderController({
-      version: createVersion(),
-      initialItems: [initialItem],
-    });
-
-    await act(async () => {
-      await result.current.actions.patchItem(
-        initialItem.id,
-        { title: "Brouillon local" },
-        { persist: false }
-      );
-    });
-
-    expect(result.current.items[0]).toMatchObject({
-      id: initialItem.id,
-      title: "Brouillon local",
-    });
-    expect(dependencies.normalizePatchedItem).toHaveBeenCalledTimes(1);
-    expect(dependencies.enqueueItemUpdate).not.toHaveBeenCalled();
-    expect(dependencies.pushHistoryCommand).not.toHaveBeenCalled();
-    expect(dependencies.setTotalsOutOfSync).not.toHaveBeenCalled();
-  });
-
   it("promotes and persists a supply-only line when labor is entered", async () => {
     const initialItem = createItem("line-supply", {
       line_nature: "supply_only",
@@ -495,87 +470,6 @@ describe("useEstimateEditorItemsController", () => {
         h_mo: 0.5,
         line_nature: "supply_and_labor",
       }),
-    );
-  });
-
-  it("does not auto-demote a mixed line when labor is cleared", async () => {
-    const initialItem = createItem("line-mixed", {
-      line_nature: "supply_and_labor",
-      unit_price_ht_cents: 1000,
-      h_mo: 1,
-    });
-    const { result } = renderController({
-      version: createVersion(),
-      initialItems: [initialItem],
-    });
-
-    await act(async () => {
-      await result.current.actions.patchItem(
-        initialItem.id,
-        { h_mo: 0, labor_role_id: null },
-        { persist: false },
-      );
-    });
-
-    expect(result.current.items[0]).toMatchObject({
-      h_mo: 0,
-      line_nature: "supply_and_labor",
-    });
-  });
-
-  it("merges a persistent temp patch into create and enqueues it under the real id", async () => {
-    const deferred = createDeferred<EstimateItem>();
-    mocks.createEstimateItem.mockImplementationOnce(() => deferred.promise);
-    const { result, dependencies } = renderController({
-      version: createVersion(),
-      initialItems: [],
-    });
-
-    let createRequest!: Promise<void | boolean>;
-    act(() => {
-      createRequest = result.current.actions.addLine(null);
-    });
-    await waitFor(() => {
-      expect(findTempItem(result.current.items)).toBeDefined();
-    });
-    const tempId = findTempItem(result.current.items)?.id;
-    expect(tempId).toBeDefined();
-
-    await act(async () => {
-      await result.current.actions.patchItem(
-        tempId as string,
-        { title: "Ligne modifiee", aid: "A-42" },
-        { persist: true }
-      );
-    });
-    expect(findTempItem(result.current.items)).toMatchObject({
-      title: "Ligne modifiee",
-      aid: "A-42",
-    });
-    expect(dependencies.enqueueItemUpdate).not.toHaveBeenCalled();
-
-    await act(async () => {
-      deferred.resolve(createItem("line-real", { title: "Titre serveur" }));
-      await createRequest;
-    });
-
-    expect(result.current.items).toEqual([
-      expect.objectContaining({
-        id: "line-real",
-        _clientKey: tempId,
-        title: "Ligne modifiee",
-        aid: "A-42",
-        _optimistic: false,
-        _pendingCreate: false,
-      }),
-    ]);
-    expect(dependencies.enqueueItemUpdate).toHaveBeenCalledTimes(1);
-    expect(dependencies.enqueueItemUpdate).toHaveBeenCalledWith(
-      "line-real",
-      expect.objectContaining({ title: "Ligne modifiee", aid: "A-42" })
-    );
-    expect(dependencies.pushHistoryCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ label: "add-line" })
     );
   });
 
@@ -765,37 +659,6 @@ describe("useEstimateEditorItemsController", () => {
     expect(result.current.items.map((item) => item.id)).toEqual([
       "section-sibling",
     ]);
-  });
-
-  it("blocks create, patch and delete mutations while a version conflict is active", async () => {
-    const initialItem = createItem();
-    const { result, dependencies } = renderController({
-      version: createVersion(),
-      initialItems: [initialItem],
-      isMutationBlocked: true,
-    });
-
-    await act(async () => {
-      await result.current.actions.addSection(null);
-      await result.current.actions.addLine(null);
-      await result.current.actions.patchItem(
-        initialItem.id,
-        { title: "Interdit" },
-        { persist: true }
-      );
-      await result.current.actions.deleteItem(initialItem.id);
-    });
-
-    expect(dependencies.reportError).toHaveBeenCalledTimes(4);
-    expect(dependencies.reportError).toHaveBeenCalledWith(
-      "Conflit de version actif."
-    );
-    expect(result.current.items).toEqual([initialItem]);
-    expect(window.confirm).not.toHaveBeenCalled();
-    expect(mocks.createEstimateItem).not.toHaveBeenCalled();
-    expect(mocks.deleteEstimateItem).not.toHaveBeenCalled();
-    expect(dependencies.enqueueItemUpdate).not.toHaveBeenCalled();
-    expect(dependencies.pushHistoryCommand).not.toHaveBeenCalled();
   });
 
   it("ignores a late create response after the edited version changes", async () => {

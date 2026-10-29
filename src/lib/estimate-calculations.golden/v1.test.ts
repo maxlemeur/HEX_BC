@@ -1,4 +1,4 @@
-// Golden regime: moteur v1 — fixtures A-D, H et surfaces editeur / pages / xlsx / PDF QR.
+// Golden regime: moteur v1 — fixtures A-D, H et surfaces editeur / pages / xlsx.
 
 import { describe, expect, it } from "vitest";
 
@@ -1571,91 +1571,6 @@ describe("Surface exports XLSX (COUVERTURE PARTIELLE) [surface 5]", () => {
           "exportStream": 0,
           "moteur": 7150,
         },
-      });
-  });
-});
-
-/* ---------------------------------------------------------------------------
- * Surface 6 - PDF
- * ------------------------------------------------------------------------- */
-
-
-describe("Surface PDF QR (COUVERTURE PARTIELLE) [surface 6]", () => {
-  it("fige le QR pseudo-aleatoire (deterministe, sans Math.random ni Date)", () => {
-    const prepared = prepareEstimateDocumentData({
-      items: asDocumentItems(FIXTURE_A_ITEMS),
-      breakdown: buildLegacyDocumentBreakdown({
-        items: asDocumentItems(FIXTURE_A_ITEMS),
-        marginMultiplier: 1.6,
-        discountCents: 5_000,
-        taxRateBp: 2_000,
-        isLaborSplitEnabled: false,
-        laborRateById: LABOR_RATES_RECORD,
-      }),
-      calcEngineVersion: DOCUMENT_CALC_ENGINE_VERSION,
-      taxRateBp: 2_000,
-      currency: "EUR",
-      validiteJours: 30,
-      portalUrl: "https://example.test/portal/tok",
-      layout: GOLDEN_LAYOUT,
-    });
-    expect({
-      total: prepared.qrLikeCells.length,
-      actives: prepared.qrLikeCells.filter((cell) => cell.enabled).length,
-      douzePremieres: prepared.qrLikeCells.slice(0, 12),
-    }).toEqual({
-        "actives": 226,
-        "douzePremieres": [
-          {
-            "enabled": true,
-            "id": "0-0",
-          },
-          {
-            "enabled": true,
-            "id": "1-0",
-          },
-          {
-            "enabled": true,
-            "id": "2-0",
-          },
-          {
-            "enabled": true,
-            "id": "3-0",
-          },
-          {
-            "enabled": true,
-            "id": "4-0",
-          },
-          {
-            "enabled": true,
-            "id": "5-0",
-          },
-          {
-            "enabled": true,
-            "id": "6-0",
-          },
-          {
-            "enabled": false,
-            "id": "7-0",
-          },
-          {
-            "enabled": false,
-            "id": "8-0",
-          },
-          {
-            "enabled": false,
-            "id": "9-0",
-          },
-          {
-            "enabled": true,
-            "id": "10-0",
-          },
-          {
-            "enabled": true,
-            "id": "11-0",
-          },
-        ],
-        "total": 441,
       });
   });
 });

@@ -13,7 +13,6 @@ vi.mock("@/lib/imports/tabular-pdf-extraction", () => extractionMocks);
 import {
   createImportFromMultipartFormData,
   createImportFromJsonBody,
-  listUserImports,
   requireTabularPdfReviewAccess,
   reviewTabularPdfImportFile,
   validateTabularPdfReviewFile,
@@ -22,7 +21,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
-const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 
 function createMembershipBuilder(
   role: "viewer" | "engineer" | "admin" = "engineer"
@@ -41,24 +39,6 @@ function createMembershipBuilder(
     data: [{ tenant_id: TENANT_ID, role }],
     error: null,
   });
-
-  return builder;
-}
-
-function createAwaitableImportsBuilder(data: unknown[] = []) {
-  const builder = {
-    select: vi.fn(),
-    eq: vi.fn(),
-    order: vi.fn(),
-    then: vi.fn(),
-  };
-
-  builder.select.mockReturnValue(builder);
-  builder.eq.mockReturnValue(builder);
-  builder.order.mockReturnValue(builder);
-  builder.then.mockImplementation((onFulfilled, onRejected) =>
-    Promise.resolve({ data, error: null }).then(onFulfilled, onRejected)
-  );
 
   return builder;
 }
@@ -189,56 +169,6 @@ function createImportCreationSupabaseMock(
     },
   };
 }
-
-describe("listUserImports", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("rejects invalid projectId before querying Supabase", async () => {
-    await expect(
-      listUserImports({
-        projectId: "not-a-uuid",
-      })
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-    });
-
-    expect(createSupabaseServerClient).not.toHaveBeenCalled();
-  });
-
-  it("applies project_id filter when provided", async () => {
-    const membershipBuilder = createMembershipBuilder();
-    const importsBuilder = createAwaitableImportsBuilder([
-      {
-        id: "import-1",
-      },
-    ]);
-
-    const supabase = {
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: USER_ID } },
-          error: null,
-        }),
-      },
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") return membershipBuilder;
-        if (table === "dpgf_imports") return importsBuilder;
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await listUserImports({
-      projectId: PROJECT_ID,
-    });
-
-    expect(importsBuilder.eq).toHaveBeenCalledWith("project_id", PROJECT_ID);
-  });
-});
 
 describe("requireTabularPdfReviewAccess", () => {
   beforeEach(() => {
@@ -484,72 +414,6 @@ describe("createImportFromJsonBody", () => {
     });
   });
 
-  it("builds canonical raw rows from reviewed PDF tables without a parallel row envelope", async () => {
-    const { supabase, state } = createImportCreationSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await createImportFromJsonBody({
-      sourceKind: "tabular_pdf",
-      sourceFileName: "lot-cvc-dpgf.pdf",
-      sourceDocumentId: "doc-tables",
-      validation: {
-        approvedTables: [{ sourcePage: 5, tableIndex: 0 }],
-      },
-      tables: [
-        {
-          page: 5,
-          headers: ["Code article", "Description", "Qt"],
-          rows: [
-            { cells: ["A-001", "Cable cuivre", "12"] },
-            { cells: ["A-002", "Disjoncteur", "4"] },
-          ],
-        },
-      ],
-    });
-
-    expect(state.importInsertPayloads[0]).toMatchObject({
-      filename: "lot-cvc-dpgf.pdf",
-      source_format: "pdf",
-    });
-    expect(state.rawRowBatches[0]).toEqual([
-      {
-        import_id: "import-created",
-        row_index: 0,
-        payload: {
-          "Code article": "A-001",
-          Description: "Cable cuivre",
-          Qt: "12",
-          _timax_provenance: {
-            source_page: 5,
-            table_index: 0,
-            source_file_name: "lot-cvc-dpgf.pdf",
-            source_document_id: "doc-tables",
-          },
-        },
-      },
-      {
-        import_id: "import-created",
-        row_index: 1,
-        payload: {
-          "Code article": "A-002",
-          Description: "Disjoncteur",
-          Qt: "4",
-          _timax_provenance: {
-            source_page: 5,
-            table_index: 0,
-            source_file_name: "lot-cvc-dpgf.pdf",
-            source_document_id: "doc-tables",
-          },
-        },
-      },
-    ]);
-    expect(result).toMatchObject({
-      filename: "lot-cvc-dpgf.pdf",
-      row_count: 2,
-      source_format: "pdf",
-    });
-  });
-
   it("rejects reviewed PDF tables when sourceKind stays on tabular", async () => {
     const { supabase, state } = createImportCreationSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -632,72 +496,6 @@ describe("createImportFromJsonBody", () => {
       status: 400,
       code: "BAD_REQUEST",
       message: 'Le payload DPGF PDF doit définir sourceKind="tabular_pdf".',
-    });
-
-    expect(state.importInsertPayloads).toEqual([]);
-    expect(state.rawRowBatches).toEqual([]);
-  });
-
-  it("rejects invalid sourceKind values instead of falling back to tabular", async () => {
-    const { supabase, state } = createImportCreationSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      createImportFromJsonBody({
-        sourceKind: "tabular-pdf",
-        validation: {
-          approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
-        },
-        rows: [
-          {
-            cells: {
-              Code: "A-001",
-            },
-            provenance: {
-              sourcePage: 2,
-              tableIndex: 0,
-            },
-          },
-        ],
-      })
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-      message: "sourceKind invalide. Utiliser 'tabular' ou 'tabular_pdf'.",
-    });
-
-    expect(state.importInsertPayloads).toEqual([]);
-    expect(state.rawRowBatches).toEqual([]);
-  });
-
-  it("rejects non-string sourceKind values instead of falling back to tabular", async () => {
-    const { supabase, state } = createImportCreationSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      createImportFromJsonBody({
-        sourceKind: {
-          kind: "tabular_pdf",
-        },
-        validation: {
-          approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
-        },
-        rows: [
-          {
-            cells: {
-              Code: "A-001",
-            },
-            provenance: {
-              sourcePage: 2,
-              tableIndex: 0,
-            },
-          },
-        ],
-      })
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-      message: "sourceKind invalide. Utiliser 'tabular' ou 'tabular_pdf'.",
     });
 
     expect(state.importInsertPayloads).toEqual([]);

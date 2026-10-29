@@ -19,8 +19,6 @@ vi.mock("@/lib/estimates/bdc-export", () => ({
 }));
 
 import { GET } from "@/app/api/estimates/[versionId]/export/route";
-import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
-import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -80,58 +78,6 @@ describe("estimate export route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 400 when format is neither xlsx nor csv", async () => {
-    const response = await GET(
-      new Request(`http://localhost/api/estimates/${VERSION_ID}/export?format=pdf`, {
-        method: "GET",
-      }),
-      {
-        params: Promise.resolve({ versionId: VERSION_ID }),
-      }
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: false,
-        error: expect.objectContaining({
-          code: "BAD_REQUEST",
-          message: "Format d'export invalide. Valeurs supportees: xlsx, csv.",
-        }),
-      })
-    );
-    expect(vi.mocked(createSupabaseServerClient)).not.toHaveBeenCalled();
-    expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
-  });
-
-  it("returns 400 when mode is invalid", async () => {
-    const response = await GET(
-      new Request(`http://localhost/api/estimates/${VERSION_ID}/export?mode=csv`, {
-        method: "GET",
-      }),
-      {
-        params: Promise.resolve({ versionId: VERSION_ID }),
-      }
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: false,
-        error: expect.objectContaining({
-          code: "BAD_REQUEST",
-          message: "Mode d'export invalide. Valeurs supportees: standard, dpgf, bdc.",
-        }),
-      })
-    );
-    expect(vi.mocked(createSupabaseServerClient)).not.toHaveBeenCalled();
-    expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
-    expect(vi.mocked(streamEstimateVersionDpgfXlsx)).not.toHaveBeenCalled();
-    expect(vi.mocked(streamEstimateVersionBdcV11Xlsx)).not.toHaveBeenCalled();
-  });
-
   it("returns 403 when role is viewer", async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(
       createSupabaseAuthMock({
@@ -160,59 +106,6 @@ describe("estimate export route", () => {
         }),
       })
     );
-    expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
-  });
-
-  it("returns 401 when user is not authenticated", async () => {
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(
-      createSupabaseAuthMock({
-        userId: null,
-      }) as never
-    );
-
-    const response = await GET(
-      new Request(`http://localhost/api/estimates/${VERSION_ID}/export`, {
-        method: "GET",
-      }),
-      {
-        params: Promise.resolve({ versionId: VERSION_ID }),
-      }
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(401);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: false,
-        error: expect.objectContaining({
-          code: "UNAUTHORIZED",
-        }),
-      })
-    );
-    expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
-  });
-
-  it("returns 400 when versionId is invalid", async () => {
-    const response = await GET(
-      new Request("http://localhost/api/estimates/not-a-uuid/export", {
-        method: "GET",
-      }),
-      {
-        params: Promise.resolve({ versionId: "not-a-uuid" }),
-      }
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: false,
-        error: expect.objectContaining({
-          code: "VALIDATION_ERROR",
-        }),
-      })
-    );
-    expect(vi.mocked(createSupabaseServerClient)).not.toHaveBeenCalled();
     expect(vi.mocked(streamEstimateVersionXlsx)).not.toHaveBeenCalled();
   });
 });

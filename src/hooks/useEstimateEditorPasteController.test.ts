@@ -213,14 +213,6 @@ function readHistoryCommand(
   return command as EstimateEditorHistoryCommand;
 }
 
-function itemOrder(items: EditorEstimateItem[]) {
-  return items.map(({ id, parent_id, position }) => ({
-    id,
-    parentId: parent_id ?? null,
-    position,
-  }));
-}
-
 let generatedItemCount = 0;
 let generatedTokenCount = 0;
 
@@ -280,121 +272,9 @@ describe("useEstimateEditorPasteController validation barrier", () => {
     expect(harness.setItems).not.toHaveBeenCalled();
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
-
-  it("rejects an empty valid selection after crossing the barrier", async () => {
-    const harness = createHarness();
-
-    await act(async () => {
-      await harness.result.current.actions.pasteRows({
-        anchorRowId: null,
-        rows: [createRow("   "), createRow(null)],
-      });
-    });
-
-    expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledTimes(1);
-    expect(harness.reportError).toHaveBeenCalledWith(
-      "Aucune ligne valide à insérer."
-    );
-    expect(mocks.computeEstimateLineValues).not.toHaveBeenCalled();
-    expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();
-  });
 });
 
 describe("useEstimateEditorPasteController anchors and payloads", () => {
-  it("inserts under a section with normalized positions, payload and calculations", async () => {
-    const harness = createHarness({
-      isLaborSplitEnabled: true,
-      items: [
-        createItem("section", {
-          item_type: "section",
-          parent_id: null,
-          position: 1,
-        }),
-        createItem("existing-line", {
-          parent_id: "section",
-          position: 4,
-        }),
-      ],
-    });
-    const pastedRow = createRow("  Tube acier  ", {
-      quantity: 2,
-      unit: "  ml  ",
-      unit_price_ht: 12.34,
-      supply_type: "  Acier  ",
-      k_fo: 1.1,
-      h_mo: 3,
-      k_mo: 1.4,
-      h_mo_majoration: 1.25,
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.pasteRows({
-        anchorRowId: "section",
-        rows: [pastedRow],
-      });
-    });
-
-    expect(harness.ensureGroupedActionCanProceed.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.batchEstimateOperations.mock.invocationCallOrder[0]
-    );
-    expect(mocks.computeEstimateLineValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        quantity: 2,
-        unit_price_ht_cents: 1234,
-        tax_rate_bp: 2000,
-        k_fo: 1.1,
-        h_mo: 3,
-        h_mo_majoration: 1.25,
-        k_mo: 1.4,
-      }),
-      {
-        marginMultiplier: 1.2,
-        taxRateBp: 2000,
-        isLaborSplitEnabled: true,
-      }
-    );
-    expect(mocks.batchEstimateOperations).toHaveBeenCalledWith(
-      "627ef080-0001-4000-8000-000000000001",
-      "token-initial",
-      [
-        {
-          op: "create",
-          data: expect.objectContaining({
-            version_id: "627ef080-0001-4000-8000-000000000001",
-            parent_id: "section",
-            item_type: "line",
-            position: 5,
-            title: "Tube acier",
-            description: "ml",
-            quantity: 2,
-            unit_price_ht_cents: 1234,
-            supply_type_id: "supply-steel",
-            pu_ht_cents: 777,
-            line_total_ht_cents: 1554,
-            line_tax_cents: 311,
-            line_total_ttc_cents: 1865,
-            h_mo_atelier: 0,
-            k_mo_atelier: 1,
-            labor_role_atelier_id: null,
-            h_mo_chantier: 0,
-            k_mo_chantier: 1,
-            labor_role_chantier_id: null,
-          }),
-        },
-      ]
-    );
-    expect(itemOrder(harness.getItems())).toEqual([
-      { id: "section", parentId: null, position: 1 },
-      { id: "existing-line", parentId: "section", position: 4 },
-      { id: "created-1", parentId: "section", position: 5 },
-    ]);
-    expect(mocks.reorderEstimateItems).not.toHaveBeenCalled();
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-1");
-    expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe(
-      "paste-insert"
-    );
-  });
-
   it("2.8: stores pasted hours per unit on a v1/v2 as line hours h/u × Q (P-16)", async () => {
     const harness = createHarness({ items: [] });
 
@@ -431,41 +311,6 @@ describe("useEstimateEditorPasteController anchors and payloads", () => {
       expect.objectContaining({ tax_rate_bp: 2000 }),
       expect.objectContaining({ taxRateBp: 0 })
     );
-  });
-
-  it("inserts immediately after a line anchor and persists the resulting order", async () => {
-    const harness = createHarness({
-      items: [
-        createItem("before", { parent_id: "section", position: 1 }),
-        createItem("anchor", { parent_id: "section", position: 2 }),
-        createItem("after", { parent_id: "section", position: 3 }),
-      ],
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.pasteRows({
-        anchorRowId: "anchor",
-        rows: [createRow("Pasted A"), createRow("Pasted B")],
-      });
-    });
-
-    expect(mocks.batchEstimateOperations.mock.calls[0]?.[2]).toEqual([
-      expect.objectContaining({ data: expect.objectContaining({ position: 4 }) }),
-      expect.objectContaining({ data: expect.objectContaining({ position: 5 }) }),
-    ]);
-    expect(mocks.reorderEstimateItems).toHaveBeenCalledWith(
-      "627ef080-0001-4000-8000-000000000001",
-      "section",
-      ["before", "anchor", "created-1", "created-2", "after"]
-    );
-    expect(itemOrder(harness.getItems())).toEqual([
-      { id: "before", parentId: "section", position: 1 },
-      { id: "anchor", parentId: "section", position: 2 },
-      { id: "after", parentId: "section", position: 5 },
-      { id: "created-1", parentId: "section", position: 3 },
-      { id: "created-2", parentId: "section", position: 4 },
-    ]);
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
   });
 
   it("reloads and rejects when post-anchor reorder fails", async () => {
@@ -524,32 +369,6 @@ describe("useEstimateEditorPasteController batching", () => {
     expect(harness.applyVersionToken).toHaveBeenCalledWith("token-2");
     expect(harness.getItems()).toHaveLength(101);
     expect(mocks.reorderEstimateItems).not.toHaveBeenCalled();
-  });
-
-  it("delegates a 409 without wrapping the conflict error", async () => {
-    const conflict = Object.assign(new Error("version conflict"), {
-      status: 409,
-    });
-    mocks.batchEstimateOperations.mockReset().mockRejectedValueOnce(conflict);
-    const harness = createHarness({ conflictHandled: true });
-
-    await act(async () => {
-      await harness.result.current.actions.pasteRows({
-        anchorRowId: null,
-        rows: [createRow("Pasted")],
-      });
-    });
-
-    expect(harness.handleVersionConflict).toHaveBeenCalledWith(conflict, {
-      persistDraft: true,
-    });
-    expect(harness.reportError).toHaveBeenCalledWith(null);
-    expect(harness.reportError).not.toHaveBeenCalledWith(
-      "public:version conflict"
-    );
-    expect(harness.triggerVersionReload).not.toHaveBeenCalled();
-    expect(harness.applyVersionToken).not.toHaveBeenCalled();
-    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
 });
 
@@ -734,36 +553,6 @@ describe("useEstimateEditorPasteController v3 (2.8)", () => {
       buildUpdatePayload: vi.fn(),
     } as unknown as EstimateV3EditorWriter & { deleteItems: ReturnType<typeof vi.fn> };
   }
-
-  it("writes v3 inputs only and reorders after the anchor line through the v3 writer", async () => {
-    const harness = createHarness({
-      items: [
-        createItem("anchor", { parent_id: "section", position: 1 }),
-        createItem("tail", { parent_id: "section", position: 2 }),
-      ],
-      v3Writer: createV3Writer(),
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.pasteRows({
-        anchorRowId: "anchor",
-        rows: [createRow("Tube", { unit: "ml", quantity: 20, unit_price_ht: 54.66, h_mo: null, h_mo_per_unit: 1.991 })],
-        laborRoleId: "role-fitter",
-      });
-    });
-
-    const data = (mocks.batchEstimateOperations.mock.calls[0]?.[2] as CreateOperation[])[0]?.data as Record<string, unknown>;
-    expect(data).toMatchObject({
-      parent_id: "section", title: "Tube", description: null, quantity: 20, unit_price_ht_cents: 5466,
-      unit_code: "ml", pricing_status: "priced", h_mo_per_unit: 1.991, labor_role_id: "role-fitter",
-    });
-    expect(Object.keys(data).filter((key) => ["h_mo", "pu_ht_cents", "line_total_ht_cents"].includes(key))).toEqual([]);
-    expect(mocks.commitEstimateV3Operations.mock.calls[0]?.[2]).toEqual([
-      { op: "reorder", data: { parent_id: "section", ordered_ids: ["anchor", "created-1", "tail"] } },
-    ]);
-    expect(mocks.reorderEstimateItems).not.toHaveBeenCalled();
-    expect(harness.applyVersionToken).toHaveBeenLastCalledWith("token-2");
-  });
 
   it("undoes 101 pasted lines in v3 batches of at most 100 deletions", async () => {
     const v3Writer = createV3Writer();

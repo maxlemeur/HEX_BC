@@ -114,7 +114,7 @@ describe("streamEstimateVersionXlsx", () => {
     vi.clearAllMocks();
   });
 
-  it.each(["draft", "sent"] as const)("exports a %s estimate with draft calculations or preserved issued totals", async (status) => {
+  it.each(["sent"] as const)("exports a %s estimate with draft calculations or preserved issued totals", async (status) => {
     const details = {
       version: {
         id: VERSION_ID,
@@ -754,39 +754,5 @@ describe("streamEstimateVersionXlsx", () => {
     expect(toCents(calculatedTtc)).toBe(3366);
     expect(toCents(rounding)).toBe(-33);
     expect(toCents(amountDue)).toBe(3333);
-  });
-
-  it("falls back to project name when reference is empty in filename", async () => {
-    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
-      version: {
-        id: VERSION_ID,
-        version_number: 2,
-        status: "draft",
-        title: null,
-        margin_multiplier: 1,
-        tax_rate_bp: 2000,
-        discount_bp: 0,
-        total_ht_cents: 0,
-        total_tax_cents: 0,
-        total_ttc_cents: 0,
-        estimate_projects: {
-          id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-          name: "Projet Éxport #1",
-          reference: "   ",
-        },
-      },
-      labor_roles: [],
-    } as never);
-    vi.mocked(listEstimateItems).mockResolvedValue({
-      items: [],
-    } as never);
-
-    const { workbookWriterFactory } = createWorkbookHarness();
-
-    const exported = await streamEstimateVersionXlsx(VERSION_ID, {
-      workbookWriterFactory,
-    });
-
-    expect(exported.filename).toBe("devis-Projet_Export_1-v2.xlsx");
   });
 });

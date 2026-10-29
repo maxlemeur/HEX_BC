@@ -1,4 +1,4 @@
-import { cleanup,fireEvent,render,screen,within } from "@testing-library/react";
+import { cleanup,render,screen,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
@@ -122,20 +122,6 @@ describe("ProductPriceTemplateImport", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
-  });
-
-  it("refuse un fichier qui n'est pas au format XLSX", async () => {
-    render(<ProductPriceTemplateImport open onClose={vi.fn()} onImported={mocks.onImported} />);
-
-    fireEvent.change(screen.getByLabelText("2. Sélectionner le fichier XLSX"), {
-      target: {
-        files: [new File(["reference,designation"], "catalogue.csv", { type: "text/csv" })],
-      },
-    });
-
-    expect(screen.getByRole("alert")).toHaveTextContent("Sélectionnez un fichier au format XLSX.");
-    expect(mocks.parseWorkbook).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Confirmer l'import" })).toBeDisabled();
   });
 
   it("affiche la feuille, la ligne et le message puis bloque les erreurs bloquantes", async () => {

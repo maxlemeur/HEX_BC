@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyBulkSuggestions,
-  buildBulkSuggestPreview,
   computeBulkSuggestions,
   findSuggestibleLines,
 } from "@/lib/estimates/bulk-suggest";
@@ -11,8 +10,6 @@ import type { Database } from "@/types/database";
 type EstimateLine = Database["public"]["Tables"]["estimate_items"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
-type EstimateCategory =
-  Database["public"]["Tables"]["estimate_categories"]["Row"];
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "33333333-3333-4333-8333-333333333333";
@@ -114,22 +111,6 @@ function createRule(
     position: input.position ?? 0,
     is_active: input.is_active ?? true,
     ...overrides,
-  };
-}
-
-function createCategory(input: {
-  id: string;
-  name: string;
-}): EstimateCategory {
-  return {
-    id: input.id,
-    tenant_id: TENANT_ID,
-    user_id: USER_ID,
-    created_at: NOW_ISO,
-    updated_at: NOW_ISO,
-    name: input.name,
-    color: null,
-    position: 1,
   };
 }
 
@@ -363,66 +344,5 @@ describe("bulk-suggest", () => {
     expect(nextLine?.k_fo).toBe(1.8);
     expect(nextLine?.k_mo).toBe(1.25);
     expect(nextLine?.description).toBe("u");
-  });
-
-  it("builds preview rows only for neutral lines and formats current/proposed values", () => {
-    const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const items = [
-      createLine({
-        id: "line-1",
-        title: "Pose de fenetre",
-      }),
-      createLine({
-        id: "line-2",
-        title: "Pose de fenetre",
-        description: "ml",
-      }),
-    ];
-    const rules = [
-      createRule({
-        id: "rule-window",
-        match_value: "fenetre",
-        unit: "u",
-        category_id: categoryId,
-        k_fo: 1.15,
-      }),
-    ];
-
-    const preview = buildBulkSuggestPreview({
-      items,
-      suggestionRules: rules,
-      categories: [createCategory({ id: categoryId, name: "Menuiserie" })],
-    });
-
-    expect(preview).toHaveLength(1);
-    expect(preview[0]).toMatchObject({
-      itemId: "line-1",
-      ruleId: "rule-window",
-      patch: {
-        description: "u",
-        category_id: categoryId,
-        k_fo: 1.15,
-      },
-    });
-    expect(preview[0]?.changes).toEqual([
-      {
-        field: "description",
-        label: "Unité",
-        currentDisplay: "-",
-        proposedDisplay: "u",
-      },
-      {
-        field: "category_id",
-        label: "Catégorie",
-        currentDisplay: "-",
-        proposedDisplay: "Menuiserie",
-      },
-      {
-        field: "k_fo",
-        label: "K FO",
-        currentDisplay: "1",
-        proposedDisplay: "1.15",
-      },
-    ]);
   });
 });

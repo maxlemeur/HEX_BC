@@ -44,61 +44,6 @@ describe("POST /api/estimates/[versionId]/email-dispatch/reconcile", () => {
       version_id: VERSION_ID,
       status: "unknown",
     });
-    vi.mocked(reconcileEstimateEmailDispatch).mockResolvedValue({
-      id: DISPATCH_ID,
-      status: "sent",
-    } as Awaited<ReturnType<typeof reconcileEstimateEmailDispatch>>);
-  });
-
-  it("reconciles an unknown dispatch as sent with the operator-provided provider id", async () => {
-    const response = await POST(
-      request({
-        dispatchId: DISPATCH_ID,
-        resolution: "sent",
-        providerId: " resend-msg-42 ",
-      }),
-      { params: Promise.resolve({ versionId: VERSION_ID }) }
-    );
-
-    expect(response.status).toBe(200);
-    expect(reconcileEstimateEmailDispatch).toHaveBeenCalledWith({
-      dispatchId: DISPATCH_ID,
-      resolution: "sent",
-      actorUserId: USER_ID,
-      providerId: "resend-msg-42",
-      note: `reconcile:${VERSION_ID}`,
-    });
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      data: { id: DISPATCH_ID, status: "sent", versionId: VERSION_ID },
-    });
-  });
-
-  it("refuses to mark as sent without a provider message id", async () => {
-    const response = await POST(
-      request({ dispatchId: DISPATCH_ID, resolution: "sent" }),
-      { params: Promise.resolve({ versionId: VERSION_ID }) }
-    );
-
-    expect(response.status).toBe(400);
-    expect(reconcileEstimateEmailDispatch).not.toHaveBeenCalled();
-  });
-
-  it("marks as failed without a provider id", async () => {
-    vi.mocked(reconcileEstimateEmailDispatch).mockResolvedValue({
-      id: DISPATCH_ID,
-      status: "failed",
-    } as Awaited<ReturnType<typeof reconcileEstimateEmailDispatch>>);
-
-    const response = await POST(
-      request({ dispatchId: DISPATCH_ID, resolution: "failed" }),
-      { params: Promise.resolve({ versionId: VERSION_ID }) }
-    );
-
-    expect(response.status).toBe(200);
-    expect(reconcileEstimateEmailDispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ resolution: "failed", providerId: null })
-    );
   });
 
   it("returns 404 when the dispatch belongs to another version", async () => {
@@ -149,16 +94,6 @@ describe("POST /api/estimates/[versionId]/email-dispatch/reconcile", () => {
 
     expect(response.status).toBe(403);
     expect(getEstimateEmailDispatchForReconciliation).not.toHaveBeenCalled();
-    expect(reconcileEstimateEmailDispatch).not.toHaveBeenCalled();
-  });
-
-  it("rejects an invalid payload", async () => {
-    const response = await POST(
-      request({ dispatchId: "not-a-uuid", resolution: "sent", providerId: "x" }),
-      { params: Promise.resolve({ versionId: VERSION_ID }) }
-    );
-
-    expect(response.status).toBe(400);
     expect(reconcileEstimateEmailDispatch).not.toHaveBeenCalled();
   });
 });

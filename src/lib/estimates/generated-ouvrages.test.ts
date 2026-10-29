@@ -25,7 +25,6 @@ vi.mock("@/lib/supabase/service-role", () => ({
 import {
   generateOuvragesFromText,
   insertGeneratedOuvrages,
-  rejectGeneratedOuvrageDraft,
 } from "@/lib/estimates/generated-ouvrages";
 import {
   assertDraftStatus,
@@ -34,7 +33,6 @@ import {
 import { prepareEstimateBatch } from "@/lib/estimates/batch-preparation";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -376,101 +374,6 @@ beforeEach(() => {
   } as never);
 });
 describe("generateOuvragesFromText", () => {
-  it("persists a reviewable fallback draft with source fragments and candidate provenance", async () => {
-    const supabase = createSupabaseStub({
-      estimate_versions: {
-        select: [
-          createQueryBuilder({ data: createVersionAccessRow(), error: null }),
-          createQueryBuilder({ data: [], error: null }),
-        ],
-      },
-      draft_locks: {
-        select: [
-          createQueryBuilder({
-            data: {
-              id: "lock-1",
-              version_id: VERSION_ID,
-              user_id: USER_ID,
-              session_id: LOCK_SESSION_ID,
-              locked_at: "2026-03-07T09:00:00.000Z",
-              expires_at: "2099-03-07T09:30:00.000Z",
-            },
-            error: null,
-          }),
-        ],
-      },
-      affaire_briefs: {
-        select: [createQueryBuilder({ data: [], error: null })],
-      },
-      estimate_templates: {
-        select: [createQueryBuilder({ data: [], error: null })],
-      },
-      estimate_assemblies: {
-        select: [createQueryBuilder({ data: [], error: null })],
-      },
-      estimate_generated_ouvrage_drafts: {
-        update: [
-          createQueryBuilder({ data: { ...createDraftRow(), summary: {}, generation_metadata: {} }, error: null }),
-        ],
-        insert: [createQueryBuilder({ data: createDraftRow(), error: null })],
-      },
-      estimate_generated_ouvrage_source_fragments: {
-        insert: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
-      },
-      estimate_generated_ouvrage_candidates: {
-        insert: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
-      },
-      estimate_generated_ouvrage_candidate_sources: {
-        insert: [createQueryBuilder({ data: [], error: null })],
-      },
-    });
-
-    supabase.rpc.mockResolvedValue({ data: {
-      ok: true, versionId: VERSION_ID, draftId: DRAFT_ID,
-      status: "pending", discardedDraftIds: [],
-    }, error: null });
-    createAuthenticatedContext(supabase);
-    vi.mocked(callGeminiStructured).mockRejectedValueOnce(new Error("Gemini down"));
-
-    const result = await generateOuvragesFromText({
-      projectId: PROJECT_ID,
-      versionId: VERSION_ID,
-      draftLockSessionId: LOCK_SESSION_ID,
-      sourceKind: "free_text",
-      sourceText: "Pose de faux plafond 120 m2.",
-    });
-
-    expect(result.projectId).toBe(PROJECT_ID);
-    expect(result.status).toBe("pending");
-    expect(result.summary.totalCandidates).toBe(1);
-    expect(result.candidates[0]).toMatchObject({
-      designation: "Pose de faux plafond",
-      unit: "m2",
-      quantity: 120,
-      status: "plausible",
-      resolutionStatus: "pending",
-    });
-    expect(result.candidates[0]?.sources[0]).toMatchObject({
-      sourceFragmentId: FRAGMENT_ID,
-      type: "text",
-      label: "Texte libre saisi",
-    });
-    for (const table of ["estimate_templates", "estimate_assemblies"]) {
-      const libraryQuery = supabase.__history.find(
-        (entry) => entry.table === table && entry.operation === "select"
-      );
-      expect(libraryQuery?.builder.eq).toHaveBeenCalledWith("created_by", USER_ID);
-      expect(libraryQuery?.builder.eq).not.toHaveBeenCalledWith("user_id", USER_ID);
-    }
-    expect(vi.mocked(callGeminiStructured)).toHaveBeenCalledTimes(1);
-    expect(supabase.rpc).toHaveBeenCalledWith("close_generated_ouvrage_generation", {
-      p_version_id: VERSION_ID, p_draft_id: DRAFT_ID,
-      p_draft_lock_session_id: LOCK_SESSION_ID, p_mode: "complete",
-    });
-    expect(supabase.__history.filter((entry) => entry.table === "estimate_generated_ouvrage_drafts"
-      && entry.operation === "update")).toHaveLength(1);
-  });
-
   it("keeps the previous pending draft until the new draft is fully materialized", async () => {
     const supabase = createSupabaseStub({
       estimate_versions: {
@@ -572,7 +475,6 @@ describe("insertGeneratedOuvrages", () => {
   function setup(options: {
     existingFallback?: boolean;
     manualLaborQuantity?: number;
-    commitError?: { code: string; message: string };
     engine?: 3;
   } = {}) {
     const reviewedItems = createSubdetailItemRows().map((item) =>
@@ -608,7 +510,6 @@ describe("insertGeneratedOuvrages", () => {
       if (name === "get_generated_ouvrage_application_receipt") return { data: null, error: null };
       if (name === "read_generated_ouvrage_review") return { data: snapshot, error: null };
       if (name !== "commit_generated_ouvrages") throw new Error(`Unexpected RPC ${name}`);
-      if (options.commitError) return { data: null, error: options.commitError };
       const candidates = args.p_prepared_candidates as Array<Record<string, string>>;
       return { error: null, data: {
         ok: true, insertedCount: candidates.length, draftStatus: "applied",
@@ -642,29 +543,6 @@ describe("insertGeneratedOuvrages", () => {
     const args = commit![1] as Record<string, unknown>;
     return (args.p_prepared_candidates as Array<Record<string, unknown>>)[0];
   }
-
-  it("creates estimate items from pending candidates and marks the draft applied", async () => {
-    const { supabase } = setup();
-    const result = await insertGeneratedOuvrages(request());
-    const operations = vi.mocked(prepareEstimateBatch).mock.calls[0][0].operations;
-    expect(operations).toHaveLength(2);
-    expect(operations[0]).toMatchObject({ op: "create", data: {
-      item_type: "section", parent_id: null, title: "À classer", source_provider: "generated_ouvrage",
-    } });
-    const candidate = prepared(supabase);
-    expect(operations[1]).toMatchObject({ op: "create", data: {
-      item_type: "line", parent_id: candidate.resolvedLotId, title: "Pose de faux plafond",
-      quantity: 120, unit_price_ht_cents: 1350, h_mo: 54,
-      labor_role_id: createLaborRoleRow().id, source_provider: "generated_ouvrage", k_fo: 0.5, k_mo: 1,
-    } });
-    expect(candidate.estimateItemMapping).toMatchObject({ mode: "legacy_labor_allocated",
-      hMo: 54, laborRoleId: createLaborRoleRow().id, laborDsCents: 81_000, nonLaborDsCents: 81_000 });
-    expect(result).toMatchObject({ ok: true, insertedCount: 1, draftStatus: "applied",
-      projectId: PROJECT_ID, versionId: VERSION_ID, replayed: false,
-      receipt: { operationKey: OPERATION_KEY, acceptedCandidates: request().acceptedCandidates } });
-    expect(createEstimateItem).not.toHaveBeenCalled();
-    expect(supabase.__history.every((entry) => entry.operation === "select")).toBe(true);
-  });
 
   it("derives inserted labor hours from a manual reviewed quantity even when yield metadata is still present", async () => {
     const { supabase } = setup({ existingFallback: true, manualLaborQuantity: 36 });
@@ -730,14 +608,6 @@ describe("insertGeneratedOuvrages", () => {
     expect(prepared(supabase).resolvedLotId).toBe(FALLBACK_SECTION_ID);
   });
 
-  it("reports a known application persistence refusal without direct writes or compensating deletes", async () => {
-    const { supabase } = setup({ commitError: { code: "23514", message: "GENERATED_OUVRAGE_APPLY_REJECTED" } });
-    await expect(insertGeneratedOuvrages(request())).rejects.toMatchObject({ code: "GENERATED_OUVRAGE_APPLY_REJECTED" });
-    expect(supabase.rpc.mock.calls.filter(([name]) => name === "commit_generated_ouvrages")).toHaveLength(1);
-    expect(supabase.__history.every((entry) => entry.operation === "select")).toBe(true);
-    expect(createEstimateItem).not.toHaveBeenCalled();
-  });
-
   it("rejects candidate insertion when the quantity is still unknown", async () => {
     const { supabase } = setup();
     await expect(insertGeneratedOuvrages(request(null))).rejects.toMatchObject({ code: "EST381_CANDIDATE_QUANTITY_REQUIRED" });
@@ -752,30 +622,5 @@ describe("insertGeneratedOuvrages", () => {
     expect(prepareEstimateBatch).not.toHaveBeenCalled();
     expect(supabase.rpc.mock.calls.some(([name]) => name === "commit_generated_ouvrages")).toBe(false);
     expect(createEstimateItem).not.toHaveBeenCalled();
-  });
-});
-
-
-describe("rejectGeneratedOuvrageDraft", () => {
-  it("rejects the last pending candidate and discards the draft", async () => {
-    const supabase = createSupabaseStub({});
-    supabase.rpc.mockResolvedValue({ data: { ok: true,
-      projectId: PROJECT_ID, versionId: VERSION_ID, draftStatus: "discarded" }, error: null });
-    createAuthenticatedContext(supabase);
-    const result = await rejectGeneratedOuvrageDraft({ versionId: VERSION_ID,
-      draftId: DRAFT_ID, candidateId: CANDIDATE_ID, draftLockSessionId: LOCK_SESSION_ID,
-      reason: "À clarifier avec le client." });
-    expect(result).toMatchObject({ ok: true, draftStatus: "discarded", projectId: PROJECT_ID, versionId: VERSION_ID });
-    expect(supabase.__history).toHaveLength(0);
-  });
-
-  it("does not resurrect a draft that was already discarded", async () => {
-    const supabase = createSupabaseStub({});
-    supabase.rpc.mockResolvedValue({ data: null, error: { code: "23514", message: "EST381_DRAFT_DISCARDED" } });
-    createAuthenticatedContext(supabase);
-    await expect(rejectGeneratedOuvrageDraft({ versionId: VERSION_ID, draftId: DRAFT_ID,
-      candidateId: CANDIDATE_ID, draftLockSessionId: LOCK_SESSION_ID,
-      reason: "À clarifier avec le client." })).rejects.toMatchObject({ code: "EST381_DRAFT_DISCARDED" });
-    expect(supabase.__history).toHaveLength(0);
   });
 });

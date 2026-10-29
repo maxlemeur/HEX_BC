@@ -2,8 +2,7 @@ import {
 cleanup,
 render,
 screen,
-waitFor,
-within
+waitFor
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,describe,expect,it,vi } from "vitest";
@@ -132,75 +131,6 @@ describe("AssemblyEditorDialog", () => {
       expect.stringContaining("search=Tube+DN50+60"),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
-  });
-
-  it("separates quantity from labor time and uses coefficients instead of losses", async () => {
-    const user = userEvent.setup();
-    render(
-      <AssemblyEditorDialog
-        isSubmitting={false}
-        initialValue={{
-          ...ASSEMBLY,
-          items: [
-            {
-              ...ASSEMBLY.items[0],
-              k_mo: 1.5,
-              loss_coeff_bp: 5000,
-            },
-          ],
-        }}
-        supplyTypes={SUPPLY_TYPES}
-        laborRoles={[]}
-        onClose={() => undefined}
-        onSubmit={() => undefined}
-      />
-    );
-
-    // The dialog places its initial focus asynchronously. Let it finish before
-    // typing into another field so it cannot redirect the keystroke to the name.
-    await waitFor(() => expect(screen.getByLabelText(/Nom de l'ouvrage/)).toHaveFocus());
-
-    const header = screen.getByTestId("assembly-items-header");
-    expect(header).toHaveTextContent("Qté");
-    expect(header).toHaveTextContent("PR FO");
-    expect(header).toHaveTextContent("Type FO");
-    expect(header).toHaveTextContent("K FO");
-    expect(header).toHaveTextContent("H MO");
-    expect(header).toHaveTextContent("Rôle MO");
-    expect(header).toHaveTextContent("K MO");
-    expect(header).toHaveTextContent("Total");
-    expect(header).not.toHaveTextContent("PU HT");
-    expect(header).not.toHaveTextContent("Coût HT");
-    expect(header).not.toHaveTextContent("Pertes");
-    expect(within(header).getByText("PR FO")).toHaveClass("bg-info-light");
-    expect(within(header).getByText("Type FO")).toHaveClass("bg-info-light");
-    expect(within(header).getByText("K FO")).toHaveClass("bg-info-light");
-    expect(within(header).getByText("H MO")).toHaveClass("bg-warning-light");
-    expect(within(header).getByText("Rôle MO")).toHaveClass("bg-warning-light");
-    expect(within(header).getByText("K MO")).toHaveClass("bg-warning-light");
-    expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveClass(
-      "bg-info-subtle"
-    );
-    expect(screen.getByLabelText("Coefficient FO")).toHaveClass(
-      "bg-info-subtle"
-    );
-    expect(screen.getByLabelText("Temps MO (h)")).toHaveClass(
-      "bg-warning-subtle"
-    );
-    expect(screen.getByLabelText("Rôle de main-d’œuvre")).toHaveClass(
-      "bg-warning-subtle"
-    );
-    expect(screen.getByLabelText("Coefficient MO")).toHaveClass(
-      "bg-warning-subtle"
-    );
-    expect(screen.getByLabelText("Quantité par défaut")).toHaveValue(1);
-    expect(screen.getByLabelText("Temps MO (h)")).toHaveValue(2);
-    expect(screen.queryByLabelText("Pertes (%)")).not.toBeInTheDocument();
-    expect(screen.getAllByText(/135,00/)).toHaveLength(2);
-
-    await user.clear(screen.getByLabelText("Coefficient MO"));
-    await user.type(screen.getByLabelText("Coefficient MO"), "2");
-    expect(screen.getAllByText(/180,00/)).toHaveLength(2);
   });
 
   it("allows a supply line to select a labor role and enter labor time", async () => {

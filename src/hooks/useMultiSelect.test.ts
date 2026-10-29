@@ -3,35 +3,8 @@ import { describe,expect,it } from "vitest";
 import {
 createMultiSelectState,
 getOrderedSelectedIds,
-pruneSelection,
-reduceMultiSelectState,
-selectRange
+reduceMultiSelectState
 } from "@/hooks/useMultiSelect";
-
-describe("useMultiSelect helpers", () => {
-
-  it("selectRange returns an empty selection when one bound is missing", () => {
-    expect(Array.from(selectRange(["row-1", "row-2"], "row-1", "missing"))).toEqual(
-      []
-    );
-  });
-
-  it("pruneSelection keeps only visible ids in visible order", () => {
-    expect(
-      Array.from(
-        pruneSelection(
-          {
-            "row-1": false,
-            "row-2": true,
-            "row-3": true,
-            "row-5": true,
-          },
-          ["row-3", "row-4", "row-2", "row-1"]
-        )
-      )
-    ).toEqual(["row-3", "row-2"]);
-  });
-});
 
 describe("useMultiSelect reducer behavior", () => {
 

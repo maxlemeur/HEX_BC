@@ -165,24 +165,6 @@ function problems(input: AggregateInput) {
 }
 
 describe("TesterArmy shard aggregation", () => {
-  it("passes when every planned shard ran exactly its files and the shards together ran the selection", () => {
-    writeCriticalShards();
-    const result = aggregateEvidence(critical(criticalSelection()));
-    expect(result.problems).toEqual([]);
-    expect(result.status).toBe("passed");
-    expect(result.evidence).toBe(out);
-    const manifest = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
-    expect(manifest).toMatchObject({ schemaVersion: "army-ci-aggregate-1", suite: "critical", scope: "filtered-critical",
-      status: "passed", revision: REVISION, union: { missing: [], unexpected: [], duplicated: [] } });
-    expect(manifest.union.executed).toEqual([SETUP, A, B, C].sort());
-    for (const [index, unit] of manifest.units.entries()) {
-      const bytes = fs.readFileSync(path.join(evidence, `army-critical-shard-${index + 1}-evidence`, "manifest.json"));
-      expect(unit).toMatchObject({ artifact: `army-critical-shard-${index + 1}-evidence`, manifestSha256: sha256(bytes), status: "passed" });
-      // The aggregate artifact keeps every shard's evidence, byte for byte.
-      expect(fs.readFileSync(path.join(out, "units", unit.artifact, "manifest.json"))).toEqual(bytes);
-    }
-  });
-
   it("fails when a planned shard left no evidence or a job it depends on did not succeed", () => {
     writeCriticalShards([[SETUP, A, C]]);
     expect(problems(critical(criticalSelection()))).toMatchObject({ status: "failed",

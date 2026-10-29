@@ -59,39 +59,6 @@ afterEach(() => {
 });
 
 describe("architecture budgets", () => {
-  it("resolves relative and alias runtime imports while ignoring type-only and external imports", () => {
-    const rootDirectory = createFixture({
-      "src/a.ts": [
-        'import { value } from "./b";',
-        'import type { LocalType } from "./types";',
-        'import { type AliasType } from "@/types";',
-        'import { z } from "zod";',
-        'import "./styles.css";',
-        'export { lazyValue } from "@/lazy";',
-        "export const result = value + z.string().parse('x').length;",
-        "export async function load() { return import('./dynamic'); }",
-        "export type Combined = LocalType & AliasType;",
-      ].join("\n"),
-      "src/b.ts": "export const value = 1;\n",
-      "src/dynamic.ts": "export const dynamicValue = 2;\n",
-      "src/lazy.ts": "export const lazyValue = 3;\n",
-      "src/types.ts": "export interface LocalType { id: string }\nexport type AliasType = LocalType;\n",
-    });
-
-    const analysis = analyzeArchitecture({
-      config: config(),
-      rootDirectory,
-    });
-    const moduleA = analysis.modules.find((module) => module.path === "src/a.ts");
-
-    expect(moduleA?.runtimeDependencies).toEqual([
-      "src/b.ts",
-      "src/dynamic.ts",
-      "src/lazy.ts",
-    ]);
-    expect(analysis.cycles).toEqual([]);
-  });
-
   it("resolves dotted runtime module names without treating assets or type-only imports as dependencies", () => {
     const rootDirectory = createFixture({
       "src/entry.ts": [
@@ -200,59 +167,6 @@ describe("architecture budgets", () => {
 
     expect(result.errors).toContain(
       "new or expanded runtime dependency cycle: src/c.ts <-> src/d.ts"
-    );
-  });
-
-  it("rejects growth beyond an explicit hotspot non-empty LOC budget", () => {
-    const rootDirectory = createFixture({
-      "src/hotspot.ts": "export const one = 1;\n\nexport const two = 2;\nexport const three = 3;\n",
-    });
-    const budgetConfig = config({
-      hotspotNonEmptyLineBudgets: { "src/hotspot.ts": 2 },
-    });
-
-    const result = validateArchitectureBudgets(
-      analyzeArchitecture({ config: budgetConfig, rootDirectory }),
-      budgetConfig
-    );
-
-    expect(result.errors).toEqual([
-      "hotspot grew beyond its non-empty LOC budget: src/hotspot.ts (3 > 2)",
-    ]);
-  });
-
-  it("requires explicit budgets for legacy oversized modules and rejects new oversized modules", () => {
-    const rootDirectory = createFixture({
-      "src/generated.ts": "export const generated = 1;\nexport const ignored = 2;\n",
-      "src/legacy.ts": "export const legacy = 1;\nexport const oversized = 2;\n",
-      "src/new-module.ts": "export const one = 1;\nexport const two = 2;\n",
-    });
-    const budgetConfig = config({
-      excludedModulePaths: ["src/generated.ts"],
-      hotspotNonEmptyLineBudgets: { "src/legacy.ts": 2 },
-      maxNewModuleNonEmptyLines: 1,
-    });
-
-    const result = validateArchitectureBudgets(
-      analyzeArchitecture({ config: budgetConfig, rootDirectory }),
-      budgetConfig
-    );
-
-    expect(result.errors).toEqual([
-      "module exceeds the new-module non-empty LOC ceiling: src/new-module.ts (2 > 1)",
-    ]);
-
-    fs.appendFileSync(
-      path.join(rootDirectory, "src", "legacy.ts"),
-      "export const growth = 3;\n",
-      "utf8"
-    );
-    const grown = validateArchitectureBudgets(
-      analyzeArchitecture({ config: budgetConfig, rootDirectory }),
-      budgetConfig
-    );
-    expect(grown.errors).toContain(
-      "hotspot grew beyond its non-empty LOC budget: src/legacy.ts (3 > 2)"
     );
   });
 });

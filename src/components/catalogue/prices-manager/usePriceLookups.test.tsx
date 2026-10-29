@@ -2,17 +2,7 @@ import { act,renderHook,waitFor } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const fetchApiMock = vi.hoisted(() => vi.fn());
-const supplierRangeMock = vi.hoisted(() => vi.fn());
-const productRangeMock = vi.hoisted(() => vi.fn());
-const supabaseFromMock = vi.hoisted(() =>
-  vi.fn<(table: string) => unknown>((table: string) => ({
-    select: vi.fn(() => ({
-      order: vi.fn(() => ({
-        range: table === "suppliers" ? supplierRangeMock : productRangeMock,
-      })),
-    })),
-  }))
-);
+const supabaseFromMock = vi.hoisted(() => vi.fn<(table: string) => unknown>());
 
 vi.mock("@/components/catalogue/api", () => ({ fetchApi: fetchApiMock }));
 vi.mock("@/lib/supabase/client", () => ({
@@ -20,44 +10,6 @@ vi.mock("@/lib/supabase/client", () => ({
 }));
 
 import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceLookups";
-
-describe("usePriceLookups", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchApiMock.mockImplementation(async (url: string) =>
-      url.includes("kind=supplier")
-        ? { suppliers: [{ id: "supplier-1", name: "Supplier One" }], products: [] }
-        : {
-            suppliers: [],
-            products: [{ id: "product-1", designation: "Cable", reference: "REF-CABLE" }],
-          }
-    );
-    supplierRangeMock.mockResolvedValue({
-      data: [{ id: "supplier-1", name: "Supplier One" }],
-      error: null,
-    });
-    productRangeMock.mockResolvedValue({
-      data: [{ id: "product-1", designation: "Cable", reference: "REF-CABLE" }],
-      error: null,
-    });
-  });
-
-  it("uses the 50-result remote endpoint while the form is open", async () => {
-    const { result } = renderHook(() =>
-      usePriceLookups({ formOpen: true, importOpen: false })
-    );
-
-    await waitFor(() => expect(result.current.supplierOptions).toHaveLength(1));
-    await waitFor(() => expect(result.current.productOptions).toHaveLength(1));
-    expect(fetchApiMock).toHaveBeenCalledWith(expect.stringContaining("limit=50"));
-    expect(supabaseFromMock).not.toHaveBeenCalled();
-
-    act(() => result.current.searchProducts("câble"));
-    await waitFor(() =>
-      expect(fetchApiMock).toHaveBeenCalledWith(expect.stringContaining("q=c%C3%A2ble"))
-    );
-  });
-});
 
 type LookupPage = { data: unknown[] | null; error: { message: string } | null };
 

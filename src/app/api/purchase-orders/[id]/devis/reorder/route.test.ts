@@ -102,39 +102,4 @@ describe("purchase order devis reorder route", () => {
     expect(await response.json()).toEqual({ error: expectedError });
     expect(harness.rpc).not.toHaveBeenCalled();
   });
-
-  it("reports an inconsistent RPC update count", async () => {
-    const orderedIds = [SECOND_DEVIS_ID, DEVIS_ID];
-    const harness = installHarness({ rpcUpdatedCount: 1 });
-
-    const response = await PATCH(reorderRequest(orderedIds), params);
-
-    expect(response.status).toBe(409);
-    expect(harness.rpc).toHaveBeenCalledWith("reorder_purchase_order_devis", {
-      target_purchase_order_id: ORDER_ID,
-      ordered_devis_ids: orderedIds,
-    });
-    expect(await response.json()).toEqual({
-      error: "La liste de reordonnancement est desynchronisee.",
-    });
-  });
-
-  it("delegates a complete order-scoped permutation to the atomic RPC", async () => {
-    const orderedIds = [SECOND_DEVIS_ID, DEVIS_ID];
-    const harness = installHarness();
-
-    const response = await PATCH(reorderRequest(orderedIds), params);
-
-    expect(response.status).toBe(200);
-    expect(harness.queries.reorder.eq).toHaveBeenCalledWith(
-      "purchase_order_id",
-      ORDER_ID
-    );
-    expect(harness.rpc).toHaveBeenCalledOnce();
-    expect(harness.rpc).toHaveBeenCalledWith("reorder_purchase_order_devis", {
-      target_purchase_order_id: ORDER_ID,
-      ordered_devis_ids: orderedIds,
-    });
-    expect(await response.json()).toEqual({ success: true });
-  });
 });

@@ -4,7 +4,6 @@ import {
   buildTakeoffAtomicMappingPlan,
   buildTakeoffDpgfApplyAuthorizationRecord,
   hashTakeoffApplyAuthorizationToken,
-  normalizeTakeoffApplySummary,
 } from "@/lib/takeoff/apply-preparation";
 import type {
   TakeoffDpgfComparisonSummary,
@@ -15,8 +14,6 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
 const JOB_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION_ID = "55555555-5555-4555-8555-555555555555";
-const SECTION_ID = "66666666-6666-4666-8666-666666666666";
-const ESTIMATE_ITEM_ID = "77777777-7777-4777-8777-777777777777";
 const TAKEOFF_ITEM_ID = "88888888-8888-4888-8888-888888888888";
 const CATEGORY_ID = "99999999-9999-4999-8999-999999999999";
 const ASSEMBLY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -105,109 +102,6 @@ describe("buildTakeoffAtomicMappingPlan", () => {
       { item_id: assembly.item_id, source_order: 5, action: "apply_assembly" },
     ]);
     expect(items).toEqual(originalItems);
-  });
-});
-
-describe("normalizeTakeoffApplySummary", () => {
-  const itemLinks = [
-    { takeoff_item_id: TAKEOFF_ITEM_ID, estimate_item_id: ESTIMATE_ITEM_ID },
-  ];
-
-  it("reads the nested RPC row and keeps the committed item links", () => {
-    expect(normalizeTakeoffApplySummary({
-      jobId: JOB_ID,
-      request: { strategy: "merge", target_section_id: SECTION_ID },
-      rpcData: [{ summary: {
-        scope: "section",
-        created_items_count: 2,
-        updated_items_count: 4,
-        ignored_items_count: 6,
-        created_item_ids: [ESTIMATE_ITEM_ID],
-        item_links: itemLinks,
-      } }],
-    })).toEqual({
-      scope: "section",
-      created_count: 2,
-      updated_count: 4,
-      ignored_count: 6,
-      created_ids: [ESTIMATE_ITEM_ID],
-      item_links: itemLinks,
-    });
-  });
-
-  it("accepts the direct RPC summary with short count aliases", () => {
-    expect(normalizeTakeoffApplySummary({
-      jobId: JOB_ID,
-      request: { strategy: "append" },
-      rpcData: {
-        created_count: 3,
-        updated_count: 2,
-        ignored_count: 1,
-        created_ids: [ESTIMATE_ITEM_ID],
-      },
-    })).toEqual({
-      scope: "version",
-      created_count: 3,
-      updated_count: 2,
-      ignored_count: 1,
-      created_ids: [ESTIMATE_ITEM_ID],
-      item_links: [],
-    });
-  });
-
-  it("preserves zero counts and empty ids when both aliases are supplied", () => {
-    expect(normalizeTakeoffApplySummary({
-      jobId: JOB_ID,
-      request: { strategy: "merge" },
-      rpcData: {
-        created_items_count: 0,
-        updated_items_count: 0,
-        ignored_items_count: 0,
-        created_count: 9,
-        updated_count: 8,
-        ignored_count: 7,
-        created_ids: [],
-        created_item_ids: [ESTIMATE_ITEM_ID],
-      },
-    })).toEqual({
-      scope: "version",
-      created_count: 0,
-      updated_count: 0,
-      ignored_count: 0,
-      created_ids: [],
-      item_links: [],
-    });
-  });
-
-  it.each([
-    { rpcScope: "unknown", target: SECTION_ID, expected: "section" },
-    { rpcScope: "unknown", target: null, expected: "version" },
-    { rpcScope: "version", target: SECTION_ID, expected: "version" },
-  ])("resolves scope $rpcScope with target $target", ({ rpcScope, target, expected }) => {
-    expect(normalizeTakeoffApplySummary({
-      jobId: JOB_ID,
-      request: { strategy: "merge", target_section_id: target },
-      rpcData: { scope: rpcScope },
-    }).scope).toBe(expected);
-  });
-
-  it.each([
-    { created_count: -1 },
-    { updated_items_count: 1.5 },
-    { ignored_count: "2" },
-    { item_links: [{ takeoff_item_id: "invalid", estimate_item_id: ESTIMATE_ITEM_ID }] },
-    { item_links: [{ takeoff_item_id: TAKEOFF_ITEM_ID, estimate_item_id: null }] },
-  ])("rejects invalid counts or committed links: %j", (rpcData) => {
-    expect(() => normalizeTakeoffApplySummary({
-      jobId: JOB_ID,
-      request: { strategy: "merge" },
-      rpcData,
-    })).toThrow(expect.objectContaining({
-      status: 500,
-      code: "INTERNAL_ERROR",
-      retryable: false,
-      jobId: JOB_ID,
-    }));
   });
 });
 

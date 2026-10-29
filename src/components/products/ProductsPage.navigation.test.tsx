@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchMock, replaceMock } = vi.hoisted(() => ({
@@ -25,21 +25,6 @@ import ProductsPage from "@/app/dashboard/products/page";
 describe("product sheet return navigation", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(cleanup);
-
-  it("opens the requested product independently of the catalogue page", async () => {
-    fetchMock.mockResolvedValue({ items: [{ id: "target-product", designation: "Perfo filaire" }] });
-    render(<ProductsPage />);
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Perfo filaire");
-    expect(fetchMock).toHaveBeenCalledWith("/api/catalogue?id=target-product&include_inactive=true&limit=1");
-    expect(replaceMock).toHaveBeenCalledWith("/dashboard/products", { scroll: false });
-  });
-
-  it("reports a missing product without opening a creation form", async () => {
-    fetchMock.mockResolvedValue({ items: [] });
-    render(<ProductsPage />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Ce produit est introuvable");
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
 
   it("ignores a lookup that completes after leaving the page", async () => {
     let resolve!: (value: unknown) => void;

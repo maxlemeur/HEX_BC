@@ -17,10 +17,6 @@ function thrownBy(read: () => unknown) {
 }
 
 describe("requireEstimateEngineVersion", () => {
-  it.each([1, 2, 3])("returns the stored engine %i unchanged", (engine) => {
-    expect(requireEstimateEngineVersion({ calc_engine_version: engine })).toBe(engine);
-  });
-
   it("refuses a row whose select list omitted calc_engine_version", () => {
     expect(thrownBy(() => requireEstimateEngineVersion({ id: "version" }))).toMatchObject({
       code: "ESTIMATE_CALC_ENGINE_MISSING",

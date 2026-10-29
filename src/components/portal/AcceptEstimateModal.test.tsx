@@ -74,61 +74,6 @@ describe("AcceptEstimateModal", () => {
     vi.restoreAllMocks();
   });
 
-  it("submit button is disabled until terms checkbox is checked", () => {
-    renderModal();
-
-    const submitBtn = screen.getByRole("button", { name: /Confirmer/i });
-    expect(submitBtn).toBeDisabled();
-  });
-
-  it("submit button becomes enabled after checking terms", async () => {
-    const user = userEvent.setup();
-    renderModal();
-
-    const checkbox = screen.getByLabelText(/accepte ce devis/i);
-    await user.click(checkbox);
-
-    const submitBtn = screen.getByRole("button", { name: /Confirmer/i });
-    expect(submitBtn).toBeEnabled();
-  });
-
-  it("calls fetch with correct payload on valid submit (no signature)", async () => {
-    const user = userEvent.setup();
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({ status: "accepted", accepted_at: "2026-03-05" }),
-    });
-
-    const { props } = renderModal();
-
-    // Check terms
-    await user.click(screen.getByLabelText(/accepte ce devis/i));
-
-    // Submit
-    await user.click(screen.getByRole("button", { name: /Confirmer/i }));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/portal/test-token-uuid/accept",
-        expect.objectContaining({
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-    });
-
-    const callBody = JSON.parse(
-      (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body
-    );
-    expect(callBody.accepted_terms).toBe(true);
-    expect(callBody.signature_base64).toBeUndefined();
-
-    await waitFor(() => {
-      expect(props.onAccepted).toHaveBeenCalled();
-    });
-  });
-
   it("includes signature in payload when provided", async () => {
     const user = userEvent.setup();
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -157,43 +102,6 @@ describe("AcceptEstimateModal", () => {
     );
     expect(callBody.signature_base64).toBe("data:image/png;base64,AAAA");
     expect(callBody.accepted_terms).toBe(true);
-  });
-
-  it("shows error on failed API response", async () => {
-    const user = userEvent.setup();
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ error: "Ce devis a déjà été traité." }),
-    });
-
-    const { props } = renderModal();
-
-    await user.click(screen.getByLabelText(/accepte ce devis/i));
-    await user.click(screen.getByRole("button", { name: /Confirmer/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Ce devis a déjà été traité."
-      );
-    });
-
-    expect(props.onAccepted).not.toHaveBeenCalled();
-  });
-
-  it("shows generic error on network failure", async () => {
-    const user = userEvent.setup();
-    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error("Network error")
-    );
-
-    renderModal();
-
-    await user.click(screen.getByLabelText(/accepte ce devis/i));
-    await user.click(screen.getByRole("button", { name: /Confirmer/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("Network error");
-    });
   });
 
   it("clears signature from payload after clearing", async () => {

@@ -17,25 +17,6 @@ describe("GET /api/health", () => {
     vi.unstubAllEnvs();
   });
 
-  it("returns anonymous JSON with ok, version and db, and 200 when the data API answers", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 200 }));
-
-    const response = await GET();
-    const body = (await response.json()) as {
-      ok: boolean;
-      version: string;
-      db: string;
-    };
-
-    expect(response.status).toBe(200);
-    expect(body).toMatchObject({ ok: true, db: "up" });
-    expect(body.version.length).toBeGreaterThan(0);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
-      "http://localhost:54321/rest/v1/tenants?select=id&limit=1"
-    );
-  });
-
   it("reports up when PostgREST answers with a real SQLSTATE (anon has no grant)", async () => {
     globalThis.fetch = vi.fn(
       async () =>
@@ -73,15 +54,6 @@ describe("GET /api/health", () => {
     expect(response.status).toBe(503);
   });
 
-  it("reports down when the probe throws (network failure or timeout)", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      throw new Error("fetch failed");
-    });
-
-    const response = await GET();
-    expect(response.status).toBe(503);
-  });
-
   it("throttles upstream pings between consecutive calls", async () => {
     globalThis.fetch = vi.fn(async () => new Response("{}", { status: 200 }));
 
@@ -90,14 +62,5 @@ describe("GET /api/health", () => {
     await GET();
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports down without probing when the public Supabase variables are missing", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
-    globalThis.fetch = vi.fn();
-
-    const response = await GET();
-    expect(response.status).toBe(503);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

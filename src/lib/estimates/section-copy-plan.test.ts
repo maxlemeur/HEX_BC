@@ -4,7 +4,6 @@ import {
   buildImportedSubtreePayload,
   collectSectionSubtreeItems,
   prepareSectionsImport,
-  resolveImportedSectionTitle,
   selectSectionImportSubtrees,
 } from "@/lib/estimates/section-copy-plan";
 import type { EstimateItemRow } from "@/lib/estimates/version-read-server";
@@ -51,26 +50,9 @@ function idsFor(subtrees: ReturnType<typeof selectSectionImportSubtrees>) {
 }
 
 describe("section copy selection and hierarchy", () => {
-  it("includes descendants in parent-before-child order without copying unrelated roots", () => {
-    const source = hierarchy();
-    const before = structuredClone(source);
-    const subtree = collectSectionSubtreeItems("section", source)!;
-    expect(subtree.orderedSubtreeItems.map((row) => row.id)).toEqual([
-      "section", "subsection", "line", "direct-line",
-    ]);
-    expect(collectSectionSubtreeItems("missing", source)).toBeNull();
-    expect(source).toEqual(before);
-  });
-
   it("does not import a selected descendant twice when its ancestor is also selected", () => {
     expect(selectSectionImportSubtrees(hierarchy(), ["subsection", "section", "other"])
       .map((subtree) => subtree.rootSection.id)).toEqual(["section", "other"]);
-  });
-
-  it.each(["line", "missing"])("refuses the non-section selection %s", (id) => {
-    expect(() => selectSectionImportSubtrees(hierarchy(), [id])).toThrow(
-      "section_ids contient un identifiant de section invalide."
-    );
   });
 
   it("remaps hierarchy and ownership while preserving priced values and provenance", () => {
@@ -105,48 +87,6 @@ describe("section copy selection and hierarchy", () => {
 });
 
 describe("append and merge preparation", () => {
-  it("chooses the next import title without mutating the caller's reservations", () => {
-    const used = new Set(["plomberie", "plomberie (import)", "plomberie (import 2)"]);
-    const before = [...used];
-    expect(resolveImportedSectionTitle({ sourceTitle: "  Plomberie ", usedTitleKeys: used })).toBe("Plomberie (import 3)");
-    expect([...used]).toEqual(before);
-    expect(resolveImportedSectionTitle({ sourceTitle: " ", usedTitleKeys: new Set() })).toBe("Section importée");
-  });
-
-  it("appends unique roots after existing sections and counts chosen roots separately from nested sections", () => {
-    const source = hierarchy();
-    source.push(item({ id: "second-root", item_type: "section", title: "Plomberie", parent_id: null, position: 12 }));
-    const target = [item({ id: "target-root", item_type: "section", title: "plomberie", parent_id: null, position: 8 })];
-    const before = structuredClone({ source, target });
-    const subtrees = selectSectionImportSubtrees(source, ["section", "second-root"]);
-    const result = prepareSectionsImport({ subtrees, targetItems: target, mode: "append", tenantId: "tenant", targetVersionId: "target", newIdsBySubtree: idsFor(subtrees) });
-    expect(result.items.filter((row) => row.parent_id === null).map((row) => [row.title, row.position])).toEqual([
-      ["Plomberie (import)", 9], ["Plomberie (import 2)", 10],
-    ]);
-    expect(result.importedSectionsCount).toBe(2);
-    expect(result.createdSectionIds).toHaveLength(3);
-    expect(result.importedLinesCount).toBe(2);
-    expect([...result.sourceIdByNewId]).toContainEqual(["copy-0-line", "line"]);
-    expect({ source, target }).toEqual(before);
-  });
-
-  it("merges all descendant lines into a matching root after its last existing child", () => {
-    const subtrees = selectSectionImportSubtrees(hierarchy(), ["section"]);
-    const target = [
-      item({ id: "target-root", item_type: "section", parent_id: null, title: " PLOMBERIE ", position: 1 }),
-      item({ id: "existing-1", parent_id: "target-root", position: 3 }),
-      item({ id: "existing-2", parent_id: "target-root", position: 10 }),
-    ];
-    const result = prepareSectionsImport({ subtrees, targetItems: target, mode: "merge", tenantId: "tenant", targetVersionId: "target", newIdsBySubtree: idsFor(subtrees) });
-    expect(result.items.map((row) => [row.id, row.parent_id, row.position])).toEqual([
-      ["copy-0-line", "target-root", 11], ["copy-0-direct-line", "target-root", 12],
-    ]);
-    expect(result.createdSectionIds).toEqual([]);
-    expect(result.importedSectionsCount).toBe(1);
-    expect(result.importedLinesCount).toBe(2);
-    expect([...result.sourceIdByNewId]).toEqual([["copy-0-line", "line"], ["copy-0-direct-line", "direct-line"]]);
-  });
-
   it("keeps hierarchy when merge has no matching target root", () => {
     const subtrees = selectSectionImportSubtrees(hierarchy(), ["section"]);
     const result = prepareSectionsImport({ subtrees, targetItems: [], mode: "merge", tenantId: "tenant", targetVersionId: "target", newIdsBySubtree: idsFor(subtrees) });

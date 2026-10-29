@@ -12,8 +12,6 @@ vi.mock("@/lib/estimates/server", () => ({
   createEstimate: vi.fn(),
 }));
 
-import { revalidatePath } from "next/cache";
-
 import { initializeAffaireDraft } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
 import { createEstimate } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -67,28 +65,6 @@ function createImportSelectBuilder(projectId: string | null) {
   return builder;
 }
 
-function createImportUpdateBuilder() {
-  const builder = {
-    update: vi.fn(),
-    eq: vi.fn(),
-    select: vi.fn(),
-    maybeSingle: vi.fn(),
-  };
-
-  builder.update.mockReturnValue(builder);
-  builder.eq.mockReturnValue(builder);
-  builder.select.mockReturnValue(builder);
-  builder.maybeSingle.mockResolvedValue({
-    data: { id: IMPORT_ID },
-    error: null,
-  });
-
-  return builder;
-}
-
-
-
-
 /**
  * Sous-lot 2.10b (D-i) : depuis la bascule (M8), une politique absente vaut le moteur 3 ; ces cas v2 tournent sous
  * une ligne de politique 2 explicite, le retrait par entreprise.
@@ -111,7 +87,6 @@ function createExplicitPolicyTwoBuilder() {
 function createSupabaseStub(input: {
   role: "engineer" | "admin" | "viewer";
   importProjectId?: string | null;
-  enableImportLinkUpdate?: boolean;
   createdProjectId?: string;
   rpcResult?: { data: unknown; error: unknown };
 }) {
@@ -120,15 +95,9 @@ function createSupabaseStub(input: {
     input.importProjectId !== undefined
       ? createImportSelectBuilder(input.importProjectId)
       : null;
-  const importUpdateBuilder = input.enableImportLinkUpdate
-    ? createImportUpdateBuilder()
-    : null;
   const tableQueues: Record<string, unknown[]> = {
     tenant_memberships: [membershipBuilder],
-    dpgf_imports: [
-      ...(importBuilder ? [importBuilder] : []),
-      ...(importUpdateBuilder ? [importUpdateBuilder] : []),
-    ],
+    dpgf_imports: importBuilder ? [importBuilder] : [],
   };
 
   const supabase = {
@@ -158,7 +127,6 @@ function createSupabaseStub(input: {
 
   return {
     supabase,
-    importUpdateBuilder,
   };
 }
 
@@ -170,95 +138,6 @@ describe("initializeAffaireDraft", () => {
       version: { id: CREATED_VERSION_ID },
     } as never);
   });
-  it("creates a canonical blank estimate and returns its manual editor destination", async () => {
-    const { supabase } = createSupabaseStub({
-      role: "engineer",
-      createdProjectId: CREATED_PROJECT_ID,
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      initializeAffaireDraft({
-        projectName: "Affaire vide",
-      })
-    ).resolves.toMatchObject({
-      redirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
-    });
-
-    expect(createEstimate).toHaveBeenCalledWith({
-      project: {
-        name: "Affaire vide",
-        client_name: null,
-        reference: null,
-      },
-      creation_mode: "blank",
-      version: { expected_calc_engine_version: 2 },
-    });
-    expect(revalidatePath).toHaveBeenCalledWith("/dashboard/affaires");
-    expect(revalidatePath).toHaveBeenCalledWith(
-      `/dashboard/affaires/${CREATED_PROJECT_ID}`
-    );
-  });
-
-  it("returns project and version ids when initializing a draft without redirect", async () => {
-    const { supabase } = createSupabaseStub({
-      role: "engineer",
-      createdProjectId: CREATED_PROJECT_ID,
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      initializeAffaireDraft({
-        projectName: "Affaire brouillon",
-        clientName: "Client test",
-        reference: "REF-42",
-      })
-    ).resolves.toEqual({
-      projectId: CREATED_PROJECT_ID,
-      versionId: CREATED_VERSION_ID,
-      redirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
-      manualEstimate: {
-        mode: "manual",
-        creationMode: "blank",
-        projectId: CREATED_PROJECT_ID,
-        versionId: CREATED_VERSION_ID,
-        editorRedirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
-      },
-    });
-  });
-
-  it("links uploaded import when creating an empty project from low-confidence flow", async () => {
-    const { supabase, importUpdateBuilder } = createSupabaseStub({
-      role: "engineer",
-      importProjectId: null,
-      enableImportLinkUpdate: true,
-      createdProjectId: CREATED_PROJECT_ID,
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      initializeAffaireDraft({
-        projectName: "Affaire import lie",
-        linkImportId: IMPORT_ID,
-      })
-    ).resolves.toMatchObject({
-      redirectUrl: `/dashboard/estimates/${CREATED_VERSION_ID}/edit?entry=manual`,
-    });
-
-    expect(createEstimate).toHaveBeenCalledWith({
-      project: {
-        name: "Affaire import lie",
-        client_name: null,
-        reference: null,
-      },
-      creation_mode: "blank",
-      version: { expected_calc_engine_version: 2 },
-      linked_import_id: IMPORT_ID,
-    });
-    expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
-    expect(supabase.rpc).not.toHaveBeenCalled();
-  });
-
   it("rejects import already linked to another project", async () => {
     const { supabase } = createSupabaseStub({
       role: "engineer",

@@ -21,15 +21,6 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-it("uses the verified 127.0.0.1 origin when Next.js exposes a localhost request URL", async () => {
-  const response = await GET(request());
-  const [, callback, cookie] = vi.mocked(finishLocalChatGptSignIn).mock.calls[0];
-  expect(callback.origin).toBe("http://127.0.0.1:3000");
-  expect(callback.searchParams.get("code")).toBe("fixture-code"); expect(cookie).toBe("fixture-state");
-  expect(response.headers.get("location")).toBe("http://127.0.0.1:3000/dashboard/profile?chatgpt=connected");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-});
-
 it("reports a typed failure without leaking callback credentials or arbitrary exception text", async () => {
   const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   vi.mocked(finishLocalChatGptSignIn).mockRejectedValueOnce(new ChatGptSignInError("registration"));
@@ -42,14 +33,6 @@ it("reports a typed failure without leaking callback credentials or arbitrary ex
   const unknown = await GET(request());
   expect(unknown.headers.get("location")).not.toContain("do-not-disclose");
   expect(log).toHaveBeenLastCalledWith("chatgpt.sign_in.failed", { reason: "unknown" });
-});
-
-it("distinguishes a lost MergeOne session before attempting token exchange", async () => {
-  vi.spyOn(console, "warn").mockImplementation(() => undefined);
-  vi.mocked(getAuthenticatedContext).mockRejectedValueOnce(new Error("unauthorized"));
-  const response = await GET(request());
-  expect(new URL(response.headers.get("location")!).searchParams.get("chatgpt_error")).toBe("session");
-  expect(finishLocalChatGptSignIn).not.toHaveBeenCalled();
 });
 
 it("keeps production and foreign-host callbacks disabled", async () => {

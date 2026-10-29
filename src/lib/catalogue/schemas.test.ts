@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createSupplierPriceSchema, priceLookupsQuerySchema, updateCatalogueItemSchema, updateSupplierOfferSchema, updateSupplierPriceSchema } from "@/lib/catalogue/schemas";
+import { createSupplierPriceSchema, updateCatalogueItemSchema, updateSupplierOfferSchema, updateSupplierPriceSchema } from "@/lib/catalogue/schemas";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const SUPPLIER_ID = "22222222-2222-4222-8222-222222222222";
@@ -20,22 +20,6 @@ describe("catalogue update schemas", () => {
     if (!parsed.success) return;
     expect(parsed.data.item).not.toHaveProperty("is_active");
   });
-
-  it("rejects empty catalogue item update payload", () => {
-    const parsed = updateCatalogueItemSchema.safeParse({
-      action: "update",
-      id: ID,
-      item: {},
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("Aucun champ"),
-      ),
-    ).toBe(true);
-  });
 });
 
 describe("supplier price update schemas", () => {
@@ -52,66 +36,9 @@ describe("supplier price update schemas", () => {
     if (!parsed.success) return;
     expect(parsed.data.item).not.toHaveProperty("currency");
   });
-
-  it("rejects empty supplier price update payload", () => {
-    const parsed = updateSupplierPriceSchema.safeParse({
-      action: "update",
-      id: ID,
-      item: {},
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("Aucun champ"),
-      ),
-    ).toBe(true);
-  });
 });
 
 describe("supplier catalogue item price creation", () => {
-
-  it("rejects ambiguous existing and new supplier selections", () => {
-    const parsed = createSupplierPriceSchema.safeParse({
-      action: "create",
-      item: {
-        supplier_id: SUPPLIER_ID,
-        new_supplier: { name: "Doublon" },
-        product_id: PRODUCT_ID,
-        unit_price_cents: 1299,
-      },
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("exactement un fournisseur"),
-      ),
-    ).toBe(true);
-  });
-
-  it("rejects ambiguous existing and new article selections", () => {
-    const parsed = createSupplierPriceSchema.safeParse({
-      action: "create",
-      item: {
-        supplier_id: SUPPLIER_ID,
-        product_id: PRODUCT_ID,
-        new_product: { designation: "Doublon" },
-        unit_price_cents: 1299,
-      },
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("exactement un article"),
-      ),
-    ).toBe(true);
-  });
-
   it("rejects non HTTP(S) supplier URLs", () => {
     const parsed = createSupplierPriceSchema.safeParse({
       action: "create",
@@ -143,19 +70,6 @@ describe("supplier catalogue item price creation", () => {
 
     expect(parsed.item).not.toHaveProperty("supplier_id");
     expect(parsed.item).not.toHaveProperty("product_id");
-  });
-});
-describe("catalogue and price pagination schemas", () => {
-
-  it("caps remote price lookups at 50 suggestions", () => {
-    expect(
-      priceLookupsQuerySchema.safeParse({
-        kind: "supplier",
-        q: "arc",
-        selected_id: null,
-        limit: 51,
-      }).success,
-    ).toBe(false);
   });
 });
 

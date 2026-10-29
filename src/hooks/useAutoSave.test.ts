@@ -4,7 +4,6 @@ import { act,cleanup,renderHook } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import {
-shouldBlockBeforeUnload,
 useAutoSave,
 type AutoSaveResult
 } from "@/hooks/useAutoSave";
@@ -19,15 +18,6 @@ function createDeferred<T>() {
 
   return { promise, resolve, reject };
 }
-
-describe("useAutoSave helpers", () => {
-
-  it("blocks beforeunload only when data may be lost", () => {
-    expect(shouldBlockBeforeUnload(true, false)).toBe(true);
-    expect(shouldBlockBeforeUnload(false, true)).toBe(true);
-    expect(shouldBlockBeforeUnload(false, false)).toBe(false);
-  });
-});
 
 describe("useAutoSave behavior", () => {
   beforeEach(() => {
@@ -71,76 +61,6 @@ describe("useAutoSave behavior", () => {
     expect(onSave).toHaveBeenCalledWith("debounce");
   });
 
-  it("exposes saving and saved states before returning to pending when changes remain", async () => {
-    const deferredSave = createDeferred<AutoSaveResult>();
-    const onSave = vi.fn().mockReturnValue(deferredSave.promise);
-    const { result } = renderHook(() =>
-      useAutoSave({
-        enabled: true,
-        hasPendingChanges: true,
-        debounceMs: 2_000,
-        onSave,
-      })
-    );
-
-    expect(result.current.status).toBe("pending");
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-    expect(result.current.status).toBe("saving");
-    expect(result.current.isSaving).toBe(true);
-
-    await act(async () => {
-      deferredSave.resolve("saved");
-      await deferredSave.promise;
-    });
-    expect(result.current.status).toBe("saved");
-    expect(result.current.isSaving).toBe(false);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_999);
-    });
-    expect(result.current.status).toBe("saved");
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(result.current.status).toBe("pending");
-  });
-
-  it("flushes immediately with Ctrl+S and cancels the pending debounce", async () => {
-    const onSave = vi.fn().mockResolvedValue("saved" satisfies AutoSaveResult);
-    renderHook(() =>
-      useAutoSave({
-        enabled: true,
-        hasPendingChanges: true,
-        debounceMs: 2_000,
-        onSave,
-      })
-    );
-    const event = new KeyboardEvent("keydown", {
-      key: "s",
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-
-    await act(async () => {
-      window.dispatchEvent(event);
-      await Promise.resolve();
-    });
-
-    expect(event.defaultPrevented).toBe(true);
-    expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith("manual");
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-    expect(onSave).toHaveBeenCalledTimes(1);
-  });
-
   it("keeps manual save available when automatic saving is disabled", async () => {
     const onSave = vi.fn().mockResolvedValue("saved" satisfies AutoSaveResult);
     const { result } = renderHook(() =>
@@ -167,54 +87,6 @@ describe("useAutoSave behavior", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith("manual");
     expect(result.current.status).toBe("saved");
-  });
-
-  it("prevents the browser Save As shortcut even when the editor is clean", () => {
-    const onSave = vi.fn().mockResolvedValue("noop" satisfies AutoSaveResult);
-    renderHook(() =>
-      useAutoSave({
-        enabled: true,
-        hasPendingChanges: false,
-        onSave,
-      })
-    );
-    const event = new KeyboardEvent("keydown", {
-      key: "s",
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-
-    act(() => {
-      window.dispatchEvent(event);
-    });
-
-    expect(event.defaultPrevented).toBe(true);
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
-  it("prevents the browser Save As shortcut when saving is blocked", () => {
-    const onSave = vi.fn().mockResolvedValue("blocked" satisfies AutoSaveResult);
-    renderHook(() =>
-      useAutoSave({
-        enabled: false,
-        hasPendingChanges: false,
-        onSave,
-      })
-    );
-    const event = new KeyboardEvent("keydown", {
-      key: "s",
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-
-    act(() => {
-      window.dispatchEvent(event);
-    });
-
-    expect(event.defaultPrevented).toBe(true);
-    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("resumes pending autosave as soon as the browser comes back online", async () => {

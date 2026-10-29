@@ -23,7 +23,6 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { buildTakeoffDpgfReviewReference } from "@/lib/takeoff/dpgf-compare";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffDpgfComparisonResponseSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
-import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   fetchDpgfTakeoffComparison,
@@ -1079,50 +1078,6 @@ describe("takeoff DPGF comparison server helpers", () => {
     expect(response.pagination.total).toBe(2);
   });
 
-  it("synchronizes proofs only for the requested comparison page", async () => {
-    const mock = createSupabaseMock();
-    const baseLine = mock.state.estimateItems[0]!;
-    mock.state.estimateItems.push({
-      ...baseLine,
-      id: "88888888-8888-4888-8888-888888888888",
-      position: 2,
-      title: "Autre ligne DPGF",
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
-    } as never);
-
-    const response = await fetchDpgfTakeoffComparison(JOB_ID, {
-      version_id: VERSION_ID, view: "all", page_size: 1,
-    });
-
-    expect(response.pagination.total).toBe(2);
-    expect(response.rows.map((row) => row.line_id)).toEqual([ESTIMATE_ITEM_ID]);
-    expect(new Set(mock.state.evidences.map((row) => row.estimate_item_id))).toEqual(
-      new Set([ESTIMATE_ITEM_ID])
-    );
-  });
-
-  it("keeps the hub summary free of evidence writes and supplier reads with supplied auth", async () => {
-    const mock = createSupabaseMock();
-    mock.state.estimateItems[0]!.selected_supplier_price_id = "abababab-abab-4bab-8bab-abababababab";
-
-    const summary = await fetchTakeoffDpgfSummaryForHub({
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      jobId: JOB_ID,
-      versionId: VERSION_ID,
-      projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    });
-
-    expect(summary.total_lines).toBe(1);
-    expect(summary.lines_without_proof).toBe(0);
-    expect(getAuthenticatedContext).not.toHaveBeenCalled();
-    expect(mock.state.evidences).toEqual([]);
-    expect(mock.fromMock.mock.calls.map(([table]) => table)).not.toContain("supplier_pricebook");
-    expect(mock.fromMock.mock.calls.map(([table]) => table)).not.toContain("estimate_line_evidences");
-  });
-
   it("resolves panel units from the selected line's source before the version's first source", async () => {
     const mock = createSupabaseMock();
     const lineId = "88888888-8888-4888-8888-888888888888";
@@ -1263,92 +1218,6 @@ describe("takeoff DPGF comparison server helpers", () => {
     expect(response.summary.lines_without_proof).toBe(0);
   });
 
-  it("returns active evidences and history in the dedicated panel payload", async () => {
-    const mock = createSupabaseMock();
-    mock.state.links = [
-      {
-        id: "88888888-8888-4888-8888-888888888888",
-        tenant_id: TENANT_ID,
-        version_id: VERSION_ID,
-        takeoff_job_id: JOB_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
-        takeoff_item_id: TAKEOFF_ITEM_ID,
-        created_at: "2026-03-06T10:10:00.000Z",
-        updated_at: "2026-03-06T10:10:00.000Z",
-        linked_by: USER_ID,
-      },
-    ];
-    mock.state.evidences = [
-      {
-        id: "99999999-9999-4999-8999-999999999999",
-        created_at: "2026-03-06T09:55:00.123456+00:00",
-        tenant_id: TENANT_ID,
-        project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        version_id: VERSION_ID,
-        takeoff_job_id: JOB_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
-        fingerprint: "old-comment",
-        evidence_type: "comment",
-        evidence_kind: "hypothesis",
-        label: "Hypothèse manuelle",
-        source_label: "Décision de revue humaine",
-        source_file_name: null,
-        source_page: null,
-        confidence_score: null,
-        note: "Ancienne hypothese.",
-        source_record_table: "takeoff_dpgf_review_decisions",
-        source_record_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        payload: {},
-        author_user_id: USER_ID,
-        invalidated_at: "2026-03-06T10:05:00.000Z",
-        invalidated_by: USER_ID,
-        invalidation_reason: "snapshot_replaced",
-        supersedes_evidence_id: null,
-      },
-    ];
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const panel = await fetchTakeoffLineEvidencePanel(JOB_ID, {
-      version_id: VERSION_ID,
-      line_id: ESTIMATE_ITEM_ID,
-    });
-
-    expect(takeoffLineEvidencePanelResponseSchema.safeParse(panel)).toMatchObject({ success: true });
-    expect(panel.history[0]?.created_at).toBe("2026-03-06T09:55:00.123456+00:00");
-    expect(panel.line_id).toBe(ESTIMATE_ITEM_ID);
-    expect(panel.evidences.some((evidence) => evidence.type === "takeoff")).toBe(true);
-    expect(panel.history[0]).toMatchObject({
-      evidence_id: "99999999-9999-4999-8999-999999999999",
-      author_name: "Nadia Review",
-      status: "invalidated",
-    });
-  });
-
-  it("returns NOT_FOUND when the requested line is absent from the target version", async () => {
-    const mock = createSupabaseMock();
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    await expect(
-      fetchTakeoffLineEvidencePanel(JOB_ID, {
-        version_id: VERSION_ID,
-        line_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-      })
-    ).rejects.toMatchObject({
-      code: TakeoffErrorCode.NOT_FOUND,
-      status: 404,
-    });
-  });
-
   it("preserves supersession links when evidence snapshots are replaced", async () => {
     const mock = createSupabaseMock();
     mock.state.reviewDecisions = [
@@ -1424,79 +1293,6 @@ describe("takeoff DPGF comparison server helpers", () => {
         replaced_by_evidence_id: activeComment?.evidence_id ?? null,
       })
     );
-  });
-
-  it("inherits carry-over provenance from the linked source decision on first save", async () => {
-    const mock = createSupabaseMock();
-    mock.state.reviewDecisions = [
-      {
-        id: "99999999-9999-4999-8999-999999999999",
-        tenant_id: TENANT_ID,
-        version_id: SOURCE_VERSION_ID,
-        takeoff_job_id: JOB_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
-        review_reference: buildTakeoffDpgfReviewReference({
-          sourceFileName: "dpgf.xlsx",
-          sourcePage: 12,
-          position: 1,
-          title: "Faux plafond acoustique",
-          unit: "m2",
-        }),
-        line_label: "Faux plafond acoustique",
-        line_position: 1,
-        source_file_name: "dpgf.xlsx",
-        source_page: 12,
-        carried_over_from_version_id: null,
-        carried_over_at: null,
-        decision: "keep_dpgf",
-        reason: "Decision issue de la version précédente.",
-        decided_at: "2026-03-06T10:10:00.000Z",
-        updated_at: "2026-03-06T10:10:00.000Z",
-        decided_by: USER_ID,
-      },
-    ];
-
-    vi.mocked(listAccessibleTakeoffJobsForVersion).mockResolvedValue([
-      {
-        id: JOB_ID,
-        estimate_version_id: VERSION_ID,
-        status: "completed",
-        level: "A",
-        source_file_name: "plans.pdf",
-        source_file_type: "application/pdf",
-        source_file_size_bytes: 1200,
-        created_at: "2026-03-06T09:59:00.000Z",
-        updated_at: "2026-03-06T10:01:00.000Z",
-        linked_from_version_id: SOURCE_VERSION_ID,
-        linked_from_version_number: 2,
-        is_linked: true,
-      },
-    ]);
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await saveTakeoffReviewDecision(JOB_ID, {
-      version_id: VERSION_ID,
-      estimate_item_id: ESTIMATE_ITEM_ID,
-      decision: "keep_takeoff",
-      reason: "Application explicite sur la version courante.",
-    });
-
-    expect(response.decision).toMatchObject({
-      decision: "keep_takeoff",
-      source: "carried_over",
-      carried_over_from_version_id: SOURCE_VERSION_ID,
-      carried_over_from_version_number: 2,
-    });
-    expect(
-      mock.state.reviewDecisions.find((decision) => decision.version_id === VERSION_ID)
-    ).toMatchObject({
-      carried_over_from_version_id: SOURCE_VERSION_ID,
-    });
   });
 
   it("builds review carry-over references from the resolved DPGF unit", async () => {

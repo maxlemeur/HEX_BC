@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement, useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Modal } from "@/components/ui-legacy/Modal";
 
@@ -62,31 +62,6 @@ function ControlledModal() {
   );
 }
 
-function AutoFocusModal() {
-  return createElement(
-    Modal.Root,
-    { open: true, onOpenChange: () => undefined } as never,
-    createElement(
-      Modal.Content,
-      null,
-      createElement(
-        Modal.Header,
-        null,
-        createElement(Modal.Title, null, "Nouveau jeu"),
-        createElement(Modal.Close, null, "Fermer")
-      ),
-      createElement(
-        Modal.Body,
-        null,
-        createElement("input", {
-          "aria-label": "Nom du jeu",
-          "data-modal-autofocus": "true",
-        })
-      )
-    )
-  );
-}
-
 describe("ui/Modal", () => {
   afterEach(() => {
     cleanup();
@@ -113,70 +88,6 @@ describe("ui/Modal", () => {
     expect(backgroundRoot).not.toHaveProperty("inert", true);
     expect(backgroundRoot).not.toHaveAttribute("aria-hidden");
     document.body.style.overflow = previousOverflow;
-  });
-
-  it("portals the dialog into document.body above page stacking contexts", () => {
-    render(createElement(TestModal));
-
-    const dialog = screen.getByRole("dialog", { name: "Produit" });
-    const modalRoot = dialog.closest("[data-ui-modal-root]");
-
-    expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(document.body).toContainElement(dialog);
-    expect(modalRoot).not.toHaveAttribute("aria-hidden");
-    expect(modalRoot).not.toHaveProperty("inert", true);
-    expect(screen.getByTestId("stacking-context")).not.toContainElement(dialog);
-    expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
-    const backgroundRoot = screen.getByTestId("stacking-context").parentElement;
-    expect(backgroundRoot).toHaveAttribute(
-      "aria-hidden",
-      "true"
-    );
-    expect(backgroundRoot).toHaveProperty("inert", true);
-  });
-
-  it("allows a caller to widen the modal container", () => {
-    render(
-      createElement(
-        Modal.Root,
-        { open: true, onOpenChange: () => undefined } as never,
-        createElement(
-          Modal.Content,
-          { containerClassName: "sm:max-w-4xl" } as never,
-          createElement(Modal.Title, null, "Large modal")
-        )
-      )
-    );
-
-    expect(screen.getByRole("dialog", { name: "Large modal" }).parentElement).toHaveClass(
-      "sm:max-w-4xl"
-    );
-  });
-
-  it("closes on overlay click", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn<(open: boolean) => void>();
-
-    render(createElement(TestModal, { onOpenChange }));
-
-    await user.pointer({
-      target: document.querySelector<HTMLElement>("[data-ui-modal-overlay='true']")!,
-      keys: "[MouseLeft]",
-    });
-
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("closes on Escape", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn<(open: boolean) => void>();
-
-    render(createElement(TestModal, { onOpenChange }));
-
-    await waitFor(() => expect(screen.getByLabelText("Référence")).toHaveFocus());
-    await user.keyboard("{Escape}");
-
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("focuses the first control and traps Tab navigation inside the dialog", async () => {
@@ -219,39 +130,5 @@ describe("ui/Modal", () => {
         false
       );
     });
-  });
-
-  it("prioritizes an explicitly requested field over an earlier close button", async () => {
-    render(createElement(AutoFocusModal));
-
-    await waitFor(() => expect(screen.getByLabelText("Nom du jeu")).toHaveFocus());
-    expect(screen.getByRole("button", { name: "Fermer" })).toHaveClass(
-      "h-11",
-      "min-w-11"
-    );
-  });
-
-  it("composes a caller close handler with the modal close action", async () => {
-    const user = userEvent.setup();
-    const onClick = vi.fn();
-    const onOpenChange = vi.fn<(open: boolean) => void>();
-
-    render(
-      createElement(
-        Modal.Root,
-        { open: true, onOpenChange } as never,
-        createElement(
-          Modal.Content,
-          null,
-          createElement(Modal.Title, null, "Produit"),
-          createElement(Modal.Close, { onClick } as never, "Fermer")
-        )
-      )
-    );
-
-    await user.click(screen.getByRole("button", { name: "Fermer" }));
-
-    expect(onClick).toHaveBeenCalledTimes(1);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

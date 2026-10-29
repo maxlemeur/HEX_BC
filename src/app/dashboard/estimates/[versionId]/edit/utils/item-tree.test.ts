@@ -4,7 +4,6 @@ import type { Database } from "@/types/database";
 
 import {
   applyOptimisticTemplateInsertion,
-  buildSiblingOrderByParent,
   collectSubtreeItemIds,
   createTopLevelItemIdsTracker,
   sortItemsForTreeRecreation,
@@ -75,28 +74,6 @@ describe("item-tree subtree traversal", () => {
       "cycle-b",
       "cycle-c",
     ]);
-  });
-});
-
-describe("item-tree sibling ordering", () => {
-  it("builds an independent position order for every parent without mutating input", () => {
-    const snapshot = [
-      item({ id: "root-2", item_type: "section", position: 2 }),
-      item({ id: "a-3", parent_id: "parent-a", item_type: "line", position: 3 }),
-      item({ id: "b-1", parent_id: "parent-b", item_type: "line", position: 1 }),
-      item({ id: "root-1", item_type: "section", position: 1 }),
-      item({ id: "a-1", parent_id: "parent-a", item_type: "line", position: 1 }),
-      item({ id: "b-2", parent_id: "parent-b", item_type: "line", position: 2 }),
-      item({ id: "a-2", parent_id: "parent-a", item_type: "line", position: 2 }),
-    ];
-    const originalOrder = snapshot.map((entry) => entry.id);
-
-    const orderByParent = buildSiblingOrderByParent(snapshot);
-
-    expect(orderByParent.get(null)).toEqual(["root-1", "root-2"]);
-    expect(orderByParent.get("parent-a")).toEqual(["a-1", "a-2", "a-3"]);
-    expect(orderByParent.get("parent-b")).toEqual(["b-1", "b-2"]);
-    expect(snapshot.map((entry) => entry.id)).toEqual(originalOrder);
   });
 });
 

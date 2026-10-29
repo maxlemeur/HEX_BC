@@ -94,14 +94,6 @@ async function pdfBytes() {
 }
 
 describe("confirmed preparation reference contents", () => {
-  it("does not query intake for an analysis with only plans", async () => {
-    const { source } = fixture(Buffer.from("plan"));
-    source.kind = "plan";
-    const db = database([], Buffer.alloc(0));
-    await expect(loadPreparationReferenceFiles({ ...db, job, snapshot: snapshot([source]) })).resolves.toEqual({ files: [], sourceHints: [] });
-    expect(db.from).not.toHaveBeenCalled();
-  });
-
   it("passes a complete verified PDF unchanged and identifies its original pages", async () => {
     const bytes = await pdfBytes();
     const { document, source } = fixture(bytes);

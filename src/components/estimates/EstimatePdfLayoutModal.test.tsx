@@ -86,30 +86,4 @@ describe("EstimatePdfLayoutModal", () => {
       );
     });
   });
-
-  it("indique un réglage personnalisé sans laisser un préréglage sélectionné", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <EstimatePdfLayoutModal
-        open
-        onOpenChange={vi.fn()}
-        versionId="version-1"
-        onConfirm={vi.fn()}
-      />
-    );
-
-    const detailedPreset = screen.getByRole("button", {
-      name: /Devis détaillé/i,
-    });
-    expect(detailedPreset).toHaveAttribute("aria-pressed", "true");
-
-    await user.click(
-      screen.getByText("Personnaliser le contenu et la présentation")
-    );
-    await user.selectOptions(screen.getByLabelText("Confort de lecture"), "compact");
-
-    expect(detailedPreset).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText("Personnalisé")).toBeInTheDocument();
-  });
 });

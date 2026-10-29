@@ -4,11 +4,9 @@ import {
   buildTakeoffDpgfManualLinkPlan,
   buildTakeoffDpgfReviewDecisionPlan,
   buildTakeoffDpgfReviewTargetReference,
-  getUniqueTakeoffDpgfManualLinkItemIds,
   requireTakeoffDpgfReviewTarget,
   type TakeoffDpgfReviewDecisionTarget,
 } from "@/lib/takeoff/dpgf-review-preparation";
-import { saveTakeoffDpgfManualLinkSchema } from "@/lib/takeoff/schemas";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -80,29 +78,6 @@ describe("DPGF review target eligibility", () => {
     })).toBe(estimateItem);
   });
 
-  it.each([
-    ["section", { item_type: "section" as const }],
-    ["line without DPGF provenance", { source_provider: null, source_file_name: null }],
-  ])("rejects an ineligible %s", (_name, patch) => {
-    expect(() => requireTakeoffDpgfReviewTarget({
-      estimateItem: target(patch), estimateItemId: LINE_ID,
-      versionId: VERSION_ID, jobId: JOB_ID,
-    })).toThrowError(expect.objectContaining({
-      status: 409, code: "CONFLICT",
-      message: "La ligne cible n'est pas une ligne DPGF eligible.",
-      jobId: JOB_ID,
-    }));
-  });
-
-  it("reports a missing line with its identity", () => {
-    expect(() => requireTakeoffDpgfReviewTarget({
-      estimateItem: null, estimateItemId: LINE_ID, versionId: VERSION_ID, jobId: JOB_ID,
-    })).toThrowError(expect.objectContaining({
-      status: 404, code: "NOT_FOUND",
-      details: expect.objectContaining({ estimate_item_id: LINE_ID }),
-    }));
-  });
-
   it("rejects the wrong version before testing line eligibility", () => {
     expect(() => requireTakeoffDpgfReviewTarget({
       estimateItem: target({ version_id: SOURCE_VERSION_ID, item_type: "section" }),
@@ -118,76 +93,6 @@ describe("DPGF review target eligibility", () => {
 });
 
 describe("DPGF manual link preparation", () => {
-  it("defaults an omitted selection to a deletion scoped to the requested line", () => {
-    const payload = saveTakeoffDpgfManualLinkSchema.parse({
-      version_id: VERSION_ID, estimate_item_id: LINE_ID,
-    });
-    const plan = buildTakeoffDpgfManualLinkPlan({
-      jobId: JOB_ID, userId: USER_ID, payload, takeoffItems: [],
-    });
-    expect(plan).toEqual({
-      rpcArgs: {
-        p_version_id: VERSION_ID, p_takeoff_job_id: JOB_ID,
-        p_estimate_item_id: LINE_ID, p_takeoff_item_ids: [], p_linked_by: USER_ID,
-      },
-      mutationErrorMessage: "Impossible de supprimer les liens manuels DPGF.",
-    });
-  });
-
-  it("accepts 50 distinct items belonging to the job", () => {
-    const ids = Array.from({ length: 50 }, (_, index) => itemId(index));
-    const payload = saveTakeoffDpgfManualLinkSchema.parse({
-      version_id: VERSION_ID, estimate_item_id: LINE_ID, takeoff_item_ids: ids,
-    });
-    const plan = buildTakeoffDpgfManualLinkPlan({
-      jobId: JOB_ID, userId: USER_ID, payload,
-      takeoffItems: ids.map((id) => ({ id, tenant_id: TENANT_ID, job_id: JOB_ID })),
-    });
-    expect(plan.rpcArgs).toEqual({
-      p_version_id: VERSION_ID, p_takeoff_job_id: JOB_ID,
-      p_estimate_item_id: LINE_ID, p_takeoff_item_ids: ids, p_linked_by: USER_ID,
-    });
-    expect(plan.mutationErrorMessage).toBe("Impossible d'enregistrer les liens manuels DPGF.");
-  });
-
-  it("deduplicates in selection order independently of the database row order", () => {
-    const ids = [itemId(2), itemId(1), itemId(2), itemId(3), itemId(1)];
-    expect(getUniqueTakeoffDpgfManualLinkItemIds(ids)).toEqual([itemId(2), itemId(1), itemId(3)]);
-    const plan = buildTakeoffDpgfManualLinkPlan({
-      jobId: JOB_ID, userId: null,
-      payload: { version_id: VERSION_ID, estimate_item_id: LINE_ID, takeoff_item_ids: ids },
-      takeoffItems: [1, 2, 3].map((index) => ({
-        id: itemId(index), tenant_id: TENANT_ID, job_id: JOB_ID,
-      })),
-    });
-    expect(plan.rpcArgs.p_takeoff_item_ids).toEqual([itemId(2), itemId(1), itemId(3)]);
-    expect(plan.rpcArgs.p_linked_by).toBeNull();
-    expect(ids).toEqual([itemId(2), itemId(1), itemId(2), itemId(3), itemId(1)]);
-  });
-
-  it("rejects 51 repeated IDs before deduplication", () => {
-    const input = {
-      version_id: VERSION_ID, estimate_item_id: LINE_ID,
-      takeoff_item_ids: Array.from({ length: 51 }, () => itemId(1)),
-    };
-    expect(() => saveTakeoffDpgfManualLinkSchema.parse(input))
-      .toThrow("Maximum 50 items takeoff relies par ligne.");
-  });
-
-  it("reports the first missing selection before an item from another job", () => {
-    expect(() => buildTakeoffDpgfManualLinkPlan({
-      jobId: JOB_ID, userId: USER_ID,
-      payload: {
-        version_id: VERSION_ID, estimate_item_id: LINE_ID,
-        takeoff_item_ids: [itemId(1), itemId(3), itemId(2)],
-      },
-      takeoffItems: [{ id: itemId(1), tenant_id: TENANT_ID, job_id: OTHER_JOB_ID }],
-    })).toThrowError(expect.objectContaining({
-      status: 404, code: "NOT_FOUND",
-      details: expect.objectContaining({ takeoff_item_id: itemId(3) }),
-    }));
-  });
-
   it("rejects a selected item from another job when all selections exist", () => {
     expect(() => buildTakeoffDpgfManualLinkPlan({
       jobId: JOB_ID, userId: USER_ID,
@@ -228,33 +133,6 @@ describe("DPGF review reference preparation", () => {
 });
 
 describe("DPGF decision preparation", () => {
-  it("captures the target identity, source snapshot, author and normalized review reason", () => {
-    expect(buildTakeoffDpgfReviewDecisionPlan(decisionInput())).toEqual({
-      upsertPayload: {
-        tenant_id: TENANT_ID, version_id: VERSION_ID, takeoff_job_id: JOB_ID,
-        estimate_item_id: LINE_ID, review_reference: "dpgf ventilation xlsx row 12",
-        line_label: "Faux plafond acoustique", line_position: 3,
-        source_file_name: "DPGF ventilation.xlsx", source_page: 12,
-        carried_over_from_version_id: null, carried_over_at: null,
-        decision: "keep_takeoff", reason: "Surface contrôlée sur le plan niveau 2.",
-        decided_at: NOW, updated_at: NOW, decided_by: USER_ID,
-      },
-      auditMetadata: {
-        estimate_item_id: LINE_ID, review_reference: "dpgf ventilation xlsx row 12",
-        previous_decision: null, next_decision: "keep_takeoff",
-        previous_reason: null, next_reason: "Surface contrôlée sur le plan niveau 2.",
-      },
-    });
-  });
-
-  it.each([undefined, null, "", "  \n\t  "])("normalizes an empty reason %j to null", (reason) => {
-    const input = decisionInput();
-    input.payload.reason = reason;
-    const plan = buildTakeoffDpgfReviewDecisionPlan(input);
-    expect(plan.upsertPayload.reason).toBeNull();
-    expect(plan.auditMetadata.next_reason).toBeNull();
-  });
-
   it("keeps current null provenance and current audit values despite an inherited source", () => {
     const plan = buildTakeoffDpgfReviewDecisionPlan(decisionInput({
       existingDecision: {

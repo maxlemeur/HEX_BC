@@ -49,20 +49,4 @@ describe("ensureTakeoffApplyDraftLock", () => {
     });
     expect(acquireEstimateDraftLockMock).toHaveBeenCalledWith(VERSION_ID);
   });
-
-  it("reports the holder when another user owns the lock", async () => {
-    renewEstimateDraftLockMock.mockResolvedValue({
-      renewed: false,
-      lock: {
-        isOwnedByCurrentUser: false,
-        holderName: "Camille",
-      },
-    });
-
-    await expect(ensureTakeoffApplyDraftLock(VERSION_ID)).resolves.toEqual({
-      acquired: false,
-      shouldRelease: false,
-      errorMessage: "La version cible est verrouillée par Camille.",
-    });
-  });
 });

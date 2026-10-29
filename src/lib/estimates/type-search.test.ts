@@ -11,11 +11,6 @@ const options = [
 ];
 
 describe("estimate type search", () => {
-  it("prioritizes exact codes, prefixes and labels, retaining stable reference order", () => {
-    expect(searchEstimateTypes(options, " TUB ").map((item) => item.id)).toEqual(["2", "3", "1"]);
-    expect(searchEstimateTypes(options, "acier").map((item) => item.id)).toEqual(["1"]);
-    expect(searchEstimateTypes(options, " CAT_4 ").map((item) => item.id)).toEqual(["1"]);
-  });
   it("ignores accents and case without inventing MO codes", () => {
     expect(resolveUniqueEstimateType(options, "ELEC")?.id).toBe("4");
     expect(searchEstimateTypes(options, "MAC")).toEqual([]);

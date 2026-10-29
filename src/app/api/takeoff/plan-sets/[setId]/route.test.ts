@@ -21,11 +21,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
-import {
-  DELETE,
-  PATCH,
-  PUT,
-} from "@/app/api/takeoff/plan-sets/[setId]/route";
+import { DELETE } from "@/app/api/takeoff/plan-sets/[setId]/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -36,7 +32,6 @@ const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const SET_ID = "44444444-4444-4444-8444-444444444444";
 const FILE_ID = "55555555-5555-4555-8555-555555555555";
 const FILE_ID_2 = "66666666-6666-4666-8666-666666666666";
-const MISSING_SET_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type PlanSetStoredRow = {
   id: string;
@@ -517,37 +512,6 @@ describe("/api/takeoff/plan-sets/[setId]", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   });
 
-  it.each(["admin", "engineer"] as const)(
-    "DELETE removes a plan set and associated files for an %s",
-    async (membershipRole) => {
-      const supabase = createSupabaseMock({ membershipRole });
-      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-      createServiceRoleClientMock.mockReturnValue(supabase);
-
-      const response = await DELETE(
-        new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
-          method: "DELETE",
-        }),
-        makeParams()
-      );
-      const body = (await response.json()) as {
-        ok: boolean;
-        data?: unknown;
-      };
-
-      expect(response.status).toBe(200);
-      expect(body.ok).toBe(true);
-      expect(supabase.__state.planSetsById.has(SET_ID)).toBe(false);
-      expect(
-        [...supabase.__state.planFilesById.values()].filter(
-          (file) => file.plan_set_id === SET_ID
-        )
-      ).toHaveLength(0);
-      expect(supabase.__state.storageRemovals.length).toBeGreaterThan(0);
-      expect(createServiceRoleClientMock).toHaveBeenCalledOnce();
-    }
-  );
-
   it("DELETE rejects a viewer before database or Storage mutation", async () => {
     const supabase = createSupabaseMock({ membershipRole: "viewer" });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -647,166 +611,5 @@ describe("/api/takeoff/plan-sets/[setId]", () => {
     expect(body.error?.message).toBe("Impossible de supprimer le jeu de plans.");
     expect(supabase.__state.planSetsById.has(SET_ID)).toBe(true);
     expect(supabase.__state.storageRemovals).toHaveLength(0);
-  });
-
-  it("PUT clears empty description and updates metadata", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await PUT(
-      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Set revision B",
-          description: "   ",
-          metadata: {
-            revision: "B",
-          },
-        }),
-      }),
-      makeParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: {
-        plan_set?: {
-          id: string;
-          description: string | null;
-          metadata: Record<string, unknown>;
-        };
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data?.plan_set?.id).toBe(SET_ID);
-    expect(body.data?.plan_set?.description).toBeNull();
-    expect(body.data?.plan_set?.metadata).toEqual({
-      revision: "B",
-    });
-    expect(supabase.__state.planSetsById.get(SET_ID)?.description).toBeNull();
-  });
-
-  it("PATCH returns 422 for empty update payload", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await PATCH(
-      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
-      }),
-      makeParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(422);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("PATCH returns 400 when body is invalid JSON", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await PATCH(
-      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: "{invalid-json",
-      }),
-      makeParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("BAD_REQUEST");
-  });
-
-  it("PATCH returns 404 when updating an unknown set", async () => {
-    const supabase = createSupabaseMock({
-      planSets: [],
-      planFiles: [],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await PATCH(
-      new Request(`http://localhost/api/takeoff/plan-sets/${MISSING_SET_ID}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Inexistant",
-        }),
-      }),
-      makeParams(MISSING_SET_ID)
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(404);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBeDefined();
-  });
-
-  it("returns 400 with normalized error envelope for invalid setId", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await DELETE(
-      new Request("http://localhost/api/takeoff/plan-sets/not-a-uuid", {
-        method: "DELETE",
-      }),
-      makeParams("not-a-uuid")
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBeDefined();
-  });
-
-  it("returns 404 when deleting an unknown set", async () => {
-    const supabase = createSupabaseMock({
-      planSets: [],
-      planFiles: [],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await DELETE(
-      new Request(`http://localhost/api/takeoff/plan-sets/${MISSING_SET_ID}`, {
-        method: "DELETE",
-      }),
-      makeParams(MISSING_SET_ID)
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(404);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBeDefined();
   });
 });

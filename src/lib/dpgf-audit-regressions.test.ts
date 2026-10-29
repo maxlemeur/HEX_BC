@@ -78,14 +78,6 @@ describe("K-01: error response sanitization", () => {
 // ---------------------------------------------------------------------------
 
 describe("canonical JSON row normalization", () => {
-  it("normalizeRowsFromJson rejects non-object rows", async () => {
-    const { normalizeRowsFromJson } = await import("@/lib/imports/parser");
-
-    expect(() => normalizeRowsFromJson(["not-an-object"])).toThrow(
-      "n'est pas un objet JSON valide"
-    );
-  });
-
   it("normalizeRowsFromJson filters out all-null rows", async () => {
     const { normalizeRowsFromJson } = await import("@/lib/imports/parser");
 

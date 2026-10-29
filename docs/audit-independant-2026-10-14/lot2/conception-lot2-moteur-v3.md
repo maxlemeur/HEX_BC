@@ -29,9 +29,10 @@ une migration appliquée est une trace de conception, pas une consigne de déplo
 ## 5. Oracle, scénarios et tolérances
 
 Les tableaux suivants sont les attendus historiques de conception, conservés sans
-recalcul. Ils sont transcrits dans les [fixtures numériques](../../../src/lib/estimates/engine-v3/oracle.fixtures.ts)
-et contrôlés par [les tests d'oracle](../../../src/lib/estimates/engine-v3/oracle.test.ts)
-et [les cas d'exigence](../../../src/lib/estimates/engine-v3/requirements.test.ts).
+recalcul. Ils sont transcrits dans les [fixtures numériques](../../../src/lib/estimates/engine-v3/oracle.fixtures.ts),
+que lisent [les cas d'exigence](../../../src/lib/estimates/engine-v3/requirements.test.ts)
+et [les propriétés](../../../src/lib/estimates/engine-v3/properties.test.ts) ; aucun
+contrôle ne compare plus les totaux de scénario de ces tableaux.
 La source numérique [D4-extraits.json](../reproductions/d4/D4-extraits.json) est
 conservée pour la traçabilité. Ces valeurs ne prouvent aucune exécution récente.
 

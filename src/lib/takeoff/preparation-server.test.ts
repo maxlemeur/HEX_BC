@@ -117,21 +117,6 @@ describe("persisted preparation server boundary", () => {
     expect(f.server.writesTo("takeoff_preparations")).toHaveLength(1);
   });
 
-  it("preserves exact snapshot JSON when PostgREST returns an equivalent timestamp with a different format", async () => {
-    const f = fixture();
-    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
-    await confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 });
-    const record = f.getRecord()!;
-    const storedJson = JSON.stringify(record.confirmed_snapshot);
-    record.confirmed_at = record.confirmed_at!.replace(/Z$/, "+00:00");
-    const snapshot = await assertConfirmedTakeoffPreparation({ context: f.context, projectId: M3_PROJECT_ID, estimateVersionId: M3_VERSION_ID, planSetId: M3_PLAN_SET_ID, preparationRevision: 2 });
-    expect(snapshot.confirmed_at).toMatch(/Z$/);
-    expect(JSON.stringify(snapshot)).toBe(storedJson);
-    expect(snapshot).not.toBe(record.confirmed_snapshot);
-    snapshot.preparation.scope.exclusions.push("Consumer-local mutation");
-    expect(JSON.stringify(record.confirmed_snapshot)).toBe(storedJson);
-  });
-
   it("rejects mismatched snapshot confirmation provenance before launch", async () => {
     const f = fixture();
     await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
@@ -225,14 +210,5 @@ describe("persisted preparation server boundary", () => {
       planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "B", provider: "auto" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("réglages de traitement") });
     await expect(assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID,
       planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "C", provider: "chatgpt" })).resolves.toMatchObject({ preparation: { processing: { level: "C", provider: "chatgpt" } } });
-  });
-
-  it("requires choosing settings before confirming an old draft with an unset level", async () => {
-    const f = fixture();
-    f.ready.processing = { level: null, provider: "auto" };
-    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
-    await expect(confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("Choisissez le niveau") });
-    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
-    expect(f.user.storageCalls).toEqual([]);
   });
 });

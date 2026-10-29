@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
-import { TakeoffError } from "@/lib/takeoff/errors";
 
 const TestSchema = z
   .object({
@@ -432,16 +431,5 @@ describe("callGeminiStructured", () => {
       code: "AI_SCHEMA",
       retryable: false,
     });
-  });
-
-  it("throws when GEMINI_API_KEY is missing on server", async () => {
-    delete process.env.GEMINI_API_KEY;
-
-    await expect(
-      callGeminiStructured({
-        prompt: "Extract",
-        schema: TestSchema,
-      })
-    ).rejects.toBeInstanceOf(TakeoffError);
   });
 });

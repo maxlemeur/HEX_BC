@@ -32,8 +32,8 @@ référencés depuis le guide de tests. La documentation d'API est générée da
 - [Les dispositions du scan de sécurité](security-remediation-91386191.md)
   gardent l'identité des constats et les limites de leur qualification historique.
 - [L'inventaire d'audit](audit/AUDIT-2026-07-inventaire.md) est généré depuis
-  [sa source JSON](audit/AUDIT-2026-07-source.normalized.json). Le test de
-  [régénération](../src/lib/audit-artifact-generator.test.ts) compare leurs octets.
+  [sa source JSON](audit/AUDIT-2026-07-source.normalized.json) par
+  [`extract-audit-artifact.mjs`](../scripts/extract-audit-artifact.mjs).
   Son état « au HEAD » désigne le snapshot historique, pas le checkout courant.
 - [Les décisions du moteur 3](audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md)
   et ses données d'oracle gardent la provenance des contrôles de calcul.

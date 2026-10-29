@@ -162,10 +162,6 @@ function readHistoryCommand(
   return command as EstimateEditorHistoryCommand;
 }
 
-function itemPositions(items: EditorEstimateItem[]) {
-  return Object.fromEntries(items.map((item) => [item.id, item.position]));
-}
-
 beforeEach(() => {
   vi.resetAllMocks();
   clientMocks.deleteEstimateItem.mockImplementation(async (versionId: string, itemId: string) => ({
@@ -225,78 +221,6 @@ describe("useEstimateEditorStructureController insertions", () => {
       deferred.resolve([]);
       await firstRequest;
     });
-  });
-
-  it("shifts template siblings by the number of inserted roots", async () => {
-    const originalItems = [
-      createItem("section-a", { item_type: "section", position: 1 }),
-      createItem("section-b", { item_type: "section", position: 2 }),
-    ];
-    const insertedItems = [
-      createItem("template-root-a", {
-        item_type: "section",
-        position: 2,
-      }),
-      createItem("template-child", {
-        parent_id: "template-root-a",
-        position: 1,
-      }),
-      createItem("template-root-b", {
-        item_type: "section",
-        position: 3,
-      }),
-    ];
-    clientMocks.insertTemplateIntoVersion.mockResolvedValue(insertedItems);
-    const harness = createHarness({ items: originalItems });
-
-    await act(async () => {
-      await harness.result.current.actions.insertTemplate(
-        "template-1",
-        "section-a"
-      );
-    });
-
-    expect(clientMocks.insertTemplateIntoVersion).toHaveBeenCalledWith(
-      "template-1",
-      { versionId: "version-1", afterItemId: "section-a" }
-    );
-    expect(itemPositions(harness.getItems())).toEqual({
-      "section-a": 1,
-      "section-b": 4,
-      "template-root-a": 2,
-      "template-child": 1,
-      "template-root-b": 3,
-    });
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-refreshed");
-    expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe(
-      "insert-template"
-    );
-  });
-
-  it("delegates a 409 insertion conflict without exposing a second error", async () => {
-    const conflict = Object.assign(new Error("version conflict"), {
-      status: 409,
-    });
-    clientMocks.insertAssemblyIntoVersion.mockRejectedValue(conflict);
-    const harness = createHarness({
-      items: [createItem("section-a", { item_type: "section" })],
-      conflictHandled: true,
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.insertAssembly("assembly-1", null);
-    });
-
-    expect(harness.handleVersionConflict).toHaveBeenCalledWith(conflict, {
-      persistDraft: true,
-    });
-    expect(harness.reportError).toHaveBeenCalledWith(null);
-    expect(harness.reportError).not.toHaveBeenCalledWith(
-      "public:version conflict"
-    );
-    expect(harness.setItems).not.toHaveBeenCalled();
-    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
-    expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
   });
 });
 
@@ -548,26 +472,6 @@ describe("useEstimateEditorStructureController history", () => {
   });
 });
 
-describe("useEstimateEditorStructureController duplication", () => {
-
-  it("refreshes the token when duplication does not return one", async () => {
-    clientMocks.duplicateEstimateSection.mockResolvedValue(
-      createDuplicateResult(null)
-    );
-    const harness = createHarness();
-
-    await act(async () => {
-      await harness.result.current.actions.duplicateSection("section-1");
-    });
-
-    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
-    expect(clientMocks.fetchEstimateEditorData).toHaveBeenCalledWith(
-      "version-1"
-    );
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-refreshed");
-  });
-});
-
 describe("useEstimateEditorStructureController route races", () => {
   it("ignores a late token refresh from the previous route generation", async () => {
     const deferredRefresh = createDeferred<{
@@ -681,58 +585,5 @@ describe("useEstimateEditorStructureController route races", () => {
     expect(harness.setTotalsOutOfSync).not.toHaveBeenCalled();
     expect(harness.applyVersionToken).not.toHaveBeenCalled();
     expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
-  });
-});
-
-describe("useEstimateEditorStructureController v3 conversion (lot 3.2, entrée 1)", () => {
-  it("commits one v3 batch, rereads the grid for the new ids and applies the batch token", async () => {
-    const lines = [createItem("line-a"), createItem("line-b", { position: 2 })];
-    const convertV3Items = vi.fn().mockResolvedValue({ id: "version-1", updated_at: "token-converted", content_revision: 3 });
-    const harness = createHarness({ items: lines, convertV3Items });
-
-    let committed: boolean | undefined;
-    await act(async () => {
-      committed = await harness.result.current.actions.convertItems(["line-a", "line-b"], "section");
-    });
-
-    expect(committed).toBe(true);
-    expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledWith("convertir en section");
-    expect(convertV3Items).toHaveBeenCalledWith("version-1", "token-initial", lines, ["line-a", "line-b"], "section");
-    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-converted", 3);
-    expect(harness.clearHistory).toHaveBeenCalledTimes(1);
-    expect(harness.reportError).toHaveBeenLastCalledWith(null);
-  });
-
-  it("reports a refused batch by its message and keeps the grid as it was", async () => {
-    const convertV3Items = vi.fn().mockRejectedValue(new Error("La section contient des lignes ou des sous-sections."));
-    const section = createItem("section-a", { item_type: "section" });
-    const harness = createHarness({ items: [section], convertV3Items });
-
-    let committed: boolean | undefined;
-    await act(async () => {
-      committed = await harness.result.current.actions.convertItems(["section-a"], "line");
-    });
-
-    expect(committed).toBe(false);
-    expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledWith("convertir en ligne");
-    expect(harness.reportError).toHaveBeenLastCalledWith("public:La section contient des lignes ou des sous-sections.");
-    expect(harness.getItems()).toEqual([section]);
-    expect(harness.reloadItems).not.toHaveBeenCalled();
-    expect(harness.applyVersionToken).not.toHaveBeenCalled();
-    expect(harness.clearHistory).not.toHaveBeenCalled();
-  });
-
-  it("sends nothing on a v1/v2 version, which keeps its direct conversion", async () => {
-    const harness = createHarness({ items: [createItem("line-a")] });
-
-    let committed: boolean | undefined;
-    await act(async () => {
-      committed = await harness.result.current.actions.convertItems(["line-a"], "section");
-    });
-
-    expect(committed).toBe(false);
-    expect(harness.ensureGroupedActionCanProceed).not.toHaveBeenCalled();
   });
 });

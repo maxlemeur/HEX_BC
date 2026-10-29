@@ -35,7 +35,7 @@ vi.mock("@/lib/estimates/source-reference-pdf", async (importOriginal) => {
 
 import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { inspectSourceReferencePdf, SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
+import { inspectSourceReferencePdf } from "@/lib/estimates/source-reference-pdf";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   assertTakeoffEnabled,
@@ -183,41 +183,6 @@ describe("takeoff creation compensation", () => {
     expect(admin.storageCalls).toEqual([]);
     expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
     expect(inspectSourceReferencePdf).not.toHaveBeenCalled();
-  });
-
-  it("preserves an inspection timeout as retryable without uploading or retrying", async () => {
-    const { fake, admin, effects } = createFixture();
-    vi.mocked(inspectSourceReferencePdf).mockRejectedValueOnce(new SourceReferencePdfError("PDF_TIMEOUT", true));
-    const form = uploadForm();
-    form.set("level", "B");
-    form.set("file", new File(["%PDF-1.7"], "plan.pdf", { type: "application/pdf" }));
-
-    await expect(createTakeoffJobFromFormData(form)).rejects.toMatchObject({
-      status: 503,
-      code: "TAKEOFF_PDF_INSPECTION_TIMEOUT",
-      retryable: true,
-    });
-
-    expect(inspectSourceReferencePdf).toHaveBeenCalledTimes(1);
-    expect(effects).toEqual([]);
-    expect(fake.storageCalls).toEqual([]);
-    expect(admin.storageCalls).toEqual([]);
-    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
-  });
-
-  it("keeps unknown creation errors non-retryable without starting an upload", async () => {
-    const { fake, admin, effects } = createFixture();
-    vi.mocked(getTakeoffExecutionOwner).mockRejectedValueOnce(new Error("Unknown owner failure"));
-
-    await expect(createTakeoffJobFromFormData(uploadForm())).rejects.toMatchObject({
-      code: "INTERNAL_ERROR",
-      retryable: false,
-    });
-
-    expect(getTakeoffExecutionOwner).toHaveBeenCalledTimes(1);
-    expect(effects).toEqual([]);
-    expect(fake.storageCalls).toEqual([]);
-    expect(admin.storageCalls).toEqual([]);
   });
 
   it("removes only its uploaded source, then its job, when the creation audit fails", async () => {

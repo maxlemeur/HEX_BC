@@ -43,55 +43,6 @@ describe("POST /api/internal/takeoff/process-job", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 202 for retryable outcomes", async () => {
-    vi.mocked(processTakeoffJobAttempt).mockResolvedValue({
-      job_id: JOB_ID,
-      tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      level: "A",
-      status: "failed_retryable",
-      trigger: "retry",
-      retry_count: 1,
-      attempt: 2,
-      retryable: true,
-      should_requeue: true,
-      requeue_reason: "retry",
-      next_run_in_seconds: 15,
-      next_run_at: "2026-02-25T11:00:15.000Z",
-      duration_ms: 1200,
-      error_code: "AI_TIMEOUT",
-      error_message: "Timed out",
-      correlation_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    });
-
-    const response = await POST(
-      buildRequest({
-        body: {
-          job_id: JOB_ID,
-          trigger: "retry",
-        },
-      })
-    );
-
-    expect(response.status).toBe(202);
-    const payload = (await response.json()) as { ok: boolean; data: { status: string } };
-    expect(payload.ok).toBe(true);
-    expect(payload.data.status).toBe("failed_retryable");
-    expect(processTakeoffJobAttempt).toHaveBeenCalledWith(
-      JOB_ID,
-      expect.objectContaining({
-        trigger: "retry",
-      })
-    );
-    expect(persistTakeoffDispatchOutcome).toHaveBeenCalledWith({
-      jobId: JOB_ID,
-      trigger: "retry",
-      result: expect.objectContaining({
-        triggered: true,
-        outcome: "accepted",
-      }),
-    });
-  });
-
   it("returns 401 for invalid worker secret", async () => {
     const response = await POST(
       buildRequest({

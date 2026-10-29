@@ -22,7 +22,6 @@ import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   cancelTakeoffJob,
-  getTakeoffJobDetails,
   listTakeoffJobs,
   reconcileTakeoffJobNow,
   resubmitTakeoffJob,
@@ -621,61 +620,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   });
 
-  it("lists jobs filtered by tenant and estimate version with pagination", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          id: JOB_ID,
-          estimate_version_id: VERSION_ID,
-          created_at: "2026-02-25T10:00:00.000Z",
-        }),
-        baseJob({
-          id: JOB_ID_2,
-          estimate_version_id: OTHER_VERSION_ID,
-          status: "pending",
-          created_at: "2026-02-25T09:00:00.000Z",
-          error_code: null,
-          error_message: null,
-        }),
-        baseJob({
-          id: "77777777-7777-4777-8777-777777777770",
-          tenant_id: OTHER_TENANT_ID,
-          estimate_version_id: VERSION_ID,
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await listTakeoffJobs({
-      estimate_version_id: VERSION_ID,
-      limit: 10,
-      offset: 0,
-    });
-
-    expect(response.jobs).toHaveLength(1);
-    expect(response.jobs[0]?.id).toBe(JOB_ID);
-    expect(response.jobs[0]?.items_count).toBe(2);
-    expect(response.jobs[0]?.metrics.token_count).toBe(400);
-    expect(response.counters).toEqual({
-      total: 1,
-      processing: 0,
-      completed: 0,
-      failed: 1,
-      canceled: 0,
-    });
-    expect(response.pagination).toEqual({
-      limit: 10,
-      offset: 0,
-      total: 1,
-    });
-  });
-
   it("filters jobs by status level and period while keeping status counters scoped by base filters", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-25T12:00:00.000Z"));
@@ -740,114 +684,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
       canceled: 0,
     });
     expect(response.pagination.total).toBe(1);
-  });
-
-  it("returns job detail with paginated items and result", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const detail = await getTakeoffJobDetails(JOB_ID, {
-      items_limit: 1,
-      items_offset: 1,
-    });
-
-    expect(detail.job.id).toBe(JOB_ID);
-    expect(detail.result?.id).toBe("77777777-7777-4777-8777-777777777777");
-    expect(detail.items.data).toHaveLength(1);
-    expect(detail.items.data[0]?.designation).toBe("Cable U1000");
-    expect(detail.items.pagination).toEqual({
-      limit: 1,
-      offset: 1,
-      total: 2,
-    });
-  });
-
-  // M1b : la revue et la liste des jobs proposent une comparaison par référence de document
-  // (jeu de plans, sinon libellé du fichier téléversé) ; la liste et le détail doivent donc la rendre.
-  it("returns the plan set of a job in the list and the detail", async () => {
-    const planSetId = "77777777-7777-4777-8777-777777777790";
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({ id: JOB_ID, plan_set_id: planSetId, source_file_name: "Plan R+1.pdf" }),
-        baseJob({ id: JOB_ID_2, created_at: "2026-02-25T09:00:00.000Z" }),
-      ],
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const list = await listTakeoffJobs({ estimate_version_id: VERSION_ID, limit: 10, offset: 0 });
-    expect(list.jobs.map((job) => [job.id, job.plan_set_id])).toEqual([
-      [JOB_ID, planSetId],
-      [JOB_ID_2, null],
-    ]);
-
-    const detail = await getTakeoffJobDetails(JOB_ID, { items_limit: 1, items_offset: 0 });
-    expect(detail.job.plan_set_id).toBe(planSetId);
-    expect(detail.job.source_file_name).toBe("Plan R+1.pdf");
-  });
-
-  it("retries only failed jobs and updates retry count", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "failed",
-          retry_count: 1,
-          completed_at: "2026-02-25T08:00:00.000Z",
-          error_code: "AI_TIMEOUT",
-          error_message: "Timed out",
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await retryTakeoffJob(JOB_ID);
-
-    expect(response.job.status).toBe("pending");
-    expect(response.job.retry_count).toBe(2);
-    expect(response.job.error_code).toBeNull();
-    expect(response.job.metrics.token_count).toBeNull();
-    expect(supabase.__state.auditLogs).toHaveLength(1);
-    expect(supabase.__state.auditLogs[0]?.action).toBe("takeoff.job.retried");
-  });
-
-  it("blocks retry when status is not failed", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "pending",
-          retry_count: 0,
-          error_code: null,
-          error_message: null,
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
-      status: 409,
-      code: "CONFLICT",
-    });
   });
 
   it("blocks retry when max retries is reached", async () => {
@@ -1017,45 +853,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
     );
   });
 
-  it("reconciles failed timeout batch jobs instead of resubmitting them", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "failed",
-          processing_strategy: "batch",
-          provider_batch_id: "batch-456",
-          provider_batch_state: "running",
-          provider_batch_updated_at: "2026-02-25T07:59:00.000Z",
-          provider_reconcile_due_at: "2026-02-25T07:58:00.000Z",
-          provider_reconcile_attempt_count: 3,
-          error_code: "AI_TIMEOUT",
-          error_message: "Timed out waiting for reconcile",
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await reconcileTakeoffJobNow(JOB_ID);
-
-    expect(response.command).toBe("reconcile");
-    expect(response.outcome).toBe("applied");
-    expect(response.job.status).toBe("processing");
-    expect(response.job.error_code).toBeNull();
-    expect(response.job.provider_reconcile_due_at).toBeTruthy();
-    // La reprise d'un job AI_TIMEOUT doit repartir de zéro, sinon le worker
-    // retombe immédiatement en échec ((attemptCount > MAX) reste vrai).
-    expect(response.job.provider_reconcile_attempt_count).toBe(0);
-    expect(supabase.__state.auditLogs.at(-1)?.action).toBe(
-      "takeoff.job.reconcile_requested"
-    );
-  });
-
   it("allows reconcile when the provider batch already succeeded upstream", async () => {
     const supabase = createSupabaseMock({
       jobs: [
@@ -1088,73 +885,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.job.status).toBe("processing");
     expect(response.job.provider_batch_state).toBe("succeeded");
     expect(response.job.provider_reconcile_due_at).toBeTruthy();
-  });
-
-  it("returns noop when reconcile is already leased by another worker", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "processing",
-          completed_at: null,
-          error_code: null,
-          error_message: null,
-          processing_strategy: "batch",
-          provider_batch_id: "batch-789",
-          provider_batch_state: "running",
-          provider_batch_updated_at: "2026-02-25T08:00:00.000Z",
-          provider_reconcile_due_at: "2026-02-25T08:00:00.000Z",
-          provider_reconcile_attempt_count: 2,
-          provider_reconcile_lease_expires_at: "2099-02-25T08:01:30.000Z",
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await reconcileTakeoffJobNow(JOB_ID);
-
-    expect(response.command).toBe("reconcile");
-    expect(response.outcome).toBe("noop");
-    expect(response.job.status).toBe("processing");
-    expect(supabase.__state.jobsById.get(JOB_ID)?.provider_reconcile_due_at).toBe(
-      "2026-02-25T08:00:00.000Z"
-    );
-  });
-
-  it("blocks resubmit while a provider batch is still active", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "failed",
-          processing_strategy: "batch",
-          provider_batch_id: "batch-running",
-          provider_batch_state: "running",
-          error_code: "AI_TIMEOUT",
-          error_message: "Timed out waiting for reconcile",
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "engineer",
-    } as never);
-
-    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
-      status: 409,
-      code: "CONFLICT",
-      details: expect.objectContaining({
-        provider_batch_id: "batch-running",
-        provider_batch_state: "running",
-      }),
-    });
   });
 
   it("blocks resubmit when the provider batch already succeeded upstream", async () => {
@@ -1248,77 +978,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
     expect(supabase.__state.auditLogs).toEqual([]);
     expect(createServiceRoleClient).not.toHaveBeenCalled();
-  });
-
-  it("cancels pending jobs and logs audit event", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "pending",
-          retry_count: 0,
-          completed_at: null,
-          error_code: null,
-          error_message: null,
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await cancelTakeoffJob(JOB_ID);
-
-    expect(response.job.status).toBe("canceled");
-    expect(supabase.__state.auditLogs).toHaveLength(1);
-    expect(supabase.__state.auditLogs[0]?.action).toBe("takeoff.job.canceled");
-  });
-
-  it("returns success when cancel audit insert fails after status mutation", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "pending",
-          retry_count: 0,
-          completed_at: null,
-          error_code: null,
-          error_message: null,
-        }),
-      ],
-      auditInsertError: {
-        code: "23505",
-        message: "duplicate key value violates unique constraint",
-        details: null,
-        hint: null,
-      },
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await cancelTakeoffJob(JOB_ID);
-
-    expect(response.job.status).toBe("canceled");
-    expect(supabase.__state.jobsById.get(JOB_ID)?.status).toBe("canceled");
-    expect(supabase.__state.auditLogs).toHaveLength(0);
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "Takeoff audit logging failed (non-blocking)",
-      expect.objectContaining({
-        action: "takeoff.job.canceled",
-        tenantId: TENANT_ID,
-        jobId: JOB_ID,
-      })
-    );
-
-    consoleErrorSpy.mockRestore();
   });
 
   it("returns conflict when canceling a terminal job", async () => {

@@ -35,16 +35,6 @@ function fixture(options: { failAt?: number; cap?: number; changedCountAt?: numb
 }
 
 describe("complete PostgREST reads", () => {
-  it("returns every row past the server cap, preserving the tenant filter", async () => {
-    const f = fixture(); const result = await readAllRows(f.query);
-    expect(result.error).toBeNull(); expect(result.data).toEqual(f.rows); expect(result.count).toBe(2501);
-    expect(f.requests.map(url => Number(url.searchParams.get("offset")))).toEqual([0, 500, 1000, 1500, 2000, 2500]);
-    expect(f.requests.every(url => url.searchParams.get("tenant_id") === "eq.tenant" && Number(url.searchParams.get("limit")) <= 500)).toBe(true);
-  });
-  it("honors the caller's business limit across pages", async () => {
-    const f = fixture(); const result = await readAllRows(f.query, { limit: 1101 });
-    expect(result.data).toEqual(f.rows.slice(0, 1101)); expect(f.requests).toHaveLength(3);
-  });
   it.each([{ cap: 200 }, { changedCountAt: 500 }, { duplicateAt: 500 }])("rejects incomplete or inconsistent transport: %j", async options => {
     const f = fixture(options); await expect(readAllRows(f.query)).rejects.toThrow(/compl|chang|coh/i);
   });

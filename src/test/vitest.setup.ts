@@ -42,10 +42,8 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 // jsdom implements neither the layout APIs nor the pointer-capture APIs that
 // headless UI primitives call on mount. Each shim below is *gap-filling*: it is
 // installed only when the real thing is missing, and always left `writable` and
-// `configurable` so a test can still swap in its own spy. Two already do —
-// `SignaturePad.test.tsx` assigns `global.ResizeObserver`, and
-// `IntakeWorkspace.test.tsx` assigns `Element.prototype.scrollIntoView` — and
-// both must keep winning over these defaults.
+// `configurable` so a test can still swap in its own spy, which must keep
+// winning over these defaults.
 if (typeof globalThis.ResizeObserver !== "function") {
   Object.defineProperty(globalThis, "ResizeObserver", {
     writable: true,

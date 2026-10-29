@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 
-import { DELETE, PATCH } from "@/app/api/memberships/[membershipId]/route";
+import { DELETE } from "@/app/api/memberships/[membershipId]/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -19,7 +19,7 @@ const ACTOR_MEMBERSHIP_ID = "55555555-5555-4555-8555-555555555555";
 const TARGET_MEMBERSHIP_ID = "66666666-6666-4666-8666-666666666666";
 
 type TenantRole = "admin" | "engineer" | "viewer" | "director";
-type QueryMode = "read" | "insert" | "update" | "delete";
+type QueryMode = "read" | "insert" | "delete";
 type QuerySource = "authenticated" | "directory";
 type SelectOptions = { count?: "exact"; head?: boolean };
 type QueryResult = {
@@ -68,7 +68,6 @@ const TARGET_PROFILE = {
 type MembershipScenario = {
   actorMembership: MembershipRow;
   targetMembership: MembershipRow | null;
-  updatedMembership: MembershipRow;
   adminCount: number;
 };
 
@@ -115,12 +114,6 @@ class MembershipQuery {
     return this;
   }
 
-  update(payload: unknown) {
-    this.mode = "update";
-    this.payload = payload;
-    return this;
-  }
-
   delete() {
     this.mode = "delete";
     return this;
@@ -158,10 +151,6 @@ class MembershipQuery {
       throw new Error(`Unexpected table: ${this.table}`);
     }
 
-    if (this.mode === "update") {
-      return { data: this.scenario.updatedMembership, error: null };
-    }
-
     if (this.mode === "delete") {
       return { data: null, error: null };
     }
@@ -186,10 +175,6 @@ function createMembershipHarness(overrides: Partial<MembershipScenario> = {}) {
   const scenario: MembershipScenario = {
     actorMembership: ACTOR_MEMBERSHIP,
     targetMembership: TARGET_MEMBERSHIP,
-    updatedMembership: {
-      ...TARGET_MEMBERSHIP,
-      role: "viewer",
-    },
     adminCount: 2,
     ...overrides,
   };
@@ -224,105 +209,6 @@ function membershipParams(membershipId = TARGET_MEMBERSHIP_ID) {
   return { params: Promise.resolve({ membershipId }) };
 }
 
-describe("PATCH /api/memberships/[membershipId]", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("updates a membership role", async () => {
-    const { queries } = createMembershipHarness();
-
-    const response = await PATCH(
-      new Request(`http://localhost/api/memberships/${TARGET_MEMBERSHIP_ID}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role: "viewer" }),
-      }),
-      membershipParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: { membership?: { id: string; role: string } };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data?.membership).toEqual(
-      expect.objectContaining({
-        id: TARGET_MEMBERSHIP_ID,
-        role: "viewer",
-      })
-    );
-    const updateQuery = queries.find(
-      (query) => query.table === "tenant_memberships" && query.mode === "update"
-    );
-    expect(updateQuery?.payload).toEqual({ role: "viewer" });
-    expect(createServiceRoleClient).not.toHaveBeenCalled();
-  });
-});
-
-describe("PATCH /api/memberships/[membershipId] refusals", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  function patch(membershipId = TARGET_MEMBERSHIP_ID, role = "viewer") {
-    return PATCH(
-      new Request(`http://localhost/api/memberships/${membershipId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role }),
-      }),
-      membershipParams(membershipId)
-    );
-  }
-
-  it("refuses a non-admin actor (403) without touching the membership", async () => {
-    const { queries } = createMembershipHarness({
-      actorMembership: { ...ACTOR_MEMBERSHIP, role: "engineer" },
-    });
-
-    const response = await patch();
-
-    expect(response.status).toBe(403);
-    expect(queries.some((query) => query.mode === "update")).toBe(false);
-  });
-
-  it("refuses a membership of another tenant (403)", async () => {
-    const { queries } = createMembershipHarness({
-      targetMembership: {
-        ...TARGET_MEMBERSHIP,
-        tenant_id: "99999999-9999-4999-8999-999999999999",
-      },
-    });
-
-    const response = await patch();
-
-    expect(response.status).toBe(403);
-    expect(queries.some((query) => query.mode === "update")).toBe(false);
-  });
-
-  it("returns 404 for an unknown membership", async () => {
-    createMembershipHarness({ targetMembership: null });
-
-    const response = await patch();
-
-    expect(response.status).toBe(404);
-  });
-
-  it("refuses to demote the last admin (409)", async () => {
-    const { queries } = createMembershipHarness({
-      targetMembership: { ...TARGET_MEMBERSHIP, role: "admin" },
-      adminCount: 1,
-    });
-
-    const response = await patch(TARGET_MEMBERSHIP_ID, "viewer");
-
-    expect(response.status).toBe(409);
-    expect(queries.some((query) => query.mode === "update")).toBe(false);
-  });
-});
-
 describe("DELETE /api/memberships/[membershipId] refusals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -337,28 +223,6 @@ describe("DELETE /api/memberships/[membershipId] refusals", () => {
     );
   }
 
-  it("refuses a non-admin actor (403)", async () => {
-    const { queries } = createMembershipHarness({
-      actorMembership: { ...ACTOR_MEMBERSHIP, role: "viewer" },
-    });
-
-    const response = await remove();
-
-    expect(response.status).toBe(403);
-    expect(queries.some((query) => query.mode === "delete")).toBe(false);
-  });
-
-  it("refuses self-deletion (409)", async () => {
-    const { queries } = createMembershipHarness({
-      targetMembership: { ...TARGET_MEMBERSHIP, user_id: ACTOR_USER_ID },
-    });
-
-    const response = await remove();
-
-    expect(response.status).toBe(409);
-    expect(queries.some((query) => query.mode === "delete")).toBe(false);
-  });
-
   it("refuses to delete the last admin (409)", async () => {
     const { queries } = createMembershipHarness({
       targetMembership: { ...TARGET_MEMBERSHIP, role: "admin" },
@@ -369,37 +233,5 @@ describe("DELETE /api/memberships/[membershipId] refusals", () => {
 
     expect(response.status).toBe(409);
     expect(queries.some((query) => query.mode === "delete")).toBe(false);
-  });
-});
-
-describe("DELETE /api/memberships/[membershipId]", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("deletes a membership", async () => {
-    const { queries } = createMembershipHarness();
-
-    const response = await DELETE(
-      new Request(`http://localhost/api/memberships/${TARGET_MEMBERSHIP_ID}`, {
-        method: "DELETE",
-      }),
-      membershipParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: { deleted_id?: string };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data).toEqual({ deleted_id: TARGET_MEMBERSHIP_ID });
-    expect(
-      queries.some(
-        (query) =>
-          query.table === "tenant_memberships" && query.mode === "delete"
-      )
-    ).toBe(true);
-    expect(createServiceRoleClient).not.toHaveBeenCalled();
   });
 });

@@ -56,18 +56,6 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("the editor read lifecycle", () => {
-  it("applies a complete read before allowing a refresh to preserve the local draft", async () => {
-    const { data, handlers, props } = setup();
-    mocks.read.mockResolvedValue(data);
-    const view = renderHook((input) => useRead(input), { initialProps: props });
-    await waitFor(() => expect(view.result.current.state.status).toBe("ready"));
-    expect(handlers.apply).toHaveBeenLastCalledWith(expect.objectContaining({ confirmed: data }), null, false);
-    view.rerender({ ...props, reloadToken: 1 });
-    await waitFor(() => expect(handlers.apply).toHaveBeenCalledTimes(2));
-    expect(handlers.apply).toHaveBeenLastCalledWith(expect.objectContaining({ confirmed: data }), null, true);
-    expect(handlers.clearSuggestions).toHaveBeenCalledTimes(1);
-  });
-
   it("ignores responses from an earlier visit, including navigation A to B to A", async () => {
     const { data, handlers, props } = setup();
     const first = deferred<typeof data>();

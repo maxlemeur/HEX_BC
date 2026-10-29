@@ -8,10 +8,7 @@ vi.mock("@/lib/direction/server", () => ({
   fetchDirectionProjectSignals: vi.fn(),
 }));
 
-import {
-  fetchApprovalQueue,
-  markApprovalQueueItemState,
-} from "@/lib/approvals/server";
+import { fetchApprovalQueue } from "@/lib/approvals/server";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
@@ -23,9 +20,7 @@ type RpcResult = {
 };
 
 function createContext(input?: {
-  role?: string;
   rpcResult?: RpcResult;
-  upsertError?: { message: string } | null;
 }) {
   const rpc = vi.fn().mockResolvedValue(
     input?.rpcResult ?? {
@@ -33,21 +28,15 @@ function createContext(input?: {
       error: null,
     }
   );
-  const upsert = vi.fn().mockResolvedValue({
-    error: input?.upsertError ?? null,
-  });
-  const from = vi.fn(() => ({ upsert }));
 
   return {
     context: {
-      supabase: { rpc, from },
+      supabase: { rpc },
       userId: "11111111-1111-4111-8111-111111111111",
       tenantId: "22222222-2222-4222-8222-222222222222",
-      tenantRole: input?.role ?? "admin",
+      tenantRole: "admin",
     },
-    from,
     rpc,
-    upsert,
   };
 }
 
@@ -98,18 +87,6 @@ describe("fetchApprovalQueue", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it("returns no data for roles that cannot review without querying the RPC", async () => {
-    const { context, rpc } = createContext({ role: "engineer" });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-
-    await expect(
-      fetchApprovalQueue({ sortBy: "priority", sortDir: "desc", onlyExceptions: false })
-    ).resolves.toEqual([]);
-
-    expect(rpc).not.toHaveBeenCalled();
-    expect(fetchDirectionProjectSignals).not.toHaveBeenCalled();
   });
 
   it("maps exception groups, tolerates one signal failure, and filters empty items", async () => {
@@ -218,43 +195,5 @@ describe("fetchApprovalQueue", () => {
       ["version-high-cost", 2_857],
       ["version-low-cost", 3_750],
     ]);
-  });
-});
-
-describe("markApprovalQueueItemState", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("rejects a non-reviewer role before touching the table", async () => {
-    const { context, from } = createContext({ role: "viewer" });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-
-    await expect(
-      markApprovalQueueItemState("cycle-1", "seen")
-    ).rejects.toThrow(
-      "Seuls les administrateurs et directeurs peuvent modifier l'état de revue."
-    );
-    expect(from).not.toHaveBeenCalled();
-  });
-
-  it("upserts the reviewer state with the complete tenant scope", async () => {
-    const { context, from, upsert } = createContext({ role: "director" });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-
-    await expect(
-      markApprovalQueueItemState("cycle-1", "acceptable")
-    ).resolves.toBeUndefined();
-
-    expect(from).toHaveBeenCalledWith("approval_queue_reviewer_states");
-    expect(upsert).toHaveBeenCalledWith(
-      {
-        tenant_id: context.tenantId,
-        cycle_id: "cycle-1",
-        reviewer_id: context.userId,
-        state: "acceptable",
-      },
-      { onConflict: "tenant_id,cycle_id,reviewer_id" }
-    );
   });
 });

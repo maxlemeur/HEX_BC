@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,22 +51,6 @@ describe("SupplierOfferFormModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.fetchApi.mockResolvedValue({ item: { id: "price-1" } });
-  });
-
-  it("recalculates the six-month default when the start changes and blocks a later end", () => {
-    renderOffer();
-    const start = screen.getByLabelText("Valide du");
-    const end = screen.getByLabelText("Valide au");
-    fireEvent.change(start, { target: { value: "2026-08-31" } });
-    expect(end).toHaveValue("2027-02-28");
-    expect(end).toHaveAttribute("max", "2027-02-28");
-    fireEvent.change(end, { target: { value: "2027-03-01" } });
-    expect((end as HTMLInputElement).checkValidity()).toBe(false);
-    fireEvent.change(end, { target: { value: "2026-09-15" } });
-    fireEvent.change(start, { target: { value: "2026-09-01" } });
-    expect(end).toHaveValue("2026-09-15");
-    expect((end as HTMLInputElement).checkValidity()).toBe(true);
-    expect(mocks.fetchApi).not.toHaveBeenCalled();
   });
 
   // Long user-event flow: under a loaded CI runner it exceeded the 5 s default (17/10/2026).

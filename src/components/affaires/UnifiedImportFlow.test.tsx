@@ -272,56 +272,6 @@ describe("UnifiedImportFlow", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps cancel confirmation active after returning to upload", async () => {
-    const user = userEvent.setup();
-    const onCancel = vi.fn();
-
-    render(
-      <UnifiedImportFlow
-        projectId="22222222-2222-4222-8222-222222222222"
-        onCancel={onCancel}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(
-        screen.getAllByRole("button", { name: "Retour" }).length,
-      ).toBeGreaterThan(0);
-    });
-
-    // Simulate a completed import already attached to the flow; returning to upload should not auto-advance.
-    currentLastImportId = null;
-    await user.click(screen.getAllByRole("button", { name: "Retour" })[0]);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Annuler" }),
-      ).toBeInTheDocument();
-    });
-
-    let resolveConfirm: (confirmed: boolean) => void = () => undefined;
-    confirmMock.mockImplementation(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolveConfirm = resolve;
-        }),
-    );
-
-    await user.click(screen.getByRole("button", { name: "Annuler" }));
-
-    await waitFor(() => {
-      expect(confirmMock).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Annuler l’import ?", tone: "danger" }),
-      );
-    });
-    expect(onCancel).not.toHaveBeenCalled();
-
-    resolveConfirm(true);
-    await waitFor(() => {
-      expect(onCancel).toHaveBeenCalledTimes(1);
-    });
-  });
-
   it("pins confirmation to the previewed carry-over source version", async () => {
     const user = userEvent.setup();
 

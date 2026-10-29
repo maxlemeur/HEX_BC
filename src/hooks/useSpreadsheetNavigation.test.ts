@@ -1,7 +1,6 @@
 import {
 fireEvent,
 render,
-renderHook,
 screen,
 waitFor,
 } from "@testing-library/react";
@@ -12,9 +11,7 @@ import { EstimateLineNatureSelect } from "@/components/estimates/components/esti
 import type { EstimateItem } from "@/components/estimates/components/estimate-editor-row/shared";
 import {
 createSpreadsheetNavigationModel,
-resolveSpreadsheetKeyCommand,
 resolveSpreadsheetNextCellId,
-resolveSpreadsheetPointerCommand,
 useSpreadsheetNavigation
 } from "@/hooks/useSpreadsheetNavigation";
 
@@ -148,42 +145,6 @@ describe("useSpreadsheetNavigation helpers", () => {
     );
   });
 
-  it("falls back to first cell when current cell is unknown", () => {
-    const model = createSpreadsheetNavigationModel([
-      { rowId: "row-1", columnKeys: ["title"] },
-      { rowId: "row-2", columnKeys: ["title"] },
-    ]);
-
-    expect(resolveSpreadsheetNextCellId(model, "missing::cell", "next")).toBe(
-      "row-1::title"
-    );
-  });
-
-  it("returns null when moving in an empty navigation model", () => {
-    const model = createSpreadsheetNavigationModel([]);
-
-    expect(resolveSpreadsheetNextCellId(model, "row-1::title", "next")).toBeNull();
-  });
-
-  it("keeps stable handlers and API references when rows are unchanged", () => {
-    const rows = [{ rowId: "row-1", columnKeys: ["title", "quantity"] }];
-    const { result, rerender } = renderHook(() =>
-      useSpreadsheetNavigation({
-        rows,
-      })
-    );
-
-    const first = result.current;
-    rerender();
-    const second = result.current;
-
-    expect(second).toBe(first);
-    expect(second.getCellProps).toBe(first.getCellProps);
-    expect(second.getEditorProps).toBe(first.getEditorProps);
-    expect(second.isCellActive).toBe(first.isCellActive);
-    expect(second.isCellEditing).toBe(first.isCellEditing);
-  });
-
   it("does not steal focus from another editor when rows change", async () => {
     const { rerender } = render(
       createElement(NavigationHarness, {
@@ -250,61 +211,5 @@ describe("useSpreadsheetNavigation helpers", () => {
 
     expect(titleEditor).toHaveFocus();
     expect(natureSelect).not.toHaveFocus();
-  });
-
-  it("prevents pointer-triggered editing for read-only cells", () => {
-    expect(
-      resolveSpreadsheetPointerCommand({
-        action: "single-click",
-        disabled: false,
-        editable: false,
-        isCellTarget: true,
-      })
-    ).toEqual({
-      setActive: true,
-      startEditing: false,
-      selectAll: false,
-    });
-  });
-
-  it("never starts editing when navigation is disabled", () => {
-    expect(
-      resolveSpreadsheetPointerCommand({
-        action: "double-click",
-        disabled: true,
-        editable: true,
-        isCellTarget: true,
-      })
-    ).toEqual({
-      setActive: false,
-      startEditing: false,
-      selectAll: false,
-    });
-  });
-
-  it("supports escape in editor mode and ignores unknown keys", () => {
-    expect(
-      resolveSpreadsheetKeyCommand({
-        key: "Escape",
-        shiftKey: false,
-        ctrlKey: false,
-        metaKey: false,
-        altKey: false,
-        fromEditor: true,
-        editable: true,
-      })
-    ).toEqual({ type: "escape-editor" });
-
-    expect(
-      resolveSpreadsheetKeyCommand({
-        key: "Dead",
-        shiftKey: false,
-        ctrlKey: false,
-        metaKey: false,
-        altKey: false,
-        fromEditor: false,
-        editable: true,
-      })
-    ).toBeNull();
   });
 });

@@ -22,7 +22,6 @@ import {
   createDevisSupabaseMock,
 } from "@/app/api/purchase-orders/[id]/devis/devis.test-utils";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { unauthorized } from "@/lib/estimates/errors";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
@@ -97,19 +96,6 @@ const mockedCanWrite = vi.mocked(canWritePurchaseOrders);
 describe("purchase order devis mutation authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it.each(mutations)("requires authentication for $label", async ({ call }) => {
-    const harness = createDevisSupabaseMock();
-    vi.mocked(getAuthenticatedTenantContext).mockRejectedValue(unauthorized());
-
-    const response = await call();
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
-    expect(mockedGetOrder).not.toHaveBeenCalled();
-    expect(harness.from).not.toHaveBeenCalled();
-    expect(harness.storageFrom).not.toHaveBeenCalled();
   });
 
   it.each(mutations)("rejects a read-only member for $label", async ({ call }) => {

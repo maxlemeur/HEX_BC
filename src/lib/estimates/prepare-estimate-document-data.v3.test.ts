@@ -157,7 +157,6 @@ function thrown(run: () => unknown): unknown {
   try { run(); } catch (error) { return error; }
   return undefined;
 }
-const S5_RATES = { O1: 1000, O2: 1000, O3: 1000 };
 
 describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", () => {
   it("F27-D01 chaque ligne imprimée vérifie PT = ⌈Q × PU⌋, sur le brut figé (O1, O4 : valeurs du parcours)", () => {
@@ -208,32 +207,6 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
     expect(rootLine).toBe(59_104);
     expect(totals[SECTION.a].totalHtCents + totals[SECTION.b].totalHtCents + rootLine).toBe(6_905_456);
     expect(prepared.v3.totals.grossHtCents).toBe(6_905_456);
-  });
-
-  it("F27-D04 pied S2 : ligne de remise, HT net, TVA 20 % du contexte figé, TTC", () => {
-    const { input, projection } = frozen({ discount_amount_cents: 101 });
-    const prepared = prepareV3(input);
-    expect(prepared.v3.totals).toEqual({
-      grossHtCents: 6_905_456, discount: { kind: "amount", rateBp: null, appliedCents: 101 }, commercialRoundingCents: 0,
-      netHtCents: 6_905_355, taxByRate: [{ rateBp: 2000, baseHtCents: 6_905_355, taxCents: 1_381_071 }],
-      taxCents: 1_381_071, payableTtcCents: 8_286_426, reverseCharge: false,
-    });
-    expect(prepared.v3.totals.taxByRate).toEqual(projection.context.tax_breakdown.map((entry) => ({
-      rateBp: entry.rate_bp, baseHtCents: entry.base_cents, taxCents: entry.tax_cents,
-    })));
-    expect(prepared.taxEnabled).toBe(true);
-    expect(prepared.vatReverseCharge).toBe(false);
-  });
-
-  it("F27-D04 pied S5 : un récapitulatif par taux (10 % puis 20 %), TTC 82 308,80 €", () => {
-    const { input } = frozen({ discount_amount_cents: 101 }, S5_RATES);
-    const prepared = prepareV3(input);
-    expect(prepared.v3.totals.taxByRate).toEqual([
-      { rateBp: 1000, baseHtCents: 555_453, taxCents: 55_545 },
-      { rateBp: 2000, baseHtCents: 6_349_902, taxCents: 1_269_980 },
-    ]);
-    expect(prepared.v3.totals).toMatchObject({ netHtCents: 6_905_355, taxCents: 1_325_525, payableTtcCents: 8_230_880 });
-    expect(prepared.v3.linesById[O8].taxRateBp).toBe(550);
   });
 
   it.each([

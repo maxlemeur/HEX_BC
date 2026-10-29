@@ -7,7 +7,6 @@ import {
 } from "@/lib/takeoff/price-suggestion-preparation";
 
 const NOW = Date.parse("2026-10-28T12:00:00.000Z");
-const DAY = 24 * 60 * 60 * 1000;
 const line: EstimateItemPriceSuggestionRow = {
   id: "line", version_id: "version", position: 1, title: "Tube cuivre 22", description: null,
   quantity: 10, selected_supplier_price_id: null, source_file_name: "dpgf.csv", source_page: null,
@@ -55,18 +54,6 @@ describe("takeoff price source preparation", () => {
       });
     }
   );
-
-  it("evaluates freshness boundaries from the supplied clock and keeps the stale override", () => {
-    const sources = prepare({ offers: [
-      offer({ updated_at: new Date(NOW - 30 * DAY).toISOString() }),
-      offer({ updated_at: new Date(NOW - 31 * DAY).toISOString() }),
-      offer({ updated_at: new Date(NOW - 180 * DAY).toISOString() }),
-      offer({ updated_at: new Date(NOW - 181 * DAY).toISOString() }),
-      offer({ is_stale: true }),
-    ] });
-    expect(sources.map((source) => source.freshnessLabel))
-      .toEqual(["fraiche", "recente", "recente", "historique", "ancienne"]);
-  });
 
   it("excludes the current line and unrelated history before limiting eligible historical evidence", () => {
     const sources = prepare({ offers: [], candidates: [

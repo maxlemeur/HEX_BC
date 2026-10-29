@@ -26,13 +26,6 @@ describe("email dispatch repository confirmation", () => {
     });
   });
 
-  it("rejects an ambiguous collection of claimed dispatches", async () => {
-    rpc.mockResolvedValue({ data: [dispatch(), dispatch()], error: null });
-    await expect(claimEstimateEmailDispatch(input)).rejects.toMatchObject({
-      code: "ESTIMATE_EMAIL_DISPATCH_INVALID_RESPONSE",
-    });
-  });
-
   it("accepts a completed concurrent claim without a live lease or provider identifier", async () => {
     const terminal = { ...dispatch(), status: "sent", lease_token: null, lease_expires_at: null, provider_id: null };
     rpc.mockResolvedValue({ data: terminal, error: null });

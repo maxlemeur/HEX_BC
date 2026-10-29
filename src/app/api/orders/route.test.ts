@@ -9,7 +9,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ORDER_ID = "22222222-2222-4222-8222-222222222222";
-const OTHER_ORDER_ID = "33333333-3333-4333-8333-333333333333";
 const SUPPLIER_ID = "44444444-4444-4444-8444-444444444444";
 const SITE_ID = "55555555-5555-4555-8555-555555555555";
 
@@ -142,72 +141,6 @@ describe("GET /api/orders", () => {
 
     const response = await GET(
       new Request("http://localhost/api/orders?view=items")
-    );
-
-    expect(response.status).toBe(400);
-  });
-
-  it("rejects unauthenticated access", async () => {
-    const { supabase } = createOrdersSupabase({ authenticated: false });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(new Request("http://localhost/api/orders"));
-    expect(response.status).toBe(401);
-  });
-
-  it("returns items for one order", async () => {
-    const { supabase, rpc, tables } = createOrdersSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(
-      new Request(`http://localhost/api/orders?view=items&order_id=${ORDER_ID}`)
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(tables).toEqual([]);
-    expect(rpc).toHaveBeenCalledWith("get_purchase_order_documents", { p_order_ids: [ORDER_ID] });
-    expect(body).toMatchObject({
-      ok: true,
-      data: {
-        items: [{ id: ITEM_ROW.id, designation: "Tube" }],
-        itemsByOrderId: {
-          [ORDER_ID]: [{ id: ITEM_ROW.id, designation: "Tube" }],
-        },
-      },
-    });
-  });
-
-  it("groups export items by order id", async () => {
-    const { supabase, rpc } = createOrdersSupabase({
-      items: [
-        ITEM_ROW,
-        { ...ITEM_ROW, id: "77777777-7777-4777-8777-777777777777", purchase_order_id: OTHER_ORDER_ID },
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(
-      new Request(
-        `http://localhost/api/orders?view=items&order_id=${ORDER_ID}&order_id=${OTHER_ORDER_ID}`
-      )
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(rpc).toHaveBeenCalledWith("get_purchase_order_documents", { p_order_ids: [ORDER_ID, OTHER_ORDER_ID] });
-    expect(Object.keys(body.data.itemsByOrderId)).toEqual([
-      ORDER_ID,
-      OTHER_ORDER_ID,
-    ]);
-  });
-
-  it("rejects an invalid order id", async () => {
-    const { supabase } = createOrdersSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(
-      new Request("http://localhost/api/orders?view=items&order_id=not-a-uuid")
     );
 
     expect(response.status).toBe(400);

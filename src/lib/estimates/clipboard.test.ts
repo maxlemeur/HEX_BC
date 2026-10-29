@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildClipboardPreviewRows, CLIPBOARD_MAPPING_TARGETS, parseClipboardNumber, parseTsvMatrix, serializeSelectedRowsToTsv, suggestClipboardColumnMapping, type ClipboardColumnMapping } from "@/lib/estimates/clipboard";
+import { buildClipboardPreviewRows, parseClipboardNumber, parseTsvMatrix, serializeSelectedRowsToTsv, suggestClipboardColumnMapping, type ClipboardColumnMapping } from "@/lib/estimates/clipboard";
 import { NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 
 describe("clipboard tsv parsing", () => {
@@ -127,20 +127,6 @@ describe("clipboard preview rows", () => {
     expect(result.rows[4]?.lineNumber).toBe(6);
     expect(result.rows[4]?.status).toBe("invalid");
     expect(result.rows[4]?.reasons).toContain("Prix unitaire HT doit être >= 0.");
-  });
-
-  it("flags rows when designation mapping is missing", () => {
-    const matrix = parseTsvMatrix("Qte\tPU HT\n1\t12,50");
-    const mapping: ClipboardColumnMapping = {
-      Qte: "quantity",
-      "PU HT": "unit_price_ht",
-    };
-
-    const result = buildClipboardPreviewRows(matrix, mapping);
-
-    expect(result.totalRows).toBe(1);
-    expect(result.rows[0]?.status).toBe("invalid");
-    expect(result.rows[0]?.reasons).toContain("Colonne désignation non mappée.");
   });
 });
 
@@ -320,10 +306,6 @@ describe("2.3 pasted majoration unit chosen in the mapping (D11, P-11)", () => {
     return buildClipboardPreviewRows(matrix, { Désignation: "designation", [header]: target } as ClipboardColumnMapping).rows[0]!;
   }
 
-  it("offers both declared units among the paste targets", () => {
-    expect(CLIPBOARD_MAPPING_TARGETS).toEqual(expect.arrayContaining(["h_mo_majoration_percent", "h_mo_majoration_coefficient"]));
-  });
-
   it.each([
     ["Majoration MO", "h_mo_majoration_percent", "150", 1.5],
     ["Majoration MO", "h_mo_majoration_percent", "112,5 %", 1.125],
@@ -352,38 +334,5 @@ describe("2.3 pasted majoration unit chosen in the mapping (D11, P-11)", () => {
     } as ClipboardColumnMapping).rows[0]!;
     expect(row.status).toBe("invalid");
     expect(row.reasons.some((reason) => reason.includes("Majoration MO"))).toBe(true);
-  });
-
-  it("names the explicit choice when the header declares no unit", () => {
-    const matrix = parseTsvMatrix(["Désignation\tMajoration MO", "Ligne témoin\t150"].join("\n"));
-    const row = buildClipboardPreviewRows(matrix, suggestClipboardColumnMapping(matrix.headers)).rows[0]!;
-    expect(row.status).toBe("invalid");
-    expect(row.reasons.join(" ")).toContain("choisissez « Majoration MO (%) » ou « Majoration MO (coefficient) »");
-  });
-});
-
-// Sub-lot 2.8 (D16, D11): an OPTIMA paste into a v3 reads « Tps pose unitaire » as hours per unit and
-// « Prix Unitaire » as a control, and shows the interpreted values. Isolation exception: header and cell
-// interpretation cases; IO04 pastes the header and line O1 into a v3.
-describe("2.8 OPTIMA paste into a v3 (D16)", () => {
-  const headers = [
-    "N°", "Désignation", "Uté", "Qté", "Prix Unitaire", "Prix Total", "PR Fourniture unitaire",
-    "PR Total fourniture", "Tps pose unitaire", "Tps pose unitaire majoré", "Tps pose total",
-    "Coeff FO", "Coeff MO", "Majoration MO", "Taux horaire",
-  ];
-
-  it("reads Tps pose unitaire as hours per unit and Prix Unitaire as a control", () => {
-    const mapping = suggestClipboardColumnMapping(headers);
-    expect(mapping["Tps pose unitaire"]).toBe("h_mo_per_unit");
-    expect(mapping["Prix Unitaire"]).toBe("control_unit_price");
-  });
-
-  it("shows the interpreted values of line O1", () => {
-    const o1 = ["1", "O1", "ml", "20", "174,59", "3 491,80", "54,66", "1 093,20", "1,991", "1,991", "39,82", "1,3", "1,3", "0", "40"];
-    const matrix = parseTsvMatrix([headers.join("\t"), o1.join("\t")].join("\n"));
-    const row = buildClipboardPreviewRows(matrix, suggestClipboardColumnMapping(matrix.headers)).rows[0]!;
-    expect(row).toMatchObject({ status: "valid", values: {
-      designation: "O1", quantity: 20, unit: "ml", unit_price_ht: 54.66, h_mo_per_unit: 1.991, control_unit_price: 174.59,
-    } });
   });
 });

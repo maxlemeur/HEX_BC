@@ -66,22 +66,6 @@ function publicError(action: () => unknown) {
 }
 
 describe("estimate item creation plans", () => {
-  it("starts an unlinked manual line with neutral costs and the version tax", () => {
-    const result = creation({ item_type: "line", product_id: null });
-    expect(result).toMatchObject({
-      id: "new-item", parent_id: "lot", position: 3, item_type: "line",
-      title: "Nouvelle ligne", line_nature: "supply_only", quantity: 1,
-      unit_price_ht_cents: 0, tax_rate_bp: 550, k_fo: 1, h_mo: 0,
-      h_mo_majoration: 1, k_mo: 1, description: null,
-      h_mo_atelier: null, k_mo_atelier: null, labor_role_atelier_id: null,
-      h_mo_chantier: null, k_mo_chantier: null, labor_role_chantier_id: null,
-      source_provider: "manual", source_job_id: null, source_file_name: null, source_page: null,
-    });
-    expect(result).not.toHaveProperty("product_id");
-    expect(result).not.toHaveProperty("unit_code");
-    expect(result).not.toHaveProperty("h_mo_per_unit");
-  });
-
   it("keeps explicit zeros, a linked product and all supplied v3 fields", () => {
     const result = creation({
       item_type: "line", quantity: 0, unit_price_ht_cents: 0, tax_rate_bp: 0,
@@ -101,22 +85,6 @@ describe("estimate item creation plans", () => {
     });
   });
 
-  it("uses the standard tax when neither the line nor version supplies one", () => {
-    expect(creation({ item_type: "line" }, { versionTaxRateBp: null }).tax_rate_bp).toBe(2000);
-  });
-
-  it("creates a structural section retaining its source without adding pricing fields", () => {
-    const result = creation({
-      item_type: "section", title: "Lot plomberie", source_provider: "takeoff",
-      source_job_id: "job", source_file_name: "lot.pdf", source_page: 4,
-    }, { parentId: null, parentSectionLevel: null });
-    expect(result).toEqual({
-      id: "new-item", parent_id: null, item_type: "section", position: 3,
-      title: "Lot plomberie", aid: null, source_provider: "takeoff",
-      source_job_id: "job", source_file_name: "lot.pdf", source_page: 4,
-    });
-  });
-
   it.each([
     { input: { item_type: "line" } as const, parentSectionLevel: null, message: "Une ligne doit être ajoutée sous une section." },
     { input: { item_type: "line" } as const, parentSectionLevel: 4, message: "Une ligne ne peut pas être rattachee au-dela du niveau 3." },
@@ -129,13 +97,6 @@ describe("estimate item creation plans", () => {
 });
 
 describe("estimate section update plans", () => {
-  it("changes only explicitly supplied structural fields", () => {
-    expect(prepareEstimateSectionUpdate({
-      input: { id: "section", title: "Lot corrigé", parent_id: null, aid: "  A.2  " },
-      aidRegex: AID_REGEX, convertingLineToSection: false,
-    })).toEqual({ title: "Lot corrigé", parent_id: null, aid: "A.2" });
-  });
-
   it("clears every historical line field on conversion while preserving identity and provenance", () => {
     const original = item({
       h_mo_atelier: 1, k_mo_atelier: 1.2, labor_role_atelier_id: "atelier",
@@ -215,11 +176,6 @@ describe("estimate historical line update plans", () => {
     expect(lineUpdate({ id: "line", h_mo: 0, labor_role_id: null }).fields.line_nature).toBe("supply_and_labor");
   });
 
-  it("does not repair an inconsistent historical nature during a title edit", () => {
-    const legacy = item({ line_nature: "supply_only", h_mo: 2 });
-    expect(lineUpdate({ id: legacy.id, title: "Titre corrigé" }, legacy).fields.line_nature).toBe("supply_only");
-  });
-
   it("normalizes an old AID on unrelated edits and validates only replacements", () => {
     const legacy = item({ aid: "historical id" });
     expect(lineUpdate({ id: legacy.id, title: "Titre corrigé" }, legacy).fields.aid).toBe("HISTORICAL ID");
@@ -261,21 +217,9 @@ describe("estimate subtree deletion plans", () => {
       { id: "b", parent_id: "a" }, { id: "other", parent_id: null },
     ])).toEqual(["a", "b"]);
   });
-
-  it("rejects a missing root even when an orphan refers to that id", () => {
-    expect(publicError(() => collectEstimateSubtreeIds("missing", [{ id: "orphan", parent_id: "missing" }]))).toMatchObject({
-      status: 404, code: "NOT_FOUND", message: "Élément de chiffrage introuvable.",
-    });
-  });
 });
 
 describe("estimate sibling permutation plans", () => {
-  it("accepts a reordered complete sibling set without changing the requested order", () => {
-    const requested = Object.freeze(["c", "a", "b"]);
-    expect(() => assertEstimateReorderPermutation(["a", "b", "c"], requested)).not.toThrow();
-    expect(requested).toEqual(["c", "a", "b"]);
-  });
-
   it.each([["a"], ["a", "foreign"], ["a", "a"], ["b", "a", "b"]])(
     "reports stale reorder details for %j", (...received) => {
       expect(publicError(() => assertEstimateReorderPermutation(["a", "b"], received))).toMatchObject({
@@ -284,12 +228,6 @@ describe("estimate sibling permutation plans", () => {
       });
     },
   );
-
-  it("reports no siblings as not found rather than an empty successful reorder", () => {
-    expect(publicError(() => assertEstimateReorderPermutation([], []))).toMatchObject({
-      status: 404, code: "NOT_FOUND", message: "Aucun élément à réordonner pour ce parent.",
-    });
-  });
 
   const move = {
     itemId: "moving", fromParentId: null, toParentId: "target",

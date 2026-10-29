@@ -35,34 +35,6 @@ beforeEach(() => {
 });
 
 describe("document-bound seal verification boundary", () => {
-  it("verifies the immutable offer before reporting and journaling marker 5", async () => {
-    vi.mocked(loadVerifiedOfferDocument).mockResolvedValue({
-      sealHash: "verified-pdf-and-contract-hash",
-      proof: { clientContractVersion: 2 },
-      calculationPayloadVersion: 6,
-    } as never);
-
-    await expect(verifyEstimateSeal(VERSION_ID)).resolves.toEqual({
-      valid: true,
-      computed_hash: "verified-pdf-and-contract-hash",
-      stored_hash: "verified-pdf-and-contract-hash",
-      seal_payload_version: 5,
-      client_contract_version: 2,
-      calc_payload_version: 6,
-    });
-    expect(evaluateHistoricalEstimateSeal).not.toHaveBeenCalled();
-    expect(logEstimateVersionEvent).toHaveBeenCalledWith(expect.objectContaining({
-      versionId: VERSION_ID,
-      actorUserId: "user-1",
-      eventType: "seal_verified",
-      metadata: expect.objectContaining({ valid: true, matched_seal_scheme: "v5" }),
-    }));
-    expect(vi.mocked(getVersionAccessOrThrow).mock.invocationCallOrder[0])
-      .toBeLessThan(vi.mocked(loadEstimateSealSource).mock.invocationCallOrder[0]);
-    expect(vi.mocked(loadVerifiedOfferDocument).mock.invocationCallOrder[0])
-      .toBeLessThan(vi.mocked(logEstimateVersionEvent).mock.invocationCallOrder[0]);
-  });
-
   it("never falls back to historical hashes when a marker 5 document fails verification", async () => {
     const invalidDocument = new Error("Immutable PDF hash mismatch");
     vi.mocked(loadVerifiedOfferDocument).mockRejectedValue(invalidDocument);

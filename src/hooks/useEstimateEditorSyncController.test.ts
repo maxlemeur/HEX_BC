@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { useEstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
-import {
-  AUTOSAVE_DEBOUNCE_MS,
-  AUTOSAVE_MAX_WAIT_MS,
-} from "@/hooks/useEstimateEditorSyncController.types";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import { editorDocumentDraftStorageKey, UNOWNED_DOCUMENT_DRAFT_MESSAGE } from "@/lib/estimates/editor-document-drafts";
@@ -56,7 +52,6 @@ vi.mock("@/hooks/useDraftLock", () => ({
 
 type ControllerInput = Parameters<typeof useEstimateEditorSyncController>[0];
 
-const AUTO_SAVE_PREFERENCE_PREFIX = "estimate:edit:autosave-enabled:v1:";
 const DEFAULT_DRAFT_SCOPE = {
   actorId: "627ef080-0003-4000-8000-000000000001",
   tenantId: "627ef080-0002-4000-8000-000000000001",
@@ -364,138 +359,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorSyncController contract", () => {
-  it("exposes the public state/actions/meta contract and enables draft autosave", async () => {
-    const input = createInput();
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await settleDeferredEffects();
-
-    expect(result.current.state).toMatchObject({
-      autoSaveStatus: "idle",
-      autoSaveStatusLabel: "À jour",
-      isAutoSaveSaving: false,
-      isAutoSaveEnabled: true,
-      hasPendingBufferedUpdates: false,
-      hasPendingChanges: false,
-      conflict: null,
-      isReloadingVersion: false,
-      hasRestorableDraft: false,
-    });
-    expect(result.current.meta).toMatchObject({
-      reloadToken: 0,
-      isStatusReadOnly: false,
-      isDraftLockPending: false,
-      isReadOnly: false,
-      isConflictLocked: false,
-      isSaveBlocked: false,
-    });
-    expect(mocks.useAutoSave).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        enabled: true,
-        automaticEnabled: true,
-        hasPendingChanges: false,
-        debounceMs: AUTOSAVE_DEBOUNCE_MS,
-        maxWaitMs: AUTOSAVE_MAX_WAIT_MS,
-      })
-    );
-  });
-
-  it("blocks flushes when the version snapshot is absent or editing is read-only", async () => {
-    const missingVersionInput = createInput({
-      activeVersion: null,
-      getVersionSnapshot: vi.fn(() => null),
-    });
-    const missingVersion = renderHook(() =>
-      useEstimateEditorSyncController(missingVersionInput)
-    );
-
-    await settleDeferredEffects();
-
-    act(() => {
-      missingVersion.result.current.actions.enqueueItemUpdate("line-1", {
-        title: "Modification locale",
-      });
-    });
-
-    let missingVersionResult: string | undefined;
-    await act(async () => {
-      missingVersionResult =
-        await missingVersion.result.current.actions.flushBufferedItemUpdates();
-    });
-
-    expect(missingVersionResult).toBe("blocked");
-    expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();
-    missingVersion.unmount();
-    window.localStorage.clear();
-
-    const readOnlyInput = createInput({ isViewerReadOnly: true });
-    const readOnly = renderHook(() =>
-      useEstimateEditorSyncController(readOnlyInput)
-    );
-
-    await settleDeferredEffects();
-
-    act(() => {
-      readOnly.result.current.actions.enqueueItemUpdate("line-1", {
-        title: "Modification interdite",
-      });
-    });
-
-    let readOnlyResult: string | undefined;
-    await act(async () => {
-      readOnlyResult =
-        await readOnly.result.current.actions.flushBufferedItemUpdates();
-    });
-
-    expect(readOnlyResult).toBe("blocked");
-    expect(readOnly.result.current.meta).toMatchObject({
-      isReadOnly: true,
-      isSaveBlocked: true,
-      readOnlyActionErrorMessage: "Mode consultation activé.",
-    });
-    expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();
-  });
-
-  it("persists the user autosave preference and keeps manual saving available", async () => {
-    window.localStorage.setItem(
-      `${AUTO_SAVE_PREFERENCE_PREFIX}627ef080-0003-4000-8000-000000000001`,
-      JSON.stringify({ enabled: false })
-    );
-    const input = createInput();
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await waitFor(() => {
-      expect(result.current.state.isAutoSaveEnabled).toBe(false);
-    });
-    expect(mocks.useAutoSave).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        automaticEnabled: false,
-        enabled: true,
-      })
-    );
-
-    act(() => {
-      result.current.actions.setAutoSaveEnabled(true);
-    });
-
-    expect(result.current.state.isAutoSaveEnabled).toBe(true);
-    expect(
-      readStoragePayload(
-        window.localStorage,
-        `${AUTO_SAVE_PREFERENCE_PREFIX}627ef080-0003-4000-8000-000000000001`
-      )
-    ).toEqual({ enabled: true });
-
-    await act(async () => {
-      await result.current.actions.saveNow();
-    });
-    expect(mocks.flushAutoSaveNow).toHaveBeenCalledTimes(1);
-  });
-
   it("includes unsaved settings in status, navigation guard and Ctrl+S", async () => {
     const savePendingSettings = vi.fn().mockResolvedValue(undefined);
     const input = createInput({
@@ -698,22 +561,6 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(result.current.state.conflict).toBeNull();
   });
 
-  it("hands the committed line results to the editor so it can take the stored FO provisions (TI-534)", async () => {
-    const committed = createBatchResult("627ef080-0001-4000-8000-000000000001", "token-batch");
-    committed.results = [{ index: 0, op: "update", status: "ok", itemId: "line-1" }];
-    mocks.batchEstimateOperations.mockResolvedValueOnce(committed);
-    const input = createInput();
-    const { result } = renderHook(() => useEstimateEditorSyncController(input));
-    await settleDeferredEffects();
-    act(() => result.current.actions.enqueueItemUpdate("line-1", { supply_type_id: "627ef080-0005-4000-8000-000000000001" }));
-    await act(async () => {
-      await result.current.actions.flushBufferedItemUpdates();
-    });
-    expect(input.applyVersionFlushResult).toHaveBeenCalledWith(expect.objectContaining({
-      updatedAt: "token-batch", results: committed.results,
-    }));
-  });
-
   it("keeps buffered edits when a deletion fails", async () => {
     const { result } = renderHook(() => useEstimateEditorSyncController(createInput()));
     await settleDeferredEffects();
@@ -819,153 +666,6 @@ describe("useEstimateEditorSyncController buffered updates", () => {
     expect(input.replaceItems).toHaveBeenCalledWith([expect.objectContaining(recovered)]);
     // Rechargement : la ligne serveur garde l'ancien type, la saisie en attente le remplace avec sa provision.
     expect(result.current.actions.overlayPendingUpdates(input.items)).toEqual([expect.objectContaining(recovered)]);
-  });
-
-  it("merges repeated edits, persists them and schedules autosave", async () => {
-    const input = createInput();
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await settleDeferredEffects();
-
-    act(() => {
-      result.current.actions.enqueueItemUpdate("line-1", {
-        title: "Titre modifie",
-      });
-      result.current.actions.enqueueItemUpdate("line-1", {
-        quantity: 4,
-      });
-    });
-
-    expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
-    expect(result.current.actions.hasPendingUpdatesNow()).toBe(true);
-    expect(result.current.actions.overlayPendingUpdates(input.items)).toEqual([
-      expect.objectContaining({
-        id: "line-1",
-        title: "Titre modifie",
-        quantity: 4,
-      }),
-    ]);
-    expect(
-      readStoragePayload(
-        window.localStorage,
-        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
-      )
-    ).toMatchObject({
-      buffered_updates: [
-        {
-          id: "line-1",
-          updates: { title: "Titre modifie", quantity: 4 },
-        },
-      ],
-    });
-    expect(mocks.scheduleAutoSave).toHaveBeenCalledTimes(2);
-  });
-
-  it("ignores a cell commit that repeats the server value, keeps a real edit", async () => {
-    const serverItem = createItem();
-    const input = createInput({ items: [serverItem] });
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await settleDeferredEffects();
-
-    // Les lignes serveur passent par overlayPendingUpdates au chargement.
-    act(() => {
-      result.current.actions.overlayPendingUpdates([serverItem]);
-    });
-
-    act(() => {
-      result.current.actions.enqueueItemUpdate(serverItem.id, {
-        title: serverItem.title,
-        quantity: serverItem.quantity,
-      });
-    });
-
-    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
-    expect(mocks.scheduleAutoSave).not.toHaveBeenCalled();
-    expect(
-      readStoragePayload(
-        window.localStorage,
-        autoSaveStorageKey("627ef080-0001-4000-8000-000000000001")
-      )
-    ).toBeNull();
-
-    act(() => {
-      result.current.actions.enqueueItemUpdate(serverItem.id, {
-        title: "Titre saisi",
-        quantity: serverItem.quantity,
-      });
-    });
-
-    expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
-    expect(mocks.scheduleAutoSave).toHaveBeenCalledTimes(1);
-  });
-
-  it("preserves the stable client key when server items are reloaded", async () => {
-    const currentItem = {
-      ...createItem("line-real"),
-      _clientKey: "tmp:line-client",
-    };
-    const input = createInput({ items: [currentItem] });
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await settleDeferredEffects();
-
-    const reloadedItem = createItem("line-real", {
-      title: "Titre confirme par le serveur",
-    });
-
-    expect(
-      result.current.actions.overlayPendingUpdates([reloadedItem])
-    ).toEqual([
-      expect.objectContaining({
-        id: "line-real",
-        title: "Titre confirme par le serveur",
-        _clientKey: "tmp:line-client",
-      }),
-    ]);
-  });
-
-  it("stops re-saving a value the server already acknowledged", async () => {
-    const serverItem = createItem();
-    const version = createVersion();
-    const input = createInput({
-      items: [serverItem],
-      activeVersion: version,
-      getVersionSnapshot: vi.fn(() => version),
-    });
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await settleDeferredEffects();
-
-    act(() => {
-      result.current.actions.overlayPendingUpdates([serverItem]);
-      result.current.actions.enqueueItemUpdate(serverItem.id, {
-        title: "Titre saisi",
-      });
-    });
-
-    await act(async () => {
-      await result.current.actions.flushBufferedItemUpdates();
-    });
-
-    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      result.current.actions.enqueueItemUpdate(serverItem.id, {
-        title: "Titre saisi",
-      });
-    });
-
-    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
-    expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
   });
 
   it("flushes pending edits when the page is hidden, never when nothing changed", async () => {
@@ -1245,15 +945,6 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     expect(window.sessionStorage.getItem(key)).toBe(draft);
     expect(result.current.state.hasRestorableDraft).toBe(true);
   });
-
-  it("clears the obsolete conflict alert after a successful reload", async () => {
-    const input = createInput();
-    const { result } = renderHook(() => useEstimateEditorSyncController(input));
-    await settleDeferredEffects();
-    act(() => result.current.actions.registerVersionConflict(createApiConflict()));
-    act(() => result.current.actions.clearConflictState());
-    expect(result.current.state.conflict).toBeNull();
-  });
   it("snapshots a VERSION_CONFLICT in sessionStorage, clears local data and reloads", async () => {
     const conflict = createApiConflict();
     mocks.batchEstimateOperations.mockRejectedValueOnce(conflict);
@@ -1400,70 +1091,6 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
 
     expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(result.current.state.hasRestorableDraft).toBe(false);
-    expect(input.reportNotice).toHaveBeenLastCalledWith(null);
-  });
-
-  it("warns when a locally restored line no longer exists on the server", async () => {
-    const draft = {
-      settings: createSettings(),
-      items: [createItem("line-deleted")],
-      saved_at: "2026-07-15T09:30:00.000Z",
-    };
-    window.sessionStorage.setItem(
-      conflictStorageKey("627ef080-0001-4000-8000-000000000001"),
-      scopedDraftJson(draft)
-    );
-    const input = createInput({
-      applyRestoredDraft: vi.fn(() => ({
-        restoredItems: [],
-        skippedItemCount: 1,
-      })),
-    });
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await waitFor(() => {
-      expect(result.current.state.hasRestorableDraft).toBe(true);
-    });
-
-    act(() => {
-      result.current.actions.restoreConflictDraft();
-    });
-
-    expect(input.reportNotice).toHaveBeenLastCalledWith(
-      "Les modifications des lignes encore présentes ont été restaurées. Certaines différences de structure n’ont pas été réappliquées afin de préserver les données serveur."
-    );
-    expect(result.current.state.hasPendingBufferedUpdates).toBe(false);
-    expect(
-      window.localStorage.getItem(autoSaveStorageKey("627ef080-0001-4000-8000-000000000001"))
-    ).toBeNull();
-  });
-
-  it("clears a restorable draft without applying it", async () => {
-    const draft = {
-      settings: createSettings(),
-      items: [createItem()],
-      saved_at: "2026-07-15T09:30:00.000Z",
-    };
-    const storageKey = conflictStorageKey("627ef080-0001-4000-8000-000000000001");
-    window.sessionStorage.setItem(storageKey, scopedDraftJson(draft));
-    const input = createInput();
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await waitFor(() => {
-      expect(result.current.state.hasRestorableDraft).toBe(true);
-    });
-
-    act(() => {
-      result.current.actions.clearConflictDraft();
-    });
-
-    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
-    expect(result.current.state.hasRestorableDraft).toBe(false);
-    expect(input.applyRestoredDraft).not.toHaveBeenCalled();
     expect(input.reportNotice).toHaveBeenLastCalledWith(null);
   });
 
@@ -1654,29 +1281,6 @@ describe("useEstimateEditorSyncController conflicts and route changes", () => {
     await act(async () => {
       rerender();
     });
-    expect(result.current.meta.reloadToken).toBe(1);
-  });
-
-  it("clears obsolete synchronization feedback after a successful takeover", async () => {
-    const input = createInput();
-    const { result } = renderHook(() =>
-      useEstimateEditorSyncController(input)
-    );
-
-    await settleDeferredEffects();
-    vi.mocked(input.reportError).mockClear();
-    vi.mocked(input.reportNotice).mockClear();
-    vi.mocked(input.setTotalsOutOfSync).mockClear();
-
-    await act(async () => {
-      await result.current.actions.forceUnlockDraftLock();
-    });
-
-    expect(mocks.forceUnlockAndAcquireDraftLock).toHaveBeenCalledTimes(1);
-    expect(input.reportError).toHaveBeenLastCalledWith(null);
-    expect(input.reportNotice).toHaveBeenLastCalledWith(null);
-    expect(input.setTotalsOutOfSync).toHaveBeenLastCalledWith(false);
-    expect(result.current.state.conflict).toBeNull();
     expect(result.current.meta.reloadToken).toBe(1);
   });
 

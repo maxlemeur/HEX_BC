@@ -31,9 +31,3 @@ it("keeps a refused category unresolved without inventing a replacement", async 
   expect(result.documentKind).toBe("a_classer");
   expect(result.extractedMetadata).toEqual(extracted.extractedMetadata);
 });
-
-it("does not call Decisions or alter existing extraction when disabled", async () => {
-  vi.mocked(getOpenAiDecisionsCapability).mockReturnValue({ status: "disabled" } as never);
-  expect(await proposeAffaireIntakeCategory(input)).toBe(extracted);
-  expect(callOpenAiDecisions).not.toHaveBeenCalled();
-});

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { createElement, StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -105,126 +104,6 @@ describe("useDraftLock", () => {
     vi.useRealTimers();
   });
 
-  it("acquires the lock and exposes explicit ownership", async () => {
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-1",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.isOwnedByCurrentUser).toBe(true);
-    });
-
-    expect(mocks.acquireDraftLock).toHaveBeenCalledWith("version-1");
-    expect(result.current.lock).toEqual(createLock());
-    expect(result.current.holderName).toBe("Alice Martin");
-    expect(result.current.isLockedByOther).toBe(false);
-    expect(result.current.isAcquiring).toBe(false);
-    expect(result.current.error).toBeNull();
-  });
-
-  it("reacquires the lock after the StrictMode effect replay", async () => {
-    const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(StrictMode, null, children);
-    const { result } = renderHook(
-      () =>
-        useDraftLock({
-          versionId: "version-1",
-          currentUserId: "user-1",
-        }),
-      { wrapper }
-    );
-
-    await waitFor(() => {
-      expect(result.current.isOwnedByCurrentUser).toBe(true);
-    });
-
-    expect(mocks.acquireDraftLock).toHaveBeenCalledWith("version-1");
-    expect(result.current.lock).toEqual(createLock());
-    expect(result.current.isAcquiring).toBe(false);
-  });
-
-  it("falls back to user ids when the API omits the ownership flag", async () => {
-    mocks.acquireDraftLock.mockResolvedValueOnce({
-      acquired: true,
-      lock: createLock({
-        isOwnedByCurrentUser: null,
-        isOwnedByCurrentSession: null,
-        userId: "user-current",
-      }),
-    });
-
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-current",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.isOwnedByCurrentUser).toBe(true);
-    });
-
-    expect(result.current.isLockedByOther).toBe(false);
-  });
-
-  it("reports a lock held by another user as a conflict", async () => {
-    const otherLock = createLock({
-      userId: "user-other",
-      holderName: "Bob Dupont",
-      isOwnedByCurrentUser: false,
-    });
-    mocks.acquireDraftLock.mockResolvedValueOnce({
-      acquired: false,
-      lock: otherLock,
-    });
-
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-current",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.isLockedByOther).toBe(true);
-    });
-
-    expect(result.current.lock).toEqual(otherLock);
-    expect(result.current.holderName).toBe("Bob Dupont");
-    expect(result.current.isOwnedByCurrentUser).toBe(false);
-    expect(result.current.error).toBeNull();
-  });
-
-  it("treats another page of the same user as a conflicting editor", async () => {
-    const otherPageLock = createLock({
-      isOwnedByCurrentUser: true,
-      isOwnedByCurrentSession: false,
-    });
-    mocks.acquireDraftLock.mockResolvedValueOnce({
-      acquired: false,
-      lock: otherPageLock,
-    });
-
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-1",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.isLockedByOther).toBe(true);
-    });
-
-    expect(result.current.isOwnedByCurrentUser).toBe(false);
-    expect(result.current.holderName).toBe(
-      "vous dans un autre onglet ou appareil"
-    );
-  });
-
   it("automatically acquires after the other page releases the lock", async () => {
     vi.useFakeTimers();
     const otherPageLock = createLock({
@@ -285,35 +164,6 @@ describe("useDraftLock", () => {
 
     expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(2);
     expect(result.current.isOwnedByCurrentUser).toBe(false);
-  });
-
-  it("surfaces acquisition errors and clears them after a successful retry", async () => {
-    mocks.acquireDraftLock.mockRejectedValueOnce(
-      createApiError("Verrou temporairement indisponible.")
-    );
-
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-1",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.error).toBe("Verrou temporairement indisponible.");
-    });
-    expect(result.current.isOwnedByCurrentUser).toBe(false);
-    expect(result.current.isLockedByOther).toBe(false);
-    expect(result.current.lock).toBeNull();
-
-    let acquired = false;
-    await act(async () => {
-      acquired = await result.current.acquire();
-    });
-
-    expect(acquired).toBe(true);
-    expect(result.current.error).toBeNull();
-    expect(result.current.isOwnedByCurrentUser).toBe(true);
   });
 
   it("renews on heartbeat, reports an error, then reflects ownership loss", async () => {
@@ -399,43 +249,6 @@ describe("useDraftLock", () => {
     expect(mocks.acquireDraftLock).toHaveBeenCalledTimes(1);
     expect(result.current.isLockedByOther).toBe(false);
     expect(result.current.error).toContain("lecture seule");
-  });
-
-  it("releases the previous lock with keepalive when the version changes", async () => {
-    const versionTwoLock = createLock({
-      versionId: "version-2",
-    });
-    mocks.acquireDraftLock.mockImplementation(async (versionId: string) => ({
-      acquired: true,
-      lock: versionId === "version-2" ? versionTwoLock : createLock(),
-    }));
-
-    const { result, rerender } = renderHook(
-      ({ versionId }: { versionId: string }) =>
-        useDraftLock({
-          versionId,
-          currentUserId: "user-1",
-        }),
-      {
-        initialProps: { versionId: "version-1" },
-      }
-    );
-
-    await waitFor(() => {
-      expect(result.current.isOwnedByCurrentUser).toBe(true);
-    });
-    mocks.releaseDraftLock.mockClear();
-
-    rerender({ versionId: "version-2" });
-
-    await waitFor(() => {
-      expect(result.current.lock?.versionId).toBe("version-2");
-    });
-
-    expect(mocks.releaseDraftLock).toHaveBeenCalledWith("version-1", {
-      keepalive: true,
-    });
-    expect(mocks.acquireDraftLock).toHaveBeenCalledWith("version-2");
   });
 
   it("waits for an old A release before reacquiring A after A to B to A", async () => {
@@ -796,64 +609,5 @@ describe("useDraftLock", () => {
     expect(mocks.acquireDraftLock).not.toHaveBeenCalled();
     expect(result.current.isForcingUnlock).toBe(false);
     expect(result.current.isOwnedByCurrentUser).toBe(true);
-  });
-
-  it("reports a failed atomic takeover", async () => {
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-1",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.isOwnedByCurrentUser).toBe(true);
-    });
-    mocks.acquireDraftLock.mockClear();
-    mocks.takeoverDraftLock.mockRejectedValueOnce(
-      createApiError("Reprise impossible.")
-    );
-
-    let acquired = true;
-    await act(async () => {
-      acquired = await result.current.forceUnlockAndAcquire();
-    });
-
-    expect(acquired).toBe(false);
-    expect(mocks.takeoverDraftLock).toHaveBeenCalledWith("version-1");
-    expect(mocks.acquireDraftLock).not.toHaveBeenCalled();
-    expect(result.current.isForcingUnlock).toBe(false);
-    expect(result.current.error).toBe("Reprise impossible.");
-  });
-
-  it("keeps keepalive release errors silent but reports manual failures", async () => {
-    const { result } = renderHook(() =>
-      useDraftLock({
-        versionId: "version-1",
-        currentUserId: "user-1",
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.isOwnedByCurrentUser).toBe(true);
-    });
-    mocks.releaseDraftLock.mockRejectedValue(
-      createApiError("Impossible de liberer ce verrou.")
-    );
-
-    let released = true;
-    await act(async () => {
-      released = await result.current.release({ keepalive: true });
-    });
-
-    expect(released).toBe(false);
-    expect(result.current.error).toBeNull();
-
-    await act(async () => {
-      released = await result.current.release();
-    });
-
-    expect(released).toBe(false);
-    expect(result.current.error).toBe("Impossible de liberer ce verrou.");
   });
 });

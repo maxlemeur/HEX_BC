@@ -1,21 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  EstimateStructureDraft,
-  EstimateStructureDraftNode,
-} from "@/lib/estimates/client";
+import type { EstimateStructureDraftNode } from "@/lib/estimates/client";
 import {
   buildDraftOverrides,
   buildFilterCounts,
   buildFilteredFlatNodeIds,
   buildNodeMergeStates,
-  buildSourceCoverageSummary,
   buildStickySummaryCounts,
   flattenNodes,
-  getDefaultSelectedRootIds,
   getSelectedNodes,
-  isAssemblyOnlyWeakSignalMode,
-  isWeakSignalNode,
   normalizeSectionTitleKey,
   type NodeOverrideState,
 } from "@/lib/estimates/estimate-structure-draft";
@@ -48,111 +41,6 @@ function createNode(
     ...overrides,
   };
 }
-
-const assemblyOnlySources: EstimateStructureDraft["sources"] = [
-  {
-    kind: "assembly_library",
-    label: "Ouvrages",
-    available: true,
-    used: true,
-    detail: "4 ouvrages",
-  },
-  {
-    kind: "confirmed_brief",
-    label: "Brief",
-    available: false,
-    used: false,
-    detail: null,
-  },
-];
-
-const mixedSources: EstimateStructureDraft["sources"] = [
-  {
-    kind: "linked_dpgf",
-    label: "DPGF",
-    available: true,
-    used: true,
-    detail: "1 fichier",
-  },
-  {
-    kind: "assembly_library",
-    label: "Ouvrages",
-    available: true,
-    used: true,
-    detail: "4 ouvrages",
-  },
-];
-
-describe("flattenNodes and default selection", () => {
-  it("flattens the tree with ancestor paths and normalizes titles", () => {
-    const child = createNode({
-      id: "cfo",
-      parentId: "elec",
-      label: "CFO",
-      hierarchyLevel: 2,
-    });
-    const root = createNode({
-      id: "elec",
-      label: "Électricité",
-      children: [child],
-    });
-
-    expect(normalizeSectionTitleKey("  Électricité  ")).toBe("electricite");
-    expect(flattenNodes([root]).map((node) => node.path)).toEqual([
-      ["Électricité"],
-      ["Électricité", "CFO"],
-    ]);
-  });
-
-  it("preselects defensible roots and leaves assembly-only weak drafts empty", () => {
-    const createRoot = createNode({ id: "lot-a", label: "Plomberie" });
-    const weakRoot = createNode({
-      id: "lot-b",
-      label: "Electricite",
-      defaultAction: "skip",
-      confidenceLabel: "faible",
-      provenance: [{ type: "assembly", label: "Ouvrage", excerpt: null }],
-    });
-
-    expect(isAssemblyOnlyWeakSignalMode(assemblyOnlySources)).toBe(true);
-    expect(isAssemblyOnlyWeakSignalMode(mixedSources)).toBe(false);
-    expect(isWeakSignalNode(weakRoot)).toBe(true);
-    expect(
-      getDefaultSelectedRootIds({
-        draftId: "draft-1",
-        versionId: "version-1",
-        strategy: "hybrid",
-        sources: mixedSources,
-        summary: {
-          rootCount: 2,
-          newCount: 1,
-          mergeCount: 0,
-          duplicateCount: 0,
-          lowConfidenceCount: 1,
-        },
-        nodes: [createRoot, weakRoot],
-        generatedAt: "2026-08-19T10:00:00.000Z",
-      }),
-    ).toEqual(["lot-a"]);
-    expect(
-      getDefaultSelectedRootIds({
-        draftId: "draft-2",
-        versionId: "version-1",
-        strategy: "hybrid",
-        sources: assemblyOnlySources,
-        summary: {
-          rootCount: 1,
-          newCount: 0,
-          mergeCount: 0,
-          duplicateCount: 0,
-          lowConfidenceCount: 1,
-        },
-        nodes: [weakRoot],
-        generatedAt: "2026-08-19T10:00:00.000Z",
-      }),
-    ).toEqual([]);
-  });
-});
 
 describe("merge validation and apply overrides", () => {
   const existingSections = [
@@ -306,13 +194,5 @@ describe("merge validation and apply overrides", () => {
         mergeIntoItemId: null,
       },
     ]);
-  });
-
-  it("summarizes source coverage for assembly-only previews", () => {
-    const summary = buildSourceCoverageSummary(assemblyOnlySources);
-    expect(summary).toContain("1 source(s) alimente(nt) cet aperçu");
-    expect(summary).toContain("aucun brief confirmé");
-    expect(summary).toContain("bibliothèque d'ouvrages");
-    expect(summary).toContain("non présélectionnées");
   });
 });

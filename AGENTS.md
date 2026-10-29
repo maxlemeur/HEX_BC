@@ -27,6 +27,12 @@ procedures. Prefer useful outcomes and proportionate verification to rigid scrip
 
 ## Verification
 
+- Never write unit tests after you write code.
+- Highly prefer E2E army tests as the sole testing mechanism. Use them to verify
+  complex features work.
+- If you must test a system in isolation, first write down all the ways it could
+  fail, then write the code. Such a test must catch a real bug the E2E army
+  journeys miss; delete one that would not.
 - Define the observable failure and affected journey before changing behavior.
   Reproduce a regression first when practical. TesterArmy (`e2e`, `@e2e-dev/web`)
   is the primary browser runner; deterministic journeys need no model.

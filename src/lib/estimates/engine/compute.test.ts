@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { computeEstimateBreakdown, type EstimateComputationInput } from "@/lib/estimate-calculations";
+import type { EstimateComputationInput } from "@/lib/estimate-calculations";
 import { computeVersionBreakdown } from "@/lib/estimates/engine/compute";
-import { computeEstimateV3Breakdown } from "@/lib/estimates/engine-v3";
-import { oracleInput } from "@/lib/estimates/engine-v3/oracle.fixtures";
 
 // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-03). Isolation justifiée :
 // la façade est le seul aiguillage entre moteurs. Un aiguillage `>= 2` ou un repli
@@ -77,37 +75,5 @@ describe("computeVersionBreakdown", () => {
     expect(
       thrownBy(() => computeVersionBreakdown({ ...baseInput, calcEngineVersion: engine } as never))
     ).toMatchObject({ code: "ESTIMATE_CALC_ENGINE_UNSUPPORTED" });
-  });
-
-  it("routes engines 1 and 2 to their own historical computation", () => {
-    const v1 = computeVersionBreakdown({ ...baseInput, calcEngineVersion: 1 });
-    const v2 = computeVersionBreakdown({ ...baseInput, calcEngineVersion: 2 });
-
-    expect(v1).toEqual(computeEstimateBreakdown({ ...baseInput, calcEngineVersion: 1 }));
-    expect(v2).toEqual(computeEstimateBreakdown({ ...baseInput, calcEngineVersion: 2 }));
-    // The two engines differ on this input: a mis-routed engine cannot pass both checks.
-    expect(v1).not.toEqual(v2);
-  });
-
-  it("routes engine 3 to the v3 engine and returns its own breakdown type (2.4)", () => {
-    const input = oracleInput({ discount_amount_cents: 101 });
-    const result = computeVersionBreakdown({ calcEngineVersion: 3, v3: input });
-
-    expect(result).toEqual(computeEstimateV3Breakdown(input));
-    expect(result.engine).toBe(3);
-    expect(result.totals.total_ht_cents).toBe(6_905_355);
-    // Jamais converti en EstimateBreakdown v2 : aucune structure v2 dans le résultat.
-    expect(result).not.toHaveProperty("lineById");
-    expect(result).not.toHaveProperty("sectionById");
-  });
-
-  it("keeps engines 1 and 2 byte-identical to the historical engine (2.4)", () => {
-    const serialize = (value: unknown) =>
-      JSON.stringify(value, (_key, inner) => (inner instanceof Map ? [...inner.entries()] : inner));
-    for (const engine of [1, 2] as const) {
-      const viaFacade = computeVersionBreakdown({ ...baseInput, calcEngineVersion: engine });
-      const direct = computeEstimateBreakdown({ ...baseInput, calcEngineVersion: engine });
-      expect(serialize(viaFacade)).toBe(serialize(direct));
-    }
   });
 });

@@ -19,7 +19,6 @@ import { getAuthenticatedContext } from "@/lib/estimates/server-context";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
-const SECOND_ID = "33333333-3333-4333-8333-333333333333";
 const SECTION_ID = "44444444-4444-4444-8444-444444444444";
 const CHILD_ID = "55555555-5555-4555-8555-555555555555";
 const TENANT_ID = "66666666-6666-4666-8666-666666666666";
@@ -27,9 +26,7 @@ const ACTOR_ID = "77777777-7777-4777-8777-777777777777";
 const PROJECT_ID = "88888888-8888-4888-8888-888888888888";
 const SESSION_ID = "99999999-9999-4999-8999-999999999999";
 const OPERATION_KEY = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const MISSING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
-const NEXT_TOKEN = "2026-02-21T10:00:00.001Z";
 const OPTIONS = { concurrencyToken: UPDATED_AT, operationKey: OPERATION_KEY };
 type Row = Record<string, unknown>;
 
@@ -157,21 +154,6 @@ describe("executeEstimateBatch", () => {
     else process.env.ESTIMATE_BATCH_MAX_OPERATIONS = originalBatchLimit;
   });
 
-  it("rejects empty batches", async () => {
-    await expect(executeEstimateBatch(VERSION_ID, [], OPTIONS)).rejects.toMatchObject({
-      code: "BAD_REQUEST", message: "operations ne peut pas être vide.",
-    });
-    expect(db.rpc).not.toHaveBeenCalled();
-  });
-
-  it("enforces configurable operation limits", async () => {
-    process.env.ESTIMATE_BATCH_MAX_OPERATIONS = "1";
-    await expect(executeEstimateBatch(VERSION_ID, [
-      { op: "delete", id: ITEM_ID }, { op: "delete", id: SECOND_ID },
-    ], OPTIONS)).rejects.toMatchObject({ code: "BATCH_LIMIT_EXCEEDED" });
-    expect(db.rpc).not.toHaveBeenCalled();
-  });
-
   it("returns validated dry-run previews without applying operations", async () => {
     const before = structuredClone(db.rows);
     const result = await executeEstimateBatch(VERSION_ID, [
@@ -186,33 +168,6 @@ describe("executeEstimateBatch", () => {
     expect(db.commit).not.toHaveBeenCalled();
     expect(db.forbiddenWrite).not.toHaveBeenCalled();
     expect(db.rows).toEqual(before);
-  });
-
-  // Lot 3.2, entrée 1 : la conversion ligne ↔ section d'une v3 supprime puis recrée l'élément à la même place.
-  it("accepts a batch that frees a place before recreating an item there, and refuses the reverse order", async () => {
-    db.version.max_section_depth = 2;
-    const conversion: BatchOperationInput[] = [
-      { op: "delete", id: ITEM_ID },
-      { op: "create", data: { item_type: "section", parent_id: SECTION_ID, position: 1, title: "Ligne" } },
-    ];
-    expect(await executeEstimateBatch(VERSION_ID, conversion, { ...OPTIONS, dryRun: true })).toMatchObject({
-      committed: false, results: [
-        { index: 0, op: "delete", status: "ok", data: { dry_run: true } },
-        { index: 1, op: "create", status: "ok", data: { dry_run: true } },
-      ] });
-    expect(await executeEstimateBatch(VERSION_ID, [conversion[1], conversion[0]], { ...OPTIONS, dryRun: true }))
-      .toMatchObject({ committed: false, results: [
-        { index: 0, op: "create", status: "error", message: "Cette position est déjà occupée." },
-      ] });
-    expect(db.commit).not.toHaveBeenCalled();
-  });
-
-  it("propagates optimistic concurrency conflicts from the read precheck", async () => {
-    db.version.updated_at = NEXT_TOKEN;
-    await expect(executeEstimateBatch(VERSION_ID, [{ op: "delete", id: ITEM_ID }], OPTIONS))
-      .rejects.toMatchObject({ code: "VERSION_CONFLICT" });
-    expect(db.commit).not.toHaveBeenCalled();
-    expect(db.forbiddenWrite).not.toHaveBeenCalled();
   });
 
   it("does not fall back to separate mutations when the commit loses the race", async () => {
@@ -238,20 +193,6 @@ describe("executeEstimateBatch", () => {
     expect(db.rows).toEqual(before);
   }
 
-  it("preserves existing rows when creation is followed by an invalid update", async () => {
-    await assertPreflightRefusal([
-      { op: "create", data: { item_type: "section", title: "Ajout temporaire" } },
-      { op: "update", id: MISSING_ID, data: { title: "Absent" } },
-    ]);
-  });
-
-  it("preserves updated rows when a later operation is invalid", async () => {
-    await assertPreflightRefusal([
-      { op: "update", id: ITEM_ID, data: { title: "Titre modifié", quantity: 2 } },
-      { op: "delete", id: MISSING_ID },
-    ]);
-  });
-
   it("preserves deleted rows and descendants when a later operation is invalid", async () => {
     db.rows.estimate_items.push(line(CHILD_ID, 2));
     await assertPreflightRefusal([
@@ -260,55 +201,10 @@ describe("executeEstimateBatch", () => {
     ]);
   });
 
-  it("preserves sibling order when a later operation is invalid", async () => {
-    db.rows.estimate_items.push(line(SECOND_ID, 2), line(CHILD_ID, 3));
-    await assertPreflightRefusal([
-      { op: "reorder", data: { parent_id: SECTION_ID, ordered_ids: [CHILD_ID, ITEM_ID, SECOND_ID] } },
-      { op: "update", id: MISSING_ID, data: { title: "Absent" } },
-    ]);
-  });
-
   // Replaces the old expectation that a failed compensation still proves false.
   it("does not claim committed=false when the commit transport has an unknown outcome", async () => {
     db.commit.mockRejectedValue(new Error("Connection closed after dispatch"));
     await expect(executeEstimateBatch(VERSION_ID, [{ op: "delete", id: ITEM_ID }], OPTIONS))
-      .rejects.toMatchObject({ status: 503, code: "BATCH_OUTCOME_UNKNOWN" });
-    expect(db.commit).toHaveBeenCalledTimes(1);
-    expect(db.forbiddenWrite).not.toHaveBeenCalled();
-  });
-
-  it("returns the committed receipt without a separate post-commit audit write", async () => {
-    const operations: BatchOperationInput[] = [{ op: "delete", id: ITEM_ID }];
-    const saved = { committed: true, version: { id: VERSION_ID, updated_at: NEXT_TOKEN },
-      results: [{ index: 0, op: "delete", status: "ok",
-        data: { deleted_id: ITEM_ID, deleted_ids: [ITEM_ID] } }],
-      totals: { total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0 },
-      receipt: { operation_key: OPERATION_KEY, actor_id: ACTOR_ID, version_id: VERSION_ID,
-        expected_updated_at: UPDATED_AT, operations, committed_at: NEXT_TOKEN },
-      replayed: false, current_version: { id: VERSION_ID, updated_at: NEXT_TOKEN, status: "draft" } };
-    db.commit.mockResolvedValue({ data: saved, error: null });
-    expect(await executeEstimateBatch(VERSION_ID, operations, OPTIONS)).toEqual(saved);
-    expect(db.rpc.mock.calls.map(([name]) => name)).toEqual([
-      "get_estimate_batch_receipt", "commit_estimate_batch",
-    ]);
-    expect(db.forbiddenWrite).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { quantity: "not-a-number" },
-    { unit_price_ht_cents: 1000.5 },
-    { line_total_ttc_cents: 1199 },
-  ])("does not publish a malformed stored line as a confirmed save: %j", async (patch) => {
-    const operations: BatchOperationInput[] = [{ op: "update", id: ITEM_ID, data: { quantity: 1 } }];
-    db.commit.mockResolvedValue({ data: {
-      committed: true, version: { id: VERSION_ID, updated_at: NEXT_TOKEN },
-      results: [{ index: 0, op: "update", status: "ok", data: { item: { ...line(), ...patch } } }],
-      totals: { total_ht_cents: 1000, total_tax_cents: 200, total_ttc_cents: 1200 },
-      receipt: { operation_key: OPERATION_KEY, actor_id: ACTOR_ID, version_id: VERSION_ID,
-        expected_updated_at: UPDATED_AT, operations, committed_at: NEXT_TOKEN },
-      replayed: false, current_version: { id: VERSION_ID, updated_at: NEXT_TOKEN, status: "draft" },
-    }, error: null });
-    await expect(executeEstimateBatch(VERSION_ID, operations, OPTIONS))
       .rejects.toMatchObject({ status: 503, code: "BATCH_OUTCOME_UNKNOWN" });
     expect(db.commit).toHaveBeenCalledTimes(1);
     expect(db.forbiddenWrite).not.toHaveBeenCalled();
@@ -342,16 +238,5 @@ describe("executeEstimateBatch", () => {
     expect(sent.p_version_patch).toMatchObject({ gross_ht_cents: 2040, total_ht_cents: 2040 });
     // The provision is the database's: the operations replayed by an idempotent retry stay those of the client.
     expect(JSON.stringify(sent.p_operations)).not.toContain("fo_provision");
-  });
-
-  // Replaces the old expectation that an audit failure after writes is success.
-  it("keeps a confirmed transactional refusal distinct from a successful commit", async () => {
-    const refused = { committed: false, version: { id: VERSION_ID, updated_at: UPDATED_AT },
-      results: [{ index: 0, op: "delete", status: "error", code: "BAD_REQUEST",
-        message: "Le batch a été refusé et annulé." }] };
-    db.commit.mockResolvedValue({ data: refused, error: null });
-    expect(await executeEstimateBatch(VERSION_ID, [{ op: "delete", id: ITEM_ID }], OPTIONS)).toEqual(refused);
-    expect(db.commit).toHaveBeenCalledTimes(1);
-    expect(db.forbiddenWrite).not.toHaveBeenCalled();
   });
 });

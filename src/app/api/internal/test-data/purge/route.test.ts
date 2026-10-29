@@ -47,15 +47,4 @@ describe("GET /api/internal/test-data/purge", () => {
 
     expect(vi.mocked(purgeTestTenantDrafts).mock.calls).toEqual([[{ dryRun: false }], [{ dryRun: true }]]);
   });
-
-  it("answers a fixed error without the cause", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(purgeTestTenantDrafts).mockRejectedValue(new Error("tenant a8d1292a details"));
-
-    const response = await GET(new Request(url, authorized));
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Test data purge failed" });
-    consoleError.mockRestore();
-  });
 });

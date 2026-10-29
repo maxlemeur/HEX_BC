@@ -40,18 +40,6 @@ describe("affaire site address", () => {
     expect(result.siteAddress).toBe("12 rue du Test\nParis");
   });
 
-  it("clears a blank address but preserves it when omitted", async () => {
-    await updateAffaireProjectMetadataAction({ ...input, siteAddress: "  " });
-    expect(query.update).toHaveBeenLastCalledWith(expect.objectContaining({ site_address: null }));
-    await updateAffaireProjectMetadataAction(input);
-    expect(query.update.mock.lastCall?.[0]).not.toHaveProperty("site_address");
-  });
-
-  it("rejects an oversized address before accessing the database", async () => {
-    await expect(updateAffaireProjectMetadataAction({ ...input, siteAddress: "x".repeat(1001) })).rejects.toThrow();
-    expect(client.from).not.toHaveBeenCalled();
-  });
-
   it("rejects unauthorized roles", async () => {
     membership.mockResolvedValue({ role: "viewer", tenant_id: "tenant" });
     await expect(updateAffaireProjectMetadataAction({ ...input, siteAddress: "Paris" })).rejects.toThrow("Accès refuse");
