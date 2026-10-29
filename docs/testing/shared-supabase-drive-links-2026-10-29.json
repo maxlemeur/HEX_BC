@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-29",
+  "sourceCommit": "d0e3476",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's explicit go on 2026-10-29 (08:00Z for migrations 1-4, 08:18Z for migration 5). Two MCP apply_migration attempts from the Drive thread timed out on the connector confirmation and applied nothing; the owner then applied the five files himself under their canonical names.",
+  "migrations": [
+    {
+      "order": 1,
+      "repositoryFile": "supabase/migrations/20261028215442_reconcile_plan_intake_and_provenance.sql",
+      "origin": "PR #124",
+      "bytes": 25585,
+      "lines": 415,
+      "sha256": "292d40e872e589c2ee64b4438557a2dedd068c672f19f95096b966929f408977",
+      "appliedVersion": "20261029082230",
+      "appliedName": "20261028215442_reconcile_plan_intake_and_provenance",
+      "appliedAtUtc": "2026-10-29T08:22:30Z",
+      "storedStatements": 1,
+      "storedStatementSha256Matches": true,
+      "appliedBy": "owner"
+    },
+    {
+      "order": 2,
+      "repositoryFile": "supabase/migrations/20261028230728_preserve_confirmed_brief_after_plan_reconciliation.sql",
+      "origin": "PR #124",
+      "bytes": 8387,
+      "lines": 143,
+      "sha256": "69696dd50d879ad1cad13e2bd829db67108f616dc7e42fa66a73d022c57029ef",
+      "appliedVersion": "20261029082256",
+      "appliedName": "20261028230728_preserve_confirmed_brief_after_plan_reconciliation",
+      "appliedAtUtc": "2026-10-29T08:22:56Z",
+      "storedStatements": 1,
+      "storedStatementSha256Matches": true,
+      "appliedBy": "owner"
+    },
+    {
+      "order": 3,
+      "repositoryFile": "supabase/migrations/20261029002420_takeoff_preparations.sql",
+      "origin": "commit 1234d5d",
+      "bytes": 18398,
+      "lines": 315,
+      "sha256": "5cf7fcebaf5489496f6a802719d5539420e3964679e012d1d252cc17f19e95d8",
+      "appliedVersion": "20261029083959",
+      "appliedName": "20261029002420_takeoff_preparations",
+      "appliedAtUtc": "2026-10-29T08:39:59Z",
+      "storedStatements": 1,
+      "storedStatementSha256Matches": true,
+      "appliedBy": "owner"
+    },
+    {
+      "order": 4,
+      "repositoryFile": "supabase/migrations/20261029024800_google_drive_links.sql",
+      "origin": "PR #125",
+      "bytes": 14061,
+      "lines": 241,
+      "sha256": "20583afc33df0064c30cb33aa63b9d99c147f389a38f73ab4bd33dc9fb24cee0",
+      "appliedVersion": "20261029084057",
+      "appliedName": "20261029024800_google_drive_links",
+      "appliedAtUtc": "2026-10-29T08:40:57Z",
+      "storedStatements": 1,
+      "storedStatementSha256Matches": true,
+      "appliedBy": "owner"
+    },
+    {
+      "order": 5,
+      "repositoryFile": "supabase/migrations/20261029033000_google_drive_plan_working_copies.sql",
+      "origin": "PR #126",
+      "bytes": 14532,
+      "lines": 221,
+      "sha256": "7e4a20dedf0a43d483ee69513724282a91580bcba57404b447ca3fb683ac4c46",
+      "appliedVersion": "20261029084142",
+      "appliedName": "20261029033000_google_drive_plan_working_copies",
+      "appliedAtUtc": "2026-10-29T08:41:42Z",
+      "storedStatements": 1,
+      "storedStatementSha256Matches": true,
+      "appliedBy": "owner"
+    }
+  ],
+  "preflight": {
+    "checkedAtUtc": "2026-10-29T08:02:06Z",
+    "historyRows": 339,
+    "previous": "20261025192608_intake_plan_generation_guard (20261028103534)",
+    "objectsAbsent": true,
+    "failedAttemptsCheckedAtUtc": [
+      "2026-10-29T08:04:49Z",
+      "2026-10-29T08:21:01Z"
+    ]
+  },
+  "history": {
+    "checkedAtUtc": "2026-10-29T09:43:49Z",
+    "rowsBefore": 339,
+    "rowsAfter": 344,
+    "rowsPerName": 1,
+    "inOrder": true
+  },
+  "columns": {
+    "public.affaire_intake_documents": [
+      "plan_copy_generation",
+      "drive_connection_id",
+      "drive_file_id",
+      "drive_folder_id",
+      "drive_folder_name",
+      "drive_modified_time",
+      "drive_revision",
+      "drive_shared_drive_id"
+    ],
+    "public.takeoff_jobs": [
+      "preparation_snapshot"
+    ]
+  },
+  "buckets": {
+    "dpgf-imports": {
+      "allowsApplicationPdf": true
+    }
+  },
+  "tables": {
+    "public.google_drive_connections": {
+      "rls": true,
+      "policies": 2,
+      "policyRole": "authenticated"
+    },
+    "public.affaire_google_drive_folders": {
+      "rls": true,
+      "policies": 4,
+      "policyRole": "authenticated"
+    },
+    "private.google_drive_connection_secrets": {
+      "rls": true,
+      "policies": 0,
+      "anonAuthenticatedServiceRoleAccess": false
+    },
+    "private.affaire_plan_presence_state": {
+      "rls": true,
+      "policies": 0,
+      "anonAuthenticatedServiceRoleAccess": false
+    },
+    "public.takeoff_preparations": {
+      "rls": true,
+      "policies": 1,
+      "authenticatedSelect": true,
+      "authenticatedInsert": false,
+      "serviceRoleSelect": true
+    },
+    "public.takeoff_preparation_profiles": {
+      "rls": true,
+      "policies": 1,
+      "authenticatedSelect": true,
+      "authenticatedInsert": false,
+      "serviceRoleSelect": true
+    }
+  },
+  "serviceOnlyFunctions": {
+    "public.affaire_has_stored_plan(uuid)": {
+      "securityDefiner": true,
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false
+    },
+    "public.reconcile_affaire_plan_gap(uuid,uuid)": {
+      "securityDefiner": true,
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false
+    },
+    "public.resolve_affaire_brief_plan_gap(uuid,integer,timestamp with time zone,uuid)": {
+      "securityDefiner": true,
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false
+    },
+    "public.google_drive_connection_secret(uuid)": {
+      "securityDefiner": true,
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false
+    },
+    "public.save_google_drive_connection(uuid,uuid,text,text,text,text)": {
+      "securityDefiner": true,
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anonExecute": false,
+      "authenticatedExecute": false
+    }
+  },
+  "driveWorkingCopyFunctions": {
+    "carryDriveRule": true,
+    "functions": [
+      "public.affaire_has_stored_plan(uuid)",
+      "public.guard_intake_plan_copy_lifecycle()",
+      "public.delete_stale_intake_plan_file(uuid)",
+      "private.guard_plan_storage_write()",
+      "private.guard_intake_plan_metadata()"
+    ]
+  },
+  "triggers": [
+    "rotate_intake_plan_copy_generation",
+    "guard_intake_plan_metadata",
+    "guard_plan_storage_write",
+    "guard_intake_plan_storage_delete",
+    "guard_import_plan_set_delete",
+    "zzz_guard_google_drive_connection_reference (2 tables)",
+    "remove_google_drive_connections_of_former_member",
+    "aad_enforce_takeoff_job_preparation",
+    "enforce_takeoff_preparation_write",
+    "enforce_takeoff_preparation_profile_write"
+  ],
+  "data": {
+    "googleDriveConnections": 0,
+    "driveLinkedIntakeDocuments": 0
+  },
+  "catalog": {
+    "publicFunctionsExecutableByAnon": 0,
+    "publicSecurityDefinerExecutableByAuthenticated": 70
+  },
+  "advisors": {
+    "checkedAtUtc": "2026-10-29T09:44:03Z",
+    "newWarnings": 0,
+    "rlsEnabledNoPolicy": {
+      "before": 21,
+      "after": 23,
+      "added": [
+        "private.affaire_plan_presence_state",
+        "private.google_drive_connection_secrets"
+      ]
+    },
+    "authenticatedSecurityDefinerExecutable": 70,
+    "leakedPasswordProtectionDisabled": 1
+  },
+  "limits": [
+    "No deployment in this receipt; main d0e3476 is deployable as far as the database is concerned.",
+    "Real Google Drive OAuth is not enabled and needs its own go.",
+    "No functional journey was run on the shared project; function bodies were not compared one by one with the source, identity rests on the stored statement SHA-256."
+  ]
+}
