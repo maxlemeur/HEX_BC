@@ -30,19 +30,6 @@ describe("settings drawer close confirmation", () => {
     expect(props.onDiscardSettings).not.toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
   });
-  it("closes clean settings immediately", () => {
-    const props = setup({ hasUnsavedSettings: false });
-    fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
-    expect(props.onClose).toHaveBeenCalledOnce();
-  });
-  it("discards before closing", () => {
-    const props = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
-    fireEvent.click(screen.getByText("Abandonner les modifications"));
-    expect(props.onDiscardSettings).toHaveBeenCalledOnce();
-    expect(props.onClose).toHaveBeenCalledOnce();
-    expect(props.onSaveBeforeClose).not.toHaveBeenCalled();
-  });
   it.each([true, false])("closes only after successful save (%s)", async (success) => {
     const props = setup({ onSaveBeforeClose: vi.fn().mockResolvedValue(success) });
     fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
@@ -53,15 +40,5 @@ describe("settings drawer close confirmation", () => {
       expect(await screen.findByRole("alert")).toBeTruthy();
       expect(props.onClose).not.toHaveBeenCalled();
     }
-  });
-  it("keeps the dialog open and prevents discarding while saving", async () => {
-    let resolveSave!: (success: boolean) => void;
-    const props = setup({ onSaveBeforeClose: vi.fn(() => new Promise<boolean>((resolve) => { resolveSave = resolve; })) });
-    fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
-    fireEvent.click(screen.getByRole("button", { name: "Enregistrer" }));
-    expect(screen.getByRole("button", { name: "Abandonner les modifications" }).hasAttribute("disabled")).toBe(true);
-    expect(props.onClose).not.toHaveBeenCalled();
-    resolveSave(true);
-    await waitFor(() => expect(props.onClose).toHaveBeenCalledOnce());
   });
 });

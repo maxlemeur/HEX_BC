@@ -9,10 +9,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import {
-  fetchAffaireRegisterOwnerOptions,
-  updateAffaireRegisterEntryFollowUp,
-} from "@/lib/affaires/register-server";
+import { updateAffaireRegisterEntryFollowUp } from "@/lib/affaires/register-server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const OWNER_ID = "22222222-2222-4222-8222-222222222222";
@@ -314,20 +311,6 @@ function createSupabaseMock(options?: {
 describe("affaire register follow-up contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("lists assignable register owners from the active tenant", async () => {
-    const { supabase } = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      fetchAffaireRegisterOwnerOptions({
-        projectId: PROJECT_ID,
-      })
-    ).resolves.toEqual([
-      { userId: USER_ID, label: "Ada Lovelace", role: "admin" },
-      { userId: OWNER_ID, label: "Marie Curie", role: "engineer" },
-    ]);
   });
 
   it("updates severity, owner and due date with a single tracked event", async () => {

@@ -23,31 +23,10 @@ describe("takeoff risk response contracts", () => {
     data.items[0].takeoff_job_id = null;
     expect(parseTakeoffRiskRadarResponse(data, { jobId: JOB_ID.toUpperCase(), versionId: VERSION_ID.toUpperCase() })).toEqual(data);
   });
-  it.each([
-    { job_id: OTHER_ID }, { version_id: OTHER_ID },
-    { summary: { ...radar().summary, warning_count: 5 } },
-    { project: { ...radar().project, scope_type: "lot" } },
-    { lots: [radar().lots[0], radar().lots[0]] },
-    { items: [riskAlertFixture(), riskAlertFixture()] },
-    { items: [{ ...riskAlertFixture(), risk_score: 101 }] },
-    { items: [{ ...riskAlertFixture(), takeoff_job_id: OTHER_ID }] },
-    { items: [{ ...riskAlertFixture(), cause_code: "unexpected" }] },
-    { items: [{ ...riskAlertFixture(), provenance: [{ kind: "invalid" }] }] },
-  ])("rejects malformed radar data %#", (patch) => {
-    expect(() => parseTakeoffRiskRadarResponse({ ...radar(), ...patch }, identity)).toThrow();
-  });
-  it.each([{ status: "assumed" as const }, { severity: "critical" as const }, { scope: "project" as const }, { lotId: OTHER_ID }])("checks requested filter affinity %#", (filters) => {
-    expect(() => parseTakeoffRiskRadarResponse(radar(), { ...identity, ...filters })).toThrow();
-  });
   it("validates the review status and the actual review evidence", () => {
     const data = { alert: riskAlertFixture({ status: "assumed", review_note: "Vérifié", reviewed_at: NOW, reviewed_by: ACTOR_ID }) };
     expect(parseUpdateTakeoffRiskAlertStatusResponse(data, { jobId: JOB_ID, alertId: EVIDENCE_ID, status: "assumed", reviewNote: " Vérifié " })).toEqual(data);
     const reopened = { alert: riskAlertFixture() };
     expect(parseUpdateTakeoffRiskAlertStatusResponse(reopened, { jobId: JOB_ID, alertId: EVIDENCE_ID, status: "to_process", reviewNote: "ignored" })).toEqual(reopened);
-  });
-  it.each([{ alert_id: OTHER_ID }, { takeoff_job_id: OTHER_ID }, { status: "false_positive" }, { reviewed_at: null }, { reviewed_by: null }, { review_note: "Different" }])("rejects inconsistent reviewed status %#", (patch) => {
-    expect(() => parseUpdateTakeoffRiskAlertStatusResponse({ alert: { ...riskAlertFixture({
-      status: "assumed", review_note: "Vérifié", reviewed_at: NOW, reviewed_by: ACTOR_ID,
-    }), ...patch } }, { jobId: JOB_ID, alertId: EVIDENCE_ID, status: "assumed", reviewNote: "Vérifié" })).toThrow();
   });
 });

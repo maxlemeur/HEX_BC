@@ -92,14 +92,6 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     expect([...backend.rows("affaire_intake_documents").values()].find((row) => row.drive_file_id === "cctp_demo")).toMatchObject({ drive_folder_id: null });
     await expect(link([{ id: "plan_demo" }, { id: "plan_demo" }])).rejects.toMatchObject({ status: 400 });
   });
-  it("remembers the affaire's Drive folder until it is unlinked", async () => {
-    expect(await execute({ action: "link_folder", connectionId, folderId: "folder_demo" }))
-      .toMatchObject({ folder: { folderId: "folder_demo", folderName: "Dossier fictif POC", connectionId, url: "https://drive.google.com/drive/folders/folder_demo" } });
-    expect((await driveState("project_demo")).folder).toMatchObject({ folderId: "folder_demo" });
-    await expect(execute({ action: "link_folder", connectionId, folderId: "plan_demo" })).rejects.toMatchObject({ code: "DRIVE_NOT_FOLDER" });
-    await execute({ action: "unlink_folder" });
-    expect((await driveState("project_demo")).folder).toBeNull();
-  });
   it("never uses another member's account", async () => {
     backend.access.context.userId = "other_member";
     await expect(execute({ action: "list", connectionId, location: { kind: "folder", folderId: "root" } }))

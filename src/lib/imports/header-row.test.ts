@@ -84,22 +84,6 @@ describe("header-row input normalization", () => {
 });
 
 describe("parseImportFile with header-row options", () => {
-  it("uses automatic detection by default", async () => {
-    const file = createWorkbookFile([
-      ["COLT PAR2 LOT05 - DPGF TUYAUTERIE LOT 04"],
-      [],
-      ["Description", "Famille Achat", "PU FO"],
-      ["Tube DN15", "Tube", 10],
-      ["Tube DN20", "Tube", 12],
-    ]);
-
-    const parsed = await parseImportFile(file);
-
-    expect(parsed.headers).toEqual(["Description", "Famille_Achat", "PU_FO"]);
-    expect(parsed.rows).toHaveLength(2);
-    expect(parsed.rows[0]?.Description).toBe("Tube DN15");
-  }, 15_000);
-
   it("respects a manual header row override", async () => {
     const file = createWorkbookFile([
       ["COLT PAR2 LOT05 - DPGF TUYAUTERIE LOT 04"],

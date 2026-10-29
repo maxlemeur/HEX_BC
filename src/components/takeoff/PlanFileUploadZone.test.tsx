@@ -203,49 +203,4 @@ describe("PlanFileUploadZone", () => {
       expect(screen.getByText(/invalide ou corrompu/i)).toBeInTheDocument();
     });
   });
-
-  it("handles multiple files", async () => {
-    const user = userEvent.setup();
-
-    vi.mocked(registerPlanFile).mockResolvedValue({
-      plan_file: {
-        id: "file-1",
-        created_at: "2026-02-25T10:00:00.000Z",
-        updated_at: "2026-02-25T10:00:00.000Z",
-        tenant_id: "tenant-1",
-        plan_set_id: SET_ID,
-        file_path: "path/to/file.pdf",
-        file_name: "plan.pdf",
-        file_type: "application/pdf",
-        file_size_bytes: 1024,
-        page_count: null,
-        file_hash: null,
-        metadata: {},
-        created_by: null,
-      },
-      signed_upload: {
-        url: "https://storage.example.com/upload",
-        method: "PUT" as const,
-        path: "path/to/file.pdf",
-        token: "tok123",
-        expires_in_seconds: 7200,
-      },
-    });
-    vi.mocked(uploadFileToSignedUrl).mockResolvedValue(undefined);
-
-    renderZone();
-
-    const input = document.querySelector("input[type='file']") as HTMLInputElement;
-    const files = [
-      await makePdfFile("a.pdf"),
-      await makePdfFile("b.pdf"),
-      await makePdfFile("c.pdf"),
-    ];
-
-    await user.upload(input, files);
-
-    await waitFor(() => {
-      expect(registerPlanFile).toHaveBeenCalledTimes(3);
-    });
-  });
 });

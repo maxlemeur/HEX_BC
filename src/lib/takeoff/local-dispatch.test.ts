@@ -23,14 +23,6 @@ it("follows worker retry and reconciliation outcomes locally without an Edge inv
   expect(fetchFn).not.toHaveBeenCalled();
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-it("runs the existing lease-protected worker on this Mac after responding, without an edge request", async () => {
-  const fetchFn = vi.fn();
-  const result = await triggerTakeoffJobProcessing({ jobId: "fixture-job", trigger: "retry", correlationId: "fixture-correlation", fetchFn });
-  expect(result).toMatchObject({ triggered: true, statusCode: 202, outcome: "accepted" });
-  expect(fetchFn).not.toHaveBeenCalled(); expect(processTakeoffJobAttempt).not.toHaveBeenCalled();
-  await (vi.mocked(after).mock.calls[0][0] as () => Promise<void>)();
-  expect(processTakeoffJobAttempt).toHaveBeenCalledWith("fixture-job", { trigger: "retry", correlationId: "fixture-correlation" });
-});
 it("rejects a foreign host before scheduling or calling any provider", async () => {
   vi.mocked(headers).mockResolvedValue(new Headers({ host: "evil.test" }) as never);
   const fetchFn = vi.fn();

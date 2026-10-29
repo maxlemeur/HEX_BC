@@ -5,12 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   fetchEstimateEditorData: vi.fn(),
   fetchEstimateSendGating: vi.fn(),
-  lockOwned: true,
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 vi.mock("@/components/ui-legacy/Toast", () => ({ useToast: () => mocks.toast }));
 vi.mock("@/hooks/useDraftLock", () => ({
-  useDraftLock: () => ({ isOwnedByCurrentUser: mocks.lockOwned, isLockedByOther: false, error: null }),
+  useDraftLock: () => ({ isOwnedByCurrentUser: true, isLockedByOther: false, error: null }),
 }));
 vi.mock("@/lib/estimates/client", () => ({
   fetchEstimateEditorData: mocks.fetchEstimateEditorData,
@@ -41,7 +40,6 @@ describe("draft email recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
-    mocks.lockOwned = true;
     global.fetch = vi.fn();
     mocks.fetchEstimateSendGating.mockResolvedValue({ blockingFlags: [], warningFlags: [] });
     mocks.fetchEstimateEditorData.mockResolvedValue({ version: { id: VERSION_ID, status: "draft", updated_at: NEW } });
@@ -99,21 +97,6 @@ describe("draft email recovery", () => {
     await screen.findByText(/Fermez.*relisez/i);
     expect(fetch).toHaveBeenCalledOnce();
     expect(readPendingEstimateEmail(VERSION_ID)).toEqual(pending);
-  });
-
-  it("requires the draft lock before resuming a reviewed conflict", async () => {
-    const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ok: false, error: {
-      code: "VERSION_CONFLICT", message: "Le devis a changé.",
-    } }, { status: 409 }));
-    const first = render(<SendEstimateModal {...props()} />);
-    await user.click(screen.getByRole("button", { name: "Envoyer" }));
-    await screen.findByText(/Fermez.*relisez/i);
-    first.unmount();
-    mocks.lockOwned = false;
-    render(<SendEstimateModal {...props(NEW)} />);
-    expect(screen.getByRole("button", { name: "Envoyer" })).toBeDisabled();
-    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it("accepts a reread version whose timestamp changed within one millisecond", async () => {

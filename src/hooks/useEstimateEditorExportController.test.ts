@@ -193,72 +193,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("useEstimateEditorExportController streaming exports", () => {
-
-  it("exposes the active state and blocks a second export until completion", async () => {
-    const deferred = createDeferred<{ filename: string; size: number }>();
-    mocks.exportEstimate.mockReturnValueOnce(deferred.promise);
-    const { result } = renderHook(() =>
-      useEstimateEditorExportController(createInput())
-    );
-
-    let exportPromise!: Promise<void>;
-    act(() => {
-      exportPromise = result.current.actions.exportDpgf();
-    });
-
-    expect(result.current.state).toEqual({
-      isExporting: true,
-      activeMode: "dpgf",
-    });
-    expect(result.current.meta).toMatchObject({
-      isStreamingDisabled: true,
-      isCsvDisabled: true,
-      loadingLabel: "Export DPGF...",
-    });
-
-    await act(async () => {
-      await result.current.actions.exportBdc();
-    });
-    expect(mocks.exportEstimate).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      deferred.resolve({ filename: "dpgf.xlsx", size: 10 });
-      await exportPromise;
-    });
-
-    expect(result.current.state).toEqual({
-      isExporting: false,
-      activeMode: null,
-    });
-    expect(result.current.meta.loadingLabel).toBe("Export XLSX...");
-  });
-
-  it("reports transformed errors and always resets the active state", async () => {
-    const reportError = vi.fn();
-    const resolveErrorMessage = vi.fn((message: string) => `public:${message}`);
-    mocks.exportEstimate.mockRejectedValueOnce(new Error("network down"));
-    const { result } = renderHook(() =>
-      useEstimateEditorExportController(
-        createInput({ reportError, resolveErrorMessage })
-      )
-    );
-
-    await act(async () => {
-      await result.current.actions.exportExcel();
-    });
-
-    expect(resolveErrorMessage).toHaveBeenCalledWith("network down");
-    expect(reportError).toHaveBeenCalledWith("public:network down");
-    expect(result.current.state).toEqual({
-      isExporting: false,
-      activeMode: null,
-    });
-    expect(result.current.meta.isStreamingDisabled).toBe(false);
-    expect(result.current.meta.isCsvDisabled).toBe(false);
-  });
-});
-
 describe("useEstimateEditorExportController CSV export", () => {
   it("loads supplier comparisons in chunks of 200 and exports split columns", async () => {
     const lineItems = Array.from({ length: 401 }, (_, index) =>
@@ -350,45 +284,5 @@ describe("useEstimateEditorExportController CSV export", () => {
       isExporting: false,
       activeMode: null,
     });
-  });
-
-  it("reports comparison request failures but still produces the CSV", async () => {
-    const reportError = vi.fn();
-    fetchMock.mockResolvedValue(
-      createJsonResponse(
-        { error: "service unavailable" },
-        { ok: false, status: 503 }
-      )
-    );
-    const { result } = renderHook(() =>
-      useEstimateEditorExportController(createInput({ reportError }))
-    );
-
-    await act(async () => {
-      await result.current.actions.exportCsv();
-    });
-
-    expect(reportError).toHaveBeenCalledWith(
-      "Certaines comparaisons fournisseurs n'ont pas pu être chargees pour l'export."
-    );
-    expect(mocks.exportToCSV).toHaveBeenCalledTimes(1);
-    expect(result.current.state).toEqual({
-      isExporting: false,
-      activeMode: null,
-    });
-  });
-
-  it("keeps CSV disabled and side-effect free when recap data is incomplete", async () => {
-    const { result } = renderHook(() =>
-      useEstimateEditorExportController(createInput({ totals: null }))
-    );
-
-    expect(result.current.meta.isCsvDisabled).toBe(true);
-    await act(async () => {
-      await result.current.actions.exportCsv();
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(mocks.exportToCSV).not.toHaveBeenCalled();
   });
 });

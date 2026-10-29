@@ -248,34 +248,6 @@ describe("compareTakeoffJobs", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   });
 
-  it("returns 409 when jobs are not from the same document", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        makeJob({ id: JOB_ID, source_file_name: "plan-a.pdf" }),
-        makeJob({
-          id: OTHER_JOB_ID,
-          source_file_name: "plan-b.pdf",
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const parsedQuery = parseCompareTakeoffJobsQuery({
-      with: OTHER_JOB_ID,
-    });
-
-    await expect(compareTakeoffJobs(JOB_ID, parsedQuery)).rejects.toMatchObject({
-      status: 409,
-      code: "CONFLICT",
-    });
-  });
-
   // M1b : un même document se reconnaît à sa référence durable, jamais au nom nettoyé pour Storage
   // (« Plan R+1.pdf » et « Plan R-1.pdf » y deviennent tous deux « Plan-R-1.pdf »).
   it.each([

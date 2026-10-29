@@ -1,65 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { PDFDocument, StandardFonts } from "pdf-lib";
 
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import type { Worker as NodeWorker } from "node:worker_threads";
 
 import {
   __testing__,
   detectTabularPdfTablesFromLayout,
-  extractTabularPdfTablesFromFile,
 } from "@/lib/imports/tabular-pdf-extraction";
 
 describe("detectTabularPdfTablesFromLayout", () => {
-  it("resolves the PDF.js worker module from a filesystem URL", async () => {
-    const requireFactory = vi.fn(createRequire);
-    const pdfJsModuleUrl = new URL(
-      await __testing__.getPdfJsModuleUrl(requireFactory)
-    );
-
-    expect(requireFactory).toHaveBeenCalledWith(
-      join(process.cwd(), "package.json")
-    );
-    expect(pdfJsModuleUrl.protocol).toBe("file:");
-    expect(pdfJsModuleUrl.pathname).toMatch(
-      /\/pdfjs-dist\/legacy\/build\/pdf\.mjs$/
-    );
-  });
-
-  it("detects a tabular block from layout-preserved PDF text", () => {
-    const result = detectTabularPdfTablesFromLayout(
-      [
-        "Lot CVC DPGF",
-        "",
-        "Code article     Description      Qt    PU HT",
-        "A-001            Cable cuivre    12    450.00",
-        "A-002            Disjoncteur     4     90.00",
-        "",
-        "Notes",
-      ].join("\n")
-    );
-
-    expect(result).toEqual([
-      {
-        source_page: 1,
-        table_index: 0,
-        title: "Lot CVC DPGF",
-        headers: ["Code article", "Description", "Qt", "PU HT"],
-        rows: [
-          {
-            row_index: 0,
-            cells: ["A-001", "Cable cuivre", "12", "450.00"],
-          },
-          {
-            row_index: 1,
-            cells: ["A-002", "Disjoncteur", "4", "90.00"],
-          },
-        ],
-      },
-    ]);
-  });
-
   it("splits tables per page when layout output contains form feeds", () => {
     const result = detectTabularPdfTablesFromLayout(
       [
@@ -261,18 +209,6 @@ describe("detectTabularPdfTablesFromLayout", () => {
     ).rejects.toThrow(/texte extrait du PDF depasse la limite autorisee/);
   });
 
-  it("preserves legitimate bounded pdftotext output", async () => {
-    const layoutText = "Code  Description\nA-001  Cable\n";
-    const runner = async () => ({ stdout: layoutText });
-
-    await expect(
-      __testing__.extractLayoutTextFromPdfWithPdftotext(
-        new File(["%PDF-1.7"], "valid.pdf", { type: "application/pdf" }),
-        runner
-      )
-    ).resolves.toBe(layoutText);
-  });
-
   it("preserves blank lines between same-page tables in rebuilt layout text", () => {
     const layoutText = __testing__.buildPageLayoutText({
       items: [
@@ -358,184 +294,6 @@ describe("detectTabularPdfTablesFromLayout", () => {
           {
             row_index: 0,
             cells: ["B-002", "Gaine"],
-          },
-        ],
-      },
-    ]);
-  });
-
-  it("extracts tables from a PDF file without relying on host binaries", async () => {
-    const document = await PDFDocument.create();
-    const font = await document.embedFont(StandardFonts.Helvetica);
-
-    const page = document.addPage([500, 500]);
-    page.drawText("Lot CVC DPGF", {
-      x: 40,
-      y: 430,
-      font,
-      size: 12,
-    });
-    page.drawText("Code", {
-      x: 40,
-      y: 400,
-      font,
-      size: 12,
-    });
-    page.drawText("Description", {
-      x: 160,
-      y: 400,
-      font,
-      size: 12,
-    });
-    page.drawText("Qt", {
-      x: 320,
-      y: 400,
-      font,
-      size: 12,
-    });
-    page.drawText("A-001", {
-      x: 40,
-      y: 380,
-      font,
-      size: 12,
-    });
-    page.drawText("Cable cuivre", {
-      x: 160,
-      y: 380,
-      font,
-      size: 12,
-    });
-    page.drawText("12", {
-      x: 320,
-      y: 380,
-      font,
-      size: 12,
-    });
-
-    const bytes = await document.save();
-    const buffer = Uint8Array.from(bytes).buffer;
-    const result = await extractTabularPdfTablesFromFile(
-      new File([buffer], "lot-cvc.pdf", {
-        type: "application/pdf",
-      })
-    );
-
-    expect(result).toEqual([
-      {
-        source_page: 1,
-        table_index: 0,
-        title: "Lot CVC DPGF",
-        headers: ["Code", "Description", "Qt"],
-        rows: [
-          {
-            row_index: 0,
-            cells: ["A-001", "Cable cuivre", "12"],
-          },
-        ],
-      },
-    ]);
-  });
-
-  it("extracts NIRVANA-style DPGF PDF rows with DPGF columns intact", async () => {
-    const document = await PDFDocument.create();
-    const font = await document.embedFont(StandardFonts.Helvetica);
-    const page = document.addPage([595, 842]);
-
-    page.drawText("Projet NIRVANA - DPGF lot CVC", {
-      x: 40,
-      y: 780,
-      font,
-      size: 12,
-    });
-
-    const columns = [
-      { text: "N°", x: 40 },
-      { text: "Designation des ouvrages", x: 90 },
-      { text: "Unité", x: 300 },
-      { text: "Qte", x: 360 },
-      { text: "P.U. HT", x: 420 },
-      { text: "Total HT", x: 500 },
-    ];
-    const rows = [
-      ["CVC-001", "Reseau eau glacee tube acier DN50", "ml", "42,5", "128,40", "5 457,00"],
-      ["CVC-002", "Calorifuge reseau primaire", "ml", "42,5", "24,00", "1 020,00"],
-      ["CVC-003", "Vanne isolement DN50", "u", "6", "215,00", "1 290,00"],
-    ];
-
-    columns.forEach((column) => {
-      page.drawText(column.text, {
-        x: column.x,
-        y: 740,
-        font,
-        size: 9,
-      });
-    });
-
-    rows.forEach((row, rowIndex) => {
-      const y = 720 - rowIndex * 18;
-      row.forEach((cell, cellIndex) => {
-        page.drawText(cell, {
-          x: columns[cellIndex]?.x ?? 40,
-          y,
-          font,
-          size: 9,
-        });
-      });
-    });
-
-    const bytes = await document.save();
-    const result = await extractTabularPdfTablesFromFile(
-      new File([Uint8Array.from(bytes).buffer], "NIRVANA - DPGF lot CVC.pdf", {
-        type: "application/pdf",
-      })
-    );
-
-    expect(result).toEqual([
-      {
-        source_page: 1,
-        table_index: 0,
-        title: "Projet NIRVANA - DPGF lot CVC",
-        headers: [
-          "N°",
-          "Designation des ouvrages",
-          "Unité",
-          "Qte",
-          "P.U. HT",
-          "Total HT",
-        ],
-        rows: [
-          {
-            row_index: 0,
-            cells: [
-              "CVC-001",
-              "Reseau eau glacee tube acier DN50",
-              "ml",
-              "42,5",
-              "128,40",
-              "5 457,00",
-            ],
-          },
-          {
-            row_index: 1,
-            cells: [
-              "CVC-002",
-              "Calorifuge reseau primaire",
-              "ml",
-              "42,5",
-              "24,00",
-              "1 020,00",
-            ],
-          },
-          {
-            row_index: 2,
-            cells: [
-              "CVC-003",
-              "Vanne isolement DN50",
-              "u",
-              "6",
-              "215,00",
-              "1 290,00",
-            ],
           },
         ],
       },

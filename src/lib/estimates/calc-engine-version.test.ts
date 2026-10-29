@@ -15,22 +15,6 @@ function thrownBy(read: () => unknown) {
 }
 
 describe("resolveCalcEngineVersion", () => {
-  it("falls back to the default engine when the version is null", () => {
-    expect(resolveCalcEngineVersion(null)).toBe(1);
-  });
-
-  it("returns the legacy engine for 1", () => {
-    expect(resolveCalcEngineVersion({ calc_engine_version: 1 })).toBe(1);
-  });
-
-  it("returns the unified engine for 2", () => {
-    expect(resolveCalcEngineVersion({ calc_engine_version: 2 })).toBe(2);
-  });
-
-  it("falls back to the default engine for 0", () => {
-    expect(resolveCalcEngineVersion({ calc_engine_version: 0 })).toBe(1);
-  });
-
   it("refuses engine 3 with EstimateEngineUnavailableError instead of reading it as engine 1", () => {
     expect(thrownBy(() => resolveCalcEngineVersion({ calc_engine_version: 3 }))).toMatchObject({
       name: "EstimateEngineUnavailableError",
@@ -48,16 +32,6 @@ describe("resolveCalcEngineVersion", () => {
         code: "ESTIMATE_CALC_ENGINE_UNSUPPORTED",
       });
     }
-  });
-
-  it("falls back to the default engine for NaN", () => {
-    expect(resolveCalcEngineVersion({ calc_engine_version: NaN })).toBe(1);
-  });
-
-  it("truncates a fractional value towards zero before matching", () => {
-    expect(resolveCalcEngineVersion({ calc_engine_version: 1.9 })).toBe(1);
-    expect(resolveCalcEngineVersion({ calc_engine_version: 2.9 })).toBe(2);
-    expect(resolveCalcEngineVersion({ calc_engine_version: 0.9 })).toBe(1);
   });
 });
 

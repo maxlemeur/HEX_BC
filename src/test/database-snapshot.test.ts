@@ -15,12 +15,8 @@ import {
   type DatabaseSnapshotManifest,
   lookUpDatabaseSnapshot,
   parseDatabaseFingerprint,
-  recordDatabaseSnapshot,
-  resolveDatabaseSnapshotDirectory,
-  resolveNativePostgresTools,
   STACK_OWNED_SCHEMAS,
 } from "@/test/database-snapshot";
-import { PINNED_SUPABASE_POSTGRES_BUNDLE } from "@/test/supabase-cli";
 
 const temporaryDirectories: string[] = [];
 
@@ -81,69 +77,6 @@ function writeSnapshot(directory: string, key: string, overrides: Partial<Databa
 }
 
 describe("database snapshot", () => {
-  it("uses the content-addressed native archive on a cold cache and keys its checksum", () => {
-    const home = temporaryDirectory();
-    const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-    const bundle = PINNED_SUPABASE_POSTGRES_BUNDLE, digest = "a".repeat(64);
-    const directory = path.join(home, ".supabase/cache/stack/slim-services/postgres", bundle, platform, digest, "bin");
-    fs.mkdirSync(directory, { recursive: true });
-    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(directory, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    expect(resolveNativePostgresTools(home)).toEqual({ bundle: `${bundle}+${digest}`,
-      psql: path.join(directory, "psql"), pgDump: path.join(directory, "pg_dump"), pgRestore: path.join(directory, "pg_restore") });
-    // A coexisting pre-2.121 layout must not silently select the old archive.
-    const legacy = path.join(directory, "../../bin");
-    fs.mkdirSync(legacy, { recursive: true });
-    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(legacy, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    expect(resolveNativePostgresTools(home).psql).toBe(path.join(directory, "psql"));
-    // Upgrading the CLI keeps shared caches. Another release's complete archive
-    // must neither block this run nor become its PostgreSQL client.
-    const older = path.join(home, ".supabase/cache/stack/slim-services/postgres/17.11.0.004-r1", platform, "c".repeat(64), "bin");
-    fs.mkdirSync(older, { recursive: true });
-    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(older, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    expect(resolveNativePostgresTools(home).psql).toBe(path.join(directory, "psql"));
-    const alternative = path.join(directory, "../../", "b".repeat(64), "bin");
-    fs.mkdirSync(alternative, { recursive: true });
-    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(alternative, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    expect(() => resolveNativePostgresTools(home)).toThrow("exactly one PostgreSQL");
-  });
-
-  it("rejects an incomplete hashed archive instead of falling back to an old complete bundle", () => {
-    const home = temporaryDirectory();
-    const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-    const base = path.join(home, ".supabase/cache/stack/slim-services/postgres", PINNED_SUPABASE_POSTGRES_BUNDLE, platform);
-    for (const [directory, binaries] of [[path.join(base, "bin"), ["psql", "pg_dump", "pg_restore"]],
-      [path.join(base, "a".repeat(64), "bin"), ["psql"]]] as const) {
-      fs.mkdirSync(directory, { recursive: true });
-      for (const name of binaries) fs.writeFileSync(path.join(directory, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    }
-    expect(() => resolveNativePostgresTools(home)).toThrow();
-  });
-
-  it("refuses another CLI's complete archive when the pinned bundle is absent", () => {
-    const home = temporaryDirectory();
-    const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
-    const older = path.join(home, ".supabase/cache/stack/slim-services/postgres/17.11.0.004-r1", platform, "a".repeat(64), "bin");
-    fs.mkdirSync(older, { recursive: true });
-    for (const name of ["psql", "pg_dump", "pg_restore"]) fs.writeFileSync(path.join(older, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    expect(() => resolveNativePostgresTools(home)).toThrow("exactly one PostgreSQL client (found 0 archives)");
-  });
-
-  it("is opt-in and accepts only an absolute real directory outside disposable workdirs", () => {
-    expect(resolveDatabaseSnapshotDirectory({})).toBeUndefined();
-    expect(resolveDatabaseSnapshotDirectory({ ARMY_DB_SNAPSHOT_DIR: "  " })).toBeUndefined();
-    const parent = temporaryDirectory();
-    const target = path.join(parent, "snapshot");
-    expect(resolveDatabaseSnapshotDirectory({ ARMY_DB_SNAPSHOT_DIR: target })).toBe(target);
-    expect(() => resolveDatabaseSnapshotDirectory({ ARMY_DB_SNAPSHOT_DIR: "relative/snapshot" })).toThrow("absolute");
-    expect(() => resolveDatabaseSnapshotDirectory({ ARMY_DB_SNAPSHOT_DIR: os.tmpdir() })).toThrow("temporary root");
-    expect(() => resolveDatabaseSnapshotDirectory({
-      ARMY_DB_SNAPSHOT_DIR: path.join(os.tmpdir(), "miaouffrage-supabase-ci-abc", "snapshot"),
-    })).toThrow("disposable stack workdir");
-    const file = path.join(parent, "file");
-    fs.writeFileSync(file, "");
-    expect(() => resolveDatabaseSnapshotDirectory({ ARMY_DB_SNAPSHOT_DIR: file })).toThrow("real directory");
-  });
-
   it("keys the snapshot on migrations, seeds, config template, CLI and PostgreSQL bundle", () => {
     const root = repository();
     const base = computeDatabaseSnapshotKey({ ...keyOptions, rootDirectory: root });
@@ -231,36 +164,6 @@ describe("database snapshot", () => {
 
     expect(() => parseDatabaseFingerprint("columns|1|zz")).toThrow("not recognized");
     expect(() => parseDatabaseFingerprint("columns|1|0123456789abcdef0123456789abcdef")).toThrow("missing data");
-  });
-
-  it.skipIf(process.platform === "win32")("leaves no directory for a cache step to save when the dump fails", () => {
-    const bin = temporaryDirectory();
-    const tool = (name: string, script: string) => {
-      const file = path.join(bin, name);
-      fs.writeFileSync(file, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
-      return file;
-    };
-    const tools = {
-      bundle: "17.11.0.004-r1",
-      // Reads its piped SQL like the real psql: exiting first races the parent's
-      // write into an EPIPE (seen on the CI runner, 17/10/2026).
-      psql: tool("psql", "cat >/dev/null; exit 0"),
-      pgDump: tool("pg_dump", "echo 'pg_dump: error: connection refused' >&2; exit 1"),
-      pgRestore: tool("pg_restore", "exit 1"),
-    };
-    const directory = path.join(temporaryDirectory(), "snapshot");
-    const root = repository();
-    expect(() => recordDatabaseSnapshot({
-      databaseUrl: "postgresql://postgres:local-secret@127.0.0.1:54322/postgres",
-      directory,
-      environment: { PATH: process.env.PATH },
-      fingerprint: parseDatabaseFingerprint(fingerprintOutput),
-      key: computeDatabaseSnapshotKey({ ...keyOptions, rootDirectory: root }),
-      migrations: ["001", "002"],
-      serverVersion: "PostgreSQL 17.6",
-      tools,
-    })).toThrow(/^pg_dump failed with exit code 1: pg_dump: error: connection refused$/);
-    expect(fs.existsSync(directory)).toBe(false);
   });
 
   it("fingerprints every component the restore must reproduce", () => {

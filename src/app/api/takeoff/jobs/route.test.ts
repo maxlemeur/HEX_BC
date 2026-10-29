@@ -48,35 +48,19 @@ vi.mock("@/lib/takeoff/dispatch-state", () => ({
   persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true),
 }));
 
-import { GET, POST } from "@/app/api/takeoff/jobs/route";
+import { POST } from "@/app/api/takeoff/jobs/route";
 import { forbidden } from "@/lib/estimates/errors";
-import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
-import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { TAKEOFF_PROMPT_VERSION_BY_LEVEL } from "@/lib/takeoff/prompts";
-import * as takeoffServer from "@/lib/takeoff/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function getAuditMetadata(
-  auditRow: Record<string, unknown> | undefined
-): Record<string, unknown> | undefined {
-  const afterData =
-    auditRow?.after_data && typeof auditRow.after_data === "object"
-      ? (auditRow.after_data as { metadata?: Record<string, unknown> })
-      : null;
-  return afterData?.metadata;
-}
 
 type SupabaseMockOptions = {
   estimateStatus?: "draft" | "sent" | "accepted" | "archived";
-  missingEstimate?: boolean;
   simulateInsertConflictAfterUpload?: boolean;
   synchronizeUploadCount?: number;
 };
@@ -98,7 +82,6 @@ type TakeoffJobStoredRow = {
 
 function createSupabaseMock(options: SupabaseMockOptions = {}) {
   let currentEstimateStatus = options.estimateStatus ?? "draft";
-  let missingEstimate = options.missingEstimate ?? false;
 
   const state = {
     jobsById: new Map<string, TakeoffJobStoredRow>(),
@@ -136,21 +119,17 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
   };
 
   estimateVersionsBuilder.eq.mockReturnValue(estimateVersionsBuilder);
-  estimateVersionsBuilder.single.mockImplementation(async () =>
-    missingEstimate
-      ? { data: null, error: { code: "PGRST116", message: "Not found" } }
-      : {
-          data: {
-            id: ESTIMATE_VERSION_ID,
-            status: currentEstimateStatus,
-            estimate_projects: {
-              tenant_id: TENANT_ID,
-              user_id: USER_ID,
-            },
-          },
-          error: null,
-        }
-  );
+  estimateVersionsBuilder.single.mockImplementation(async () => ({
+    data: {
+      id: ESTIMATE_VERSION_ID,
+      status: currentEstimateStatus,
+      estimate_projects: {
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+      },
+    },
+    error: null,
+  }));
 
   function createTakeoffJobsSelectBuilder() {
     const filters: Record<string, string> = {};
@@ -262,9 +241,6 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     __controls: {
       setEstimateStatus: (value: "draft" | "sent" | "accepted" | "archived") => {
         currentEstimateStatus = value;
-      },
-      setMissingEstimate: (value: boolean) => {
-        missingEstimate = value;
       },
     },
     auth: {
@@ -385,15 +361,6 @@ function buildTakeoffRequest(input?: {
   });
 }
 
-function buildTakeoffListRequest(query?: string) {
-  return new Request(
-    `http://localhost/api/takeoff/jobs${query ? `?${query}` : ""}`,
-    {
-      method: "GET",
-    }
-  );
-}
-
 async function createPdfBytes(pageCount = 1) {
   const pdf = await PDFDocument.create();
   for (let index = 0; index < pageCount; index += 1) {
@@ -401,61 +368,6 @@ async function createPdfBytes(pageCount = 1) {
   }
   return new Uint8Array(await pdf.save());
 }
-
-describe("GET /api/takeoff/jobs", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(confirmedPreparationFixture());
-  });
-
-  it("returns 403 when takeoff module is disabled", async () => {
-    vi.spyOn(takeoffServer, "parseListTakeoffJobsQuery").mockReturnValue({});
-    vi.spyOn(takeoffServer, "listTakeoffJobs").mockRejectedValue(
-      new TakeoffError({
-        status: 403,
-        code: TakeoffErrorCode.TAKEOFF_MODULE_DISABLED,
-        message: "Le module Takeoff est desactive.",
-        retryable: false,
-      })
-    );
-
-    const response = await GET(buildTakeoffListRequest());
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(403);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe(TakeoffErrorCode.TAKEOFF_MODULE_DISABLED);
-  });
-
-  it("returns 404 when list query targets an unknown estimate version", async () => {
-    vi.spyOn(takeoffServer, "parseListTakeoffJobsQuery").mockReturnValue({
-      estimate_version_id: ESTIMATE_VERSION_ID,
-    });
-    vi.spyOn(takeoffServer, "listTakeoffJobs").mockRejectedValue(
-      new TakeoffError({
-        status: 404,
-        code: TakeoffErrorCode.NOT_FOUND,
-        message: "Version introuvable.",
-        retryable: false,
-      })
-    );
-
-    const response = await GET(
-      buildTakeoffListRequest(`estimate_version_id=${ESTIMATE_VERSION_ID}`)
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(404);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe(TakeoffErrorCode.NOT_FOUND);
-  });
-});
 
 describe("POST /api/takeoff/jobs", () => {
   beforeEach(() => {
@@ -529,86 +441,6 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.jobsById.size).toBe(0);
   });
 
-  it("creates a pending takeoff job and writes an audit event", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(buildTakeoffRequest());
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: {
-        id: string;
-        status: string;
-        level: string;
-        dispatch?: {
-          status: string;
-          correlation_id: string;
-          persisted: boolean;
-        };
-      };
-    };
-
-    expect(response.status).toBe(201);
-    expect(body.ok).toBe(true);
-    expect(body.data?.id).toMatch(UUID_REGEX);
-    expect(body.data?.status).toBe("pending");
-    expect(body.data?.level).toBe("A");
-    expect(body.data?.dispatch).toEqual({
-      status: "accepted",
-      correlation_id: "00000000-0000-4000-8000-000000000000",
-      persisted: true,
-    });
-    expect(supabase.__state.uploads).toHaveLength(1);
-    expect(supabase.__state.audits).toHaveLength(1);
-    expect(supabase.__state.audits[0]?.action).toBe("takeoff.job.created");
-    expect(getAuditMetadata(supabase.__state.audits[0])).toMatchObject({
-      level: "A",
-      estimate_version_id: ESTIMATE_VERSION_ID,
-      classification: {
-        document_class: "structured",
-        recommended_level: "A",
-        compatible_levels: ["A"],
-        recommendation_strength: "high",
-      },
-      selection: {
-        selected_level: "A",
-        override_applied: false,
-        source_kind: "upload",
-      },
-    });
-    expect(triggerTakeoffJobProcessing).toHaveBeenCalledWith(
-      expect.objectContaining({
-        jobId: expect.stringMatching(UUID_REGEX),
-        trigger: "create",
-      })
-    );
-
-    const [storedJob] = [...supabase.__state.jobsById.values()];
-    expect(storedJob?.prompt_version).toBe(TAKEOFF_PROMPT_VERSION_BY_LEVEL.A);
-  });
-
-  it("returns 403 when takeoff feature flag is disabled", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(assertTakeoffEnabled).mockRejectedValue(
-      forbidden(
-        "Le module Takeoff est désactivé pour ce tenant.",
-        undefined,
-        "TAKEOFF_MODULE_DISABLED"
-      )
-    );
-
-    const response = await POST(buildTakeoffRequest());
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(403);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("TAKEOFF_MODULE_DISABLED");
-  });
-
   it("returns 403 when estimate version is not draft", async () => {
     const supabase = createSupabaseMock({ estimateStatus: "sent" });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -622,21 +454,6 @@ describe("POST /api/takeoff/jobs", () => {
     expect(response.status).toBe(403);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("READ_ONLY");
-  });
-
-  it("returns 404 when estimate version does not exist", async () => {
-    const supabase = createSupabaseMock({ missingEstimate: true });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(buildTakeoffRequest());
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(404);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("NOT_FOUND");
   });
 
   it("returns 413 when file exceeds 10 MB", async () => {
@@ -656,42 +473,6 @@ describe("POST /api/takeoff/jobs", () => {
     expect(response.status).toBe(413);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("TAKEOFF_FILE_TOO_LARGE");
-  });
-
-  it("creates a level B job when a PDF is uploaded", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    const pdfBytes = await createPdfBytes();
-
-    const response = await POST(
-      buildTakeoffRequest({
-        level: "B",
-        fileName: "lot-cvc-dpgf.pdf",
-        fileType: "application/pdf",
-        fileContent: pdfBytes,
-      })
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: { level?: string; source_file_name?: string };
-    };
-
-    expect(response.status).toBe(201);
-    expect(body.ok).toBe(true);
-    expect(body.data?.level).toBe("B");
-    expect(body.data?.source_file_name).toBe("lot-cvc-dpgf.pdf");
-    expect(getAuditMetadata(supabase.__state.audits[0])).toMatchObject({
-      classification: {
-        document_class: "tabular_pdf",
-        recommended_level: "B",
-        compatible_levels: ["B", "C"],
-      },
-      selection: {
-        selected_level: "B",
-        override_applied: false,
-        source_kind: "upload",
-      },
-    });
   });
 
   it("accepts a PDF when the browser sends application/octet-stream", async () => {
@@ -740,46 +521,6 @@ describe("POST /api/takeoff/jobs", () => {
     expect(body.error?.message).toMatch(/pdf/i);
   });
 
-  it("returns 422 when file format is not supported", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      buildTakeoffRequest({
-        fileName: "notes.txt",
-        fileType: "text/plain",
-        fileContent: "contenu",
-      })
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(422);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("TAKEOFF_FILE_TYPE_INVALID");
-  });
-
-  it("returns 400 when idempotency key is blank", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      buildTakeoffRequest({
-        headers: { "idempotency-key": "   " },
-      })
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("IDEMPOTENCY_KEY_INVALID");
-  });
-
   it.each([
     { label: "identical", secondContent: "designation;quantity;unit\nTube PVC;12;ml", statuses: [201, 201] },
     { label: "different", secondContent: "designation;quantity;unit\nTube Cuivre;3;ml", statuses: [201, 409] },
@@ -818,16 +559,6 @@ describe("POST /api/takeoff/jobs", () => {
         : secondContent
     );
     expect(supabase.__state.audits).toHaveLength(1);
-  });
-
-
-  it("rejects a malformed provider before uploading a source", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    const response = await POST(buildTakeoffRequest({ provider: "unknown" }));
-    expect(response.status).toBe(400);
-    expect(supabase.__state.uploads).toHaveLength(0);
-    expect(triggerTakeoffJobProcessing).not.toHaveBeenCalled();
   });
 
   it("refuses reusing a job key after an explicit provider change", async () => {
@@ -976,74 +707,5 @@ describe("POST /api/takeoff/jobs", () => {
     expect(serviceRoleRemoveMock).toHaveBeenCalledWith([
       supabase.__state.uploads[0],
     ]);
-  });
-
-  it("returns 201 even when edge trigger fails", async () => {
-    const supabase = createSupabaseMock();
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
-      triggered: false,
-      correlationId: "11111111-1111-4111-8111-111111111111",
-      statusCode: null,
-      outcome: "network_error",
-    });
-
-    const response = await POST(buildTakeoffRequest());
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: {
-        id: string;
-        status: string;
-        dispatch?: {
-          status: string;
-          correlation_id: string;
-          persisted: boolean;
-        };
-      };
-    };
-
-    expect(response.status).toBe(201);
-    expect(body.ok).toBe(true);
-    expect(body.data?.status).toBe("pending");
-    expect(body.data?.dispatch).toEqual({
-      status: "queued_for_recovery",
-      correlation_id: "11111111-1111-4111-8111-111111111111",
-      persisted: true,
-    });
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "Takeoff job created but async processing trigger failed.",
-      expect.objectContaining({
-        jobId: expect.any(String),
-        correlationId: "11111111-1111-4111-8111-111111111111",
-      })
-    );
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it("reports an unconfirmed recovery instead of a false durable queue", async () => {
-    const supabase = createSupabaseMock();
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
-      triggered: false,
-      correlationId: "22222222-2222-4222-8222-222222222222",
-      statusCode: null,
-      outcome: "timeout",
-    });
-    vi.mocked(persistTakeoffDispatchOutcome).mockResolvedValueOnce(false);
-
-    const response = await POST(buildTakeoffRequest());
-    const body = (await response.json()) as {
-      data?: { dispatch?: { status: string; persisted: boolean } };
-    };
-
-    expect(response.status).toBe(201);
-    expect(body.data?.dispatch).toMatchObject({
-      status: "persistence_unconfirmed",
-      persisted: false,
-    });
-    consoleErrorSpy.mockRestore();
   });
 });

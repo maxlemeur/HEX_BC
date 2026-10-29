@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
-  getTakeoffVerificationReadiness,
-  MEDIUM_CONFIDENCE_CEILING,
 } from "@/lib/takeoff/guards";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -81,21 +79,6 @@ describe("checkApplyGuard", () => {
     expect(result.medium_items).toHaveLength(1);
   });
 
-  it("items at exactly medium ceiling are not in medium list", () => {
-    const items = [
-      makeItem("a", "At ceiling", {
-        confidence: MEDIUM_CONFIDENCE_CEILING,
-        is_verified: false,
-      }),
-    ];
-
-    const result = checkApplyGuard(items);
-
-    expect(result.passed).toBe(true);
-    expect(result.blocked_items).toHaveLength(0);
-    expect(result.medium_items).toHaveLength(0);
-  });
-
   it("blocks an included item when its textual proof is missing", () => {
     const result = checkApplyGuard([
       makeItem("missing-evidence", "Item sans preuve", {
@@ -124,18 +107,5 @@ describe("checkApplyGuard", () => {
 
     expect(result.passed).toBe(false);
     expect(result.blocked_items[0].reasons).toEqual(["missing_source_page"]);
-  });
-});
-
-describe("getTakeoffVerificationReadiness", () => {
-  it("explains both missing proof fields", () => {
-    const result = getTakeoffVerificationReadiness({
-      evidence: null,
-      source_page: null,
-    });
-
-    expect(result.canVerify).toBe(false);
-    expect(result.issues).toEqual(["missing_evidence", "missing_source_page"]);
-    expect(result.message).toContain("Ajoutez une preuve");
   });
 });

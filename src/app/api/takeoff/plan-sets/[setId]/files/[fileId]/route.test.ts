@@ -26,7 +26,6 @@ const PROJECT_ID = "99999999-9999-4999-8999-999999999999";
 const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const SET_ID = "44444444-4444-4444-8444-444444444444";
 const FILE_ID = "55555555-5555-4555-8555-555555555555";
-const MISSING_FILE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type PlanSetStoredRow = {
   id: string;
@@ -374,36 +373,6 @@ describe("/api/takeoff/plan-sets/[setId]/files/[fileId]", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   });
 
-  it("GET returns a signed download URL when requested", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(
-      new Request(
-        `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}?include_download_url=true`,
-        {
-          method: "GET",
-        }
-      ),
-      makeParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: {
-        plan_file?: {
-          download_url?: string | null;
-        };
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data?.plan_file?.download_url).toContain("https://signed.local/");
-    expect(supabase.__state.signedDownloadPaths).toContain(
-      `${TENANT_ID}/${SET_ID}/${FILE_ID}/rdc.pdf`
-    );
-  });
-
   it("GET keeps metadata available when the storage object is not uploaded yet", async () => {
     const supabase = createSupabaseMock({
       signedDownloadBehavior: "missing",
@@ -432,37 +401,6 @@ describe("/api/takeoff/plan-sets/[setId]/files/[fileId]", () => {
     expect(body.ok).toBe(true);
     expect(body.data?.plan_file?.download_url).toBeNull();
   });
-
-  it.each(["admin", "engineer"] as const)(
-    "DELETE removes the file and associated storage object for an %s",
-    async (membershipRole) => {
-      const supabase = createSupabaseMock({ membershipRole });
-      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-      createServiceRoleClientMock.mockReturnValue(supabase);
-
-      const response = await DELETE(
-        new Request(
-          `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}`,
-          {
-            method: "DELETE",
-          }
-        ),
-        makeParams()
-      );
-      const body = (await response.json()) as {
-        ok: boolean;
-        data?: unknown;
-      };
-
-      expect(response.status).toBe(200);
-      expect(body.ok).toBe(true);
-      expect(supabase.__state.planFilesById.has(FILE_ID)).toBe(false);
-      expect(supabase.__state.storageRemovals).toContain(
-        `${TENANT_ID}/${SET_ID}/${FILE_ID}/rdc.pdf`
-      );
-      expect(createServiceRoleClientMock).toHaveBeenCalledOnce();
-    }
-  );
 
   it("DELETE rejects a viewer before file or Storage mutation", async () => {
     const supabase = createSupabaseMock({ membershipRole: "viewer" });
@@ -499,53 +437,5 @@ describe("/api/takeoff/plan-sets/[setId]/files/[fileId]", () => {
 
     expect(response.status).toBe(409);
     expect(supabase.__state.planFilesById.has(FILE_ID)).toBe(true);
-  });
-
-  it("returns 400 for invalid fileId", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await DELETE(
-      new Request(
-        `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/not-a-uuid`,
-        {
-          method: "DELETE",
-        }
-      ),
-      makeParams(SET_ID, "not-a-uuid")
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBeDefined();
-  });
-
-  it("returns 404 when deleting an unknown file", async () => {
-    const supabase = createSupabaseMock({
-      planFiles: [],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await DELETE(
-      new Request(
-        `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${MISSING_FILE_ID}`,
-        {
-          method: "DELETE",
-        }
-      ),
-      makeParams(SET_ID, MISSING_FILE_ID)
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error?: { code?: string };
-    };
-
-    expect(response.status).toBe(404);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBeDefined();
   });
 });

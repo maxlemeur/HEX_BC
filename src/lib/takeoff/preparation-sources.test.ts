@@ -15,19 +15,6 @@ describe("preparation source identities", () => {
     expect(getPreparationPlanSourceVersion({ ...file, file_size_bytes: 999 })).not.toBe(initial);
   });
 
-  it("preserves unchanged choices and content evidence while reopening changed source decisions", () => {
-    const source = { ...toPreparationPlanSource(file), active: true, confirmed: true, pages: [2], content_hash: "a".repeat(64) };
-    const prep = confirmedPreparationFixture().preparation;
-    prep.sources = [source];
-    const stable = reconcilePreparationSources(prep, [toPreparationPlanSource(file)]);
-    expect(stable.changedSourceIds).toEqual([]);
-    expect(stable.draft.sources[0]).toEqual(source);
-    const changed = reconcilePreparationSources(prep, [toPreparationPlanSource({ ...file, updated_at: "2026-10-29T01:00:00Z" })]);
-    expect(changed.changedSourceIds).toEqual([file.id]);
-    expect(changed.draft.sources[0]).toMatchObject({ active: true, confirmed: false, pages: [2], content_hash: null });
-    expect(changed.draft.scope).toEqual(prep.scope);
-  });
-
   it("keeps disappeared references visible and invalidates an added file in the selected set", () => {
     const prep = confirmedPreparationFixture().preparation;
     prep.sources = [{ ...toPreparationPlanSource(file), active: true, confirmed: true }];

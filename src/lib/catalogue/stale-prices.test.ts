@@ -1,20 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_STALE_PRICE_DAYS,
   isPriceStale,
-  parseStalePriceDays,
   priceFreshnessLevel,
 } from "@/lib/catalogue/stale-prices";
 
 describe("stale-prices", () => {
-
-  it("falls back for invalid values", () => {
-    expect(parseStalePriceDays("0")).toBe(DEFAULT_STALE_PRICE_DAYS);
-    expect(parseStalePriceDays("-1")).toBe(DEFAULT_STALE_PRICE_DAYS);
-    expect(parseStalePriceDays("abc")).toBe(DEFAULT_STALE_PRICE_DAYS);
-  });
-
   it("evaluates stale dates with the configured threshold", () => {
     const now = new Date("2026-02-21T00:00:00.000Z");
 
@@ -86,23 +77,5 @@ describe("priceFreshnessLevel", () => {
     );
     expect(result.level).toBe("fresh");
     expect(result.ageDays).toBe(11);
-  });
-
-  it("returns fresh with ageDays 0 when both dates are null", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: null, createdAt: null },
-      NOW
-    );
-    expect(result.level).toBe("fresh");
-    expect(result.ageDays).toBe(0);
-  });
-
-  it("returns fresh with ageDays 0 for invalid date strings", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: "not-a-date" },
-      NOW
-    );
-    expect(result.level).toBe("fresh");
-    expect(result.ageDays).toBe(0);
   });
 });

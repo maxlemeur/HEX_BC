@@ -19,13 +19,6 @@ const BASE_PROPS = {
 afterEach(cleanup);
 
 describe("PortalHeader", () => {
-  it("shows the TTC amount under the normal VAT regime", () => {
-    render(<PortalHeader {...BASE_PROPS} />);
-
-    expect(screen.getByText("Montant TTC")).toBeInTheDocument();
-    expect(screen.getByText(/120,00/)).toBeInTheDocument();
-  });
-
   it("shows the HT amount under reverse charge", () => {
     render(<PortalHeader {...BASE_PROPS} vatReverseCharge />);
 

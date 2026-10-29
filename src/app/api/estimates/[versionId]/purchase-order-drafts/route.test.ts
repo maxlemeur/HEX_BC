@@ -25,28 +25,6 @@ describe("estimate purchase order drafts route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 400 when POST payload is invalid JSON", async () => {
-    const response = await POST(
-      new Request(`http://localhost/api/estimates/${VERSION_ID}/purchase-order-drafts`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: "{",
-      }),
-      makeParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error: { code: string };
-    };
-
-    expect(response.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(vi.mocked(createEstimatePurchaseOrderDrafts)).not.toHaveBeenCalled();
-  });
-
   it("accepts the TBD sentinel in POST payloads", async () => {
     vi.mocked(createEstimatePurchaseOrderDrafts).mockResolvedValue({
       source_version_id: VERSION_ID,

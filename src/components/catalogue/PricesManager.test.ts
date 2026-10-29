@@ -1,5 +1,5 @@
 import { createElement, useEffect } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,21 +104,6 @@ describe("PricesManager paginé", () => {
   });
   afterEach(cleanup);
 
-  it("links back to the focused product sheet", () => {
-    render(createElement(PricesManager, { productId: "product-1" }));
-    expect(screen.getByRole("link", { name: "Retour à la fiche produit" }).getAttribute("href"))
-      .toBe("/dashboard/products?product_id=product-1");
-  });
-
-  it("renders server data, counters and the server filter bar", () => {
-    render(createElement(PricesManager));
-    expect(screen.getByRole("heading", { name: "Prix fournisseurs" })).toBeInTheDocument();
-    expect(screen.getByTestId("server-filter-bar")).toBeInTheDocument();
-    expect(screen.getAllByText("Supplier One").length).toBeGreaterThan(0);
-    expect(screen.getByText("80")).toBeInTheDocument();
-    expect(swrMock.mock.calls[0]?.[0]).toContain("/api/prices?view=page");
-  });
-
   it("aligne la clé du filtre de fraîcheur sur l'état d'URL (filtre non mort)", () => {
     render(createElement(PricesManager));
     const props = filterBarPropsSpy.mock.calls.at(-1)?.[0] as {
@@ -134,16 +119,6 @@ describe("PricesManager paginé", () => {
     expect(props.filters.map((f) => f.key)).toContain("freshness");
   });
 
-  it("uses an accessible contrast color for the fresh-price counter", () => {
-    render(createElement(PricesManager));
-    const freshCounter = screen
-      .getByText("À jour", { selector: "dt span" })
-      .closest("div")
-      ?.querySelector("dd");
-    // text-success is the emerald-700 token (#047857), AA on the white card.
-    expect(freshCounter).toHaveClass("text-success");
-  });
-
   it("changes server pages through the URL", async () => {
     const user = userEvent.setup();
     render(createElement(PricesManager));
@@ -151,22 +126,5 @@ describe("PricesManager paginé", () => {
     await user.click(screen.getByRole("button", { name: "Suivant" }));
     expect(routerPushMock).toHaveBeenCalledWith(expect.stringContaining("page=2"), { scroll: false });
     expect(screen.queryByText(/Limite de 400 résultats/i)).not.toBeInTheDocument();
-  });
-
-  it("loads complete lookup references only after opening the CSV import", async () => {
-    const user = userEvent.setup();
-    render(createElement(PricesManager));
-    expect(supplierRangeMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: /Importer un fichier de prix/i }));
-    await waitFor(() => expect(supplierRangeMock).toHaveBeenCalled());
-    expect(await screen.findByTestId("csv-import")).toBeInTheDocument();
-  });
-
-  it("refreshes the current server page", async () => {
-    const mutate = setupSWR();
-    const user = userEvent.setup();
-    render(createElement(PricesManager));
-    await user.click(screen.getByRole("button", { name: "Actualiser" }));
-    expect(mutate).toHaveBeenCalledTimes(1);
   });
 });

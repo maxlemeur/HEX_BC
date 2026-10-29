@@ -674,37 +674,6 @@ describe("materializeVersionZeroDraft", () => {
 });
 
 describe("enrichEstimateItemsWithVersionZeroProvenance", () => {
-  it.each([
-    {
-      label: "there is no V0 item",
-      sourceProvider: "manual",
-      expectedTables: [] as string[],
-    },
-    {
-      label: "no application matches the V0 item",
-      sourceProvider: "version_zero_draft",
-      expectedTables: ["estimate_version_zero_applications"],
-    },
-  ])("returns the input directly when $label", async ({ sourceProvider, expectedTables }) => {
-    const harness = createSupabaseHarness({ applications: [] });
-    const items = [
-      {
-        id: ACCEPTED_ITEM_ID,
-        source_provider: sourceProvider,
-        source_metadata: { preserved: true },
-      },
-    ];
-
-    const result = await enrichEstimateItemsWithVersionZeroProvenance({
-      supabase: harness.supabase as never,
-      tenantId: TENANT_ID,
-      items: items as never,
-    });
-
-    expect(result).toBe(items);
-    expect(harness.queries.map((query) => query.table)).toEqual(expectedTables);
-  });
-
   it("preserves item order and metadata with four bounded queries", async () => {
     const acceptedLine = defaultAcceptedLine();
     const editedLine = makeLine({

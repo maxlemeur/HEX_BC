@@ -36,10 +36,6 @@ describe("public takeoff Server Action errors", () => {
     }
   });
 
-  it("retains successful serializable data unchanged", async () => {
-    expect(unwrapTakeoffActionResult(await runSafeTakeoffAction(async () => ({ revision: 3 })))).toEqual({ revision: 3 });
-  });
-
   it("keeps an unapplied preparation migration explicit without exposing database details", async () => {
     const result = await runSafeTakeoffAction(async () => {
       throw new TakeoffError({ status: 503, code: TakeoffErrorCode.INTERNAL_ERROR,

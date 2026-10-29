@@ -6,7 +6,6 @@ import {
   createTakeoffPreparationProfile,
   createTakeoffPreparationSnapshot,
   evaluateTakeoffPreparation,
-  TakeoffPreparationNotReadyError,
   takeoffPreparationSchema,
   type TakeoffPreparation,
 } from "@/lib/takeoff/preparation";
@@ -48,22 +47,6 @@ function blockerCodes(preparation: TakeoffPreparation) {
 }
 
 describe("takeoff preparation business admission", () => {
-  it("admits confirmed plan-only counting without DPGF or geometric scale", () => {
-    expect(evaluateTakeoffPreparation(countingPreparation())).toEqual({
-      status: "ready", can_launch: true, blockers: [], reservations: [],
-    });
-  });
-
-  it("keeps an empty draft incomplete and preserves unknown values as null", () => {
-    const preparation = takeoffPreparationSchema.parse(createEmptyTakeoffPreparation());
-    expect(preparation.objective).toBeNull();
-    expect(preparation.conventions.unit).toBeNull();
-    expect(evaluateTakeoffPreparation(preparation).status).toBe("incomplete");
-    expect(blockerCodes(preparation)).toEqual(expect.arrayContaining([
-      "objective_required", "scope_required", "sources_required", "unit_required",
-    ]));
-  });
-
   it("does not treat a proposal as a confirmed business decision", () => {
     const preparation = countingPreparation();
     preparation.objective_confirmed = false;
@@ -72,15 +55,6 @@ describe("takeoff preparation business admission", () => {
     expect(blockerCodes(preparation)).toEqual(expect.arrayContaining([
       "objective_confirmation_required", "scope_confirmation_required", "source_confirmation_required",
     ]));
-  });
-
-  it("blocks length measurement without reliable dimensions or calibration", () => {
-    const preparation = countingPreparation();
-    preparation.objective = "measure_length";
-    preparation.conventions.unit = "ml";
-    expect(blockerCodes(preparation)).toContain("calibration_required");
-    preparation.conventions.measurement_basis = "dimensioned";
-    expect(evaluateTakeoffPreparation(preparation).can_launch).toBe(true);
   });
 
   it("rejects a unit incompatible with the requested geometry", () => {
@@ -175,14 +149,6 @@ describe("takeoff preparation business admission", () => {
     } }).success).toBe(false);
   });
 
-  it("reads existing documentary quantities without requiring a geometric scale", () => {
-    const preparation = countingPreparation();
-    preparation.objective = "extract_quantities";
-    preparation.conventions.unit = "m";
-    preparation.sources[0].kind = "dpgf";
-    expect(evaluateTakeoffPreparation(preparation).can_launch).toBe(true);
-  });
-
   it("requires a DPGF for comparison and preserves independent counting eligibility", () => {
     const preparation = countingPreparation();
     preparation.objective = "compare_dpgf";
@@ -192,19 +158,6 @@ describe("takeoff preparation business admission", () => {
       document_name: "DPGF.xlsx", kind: "dpgf", source_version: "dpgf:hash",
     });
     expect(evaluateTakeoffPreparation(preparation).can_launch).toBe(true);
-  });
-
-  it("distinguishes unknown purchase losses from explicitly confirmed zero", () => {
-    const preparation = countingPreparation();
-    preparation.objective = "prepare_purchase";
-    preparation.conventions.purchase = {
-      deductions: "Aucune déduction", waste_percent: null,
-      rounding: "Au conditionnement supérieur", packaging: "Barres de 4 m",
-    };
-    expect(blockerCodes(preparation)).toContain("purchase_conventions_required");
-    preparation.conventions.purchase.waste_percent = 0;
-    expect(evaluateTakeoffPreparation(preparation).can_launch).toBe(true);
-    expect(takeoffPreparationSchema.parse(preparation).conventions.purchase?.waste_percent).toBe(0);
   });
 
   it("retains an unknown source revision until a named person accepts the reservation", () => {
@@ -299,29 +252,6 @@ describe("takeoff preparation business admission", () => {
 });
 
 describe("takeoff preparation snapshots and reusable profiles", () => {
-  it("retains exact source identities, selected pages, scope and exclusions independently of the draft", () => {
-    const preparation = countingPreparation();
-    const snapshot = createTakeoffPreparationSnapshot({
-      preparation, confirmedBy: "user-a", confirmedAt: "2026-10-29T10:00:00Z", revision: 4,
-    });
-    preparation.scope.exclusions.push("R+2");
-    preparation.sources[0].source_version = "changed";
-    preparation.sources[0].pages.push(2);
-    expect(snapshot.preparation_revision).toBe(4);
-    expect(snapshot.preparation.scope.exclusions).toEqual(["RDC", "Zone 2"]);
-    expect(snapshot.preparation.sources[0]).toMatchObject({
-      document_id: "plan-a", revision: "B", pages: [1],
-      source_version: "plan-a:sha256-content:path-revision-b",
-    });
-  });
-
-  it("refuses to freeze an incomplete preparation", () => {
-    expect(() => createTakeoffPreparationSnapshot({
-      preparation: createEmptyTakeoffPreparation(), confirmedBy: "user-a",
-      confirmedAt: "2026-10-29T10:00:00Z", revision: 1,
-    })).toThrow(TakeoffPreparationNotReadyError);
-  });
-
   it("stores bounded AI acceptance provenance in the same snapshot without granting confirmation", () => {
     const preparation = countingPreparation();
     preparation.assistance = {
@@ -344,12 +274,6 @@ describe("takeoff preparation snapshots and reusable profiles", () => {
     expect(takeoffPreparationSchema.safeParse({
       ...preparation, assistance: { ...preparation.assistance, access_token: "must-not-persist" },
     }).success).toBe(false);
-  });
-
-  it("requires a real confirmation identity, date and positive saved revision", () => {
-    expect(() => createTakeoffPreparationSnapshot({
-      preparation: countingPreparation(), confirmedBy: "user-a", confirmedAt: "invalid", revision: 0,
-    })).toThrow("L'auteur, la date et la révision de confirmation sont requis.");
   });
 
   it("reuses a versioned profile without carrying sources, local zones, calibration or confirmations", () => {

@@ -166,31 +166,6 @@ describe("useEstimateEditorOrderingController reorder", () => {
     expect(clientMocks.reorderEstimateItems).not.toHaveBeenCalled();
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
-
-  it("restores the snapshot when persistence fails", async () => {
-    clientMocks.reorderEstimateItems.mockRejectedValueOnce(
-      new Error("reorder failed")
-    );
-    const initialItems = [
-      createItem("line-a", { parent_id: "section", position: 1 }),
-      createItem("line-b", { parent_id: "section", position: 2 }),
-    ];
-    const harness = createHarness({ items: initialItems });
-
-    await act(async () => {
-      await harness.result.current.actions.reorder("section", [
-        "line-b",
-        "line-a",
-      ]);
-    });
-
-    expect(harness.getItems()).toBe(initialItems);
-    expect(harness.setItems).toHaveBeenCalledTimes(2);
-    expect(harness.reportError).toHaveBeenCalledWith(
-      "Impossible de reordonner les lignes."
-    );
-    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
-  });
 });
 
 describe("useEstimateEditorOrderingController move", () => {

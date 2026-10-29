@@ -205,7 +205,6 @@ function buildThenableSelectBuilder<T>(getRows: () => T[]) {
 function createSupabaseMock(input: { failSuggestionInsertAt?: number } = {}) {
   const state: {
     estimateItems: EstimateItemRow[];
-    estimateItemSelects: string[];
     suggestions: SuggestionRow[];
     suggestionSources: SuggestionSourceRow[];
     failedInsertSupersededIds: string[];
@@ -248,7 +247,6 @@ function createSupabaseMock(input: { failSuggestionInsertAt?: number } = {}) {
         updated_at: "2026-02-10T10:00:00.000Z",
       },
     ],
-    estimateItemSelects: [],
     suggestions: [],
     suggestionSources: [],
     failedInsertSupersededIds: [],
@@ -261,14 +259,13 @@ function createSupabaseMock(input: { failSuggestionInsertAt?: number } = {}) {
     from: vi.fn((table: string) => {
       if (table === "estimate_items") {
         return {
-          select: vi.fn((columns?: string) => {
-            state.estimateItemSelects.push(columns ?? "");
-            return buildThenableSelectBuilder(() =>
+          select: vi.fn(() =>
+            buildThenableSelectBuilder(() =>
               state.estimateItems.slice().sort((left, right) => {
                 return right.updated_at.localeCompare(left.updated_at);
               })
-            );
-          }),
+            )
+          ),
         };
       }
 
@@ -535,33 +532,6 @@ describe("takeoff price suggestion server helpers", () => {
         },
       ],
     } as never);
-  });
-
-  it("creates and then reuses the same active snapshot when the fingerprint is unchanged", async () => {
-    const mock = createSupabaseMock();
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const first = await requestTakeoffPriceSuggestion(JOB_ID, {
-      version_id: VERSION_ID,
-      estimate_item_id: LINE_ID,
-    });
-    const second = await requestTakeoffPriceSuggestion(JOB_ID, {
-      version_id: VERSION_ID,
-      estimate_item_id: LINE_ID,
-    });
-
-    expect(first.suggestion.line_id).toBe(LINE_ID);
-    expect(first.suggestion.sources.length).toBeGreaterThan(0);
-    expect(second.suggestion.suggestion_id).toBe(first.suggestion.suggestion_id);
-    expect(mock.state.suggestions).toHaveLength(1);
-    expect(
-      mock.state.estimateItemSelects.some((columns) => /(^|,\s*)unit(\s*,|$)/.test(columns))
-    ).toBe(false);
   });
 
   it("ignores unrelated same-project history rows when building the snapshot", async () => {

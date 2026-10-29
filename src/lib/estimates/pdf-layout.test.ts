@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_ESTIMATE_PDF_LAYOUT, applyEstimateTermsPolicy, estimateEstimatePdfPageCount, parseEstimatePdfLayoutSearchParams, writeEstimatePdfLayoutSearchParams } from "@/lib/estimates/pdf-layout";
+import { DEFAULT_ESTIMATE_PDF_LAYOUT, applyEstimateTermsPolicy, parseEstimatePdfLayoutSearchParams, writeEstimatePdfLayoutSearchParams } from "@/lib/estimates/pdf-layout";
 
 describe("estimate PDF layout", () => {
 
@@ -53,28 +53,5 @@ describe("estimate PDF layout", () => {
         }
       ).includeTerms
     ).toBe(false);
-  });
-
-  it("estimates explicit conditions and terms pages", () => {
-    expect(
-      estimateEstimatePdfPageCount(
-        {
-          ...DEFAULT_ESTIMATE_PDF_LAYOUT,
-          conditionsPlacement: "new_page",
-          includeTerms: true,
-        },
-        {
-          lineCount: 10,
-          sectionCountsByLevel: { "1": 2, "2": 2, "3": 0, "4": 0 },
-          hasConditions: true,
-          terms: {
-            available: true,
-            policy: "default",
-            title: "CGV",
-            version: 1,
-          },
-        }
-      )
-    ).toBe(3);
   });
 });

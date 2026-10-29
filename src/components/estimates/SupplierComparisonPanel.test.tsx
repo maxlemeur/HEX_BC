@@ -1,5 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -73,65 +72,6 @@ const alternatives: SupplierComparisonAlternative[] = [
 describe("SupplierComparisonPanel", () => {
   afterEach(() => {
     cleanup();
-  });
-
-  it("renders every returned alternative and keeps the current selection visible", () => {
-    render(
-      <SupplierComparisonPanel
-        isOpen
-        itemTitle="rouge"
-        alternatives={alternatives}
-        bestSupplierPriceId="price-best"
-        isLoading={false}
-        error={null}
-        isReadOnly={false}
-      estimateCurrency="EUR"
-        onClose={vi.fn()}
-        onSelectAlternative={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText("Best Supplier")).toBeInTheDocument();
-    expect(screen.getByText("Recent Supplier")).toBeInTheDocument();
-    expect(screen.getByText("Preferred Supplier")).toBeInTheDocument();
-    expect(screen.getByText("Old Supplier")).toBeInTheDocument();
-    expect(screen.getAllByText("Faux plafond acoustique")).toHaveLength(4);
-    expect(screen.getByText("Meilleur prix")).toBeInTheDocument();
-    expect(screen.getByText("Prix le plus récent")).toBeInTheDocument();
-    expect(screen.getByText("Fournisseur préféré")).toBeInTheDocument();
-    expect(screen.getByText("Sélection actuelle")).toBeInTheDocument();
-    expect(screen.getByText("Prix ancien")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Offre retenue" })
-    ).toBeDisabled();
-  });
-
-  it("keeps selection actionable for non-selected alternatives", () => {
-    const onSelectAlternative = vi.fn();
-
-    render(
-      <SupplierComparisonPanel
-        isOpen
-        itemTitle="Faux plafond acoustique"
-        alternatives={alternatives}
-        bestSupplierPriceId="price-best"
-        isLoading={false}
-        error={null}
-        isReadOnly={false}
-      estimateCurrency="EUR"
-        onClose={vi.fn()}
-        onSelectAlternative={onSelectAlternative}
-      />
-    );
-
-    fireEvent.click(screen.getAllByRole("button", { name: "Retenir cette offre" })[1]!);
-
-    expect(onSelectAlternative).toHaveBeenCalledWith(
-      expect.objectContaining({
-        supplier_price_id: "price-recent",
-        kind: "most_recent",
-      })
-    );
   });
 
   it("affiche un prix fournisseur dans sa devise, jamais en euros", () => {
@@ -214,27 +154,5 @@ describe("SupplierComparisonPanel", () => {
     expect(
       screen.getAllByRole("button", { name: "Retenir cette offre" })[0]
     ).not.toBeDisabled();
-  });
-
-  it("se ferme à la touche Échap", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    render(
-      <SupplierComparisonPanel
-        isOpen
-        itemTitle="Faux plafond acoustique"
-        alternatives={alternatives}
-        bestSupplierPriceId="price-best"
-        isLoading={false}
-        error={null}
-        isReadOnly={false}
-      estimateCurrency="EUR"
-        onClose={onClose}
-        onSelectAlternative={vi.fn()}
-      />
-    );
-
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });

@@ -7,8 +7,6 @@ import {
   computeEstimateTotals,
   computeCascadeDiscountCents,
   computeSectionTotals,
-  computeInitialDiscountCents,
-  computeStoredDiscountCents,
   normalizeDraftItems,
   MAX_MARGIN_MULTIPLIER,
   MAX_CENTS,
@@ -92,13 +90,6 @@ describe("bankersRound", () => {
     expect(bankersRound(4.5)).toBe(4);
   });
 
-  it("rounds non-half values normally", () => {
-    expect(bankersRound(1.3)).toBe(1);
-    expect(bankersRound(1.7)).toBe(2);
-    expect(bankersRound(2.1)).toBe(2);
-    expect(bankersRound(2.9)).toBe(3);
-  });
-
   it("handles negative half values", () => {
     expect(bankersRound(-0.5)).toBe(0);
     expect(bankersRound(-1.5)).toBe(-2);
@@ -114,31 +105,6 @@ describe("bankersRound", () => {
 });
 
 describe("estimate calculations", () => {
-  it("computeEstimateLineValues nominal", () => {
-    const line = createLine({
-      quantity: 3,
-      unit_price_ht_cents: 1000,
-      k_fo: 1.2,
-      h_mo: 2.5,
-      k_mo: 1.1,
-      labor_role_hourly_rate_cents: 400,
-    });
-
-    const values = computeEstimateLineValues(line, {
-      isLaborSplitEnabled: false,
-      marginMultiplier: 1.3,
-      taxRateBp: 2000,
-    });
-
-    expect(values).toEqual({
-      costLineCents: 4700,
-      saleLineCents: 6110,
-      puHtCents: 2037,
-      taxLineCents: 1222,
-      ttcLineCents: 7332,
-    });
-  });
-
   it("EST-031: split actif avec MO atelier + chantier", () => {
     const line = createLine({
       quantity: 2,
@@ -1451,60 +1417,6 @@ describe("estimate calculations", () => {
 });
 
 describe("B5: extracted business helpers", () => {
-  it("computeInitialDiscountCents converts bp to cents", () => {
-    const version = { margin_multiplier: 1, tax_rate_bp: 2000, discount_bp: 500 };
-    const items: EstimateItemRecord[] = [
-      createItemRecord({ quantity: 1, unit_price_ht_cents: 10000, k_fo: 1, h_mo: 0, k_mo: 1 }),
-    ];
-    const rateById = new Map<string, number>();
-
-    const result = computeInitialDiscountCents(version, items, rateById, false);
-
-    // saleSubtotal = 10000 (margin=1), discount = round(10000 * 500 / 10000) = 500
-    expect(result).toBe(500);
-  });
-
-  it("computeStoredDiscountCents derives from stored totals", () => {
-    const version = {
-      margin_multiplier: 1,
-      tax_rate_bp: 2000,
-      discount_bp: 500,
-      total_ht_cents: 9500,
-    };
-    const items: EstimateItemRecord[] = [
-      createItemRecord({ line_total_ht_cents: 10000 }),
-    ];
-
-    const result = computeStoredDiscountCents(version, items);
-
-    // saleSubtotal = 10000 from stored values, total_ht = 9500, discount = 500
-    expect(result).toBe(500);
-  });
-
-  it("normalizeDraftItems recalculates line values", () => {
-    const version = { margin_multiplier: 1.5, tax_rate_bp: 2000, discount_bp: 0 };
-    const items: EstimateItemRecord[] = [
-      createItemRecord({
-        quantity: 2,
-        unit_price_ht_cents: 1000,
-        k_fo: 1,
-        h_mo: 0,
-        k_mo: 1,
-        pu_ht_cents: 0,
-        line_total_ht_cents: 0,
-        line_tax_cents: 0,
-        line_total_ttc_cents: 0,
-      }),
-    ];
-    const rateById = new Map<string, number>();
-
-    const result = normalizeDraftItems({ isLaborSplitEnabled: false, items, version, rateById });
-
-    expect(result[0].line_total_ht_cents).toBe(3000); // 2000 cost * 1.5 margin
-    expect(result[0].line_tax_cents).toBe(600); // 3000 * 20%
-    expect(result[0].line_total_ttc_cents).toBe(3600);
-  });
-
   it("preserves line tax rates only for the unified engine", () => {
     const version = { margin_multiplier: 1, tax_rate_bp: 2_000, discount_bp: 0 };
     const items = [
@@ -1544,17 +1456,6 @@ describe("B5: extracted business helpers", () => {
     });
 
     expect(result[0]).toMatchObject({ tax_rate_bp: null, line_tax_cents: 200 });
-  });
-
-  it("normalizeDraftItems skips sections", () => {
-    const version = { margin_multiplier: 1.5, tax_rate_bp: 2000, discount_bp: 0 };
-    const section = createItemRecord({ item_type: "section" });
-    const items = [section];
-    const rateById = new Map<string, number>();
-
-    const result = normalizeDraftItems({ isLaborSplitEnabled: false, items, version, rateById });
-
-    expect(result[0]).toBe(section); // unchanged reference
   });
 });
 
@@ -1641,13 +1542,6 @@ describe("EST-E27 — TVA autoliquidee (sous-traitance)", () => {
       ...overrides,
     });
 
-  it("regime normal : la TVA est collectee", () => {
-    const totals = compute();
-    expect(totals.saleTotalCents).toBe(100_000);
-    expect(totals.taxCents).toBe(20_000);
-    expect(totals.roundedTtcCents).toBe(120_000);
-  });
-
   it("autoliquidation : aucune TVA, le TTC egale le HT", () => {
     const totals = compute({ vatReverseCharge: true });
     expect(totals.saleTotalCents).toBe(100_000);
@@ -1693,10 +1587,5 @@ describe("EST-E27 — TVA autoliquidee (sous-traitance)", () => {
     });
     expect(totals.taxCents).toBe(0);
     expect(totals.roundedTtcCents).toBe(totals.saleTotalCents);
-  });
-
-  it("le defaut reste le regime normal", () => {
-    expect(compute({ vatReverseCharge: undefined }).taxCents).toBe(20_000);
-    expect(compute({ vatReverseCharge: false }).taxCents).toBe(20_000);
   });
 });

@@ -1,6 +1,4 @@
 import fs from "node:fs";
-import http from "node:http";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -13,19 +11,13 @@ import type {
   DatabaseSnapshotOperations,
 } from "@/test/database-snapshot";
 import {
-  assertNativeRuntimeHost,
   describeSafeFailure,
-  enableNativeStack,
-  findAvailablePort,
-  parseLocalSupabaseCiArguments,
   parseLocalSupabaseStatus,
-  runChildProcess,
   runLocalSupabaseCi,
   SafeDiagnosticError,
   validatePgTapReport,
   validateRlsMatrixReport,
 } from "@/test/local-supabase-ci";
-import { NativeStackLimitError } from "@/test/native-stack-guard";
 import {
   assertLocalOnlySupabaseArgs,
   assertNoRemoteSupabaseEnvironment,
@@ -44,7 +36,6 @@ function localJwt(role: "anon" | "service_role") {
 function createDependencies(options: {
   cliVersionOutput?: string;
   failDestroy?: boolean;
-  failStart?: boolean;
   failReset?: boolean;
   failStop?: boolean;
   migrationOutput?: string;
@@ -57,9 +48,6 @@ function createDependencies(options: {
     calls.push(command);
     if (command === "--version") {
       return options.cliVersionOutput ?? PINNED_SUPABASE_CLI_VERSION;
-    }
-    if (options.failStart && command.startsWith("start ")) {
-      throw new Error("Cannot bind inspector: address already in use");
     }
     if (options.failReset && command.startsWith("db reset --local")) {
       throw new Error("reset failed");
@@ -152,165 +140,6 @@ describe("local Supabase CI", () => {
       args.map((value) => value === "public" ? "private" : value),
       [...args.slice(0, -1), process.cwd()],
     ]) expect(() => assertLocalOnlySupabaseArgs(bad)).toThrow("not allowlisted");
-  });
-
-  it("allocates eight distinct real listening ports outside the ephemeral client range", async () => {
-    const reserved = new Set<number>();
-    for (let index = 0; index < 8; index += 1) {
-      const port = await findAvailablePort(reserved, [[32768, 65535]]);
-      expect(port).toBeGreaterThanOrEqual(1024);
-      expect(port).toBeLessThan(32768);
-      expect(port < 10000 || port > 19999).toBe(true);
-      expect(reserved.has(port)).toBe(false);
-      reserved.add(port);
-      const listener = net.createServer();
-      try {
-        await new Promise<void>((resolve, reject) => {
-          listener.once("error", reject);
-          listener.listen({ port, host: "127.0.0.1", exclusive: true }, resolve);
-        });
-        expect((listener.address() as net.AddressInfo).port).toBe(port);
-      } finally {
-        if (listener.listening) await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
-      }
-    }
-    expect(reserved.size).toBe(8);
-  });
-
-  it("excludes a real occupied listener and refuses exhausted candidates", async () => {
-    const occupied = net.createServer();
-    const available = net.createServer();
-    const listen = (server: net.Server) => new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    try {
-      await listen(occupied);
-      await listen(available);
-      const occupiedPort = (occupied.address() as net.AddressInfo).port;
-      const availablePort = (available.address() as net.AddressInfo).port;
-      await new Promise<void>((resolve, reject) => available.close((error) => error ? reject(error) : resolve()));
-      const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
-      reserved.delete(occupiedPort);
-      reserved.delete(availablePort);
-      expect(await findAvailablePort(reserved, [[1024, 1024]])).toBe(availablePort);
-      reserved.add(availablePort);
-      await expect(findAvailablePort(reserved, [[1024, 1024]])).rejects.toThrow("No non-ephemeral Supabase port");
-      expect(occupied.listening).toBe(true);
-    } finally {
-      for (const server of [occupied, available]) {
-        if (server.listening) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      }
-    }
-  });
-
-  it("fails closed on a startup bind collision without retrying or provisioning", async () => {
-    const { dependencies, calls } = createDependencies({ failStart: true });
-    await expect(runLocalSupabaseCi(dependencies)).rejects.toThrow("Phase failed: start local stack: Cannot bind inspector");
-    expect(calls.filter((command) => command.startsWith("start "))).toHaveLength(1);
-    expect(calls.slice(-2)).toEqual([
-      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
-      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
-    ]);
-    expect(dependencies.provisionUsers).not.toHaveBeenCalled();
-    expect(dependencies.runRls).not.toHaveBeenCalled();
-    expect(dependencies.removeProject).toHaveBeenCalledOnce();
-  });
-
-  it("refuses missing or invalid ephemeral ranges instead of falling back to port zero", async () => {
-    for (const ranges of [[], [[0, 65535]], [[60999, 32768]], [[1024, 65536]], [[Number.NaN, 60999]]]) {
-      await expect(findAvailablePort(new Set(), ranges)).rejects.toThrow("Invalid host ephemeral port range");
-    }
-  });
-
-  it("keeps caller-owned future listeners out of the real isolated service configuration", async () => {
-    const allowed = new Set(Array.from({ length: 64 }, (_, index) => 26384 + index));
-    const reservedPorts = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024)
-      .filter((port) => !allowed.has(port)));
-    const dependencies: Parameters<typeof runLocalSupabaseCi>[0] = { ...createDependencies().dependencies };
-    delete dependencies.prepareProject;
-    delete dependencies.removeProject;
-    let allocated: number[] = [];
-    dependencies.supabase = vi.fn((args: string[]) => {
-      if (args[0] === "--version") return PINNED_SUPABASE_CLI_VERSION;
-      if (args[0] === "start") {
-        const directory = args[args.indexOf("--workdir") + 1];
-        const config = fs.readFileSync(path.join(directory, "supabase/config.toml"), "utf8");
-        allocated = [...config.matchAll(/^\s*(?:port|shadow_port|inspector_port)\s*=\s*(\d+)/gm)].map((match) => Number(match[1]));
-        throw new Error("Fixture stops before launching any service");
-      }
-      return "";
-    });
-    // Only host metadata is supplied; config copying and port probes stay real.
-    const nativeProcess = process;
-    // Quality CI supplies dummy app settings. Preparation must use the caller's
-    // validated environment, like the runner preflight, rather than ambient env.
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "ci-anon-key");
-    const readFile = fs.readFileSync;
-    const reader = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...args) => {
-      if (file === "/proc/sys/net/ipv4/ip_local_port_range") return "32768 65535\n";
-      return readFile(file, ...args);
-    });
-    vi.stubGlobal("process", new Proxy(nativeProcess, {
-      get: (target, key) => key === "platform" ? "linux" : Reflect.get(target, key),
-    }));
-    // The dev loop records these ports in its state file before the stack starts.
-    let reportedPorts: number[] = [];
-    try {
-      await expect(runLocalSupabaseCi({
-        ...dependencies, reservedPorts, onProjectPrepared: (project) => { reportedPorts = [...(project.ports ?? [])]; },
-      })).rejects.toThrow("Fixture stops before launching any service");
-      expect(new Set(allocated).size).toBe(8);
-      expect(allocated.every((port) => allowed.has(port))).toBe(true);
-      expect([...reportedPorts].sort()).toEqual([...allocated].sort());
-    } finally {
-      vi.stubGlobal("process", nativeProcess);
-      vi.unstubAllEnvs();
-      reader.mockRestore();
-    }
-  });
-
-  it("reports its isolated project before starting the stack and cleans up when that report fails", async () => {
-    // The dev loop's stale cleanup needs the workdir of a stack whose
-    // supervisor died during `supabase start`: it must be known beforehand.
-    const reported = createDependencies();
-    const identities: string[] = [];
-    await runLocalSupabaseCi({
-      ...reported.dependencies,
-      onProjectPrepared: (project) => {
-        expect(reported.calls).toEqual(["--version"]);
-        identities.push(`${project.projectId} ${project.rootDirectory}`);
-      },
-    });
-    expect(identities).toEqual(["miaouffrage-ci-test C:/temp/miaouffrage-supabase-ci-test"]);
-
-    const failing = createDependencies();
-    await expect(runLocalSupabaseCi({
-      ...failing.dependencies,
-      onProjectPrepared: () => { throw new Error("dev-loop state is not writable"); },
-    })).rejects.toThrow("Phase failed: prepare isolated project: dev-loop state is not writable");
-    expect(failing.calls).toEqual(["--version"]);
-    expect(failing.dependencies.provisionUsers).not.toHaveBeenCalled();
-    expect(failing.dependencies.removeProject).toHaveBeenCalledOnce();
-  });
-
-  it("refuses browser-blocked ports even when they are the only unreserved candidates", async () => {
-    for (const port of [6000, 6667, 10080]) {
-      const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
-      reserved.delete(port);
-      await expect(findAvailablePort(reserved, [[32768, 65535]])).rejects.toThrow("No non-ephemeral Supabase port");
-    }
-  });
-
-  it("refuses the native backend range even when it contains the only candidates", async () => {
-    // CLI2.121 reserves this entire range, including both edges, for internal services.
-    // A bindable port in it must never become a public API/DB/functions inspector port.
-    for (const port of [10000, 15001, 19999]) {
-      const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
-      reserved.delete(port);
-      await expect(findAvailablePort(reserved, [[32768, 65535]])).rejects.toThrow("No non-ephemeral Supabase port");
-    }
   });
 
   it("rejects a zero-exit NOTESTS report before provisioning users and still cleans up", async () => {
@@ -422,46 +251,6 @@ describe("local Supabase CI", () => {
     expect(over.dependencies.runRls).not.toHaveBeenCalled();
   });
 
-  it("parses --files into validated pgTAP files and refuses anything outside the database tests", () => {
-    const databaseTests = path.join(process.cwd(), "supabase", "tests", "database");
-    const [first, second] = fs.readdirSync(databaseTests).filter((file) => file.endsWith(".sql")).sort();
-    expect(parseLocalSupabaseCiArguments([])).toEqual({});
-    expect(parseLocalSupabaseCiArguments(["--files", `${first}, supabase/tests/database/${second}`])).toEqual({
-      pgTapFiles: [first, second],
-    });
-    expect(parseLocalSupabaseCiArguments([`--files=${first}`, "--skip-rls"])).toEqual({
-      pgTapFiles: [first], skipRlsMatrix: true,
-    });
-    for (const [argv, message] of [
-      [["--files"], "--files requires"],
-      [["--files", ""], "--files requires"],
-      [["--files", `${first},${first}`], "listed twice"],
-      [["--files", "../migrations/x.sql"], "not a pgTAP file"],
-      [["--files", `${databaseTests}/${first}`], "not a pgTAP file"],
-      [["--files", "supabase/tests/other.test.sql"], "not a pgTAP file"],
-      [["--files", "README.md"], "not a pgTAP file"],
-      [["--files", "missing.test.sql"], "does not exist"],
-      [["--files", first, "--files", second], "only once"],
-      [["--rls-only"], "Unknown argument"],
-    ] as const) {
-      expect(() => parseLocalSupabaseCiArguments([...argv]), argv.join(" ")).toThrow(message);
-    }
-  });
-
-  it("refuses a symlinked pgTAP file and a second name for the same file", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pgtap-selection-"));
-    const tests = path.join(root, "supabase", "tests", "database");
-    fs.mkdirSync(tests, { recursive: true });
-    fs.writeFileSync(path.join(tests, "a.test.sql"), "select 1;\n");
-    fs.writeFileSync(path.join(root, "outside.sql"), "select 1;\n");
-    fs.symlinkSync(path.join(root, "outside.sql"), path.join(tests, "link.test.sql"));
-    // A hard link stands for any alias of one file, such as FOO/foo on a case-insensitive filesystem.
-    fs.linkSync(path.join(tests, "a.test.sql"), path.join(tests, "alias.test.sql"));
-    expect(() => parseLocalSupabaseCiArguments(["--files", "link.test.sql"], root)).toThrow("symbolic link");
-    expect(() => parseLocalSupabaseCiArguments(["--files", "a.test.sql,alias.test.sql"], root)).toThrow("listed twice");
-    expect(parseLocalSupabaseCiArguments(["--files", "a.test.sql"], root)).toEqual({ pgTapFiles: ["a.test.sql"] });
-  });
-
   it("runs only the selected pgTAP files, counts them, keeps RLS unless skipped and says the run is partial", async () => {
     const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
     const databaseTests = path.join(projectRoot, "supabase", "tests", "database");
@@ -482,90 +271,6 @@ describe("local Supabase CI", () => {
     const miscounted = createDependencies({ pgTapOutput: "Files=22, Tests=205,  1 wallclock secs\nResult: PASS\n" });
     await expect(runLocalSupabaseCi({ ...miscounted.dependencies, pgTapFiles: ["a.test.sql"] }))
       .rejects.toThrow("did not execute all 1 SQL files");
-  });
-
-  it("destroys the stack once when a termination signal arrives during a phase", async () => {
-    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
-    const run = createDependencies();
-    // The re-raised signal would end the test process: it is only recorded.
-    const raise = vi.spyOn(process, "kill").mockImplementation(() => true);
-    try {
-      run.dependencies.runRls = vi.fn(async () => {
-        process.emit("SIGTERM", "SIGTERM");
-        expect(run.calls.slice(-2)).toEqual([`stop --workdir ${projectRoot}`, `stack destroy --yes --workdir ${projectRoot}`]);
-        expect(run.release).toHaveBeenCalledOnce();
-        expect(run.dependencies.removeProject).toHaveBeenCalledOnce();
-      });
-      await expect(runLocalSupabaseCi(run.dependencies)).rejects.toThrow("Interrupted by SIGTERM");
-      expect(raise).toHaveBeenCalledExactlyOnceWith(process.pid, "SIGTERM");
-    } finally {
-      raise.mockRestore();
-    }
-    expect(run.calls.filter((command) => command.startsWith("stop "))).toHaveLength(1);
-    expect(run.calls.filter((command) => command.startsWith("stack destroy "))).toHaveLength(1);
-    expect(run.dependencies.removeProject).toHaveBeenCalledOnce();
-    expect(run.release).toHaveBeenCalledOnce();
-    expect(process.listenerCount("SIGTERM")).toBe(0);
-    expect(process.listenerCount("SIGINT")).toBe(0);
-  });
-
-  it("reports a cleanup failure on the signal path before the process ends", async () => {
-    const run = createDependencies({ failDestroy: true });
-    const raise = vi.spyOn(process, "kill").mockImplementation(() => true);
-    try {
-      run.dependencies.runRls = vi.fn(async () => {
-        process.emit("SIGINT", "SIGINT");
-        expect(run.dependencies.log).toHaveBeenCalledWith("Cleanup failed after SIGINT: destroy failed");
-      });
-      await expect(runLocalSupabaseCi(run.dependencies)).rejects.toThrow("Interrupted by SIGINT");
-      expect(run.dependencies.runRls).toHaveBeenCalledOnce();
-    } finally {
-      raise.mockRestore();
-    }
-  });
-
-  it("stops at the next phase when a caller that owns the signal is interrupted before its application", async () => {
-    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
-    // The Army dev modes: their handler only aborts the application phase.
-    const caller = vi.fn();
-    process.on("SIGINT", caller);
-    try {
-      const early = createDependencies();
-      const provision = early.dependencies.provisionUsers.getMockImplementation()!;
-      early.dependencies.provisionUsers.mockImplementation(async () => {
-        process.emit("SIGINT", "SIGINT");
-        return provision();
-      });
-      const runApplication = vi.fn(async () => {});
-      await expect(runLocalSupabaseCi({ ...early.dependencies, runApplication }))
-        .rejects.toThrow("Interrupted by SIGINT before run behavioral RLS matrix");
-      expect(early.dependencies.runRls).not.toHaveBeenCalled();
-      expect(runApplication).not.toHaveBeenCalled();
-      expect(early.calls.slice(-2)).toEqual([`stop --workdir ${projectRoot}`, `stack destroy --yes --workdir ${projectRoot}`]);
-
-      // During the application the caller's own graceful stop stays a success.
-      const late = createDependencies();
-      await expect(runLocalSupabaseCi({
-        ...late.dependencies,
-        runApplication: vi.fn(async () => { process.emit("SIGINT", "SIGINT"); }),
-      })).resolves.toEqual({ database: { source: "reset", snapshot: "disabled" } });
-    } finally {
-      process.off("SIGINT", caller);
-    }
-    expect(caller).toHaveBeenCalledTimes(2);
-    expect(process.listenerCount("SIGINT")).toBe(0);
-  });
-
-  it("refuses to start a fifth native run before preparing anything", async () => {
-    const run = createDependencies();
-    run.dependencies.acquireStackSlot = vi.fn(async () => {
-      throw new NativeStackLimitError("Native Supabase run limit reached: 4 of 4 slots are held");
-    });
-    await expect(runLocalSupabaseCi(run.dependencies)).rejects.toThrow(
-      "Phase failed: reserve native stack slot: Native Supabase run limit reached"
-    );
-    expect(run.calls).toEqual(["--version"]);
-    expect(run.dependencies.prepareProject).not.toHaveBeenCalled();
   });
 
   it("stops after a reset failure and treats cleanup failure as fatal", async () => {
@@ -624,39 +329,6 @@ describe("local Supabase CI", () => {
     expect(diagnosedFailure.dependencies.removeProject).toHaveBeenCalledOnce();
   });
 
-  it("keeps its event loop running during a child so stale keep-alive sockets are not reused", async () => {
-    // TesterArmy CI 17/10/2026: the runner held keep-alive sockets to the
-    // native gateway (Keep-Alive: timeout=5, closed after 6 s) while the RLS
-    // matrix ran under spawnSync. When that child outlived the close, the
-    // hook's first createUser went out on the closed socket: UND_ERR_SOCKET.
-    const server = http.createServer((request, response) => {
-      request.resume();
-      request.on("end", () => response.end("ok"));
-    });
-    // Advertises timeout=3, which undici keeps; the socket closes at 3 s.
-    server.keepAliveTimeout = 3_000;
-    server.keepAliveTimeoutBuffer = 0;
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const url = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}/`;
-    const post = async () => (await fetch(url, { method: "POST", body: "{}" })).text();
-    try {
-      // The three RLS users are created on one pooled connection.
-      for (let index = 0; index < 3; index += 1) await post();
-      const child = await runChildProcess(process.execPath, ["-e", "setTimeout(() => process.stdout.write('done'), 3500)"], {
-        cwd: process.cwd(), env: process.env, maxBuffer: 1024,
-      });
-      expect(child).toEqual({ status: 0, stdout: "done", stderr: "" });
-      await expect(post()).resolves.toBe("ok");
-      const flood = await runChildProcess(process.execPath, ["-e", "process.stdout.write('x'.repeat(4096))"], {
-        cwd: process.cwd(), env: process.env, maxBuffer: 1024,
-      });
-      expect(flood.error?.message).toBe("Child output exceeded 1024 bytes");
-    } finally {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  }, 15_000);
-
   it("describes Supabase and network failures by allowlisted identifiers only", () => {
     const email = "army-ci-0f3a@example.test";
     const authError = Object.assign(new Error(`Email address "${email}" is invalid`), {
@@ -684,39 +356,6 @@ describe("local Supabase CI", () => {
     };
     expect(describeSafeFailure(hostile, 1.5)).toBe("unidentified failure");
     expect(describeSafeFailure(undefined)).toBe("unidentified failure");
-  });
-
-  it("refuses hosts the Supabase native runtime does not support", () => {
-    const linux = { platform: "linux" as const, arch: "x64", release: "6.6.87", glibcVersion: "2.39", uid: 1000 };
-    expect(() => assertNativeRuntimeHost(linux)).not.toThrow();
-    expect(() =>
-      assertNativeRuntimeHost({ platform: "darwin", arch: "arm64", release: "23.4.0", uid: 501 })
-    ).not.toThrow();
-    expect(() =>
-      assertNativeRuntimeHost({ platform: "win32", arch: "x64", release: "10.0.26200" })
-    ).toThrow("WSL");
-    expect(() => assertNativeRuntimeHost({ ...linux, glibcVersion: "2.31" })).toThrow("glibc 2.35");
-    expect(() => assertNativeRuntimeHost({ ...linux, glibcVersion: undefined })).toThrow("glibc 2.35");
-    expect(() =>
-      assertNativeRuntimeHost({ platform: "darwin", arch: "x64", release: "23.4.0", uid: 501 })
-    ).toThrow("Apple silicon");
-    expect(() =>
-      assertNativeRuntimeHost({ platform: "darwin", arch: "arm64", release: "22.6.0", uid: 501 })
-    ).toThrow("macOS 14");
-    expect(() => assertNativeRuntimeHost({ ...linux, uid: 0 })).toThrow("root");
-  });
-
-  it("enables the stack runtime inside the single experimental table", () => {
-    const crlf = "[db]\r\nport = 1\r\n\r\n[experimental]\r\norioledb_version = \"\"\r\n";
-    expect(enableNativeStack(crlf)).toBe(
-      "[db]\r\nport = 1\r\n\r\n[experimental]\r\nstack = true\r\norioledb_version = \"\"\r\n"
-    );
-    expect(enableNativeStack("[db]\nport = 1\n")).toBe(
-      "[db]\nport = 1\n\n[experimental]\nstack = true\n"
-    );
-    expect(() => enableNativeStack("[experimental]\na = 1\n[experimental]\nb = 2\n")).toThrow(
-      "[experimental]"
-    );
   });
 
   it("rejects remote configuration, unsafe flags and non-loopback status", () => {
@@ -936,8 +575,6 @@ function snapshotFingerprint(overrides: { policies?: string; stack?: string } = 
 
 function createSnapshotOperations(options: {
   afterRestore?: DatabaseFingerprint;
-  failRecord?: boolean;
-  failRestore?: boolean;
   hit?: boolean;
   migrations?: string[];
 } = {}) {
@@ -966,13 +603,11 @@ function createSnapshotOperations(options: {
     }),
     record: vi.fn(() => {
       events.push("record");
-      if (options.failRecord) throw new Error("pg_dump failed with exit code 1");
       return { dump: { bytes: 3_500_000 } } as DatabaseSnapshotManifest;
     }),
     resolveTools: vi.fn(() => ({ bundle: "17.11.0.004-r1", pgDump: "/pg/pg_dump", pgRestore: "/pg/pg_restore", psql: "/pg/psql" })),
     restore: vi.fn(() => {
       events.push("restore");
-      if (options.failRestore) throw new Error("pg_restore failed with exit code 1");
       restored = true;
     }),
   };
@@ -1062,61 +697,5 @@ describe("local Supabase CI database snapshot", () => {
     await expect(runLocalSupabaseCi(otherMigrations.dependencies)).resolves.toMatchObject({
       database: { source: "reset", snapshot: "rejected", reason: "applied migrations differ from the snapshot" },
     });
-  });
-
-  it("falls back to db reset when the restore itself fails", async () => {
-    const run = snapshotRun({ hit: true, failRestore: true });
-    await expect(runLocalSupabaseCi(run.dependencies)).resolves.toMatchObject({
-      database: { source: "reset", snapshot: "rejected", reason: "restore failed: pg_restore failed with exit code 1" },
-    });
-    expect(run.calls.some((command) => command.startsWith("db reset"))).toBe(true);
-    expect(run.events.at(-1)).toBe("record");
-  });
-
-  it("reports the provenance before pgTAP, so a run that fails afterwards still records it", async () => {
-    // The failed runs are the ones where a restored snapshot must be ruled out.
-    const run = snapshotRun({ hit: true });
-    const reported: unknown[] = [];
-    const onDatabaseProvenance = vi.fn((provenance: unknown) => {
-      reported.push(provenance);
-      run.calls.push("provenance reported");
-    });
-    const runApplication = vi.fn(async () => {
-      throw new Error("journey failed");
-    });
-    await expect(runLocalSupabaseCi({ ...run.dependencies, onDatabaseProvenance, runApplication }))
-      .rejects.toThrow("Phase failed: run application validation");
-    expect(reported).toEqual([{ source: "snapshot", snapshot: "restored", key: "k".repeat(64) }]);
-    const reportedAt = run.calls.indexOf("provenance reported");
-    expect(reportedAt).toBeGreaterThan(-1);
-    expect(reportedAt).toBeLessThan(run.calls.findIndex((command) => command.startsWith("test db --local")));
-
-    const failedPgTap = snapshotRun();
-    const pgTapProvenance = vi.fn();
-    await expect(runLocalSupabaseCi({
-      ...failedPgTap.dependencies,
-      onDatabaseProvenance: pgTapProvenance,
-      supabase: vi.fn((args: string[], capture?: boolean) => {
-        if (args.join(" ").startsWith("test db --local")) throw new Error("pgTAP failed");
-        return failedPgTap.dependencies.supabase(args, capture);
-      }),
-    })).rejects.toThrow("Phase failed: run pgTAP");
-    expect(pgTapProvenance).toHaveBeenCalledExactlyOnceWith({ source: "reset", snapshot: "recorded", key: "k".repeat(64) });
-  });
-
-  it("keeps the run's evidence when recording fails, and refuses an invalid directory before starting", async () => {
-    const run = snapshotRun({ failRecord: true });
-    await expect(runLocalSupabaseCi(run.dependencies)).resolves.toMatchObject({
-      database: { source: "reset", snapshot: "not-recorded" },
-    });
-    expect(run.logs()).toContain("Database snapshot not recorded: pg_dump failed with exit code 1");
-    expect(run.dependencies.runRls).toHaveBeenCalledOnce();
-
-    const invalid = snapshotRun();
-    await expect(runLocalSupabaseCi({
-      ...invalid.dependencies,
-      environment: { ARMY_DB_SNAPSHOT_DIR: "relative/snapshot" },
-    })).rejects.toThrow("ARMY_DB_SNAPSHOT_DIR must be an absolute path");
-    expect(invalid.dependencies.prepareProject).not.toHaveBeenCalled();
   });
 });

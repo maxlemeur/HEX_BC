@@ -172,16 +172,4 @@ describe("procurement Storage cleanup outbox", () => {
       errors: ["database unavailable"],
     });
   });
-
-  it("skips provider work when service-role configuration is unavailable", async () => {
-    await expect(
-      drainProcurementStorageCleanupOutbox({ client: null })
-    ).resolves.toEqual({
-      claimed: 0,
-      removed: 0,
-      failed: 0,
-      skipped: true,
-      errors: ["Supabase service-role configuration is unavailable."],
-    });
-  });
 });

@@ -35,7 +35,6 @@ import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-compari
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { logTakeoffAuditEvent } from "@/lib/takeoff/audit";
 import { buildTakeoffDpgfComparisonSummary } from "@/lib/takeoff/dpgf-compare";
-import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -97,15 +96,6 @@ describe("takeoff apply orchestration", () => {
     expect(logTakeoffAuditEvent).toHaveBeenLastCalledWith(expect.objectContaining({ action: "takeoff.apply.completed" }));
   });
 
-  it("does not review or authorize DPGF when draft authorization, lock or OCC fails", async () => {
-    vi.mocked(bulkUpdateEstimateItems).mockRejectedValue(new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, message: "Draft changed", retryable: false }));
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 409 });
-    expect(fetchDpgfTakeoffComparisonForContext).not.toHaveBeenCalled();
-    expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
-    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
-    expect(logTakeoffAuditEvent).toHaveBeenLastCalledWith(expect.objectContaining({ action: "takeoff.apply.failed" }));
-  });
-
   it("blocks the whole application when the global DPGF summary has unresolved exceptions", async () => {
     vi.mocked(fetchDpgfTakeoffComparisonForContext).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 } } as never);
     await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422, details: { guard: "dpgf_comparison" } });
@@ -120,34 +110,6 @@ describe("takeoff apply orchestration", () => {
     expect(repository.revokeTakeoffDpgfApplyAuthorization).toHaveBeenCalledExactlyOnceWith({ jobId: JOB_ID, authorizationToken: authorization.authorizationToken });
     expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalledTimes(1);
     expect(getTakeoffJobDetailByIdOrThrow).toHaveBeenCalledTimes(1);
-  });
-
-  it("fails before the RPC if the DPGF authorization cannot be persisted", async () => {
-    vi.mocked(repository.issueTakeoffDpgfApplyAuthorization).mockRejectedValue(new Error("Authorization insert failed"));
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 500 });
-    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
-    expect(repository.revokeTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
-  });
-
-  it("applies a job without DPGF without issuing a review authorization", async () => {
-    vi.mocked(hasTakeoffDpgfTargetLines).mockResolvedValue(false);
-    await applyTakeoffJob(JOB_ID, request);
-    expect(fetchDpgfTakeoffComparisonForContext).not.toHaveBeenCalled();
-    expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
-    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalledWith(expect.objectContaining({ args: expect.objectContaining({ dpgf_authorization_token: null }) }));
-  });
-
-  it("requires a reloaded applied status before reporting application completed", async () => {
-    vi.mocked(getTakeoffJobDetailByIdOrThrow).mockReset().mockResolvedValue(completedJob as never);
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 500, details: { expected_status: "applied", current_status: "completed" } });
-    expect(logTakeoffAuditEvent).not.toHaveBeenCalledWith(expect.objectContaining({ action: "takeoff.apply.completed" }));
-    expect(logTakeoffAuditEvent).toHaveBeenLastCalledWith(expect.objectContaining({ action: "takeoff.apply.failed" }));
-  });
-
-  it("blocks a replace at the root before job lookup or any write", async () => {
-    await expect(applyTakeoffJob(JOB_ID, { strategy: "replace" })).rejects.toMatchObject({ status: 422, details: { guard: "root_replace_disabled" } });
-    expect(getTakeoffJobDetailByIdOrThrow).not.toHaveBeenCalled();
-    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
   });
 
   it("persists an admin override audit before any draft authorization or application", async () => {

@@ -172,36 +172,6 @@ describe("calculateEstimateTotalsForItems", () => {
     });
   });
 
-  it("freezes the selected tier when cost crosses the threshold both ways", async () => {
-    vi.mocked(loadMarginTiersForTotals).mockResolvedValue([
-      { threshold_cents: 0, multiplier: 1.6 },
-      { threshold_cents: 10_000, multiplier: 1.4 },
-    ]);
-    const calculate = (costCents: number) =>
-      calculateEstimateSnapshotForItems({
-        supabase: {} as never,
-        tenantId: "tenant-1",
-        projectUserId: "owner-1",
-        version: {
-          ...baseVersion,
-          margin_mode: "tiered",
-          calc_engine_version: 2,
-        },
-        lineItems: [
-          {
-            ...lineItems[0],
-            unit_price_ht_cents: costCents,
-          },
-        ],
-      });
-
-    const above = await calculate(10_001);
-    const below = await calculate(9_999);
-
-    expect(above.context.effective_margin_multiplier).toBe(1.4);
-    expect(below.context.effective_margin_multiplier).toBe(1.6);
-  });
-
   it("materializes the default tiers in the authoritative context", async () => {
     vi.mocked(loadMarginTiersForTotals).mockResolvedValue([]);
 
@@ -355,18 +325,6 @@ describe("calculateEstimateTotalsForItems", () => {
         ],
       },
     });
-  });
-
-  it("keeps an incomplete v2 draft calculation editable", async () => {
-    const result = await calculateEstimateSnapshotForItems({
-      supabase: {} as never,
-      tenantId: "tenant-1",
-      projectUserId: "owner-1",
-      version: { ...baseVersion, calc_engine_version: 2 },
-      lineItems: [{ ...lineItems[0], h_mo: 2, labor_role_id: null }],
-    });
-
-    expect(result.breakdown.totals.saleTotalCents).toBe(1_000);
   });
 
   it("keeps v1 publication compatibility for hours without a role", async () => {

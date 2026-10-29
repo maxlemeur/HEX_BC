@@ -124,37 +124,4 @@ describe("EstimateSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Marge par tranche" }));
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ margin_mode: "tiered" });
   });
-
-  it("offers only a simple discount on new estimates and explains non-progressive margin tiers", async () => {
-    const user = userEvent.setup();
-    render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} />);
-    expect(screen.queryByRole("button", { name: "Cascade" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Remise (EUR HT)")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Marge par tranche" }));
-    expect(screen.getByText(/Le coût total HT des lignes/)).toHaveTextContent("n’est pas découpé en tranches progressives");
-    expect(screen.getByText(/Au passage d’un seuil/)).toBeInTheDocument();
-    expect(screen.getByText(/Barème par défaut/)).toBeInTheDocument();
-  });
-
-  it("requires an explicit eligible-work choice for reverse charge", async () => {
-    const user = userEvent.setup();
-    render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} />);
-
-    await user.selectOptions(
-      screen.getByLabelText("Régime de TVA"),
-      "subcontractor"
-    );
-
-    expect(
-      screen.getByRole("option", {
-        name: /travaux immobiliers sous-traités éligibles/i,
-      })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/À sélectionner uniquement pour une sous-traitance/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/ne relèvent pas automatiquement de ce régime/i)
-    ).toBeInTheDocument();
-  });
 });

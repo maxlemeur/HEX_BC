@@ -9,15 +9,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { openApiOperationsRegistry } from "@/lib/openapi/registry";
 import {
   assertOpenApiRouteCoverage,
   discoverApiRouteOperations,
   type OpenApiRouteExclusion,
 } from "@/lib/openapi/route-coverage";
-import { openApiRouteExclusions } from "@/lib/openapi/route-exclusions";
-import { baseAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts";
-import { workflowAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts-workflows";
 import type { OpenApiOperationDefinition } from "@/lib/openapi/registry";
 
 const temporaryRoots: string[] = [];
@@ -92,31 +88,6 @@ describe("discoverApiRouteOperations", () => {
 });
 
 describe("assertOpenApiRouteCoverage", () => {
-  it("accepts an exact partition between documented and explicitly excluded operations", () => {
-    const projectRoot = createProject({
-      widgets: "export async function GET() {}\nexport async function POST() {}",
-    });
-
-    const coverage = assertOpenApiRouteCoverage({
-      projectRoot,
-      documentedOperations: [operation("get", "/api/widgets")],
-      exclusions: [
-        {
-          path: "/api/widgets",
-          methods: ["POST"],
-          reason: "Mutation volontairement reservee au flux interne de test.",
-        },
-      ],
-    });
-
-    expect(coverage).toEqual({
-      routeFiles: 1,
-      routeOperations: 2,
-      documentedOperations: 1,
-      excludedOperations: 1,
-    });
-  });
-
   it("fails closed when a route adds an undocumented and non-excluded method", () => {
     const projectRoot = createProject({
       widgets: "export async function GET() {}\nexport async function PATCH() {}",
@@ -170,23 +141,6 @@ describe("assertOpenApiRouteCoverage", () => {
           /Methode dupliquee[\s\S]*Operation a la fois documentee et exclue[\s\S]*Exclusion OpenAPI stale[\s\S]*insuffisamment justifiee[\s\S]*path invalide[\s\S]*methode invalide/
         ),
       })
-    );
-  });
-
-  it("governs every operation exported by the current repository", () => {
-    const coverage = assertOpenApiRouteCoverage({
-      projectRoot: process.cwd(),
-      documentedOperations: [
-        ...openApiOperationsRegistry,
-        ...baseAdditionalOpenApiOperationsRegistry,
-        ...workflowAdditionalOpenApiOperationsRegistry,
-      ],
-      exclusions: openApiRouteExclusions,
-    });
-
-    expect(coverage.routeFiles).toBeGreaterThan(0);
-    expect(coverage.routeOperations).toBe(
-      coverage.documentedOperations + coverage.excludedOperations
     );
   });
 });

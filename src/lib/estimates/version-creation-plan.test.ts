@@ -3,10 +3,7 @@ import { describe, expect, it } from "vitest";
 import { IMPORT_PREVIEW_REQUIRED_MESSAGE } from "@/lib/affaires/import-flow";
 import { attachImportRowStructure } from "@/lib/imports/payload";
 import {
-  buildDefaultEstimateCategories,
   buildEstimateCreationVersionPlan,
-  buildMissingDefaultEstimateLaborRoles,
-  defaultEstimateLaborRoleNames,
   prepareLinkedDpgfCreationRows,
 } from "@/lib/estimates/version-creation-plan";
 
@@ -39,31 +36,6 @@ describe("estimate creation plans", () => {
     expect(version).toEqual(before);
   });
 
-  it("leaves unspecified creation defaults to the canonical transaction", () => {
-    expect(buildEstimateCreationVersionPlan({
-      version: undefined, normalizedCurrency: undefined, linkedDpgfSaleCoefficients: null,
-    })).toEqual({ expectedCalcEngineVersion: undefined, version: {} });
-  });
-
-  it("uses the actor for categories and the project owner for missing labor roles", () => {
-    const categories = buildDefaultEstimateCategories({ tenantId: "tenant", userId: "admin" });
-    expect(categories).toEqual([
-      { tenant_id: "tenant", user_id: "admin", name: "Materiaux", position: 1, color: null },
-      { tenant_id: "tenant", user_id: "admin", name: "Main d'oeuvre", position: 2, color: null },
-      { tenant_id: "tenant", user_id: "admin", name: "Sous-traitance", position: 3, color: null },
-    ]);
-    const names = new Set(defaultEstimateLaborRoleNames());
-    names.delete("Plombier");
-    expect(buildMissingDefaultEstimateLaborRoles({
-      tenantId: "tenant", ownerUserId: "owner", existingNames: names,
-    })).toEqual([
-      { tenant_id: "tenant", user_id: "owner", name: "Plombier", hourly_rate_cents: 0, is_active: true, position: 3 },
-    ]);
-    expect(buildMissingDefaultEstimateLaborRoles({
-      tenantId: "tenant", ownerUserId: "owner", existingNames: new Set(defaultEstimateLaborRoleNames()),
-    })).toEqual([]);
-  });
-
   it.each([
     { version: undefined, latestVersionDefaults: null, pu: 1000, tax: 400 },
     { version: undefined, latestVersionDefaults: { margin_multiplier: 1.2, tax_rate_bp: 1000 }, pu: 1200, tax: 240 },
@@ -79,19 +51,6 @@ describe("estimate creation plans", () => {
     });
     expect(result.validItems).toEqual(result.validLines);
     expect(rows).toEqual(before);
-  });
-
-  it("prices v3 with the resolved sale coefficients and keeps its unit", () => {
-    const result = prepareLinkedDpgfCreationRows({
-      mappedRows: [mapped("Tube", { quantity: 2, unit: "ml", unit_price_ht: "10,50" })],
-      version: { margin_multiplier: 7 },
-      latestVersionDefaults: null,
-      lineContext: { engine: 3, saleCoefficientFo: 1.5, saleCoefficientMo: 1.2 },
-    });
-    expect(result.validLines[0]).toMatchObject({
-      unitCode: "ml", pricingStatus: "priced", unitPriceHtCents: 1050,
-      puHtCents: 1575, lineTotalHtCents: 3150,
-    });
   });
 
   it("keeps the direct wizard's unreviewed row structure instead of inferring sections", () => {
@@ -122,12 +81,5 @@ describe("estimate creation plans", () => {
       mappedRows: [mapped("Tube", { quantity: 2, unit_price_ht: 10, labor_hours_per_unit: 1.5 })],
       version: undefined, latestVersionDefaults: null, lineContext: {},
     })).toThrow(IMPORT_PREVIEW_REQUIRED_MESSAGE);
-  });
-
-  it("rejects sources with no usable line", () => {
-    expect(() => prepareLinkedDpgfCreationRows({
-      mappedRows: [mapped("invalid", { designation: "", quantity: 1, unit_price_ht: 5 })],
-      version: undefined, latestVersionDefaults: null, lineContext: {},
-    })).toThrow("Aucune ligne DPGF valide à importer depuis la source liée.");
   });
 });

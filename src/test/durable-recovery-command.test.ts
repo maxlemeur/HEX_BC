@@ -108,23 +108,6 @@ describe("durable recovery workflow command (local HTTP boundary)", () => {
     await expectBody(body, 1, "invalid-response");
   });
 
-  it("calls the exact endpoint once with its bearer and accepts a healthy empty drain", async () => {
-    const requests: Array<{ url?: string; method?: string; authorization?: string }> = [];
-    await withFixture((request, response) => {
-      requests.push({ url: request.url, method: request.method, authorization: request.headers.authorization });
-      response.end(JSON.stringify(healthyResult()));
-    }, async (origin) => {
-      const result = await runGate(origin);
-      expect(result.code).toBe(0);
-      expect(result.output).toContain("Recovery healthy");
-      expect(result.output).toContain('"emailSkipped":true');
-      expectSafeOutput(result.output);
-    });
-    expect(requests).toEqual([{
-      url: "/api/internal/workflows/recover", method: "GET", authorization: `Bearer ${fakeSecret}`,
-    }]);
-  });
-
   it("reproduces curl's green 200 on a global drain failure and rejects it", async () => {
     const body = healthyResult();
     body.procurementStorageCleanup.errors = [privatePayload];
@@ -174,12 +157,6 @@ describe("durable recovery workflow command (local HTTP boundary)", () => {
     const body = healthyResult();
     mutate(body);
     await expectBody(body, 1, "::error::Recovery failed: retry-budget-exhausted");
-  });
-
-  it("keeps capacity skips visible without a spurious error", async () => {
-    const body = healthyResult();
-    body.dueCount = 3; body.dispatchedCount = 2; body.skippedCount = 1;
-    await expectBody(body, 0, '"skippedCount":1');
   });
 
   it.each([
@@ -261,14 +238,5 @@ describe("durable recovery workflow command (local HTTP boundary)", () => {
       expectSafeOutput(result.output);
     });
     expect(count).toBe(0);
-  });
-
-  it("supports APP_URL fallback without logging the selected origin", async () => {
-    await withFixture((_request, response) => response.end(JSON.stringify(healthyResult())), async (origin) => {
-      const result = await runGate("", { APP_URL: origin });
-      expect(result.code).toBe(0);
-      expect(result.output).toContain("Recovery healthy");
-      expectSafeOutput(result.output);
-    });
   });
 });

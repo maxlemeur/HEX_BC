@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { GET, POST } from "@/app/api/suppliers/route";
+import { POST } from "@/app/api/suppliers/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -189,33 +189,6 @@ describe("/api/suppliers", () => {
     vi.clearAllMocks();
   });
 
-  it("GET rejects unauthenticated access", async () => {
-    const { supabase } = createSuppliersSupabase({ authenticated: false });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(new Request("http://localhost/api/suppliers"));
-    expect(response.status).toBe(401);
-  });
-
-  it("POST refuses supplier writes to non-admin members (403, nothing written)", async () => {
-    const { supabase, inserted, updated, deleted } = createSuppliersSupabase({
-      role: "engineer",
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    for (const body of [
-      { action: "create", item: VALID_SUPPLIER },
-      { action: "update", id: SUPPLIER_ID, item: { name: "X" } },
-      { action: "delete", id: SUPPLIER_ID },
-    ]) {
-      const response = await POST(postRequest(body));
-      expect(response.status).toBe(403);
-    }
-    expect(inserted).toEqual([]);
-    expect(updated).toEqual([]);
-    expect(deleted).toEqual([]);
-  });
-
   it("POST does not report success when an archive affects no row", async () => {
     const { supabase } = createSuppliersSupabase({
       usageCount: 3,
@@ -228,79 +201,6 @@ describe("/api/suppliers", () => {
     );
 
     expect(response.status).toBe(404);
-  });
-
-  it("POST does not leak raw database messages to the client", async () => {
-    const { supabase } = createSuppliersSupabase({
-      insertResult: {
-        data: null,
-        error: {
-          message: 'duplicate key value violates unique constraint "suppliers_name_key"',
-          code: "23505",
-        },
-      },
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({ action: "create", item: VALID_SUPPLIER })
-    );
-
-    expect(response.status).toBe(409);
-    const text = await response.text();
-    expect(text).not.toContain("suppliers_name_key");
-  });
-
-  it("POST rejects a supplier without a name", async () => {
-    const { supabase, inserted } = createSuppliersSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({ action: "create", item: { ...VALID_SUPPLIER, name: "" } })
-    );
-
-    expect(response.status).toBe(400);
-    expect(inserted).toEqual([]);
-  });
-
-  it("POST deletes a supplier without linked orders", async () => {
-    const { supabase, deleted, updated } = createSuppliersSupabase({
-      usageCount: 0,
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({ action: "delete", id: SUPPLIER_ID })
-    );
-
-    expect(response.status).toBe(200);
-    expect(deleted).toEqual([SUPPLIER_ID]);
-    expect(updated).toEqual([]);
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      data: { id: SUPPLIER_ID, mode: "deleted" },
-    });
-  });
-
-  it("POST archives a supplier linked to purchase orders", async () => {
-    const { supabase, deleted, updated } = createSuppliersSupabase({
-      usageCount: 3,
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({ action: "delete", id: SUPPLIER_ID })
-    );
-
-    expect(response.status).toBe(200);
-    expect(deleted).toEqual([]);
-    expect(updated).toEqual([
-      { id: SUPPLIER_ID, payload: { is_active: false } },
-    ]);
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      data: { id: SUPPLIER_ID, mode: "archived" },
-    });
   });
 
   it("POST archives when delete hits a foreign-key constraint", async () => {

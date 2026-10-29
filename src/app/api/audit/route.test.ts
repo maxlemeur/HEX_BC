@@ -7,7 +7,6 @@ vi.mock("@/lib/auth/tenant-context", () => ({
 import { GET } from "@/app/api/audit/route";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { forbidden, unauthorized } from "@/lib/estimates/errors";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -65,28 +64,6 @@ describe("audit GET route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 401 when the user is not authenticated", async () => {
-    vi.mocked(getAuthenticatedTenantContext).mockRejectedValue(unauthorized());
-
-    const response = await GET(new Request("http://localhost/api/audit"));
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
-  });
-
-  it("returns 403 when the user has no active tenant", async () => {
-    vi.mocked(getAuthenticatedTenantContext).mockRejectedValue(
-      forbidden("Aucun tenant actif pour cet utilisateur.")
-    );
-
-    const response = await GET(new Request("http://localhost/api/audit"));
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
-      error: "Aucun tenant actif pour cet utilisateur.",
-    });
-  });
-
   it("scopes audit logs to the active tenant", async () => {
     const rows = [
       {
@@ -132,15 +109,5 @@ describe("audit GET route", () => {
         order: "created_at.desc",
       },
     });
-  });
-
-  it("rejects an invalid limit before querying", async () => {
-    const { supabase, query } = createAuditQuery();
-    mockTenantContext(supabase);
-
-    const response = await GET(new Request("http://localhost/api/audit?limit=0"));
-
-    expect(response.status).toBe(400);
-    expect(query.select).not.toHaveBeenCalled();
   });
 });

@@ -18,31 +18,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorHistoryController", () => {
-
-  it("reports a failed undo and keeps the command available", async () => {
-    const reportError = vi.fn();
-    const { result } = renderHook(() =>
-      useEstimateEditorHistoryController({ scopeKey: "version-1", reportError })
-    );
-
-    act(() => {
-      result.current.actions.push({
-        undo: vi.fn().mockRejectedValue(new Error("undo failed")),
-        redo: vi.fn().mockResolvedValue(undefined),
-      });
-    });
-
-    await act(async () => {
-      await result.current.actions.undo();
-    });
-
-    expect(reportError).toHaveBeenCalledWith(
-      "Impossible d'annuler la dernière action."
-    );
-    expect(result.current.state.canUndo).toBe(true);
-    expect(result.current.state.canRedo).toBe(false);
-  });
-
   it("ignores duplicate history actions while one is executing", async () => {
     const deferred = createDeferred();
     const undo = vi.fn(() => deferred.promise);

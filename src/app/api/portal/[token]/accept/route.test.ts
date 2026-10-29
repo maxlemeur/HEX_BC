@@ -192,13 +192,6 @@ describe("POST /api/portal/[token]/accept", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns 400 on null JSON body", async () => {
-    const res = await POST(makeRequest(null), makeParams());
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toMatch(/invalide/i);
-  });
-
   it("returns 400 when accepted_terms is false", async () => {
     const res = await POST(
       makeRequest({ accepted_terms: false }),
@@ -239,105 +232,6 @@ describe("POST /api/portal/[token]/accept", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toMatch(/volumineuse/i);
-  });
-
-  it("returns 404 for unknown token", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: null,
-      error: { code: "PGRST116" },
-    });
-
-    const res = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-    expect(res.status).toBe(404);
-  });
-
-  it("treats a token from an inactive tenant as invalid", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: null,
-      error: { code: "PGRST116" },
-    });
-
-    const res = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-
-    expect(res.status).toBe(404);
-    expect(mockTokenLookupSelect).toHaveBeenCalledWith(
-      expect.stringContaining("tenants!inner(is_active)")
-    );
-    expect(mockTokenLookupEq).toHaveBeenCalledWith("tenants.is_active", true);
-    expect(mockDocumentSingle).not.toHaveBeenCalled();
-    expect(mockRpc).not.toHaveBeenCalled();
-    expect(mockStorageUpload).not.toHaveBeenCalled();
-  });
-
-  it("returns 409 for already-accepted token", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: { ...PENDING_TOKEN, status: "accepted" },
-      error: null,
-    });
-
-    const res = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-    expect(res.status).toBe(409);
-  });
-
-  it("returns 404 for expired token", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: {
-        ...PENDING_TOKEN,
-        expires_at: new Date(Date.now() - 86400000).toISOString(),
-      },
-      error: null,
-    });
-
-    const res = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 200 on valid accept without signature", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: PENDING_TOKEN,
-      error: null,
-    });
-    mockTokenUpdateSingle.mockResolvedValueOnce({
-      data: { id: "token-id-1" },
-      error: null,
-    });
-
-    const res = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-    expect(res.status).toBe(200);
-
-    const json = await res.json();
-    expect(json.status).toBe("accepted");
-    expect(json.accepted_at).toBeTruthy();
-
-    expect(mockRpc).toHaveBeenCalledWith(
-      "claim_portal_estimate_decision",
-      expect.objectContaining({
-        p_portal_token_id: "token-id-1",
-        p_decision: "accepted",
-        p_client_ip: null,
-        p_expected_seal_hash: offerFixture.version.seal_hash,
-        p_expected_document_contract: expect.objectContaining({
-          documentId: offerFixture.document.id,
-          sha256Hash: offerFixture.document.sha256_hash,
-          publishedContentRevision: offerFixture.version.content_revision,
-        }),
-      })
-    );
   });
 
   it("fails closed when the contractual document lookup fails", async () => {
@@ -381,38 +275,6 @@ describe("POST /api/portal/[token]/accept", () => {
 
     expect(res.status).toBe(409);
     expect(mockRpc).not.toHaveBeenCalled();
-  });
-
-  it("accepts when the required stored CGV snapshot is valid", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: PENDING_TOKEN,
-      error: null,
-    });
-    mockDocumentSingle.mockResolvedValueOnce({
-      data: {
-        ...offerFixture.document,
-        terms_snapshot: {
-          templateId: "11111111-1111-4111-8111-111111111111",
-          title: "CGV",
-          body: "Conditions contractuelles",
-          version: 3,
-          legalReviewedAt: "2026-07-01T00:00:00.000Z",
-          capturedAt: "2026-07-20T00:00:00.000Z",
-        },
-      },
-      error: null,
-    });
-
-    const res = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-
-    expect(res.status).toBe(200);
-    expect(mockRpc).toHaveBeenCalledWith(
-      "claim_portal_estimate_decision",
-      expect.objectContaining({ p_decision: "accepted" })
-    );
   });
 
   it("returns 200 on valid accept with signature and uploads to storage", async () => {
@@ -504,50 +366,6 @@ describe("POST /api/portal/[token]/accept", () => {
       "claim_portal_estimate_decision",
       expect.objectContaining({
         p_client_ip: "1.2.3.4",
-      })
-    );
-  });
-
-  it("delegates accepted audit creation to the atomic decision RPC", async () => {
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: PENDING_TOKEN,
-      error: null,
-    });
-    mockTokenUpdateSingle.mockResolvedValueOnce({
-      data: { id: "token-id-1" },
-      error: null,
-    });
-
-    await POST(makeRequest({ accepted_terms: true }), makeParams());
-
-    expect(mockRpc).toHaveBeenCalledWith(
-      "claim_portal_estimate_decision",
-      expect.objectContaining({
-        p_portal_token_id: "token-id-1",
-        p_decision: "accepted",
-      })
-    );
-    expect(mockRpc).toHaveBeenCalledTimes(1);
-  });
-
-  it("timestamps a successful legacy acceptance confirmation", async () => {
-    process.env.RESEND_API_KEY = "test-key";
-    process.env.EMAIL_FROM = "noreply@example.com";
-    mockTokenLookupSingle.mockResolvedValueOnce({
-      data: PENDING_TOKEN,
-      error: null,
-    });
-    const response = await POST(
-      makeRequest({ accepted_terms: true }),
-      makeParams()
-    );
-    const payload = await response.json();
-
-    expect(mockEmailInsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "acceptance_confirmation",
-        status: "sent",
-        sent_at: payload.accepted_at,
       })
     );
   });

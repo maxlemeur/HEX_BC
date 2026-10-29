@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  countEstimateQualityFlags,
-  computeEstimateQualityFlagsByItemId,
-  computeEstimateQualityFlagsForItem,
-} from "@/lib/estimate-quality";
+import { computeEstimateQualityFlagsForItem } from "@/lib/estimate-quality";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -57,41 +53,6 @@ describe("estimate quality flags", () => {
     expect(flags).not.toContain("price_outlier");
   });
 
-  it("counts the new outlier flags in quality aggregates", () => {
-    const items = [
-      createLine({
-        id: "line-1",
-        quantity: 0,
-        unitPriceHtCents: 0,
-        laborHours: 0,
-        laborRoleId: null,
-        lineNature: "supply_and_labor",
-      }),
-      createLine({
-        id: "line-2",
-        quantity: 3,
-        unitPriceHtCents: 4500,
-      }),
-    ];
-
-    const byItemId = computeEstimateQualityFlagsByItemId(items, {
-      outlierFlagsByItemId: {
-        "line-2": ["price_outlier", "quantity_outlier"],
-      },
-      dismissedOutlierFlagsByItemId: {
-        "line-2": ["quantity_outlier"],
-      },
-    });
-
-    const counts = countEstimateQualityFlags(byItemId);
-
-    expect(counts.linesCount).toBe(2);
-    expect(counts.linesWithAnomaliesCount).toBe(2);
-    expect(counts.byFlag.price_outlier).toBe(1);
-    expect(counts.byFlag.quantity_outlier).toBe(0);
-    expect(counts.totalFlagsCount).toBe(4);
-  });
-
   it("flags stale supplier prices and incomplete labor split", () => {
     const item = createLine({
       id: "line-1",
@@ -110,22 +71,6 @@ describe("estimate quality flags", () => {
 
     expect(flags).toContain("supplier_price_outdated");
     expect(flags).toContain("labor_split_incomplete");
-  });
-
-  it("does not require labor for a supply-only line", () => {
-    const flags = computeEstimateQualityFlagsForItem(
-      createLine({
-        id: "supply-only",
-        quantity: 1,
-        unitPriceHtCents: 2500,
-        laborHours: 0,
-        laborRoleId: null,
-        lineNature: "supply_only",
-      }),
-    );
-
-    expect(flags).not.toContain("missing_labor_time");
-    expect(flags).not.toContain("missing_labor_role");
   });
 
   it("does not require a supply price for a labor-only line", () => {

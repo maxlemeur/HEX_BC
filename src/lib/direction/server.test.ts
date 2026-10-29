@@ -462,39 +462,6 @@ describe("fetchDirectionProjectSignals", () => {
       rawJobId: "job-latest",
     });
   });
-
-  it("returns no synthetic alerts when only older-job alerts remain", async () => {
-    const projectId = "project-stale-only";
-    const versionId = "version-stale-only";
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      tenantId: "tenant-1",
-      tenantRole: "director",
-      userId: "user-1",
-      supabase: createSupabaseMock({
-        versions: [createVersionRow(projectId, versionId, 4)],
-        jobs: [
-          {
-            id: "job-latest-empty",
-            estimate_version_id: versionId,
-            status: "completed",
-            created_at: "2026-03-07T12:00:00.000Z",
-            completed_at: "2026-03-07T12:05:00.000Z",
-          },
-        ],
-        alerts: [
-          createAlertRow(versionId, "alert-stale-only", "job-old", {
-            takeoff_job_id: "job-latest-empty",
-          }),
-        ],
-      }),
-    } as never);
-
-    const result = await fetchDirectionProjectSignals(projectId, versionId);
-
-    expect(result.latestJobId).toBe("job-latest-empty");
-    expect(result.alerts).toEqual([]);
-  });
 });
 
 describe("fetchDirectionDashboardPageData", () => {

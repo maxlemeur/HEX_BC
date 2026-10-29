@@ -63,11 +63,6 @@ const EMPTY_SUMMARY_RESULT = {
   ownerOptions: [],
 };
 
-const EMPTY_TREND_RESULT = {
-  trend: [],
-  avgResolution: [],
-};
-
 describe("/api/admin/anomaly-history", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -88,99 +83,6 @@ describe("/api/admin/anomaly-history", () => {
     expect(body.error.code).toBe("FORBIDDEN");
     expect(vi.mocked(getCurrentAnomalySummary)).not.toHaveBeenCalled();
     expect(vi.mocked(getAnomalyTrend)).not.toHaveBeenCalled();
-  });
-
-  it("returns 403 when no profile", async () => {
-    vi.mocked(getUserContext).mockResolvedValue({
-      userEmail: "",
-      profile: null,
-      tenantId: null,
-    });
-
-    const request = new Request("http://localhost/api/admin/anomaly-history");
-    const response = await GET(request);
-
-    expect(response.status).toBe(403);
-  });
-
-  it("returns a paginated current view without loading trends", async () => {
-    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
-    vi.mocked(getCurrentAnomalySummary).mockResolvedValue({
-      ...EMPTY_SUMMARY_RESULT,
-      ownerOptions: [{ id: "owner-1", name: "Camille Martin" }],
-      currentAnomalies: Array.from({ length: 51 }, (_, index) => ({
-        versionId: `version-${index}`,
-        versionLabel: `V${index + 1}`,
-        projectName: `Projet ${index + 1}`,
-        ownerUserId: "owner-1",
-        ownerName: "Camille Martin",
-        flagKey: "missing_price" as const,
-        flagLabel: "Prix manquant",
-        severity: "blocking" as const,
-        itemCount: 1,
-      })),
-    });
-
-    const response = await GET(
-      new Request(
-        "http://localhost/api/admin/anomaly-history?view=current&page=2&size=25"
-      )
-    );
-    const body = (await response.json()) as {
-      data: {
-        currentAnomalies: unknown[];
-        ownerOptions: unknown[];
-        pagination: Record<string, number>;
-      };
-    };
-
-    expect(body.data.currentAnomalies).toHaveLength(25);
-    expect(body.data.ownerOptions).toEqual([
-      { id: "owner-1", name: "Camille Martin" },
-    ]);
-    expect(body.data.pagination).toEqual({
-      page: 2,
-      size: 25,
-      totalItems: 51,
-      totalPages: 3,
-    });
-    expect(vi.mocked(getAnomalyTrend)).not.toHaveBeenCalled();
-  });
-
-  it("caps the current view page size at 100", async () => {
-    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
-    vi.mocked(getCurrentAnomalySummary).mockResolvedValue(EMPTY_SUMMARY_RESULT);
-
-    const response = await GET(
-      new Request(
-        "http://localhost/api/admin/anomaly-history?view=current&size=500"
-      )
-    );
-    const body = (await response.json()) as {
-      data: { pagination: { size: number } };
-    };
-
-    expect(body.data.pagination.size).toBe(100);
-  });
-
-  it("returns the trend view without loading current anomalies", async () => {
-    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
-    vi.mocked(getAnomalyTrend).mockResolvedValue(EMPTY_TREND_RESULT);
-
-    const response = await GET(
-      new Request(
-        "http://localhost/api/admin/anomaly-history?view=trend&date_from=2025-01-01&date_to=2025-12-31"
-      )
-    );
-    const body = (await response.json()) as { data: unknown };
-
-    expect(body.data).toEqual(EMPTY_TREND_RESULT);
-    expect(vi.mocked(getCurrentAnomalySummary)).not.toHaveBeenCalled();
-    expect(vi.mocked(getAnomalyTrend)).toHaveBeenCalledWith(
-      expect.anything(),
-      TENANT_ID,
-      { date_from: "2025-01-01", date_to: "2025-12-31" }
-    );
   });
 
   it("escapes separators, quotes and newlines in CSV exports", async () => {

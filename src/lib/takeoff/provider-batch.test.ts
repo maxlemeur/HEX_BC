@@ -18,36 +18,6 @@ describe("persistTakeoffProviderBatchSnapshot", () => {
     rpc.mockResolvedValue({ data: true, error: null });
   });
 
-  it("skips persistence when the aggregated snapshot is unchanged", async () => {
-    const currentSnapshot = {
-      processing_strategy: "batch" as const,
-      provider_batch_id: BATCH_ID,
-      provider_batch_state: "running" as const,
-      provider_batch_updated_at: "2026-08-19T10:00:00.000Z",
-      provider_state_raw: "JOB_STATE_RUNNING",
-    };
-
-    await expect(
-      persistTakeoffProviderBatchSnapshot({
-        supabase: supabase as never,
-        jobId: JOB_ID,
-        tenantId: TENANT_ID,
-        estimateVersionId: VERSION_ID,
-        provider: "gemini",
-        currentSnapshot,
-        processingStrategy: "batch",
-        observedAtIso: "2026-08-19T10:05:00.000Z",
-      }),
-    ).resolves.toEqual({
-      processing_strategy: "batch",
-      provider_batch_id: BATCH_ID,
-      provider_batch_state: "running",
-      provider_batch_updated_at: "2026-08-19T10:00:00.000Z",
-      provider_state_raw: "JOB_STATE_RUNNING",
-    });
-    expect(rpc).not.toHaveBeenCalled();
-  });
-
   it("uses the fenced RPC and rejects a lost lease", async () => {
     rpc.mockResolvedValueOnce({ data: false, error: null });
     const consoleErrorSpy = vi

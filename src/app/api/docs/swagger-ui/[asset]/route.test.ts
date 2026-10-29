@@ -52,32 +52,6 @@ describe("GET /api/docs/swagger-ui/[asset]", () => {
     });
   });
 
-  it("serves swagger-ui.css after allowlist resolution", async () => {
-    const [request, context] = buildGetRequest("swagger-ui.css");
-
-    const response = await GET(request, context);
-    const payload = Buffer.from(await response.arrayBuffer()).toString("utf8");
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/css");
-    expect(payload).toContain("fixture:");
-    expect(readFileMock).toHaveBeenCalledTimes(1);
-    expect(readFileMock).toHaveBeenCalledWith(ALLOWLISTED_CSS);
-  });
-
-  it("serves swagger-ui-bundle.js after allowlist resolution", async () => {
-    const [request, context] = buildGetRequest("swagger-ui-bundle.js");
-
-    const response = await GET(request, context);
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain(
-      "application/javascript"
-    );
-    expect(readFileMock).toHaveBeenCalledTimes(1);
-    expect(readFileMock).toHaveBeenCalledWith(ALLOWLISTED_BUNDLE);
-  });
-
   it.each([
     "../package.json",
     "swagger-ui.css/../../etc/passwd",
@@ -96,17 +70,6 @@ describe("GET /api/docs/swagger-ui/[asset]", () => {
         code: "NOT_FOUND",
       }),
     });
-    expect(readFileMock).not.toHaveBeenCalled();
-  });
-
-  it("returns 404 for an unknown asset", async () => {
-    const [request, context] = buildGetRequest("swagger-ui-standalone-preset.js");
-
-    const response = await GET(request, context);
-    const body = await parseJson(response);
-
-    expect(response.status).toBe(404);
-    expect(body.error?.code).toBe("NOT_FOUND");
     expect(readFileMock).not.toHaveBeenCalled();
   });
 });

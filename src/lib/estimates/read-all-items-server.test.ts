@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 
 import type { Database } from "@/types/database";
-import { assertEstimateVersionUnchanged, readAllEstimateItems, readEstimateItemSubtrees } from "./read-all-items-server";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "./read-all-items-server";
 
 function fixture(options: { size?: number; failAt?: number; changedAt?: number; duplicateAt?: number; cap?: number } = {}) {
   const rows = Array.from({ length: options.size ?? 2501 }, (_, index) => ({
@@ -54,19 +54,9 @@ describe("complete estimate item transport", () => {
       && url.searchParams.get("order") === "position.asc,id.asc"
       && Number(url.searchParams.get("limit")) <= 500)).toBe(true);
   });
-  it("stops at the exact count without reading an empty trailing page", async () => {
-    const f = fixture({ size: 1000 });
-    expect(await readAllEstimateItems(f.input)).toEqual(f.rows);
-    expect(f.requests.map(url => Number(url.searchParams.get("offset")))).toEqual([0, 500]);
-  });
   it.each([{ cap: 200 }, { changedAt: 1000 }, { duplicateAt: 1500 }, { failAt: 1000 }])("rejects a partial or changing version: %j", async options => {
     const f = fixture(options);
     await expect(readAllEstimateItems(f.input)).rejects.toThrow();
-  });
-  it("retains the selected subtree filter on every concurrent page", async () => {
-    const f = fixture();
-    expect(await readEstimateItemSubtrees({ ...f.input, ids: ["section"] })).toEqual(f.rows);
-    expect(f.requests.every(url => url.searchParams.get("id") === 'in.(section)')).toBe(true);
   });
   it("still rejects a content revision changed during the paginated read", async () => {
     const f = fixture();

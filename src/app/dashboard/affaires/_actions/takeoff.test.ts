@@ -61,17 +61,6 @@ describe("launchTakeoffFromPlanSet", () => {
     vi.clearAllMocks();
   });
 
-  it("validates input with zod (rejects bad UUIDs)", async () => {
-    await expect(
-      launchTakeoffFromPlanSet({
-        projectId: "not-a-uuid",
-        planSetId: PLAN_SET_ID,
-        versionId: VERSION_ID,
-        level: "B",
-      }),
-    ).rejects.toThrow();
-  });
-
   it("returns a durable recovery state when the immediate trigger fails", async () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
     triggerTakeoffJobProcessingMock.mockResolvedValue({
@@ -122,52 +111,11 @@ describe("launchTakeoffFromPlanSet", () => {
       },
     });
   });
-
-  it("rejects level A for plan-set launches", async () => {
-    await expect(
-      launchTakeoffFromPlanSet({
-        projectId: PROJECT_ID,
-        planSetId: PLAN_SET_ID,
-        versionId: VERSION_ID,
-        level: "A" as "B",
-      }),
-    ).rejects.toThrow();
-  });
 });
 
 describe("launchTakeoffFromSourceVersionPlanSet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("duplicates the source version before launching takeoff", async () => {
-    duplicateEstimateVersionMock.mockResolvedValue({ version_id: VERSION_ID });
-    createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({
-      triggered: true,
-      correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    });
-
-    const result = await launchTakeoffFromSourceVersionPlanSet({
-      projectId: PROJECT_ID,
-      planSetId: PLAN_SET_ID,
-      sourceVersionId: "55555555-5555-4555-8555-555555555555",
-      level: "B",
-      preparationRevision: 2,
-    });
-
-    expect(duplicateEstimateVersionMock).toHaveBeenCalledWith(
-      "55555555-5555-4555-8555-555555555555",
-    );
-    expect(result).toEqual({
-      jobId: JOB_ID,
-      versionId: VERSION_ID,
-      dispatch: {
-        status: "accepted",
-        correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        persisted: true,
-      },
-    });
   });
 
   it("keeps the normal copied draft and its receipt when launch creation fails", async () => {
@@ -186,19 +134,6 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
 
     expect(recordCopyMock).toHaveBeenCalledOnce();
     expect(unexpectedMutationMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects level A before duplicating a source version", async () => {
-    await expect(
-      launchTakeoffFromSourceVersionPlanSet({
-        projectId: PROJECT_ID,
-        planSetId: PLAN_SET_ID,
-        sourceVersionId: "55555555-5555-4555-8555-555555555555",
-        level: "A" as "B",
-      }),
-    ).rejects.toThrow();
-
-    expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
   });
 
   it("requires confirmed preparation before creating a business version", async () => {

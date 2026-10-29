@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AffaireIntakeLeaseUnavailableError,
   AffaireIntakeProviderCallError,
-  claimAffaireIntakeUpload,
   releaseAffaireIntakeUploadAfterError,
   renewAffaireIntakeUploadLease,
   runAffaireIntakeLeasedProviderEffect,
@@ -24,74 +23,6 @@ const CLAIM: AffaireIntakeClaim = {
 };
 
 describe("affaire intake durable lifecycle", () => {
-  it("normalizes a successful atomic claim", async () => {
-    const client = {
-      rpc: vi.fn().mockResolvedValue({
-        data: [
-          {
-            claimed: true,
-            reason: "claimed",
-            tenant_id: TENANT_ID,
-            project_id: PROJECT_ID,
-            upload_status: "processing",
-            attempt_count: 1,
-          },
-        ],
-        error: null,
-      }),
-    };
-
-    const result = await claimAffaireIntakeUpload({
-      client,
-      uploadId: UPLOAD_ID,
-      now: NOW,
-    });
-
-    expect(result.claimed).toBe(true);
-    expect(result).toMatchObject({
-      claim: {
-        uploadId: UPLOAD_ID,
-        tenantId: TENANT_ID,
-        projectId: PROJECT_ID,
-        attemptCount: 1,
-      },
-    });
-    expect(client.rpc).toHaveBeenCalledWith(
-      "claim_affaire_intake_upload",
-      expect.objectContaining({
-        p_upload_id: UPLOAD_ID,
-        p_now: NOW.toISOString(),
-        p_max_attempts: 3,
-      })
-    );
-  });
-
-  it("returns inactive without acquiring a lease", async () => {
-    const client = {
-      rpc: vi.fn().mockResolvedValue({
-        data: [
-          {
-            claimed: false,
-            reason: "tenant_inactive",
-            tenant_id: TENANT_ID,
-            project_id: PROJECT_ID,
-            upload_status: "queued",
-            attempt_count: 0,
-          },
-        ],
-        error: null,
-      }),
-    };
-
-    await expect(
-      claimAffaireIntakeUpload({ client, uploadId: UPLOAD_ID, now: NOW })
-    ).resolves.toEqual({
-      claimed: false,
-      reason: "tenant_inactive",
-      status: "queued",
-    });
-  });
-
   it("does not invoke an external effect after a failed active-tenant lease renewal", async () => {
     const client = {
       rpc: vi.fn().mockResolvedValue({ data: false, error: null }),

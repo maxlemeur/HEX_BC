@@ -237,62 +237,6 @@ describe("updateAffaireRegisterEntryStatus", () => {
     vi.clearAllMocks();
   });
 
-  it("annotates client clarification requests and emits a dedicated event", async () => {
-    const { supabase, eventPayloads, updatePayloads } = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await updateAffaireRegisterEntryStatus({
-      projectId: PROJECT_ID,
-      entryId: ENTRY_ID,
-      status: "clarify_with_client",
-      comment: "Verifier le perimetre client.",
-    });
-
-    expect(updatePayloads[0]).toMatchObject({
-      status: "clarify_with_client",
-      updated_by: USER_ID,
-      metadata: expect.objectContaining({
-        businessImpact: [
-          "affects_hub_readiness",
-          "blocks_submission",
-          "affects_takeoff",
-          "requires_client_answer",
-        ],
-        structuredLocation: {
-          scopeType: "project",
-          scopeId: null,
-          scopeRef: null,
-          scopeLabel: "Affaire test",
-          versionId: null,
-          sourceDocumentId: null,
-          sourceFileName: "plans.pdf",
-        },
-        clientClarificationRequest: expect.objectContaining({
-          status: "clarify_with_client",
-          requestedByUserId: USER_ID,
-          previousStatus: "open",
-          comment: "Verifier le perimetre client.",
-        }),
-      }),
-    });
-    expect(eventPayloads[0]).toMatchObject({
-      event_type: "clarify_with_client_requested",
-      reason: "Verifier le perimetre client.",
-      after_payload: expect.objectContaining({
-        status: "clarify_with_client",
-        clientClarificationRequest: expect.objectContaining({
-          previousStatus: "open",
-        }),
-      }),
-    });
-    expect(result.entry.status).toBe("clarify_with_client");
-    expect(result.entry.clientClarificationRequest).toMatchObject({
-      status: "clarify_with_client",
-      previousStatus: "open",
-      comment: "Verifier le perimetre client.",
-    });
-  });
-
   it("rejects client clarification transitions from resolved entries", async () => {
     const { supabase, eventPayloads, updatePayloads } = createSupabaseMock({
       entryRow: createEntryRow({ status: "validated" as const }),

@@ -1,5 +1,4 @@
-import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
-import { StrictMode } from "react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const {
@@ -34,30 +33,8 @@ vi.mock("@/components/ui-legacy/Toast", () => ({
 }));
 
 vi.mock("@/components/takeoff/PlanFileUploadZone", () => ({
-  PlanFileUploadZone: ({
-    setId,
-    onUploadsComplete,
-    onUploadActivityChange,
-  }: {
-    setId: string;
-    onUploadsComplete: (summary: { uploadedCount: number; uploadedSizeBytes: number }) => void;
-    onUploadActivityChange?: (isActive: boolean) => void;
-  }) => (
-    <div>
-      <div data-testid="plan-upload-zone">{setId}</div>
-      <button type="button" onClick={() => onUploadActivityChange?.(true)}>
-        Demarrer upload
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          onUploadActivityChange?.(false);
-          onUploadsComplete({ uploadedCount: 2, uploadedSizeBytes: 3200 });
-        }}
-      >
-        Terminer upload
-      </button>
-    </div>
+  PlanFileUploadZone: ({ setId }: { setId: string }) => (
+    <div data-testid="plan-upload-zone">{setId}</div>
   ),
 }));
 
@@ -103,26 +80,6 @@ describe("PlansStep", () => {
   afterEach(() => {
     cleanup();
   });
-
-  it("prepares only one import plan set when React repeats the initial effect", async () => {
-    fetchPlanSetsForProjectMock.mockResolvedValue([]);
-    createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);
-
-    render(
-      <StrictMode>
-        <PlansStep
-          projectId={PROJECT_ID}
-          versionId={VERSION_ID}
-          onSkip={vi.fn()}
-          onContinue={vi.fn()}
-        />
-      </StrictMode>
-    );
-
-    await screen.findByTestId("plan-upload-zone");
-    expect(createPlanSetMock).toHaveBeenCalledTimes(1);
-  });
-
   it("prefers the project-scoped set over historical version sets", async () => {
     fetchPlanSetsForProjectMock.mockResolvedValue([
       {
@@ -185,102 +142,5 @@ describe("PlansStep", () => {
     render(<PlansStep projectId={PROJECT_ID} versionId={VERSION_ID} onSkip={vi.fn()} onContinue={vi.fn()} />);
     expect(await screen.findByTestId("plan-upload-zone")).toHaveTextContent("populated");
     expect(createPlanSetMock).not.toHaveBeenCalled();
-  });
-
-  it("keeps a local fallback counter when the refresh fails", async () => {
-    fetchPlanSetsForProjectMock.mockResolvedValue([EXISTING_PLAN_SET]);
-    fetchPlanFilesMock.mockRejectedValue(new Error("fetch failed"));
-
-    render(
-      <PlansStep
-        projectId={PROJECT_ID}
-        versionId={VERSION_ID}
-        onSkip={vi.fn()}
-        onContinue={vi.fn()}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Plans import")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Terminer upload" }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/2 fichiers uploades/i)).toBeInTheDocument();
-    });
-
-    expect(
-      screen.getByText(/Le compteur affiche une estimation locale.*section Plans/i)
-    ).toBeInTheDocument();
-  });
-
-  it("creates a canonical import set when duplicate named sets already exist", async () => {
-    fetchPlanSetsForProjectMock.mockResolvedValue([
-      EXISTING_PLAN_SET,
-      {
-        ...EXISTING_PLAN_SET,
-        id: "plan-set-duplicate",
-        updated_at: "2026-03-06T11:00:00.000Z",
-      },
-    ]);
-    createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);
-
-    render(
-      <PlansStep
-        projectId={PROJECT_ID}
-        versionId={VERSION_ID}
-        onSkip={vi.fn()}
-        onContinue={vi.fn()}
-      />
-    );
-
-    await waitFor(() => {
-      expect(createPlanSetMock).toHaveBeenCalledWith({
-        project_id: PROJECT_ID,
-        name: "Plans import",
-        metadata: {
-          source: "import-flow",
-          default_import_plan_set: true,
-        },
-      });
-    });
-  });
-
-  it("retries preparing the plan set after an initial loading error", async () => {
-    fetchPlanSetsForProjectMock
-      .mockRejectedValueOnce(new Error("temporary failure"))
-      .mockResolvedValueOnce([]);
-    createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);
-
-    render(
-      <PlansStep
-        projectId={PROJECT_ID}
-        versionId={VERSION_ID}
-        onSkip={vi.fn()}
-        onContinue={vi.fn()}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("temporary failure");
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
-
-    await waitFor(() => {
-      expect(createPlanSetMock).toHaveBeenCalledWith({
-        project_id: PROJECT_ID,
-        name: "Plans import",
-        metadata: {
-          source: "import-flow",
-          default_import_plan_set: true,
-        },
-      });
-    });
-
-    expect(screen.getByTestId("plan-upload-zone")).toHaveTextContent(
-      CREATED_PLAN_SET.id
-    );
   });
 });

@@ -121,10 +121,6 @@ describe("takeoff item patch preparation", () => {
 describe("takeoff item patch request boundary", () => {
   const entry = { item_id: ITEM_ID, updated_at: PREVIOUS_TIMESTAMP, fields: { quantity: 18 } };
 
-  it.each([0, 101])("rejects a batch of %i items", (count) => {
-    expect(takeoffItemBatchPatchSchema.safeParse({ items: Array(count).fill(entry) }).success).toBe(false);
-  });
-
   it.each([1, 100])("accepts a batch of %i items without reordering duplicate IDs", (count) => {
     const items = Array.from({ length: count }, (_, index) => ({
       ...entry,

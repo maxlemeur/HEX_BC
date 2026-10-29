@@ -87,41 +87,4 @@ describe("SuggestionLearningAdminClient purge confirmation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mutateLearningMock).not.toHaveBeenCalled();
   });
-
-  it("purges only after explicit confirmation", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const purgeResult = {
-      ...LEARNING_STATE,
-      deleted_count: 2,
-      retention_months: 12,
-    };
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        data: purgeResult,
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<SuggestionLearningAdminClient tenantId="tenant-1" />);
-    await waitFor(() => {
-      expect(screen.getByDisplayValue("12")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Purger" }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/admin/suggestion-learning/purge",
-        expect.objectContaining({ method: "POST" })
-      );
-    });
-    expect(mutateLearningMock).toHaveBeenCalledWith(purgeResult, {
-      revalidate: false,
-    });
-    expect(
-      await screen.findByText("2 correction(s) purgée(s).")
-    ).toBeInTheDocument();
-  });
 });

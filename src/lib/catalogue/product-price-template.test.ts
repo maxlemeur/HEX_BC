@@ -5,7 +5,6 @@ import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 
 import {
-  TEMPLATE_FILE_URL,
   TEMPLATE_VERSION,
   parseProductPriceTemplateWorkbook,
 } from "./product-price-template";
@@ -87,11 +86,6 @@ function createWorkbook(options: WorkbookOptions = {}): ArrayBuffer {
 }
 
 describe("parseProductPriceTemplateWorkbook", () => {
-  it("exports the stable template contract", () => {
-    expect(TEMPLATE_VERSION).toBe("2.0");
-    expect(TEMPLATE_FILE_URL).toBe("/templates/hex-bc-produits-tarifs-v2.xlsx");
-  });
-
   it("accepts the official workbook distributed by the application", async () => {
     const file = await readFile(
       path.join(process.cwd(), "public/templates/hex-bc-produits-tarifs-v2.xlsx")

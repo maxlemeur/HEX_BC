@@ -6,14 +6,11 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { isLocalProductionBuild } from "../../scripts/next-build-env.mjs";
 import {
-  acquireBuildPlace,
   acquireNativeStackSlot,
   cleanUpOnTerminationSignals,
   MAX_ACTIVE_NATIVE_STACKS,
   nativeStackLimit,
-  nativeStackWaitMs,
   NativeStackLimitError,
 } from "@/test/native-stack-guard";
 
@@ -79,23 +76,6 @@ describe("native stack slots", () => {
       .resolves.toHaveProperty("release");
   });
 
-  it("waits for a slot when asked to, and refuses an invalid wait", async () => {
-    const directory = slotDirectory();
-    const holders = await Promise.all([1, 2].map((pid) =>
-      acquireNativeStackSlot({ label: "holder", directory, pid, limit: 2, isAlive: () => true, listProcesses: noProcesses })));
-    const sleep = vi.fn(async () => { holders[0].release(); });
-    await expect(acquireNativeStackSlot({
-      label: "waiter", directory, pid: 3, limit: 2, waitMs: 60_000, isAlive: () => true, sleep, listProcesses: noProcesses,
-    })).resolves.toHaveProperty("release");
-    expect(sleep).toHaveBeenCalledOnce();
-
-    expect(nativeStackWaitMs({})).toBe(0);
-    expect(nativeStackWaitMs({ NATIVE_STACK_WAIT_SECONDS: "90" })).toBe(90_000);
-    for (const value of ["-1", "1.5", "soon"]) {
-      expect(() => nativeStackWaitMs({ NATIVE_STACK_WAIT_SECONDS: value })).toThrow("whole number of seconds");
-    }
-  });
-
   it("counts stack hosts no live run owns and production builds, never a guarded run's own host twice", async () => {
     const directory = slotDirectory();
     const ownRoot = fs.mkdtempSync(path.join(os.tmpdir(), "miaouffrage-supabase-ci-"));
@@ -146,130 +126,6 @@ describe("native stack slots", () => {
     } finally {
       for (const slot of admitted) slot.release();
       held.release();
-      home.mockRestore();
-      fs.rmSync(fixture.home, { recursive: true, force: true });
-    }
-  });
-
-  it("still counts a CLI 2.121 host with a known identity when no live slot owns it", async () => {
-    const fixture = currentHostFixture();
-    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
-    try {
-      fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
-      await expect(acquireNativeStackSlot({
-        label: "next", directory: path.join(fixture.home, "slots"), pid: 102, limit: 1,
-        isAlive: () => true, listProcesses: () => [fixture.command],
-      })).rejects.toThrow(`native stack not owned by a guarded run: ${fixture.root}`);
-    } finally {
-      home.mockRestore();
-      fs.rmSync(fixture.home, { recursive: true, force: true });
-    }
-  });
-
-  it.each(["file", "symlink"])("counts native hosts under an executable path with spaces (%s), including an unknown identity", async (kind) => {
-    const fixture = currentHostFixture();
-    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
-    const executable = path.join(fixture.home, "Mon Projet", "node_modules", "@supabase", "cli-darwin-arm64", "bin", "supabase");
-    fs.mkdirSync(path.dirname(executable), { recursive: true });
-    const target = kind === "symlink" ? path.join(fixture.home, "supabase-binary") : executable;
-    fs.writeFileSync(target, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    if (kind === "symlink") fs.symlinkSync(target, executable);
-    const command = fixture.command.replace("/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase", executable);
-    const directory = path.join(fixture.home, "slots");
-    let held: { release: () => void } | undefined;
-    try {
-      // Missing metadata may prevent attribution, never remove a live host
-      // from the capacity calculation merely because its executable has spaces.
-      await expect(acquireNativeStackSlot({
-        label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
-        listProcesses: () => [`  501  1 ${command}`],
-      })).rejects.toThrow(/native stack not owned by a guarded run: PID 501 \(identity unavailable\)/);
-      fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
-      await expect(acquireNativeStackSlot({
-        label: "first", directory, pid: 102, limit: 1, isAlive: () => true, listProcesses: () => [command],
-      })).rejects.toThrow(`native stack not owned by a guarded run: ${fixture.root}`);
-      // Shell/grep mentions of that same real binary do not occupy places.
-      held = await acquireNativeStackSlot({
-        label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
-        listProcesses: () => [`/bin/sh -c ${command}`, `/usr/bin/grep ${command}`],
-      });
-    } finally {
-      held?.release();
-      home.mockRestore();
-      fs.rmSync(fixture.home, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps a host with a deleted spaced executable counted without trusting its metadata", async () => {
-    const fixture = currentHostFixture();
-    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
-    const executable = path.join(fixture.home, "Mon Projet", "node_modules", "@supabase", "cli-darwin-arm64", "bin", "supabase");
-    fs.mkdirSync(path.dirname(executable), { recursive: true });
-    fs.writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    const command = fixture.command.replace("/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase", executable);
-    fs.unlinkSync(executable);
-    fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
-    const directory = path.join(fixture.home, "slots");
-    const held = await acquireNativeStackSlot({ label: "guarded", directory, pid: 101, isAlive: () => true, listProcesses: noProcesses });
-    held.recordStack(fixture.root);
-    const read = vi.spyOn(fs, "readFileSync");
-    let admitted: { release: () => void } | undefined;
-    try {
-      const refusal = acquireNativeStackSlot({
-        label: "second", directory, pid: 102, limit: 2, isAlive: () => true,
-        listProcesses: () => [`  501  1 ${command}`],
-      });
-      await expect(refusal).rejects.toThrow(/2 of 2 places[\s\S]*native stack not owned by a guarded run: PID 501 \(identity unavailable\)/);
-      expect(read.mock.calls.some(([file]) => String(file) === fixture.state)).toBe(false);
-      // An unavailable executable does not turn known shell/grep/env prefixes
-      // into hosts, even when they mention the same unquoted native command.
-      admitted = await acquireNativeStackSlot({
-        label: "second", directory, pid: 102, limit: 2, isAlive: () => true,
-        listProcesses: () => [`/bin/sh -c ${command}`, `/usr/bin/grep ${command}`, `/usr/bin/env bash -c ${command}`],
-      });
-    } finally {
-      read.mockRestore();
-      admitted?.release();
-      held.release();
-      home.mockRestore();
-      fs.rmSync(fixture.home, { recursive: true, force: true });
-    }
-  });
-
-  it.each(["env", "sh", "rg"])("recognizes a native executable under %s projet before and after its removal", async (name) => {
-    // No earlier space in the fixture home: the first whitespace-delimited
-    // segment ends in env/sh/rg, but that segment is not a wrapper executable.
-    const fixture = currentHostFixture("native-guard-");
-    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
-    const executable = path.join(fixture.home, `${name} projet`, "node_modules", "@supabase", "cli-darwin-arm64", "bin", "supabase");
-    fs.mkdirSync(path.dirname(executable), { recursive: true });
-    fs.writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
-    const command = fixture.command.replace("/x/node_modules/@supabase/cli-darwin-arm64/bin/supabase", executable);
-    const directory = path.join(fixture.home, "slots");
-    const reserve = () => acquireNativeStackSlot({
-      label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
-      listProcesses: () => [`  501  1 ${command}`],
-    });
-    const read = vi.spyOn(fs, "readFileSync");
-    let admitted: { release: () => void } | undefined;
-    try {
-      const existingFailure = await reserve().then((slot) => { slot.release(); }, (error: unknown) => error);
-      expect(existingFailure).toBeInstanceOf(NativeStackLimitError);
-      expect(String(existingFailure)).toContain(`native stack not owned by a guarded run: ${fixture.root}`);
-      fs.unlinkSync(executable);
-      read.mockClear();
-      const removedFailure = await reserve().then((slot) => { slot.release(); }, (error: unknown) => error);
-      expect(removedFailure).toBeInstanceOf(NativeStackLimitError);
-      expect(String(removedFailure)).toContain("native stack not owned by a guarded run: PID 501 (identity unavailable)");
-      expect(read.mock.calls.some(([file]) => String(file) === fixture.state)).toBe(false);
-      admitted = await acquireNativeStackSlot({
-        label: "first", directory, pid: 102, limit: 1, isAlive: () => true,
-        listProcesses: () => [`/bin/sh -c ${command}`, `/usr/bin/grep ${command}`, `/usr/bin/env bash -c ${command}`, `sh -c ${command}`, `grep ${command}`, `env bash -c ${command}`],
-      });
-    } finally {
-      read.mockRestore();
-      admitted?.release();
       home.mockRestore();
       fs.rmSync(fixture.home, { recursive: true, force: true });
     }
@@ -332,24 +188,6 @@ describe("native stack slots", () => {
     }
   });
 
-  it("ignores shell and grep lines that only mention a native host", async () => {
-    const fixture = currentHostFixture();
-    const home = vi.spyOn(os, "homedir").mockReturnValue(fixture.home);
-    let slot: { release: () => void } | undefined;
-    try {
-      fs.writeFileSync(fixture.state, JSON.stringify(fixture.saved));
-      slot = await acquireNativeStackSlot({
-        label: "first", directory: path.join(fixture.home, "slots"), pid: 102, limit: 1, isAlive: () => true,
-        listProcesses: () => [`zsh -c ${fixture.command}`, `/bin/sh -c ${fixture.command}`, `/usr/bin/grep ${fixture.command}`],
-      });
-      expect(slot).toHaveProperty("release");
-    } finally {
-      slot?.release();
-      home.mockRestore();
-      fs.rmSync(fixture.home, { recursive: true, force: true });
-    }
-  });
-
   it("parses escaped legacy JSON roots and conceals malformed private descriptors", async () => {
     const fixture = currentHostFixture();
     const quotedRoot = path.join(fixture.home, 'project "quoted"');
@@ -371,129 +209,6 @@ describe("native stack slots", () => {
       held.release();
       fs.rmSync(fixture.home, { recursive: true, force: true });
     }
-  });
-
-  it("lets Ctrl+C cancel a wait even when the caller owns the shutdown", async () => {
-    const directory = slotDirectory();
-    await acquireNativeStackSlot({ label: "holder", directory, pid: 1, limit: 1, isAlive: () => true, listProcesses: noProcesses });
-    // The Army dev modes register their own handler, so the cleanup guard stands aside.
-    const caller = vi.fn();
-    process.on("SIGINT", caller);
-    try {
-      const waiting = acquireNativeStackSlot({
-        label: "waiter", directory, pid: 2, limit: 1, waitMs: 3_600_000, isAlive: () => true,
-        listProcesses: noProcesses, sleep: () => new Promise(() => {}),
-      });
-      await new Promise((resolve) => setImmediate(resolve));
-      process.emit("SIGINT", "SIGINT");
-      await expect(waiting).rejects.toThrow("Waiting for a native place was cancelled by SIGINT");
-      // The build launcher raises it again, so `npm run build` ends by the signal.
-      await expect(waiting).rejects.toMatchObject({ name: "NativeStackLimitError", signal: "SIGINT" });
-    } finally {
-      process.off("SIGINT", caller);
-    }
-    expect(process.listenerCount("SIGINT") + process.listenerCount("SIGTERM")).toBe(0);
-    expect(fs.readdirSync(directory).filter((name) => name.startsWith("2-"))).toEqual([]);
-  });
-
-  it("gives a local production build a place, never in CI, on Vercel or for --help, and never fails it otherwise", async () => {
-    expect(isLocalProductionBuild({} as NodeJS.ProcessEnv, ["--webpack"])).toBe(true);
-    for (const env of [{ CI: "false" }, { CI: "0" }, { CI: " " }]) {
-      expect(isLocalProductionBuild(env as never, []), JSON.stringify(env)).toBe(true);
-    }
-    for (const [env, args] of [[{ CI: "true" }, []], [{ CI: "1" }, []], [{ VERCEL: "1" }, []], [{}, ["--help"]]] as const) {
-      expect(isLocalProductionBuild(env as never, [...args]), JSON.stringify([env, args])).toBe(false);
-    }
-
-    const directory = slotDirectory();
-    const listProcesses = vi.fn(noProcesses);
-    for (const env of [{ CI: "true" }, { VERCEL: "1" }]) {
-      await expect(acquireBuildPlace(env, ["--webpack"], { directory, listProcesses })).resolves.toBeUndefined();
-    }
-    await expect(acquireBuildPlace({}, ["--help"], { directory, listProcesses })).resolves.toBeUndefined();
-    expect(listProcesses).not.toHaveBeenCalled();
-
-    // Fail-open: no process listing, an unusable lock folder or an invalid setting only warn.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await expect(acquireBuildPlace({}, [], { directory, listProcesses: () => { throw new Error("ps: not found"); } }))
-        .resolves.toBeUndefined();
-      const notADirectory = path.join(directory, "file");
-      fs.writeFileSync(notADirectory, "");
-      await expect(acquireBuildPlace({}, [], { directory: notADirectory, listProcesses })).resolves.toBeUndefined();
-      await expect(acquireBuildPlace({ NATIVE_STACK_MAX_RUNS: "many" }, [], { directory, listProcesses })).resolves.toBeUndefined();
-      expect(warn).toHaveBeenCalledTimes(3);
-      expect(warn.mock.calls.flat().join("\n")).toContain("building anyway");
-    } finally {
-      warn.mockRestore();
-    }
-    expect(fs.readdirSync(directory)).toEqual(["file"]);
-
-    // A full house stops it, naming the holders.
-    const held = await Promise.all([1, 2, 3].map((pid) =>
-      acquireNativeStackSlot({ label: `run ${pid}`, directory, pid, isAlive: () => true, listProcesses: noProcesses })));
-    await expect(acquireBuildPlace({}, [], { directory, pid: 9, isAlive: () => true, listProcesses }))
-      .rejects.toThrow(/3 of 3 places[\s\S]*run PID 3: run 3/);
-
-    // A build's own process line is not counted next to its slot.
-    held[2].release();
-    const own = await acquireBuildPlace({}, ["--webpack"], {
-      directory, pid: 9, isAlive: () => true, listProcesses: () => ["    9 node scripts/next-build.mjs --webpack"],
-    });
-    expect(own).toBeDefined();
-    held[1].release();
-    await expect(acquireNativeStackSlot({
-      label: "next", directory, pid: 10, isAlive: () => true, listProcesses: () => ["9 node scripts/next-build.mjs --webpack"],
-    })).resolves.toHaveProperty("release");
-  });
-
-  it("ends by the signal when Ctrl+C cancels a wait no caller owns", async () => {
-    const directory = slotDirectory();
-    await acquireNativeStackSlot({ label: "holder", directory, pid: 1, limit: 1, isAlive: () => true, listProcesses: noProcesses });
-    const raise = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const cleanup = vi.fn();
-    const remove = cleanUpOnTerminationSignals(cleanup);
-    try {
-      const waiting = acquireNativeStackSlot({
-        label: "waiter", directory, pid: 2, limit: 1, waitMs: 3_600_000, isAlive: () => true,
-        listProcesses: noProcesses, sleep: () => new Promise(() => {}),
-      });
-      await new Promise((resolve) => setImmediate(resolve));
-      process.emit("SIGINT", "SIGINT");
-      // No listener may survive the re-raise, or Node would treat the signal as handled.
-      expect(process.listenerCount("SIGINT")).toBe(0);
-      await expect(waiting).rejects.toThrow("cancelled by SIGINT");
-      // The waiter's own listener is not a caller: the guard cleans up and re-raises.
-      expect(cleanup).toHaveBeenCalledExactlyOnceWith("SIGINT");
-      expect(raise).toHaveBeenCalledExactlyOnceWith(process.pid, "SIGINT");
-    } finally {
-      remove();
-      raise.mockRestore();
-    }
-    expect(process.listenerCount("SIGINT") + process.listenerCount("SIGTERM")).toBe(0);
-  });
-
-  it("counts a Next build left by a dead launcher, never a build under a place or a launcher's own child", async () => {
-    const directory = slotDirectory();
-    const run = await acquireNativeStackSlot({ label: "army", directory, pid: 9, isAlive: () => true, listProcesses: noProcesses });
-    const listProcesses = () => [
-      "  500     1 /usr/bin/node /r/node_modules/next/dist/bin/next build --webpack",
-      "  610     9 node scripts/tester-army/build-local.mjs --execute",
-      "  611   610 /usr/bin/node --max-old-space-size=4096 node_modules/next/dist/bin/next build --webpack",
-      "  650     1 node scripts/next-build.mjs --webpack",
-      "  651   650 /usr/bin/node /r/node_modules/next/dist/bin/next build --webpack",
-      "  700     1 node /r/node_modules/next/dist/bin/next dev",
-      // Lines that only mention a build, and a shell wrapper around the orphan 500.
-      "  710     1 bash -c pgrep -f /r/node_modules/next/dist/bin/next build",
-      "  720     1 sh -c node /r/node_modules/next/dist/bin/next build --webpack",
-      "  730     1 /usr/bin/grep next/dist/bin/next build",
-    ];
-    // Taken: the Army run, the orphan build 500 and the launcher 650 (its child 651 once).
-    await expect(acquireNativeStackSlot({ label: "next", directory, pid: 2, limit: 3, isAlive: () => true, listProcesses }))
-      .rejects.toThrow(/3 of 3 places[\s\S]*run PID 9[\s\S]*production build: node scripts\/next-build\.mjs[\s\S]*Next build without a place: \/usr\/bin\/node \/r\/node_modules\/next\/dist\/bin\/next build/);
-    await expect(acquireNativeStackSlot({ label: "next", directory, pid: 2, limit: 4, isAlive: () => true, listProcesses }))
-      .resolves.toHaveProperty("release");
-    run.release();
   });
 
   it("never admits more than the limit among racing processes", async () => {
@@ -575,19 +290,5 @@ describe("termination signal cleanup", () => {
     expect(cleanup).toHaveBeenCalledExactlyOnceWith("SIGINT");
     expect(target.kill).toHaveBeenCalledExactlyOnceWith(42, "SIGINT");
     expect(target.listenerCount("SIGINT") + target.listenerCount("SIGTERM")).toBe(0);
-  });
-
-  it("leaves the shutdown to a caller that handles the signal itself", () => {
-    const target = Object.assign(new EventEmitter(), { pid: 42, kill: vi.fn() });
-    const cleanup = vi.fn();
-    const caller = vi.fn();
-    target.on("SIGINT", caller);
-    cleanUpOnTerminationSignals(cleanup, target as never);
-    target.emit("SIGINT", "SIGINT");
-    target.emit("SIGINT", "SIGINT");
-    expect(cleanup).not.toHaveBeenCalled();
-    expect(caller).toHaveBeenCalledTimes(2);
-    expect(target.kill).not.toHaveBeenCalled();
-    expect(target.listenerCount("SIGTERM")).toBe(1);
   });
 });

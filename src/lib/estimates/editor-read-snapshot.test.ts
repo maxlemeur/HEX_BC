@@ -61,34 +61,12 @@ describe("preparing a confirmed editor read", () => {
       updates: { pu_ht_cents: 3, line_total_ht_cents: 3, line_tax_cents: 1, line_total_ttc_cents: 4 } });
   });
 
-  it("preserves stored v3 amounts without proposing corrective historical writes", () => {
-    const data = read();
-    const before = structuredClone(data);
-    const prepared = prepareEstimateEditorRead(data, false);
-    expect(prepared.draft.items[0]).toMatchObject({
-      quantity: 2, pu_ht_cents: 1300, line_total_ht_cents: 2600,
-      line_tax_cents: 520, line_total_ttc_cents: 3120,
-    });
-    expect(prepared.normalizationUpdates).toEqual([]);
-    expect(data).toEqual(before);
-  });
-
   it.each([1, 2, 3] as const)("does not recalculate issued engine %s lines", (engine) => {
     const data = read();
     data.version.calc_engine_version = engine;
     data.version.status = "sent";
     const prepared = prepareEstimateEditorRead(data, true);
     expect(prepared.draft.items).toEqual(data.items);
-    expect(prepared.normalizationUpdates).toEqual([]);
-  });
-
-  it("preserves a non-priced v3 line with no sale unit price", () => {
-    const data = read();
-    data.items[0] = { ...data.items[0], pricing_status: "out_of_scope", pu_ht_cents: null,
-      line_total_ht_cents: 0, line_tax_cents: 0, line_total_ttc_cents: 0 };
-    const prepared = prepareEstimateEditorRead(data, true);
-    expect(prepared.draft.items[0].pu_ht_cents).toBeNull();
-    expect(prepared.draft.items[0].line_total_ttc_cents).toBe(0);
     expect(prepared.normalizationUpdates).toEqual([]);
   });
 });

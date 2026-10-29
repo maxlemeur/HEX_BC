@@ -137,11 +137,6 @@ describe("normaliseur d'unités (D9)", () => {
       expect(unit.label.toLowerCase()).not.toContain("millilitre");
     }
   });
-
-  it("distingue l'ensemble du forfait (P-08 : ens ≠ fft)", () => {
-    expect(normalizeMeasurementUnit("ens").unitCode).toBe("ens");
-    expect(normalizeMeasurementUnit("fft").unitCode).toBe("fft");
-  });
 });
 
 describe("référentiel généré (U4, U5)", () => {

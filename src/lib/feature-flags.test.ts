@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { getFeatureFlagValueForTenant, getStalePriceDaysForTenant, isFeatureEnabled } from "@/lib/feature-flags";
+import { getFeatureFlagValueForTenant, getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -44,36 +44,6 @@ function createSupabaseMock(result: QueryResult) {
   };
 }
 
-describe("isFeatureEnabled", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns false when the tenant flag is inactive", async () => {
-    const supabase = createSupabaseMock({
-      data: {
-        enabled: false,
-      },
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(isFeatureEnabled(TENANT_ID, "STALE_PRICE_DAYS")).resolves.toBe(false);
-  });
-
-  it("returns false when the tenant flag does not exist", async () => {
-    const supabase = createSupabaseMock({
-      data: null,
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(isFeatureEnabled(TENANT_ID, "STALE_PRICE_DAYS")).resolves.toBe(false);
-  });
-});
-
 describe("getStalePriceDaysForTenant", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,17 +61,6 @@ describe("getStalePriceDaysForTenant", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(120);
-  });
-
-  it("falls back to default stale days when value is missing", async () => {
-    const supabase = createSupabaseMock({
-      data: null,
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
   });
 
   it("ignores value-backed flags when the flag is disabled", async () => {

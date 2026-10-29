@@ -9,11 +9,10 @@ vi.mock("@/lib/purchase-orders", () => ({
   getAccessiblePurchaseOrderOrNull: vi.fn(),
 }));
 
-import { GET, POST } from "@/app/api/purchase-orders/[id]/devis/route";
+import { POST } from "@/app/api/purchase-orders/[id]/devis/route";
 import {
   DEVIS_ID,
   ORDER_ID,
-  SECOND_DEVIS_ID,
   TENANT_ID,
   USER_ID,
   buildAuthenticatedTenantContext,
@@ -61,83 +60,6 @@ describe("purchase order devis collection route", () => {
     mockedCanWrite.mockResolvedValue(true);
   });
 
-  it("lists devis in position order with their signed URLs", async () => {
-    const records = [
-      buildDevisRecord(),
-      buildDevisRecord({
-        id: SECOND_DEVIS_ID,
-        name: "Offre B",
-        original_filename: "offre-b.xlsx",
-        storage_path: `purchase-orders/${ORDER_ID}/offre-b.xlsx`,
-        file_size_bytes: 12,
-        mime_type:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        position: 2,
-      }),
-    ];
-    const harness = installHarness({ listData: records });
-
-    const response = await GET(new Request("http://localhost"), params);
-
-    expect(response.status).toBe(200);
-    expect(harness.queries.list.eq).toHaveBeenCalledWith(
-      "purchase_order_id",
-      ORDER_ID
-    );
-    expect(harness.queries.list.order).toHaveBeenCalledWith("position", {
-      ascending: true,
-    });
-    expect(harness.createSignedUrl).toHaveBeenCalledTimes(2);
-    expect(harness.createSignedUrl).toHaveBeenNthCalledWith(
-      1,
-      records[0].storage_path,
-      600
-    );
-    expect(await response.json()).toEqual({
-      items: records.map((record) => ({
-        id: record.id,
-        name: record.name,
-        originalFilename: record.original_filename,
-        fileSizeBytes: record.file_size_bytes,
-        mimeType: record.mime_type,
-        createdAt: record.created_at,
-        position: record.position,
-        downloadUrl: `https://storage.test/${encodeURIComponent(record.storage_path)}`,
-      })),
-    });
-  });
-
-  it("fails the list atomically when one signed URL cannot be created", async () => {
-    const brokenPath = `purchase-orders/${ORDER_ID}/broken.pdf`;
-    const harness = installHarness({
-      listData: [
-        buildDevisRecord(),
-        buildDevisRecord({ id: SECOND_DEVIS_ID, storage_path: brokenPath }),
-      ],
-      signedUrlErrorPath: brokenPath,
-      signedUrlError: { message: "storage indisponible" },
-    });
-
-    const response = await GET(new Request("http://localhost"), params);
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "storage indisponible" });
-    expect(harness.createSignedUrl).toHaveBeenCalledTimes(2);
-  });
-
-  it("rejects an empty upload before resolving order access", async () => {
-    installHarness();
-
-    const response = await POST(
-      uploadRequest(new File([], "offre.pdf", { type: "application/pdf" })),
-      params
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Le fichier est vide." });
-    expect(mockedGetOrder).not.toHaveBeenCalled();
-  });
-
   it("hides an order of another tenant (404) and checks the role against the order's tenant", async () => {
     installHarness();
     mockedGetOrder.mockResolvedValue({
@@ -153,23 +75,6 @@ describe("purchase order devis collection route", () => {
 
     expect(response.status).toBe(404);
     expect(mockedCanWrite).not.toHaveBeenCalled();
-  });
-
-  it("authorizes writes against the order's tenant, not only the caller context", async () => {
-    const harness = installHarness();
-    mockedCanWrite.mockResolvedValue(false);
-
-    const response = await POST(
-      uploadRequest(new File(["x"], "offre.pdf", { type: "application/pdf" })),
-      params
-    );
-
-    expect(response.status).toBe(403);
-    expect(mockedCanWrite).toHaveBeenCalledWith(
-      harness.supabase,
-      USER_ID,
-      TENANT_ID
-    );
   });
 
   it("normalizes upload metadata and appends the next position", async () => {

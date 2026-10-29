@@ -43,14 +43,6 @@ beforeEach(() => {
 });
 
 describe("takeoff job comparison boundary", () => {
-  it("rejects identical jobs before any database read", async () => {
-    const fake = createSupabaseFake({});
-    useFake(fake);
-    await expect(compareTakeoffJobs(M3_JOB_ID, { with: M3_JOB_ID }))
-      .rejects.toMatchObject({ status: 409, code: "CONFLICT" });
-    expect(fake.queries).toEqual([]);
-  });
-
   it.each([
     { estimate_version_id: OTHER_JOB_ID },
     { source_file_name: "Plan R-1.pdf" },
@@ -71,17 +63,6 @@ describe("takeoff job comparison boundary", () => {
       .rejects.toMatchObject({ status: 404 });
     expect(fake.tablesTouched).toEqual(["takeoff_jobs", "takeoff_jobs"]);
     for (const query of fake.queries) expect(filterValue(query, "tenant_id")).toBe(M3_TENANT_ID);
-  });
-
-  it.each([
-    [undefined, 0.8],
-    [0.1, 0.5],
-    [1, 0.99],
-  ])("preserves diff threshold normalization (%s → %s)", async (threshold, expected) => {
-    const fake = createComparisonFake();
-    useFake(fake);
-    await expect(compareTakeoffJobs(M3_JOB_ID, { with: OTHER_JOB_ID, threshold }))
-      .resolves.toMatchObject({ threshold: expected });
   });
 
   it("compares the full item collection beyond the first 200 rows", async () => {

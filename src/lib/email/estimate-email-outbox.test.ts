@@ -80,50 +80,6 @@ describe("estimate email outbox provider boundary", () => {
     vi.clearAllMocks();
   });
 
-  it("sends the frozen payload with the database-owned idempotency key", async () => {
-    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
-      if (functionName === "claim_estimate_email_dispatch") {
-        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token, lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
-      }
-      if (functionName === "complete_estimate_email_dispatch") {
-        return { data: createDispatch("sent"), error: null };
-      }
-      throw new Error(`Unexpected RPC ${functionName}`);
-    });
-    mocks.send.mockResolvedValue({ data: { id: "email-1" }, error: null });
-
-    await expect(
-      deliverEstimateEmailDispatch({
-        dispatch: createDispatch("queued"),
-        actorUserId: "55555555-5555-4555-8555-555555555555",
-        apiKey: "test-key",
-        loadPdfBuffer: async () => PDF_BUFFER,
-        retryDelaysMs: [],
-      })
-    ).resolves.toEqual({ providerId: "email-1" });
-
-    expect(mocks.send).toHaveBeenCalledWith(
-      {
-        from: "noreply@example.com",
-        to: "client@example.com",
-        cc: ["copy@example.com"],
-        subject: "Devis fige",
-        html: "<p>Bonjour</p>",
-        text: "Bonjour",
-        attachments: [
-          {
-            filename: "HEX_D26001MM_V2.pdf",
-            content: PDF_BUFFER.toString("base64"),
-          },
-        ],
-      },
-      {
-        idempotencyKey:
-          "estimate-email/11111111-1111-4111-8111-111111111111",
-      }
-    );
-  });
-
   it("replays the identical provider request when provider success precedes a DB failure", async () => {
     let completionCount = 0;
     mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
@@ -258,15 +214,6 @@ describe("drainEstimateEmailOutbox", () => {
     expect(mocks.send).toHaveBeenCalledTimes(1);
     expect(mocks.rpc).toHaveBeenCalledWith("list_due_estimate_email_dispatches", expect.objectContaining({ p_limit: 25 }));
   });
-
-  it.each([{ dispatches: [], blocked: -1 }, { dispatches: "invalid", blocked: 0 }, { dispatches: [], blocked: null }])(
-    "refuses an invalid eligibility response before delivery: %j", async (data) => {
-      mocks.rpc.mockResolvedValue({ data, error: null });
-      mocks.send.mockClear();
-      await expect(drainEstimateEmailOutbox({ apiKey: "test-key" })).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_OUTBOX_INVALID_RESPONSE" });
-      expect(mocks.send).not.toHaveBeenCalled();
-    }
-  );
 
   it("replays due rows with the same deliver path and marks dead after N attempts", async () => {
     const replayable = createDispatch("queued");

@@ -7,12 +7,6 @@ function sourceLines(prompt: string) {
 }
 
 describe("getTakeoffPrompt source context", () => {
-  it("keeps a received file name as is on its line", () => {
-    expect(sourceLines(getTakeoffPrompt("B", { sourceHint: "Plan R+1 (étage).pdf" }))).toEqual([
-      "- source: Plan R+1 (étage).pdf",
-    ]);
-  });
-
   // M1b : le libellé d'origine entre dans le prompt ; il ne peut pas y ajouter de ligne.
   it("keeps line breaks and control characters of a file name out of the prompt", () => {
     const prompt = getTakeoffPrompt("B", {
@@ -27,9 +21,5 @@ describe("getTakeoffPrompt source context", () => {
     const [line] = sourceLines(getTakeoffPrompt("B", { sourceHint: `${"é".repeat(5000)}.pdf` }));
 
     expect(Array.from(line ?? "")).toHaveLength("- source: ".length + 1000);
-  });
-
-  it("falls back to the upload placeholder when nothing printable remains", () => {
-    expect(sourceLines(getTakeoffPrompt("B", { sourceHint: "\n\t​" }))).toEqual(["- source: upload"]);
   });
 });

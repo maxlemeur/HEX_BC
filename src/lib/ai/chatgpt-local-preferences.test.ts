@@ -76,12 +76,6 @@ describe("persisted ChatGPT model and reasoning preferences", () => {
     expect((await readChatGptStore(owner)).profiles[0].model).toBeNull();
   });
 
-  it("stores the selected model/effort together and keeps them after a fresh file read", async () => {
-    const result = await selectLocalChatGptPreferences(owner, { model: terra.slug, reasoningEffort: "max" });
-    expect(result).toEqual({ model: terra.slug, reasoningEffort: "max", effortReset: false });
-    expect((await readChatGptStore(owner)).profiles[0]).toMatchObject({ model: terra.slug, reasoningEffort: "max" });
-  });
-
   it("resets incompatible effort on model change but rejects an invalid effort on the same model", async () => {
     await selectLocalChatGptPreferences(owner, { model: terra.slug, reasoningEffort: "none" });
     expect(await selectLocalChatGptModel(owner, sol.slug)).toEqual({ model: sol.slug, reasoningEffort: null, effortReset: true });

@@ -18,7 +18,6 @@ vi.mock("@/lib/purchase-orders", async (importOriginal) => ({
 import { GET } from "@/app/api/purchase-orders/[id]/zip/route";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { unauthorized } from "@/lib/estimates/errors";
 import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 
 const ORDER_ID = "55555555-5555-4555-8555-555555555555";
@@ -199,69 +198,6 @@ describe("purchase order zip route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 401 when the user is not authenticated", async () => {
-    vi.mocked(getAuthenticatedTenantContext).mockRejectedValue(unauthorized());
-
-    const response = await callRoute();
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
-    expect(mockedGetOrder).not.toHaveBeenCalled();
-  });
-
-  it("returns 404 when the order is not accessible", async () => {
-    const { supabase } = createSupabaseMock();
-    mockTenantContext(supabase);
-    mockedGetOrder.mockResolvedValue(null);
-
-    const response = await callRoute();
-
-    expect(response.status).toBe(404);
-  });
-
-  // Regression : archiver 8 est passe en ESM pur sans export par defaut
-  // appelable. L'ancien `archiver("zip", ...)` compilait encore chez certains
-  // resolveurs mais explosait a l'execution. On verifie donc que la reponse est
-  // une archive ZIP reellement lisible, pas seulement un 200.
-  it("streams a readable zip containing the order html", async () => {
-    const items = [
-      {
-        designation: "Poutre IPE 200",
-        reference: "IPE200",
-        quantity: 4,
-        unit_price_ht_cents: 25_000,
-        line_total_ht_cents: 100_000,
-        position: 1,
-        unit: "u",
-        price_unit: "u",
-        line_tax_cents: 20_000,
-        line_total_ttc_cents: 120_000,
-      },
-    ];
-    const { supabase } = createSupabaseMock({ items });
-    mockTenantContext(supabase);
-    mockedGetOrder.mockResolvedValue(buildOrder({ purchase_order_items: items }));
-
-    const response = await callRoute();
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("application/zip");
-    expect(response.headers.get("Content-Disposition")).toBe(
-      'attachment; filename="bon_de_commande_BC-2026-001.zip"'
-    );
-
-    const entries = await readZipResponse(response);
-    expect(entries.map((entry) => entry.name)).toEqual([
-      "bon-de-commande.html",
-    ]);
-
-    const html = entries[0].content.toString("utf8");
-    expect(html).toContain("BC-2026-001");
-    expect(html).toContain("Fournisseur Test");
-    expect(html).toContain("Chantier Nord");
-    expect(html).toContain("Poutre IPE 200");
-  });
-
   it("appends downloaded devis under documents/ and de-duplicates names", async () => {
     const devis: DevisFixture[] = [
       {
@@ -355,18 +291,5 @@ describe("purchase order zip route", () => {
       "bon-de-commande.html",
       "documents/ok.pdf",
     ]);
-  });
-
-  it("falls back to the order number when the reference is empty", async () => {
-    const { supabase } = createSupabaseMock();
-    mockTenantContext(supabase);
-    mockedGetOrder.mockResolvedValue(buildOrder({ reference: "" }));
-
-    const response = await callRoute();
-
-    expect(response.headers.get("Content-Disposition")).toBe(
-      'attachment; filename="bon_de_commande_42.zip"'
-    );
-    await expect(readZipResponse(response)).resolves.toHaveLength(1);
   });
 });

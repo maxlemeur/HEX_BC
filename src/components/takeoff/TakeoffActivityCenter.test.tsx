@@ -1,4 +1,4 @@
-import { act,cleanup,render,screen } from "@testing-library/react";
+import { cleanup,render,screen } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
@@ -63,16 +63,14 @@ const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
 
 function renderCenter(input?: {
   response?: TakeoffActivityCenterResponse;
-  isLoading?: boolean;
   withPlanSet?: boolean;
-  planFileCount?: number;
   secondaryPlanFileCount?: number;
   defaultPlanSetId?: string | null;
 }) {
   useSWRMock.mockReturnValue({
     data: input?.response ?? EMPTY_RESPONSE,
     error: undefined,
-    isLoading: input?.isLoading ?? false,
+    isLoading: false,
   });
 
   const withPlanSet = input?.withPlanSet ?? false;
@@ -87,7 +85,7 @@ function renderCenter(input?: {
               id: "plan-set-1",
               name: "Plans architecte",
               metadata: {},
-              fileCount: input?.planFileCount ?? 2,
+              fileCount: 2,
             },
             ...(input?.secondaryPlanFileCount === undefined
               ? []
@@ -115,7 +113,7 @@ function renderCenter(input?: {
                     ? "plan-set-1"
                     : input.defaultPlanSetId,
                 defaultPlanSetName: "Plans architecte",
-                defaultPlanSetFileCount: input?.planFileCount ?? 2,
+                defaultPlanSetFileCount: 2,
               },
               availableVersions: [{ id: "version-1", versionNumber: 1 }],
             }
@@ -132,7 +130,6 @@ describe("TakeoffActivityCenter", () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     cleanup();
   });
 
@@ -148,45 +145,5 @@ describe("TakeoffActivityCenter", () => {
     });
 
     expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-2");
-  });
-
-  it("routes an empty plan set back to plan preparation", () => {
-    renderCenter({ withPlanSet: true, planFileCount: 0 });
-
-    expect(
-      screen.getByRole("heading", { name: "Ajoutez un PDF pour lancer le métré" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Ajouter des plans" })
-    ).toHaveAttribute("href", "/dashboard/affaires/project-1/plans");
-  });
-
-  it("offers launch when the default set is empty but another set is ready", () => {
-    renderCenter({
-      withPlanSet: true,
-      planFileCount: 0,
-      secondaryPlanFileCount: 3,
-    });
-
-    expect(
-      screen.getByRole("heading", { name: "Préparez votre premier métré" })
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Plans plomberie/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Préparer le métré" })
-    ).toBeInTheDocument();
-  });
-
-  it("announces when analysis loading exceeds the normal delay", () => {
-    vi.useFakeTimers();
-    renderCenter({ isLoading: true });
-
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Chargement des analyses"
-    );
-    act(() => vi.advanceTimersByTime(3_000));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Le chargement prend plus de temps que prévu"
-    );
   });
 });

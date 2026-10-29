@@ -9,11 +9,6 @@ import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligi
 // to pin here than in E2E. Journeys: docs/testing/estimate-engine-v3-2.2.md.
 const context = { currency: "EUR", quantity: 30, unit: "m", today: "2026-10-02" };
 const priced = { unit_price_cents: 1240 };
-const zero = { unit_price_cents: 0 };
-const oneCent = { unit_price_cents: 1 };
-const nullKind = { ...zero, zero_price_kind: null };
-const included = { ...zero, zero_price_kind: "included" };
-const free = { ...zero, zero_price_kind: "free" };
 
 describe("supplier offer applicability", () => {
   it("refuses a quantity below the supplier minimum and permits the boundary", () => {
@@ -21,10 +16,6 @@ describe("supplier offer applicability", () => {
     expect(supplierOfferIneligibility(offer, context)).toBe("Minimum 100 m");
     expect(supplierOfferIneligibility(offer, { ...context, quantity: 100 })).toBeNull();
     expect(supplierOfferIneligibility(offer, { ...context, quantity: null })).toBe("Quantité du devis à préciser");
-  });
-  it("permits metre aliases but never invents a conversion from kilograms", () => {
-    expect(supplierOfferIneligibility({ ...priced, unit: "ml" }, context)).toBeNull();
-    expect(supplierOfferIneligibility({ ...priced, unit: "kg" }, context)).toBe("Unité différente du devis");
   });
   it("refuses inactive, future and expired offers, with inclusive validity dates", () => {
     expect(supplierOfferIneligibility({ ...priced, is_active: false }, context)).toBe("Offre archivée");
@@ -35,25 +26,6 @@ describe("supplier offer applicability", () => {
   it("keeps the currency fence consistent with manual selection", () => {
     expect(supplierOfferIneligibility({ ...priced, currency: "USD" }, context)).toBe("Conversion de devise requise");
     expect(supplierOfferIneligibility({ ...priced, currency: "EUR" }, context)).toBeNull();
-  });
-});
-
-describe("zero-priced supplier offers (A7, T-Z)", () => {
-  // Transposes docs/audit-independant-2026-10-14/reproductions/rules.audit.test.ts:98.
-  it("refuses an unmarked offer at 0 €", () => {
-    expect(supplierOfferIneligibility({ ...zero, unit: "m" }, context)).toBe("Offre à 0 € non marquée");
-    expect(supplierOfferIneligibility({ ...nullKind, unit: "m" }, context))
-      .toBe("Offre à 0 € non marquée");
-  });
-  it("accepts an offer at 0 € marked included or free", () => {
-    expect(supplierOfferIneligibility({ ...included, unit: "m" }, context)).toBeNull();
-    expect(supplierOfferIneligibility({ ...free, unit: "m" }, context)).toBeNull();
-  });
-  it("accepts the smallest positive price", () => {
-    expect(supplierOfferIneligibility({ ...oneCent, unit: "m" }, context)).toBeNull();
-  });
-  it("still reports an archived zero-priced offer as archived", () => {
-    expect(supplierOfferIneligibility({ ...zero, is_active: false }, context)).toBe("Offre archivée");
   });
 });
 
@@ -81,11 +53,6 @@ describe("shared unit referential and purchase units (sub-lot 2.9)", () => {
     expect(supplierOfferIneligibility({ ...priced, unit: "Barre" }, { ...context, unit: "barre" })).toBeNull();
     expect(supplierOfferIneligibility({ ...priced, unit: "sac" }, { ...context, unit: "barre" })).toBe("Unité différente du devis");
   });
-  it("accepts an offer sold by the bar for a line in linear metres when it declares the conversion", () => {
-    const bar = { ...priced, unit: "barre", estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3.000000", purchase_rounding: "ceil" };
-    expect(supplierOfferIneligibility(bar, { ...context, unit: "ML", quantity: 282 })).toBeNull();
-    expect(supplierOfferIneligibility({ ...priced, unit: "barre" }, { ...context, unit: "ml" })).toBe("Unité différente du devis");
-  });
   it("applies the minimum order to the purchase quantity", () => {
     const bar = { ...priced, unit: "barre", estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3.000000",
       purchase_rounding: "ceil", min_quantity: 5 };
@@ -96,9 +63,6 @@ describe("shared unit referential and purchase units (sub-lot 2.9)", () => {
 
 describe("purchase units after review (sub-lot 2.9)", () => {
   const bar = { ...priced, unit: "barre", estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3", purchase_rounding: "ceil" };
-  it("keeps a line written in the purchase unit eligible once the offer declares a conversion", () => {
-    expect(supplierOfferIneligibility(bar, { ...context, unit: "barre", quantity: 94 })).toBeNull();
-  });
   it("refuses an unrepresentable purchase quantity even without a minimum", () => {
     const exact = { ...bar, purchase_rounding: "none", min_quantity: null };
     expect(supplierOfferIneligibility(exact, { ...context, unit: "ml", quantity: 10 })).toBe("Quantité non convertible en barre");

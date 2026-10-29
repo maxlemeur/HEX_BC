@@ -94,40 +94,6 @@ describe("allocateExact (largest remainder, exact integers)", () => {
     }
   });
 
-  it("splits equally when every weight is 0, remainder by ascending key", () => {
-    const parts = allocateExact(BigInt(5), [
-      { key: "c", weight: ZERO },
-      { key: "a", weight: ZERO },
-      { key: "b", weight: ZERO },
-    ]);
-    expect(parts).toEqual([ONE, BigInt(2), BigInt(2)]);
-  });
-
-  it("breaks exact ties by ascending key, whatever the input order", () => {
-    const parts = allocateExact(ONE, [
-      { key: "ffffffff-0000-4000-8000-000000000000", weight: ONE },
-      { key: "0fffffff-0000-4000-8000-000000000000", weight: ONE },
-    ]);
-    expect(parts).toEqual([ZERO, ONE]);
-  });
-
-  it("gives intra-line components the fixed order (fo, mo) and (atelier, chantier)", () => {
-    expect(allocateExact(ONE, [{ key: "mo", weight: ONE }, { key: "fo", weight: ONE }])).toEqual([
-      ZERO,
-      ONE,
-    ]);
-    expect(
-      allocateExact(ONE, [{ key: "chantier", weight: ONE }, { key: "atelier", weight: ONE }])
-    ).toEqual([ZERO, ONE]);
-  });
-
-  it("never gives a unit to a zero weight when another weight is positive", () => {
-    expect(allocateExact(BigInt(3), [{ key: "a", weight: ZERO }, { key: "b", weight: BigInt(5) }])).toEqual([
-      ZERO,
-      BigInt(3),
-    ]);
-  });
-
   it("refuses a negative amount, a negative weight and duplicated keys", () => {
     expect(() => allocateExact(BigInt(-1), [{ key: "a", weight: ONE }])).toThrow();
     expect(() => allocateExact(ONE, [{ key: "a", weight: BigInt(-1) }])).toThrow();

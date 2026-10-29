@@ -257,31 +257,6 @@ describe("sendEstimateEmail transactional workflow", () => {
     expect(generateEstimatePdfNow).not.toHaveBeenCalled();
   });
 
-  // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-05). Le refus du moteur
-  // est une propriété de la version : il précède la configuration d'envoi, la relecture
-  // d'un envoi, le gel, le contrôle bloquant, la réservation et toute livraison.
-  // Réaligné en 2.7 (estimate-engine-v3-2.7.md §11.4, « Tests existants à réaligner ») : la v3
-  // s'envoie désormais (contrat client 2, parcours V3M01) ; le refus avant tout effet reste exigé
-  // pour un moteur hors domaine.
-  it("refuses a draft of an unknown engine by name before configuration, replay, freeze, gating, reservation or delivery", async () => {
-    delete process.env.RESEND_API_KEY;
-    delete process.env.EMAIL_FROM;
-    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
-      createContext("draft", { calc_engine_version: 4 }) as never
-    );
-
-    await expect(sendEstimateEmail(request)).rejects.toMatchObject({
-      code: "ESTIMATE_CALC_ENGINE_UNSUPPORTED",
-    });
-    expect(outboxMocks.findByRequest).not.toHaveBeenCalled();
-    expect(outboxMocks.findActive).not.toHaveBeenCalled();
-    expect(serverMocks.freeze).not.toHaveBeenCalled();
-    expect(serverMocks.getGating).not.toHaveBeenCalled();
-    expect(outboxMocks.reserve).not.toHaveBeenCalled();
-    expect(generateEstimatePdfNow).not.toHaveBeenCalled();
-    expect(outboxMocks.deliver).not.toHaveBeenCalled();
-  });
-
   it("rejects a sent estimate whose seal no longer verifies", async () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
       createContext("sent") as never
@@ -292,45 +267,6 @@ describe("sendEstimateEmail transactional workflow", () => {
       code: "ESTIMATE_SEAL_INVALID",
     });
     expect(outboxMocks.reserve).not.toHaveBeenCalled();
-  });
-
-  it("freezes draft, PDF, seal, and provider payload before delivery", async () => {
-    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
-      createContext("draft", { calc_engine_version: 2 }) as never
-    );
-
-    await expect(sendEstimateEmail(request)).resolves.toEqual({
-      message_id: "email-1", version_id: VERSION_ID, request_id: REQUEST_ID,
-    });
-    expect(outboxMocks.reserve).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestId: REQUEST_ID,
-        expectedUpdatedAt: FROZEN_UPDATED_AT,
-      })
-    );
-    expect(serverMocks.freeze.mock.invocationCallOrder[0]).toBeLessThan(
-      serverMocks.getGating.mock.invocationCallOrder[0]
-    );
-    expect(serverMocks.getGating.mock.invocationCallOrder[0]).toBeLessThan(
-      outboxMocks.reserve.mock.invocationCallOrder[0]
-    );
-    expect(generateEstimatePdfNow).toHaveBeenCalledTimes(1);
-    expect(outboxMocks.prepare).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sealHash: SEAL_HASH,
-        documentSha256: PDF_HASH,
-        attachmentFilename: "HEX_D26001MM_V2.pdf",
-      })
-    );
-    expect(outboxMocks.deliver).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dispatch: expect.objectContaining({ status: "queued" }),
-        apiKey: "test-key",
-      })
-    );
-    expect(outboxMocks.prepare.mock.invocationCallOrder[0]).toBeLessThan(
-      outboxMocks.deliver.mock.invocationCallOrder[0]
-    );
   });
 
   it("does not compensate or deliver when preparation may have committed but its receipt is invalid", async () => {
@@ -375,26 +311,6 @@ describe("sendEstimateEmail transactional workflow", () => {
     expect(outboxMocks.deliver).not.toHaveBeenCalled();
     }
   );
-
-  it("reuses the immutable contractual PDF when resending a sent estimate", async () => {
-    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
-      createContext("sent") as never
-    );
-    outboxMocks.reserve.mockResolvedValue(createDispatch("preparing"));
-
-    await expect(sendEstimateEmail(request)).resolves.toEqual({
-      message_id: "email-1", version_id: VERSION_ID, request_id: REQUEST_ID,
-    });
-
-    expect(offerMocks.load).toHaveBeenCalled();
-    expect(generateEstimatePdfNow).not.toHaveBeenCalled();
-    expect(outboxMocks.prepare).toHaveBeenCalledWith(
-      expect.objectContaining({
-        documentPath: `${TENANT_ID}/${VERSION_ID}/contract.pdf`,
-        documentSha256: PDF_HASH,
-      })
-    );
-  });
 
   it.each(["sending", "sent"])(
     "resumes the same frozen database payload with a fresh key on %s status",

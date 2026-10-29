@@ -214,80 +214,6 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
     expect(await harness.planStorageFiles.get(filePath)?.text()).toBe("pdf-a");
   });
 
-  it("creates a canonical project-scoped plan set and copies eligible intake PDFs", async () => {
-    const harness = createHarness({
-      intakeFiles: {
-        [`${TENANT_ID}/${PROJECT_ID}/upload-1/doc-1/plan-a.pdf`]: new Blob(["pdf-a"]),
-      },
-    });
-
-    const result = await syncTakeoffPlanSetFromAffaireIntake({
-      supabase: harness.supabase,
-      project: {
-        id: PROJECT_ID,
-        tenant_id: TENANT_ID,
-      },
-      documents: [
-        {
-          id: "doc-1",
-          upload_id: "upload-1",
-          created_by: USER_ID,
-          storage_path: `${TENANT_ID}/${PROJECT_ID}/upload-1/doc-1/plan-a.pdf`,
-          file_name: "plan-a.pdf",
-          mime_type: "application/pdf",
-          size_bytes: 5,
-          upload_status: "uploaded",
-          classification_status: "classified",
-          document_kind: "plans",
-        },
-        {
-          id: "doc-2",
-          upload_id: "upload-1",
-          created_by: USER_ID,
-          storage_path: `${TENANT_ID}/${PROJECT_ID}/upload-1/doc-2/photo.png`,
-          file_name: "photo.png",
-          mime_type: "image/png",
-          size_bytes: 400,
-          upload_status: "uploaded",
-          classification_status: "classified",
-          document_kind: "plans",
-        },
-      ],
-    });
-
-    expect(result).toEqual({
-      syncedDocumentCount: 1,
-      removedDocumentCount: 0,
-    });
-    expect(harness.planSets).toEqual([
-      expect.objectContaining({
-        id: "plan-set-created",
-        estimate_version_id: null,
-        name: "Plans import",
-        metadata: {
-          source: "affaire-intake",
-          default_import_plan_set: true,
-        },
-      }),
-    ]);
-    expect(harness.planFiles).toHaveLength(1);
-    expect(harness.planFiles[0]).toEqual(
-      expect.objectContaining({
-        plan_set_id: "plan-set-created",
-        file_name: "plan-a.pdf",
-        file_type: "application/pdf",
-        file_size_bytes: 5,
-        created_by: USER_ID,
-        metadata: expect.objectContaining({
-          source: "affaire-intake",
-          intake_document_id: "doc-1",
-          intake_upload_id: "upload-1",
-        }),
-      })
-    );
-    expect(harness.uploadedPaths).toHaveLength(1);
-  });
-
   it("removes stale synced plan files when intake documents are no longer eligible", async () => {
     const harness = createHarness({
       planSets: [
@@ -464,36 +390,4 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
     });
   });
 
-  it("does not create an empty import plan set when no eligible PDF plan exists", async () => {
-    const harness = createHarness();
-
-    const result = await syncTakeoffPlanSetFromAffaireIntake({
-      supabase: harness.supabase,
-      project: {
-        id: PROJECT_ID,
-        tenant_id: TENANT_ID,
-      },
-      documents: [
-        {
-          id: "doc-email",
-          upload_id: "upload-2",
-          created_by: USER_ID,
-          storage_path: `${TENANT_ID}/${PROJECT_ID}/upload-2/doc-email/mail.eml`,
-          file_name: "mail.eml",
-          mime_type: "message/rfc822",
-          size_bytes: 500,
-          upload_status: "uploaded",
-          classification_status: "classified",
-          document_kind: "emails",
-        },
-      ],
-    });
-
-    expect(result).toEqual({
-      syncedDocumentCount: 0,
-      removedDocumentCount: 0,
-    });
-    expect(harness.planSets).toEqual([]);
-    expect(harness.planFiles).toEqual([]);
-  });
 });

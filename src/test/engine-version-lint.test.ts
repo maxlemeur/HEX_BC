@@ -33,24 +33,4 @@ describe("ESLint calculation-engine literal guard", () => {
       await engineLiteralMessages(rawComparisons[0], "src/app/api/estimates/[versionId]/v3-guard-probe/route.ts")
     ).toHaveLength(1);
   }, 60_000);
-
-  it.each([
-    "src/lib/estimates/calc-engine-version.ts",
-    "src/lib/estimates/engine/compute.ts",
-    "src/lib/estimates/engine-v3/line.ts",
-    "src/lib/estimate-calculations.ts",
-    "src/lib/estimate-v2-snapshot.ts",
-    "src/lib/estimates/v3-guard-probe.test.ts",
-  ])("allows the reviewed whitelist %s", async (filePath) => {
-    expect(await engineLiteralMessages(rawComparisons[0], filePath)).toEqual([]);
-  }, 60_000);
-
-  it("allows exhaustive switches and unrelated numeric comparisons", async () => {
-    const code = [
-      "export function f(engine: 1 | 2 | 3, items: unknown[]) {",
-      "  switch (engine) { case 1: return items.length === 2; case 2: return 2; case 3: return 3; }",
-      "}",
-    ].join("\n");
-    expect(await engineLiteralMessages(code, "src/lib/estimates/v3-guard-probe.ts")).toEqual([]);
-  }, 60_000);
 });

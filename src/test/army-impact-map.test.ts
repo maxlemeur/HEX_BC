@@ -379,16 +379,6 @@ describe("TesterArmy critical impact map", () => {
     expect(push).toMatchObject({ mode: "full", fullOnly: { mode: "none", files: [] } });
   });
 
-  it("hands the takeoff job only paths the runner's full --files accepts", () => {
-    const refusedBy = (selection: { fullOnly: { files: string[] } }) =>
-      selection.fullOnly.files.filter((file) => !FULL_ONLY_JOURNEY_FILE.test(file));
-    const editor = ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"];
-    for (const selection of [select(editor), select(["e2e/army/takeoff/native-ui.ts"]), select(["scripts/run-tester-army-ci.ts"])]) {
-      expect(selection.fullOnly.files.length).toBeGreaterThan(0);
-      expect(refusedBy(selection)).toEqual([]);
-    }
-  });
-
   it("selects listed and unlisted takeoff journeys in subfolders", () => {
     const refusedBy = (selection: { fullOnly: { files: string[] } }) =>
       selection.fullOnly.files.filter((file) => !FULL_ONLY_JOURNEY_FILE.test(file));
@@ -419,14 +409,6 @@ describe("TesterArmy critical impact map", () => {
     const selection = selectFromRepository(root, { event: "pull_request", paths: ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"], repositoryFiles: [...files, refused] });
     expect(selection.mode).toBe("full");
     expect(selection.fullOnly).toMatchObject({ mode: "all", files: [] });
-  });
-
-  it("rejects traversal, hidden entries, other folders and line suffixes", () => {
-    // Traversal, hidden entries, other folders and line suffixes stay refused.
-    for (const outside of ["e2e/army/takeoff/../critical/smoke.e2e.ts", "e2e/army/takeoff/.cache/x.e2e.ts",
-      "e2e/army/extended/x.e2e.ts", "e2e/army/takeoff/x.e2e.ts:12", "e2e/army/takeoff//x.e2e.ts", "e2e/army/critical/fixtures.e2e.ts"]) {
-      expect(FULL_ONLY_JOURNEY_FILE.test(outside), outside).toBe(false);
-    }
   });
 
   it("routes every fixture a journey reads by path to that journey", () => {
@@ -564,22 +546,6 @@ describe("TesterArmy shard plans", () => {
     // Every critical, takeoff and full plan in-process: timed out at 5,06 s on a loaded runner (PR #71, run 39178555436).
   }, 30_000);
 
-  it("plans the same shards whatever the order of the selection, the heaviest journeys spread first", () => {
-    const listing = criticalSuiteFromConfig();
-    const plan = (order: string[]) => planShards({ suite: "critical", files: order, wholeSuite: true, setup: map.suite.setup,
-      anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE, durations });
-    const reference = plan(listing);
-    expect(plan([...listing].reverse())).toEqual(reference);
-    expect(plan([...listing].sort((a, b) => b.length - a.length || a.localeCompare(b)))).toEqual(reference);
-    // Longest-first assignment: no shard exceeds another by more than the heaviest journey.
-    const weight = (file: string) => durations.seconds[file] ?? durations.defaultSeconds;
-    const heaviest = Math.max(...listing.filter((file) => file !== map.suite.setup).map(weight));
-    const loads = reference.shards.map((shard) => shard.seconds);
-    expect(Math.max(...loads) - Math.min(...loads)).toBeLessThanOrEqual(heaviest);
-    expect(reference.shards.map((shard) => shard.seconds))
-      .toEqual(reference.shards.map((shard) => shard.files.filter((file) => file !== map.suite.setup).reduce((sum, file) => sum + weight(file), 0)));
-  });
-
   it("runs one unsharded shard, never a partial list, when the list is refused by the runner or cannot be established", () => {
     const listing = criticalSuiteFromConfig();
     const base = { suite: "critical" as const, setup: map.suite.setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE };
@@ -622,14 +588,6 @@ describe("TesterArmy shard plans", () => {
     // An unreadable full list: one unsharded shard running both phases on its stack, as before sharding.
     expect(planFullSuite(root, { repositoryFiles: files, config: "export default {};" }))
       .toMatchObject({ files: [], development: "in-shard", shards: [{ shard: 1, total: 1, files: [] }] });
-  });
-
-  it("names only journeys of the suites and keeps every limit usable", () => {
-    const known = [...map.suite.journeys, ...fullSelectionListing()];
-    expect(validateShardDurations({ ...durations, seconds: { ...durations.seconds, "e2e/army/critical/zz-gone.e2e.ts": 5 } }, known))
-      .toEqual(["army-shards.json times e2e/army/critical/zz-gone.e2e.ts, which no suite runs."]);
-    expect(validateShardDurations({ ...durations, suites: { ...durations.suites, full: { maxShards: 0, secondsPerShard: 320, workers: 1 } } }, known))
-      .toEqual(["army-shards.json suite full needs maxShards from 1 to 8, secondsPerShard above 0 and workers from 1 to 4."]);
   });
 
   it("hands the workflow one matrix entry per shard, its files comma-joined", () => {

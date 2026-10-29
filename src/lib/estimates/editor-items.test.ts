@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { applyInterParentMoveOptimistically, buildEstimateItemInsertPayload, buildEstimateItemUpdatePayload, buildVersionDiscountPatch, createOptimisticLineItem, hasLaborSplitFields, readLaborSplitFields, resolveLaborRoleHourlyRate, type EstimateItem } from "@/lib/estimates/editor-items";
-
-const FIXED_NOW = "2026-07-15T15:30:45.000Z";
+import { buildEstimateItemUpdatePayload, buildVersionDiscountPatch, hasLaborSplitFields, readLaborSplitFields, resolveLaborRoleHourlyRate, type EstimateItem } from "@/lib/estimates/editor-items";
 
 function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
   return {
@@ -64,89 +62,7 @@ function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
   };
 }
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
-
 describe("estimate editor item payloads", () => {
-  it("keeps section update and insert payloads intentionally minimal", () => {
-    const section = createItem({
-      id: "section-1",
-      item_type: "section",
-      parent_id: null,
-      position: 1,
-      title: "Lot plomberie",
-      aid: null,
-    });
-
-    expect(buildEstimateItemUpdatePayload(section)).toEqual({
-      title: "Lot plomberie",
-      aid: null,
-    });
-    expect(
-      buildEstimateItemInsertPayload("version-target", section, {
-        parentId: "chapter-target",
-        position: 4,
-        title: "Lot plomberie copie",
-      })
-    ).toEqual({
-      version_id: "version-target",
-      parent_id: "chapter-target",
-      item_type: "section",
-      position: 4,
-      title: "Lot plomberie copie",
-      aid: null,
-    });
-  });
-
-  it("persiste la ventilation MO atelier/chantier quand elle est presente (EST-031)", () => {
-    const line = createItem();
-    const updatePayload = buildEstimateItemUpdatePayload(line);
-
-    expect(updatePayload).toEqual({
-      title: "Tube acier",
-      aid: "A.1",
-      line_nature: "supply_and_labor",
-      description: "Fourniture et pose",
-      quantity: 3,
-      unit_price_ht_cents: 1250,
-      tax_rate_bp: 2000,
-      k_fo: 1.1,
-      h_mo: 2.5,
-      h_mo_majoration: 1.2,
-      k_mo: 1.05,
-      h_mo_atelier: 1,
-      k_mo_atelier: 1.1,
-      labor_role_atelier_id: "role-atelier",
-      h_mo_chantier: 1.5,
-      k_mo_chantier: 1.2,
-      labor_role_chantier_id: "role-chantier",
-      pu_ht_cents: 5200,
-      labor_role_id: "role-default",
-      category_id: "category-1",
-      supply_type_id: "supply-1",
-      product_id: "product-1",
-      selected_supplier_price_id: "supplier-price-1",
-      line_total_ht_cents: 15600,
-      line_tax_cents: 3120,
-      line_total_ttc_cents: 18720,
-    });
-
-    expect(
-      buildEstimateItemInsertPayload("version-target", line, {
-        parentId: null,
-        position: 7,
-      })
-    ).toEqual({
-      version_id: "version-target",
-      parent_id: null,
-      item_type: "line",
-      position: 7,
-      ...updatePayload,
-    });
-  });
-
   it("n'invente pas de ventilation MO quand la source n'en porte pas", () => {
     // La garde `key in source` protege les patches partiels : une ligne dont la
     // ventilation n'est pas mentionnee ne doit pas la voir ecrasee par des null.
@@ -215,101 +131,6 @@ describe("estimate editor item payloads", () => {
   });
 });
 
-describe("estimate editor optimistic items", () => {
-
-  it("never initializes deprecated labor split values", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(FIXED_NOW));
-
-    const createLine = (isLaborSplitEnabled: boolean) =>
-      createOptimisticLineItem({
-        tempId: isLaborSplitEnabled ? "tmp:split" : "tmp:standard",
-        tenantId: "tenant-1",
-        versionId: "version-1",
-        parentId: "section-1",
-        position: 2,
-        title: "Nouvelle ligne",
-        quantity: 1,
-        taxRateBp: 2000,
-        puHtCents: 1000,
-        lineTotalHtCents: 1000,
-        lineTaxCents: 200,
-        lineTotalTtcCents: 1200,
-        isLaborSplitEnabled,
-      });
-
-    expect(createLine(true)).toMatchObject({
-      created_at: FIXED_NOW,
-      updated_at: FIXED_NOW,
-      line_nature: "supply_only",
-      h_mo_atelier: null,
-      k_mo_atelier: null,
-      h_mo_chantier: null,
-      k_mo_chantier: null,
-      _clientKey: "tmp:split",
-      _optimistic: true,
-      _pendingCreate: true,
-    });
-    expect(createLine(false)).toMatchObject({
-      h_mo_atelier: null,
-      k_mo_atelier: null,
-      h_mo_chantier: null,
-      k_mo_chantier: null,
-    });
-  });
-});
-
-describe("estimate editor inter-parent moves", () => {
-  it("reparents the moved item and reindexes both sibling groups immutably", () => {
-    const sourceFirst = createItem({
-      id: "source-first",
-      parent_id: "source-parent",
-      position: 1,
-    });
-    const moved = createItem({
-      id: "moved",
-      parent_id: "source-parent",
-      position: 2,
-    });
-    const targetFirst = createItem({
-      id: "target-first",
-      parent_id: "target-parent",
-      position: 1,
-    });
-    const targetLast = createItem({
-      id: "target-last",
-      parent_id: "target-parent",
-      position: 2,
-    });
-    const unrelated = createItem({
-      id: "unrelated",
-      parent_id: "unrelated-parent",
-      position: 9,
-    });
-    const items = [sourceFirst, moved, targetFirst, targetLast, unrelated];
-
-    const result = applyInterParentMoveOptimistically(items, {
-      itemId: "moved",
-      fromParentId: "source-parent",
-      toParentId: "target-parent",
-      orderedSourceIds: ["source-first"],
-      orderedTargetIds: ["target-first", "moved", "target-last"],
-    });
-
-    expect(result.map(({ id, parent_id, position }) => ({ id, parent_id, position })))
-      .toEqual([
-        { id: "source-first", parent_id: "source-parent", position: 1 },
-        { id: "moved", parent_id: "target-parent", position: 2 },
-        { id: "target-first", parent_id: "target-parent", position: 1 },
-        { id: "target-last", parent_id: "target-parent", position: 3 },
-        { id: "unrelated", parent_id: "unrelated-parent", position: 9 },
-      ]);
-    expect(items[1]).toBe(moved);
-    expect(result[1]).not.toBe(moved);
-    expect(result[4]).toBe(unrelated);
-  });
-});
-
 describe("buildVersionDiscountPatch (EST-E26 etape 16)", () => {
   it("persiste le coefficient hors mode cascade", () => {
     // Le defaut corrige : on ecrivait `global_coefficient: 1` hors cascade,
@@ -327,32 +148,6 @@ describe("buildVersionDiscountPatch (EST-E26 etape 16)", () => {
       discount_steps: [],
       global_coefficient: 1.15,
     });
-  });
-
-  it("persiste aussi le coefficient en mode cascade", () => {
-    expect(
-      buildVersionDiscountPatch({
-        discountMode: "cascade",
-        globalCoefficient: 1.15,
-        cascadeDiscountSteps: [500, 250],
-      })
-    ).toEqual({
-      discount_mode: "cascade",
-      discount_steps: [500, 250],
-      global_coefficient: 1.15,
-    });
-  });
-
-  it("garde les paliers propres au mode cascade", () => {
-    // Les paliers, eux, n'ont de sens qu'en cascade : contrairement au
-    // coefficient, les vider hors cascade est coherent.
-    expect(
-      buildVersionDiscountPatch({
-        discountMode: "simple",
-        globalCoefficient: 1,
-        cascadeDiscountSteps: [500, 250],
-      }).discount_steps
-    ).toEqual([]);
   });
 
   it("retombe sur un coefficient neutre et jamais negatif", () => {

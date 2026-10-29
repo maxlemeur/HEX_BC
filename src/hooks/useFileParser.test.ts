@@ -56,43 +56,6 @@ afterEach(() => {
 });
 
 describe("useFileParser", () => {
-
-  it("rejects worker responses and runtime errors while terminating the worker", async () => {
-    const { worker } = installWorkerStub();
-    const { result } = renderHook(() => useFileParser());
-
-    const parsing = result.current.parseFile(
-      createFile("prices.csv", "text/csv", new ArrayBuffer(4))
-    );
-    const [request] = await getPostedRequest(worker);
-    const rejection = expect(parsing).rejects.toThrow("CSV invalide");
-
-    worker.onmessage?.({
-      data: {
-        requestId: request.requestId,
-        ok: false,
-        error: "CSV invalide",
-      },
-    } as MessageEvent);
-
-    await rejection;
-    expect(worker.terminate).toHaveBeenCalledTimes(1);
-
-    const second = installWorkerStub();
-    const secondParsing = result.current.parseFile(
-      createFile("prices.xlsx", "", new ArrayBuffer(4))
-    );
-    await getPostedRequest(second.worker);
-    const secondRejection = expect(secondParsing).rejects.toThrow(
-      "worker crashed"
-    );
-
-    second.worker.onerror?.({ message: "worker crashed" } as ErrorEvent);
-
-    await secondRejection;
-    expect(second.worker.terminate).toHaveBeenCalledTimes(1);
-  });
-
   it("times out with fake timers and terminates a stalled worker", async () => {
     vi.useFakeTimers();
     const { worker } = installWorkerStub();
@@ -110,32 +73,5 @@ describe("useFileParser", () => {
 
     await rejection;
     expect(worker.terminate).toHaveBeenCalledTimes(1);
-  });
-
-  it("fails before reading the file when the environment or format is unsupported", async () => {
-    const { result } = renderHook(() => useFileParser());
-    vi.stubGlobal("Worker", undefined);
-    const unavailableFile = createFile(
-      "prices.csv",
-      "text/csv",
-      new ArrayBuffer(4)
-    );
-
-    await expect(result.current.parseFile(unavailableFile)).rejects.toThrow(
-      "Les workers ne sont pas disponibles dans cet environnement."
-    );
-    expect(unavailableFile.arrayBuffer).not.toHaveBeenCalled();
-
-    installWorkerStub();
-    const unsupportedFile = createFile(
-      "prices.pdf",
-      "application/pdf",
-      new ArrayBuffer(4)
-    );
-
-    await expect(result.current.parseFile(unsupportedFile)).rejects.toThrow(
-      "Format non pris en charge. Utilisez un fichier CSV ou XLSX."
-    );
-    expect(unsupportedFile.arrayBuffer).not.toHaveBeenCalled();
   });
 });

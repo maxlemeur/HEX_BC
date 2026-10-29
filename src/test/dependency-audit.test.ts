@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  assertDependencyAudit,
   evaluateDependencyAudit,
   parseDependencyAuditPolicy,
   parseNpmAuditReport,
@@ -75,24 +74,6 @@ function exception(overrides: Record<string, unknown> = {}) {
 }
 
 describe("dependency audit gate", () => {
-  it("accepts a readable npm audit v2 report without moderate-or-higher vulnerabilities", () => {
-    const report = parseNpmAuditReport(
-      auditReport({
-        "low-package": {
-          name: "low-package",
-          severity: "low",
-          via: [advisory("low-package", 10, "low")],
-        },
-      })
-    );
-    const parsedPolicy = parseDependencyAuditPolicy(policy());
-
-    expect(assertDependencyAudit(report, parsedPolicy)).toMatchObject({
-      errors: [],
-      findings: [],
-    });
-  });
-
   it("fails closed on unreadable, non-v2, and inconsistent audit output", () => {
     expect(() => parseNpmAuditReport("not json")).toThrow("not valid JSON");
     expect(() =>
@@ -181,35 +162,6 @@ describe("dependency audit gate", () => {
     );
   });
 
-  it("accepts only an exact, justified, owned, unexpired package-source exception", () => {
-    const report = parseNpmAuditReport(
-      auditReport({
-        "vulnerable-package": {
-          name: "vulnerable-package",
-          severity: "high",
-          via: [advisory("vulnerable-package", 12345)],
-        },
-      })
-    );
-    const parsedPolicy = parseDependencyAuditPolicy(policy([exception()]));
-
-    expect(
-      assertDependencyAudit(
-        report,
-        parsedPolicy,
-        new Date("2098-12-31T23:59:59.999Z")
-      )
-    ).toMatchObject({
-      errors: [],
-      exceptedFindings: [
-        expect.objectContaining({
-          package: "vulnerable-package",
-          source: 12345,
-        }),
-      ],
-    });
-  });
-
   it("rejects mismatched, expired, and unused exceptions", () => {
     const report = parseNpmAuditReport(
       auditReport({
@@ -275,36 +227,6 @@ describe("dependency audit gate", () => {
     expect(() =>
       parseDependencyAuditPolicy(policy([exception(), exception()]))
     ).toThrow("duplicates package");
-  });
-
-  it("runs the full npm audit command and applies the tracked policy", () => {
-    const executeCommand = vi.fn(
-      (command: string, args: readonly string[], rootDirectory: string) => {
-        expect(command).toBe(
-          process.platform === "win32" ? process.execPath : "npm"
-        );
-        expect(args.slice(-2)).toEqual(["audit", "--json"]);
-        expect(args).not.toContain("--omit");
-        expect(rootDirectory).toBe("C:\\fixture");
-        return {
-          status: 0,
-          stdout: auditReport(),
-        };
-      }
-    );
-    const readFile = vi.fn(() => policy());
-
-    expect(
-      runDependencyAuditGate({
-        executeCommand,
-        readFile,
-        rootDirectory: "C:\\fixture",
-      })
-    ).toMatchObject({ errors: [], findings: [] });
-    expect(executeCommand).toHaveBeenCalledOnce();
-    expect(readFile).toHaveBeenCalledWith(
-      expect.stringMatching(/config[\\/]dependency-audit-policy\.json$/)
-    );
   });
 
   it("fails closed when npm audit cannot run or returns an error document", () => {

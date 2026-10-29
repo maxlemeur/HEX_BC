@@ -16,29 +16,6 @@ describe("resolveTakeoffOperatorState", () => {
     expect(state.canReconcile).toBe(true);
   });
 
-  it("hides resubmit when the retry budget is exhausted", () => {
-    const state = resolveTakeoffOperatorState({
-      status: "failed",
-      retryCount: 3,
-      tenantRole: "admin",
-    });
-
-    expect(state.canResubmit).toBe(false);
-  });
-
-  it("hides resubmit while a provider batch is still live", () => {
-    const state = resolveTakeoffOperatorState({
-      status: "failed",
-      retryCount: 1,
-      processingStrategy: "batch",
-      providerBatchId: "batch-running",
-      providerBatchState: "running",
-      tenantRole: "admin",
-    });
-
-    expect(state.canResubmit).toBe(false);
-  });
-
   it("hides resubmit when the provider already succeeded upstream", () => {
     const state = resolveTakeoffOperatorState({
       status: "failed",

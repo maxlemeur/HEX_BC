@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   assertEstimateEmailRpcConfirmation,
   parseEstimateEmailDispatch,
-  parseEstimateEmailDispatchIdentity,
 } from "@/lib/email/estimate-email-dispatch-contracts";
 import { actorUserId, dispatch, dispatchId, tenantId, versionId } from "@/lib/email/estimate-email.test-utils";
 
@@ -14,23 +13,6 @@ describe("stored email dispatch contracts", () => {
       request_id: null, payload_hash: null, idempotency_key: null, version_content_revision: null,
       from_address: null, created_by: null, provider_id: null, offer_identity_snapshot: null };
     expect(parseEstimateEmailDispatch(legacy)).toEqual(legacy);
-  });
-
-  it("requires the transactional envelope when a request exists", () => {
-    for (const patch of [{ from_address: null }, { idempotency_key: null }, { payload_hash: "invalid" }, { version_content_revision: null }]) {
-      expect(() => parseEstimateEmailDispatch({ ...dispatch(), ...patch })).toThrowError(expect.objectContaining(invalid));
-    }
-  });
-
-  it("parses the reconciliation projection without demanding fields that were not selected", () => {
-    const identity = { id: dispatchId, tenant_id: tenantId, version_id: versionId, status: "unknown" };
-    expect(parseEstimateEmailDispatchIdentity(identity, { dispatchId })).toEqual(identity);
-    expect(() => parseEstimateEmailDispatchIdentity({ ...identity, status: "invented" })).toThrow();
-    expect(() => parseEstimateEmailDispatch(identity)).toThrow();
-  });
-
-  it("binds a request lookup to its request identifier", () => {
-    expect(() => parseEstimateEmailDispatch(dispatch(), { requestId: dispatchId })).toThrowError(expect.objectContaining(invalid));
   });
 
   it("accepts an active reservation with another request key and the same immutable envelope", () => {

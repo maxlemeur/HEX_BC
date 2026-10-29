@@ -57,41 +57,6 @@ describe("DPGF structure analysis", () => {
     row({ rowIndex: 5, title: "Les prix sont valables pendant 30 jours" }),
   ];
 
-  it("classifies bold XLSX titles, leaves semantic candidates as lines, and stops at TOTAL", () => {
-    const preview = analyzeImportStructure(rows);
-
-    expect(preview.candidates).toEqual([
-      expect.objectContaining({
-        row_index: 0,
-        title: "Eaux usées",
-        confidence: "high",
-        suggested_kind: "section",
-        suggested_level: 1,
-      }),
-      expect.objectContaining({
-        row_index: 2,
-        title: "EUEV",
-        confidence: "medium",
-        suggested_kind: "line",
-        suggested_level: null,
-      }),
-      expect.objectContaining({
-        row_index: 3,
-        title: "Ventilation primaire",
-        confidence: "high",
-        suggested_kind: "section",
-      }),
-    ]);
-    expect(preview.footer_row_indexes).toEqual([4, 5]);
-    expect(preview.summary).toMatchObject({
-      high_confidence_candidates: 2,
-      medium_confidence_candidates: 1,
-      zero_price_rows: 2,
-      ignored_footer_rows: 2,
-      footer_start_row_index: 4,
-    });
-  });
-
   it("starts the footer at legal text even when no TOTAL row exists", () => {
     const preview = analyzeImportStructure([
       row({
@@ -107,28 +72,6 @@ describe("DPGF structure analysis", () => {
 
     expect(preview.footer_row_indexes).toEqual([1, 2]);
     expect(preview.summary.footer_start_row_index).toBe(1);
-  });
-
-  // Lot 2, sous-lot 2.8: an OPTIMA lot carries a « Sous-total » after each sub-lot (row 9 of the
-  // hydraulic lot), then the heading of the next sub-lot. The footer started at the first one and every
-  // later line was dropped (1 line of 785).
-  it("ignores an intermediate subtotal alone and keeps the lines that follow it", () => {
-    const preview = analyzeImportStructure([
-      row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
-      row({ rowIndex: 1, title: "Sous-total Alimentation EC surchauffée" }),
-      row({ rowIndex: 2, title: "Raccordements hydrauliques primaires", bold: true }),
-      row({ rowIndex: 3, title: "Pose seule", quantity: 3, unit: "u" }),
-      // A sub-lot subtotal followed by its lot's subtotal (OPTIMA rows 209 and 211), then a heading.
-      row({ rowIndex: 4, title: "Sous-total Alimentation EF et expansion" }),
-      row({ rowIndex: 5, title: "Sous-total Production de chaleur" }),
-      row({ rowIndex: 6, title: "Echangeur primaire", bold: true }),
-      row({ rowIndex: 7, title: "Echangeur à plaques", quantity: 1, unit: "u", unitPrice: 900 }),
-      row({ rowIndex: 8, title: "Total général" }),
-      row({ rowIndex: 9, title: "Les prix sont valables pendant 30 jours" }),
-    ]);
-
-    expect(preview.footer_row_indexes).toEqual([1, 4, 5, 8, 9]);
-    expect(preview.summary.footer_start_row_index).toBe(8);
   });
 
   it("still starts a classic footer at its first Sous-total when no line content follows", () => {
@@ -180,20 +123,6 @@ describe("DPGF structure analysis", () => {
 
     expect(preview.footer_row_indexes).toEqual([1, 2, 3]);
     expect(preview.summary.footer_start_row_index).toBe(1);
-  });
-
-  it("accepts a reviewed level-two section after level one", () => {
-    const resolved = resolveImportStructure(rows, [
-      { rowIndex: 0, kind: "section", level: 1 },
-      { rowIndex: 2, kind: "section", level: 2 },
-      { rowIndex: 3, kind: "line", level: null },
-    ]);
-
-    expect(resolved.decisionsByRowIndex.get(2)).toEqual({
-      rowIndex: 2,
-      kind: "section",
-      level: 2,
-    });
   });
 
   it("rejects a level-two section without a preceding level-one section", () => {

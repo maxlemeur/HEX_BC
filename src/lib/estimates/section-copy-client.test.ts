@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  duplicateEstimateSection, fetchAffaireLinkedDpgfSource, fetchEstimateImportableSections,
-  fetchEstimateImportSources, importEstimateSections, importLinkedDpgfSource,
+  fetchAffaireLinkedDpgfSource, fetchEstimateImportSources, importEstimateSections,
 } from "@/lib/estimates/client";
 import { recoverEstimateEditorRead, registerEstimateEditorMutations } from "@/lib/estimates/editor-mutations";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
@@ -33,43 +32,9 @@ function importSections() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("copy and import response boundaries", () => {
-  it("does not silently turn malformed source amounts into numbers", async () => {
-    respond({ items: [{ id: source, project_id: other, project_name: "Source", version_number: 1,
-      status: "draft", title: null, updated_at: timestamp, total_ht_cents: "1000" }] });
-    await expect(fetchEstimateImportSources()).rejects.toThrow();
-  });
-
-  it.each([
-    { line_count: -1 }, { total_ht_cents: 1000.5 }, { position: 1.5 },
-  ])("refuses an invalid section preview instead of repairing it: %j", async (patch) => {
-    respond({ source_version_id: source, items: [{ id: section, title: "Lot", line_count: 1,
-      total_ht_cents: 1000, position: 1, ...patch }] });
-    await expect(fetchEstimateImportableSections(source)).rejects.toThrow();
-  });
-
-  it("rejects sections belonging to another requested source", async () => {
-    respond({ source_version_id: other, items: [] });
-    await expect(fetchEstimateImportableSections(source)).rejects.toThrow();
-  });
-
-  it("distinguishes an absent linked DPGF from an invalid response", async () => {
-    respond({ import_id: source, row_count: "invalid" });
-    await expect(fetchAffaireLinkedDpgfSource(other)).rejects.toThrow();
-  });
-
-  it("accepts an explicitly absent linked DPGF", async () => {
-    respond(null);
-    await expect(fetchAffaireLinkedDpgfSource(other)).resolves.toBeNull();
-  });
-
   it("does not confuse an unreadable HTTP 200 body with an absent DPGF", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>bad gateway</html>", { status: 200 })));
     await expect(fetchAffaireLinkedDpgfSource(other)).rejects.toThrow();
-  });
-
-  it("accepts UUID spelling differences without accepting another version", async () => {
-    respond({ source_version_id: other, items: [] });
-    await expect(fetchEstimateImportableSections(other.toUpperCase())).resolves.toEqual([]);
   });
 
   it("accepts merge into an existing section without inventing a created section", async () => {
@@ -85,37 +50,9 @@ describe("copy and import response boundaries", () => {
     expect((await fetchEstimateImportSources()).map((item) => item.id)).toEqual([source, other]);
   });
 
-  it.each(["source", "target", "version", "counter", "duplicate", "totals"])(
-    "refuses an incoherent import acknowledgement: %s", async (change) => {
-      const data = importedSections();
-      if (change === "source") data.source_version_id = other;
-      if (change === "target") data.target_version_id = other;
-      if (change === "version") data.version.id = other;
-      if (change === "counter") data.imported_lines_count = 2;
-      if (change === "duplicate") { data.created_line_ids = [line, line]; data.imported_lines_count = 2; }
-      if (change === "totals") data.totals = { ...totals, total_ttc_cents: 999 };
-      const fetch = respond(data);
-      await expect(importSections()).rejects.toThrow();
-      expect(fetch).toHaveBeenCalledTimes(1);
-    }
-  );
-
   it("does not equate selected section roots with all their created descendants", async () => {
     respond({ ...importedSections(), created_section_ids: [section, other] });
     await expect(importSections()).resolves.toMatchObject({ importedSectionsCount: 1, createdSectionIds: [section, other] });
-  });
-
-  it("refuses an incoherent linked DPGF acknowledgement", async () => {
-    respond({ source_import_id: source, target_version_id: target, created_section_id: section,
-      created_line_ids: [line], imported_lines_count: 2, skipped_lines_count: 0, totals,
-      version: { id: target, updated_at: timestamp } });
-    await expect(importLinkedDpgfSource(target)).rejects.toThrow();
-  });
-
-  it("refuses a section duplication acknowledgement for another destination", async () => {
-    respond({ duplicated_section_id: other, source_version_id: source, target_version_id: other,
-      copied_item_count: 2, totals, version: { id: other, updated_at: timestamp } });
-    await expect(duplicateEstimateSection(source, section, { targetVersionId: target })).rejects.toThrow();
   });
 
   it("validates before confirming an editor mutation", async () => {

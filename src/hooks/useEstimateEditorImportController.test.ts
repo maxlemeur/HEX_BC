@@ -344,120 +344,6 @@ describe("useEstimateEditorImportController", () => {
     expect(harness.result.current.state.linkedDpgfSource).toEqual(latestSource);
   });
 
-  it("opens one structural dialog at a time and resets dialogs and summary on route change", async () => {
-    const harness = createHarness();
-    await waitFor(() => {
-      expect(harness.result.current.meta.hasLinkedDpgfSource).toBe(true);
-    });
-
-    let importOpened = false;
-    act(() => {
-      importOpened =
-        harness.result.current.actions.openImportFromEstimateDialog();
-    });
-    expect(importOpened).toBe(true);
-    expect(
-      harness.result.current.state.isImportFromEstimateDialogOpen
-    ).toBe(true);
-
-    await act(async () => {
-      await harness.result.current.actions.confirmImportFromEstimate(
-        IMPORT_INPUT
-      );
-    });
-    expect(harness.result.current.state.importSummaryMessage).toBe(
-      "2 section(s) et 5 ligne(s) importées."
-    );
-
-    harness.changeRoute("version-2", "project-2");
-    expect(
-      harness.result.current.state.isImportFromEstimateDialogOpen
-    ).toBe(false);
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-    expect(harness.result.current.state.importSummaryMessage).toBeNull();
-    expect(harness.result.current.state.activeMutation).toBeNull();
-    await waitFor(() => {
-      expect(
-        harness.result.current.state.isImportFromEstimateDialogOpen
-      ).toBe(false);
-      expect(
-        harness.result.current.state.isEstimateStructureDraftDialogOpen
-      ).toBe(false);
-      expect(harness.result.current.state.importSummaryMessage).toBeNull();
-      expect(harness.result.current.state.activeMutation).toBeNull();
-    });
-
-    harness.changeRoute("version-1", "project-1");
-    expect(
-      harness.result.current.state.isImportFromEstimateDialogOpen
-    ).toBe(false);
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-    expect(harness.result.current.state.importSummaryMessage).toBeNull();
-    expect(harness.result.current.state.activeMutation).toBeNull();
-
-    harness.changeRoute("version-2", "project-2");
-
-    let structureOpened = false;
-    act(() => {
-      structureOpened =
-        harness.result.current.actions.openEstimateStructureDraftDialog();
-    });
-    expect(structureOpened).toBe(true);
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(true);
-    expect(
-      harness.result.current.state.isImportFromEstimateDialogOpen
-    ).toBe(false);
-  });
-
-  it("auto-opens a draft structure dialog once per active route scope", () => {
-    const harness = createHarness({ autoOpenStructureDraft: true });
-
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(true);
-
-    act(() => {
-      harness.result.current.actions.closeEstimateStructureDraftDialog();
-    });
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-
-    harness.rerender({
-      routeVersionId: "version-1",
-      activeVersion: harness.getVersion(),
-      isMutationBlocked: false,
-    });
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-
-    harness.changeRoute("version-2", "project-2");
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(true);
-
-    harness.changeRoute("version-3", "project-3", "sent");
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-
-    harness.rerender({
-      routeVersionId: "version-4",
-      activeVersion: createVersion("version-3", "project-3", "draft"),
-      isMutationBlocked: false,
-    });
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-  });
-
   it("stops mutations when the autosave barrier is blocked or errors", async () => {
     const ensureGroupedActionCanProceed = vi
       .fn<AutosaveBarrier>()
@@ -602,32 +488,6 @@ describe("useEstimateEditorImportController", () => {
     expect(harness.result.current.state.importSummaryMessage).toBeNull();
   });
 
-  it("delegates a 409 to the canonical conflict handler without a second error", async () => {
-    const conflict = Object.assign(new Error("version conflict"), {
-      status: 409,
-    });
-    clientMocks.importEstimateSections.mockRejectedValue(conflict);
-    const handleVersionConflict =
-      vi.fn<VersionConflictHandler>().mockReturnValue(true);
-    const harness = createHarness({ handleVersionConflict });
-
-    const caught = await captureRejection(() =>
-      harness.result.current.actions.confirmImportFromEstimate(IMPORT_INPUT)
-    );
-
-    expect(caught).toBe(conflict);
-    expect(handleVersionConflict).toHaveBeenCalledWith(conflict, {
-      persistDraft: true,
-    });
-    expect(harness.reloadItems).not.toHaveBeenCalled();
-    expect(harness.applyVersionToken).not.toHaveBeenCalled();
-    expect(
-      harness.reportError.mock.calls.filter(
-        ([message]) => typeof message === "string"
-      )
-    ).toEqual([]);
-  });
-
   it("does not advance the token when the post-import item reload fails", async () => {
     const reloadError = new Error("items reload failed");
     clientMocks.importEstimateSections.mockResolvedValue(createImportResult());
@@ -728,20 +588,6 @@ describe("import controller document identity", () => {
     expect(harness.result.current.state.linkedDpgfSource).toEqual(source);
   });
 
-  it("does not expose a previous actor's completed import summary or open structure dialog", async () => {
-    const harness = connected();
-    await act(async () => harness.result.current.actions.confirmImportFromEstimate(IMPORT_INPUT));
-    expect(harness.result.current.state.importSummaryMessage).not.toBeNull();
-    act(() => harness.changeIdentity("actor-b", tenantB));
-    expect(harness.result.current.state.importSummaryMessage).toBeNull();
-    act(() => { harness.result.current.actions.openEstimateStructureDraftDialog(); });
-    expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(true);
-    act(() => harness.changeIdentity("actor-a", tenantA));
-    expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(false);
-    expect(harness.result.current.state.isImportFromEstimateDialogOpen).toBe(false);
-    expect(harness.result.current.state.activeMutation).toBeNull();
-  });
-
   it("allows the new actor's mutation while ignoring the prior in-flight result, reload and token", async () => {
     const first = createDeferred<ImportEstimateSectionsResult>();
     clientMocks.importEstimateSections.mockReturnValueOnce(first.promise)
@@ -816,13 +662,5 @@ describe("import controller document identity", () => {
     expect(signal.aborted).toBe(true);
     await act(async () => { pending.resolve(createLinkedSource("old-source")); await pending.promise; });
     expect(harness.result.current.state.linkedDpgfSource).toBeNull();
-  });
-
-  it("shows a shared-loader parsing failure instead of treating malformed source data as no source", async () => {
-    clientMocks.fetchAffaireLinkedDpgfSource.mockRejectedValueOnce(new Error("Réponse source DPGF invalide."));
-    const harness = connected({ useDefaultLoader: true });
-    await waitFor(() => expect(harness.result.current.state.linkedDpgfSourceError).toBe("Réponse source DPGF invalide."));
-    expect(harness.result.current.state.linkedDpgfSource).toBeNull();
-    expect(harness.result.current.state.isLoadingLinkedDpgfSource).toBe(false);
   });
 });

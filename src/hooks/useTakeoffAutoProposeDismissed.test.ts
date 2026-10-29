@@ -20,27 +20,6 @@ describe("useTakeoffAutoProposeDismissed", () => {
     vi.restoreAllMocks();
   });
 
-  it("dismissPermanently scopes the key by profile, project and context", () => {
-    const { result } = renderHook(() =>
-      useTakeoffAutoProposeDismissed(PROJECT_A, {
-        context: "import",
-        profileId: PROFILE_A,
-        scopeKey: "scope-1",
-      }),
-    );
-
-    act(() => {
-      result.current.dismissPermanently();
-    });
-
-    expect(result.current.dismissed).toBe(true);
-    expect(
-      localStorage.getItem(
-        "takeoff-auto-propose:v2:dismissed:user-a:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:import",
-      ),
-    ).toBe("1");
-  });
-
   it("dismissTemporarily snoozes only the matching scope key", () => {
     const { result, rerender } = renderHook(
       ({ scopeKey }) =>

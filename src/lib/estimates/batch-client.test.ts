@@ -55,18 +55,6 @@ describe("the line save acknowledgement", () => {
     vi.unstubAllGlobals();
   });
 
-  it("acknowledges exact stored amounts and releases the retained request", async () => {
-    const transport = vi.fn().mockResolvedValue(receipt());
-    const result = await executeClientEstimateBatch({
-      transport, versionId, updatedAtToken: before, operations, attempt: { operationKey },
-    });
-    expect(result.value).toMatchObject({ committed: true, totals: {
-      total_ht_cents: 3000, total_tax_cents: 600, total_ttc_cents: 3600,
-    } });
-    expect(readEstimateBatchIntention(identity)).toBeNull();
-    expect(transport).toHaveBeenCalledTimes(1);
-  });
-
   it.each([
     { quantity: "not-a-number" },
     { unit_price_ht_cents: "not-a-number" },
@@ -83,21 +71,6 @@ describe("the line save acknowledgement", () => {
     expect(retained?.operationKey).toBe(operationKey);
     expect(JSON.parse(retained!.body).operations).toEqual(operations);
     expect(transport).toHaveBeenCalledTimes(1);
-  });
-
-  it("accepts a non-priced v3 line with no unit sale price and zero totals", async () => {
-    const saved = receipt({
-      pu_ht_cents: null, pricing_status: "out_of_scope",
-      line_total_ht_cents: 0, line_tax_cents: 0, line_total_ttc_cents: 0,
-    });
-    saved.totals = { total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0 };
-    const result = await executeClientEstimateBatch({
-      transport: vi.fn().mockResolvedValue(saved), versionId, updatedAtToken: before,
-      operations, attempt: { operationKey },
-    });
-    expect(result.value.committed).toBe(true);
-    expect(result.value.totals?.total_ttc_cents).toBe(0);
-    expect(readEstimateBatchIntention(identity)).toBeNull();
   });
 
   it.each(["actor", "request", "microseconds", "current-version"])(

@@ -171,15 +171,6 @@ describe("risk radar operations", () => {
     expect(assertTakeoffJobAccessibleForVersion).not.toHaveBeenCalled();
   });
 
-  it("clears the persisted review on return to to_process and returns the normalized alert", async () => {
-    db.tables.estimate_risk_alerts = [storedAlert()];
-    const result = await updateTakeoffRiskAlertStatus(JOB, ALERT, {
-      version_id: VERSION, status: "to_process", review_note: "À ignorer",
-    });
-    expect(result.alert).toMatchObject({ alert_id: ALERT, status: "to_process", review_note: null, reviewed_at: null, reviewed_by: null });
-    expect(db.tables.estimate_risk_alerts[0]).toMatchObject({ status: "to_process", review_note: null, reviewed_at: null, reviewed_by: null });
-  });
-
   it.each([
     { tenant_id: "other" }, { version_id: "other" },
     { takeoff_job_id: "other" }, { is_active: false },

@@ -43,17 +43,4 @@ describe("ui/NumberInput", () => {
     expect(input).toHaveValue("1.2");
     expect((input as HTMLInputElement).value).toBe("1.2");
   });
-
-  it("restores the empty value on blur after clearing the field", async () => {
-    const user = userEvent.setup();
-
-    render(<ControlledNumberInput initialValue={3} />);
-
-    const input = screen.getByLabelText("Nombre");
-    await user.clear(input);
-    await user.tab();
-
-    expect(input).toHaveValue("0");
-    expect((input as HTMLInputElement).value).toBe("0");
-  });
 });

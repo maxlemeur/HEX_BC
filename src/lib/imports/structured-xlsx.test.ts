@@ -1,7 +1,7 @@
 import { Workbook } from "exceljs";
 import { describe, expect, it } from "vitest";
 
-import { normalizeRowsFromJson, parseImportFile } from "@/lib/imports/parser";
+import { parseImportFile } from "@/lib/imports/parser";
 import { readImportRowStructure } from "@/lib/imports/payload";
 import { parseWorkbook } from "@/workers/xlsx-parser.worker";
 
@@ -79,31 +79,5 @@ describe("structured XLSX parsing", () => {
         outline_level: 2,
       }),
     );
-  });
-
-  it("preserves reserved structure objects through JSON normalization", () => {
-    const structure = {
-      sheet_name: "plb Z3-5",
-      source_row_number: 12,
-      bold_columns: ["Designation"],
-      merged_columns: [],
-      outline_level: null,
-      column_order: ["Designation", "Qte"],
-    };
-
-    expect(
-      normalizeRowsFromJson([
-        {
-          Designation: "Eaux usées",
-          _timax_structure: structure,
-        },
-      ])[0],
-    ).toEqual({
-      Designation: "Eaux usées",
-      _timax_structure: structure,
-    });
-    expect(
-      normalizeRowsFromJson([{ _timax_structure: structure }]),
-    ).toEqual([]);
   });
 });

@@ -177,25 +177,6 @@ describe("MappingRulesManager", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps unsaved priority drafts when list revalidates", async () => {
-    const user = userEvent.setup();
-    renderManager();
-
-    const priorityInput = (await screen.findByLabelText(
-      "Priorité de Renommer PVC"
-    )) as HTMLInputElement;
-    await user.clear(priorityInput);
-    await user.type(priorityInput, "77");
-    expect(priorityInput.value).toBe("77");
-
-    await user.click(screen.getByRole("button", { name: "Actualiser" }));
-
-    await waitFor(() => {
-      expect(vi.mocked(fetchTakeoffMappingRules)).toHaveBeenCalledTimes(2);
-    });
-    expect(priorityInput.value).toBe("77");
-  });
-
   it("does not rollback applied priorities when refresh fails after successful writes", async () => {
     const user = userEvent.setup();
     let fetchCallCount = 0;

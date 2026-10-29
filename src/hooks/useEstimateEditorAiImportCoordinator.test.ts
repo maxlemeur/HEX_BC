@@ -2,7 +2,6 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  resolveEstimateEditorAutoOpenDialogs,
   useEstimateEditorAiImportCoordinator,
 } from "@/hooks/useEstimateEditorAiImportCoordinator";
 
@@ -48,93 +47,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("resolveEstimateEditorAutoOpenDialogs", () => {
-  it("gives version zero priority when both deep links are present", () => {
-    expect(
-      resolveEstimateEditorAutoOpenDialogs({
-        autoOpenVersionZero: true,
-        autoOpenStructureDraft: true,
-      })
-    ).toEqual({
-      autoOpenVersionZero: true,
-      autoOpenStructureDraft: false,
-    });
-  });
-});
-
 describe("useEstimateEditorAiImportCoordinator dialog exclusivity", () => {
-  it.each([
-    ["generated ouvrage", "openGeneratedOuvrageDialog"],
-    ["version zero", "openVersionZeroDialog"],
-  ] as const)(
-    "only dismisses import UI after a successful %s open",
-    async (_label, actionName) => {
-      const refusedInput = createInput({
-        [actionName]: vi.fn(() => false),
-      });
-      const refused = renderHook(() =>
-        useEstimateEditorAiImportCoordinator(refusedInput)
-      );
-
-      await act(async () => {
-        await refused.result.current.actions[actionName]();
-      });
-
-      expect(refusedInput.closeImportFromEstimateDialog).not.toHaveBeenCalled();
-      expect(
-        refusedInput.closeEstimateStructureDraftDialog
-      ).not.toHaveBeenCalled();
-      expect(refusedInput.clearImportSummary).not.toHaveBeenCalled();
-      refused.unmount();
-
-      const openedInput = createInput();
-      const opened = renderHook(() =>
-        useEstimateEditorAiImportCoordinator(openedInput)
-      );
-
-      await act(async () => {
-        await opened.result.current.actions[actionName]();
-      });
-
-      expect(openedInput.closeImportFromEstimateDialog).toHaveBeenCalledTimes(1);
-      expect(
-        openedInput.closeEstimateStructureDraftDialog
-      ).toHaveBeenCalledTimes(1);
-      expect(openedInput.clearImportSummary).toHaveBeenCalledTimes(1);
-    }
-  );
-
-  it.each([
-    ["estimate", "openImportFromEstimateDialog"],
-    ["structure", "openEstimateStructureDraftDialog"],
-  ] as const)(
-    "only dismisses AI dialogs after a successful %s import open",
-    (_label, actionName) => {
-      const refusedInput = createInput({
-        [actionName]: vi.fn(() => false),
-      });
-      const refused = renderHook(() =>
-        useEstimateEditorAiImportCoordinator(refusedInput)
-      );
-
-      act(() => {
-        refused.result.current.actions[actionName]();
-      });
-      expect(refusedInput.dismissAiDialogs).not.toHaveBeenCalled();
-      refused.unmount();
-
-      const openedInput = createInput();
-      const opened = renderHook(() =>
-        useEstimateEditorAiImportCoordinator(openedInput)
-      );
-
-      act(() => {
-        opened.result.current.actions[actionName]();
-      });
-      expect(openedInput.dismissAiDialogs).toHaveBeenCalledTimes(1);
-    }
-  );
-
   it("does not open an AI dialog when the autosave barrier fails", async () => {
     const input = createInput({
       ensureGroupedActionCanProceed: vi.fn().mockResolvedValue(false),

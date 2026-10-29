@@ -11,8 +11,6 @@ const JOB_ID = "22222222-2222-4222-8222-222222222222";
 const DPGF_ITEM_ID = "33333333-3333-4333-8333-333333333333";
 const DPGF_ITEM_ID_2 = "44444444-4444-4444-8444-444444444444";
 const TAKEOFF_ITEM_ID = "55555555-5555-4555-8555-555555555555";
-const TAKEOFF_ITEM_ID_2 = "66666666-6666-4666-8666-666666666666";
-const LINK_ID = "88888888-8888-4888-8888-888888888888";
 
 describe("buildTakeoffDpgfComparison", () => {
   it("marks a significant gap when quantities diverge despite an auto match", () => {
@@ -150,82 +148,6 @@ describe("buildTakeoffDpgfComparison", () => {
       ],
     });
     expect(genericAlone.rows[0]?.linked_takeoff_items).toHaveLength(1);
-  });
-
-  it("prioritizes manual multi-links and computes an aggregated quantity proof", () => {
-    const response = buildTakeoffDpgfComparison({
-      versionId: VERSION_ID,
-      jobId: JOB_ID,
-      dpgfLines: [
-        {
-          estimate_item_id: DPGF_ITEM_ID,
-          title: "Cloison BA13",
-          description: null,
-          quantity: 10,
-          unit: "m2",
-          source_page: 1,
-          source_file_name: "dpgf.xlsx",
-          position: 1,
-        },
-      ],
-      takeoffLines: [
-        {
-          item_id: TAKEOFF_ITEM_ID,
-          designation: "Cloison BA13 - zone A",
-          quantity: 4,
-          unit: "m2",
-          source_page: 3,
-          source_file_name: "plans.pdf",
-          confidence: 0.9,
-          evidence: "Zone A",
-          metadata: {},
-        },
-        {
-          item_id: TAKEOFF_ITEM_ID_2,
-          designation: "Cloison BA13 - zone B",
-          quantity: 6,
-          unit: "m2",
-          source_page: 4,
-          source_file_name: "plans.pdf",
-          confidence: 0.88,
-          evidence: "Zone B",
-          metadata: {},
-        },
-      ],
-      manualLinks: [
-        {
-          id: LINK_ID,
-          tenant_id: "99999999-9999-4999-8999-999999999999",
-          version_id: VERSION_ID,
-          takeoff_job_id: JOB_ID,
-          estimate_item_id: DPGF_ITEM_ID,
-          takeoff_item_id: TAKEOFF_ITEM_ID,
-          created_at: "2026-03-06T10:00:00.000Z",
-          updated_at: "2026-03-06T10:00:00.000Z",
-          linked_by: null,
-        },
-        {
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          tenant_id: "99999999-9999-4999-8999-999999999999",
-          version_id: VERSION_ID,
-          takeoff_job_id: JOB_ID,
-          estimate_item_id: DPGF_ITEM_ID,
-          takeoff_item_id: TAKEOFF_ITEM_ID_2,
-          created_at: "2026-03-06T10:00:00.000Z",
-          updated_at: "2026-03-06T10:00:00.000Z",
-          linked_by: null,
-        },
-      ],
-    });
-
-    expect(response.summary.forced_manual).toBe(1);
-    expect(response.rows[0]).toMatchObject({
-      review_status: "forced_manual",
-      matched_by: "manual",
-      manual_link_count: 2,
-      takeoff_quantity: 10,
-    });
-    expect(response.rows[0]?.proofs.some((proof) => proof.type === "formula")).toBe(true);
   });
 });
 

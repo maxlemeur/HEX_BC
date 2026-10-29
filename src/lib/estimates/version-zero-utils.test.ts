@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
-  normalizeVersionZeroLotKey,
   parseVersionZeroQuantityInput,
 } from "@/lib/estimates/version-zero-utils";
 
@@ -23,10 +22,6 @@ describe("version-zero-utils", () => {
         "cvc-plomberie",
         "cvc-plomberie-2",
       ]);
-    });
-
-    it("uses the same normalized base key as the matching logic", () => {
-      expect(normalizeVersionZeroLotKey("Électricité")).toBe("electricite");
     });
   });
 

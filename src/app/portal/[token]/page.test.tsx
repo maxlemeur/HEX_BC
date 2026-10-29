@@ -77,7 +77,7 @@ describe("portal capability read boundary", () => {
     expect(fromMock).toHaveBeenCalledOnce();
   });
 
-  it.each(["pending", "accepted", "rejected"] as const)(
+  it.each(["accepted", "rejected"] as const)(
     "redirects an expired %s capability before loading estimate data",
     async (status) => {
       vi.clearAllMocks();

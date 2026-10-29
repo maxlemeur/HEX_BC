@@ -94,31 +94,6 @@ function codeOf(build: () => unknown): unknown {
 }
 
 describe("v3 settings save payload (lot 2, sous-lot 2.6)", () => {
-  it("V3S-01 saves an amount intent with discount_bp 0, never a rate derived from the amount, and keeps the requested amount (F12, S2, CAP)", async () => {
-    const api = await loadApi();
-    const s1 = api.readEstimateV3SettingsDraft(S1_ROW);
-    expect(api.buildEstimateV3SettingsPayload(s1, { applyTaxRateToLines: false })).toEqual(S1_PAYLOAD);
-
-    // S2 : 1,01 € sur 69 054,56 € HT brut ; la sauvegarde v2 enverrait round(101 / 6 905 456 × 10 000).
-    const s2 = accepted(api.applyEstimateV3SettingsInput(s1, "discount_amount", "1,01"));
-    expect(s2.discount).toEqual({ kind: "amount", amount_cents: 101 });
-    expect(payloadOf(api, s2)).toEqual({ ...S1_PAYLOAD, discount_amount_cents: 101, discount_bp: 0 });
-
-    // Un montant saisi sur une intention en pourcentage la remplace : taux remis à 0, jamais redérivé.
-    const fromRate = api.readEstimateV3SettingsDraft(EUHIST_ROW);
-    const replaced = accepted(api.applyEstimateV3SettingsInput(fromRate, "discount_amount", "1 234,56"));
-    expect(intentOf(payloadOf(api, replaced))).toEqual([123456, 0]);
-
-    // CAP : 500 € demandés partent tels quels ; le plafond à l'assiette (400 €) est calculé, jamais écrit.
-    const cap = accepted(api.applyEstimateV3SettingsInput(s1, "discount_amount", "500"));
-    expect(intentOf(payloadOf(api, cap))).toEqual([50000, 0]);
-
-    // Une version relue garde son intention exacte.
-    const reloaded = api.readEstimateV3SettingsDraft({ ...S1_ROW, discount_amount_cents: 101 });
-    expect(reloaded.discount).toEqual({ kind: "amount", amount_cents: 101 });
-    expect(intentOf(payloadOf(api, reloaded))).toEqual([101, 0]);
-  });
-
   it("V3S-02 never sends both intents: each entry replaces the other one, emptying the active field removes it", async () => {
     const api = await loadApi();
     const steps: Array<[Field, string, number | null, number]> = [

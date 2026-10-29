@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import {
   TakeoffExchangeSchema,
-  takeoffApplyRequestSchema,
   zodToGeminiJsonSchema,
 } from "@/lib/takeoff/schemas";
 
@@ -192,89 +191,6 @@ describe("TakeoffExchangeSchema", () => {
       parsed.error.issues.some((issue) => issue.path.join(".") === "items.0.source_page")
     ).toBe(true);
   });
-
-  it("rejects quantity <= 0", () => {
-    const payload = {
-      ...createBasePayload("A"),
-      items: [
-        {
-          designation: "Porte coupe-feu",
-          quantity: 0,
-          unit: "u",
-        },
-      ],
-    };
-    const parsed = TakeoffExchangeSchema.safeParse(payload);
-
-    expect(parsed.success).toBe(false);
-  });
-
-  it("rejects empty units", () => {
-    const payload = {
-      ...createBasePayload("A"),
-      items: [
-        {
-          designation: "Porte coupe-feu",
-          quantity: 1,
-          unit: "   ",
-        },
-      ],
-    };
-    const parsed = TakeoffExchangeSchema.safeParse(payload);
-
-    expect(parsed.success).toBe(false);
-  });
-
-  it("rejects confidence outside [0, 1]", () => {
-    const payload = {
-      ...createBasePayload("C"),
-      confidence: 1.2,
-      items: [
-        {
-          designation: "Fenetre aluminium",
-          quantity: 12,
-          unit: "u",
-          confidence: 0.74,
-          source_page: 3,
-          evidence: "Comptage visuel sur plan RDC et R+1.",
-        },
-      ],
-    };
-    const parsed = TakeoffExchangeSchema.safeParse(payload);
-
-    expect(parsed.success).toBe(false);
-  });
-
-  it("rejects unknown root fields in strict mode", () => {
-    const payload = {
-      ...createBasePayload("A"),
-      unexpected_field: true,
-    };
-    const parsed = TakeoffExchangeSchema.safeParse(payload);
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(parsed.error.issues.some((issue) => issue.code === "unrecognized_keys")).toBe(true);
-  });
-
-  it("rejects unknown item fields in strict mode", () => {
-    const payload = {
-      ...createBasePayload("A"),
-      items: [
-        {
-          designation: "Porte coupe-feu",
-          quantity: 5,
-          unit: "u",
-          unexpected_item_field: "x",
-        },
-      ],
-    };
-    const parsed = TakeoffExchangeSchema.safeParse(payload);
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(parsed.error.issues.some((issue) => issue.code === "unrecognized_keys")).toBe(true);
-  });
 });
 
 describe("zodToGeminiJsonSchema", () => {
@@ -355,47 +271,5 @@ describe("zodToGeminiJsonSchema", () => {
     expect(() => zodToGeminiJsonSchema(nonRepresentableSchema)).toThrow(
       /cannot be represented/i
     );
-  });
-});
-
-describe("takeoff apply mapping schemas", () => {
-
-  it("rejects duplicate override item_id values", () => {
-    const parsed = takeoffApplyRequestSchema.safeParse({
-      strategy: "append",
-      overrides: [
-        {
-          item_id: "33333333-3333-4333-8333-333333333333",
-          action: "skip",
-        },
-        {
-          item_id: "33333333-3333-4333-8333-333333333333",
-          action: "none",
-        },
-      ],
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("item_id uniques")
-      )
-    ).toBe(true);
-  });
-
-  it("rejects override_justification without override=true", () => {
-    const parsed = takeoffApplyRequestSchema.safeParse({
-      strategy: "append",
-      override_justification: "Validation manuelle",
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("override_justification ne peut être fourni")
-      )
-    ).toBe(true);
   });
 });

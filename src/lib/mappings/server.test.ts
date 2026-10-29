@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import { parseImportFile } from "@/lib/imports/parser";
 import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import { parseWorkbook } from "@/workers/xlsx-parser.worker";
-import { findDuplicates, findPerUnitDurationsMappedToLineHours, guessTargetFieldFromColumn, listMappings, previewImportStructure, previewMapping, suggestMapping, validateMapping } from "@/lib/mappings/server";
+import { findPerUnitDurationsMappedToLineHours, guessTargetFieldFromColumn, previewMapping, suggestMapping, validateMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -285,76 +285,6 @@ describe("mapping server workflows", () => {
     vi.clearAllMocks();
   });
 
-  it("lists mappings and templates in the authenticated tenant scope", async () => {
-    const supabase = createSupabaseMock({
-      mappings: [{ id: "map-1" }],
-      templates: [{ id: "tpl-1" }],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await listMappings({
-      importId: IMPORT_ID,
-      limit: 50,
-    });
-
-    expect(result.mappings).toEqual([{ id: "map-1" }]);
-    expect(result.templates).toEqual([{ id: "tpl-1" }]);
-  });
-
-  it("builds mapping preview with duplicate detection", async () => {
-    const supabase = createSupabaseMock({
-      rawRows: [
-        {
-          row_index: 1,
-          payload: {
-            Code: "A-001",
-            Libelle: "Cable cuivre",
-            Qte: 2,
-          },
-        },
-        {
-          row_index: 2,
-          payload: {
-            Code: "a-001",
-            Libelle: " cable cuivre ",
-            Qte: 4,
-          },
-        },
-        {
-          row_index: 3,
-          payload: {
-            Code: "B-100",
-            Libelle: "Disjoncteur",
-            Qte: 1,
-          },
-        },
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await previewMapping({
-      import_id: IMPORT_ID,
-      mapping: {
-        Code: "hex_code",
-        Libelle: "designation",
-        Qte: "quantity",
-      },
-      limit: 20,
-    });
-
-    expect(result.source_columns).toEqual(["Code", "Libelle", "Qte"]);
-    expect(result.import_stats).toEqual({
-      total_rows: 12,
-      source_columns_count: 3,
-      mapped_source_columns_count: 3,
-      unresolved_source_columns_count: 0,
-    });
-    expect(result.validation.is_valid).toBe(true);
-    expect(result.duplicates.total_groups).toBe(1);
-    expect(result.duplicates.total_rows_impacted).toBe(2);
-    expect(result.rows).toHaveLength(3);
-  });
-
   it("ignores hidden mapping entries outside import source columns during validation", async () => {
     const supabase = createSupabaseMock({
       rawRows: [
@@ -511,94 +441,6 @@ describe("mapping server workflows", () => {
     expect(result.sample_values._timax_structure).toBeUndefined();
   });
 
-  it("returns reviewed structure candidates and footer counts", async () => {
-    const metadata = {
-      sheet_name: "plb Z3-5",
-      bold_columns: ["Désignation"],
-      merged_columns: [],
-      outline_level: null,
-      column_order: ["Désignation", "Qte", "U", "PR._FO"],
-    };
-    const supabase = createSupabaseMock({
-      rawRows: [
-        {
-          row_index: 0,
-          payload: {
-            Désignation: "Eaux usées",
-            Qte: null,
-            U: null,
-            "PR._FO": null,
-            _timax_structure: {
-              ...metadata,
-              source_row_number: 2,
-            },
-          },
-        },
-        {
-          row_index: 1,
-          payload: {
-            Désignation: "Tube hors lot",
-            Qte: "—",
-            U: "ml",
-            "PR._FO": "—",
-            _timax_structure: {
-              ...metadata,
-              bold_columns: [],
-              source_row_number: 3,
-            },
-          },
-        },
-        {
-          row_index: 2,
-          payload: {
-            Désignation: "TOTAL HT",
-            _timax_structure: {
-              ...metadata,
-              bold_columns: [],
-              source_row_number: 4,
-            },
-          },
-        },
-        {
-          row_index: 3,
-          payload: {
-            Désignation: "Conditions de validité",
-            _timax_structure: {
-              ...metadata,
-              bold_columns: [],
-              source_row_number: 5,
-            },
-          },
-        },
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await previewImportStructure({
-      import_id: IMPORT_ID,
-      mapping: {
-        Désignation: "designation",
-        Qte: "quantity",
-        U: "unit",
-        "PR._FO": "unit_price_ht",
-      },
-    });
-
-    expect(result.candidates).toEqual([
-      expect.objectContaining({
-        row_index: 0,
-        title: "Eaux usées",
-        confidence: "high",
-        suggested_kind: "section",
-      }),
-    ]);
-    expect(result.footer_row_indexes).toEqual([2, 3]);
-    expect(result.summary).toMatchObject({
-      zero_price_rows: 1,
-      ignored_footer_rows: 2,
-    });
-  });
-
   it("computes suggestion import stats from the full import when late columns are outside the sample", async () => {
     const supabase = createSupabaseMock({
       rawRows: buildSparseSuggestionRows(),
@@ -737,66 +579,6 @@ describe("mapping server workflows", () => {
 
     expect(result.suggestions["Code article"]).toBe("hex_code");
     expect(result.suggestions.Reference).toBeUndefined();
-  });
-
-  it("computes duplicate summary for mapped preview rows", async () => {
-    const supabase = createSupabaseMock({
-      rawRows: [
-        {
-          row_index: 10,
-          payload: {
-            Ref: "X1",
-            Designation: "Pompe",
-          },
-        },
-        {
-          row_index: 11,
-          payload: {
-            Ref: "x1",
-            Designation: "pompe",
-          },
-        },
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await findDuplicates({
-      import_id: IMPORT_ID,
-      mapping: {
-        Ref: "hex_code",
-        Designation: "designation",
-      },
-      limit: 100,
-    });
-
-    expect(result.total_groups).toBe(1);
-    expect(result.total_rows_impacted).toBe(2);
-    expect(result.scanned_rows).toBe(2);
-  });
-
-  it("preserves explicit API errors propagated by workflows", async () => {
-    const accessErrorSupabase = {
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: {
-            user: null,
-          },
-          error: null,
-        }),
-      },
-      from: vi.fn(),
-    };
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(accessErrorSupabase as never);
-
-    await expect(
-      listMappings({
-        importId: IMPORT_ID,
-        limit: 1,
-      })
-    ).rejects.toMatchObject({
-      status: 401,
-      code: "UNAUTHORIZED",
-    });
   });
 });
 

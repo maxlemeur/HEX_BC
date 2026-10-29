@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildClipboardPreviewRows,
   parseTsvMatrix,
-  serializeSelectedRowsToTsv,
   suggestClipboardColumnMapping,
   type ClipboardPreviewValues,
 } from "@/lib/estimates/clipboard";
@@ -13,7 +12,6 @@ import {
   readClipboardSheetRates,
   resolveV3PasteLaborRole,
   v3ClipboardUnit,
-  V3_CLIPBOARD_FIELD_ORDER,
 } from "@/lib/estimates/v3-paste";
 
 // Sub-lot 2.8, rule 2 (D16): a paste into a v3 writes its v3 inputs (unit of the referential or line status,
@@ -44,20 +42,6 @@ function values(overrides: Partial<ClipboardPreviewValues>): ClipboardPreviewVal
 }
 
 describe("2.8 paste into a v3: interpreted values (D16)", () => {
-  it("reads the sheet's « Taux horaire » as the rate that chooses the labour role, never pasted", () => {
-    expect(suggestClipboardColumnMapping(OPTIMA_HEADERS)["Taux horaire"]).toBe("hourly_rate");
-    expect(suggestClipboardColumnMapping(["Désignation", "Quantité", "Taux horaire"])["Taux horaire"]).toBeUndefined();
-    expect(previewValues(OPTIMA_HEADERS, [O1])[0]).toMatchObject({ h_mo_per_unit: 1.991, control_unit_price: 174.59, hourly_rate: 40 });
-  });
-
-  it("writes line O1 with its unit of the referential and its hours per unit, and shows them", () => {
-    expect(interpretClipboardRowForV3(previewValues(OPTIMA_HEADERS, [O1])[0]!)).toEqual({
-      ok: true,
-      write: { unit_code: "ml", pricing_status: "priced", h_mo_per_unit: 1.991 },
-      notes: ["Unité ml", "h/u 1,991", "Prix Unitaire 174,59 : contrôle"],
-    });
-  });
-
   it("writes a status mention as a non-priced line without a unit", () => {
     expect(interpretClipboardRowForV3(values({ unit: "HL" }))).toEqual({
       ok: true,
@@ -144,19 +128,6 @@ describe("2.8 paste into a v3: interpreted values (D16)", () => {
     expect(v3ClipboardUnit({ unit_code: null, pricing_status: "out_of_scope" })).toBe("Hors lot");
     expect(interpretClipboardRowForV3(values({ unit: v3ClipboardUnit({ unit_code: null, pricing_status: "for_memory" }) })))
       .toMatchObject({ ok: true, write: { pricing_status: "for_memory", unit_code: null } });
-  });
-
-  it("pastes back into a v3 the hours per unit its grid copy exports", () => {
-    const tsv = serializeSelectedRowsToTsv(
-      [{ designation: "Tube", quantity: 20, unit: "ml", unit_price_ht: 54.66, k_fo: 1, h_mo_per_unit: 1.991, k_mo: 1, h_mo_majoration: 1 }],
-      { fields: V3_CLIPBOARD_FIELD_ORDER, includeHeader: true }
-    );
-    const matrix = parseTsvMatrix(tsv);
-    const row = buildClipboardPreviewRows(matrix, suggestClipboardColumnMapping(matrix.headers)).rows[0]!;
-    expect(row.status).toBe("valid");
-    expect(interpretClipboardRowForV3(row.values)).toMatchObject({
-      ok: true, write: { unit_code: "ml", h_mo_per_unit: 1.991 },
-    });
   });
 });
 

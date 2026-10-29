@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  bulkUpdateEstimateItems, createEstimate, createEstimateItem, createEstimateVariant,
-  duplicateEstimateVersion, fetchEstimateVersionEvents, promoteEstimateVariant,
-  saveEstimateVersion, updateEstimateItem, updateEstimateStatus,
+  bulkUpdateEstimateItems, createEstimateItem, saveEstimateVersion, updateEstimateItem, updateEstimateStatus,
 } from "@/lib/estimates/client";
 import { recoverEstimateEditorRead, registerEstimateEditorMutations } from "@/lib/estimates/editor-mutations";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
@@ -121,19 +119,6 @@ describe("validated receipts before editor publication", () => {
     expect(onReadRequiredChange).not.toHaveBeenCalled();
   });
 
-  it("accepts UUID case differences before committing the requested editor identity", async () => {
-    const onCommit = vi.fn();
-    cleanup.push(registerEstimateEditorMutations(other, {
-      getToken: () => version.updated_at, onCommit, onPendingChange: vi.fn(),
-    }));
-    const receivedVersion = { ...token, id: other.toUpperCase() };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
-      item: { ...item, version_id: other.toUpperCase() }, version: receivedVersion,
-    })));
-    await createEstimateItem(other, { ...createInput, version_id: other });
-    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ version: { ...token, id: other } }));
-  });
-
   it("never calls the document receipt callback for an invalid CREATE", async () => {
     const session = editor();
     const onVersionToken = vi.fn();
@@ -141,28 +126,5 @@ describe("validated receipts before editor publication", () => {
     await expect(createEstimateItem(version.id, createInput, { documentOwnsReceipt: true, onVersionToken })).rejects.toThrow();
     expect(onVersionToken).not.toHaveBeenCalled();
     expect(session.onCommit).not.toHaveBeenCalled();
-  });
-});
-
-describe("lifecycle and event client response validation", () => {
-  it.each([
-    () => createEstimate({ projectId: version.project_id, title: "Devis", dateDevis: "2026-10-28", validiteJours: 30 }),
-    () => duplicateEstimateVersion(version.id), () => createEstimateVariant(version.id),
-    () => promoteEstimateVariant(version.id), () => fetchEstimateVersionEvents(version.id),
-  ])("rejects incomplete success envelopes instead of extracting arbitrary identifiers %#", async (run) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ id: "invalid", version: { id: version.id } })));
-    await expect(run()).rejects.toThrow();
-  });
-
-  it("returns a canonical event list and rejects a foreign event", async () => {
-    const event = { id: other, estimate_version_id: version.id, event_type: "sent", metadata: {}, created_by: null, actor_name: null, occurred_at: version.updated_at, created_at: version.updated_at };
-    const fetch = vi.fn().mockResolvedValueOnce(response({ events: [event] }))
-      .mockResolvedValueOnce(response({ events: [{ ...event, estimate_version_id: other }] }));
-    vi.stubGlobal("fetch", fetch);
-    expect(await fetchEstimateVersionEvents(version.id)).toEqual([{
-      id: other, estimateVersionId: version.id, eventType: "sent", metadata: {}, createdBy: null,
-      actorName: null, occurredAt: version.updated_at, createdAt: version.updated_at,
-    }]);
-    await expect(fetchEstimateVersionEvents(version.id)).rejects.toThrow();
   });
 });

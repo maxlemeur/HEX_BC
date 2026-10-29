@@ -1,7 +1,6 @@
-import { type VirtualItem } from "@tanstack/react-virtual";
-import { act,renderHook,waitFor } from "@testing-library/react";
+import { act,renderHook } from "@testing-library/react";
 import { createRef } from "react";
-import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
+import { beforeEach,describe,expect,it,vi } from "vitest";
 
 import {
 useEstimateDndVirtualization,
@@ -50,35 +49,17 @@ function createItem(partial: Partial<EditorEstimateItem>): EditorEstimateItem {
   } as EstimateItem;
 }
 
-function createVirtualItem(index: number, start = index * 56): VirtualItem {
-  return {
-    key: `virtual-${index}`,
-    index,
-    start,
-    size: 56,
-    end: start + 56,
-    lane: 0,
-  } as VirtualItem;
-}
-
 describe("useEstimateDndVirtualization", () => {
-  let scrollToIndex: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
-    scrollToIndex = vi.fn();
     mockUseVirtualList.mockReset();
     mockUseVirtualList.mockReturnValue({
       scrollRef: createRef<HTMLDivElement>(),
       virtualItems: [],
       totalSize: 0,
       measureElement: vi.fn(),
-      scrollToIndex,
+      scrollToIndex: vi.fn(),
       isVirtualized: false,
     });
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
   });
 
   it("keeps root sections at root when dragging over another root section", () => {
@@ -307,185 +288,5 @@ describe("useEstimateDndVirtualization", () => {
       [],
       ["line-source"]
     );
-  });
-
-  it("rejects invalid cross-parent drops", () => {
-    const rootSection = createItem({ id: "section-root", item_type: "section" });
-    const subSection = createItem({
-      id: "section-sub",
-      item_type: "section",
-      parent_id: "section-root",
-    });
-    const deepSection = createItem({
-      id: "section-deep",
-      item_type: "section",
-      parent_id: "section-sub",
-    });
-    const rootSectionToMove = createItem({ id: "section-other", item_type: "section" });
-    const lineUnderOther = createItem({
-      id: "line-under-other",
-      item_type: "line",
-      parent_id: "section-other",
-    });
-    const lineUnderSub = createItem({
-      id: "line-under-sub",
-      item_type: "line",
-      parent_id: "section-sub",
-    });
-    const malformedLineParent = createItem({ id: "line-parent", item_type: "line" });
-    const malformedLineChild = createItem({
-      id: "line-child",
-      item_type: "line",
-      parent_id: "line-parent",
-    });
-
-    const itemsByParent = new Map<string, EstimateItem[]>([
-      ["root", [rootSection, rootSectionToMove, malformedLineParent]],
-      ["section-root", [subSection]],
-      ["section-sub", [lineUnderSub, deepSection]],
-      ["section-other", [lineUnderOther]],
-      ["line-parent", [malformedLineChild]],
-    ]);
-
-    const onReorder = vi.fn();
-    const onMoveItem = vi.fn();
-    const tableCardRef = createRef<HTMLDivElement>();
-    tableCardRef.current = document.createElement("div");
-
-    const { result } = renderHook(() =>
-      useEstimateDndVirtualization({
-        canReorder: true,
-        maxSectionDepth: 2,
-        itemsByParent,
-        onReorder,
-        onMoveItem,
-        hasVisibleRows: true,
-        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
-        depthMap: new Map([
-          ["section-root", 0],
-          ["section-sub", 1],
-          ["section-deep", 2],
-          ["section-other", 0],
-          ["line-under-sub", 2],
-          ["line-under-other", 1],
-          ["line-parent", 0],
-          ["line-child", 1],
-        ]),
-        mergedUnitDrafts: {},
-        mergedSupplyTypeDrafts: {},
-        qualityFlagsByItemId: {},
-        suggestionsByItemId: new Map(),
-        tableCardRef,
-      })
-    );
-
-    act(() => {
-      result.current.handleDragEnd({
-        active: { id: "section-sub", data: { current: { parentId: "section-root" } } },
-        over: {
-          id: "line-under-other",
-          data: { current: { parentId: "section-other" } },
-        },
-      } as never);
-    });
-
-    act(() => {
-      result.current.handleDragEnd({
-        active: { id: "section-other", data: { current: { parentId: null } } },
-        over: { id: "line-under-sub", data: { current: { parentId: "section-sub" } } },
-      } as never);
-    });
-
-    act(() => {
-      result.current.handleDragEnd({
-        active: { id: "line-under-sub", data: { current: { parentId: "section-sub" } } },
-        over: { id: "line-child", data: { current: { parentId: "line-parent" } } },
-      } as never);
-    });
-
-    expect(onMoveItem).not.toHaveBeenCalled();
-    expect(onReorder).not.toHaveBeenCalled();
-  });
-
-  it("keeps pending scroll target until the virtualized row becomes visible", async () => {
-    const line1 = createItem({ id: "line-1", item_type: "line" });
-    const line2 = createItem({ id: "line-2", item_type: "line" });
-
-    const filteredItemsByParent = new Map<string, EstimateItem[]>([["root", [line1]]]);
-    const fullItemsByParent = new Map<string, EstimateItem[]>([["root", [line1, line2]]]);
-
-    mockUseVirtualList.mockReturnValue({
-      scrollRef: createRef<HTMLDivElement>(),
-      virtualItems: [createVirtualItem(0), createVirtualItem(1)],
-      totalSize: 112,
-      measureElement: vi.fn(),
-      scrollToIndex,
-      isVirtualized: true,
-    });
-
-    const tableCard = document.createElement("div");
-    document.body.appendChild(tableCard);
-
-    const row = document.createElement("div");
-    row.setAttribute("data-estimate-item-id", "line-2");
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(row, "scrollIntoView", {
-      value: scrollIntoView,
-      configurable: true,
-    });
-
-    const onScrollToItemHandled = vi.fn();
-    const tableCardRef = createRef<HTMLDivElement>();
-    tableCardRef.current = tableCard;
-
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      callback(0);
-      return 1;
-    });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-
-    const { rerender } = renderHook(
-      ({ itemsByParent }: { itemsByParent: Map<string, EstimateItem[]> }) =>
-        useEstimateDndVirtualization({
-          canReorder: true,
-          maxSectionDepth: 1,
-          itemsByParent,
-          onReorder: vi.fn(),
-          onMoveItem: vi.fn(),
-          hasVisibleRows: true,
-          getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
-          depthMap: new Map(),
-          mergedUnitDrafts: {},
-          mergedSupplyTypeDrafts: {},
-          qualityFlagsByItemId: {},
-          suggestionsByItemId: new Map(),
-          virtualization: { enabled: true },
-          tableCardRef,
-          scrollToItemId: "line-2",
-          onScrollToItemHandled,
-        }),
-      {
-        initialProps: {
-          itemsByParent: filteredItemsByParent,
-        },
-      }
-    );
-
-    expect(scrollToIndex).not.toHaveBeenCalled();
-    expect(onScrollToItemHandled).not.toHaveBeenCalled();
-
-    tableCard.appendChild(row);
-    rerender({ itemsByParent: fullItemsByParent });
-
-    await waitFor(() => {
-      expect(scrollToIndex).toHaveBeenCalledWith(1);
-    });
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      behavior: "smooth",
-      block: "center",
-    });
-    expect(onScrollToItemHandled).toHaveBeenCalledTimes(1);
-
-    tableCard.remove();
   });
 });

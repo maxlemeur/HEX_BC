@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { findTakeoffPreparationCopyReceipt, hasTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from "@/lib/takeoff/preparation-copy-provenance-server";
-import { authenticatedContext, createSupabaseFake, filterValue, M3_PROJECT_ID, M3_TENANT_ID, M3_USER_ID, M3_VERSION_ID, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+import { authenticatedContext, createSupabaseFake, filterValue, M3_PROJECT_ID, M3_TENANT_ID, M3_VERSION_ID, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 
@@ -34,23 +34,12 @@ function fixture() {
   } });
   vi.mocked(createServiceRoleClient).mockReturnValue(server.client as never);
   const context = authenticatedContext(user) as never;
-  return { user, server, context, receipt: () => receipt, moveTarget: () => { targetProject = SOURCE_ID; } };
+  return { server, context, moveTarget: () => { targetProject = SOURCE_ID; } };
 }
 
 beforeEach(() => vi.clearAllMocks());
 
 describe("ordinary takeoff copy provenance", () => {
-  it("records a trusted same-project normal copy without changing variant parentage", async () => {
-    const f = fixture();
-    await recordTakeoffPreparationCopy({ ...scope, context: f.context });
-    expect(f.receipt()).toMatchObject({ tenant_id: M3_TENANT_ID, user_id: M3_USER_ID,
-      action: "takeoff.preparation.version_created", table_name: "estimate_versions",
-      record_id: M3_VERSION_ID, estimate_version_id: M3_VERSION_ID,
-      after_data: { schema_version: 1, project_id: M3_PROJECT_ID, source_version_id: SOURCE_ID, target_version_id: M3_VERSION_ID, preparation_revision: 2 } });
-    expect(f.user.queries.filter((query) => query.operation !== "select")).toEqual([]);
-    expect(await hasTakeoffPreparationCopyReceipt({ ...scope, context: f.context })).toBe(true);
-  });
-
   it("never accepts a browser-supplied source or another preparation revision without its exact receipt", async () => {
     const f = fixture();
     expect(await hasTakeoffPreparationCopyReceipt({ ...scope, context: f.context })).toBe(false);

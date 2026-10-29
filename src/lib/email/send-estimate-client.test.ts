@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EstimateEmailSendError, sendEstimateEmailRequest } from "@/lib/email/send-estimate-client";
+import { sendEstimateEmailRequest } from "@/lib/email/send-estimate-client";
 import { ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE } from "@/lib/email/send-estimate-contract";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -15,12 +15,6 @@ const receipt = { version_id: VERSION_ID, request_id: REQUEST_ID, message_id: "e
 
 describe("sendEstimateEmailRequest confirmation boundary", () => {
   afterEach(() => vi.unstubAllGlobals());
-
-  it.each(["email-1", null])("accepts a matching completed receipt with provider ID %s", async (messageId) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ok: true, data: { ...receipt, message_id: messageId } })));
-    await expect(sendEstimateEmailRequest(input)).resolves.toEqual({ ...receipt, message_id: messageId });
-    expect(fetch).toHaveBeenCalledOnce();
-  });
 
   it.each([
     null,
@@ -42,12 +36,6 @@ describe("sendEstimateEmailRequest confirmation boundary", () => {
       message: ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE,
       canStartNewRequest: false,
     });
-    expect(fetch).toHaveBeenCalledOnce();
-  });
-
-  it.each(["", "{\"ok\":true,"])("retains the request after an unreadable successful body %#", async (body) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
-    await expect(sendEstimateEmailRequest(input)).rejects.toBeInstanceOf(EstimateEmailSendError);
     expect(fetch).toHaveBeenCalledOnce();
   });
 

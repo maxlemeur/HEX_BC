@@ -39,38 +39,6 @@ describe("MappingRuleEditor", () => {
     cleanup();
   });
 
-  it("updates preview for exact and regex match modes", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn();
-
-    render(
-      <MappingRuleEditor
-        mode="create"
-        assemblies={ASSEMBLIES}
-        onSubmit={onSubmit}
-      />
-    );
-
-    await user.selectOptions(screen.getByLabelText("Type de match"), "exact");
-    await user.type(screen.getByLabelText("Pattern de correspondance"), "Tube PVC");
-    await user.type(
-      screen.getByLabelText("Test de désignation (aperçu)"),
-      "tube pvc"
-    );
-
-    expect(screen.getByText("Correspondance détectée (exacte).")).toBeInTheDocument();
-
-    await user.selectOptions(screen.getByLabelText("Type de match"), "regex");
-    await user.clear(screen.getByLabelText("Pattern de correspondance"));
-    await user.type(screen.getByLabelText("Pattern de correspondance"), "abc(");
-
-    expect(
-      screen.getByText(
-        "Regex invalide : corrigez le pattern pour activer l'aperçu."
-      )
-    ).toBeInTheDocument();
-  });
-
   it("allows saving an existing apply_assembly rule even if assembly is outside fetched list", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();

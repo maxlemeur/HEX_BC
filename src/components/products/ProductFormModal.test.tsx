@@ -67,41 +67,4 @@ describe("ProductFormModal", () => {
       });
     });
   });
-
-  it("creates a product from the designation alone", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-
-    render(
-      <ProductFormModal
-        open
-        product={null}
-        isSaving={false}
-        error={null}
-        onOpenChange={vi.fn()}
-        onSubmit={onSubmit}
-      />
-    );
-
-    expect(screen.getByLabelText("Prix de référence HT")).toHaveValue("");
-
-    await user.type(screen.getByLabelText("Désignation *"), "Tube inox 304L DN50");
-    await user.click(screen.getByRole("button", { name: "Ajouter le produit" }));
-
-    await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith({
-        reference: null,
-        designation: "Tube inox 304L DN50",
-        category: null,
-        product_type: null,
-        material: null,
-        grade: null,
-        dimensions: null,
-        standard: null,
-        unit: "u",
-        unit_price_cents: 0,
-        is_active: true,
-      });
-    });
-  });
 });

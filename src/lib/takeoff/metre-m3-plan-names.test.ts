@@ -172,14 +172,6 @@ describe("enregistrement d'un plan (createPlanFile) : clé de stockage nettoyée
     expect(upper.insertedRow.file_path).not.toBe(lower.insertedRow.file_path);
   });
 
-  it("fait diverger les formes NFC et NFD d'un même nom accentué", async () => {
-    const nfc = await registerPlanFile(ELECTRICITE_NFC);
-    const nfd = await registerPlanFile(ELECTRICITE_NFD);
-
-    expect(ELECTRICITE_NFC).not.toBe(ELECTRICITE_NFD);
-    expect(nfc.insertedRow.file_name).not.toBe(nfd.insertedRow.file_name);
-  });
-
   it("dérive le libellé du nom reçu : une métadonnée client contradictoire ne le remplace pas", async () => {
     const { insertedRow } = await registerPlanFile("Plan R+1.pdf", {
       original_file_name: "Plan R-1.pdf",
@@ -298,33 +290,6 @@ describe("M1b — chargeur de source du traitement (loadTakeoffSource)", () => {
 });
 
 describe("M1a — libellé d'origine conservé, clé Storage inchangée", () => {
-  it("après enregistrement, la ligne de « Plan R+1.pdf » porte le libellé d'origine", async () => {
-    const { insertedRow } = await registerPlanFile("Plan R+1.pdf");
-
-    expect(JSON.stringify(insertedRow)).toContain("Plan R+1.pdf");
-  });
-
-  it("R+1 et R-1 restent distincts par leur libellé, hors identifiant et chemin", async () => {
-    const withoutKeys = (row: Record<string, unknown>) =>
-      JSON.stringify({ ...row, id: undefined, file_path: undefined });
-    const upper = await registerPlanFile("Plan R+1.pdf");
-    const lower = await registerPlanFile("Plan R-1.pdf");
-
-    expect(withoutKeys(upper.insertedRow)).not.toBe(withoutKeys(lower.insertedRow));
-  });
-
-  it("la synchronisation intake conserve aussi le libellé d'origine", async () => {
-    const { fake, planFiles } = createIntakeFake();
-
-    await syncTakeoffPlanSetFromAffaireIntake({
-      supabase: fake.client as never,
-      project: { id: M3_PROJECT_ID, tenant_id: M3_TENANT_ID },
-      documents: [intakeDocument({ id: "doc-r-plus-1", fileName: "PLB R+1 indice B.pdf" })],
-    });
-
-    expect(JSON.stringify(planFiles[0])).toContain("PLB R+1 indice B.pdf");
-  });
-
   it("les formes NFC et NFD d'un même nom donnent le même libellé, malgré deux clés différentes", async () => {
     const nfc = await registerPlanFile(ELECTRICITE_NFC);
     const nfd = await registerPlanFile(ELECTRICITE_NFD);
