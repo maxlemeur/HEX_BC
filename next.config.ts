@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The server-side spreadsheet parser runs in a Node worker. Keep these
+  // packages external so their runtime files can be traced for that worker.
+  serverExternalPackages: ["xlsx", "exceljs"],
   logging: {
     // OAuth callback query parameters include a short-lived authorization code.
     incomingRequests: { ignore: [/^\/auth\/chatgpt\/callback(?:\?|$)/] },
