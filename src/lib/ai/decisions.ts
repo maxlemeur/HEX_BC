@@ -22,6 +22,7 @@ const questionSchema = z.discriminatedUnion("type", [
 ]);
 
 export type OpenAiDecisionQuestion = z.infer<typeof questionSchema>;
+export type OpenAiDecisionImage = { mimeType: "image/png" | "image/jpeg" | "image/webp"; data: string };
 export type OpenAiDecisionsCapability = {
   status: "disabled" | "not_configured" | "available";
   model: typeof OPENAI_DECISIONS_MODEL;
@@ -110,6 +111,7 @@ export async function callOpenAiDecisions(input: {
   owner: ChatGptOwner;
   context: { tenantId: string; projectId: string; preparationFingerprint: string };
   evidence: Record<string, unknown>;
+  images?: OpenAiDecisionImage[];
   questions: OpenAiDecisionQuestion[];
 }): Promise<OpenAiDecisionsResult> {
   if (!input.owner.userId || !input.owner.tenantId || input.owner.tenantId !== input.context.tenantId) {
@@ -122,12 +124,17 @@ export async function callOpenAiDecisions(input: {
   }
   const evidence = JSON.stringify(input.evidence);
   if (Buffer.byteLength(evidence, "utf8") > MAX_EVIDENCE_BYTES) throw new Error("Le contexte Decisions est trop volumineux.");
+  const images = z.array(z.object({ mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    data: z.string().max(3 * 1024 * 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  }).strict()).max(2).parse(input.images ?? []);
+  if (images.reduce((bytes, image) => bytes + image.data.length, 0) > 4 * 1024 * 1024) throw new Error("Les aperçus Decisions dépassent la taille autorisée.");
   const capability = getOpenAiDecisionsCapability();
   const provenance: OpenAiDecisionsResult["provenance"] = {
     tenant_id: input.owner.tenantId, project_id: input.context.projectId,
     preparation_fingerprint: input.context.preparationFingerprint,
     request_fingerprint: createHash("sha256").update(JSON.stringify({
       tenant: input.owner.tenantId, user: input.owner.userId, context: input.context, evidence, questions,
+      ...(images.length ? { image_hashes: images.map((image) => createHash("sha256").update(image.mimeType).update(image.data).digest("hex")) } : {}),
     })).digest("hex"),
     model: OPENAI_DECISIONS_MODEL, requested_at: new Date().toISOString(), usage: null,
   };
@@ -138,7 +145,9 @@ export async function callOpenAiDecisions(input: {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENAI_DECISIONS_API_KEY!.trim()}` },
       body: JSON.stringify({
         model: OPENAI_DECISIONS_MODEL,
-        input: [{ role: "user", content: [{ type: "input_json", data: input.evidence }] }], questions,
+        input: [{ role: "user", content: [{ type: "input_json", data: input.evidence },
+          ...images.map((image) => ({ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}` })),
+        ] }], questions,
         // Partition provider caching by both tenant and user; never cache results across tenants.
         prompt_cache_key: createHash("sha256").update(`${input.owner.tenantId}:${input.owner.userId}`).digest("hex"),
       }),
