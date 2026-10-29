@@ -128,9 +128,18 @@ const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs",
 const RESOLVE_SUFFIXES = ["", ".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css",
   "/index.ts", "/index.tsx", "/index.js", "/index.jsx", "/index.mjs"];
 
+// Cache only pure compiled patterns. Repository files, source contents and
+// selection decisions must still be read afresh for each invocation.
+const globCache = new Map<string, RegExp>();
+
 /** Glob with literal brackets (Next route segments): ** for directories, * within a segment, {a,b}. */
 export function globToRegExp(glob: string): RegExp {
-  return new RegExp(`^${globSource(glob)}$`);
+  let pattern = globCache.get(glob);
+  if (!pattern) {
+    pattern = new RegExp(`^${globSource(glob)}$`);
+    globCache.set(glob, pattern);
+  }
+  return pattern;
 }
 
 function globSource(glob: string): string {
@@ -159,16 +168,8 @@ function globSource(glob: string): string {
   return source;
 }
 
-const globCache = new Map<string, RegExp>();
 export function matchesAny(file: string, globs: readonly string[]): boolean {
-  return globs.some((glob) => {
-    let pattern = globCache.get(glob);
-    if (!pattern) {
-      pattern = globToRegExp(glob);
-      globCache.set(glob, pattern);
-    }
-    return pattern.test(file);
-  });
+  return globs.some((glob) => globToRegExp(glob).test(file));
 }
 
 const MODULE_PATTERNS = [
