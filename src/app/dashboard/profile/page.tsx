@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { SaveIcon, UsersIcon } from "lucide-react";
+import { ChevronDownIcon, SaveIcon, UsersIcon } from "lucide-react";
 
 import { useUserContext } from "@/components/UserContext";
 import { ChatGptConnectionCard } from "@/components/ai/ChatGptConnectionCard";
@@ -13,7 +13,8 @@ import { PageSection } from "@/components/layout/page-section";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { FieldLabel } from "@/components/ui/field";
+import { InfoPopover } from "@/components/ui/info-popover";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -33,12 +34,14 @@ const ROLE_LABELS: Record<Profile["role"], string> = {
 };
 
 const PAGE_TITLE = "Mon profil";
-const PAGE_DESCRIPTION = "Ces informations apparaissent sur les bons de commande que vous émettez.";
 
 export default function ProfilePage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const { userEmail, profile: contextProfile, setProfile: setContextProfile } =
-    useUserContext();
+  const {
+    userEmail,
+    profile: contextProfile,
+    setProfile: setContextProfile,
+  } = useUserContext();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -116,7 +119,7 @@ export default function ProfilePage() {
             job_title: jobTitle.trim() || null,
             work_email: workEmail.trim() || null,
           }
-        : null
+        : null,
     );
     setContextProfile((prev) =>
       prev
@@ -127,7 +130,7 @@ export default function ProfilePage() {
             job_title: jobTitle.trim() || null,
             work_email: workEmail.trim() || null,
           }
-        : null
+        : null,
     );
 
     // Clear success message after 3 seconds
@@ -136,18 +139,17 @@ export default function ProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="animate-fade-in">
-        <PageHeader title={PAGE_TITLE} description={PAGE_DESCRIPTION} />
+      <div className="max-w-6xl animate-fade-in">
+        <PageHeader title={PAGE_TITLE} />
         <LoadingState label="Chargement du profil…" className="min-h-[300px]" />
       </div>
     );
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className="max-w-6xl animate-fade-in">
       <PageHeader
         title={PAGE_TITLE}
-        description={PAGE_DESCRIPTION}
         actions={
           canManageMemberships ? (
             <Link
@@ -161,151 +163,182 @@ export default function ProfilePage() {
         }
       />
 
-      <PageSection title="Informations professionnelles" className="max-w-2xl">
-        <form onSubmit={onSubmit}>
-          {/* Read-only section */}
-          <dl className="mb-6 grid gap-4 rounded-lg bg-surface-subtle p-4 sm:grid-cols-2">
-            <div className="min-w-0">
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Email de connexion
-              </dt>
-              <dd className="mt-1 break-all text-sm font-medium text-foreground">
-                {authEmail || "—"}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Rôle système
-              </dt>
-              <dd className="mt-1">
-                {profile ? (
-                  <Badge variant="info" size="sm">
-                    {ROLE_LABELS[profile.role]}
-                  </Badge>
-                ) : (
-                  "—"
-                )}
-              </dd>
-            </div>
-          </dl>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <PageSection
+          title="Informations professionnelles"
+          actions={
+            <InfoPopover
+              label="À quoi servent mes informations ?"
+              title="Votre profil sur les documents"
+            >
+              <p>
+                Votre nom, votre fonction et vos coordonnées apparaissent sur
+                les bons de commande que vous émettez.
+              </p>
+              <p>
+                L’email de connexion et votre rôle sont gérés par votre
+                organisation.
+              </p>
+            </InfoPopover>
+          }
+        >
+          <form onSubmit={onSubmit}>
+            {/* Read-only section */}
+            <dl className="mb-5 flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border-subtle pb-5">
+              <div className="min-w-0">
+                <dt className="text-xs text-muted-foreground">
+                  Email de connexion
+                </dt>
+                <dd className="mt-1 break-all text-sm font-medium text-foreground">
+                  {authEmail || "—"}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-xs text-muted-foreground">Rôle système</dt>
+                <dd className="mt-1">
+                  {profile ? (
+                    <Badge variant="info" size="sm">
+                      {ROLE_LABELS[profile.role]}
+                    </Badge>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+            </dl>
 
-          {/* Editable fields */}
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-              <FieldLabel htmlFor="profile-name">
-                Nom complet
-                <span aria-hidden="true" className="text-danger">
-                  *
+            {/* Editable fields */}
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
+                <FieldLabel htmlFor="profile-name">
+                  Nom complet
+                  <span aria-hidden="true" className="text-danger">
+                    *
+                  </span>
+                </FieldLabel>
+                <Input
+                  id="profile-name"
+                  name="name"
+                  autoComplete="name"
+                  placeholder="Prénom Nom"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <FieldLabel htmlFor="profile-job">Fonction</FieldLabel>
+                <Input
+                  id="profile-job"
+                  name="job-title"
+                  autoComplete="organization-title"
+                  placeholder="Chargé d’affaires"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <FieldLabel htmlFor="profile-phone">Téléphone</FieldLabel>
+                <Input
+                  id="profile-phone"
+                  name="phone"
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder="06 00 00 00 00"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel htmlFor="profile-work-email">
+                    Email professionnel
+                  </FieldLabel>
+                  <InfoPopover
+                    label="À propos de l’email professionnel"
+                    title="Email professionnel"
+                  >
+                    <p>
+                      Cette adresse est affichée sur vos bons de commande. Elle
+                      peut différer de l’email utilisé pour vous connecter.
+                    </p>
+                  </InfoPopover>
+                </div>
+                <Input
+                  id="profile-work-email"
+                  name="work-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="prenom.nom@hydro-express.fr"
+                  value={workEmail}
+                  onChange={(e) => setWorkEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <details className="group mt-5 rounded-lg border border-border-subtle bg-surface-subtle">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+                <span id="profile-preview-title">
+                  Aperçu sur les bons de commande
                 </span>
-              </FieldLabel>
-              <Input
-                id="profile-name"
-                name="name"
-                autoComplete="name"
-                placeholder="Prénom Nom"
-                required
-                aria-describedby="profile-name-hint"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-              />
-              <FieldDescription id="profile-name-hint" className="text-xs">
-                Apparaît sur les bons de commande.
-              </FieldDescription>
+                <ChevronDownIcon
+                  className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+              </summary>
+              <section
+                aria-labelledby="profile-preview-title"
+                className="min-w-0 border-t border-border-subtle px-4 py-4 text-sm"
+              >
+                <p className="break-words text-base font-semibold text-foreground">
+                  {fullName || "Votre nom"}
+                </p>
+                <p className="break-words text-muted-foreground">
+                  {jobTitle || "Votre fonction"}
+                </p>
+                {phone ? (
+                  <p className="mt-2 text-muted-foreground">{phone}</p>
+                ) : null}
+                {workEmail ? (
+                  <p className="break-all text-muted-foreground">{workEmail}</p>
+                ) : null}
+              </section>
+            </details>
+
+            {/* Messages */}
+            {error ? (
+              <Alert variant="danger" className="mt-5">
+                {error}
+              </Alert>
+            ) : null}
+
+            {success ? (
+              <Alert variant="success" className="mt-5">
+                Profil mis à jour.
+              </Alert>
+            ) : null}
+
+            <div className="mt-5 flex justify-end">
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full sm:w-auto"
+                loading={isSaving}
+                leftIcon={<SaveIcon aria-hidden="true" />}
+              >
+                Enregistrer
+              </Button>
             </div>
-
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <FieldLabel htmlFor="profile-job">Fonction</FieldLabel>
-              <Input
-                id="profile-job"
-                name="job-title"
-                autoComplete="organization-title"
-                placeholder="Chargé d’affaires"
-                value={jobTitle}
-                onChange={(e) => setJobTitle(e.target.value)}
-              />
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <FieldLabel htmlFor="profile-phone">Téléphone</FieldLabel>
-              <Input
-                id="profile-phone"
-                name="phone"
-                type="tel"
-                autoComplete="tel"
-                placeholder="06 00 00 00 00"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-              <FieldLabel htmlFor="profile-work-email">Email professionnel</FieldLabel>
-              <Input
-                id="profile-work-email"
-                name="work-email"
-                type="email"
-                autoComplete="email"
-                placeholder="prenom.nom@hydro-express.fr"
-                aria-describedby="profile-work-email-hint"
-                value={workEmail}
-                onChange={(e) => setWorkEmail(e.target.value)}
-              />
-              <FieldDescription id="profile-work-email-hint" className="text-xs">
-                Affiché sur les bons de commande ; il peut différer de l’email de connexion.
-              </FieldDescription>
-            </div>
-          </div>
-
-          {/* Preview */}
-          <section
-            aria-labelledby="profile-preview-title"
-            className="mt-6 rounded-lg border border-border bg-surface-subtle p-4"
-          >
-            <h3
-              id="profile-preview-title"
-              className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            >
-              Aperçu sur les bons de commande
-            </h3>
-            <div className="min-w-0 text-sm">
-              <p className="break-words text-lg font-bold text-primary">
-                {fullName || "Votre nom"}
-              </p>
-              <p className="break-words text-muted-foreground">
-                {jobTitle || "Votre fonction"}
-              </p>
-              {phone ? <p className="mt-1 text-muted-foreground">{phone}</p> : null}
-              {workEmail ? <p className="break-all text-muted-foreground">{workEmail}</p> : null}
-            </div>
-          </section>
-
-          {/* Messages */}
-          {error ? (
-            <Alert variant="danger" className="mt-5">
-              {error}
-            </Alert>
-          ) : null}
-
-          {success ? (
-            <Alert variant="success" className="mt-5">
-              Profil mis à jour.
-            </Alert>
-          ) : null}
-
-          <div className="mt-6 flex justify-end">
-            <Button
-              type="submit"
-              size="lg"
-              loading={isSaving}
-              leftIcon={<SaveIcon aria-hidden="true" />}
-            >
-              Enregistrer
-            </Button>
-          </div>
-        </form>
-      </PageSection>
-      <ChatGptConnectionCard />
-      <DecisionsCapabilityCard />
+          </form>
+        </PageSection>
+        <div className="grid min-w-0 gap-6">
+          <ChatGptConnectionCard />
+          <DecisionsCapabilityCard />
+        </div>
+      </div>
     </div>
   );
 }

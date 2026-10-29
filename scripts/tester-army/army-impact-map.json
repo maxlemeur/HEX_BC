@@ -54,6 +54,7 @@
       "e2e/army/local/legacy-clipboard-parity.e2e.ts",
       "e2e/army/local/legacy-currency-parity.e2e.ts",
       "e2e/army/local/legacy-editor-parity.e2e.ts",
+      "e2e/army/local/profile-polish.e2e.ts",
       "e2e/army/local/purchase-decimals.e2e.ts",
       "e2e/army/local/purchase-draft-eligibility.e2e.ts",
       "e2e/army/local/purchase-preparation.e2e.ts",
@@ -856,10 +857,12 @@
         "src/app/dashboard/_actions/chatgpt.ts",
         "src/app/dashboard/profile/**",
         "src/app/auth/chatgpt/**",
+        "e2e/army/local/profile-provider-fixture.mjs",
         "scripts/dev-chatgpt-local.mjs"
       ],
       "journeys": [
-        "e2e/army/local/chatgpt-local.e2e.ts"
+        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/profile-polish.e2e.ts"
       ]
     }
   ]
