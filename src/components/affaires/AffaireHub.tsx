@@ -471,7 +471,9 @@ export function AffaireHub({
   const documentsReturnFocus = useRef<HTMLElement | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => [...documentSearchParams.keys()].some((key) => /^(register|approval|timeline)/.test(key)));
   const openDocuments = useCallback(() => {
-    documentsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (document.activeElement instanceof HTMLElement && !document.activeElement.closest(".affaire-documents-drawer")) {
+      documentsReturnFocus.current = document.activeElement;
+    }
     setDocumentsRequested(true);
     setDocumentsOpen(true);
   }, []);
@@ -893,9 +895,15 @@ export function AffaireHub({
       const link = (event.target as HTMLElement).closest("a[href]");
       if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const url = new URL(link.getAttribute("href")!, window.location.href);
-      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname || url.search !== window.location.search) return;
-      if (url.hash === "#intake" && !isFreshStartState) { event.preventDefault(); openDocuments(); }
-      else if (["#brief", "#register", "#approval", "#timeline", "#plans"].includes(url.hash)) {
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
+      if (url.hash === "#intake" && !isFreshStartState) {
+        event.preventDefault();
+        if (url.href !== window.location.href) window.history.pushState(null, "", url);
+        openDocuments();
+        return;
+      }
+      if (url.search !== window.location.search) return;
+      if (["#brief", "#register", "#approval", "#timeline", "#plans"].includes(url.hash)) {
         setDetailsOpen(true);
         requestAnimationFrame(() => document.getElementById(url.hash.slice(1))?.scrollIntoView({ block: "start" }));
       }

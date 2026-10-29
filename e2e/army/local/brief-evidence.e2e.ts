@@ -65,7 +65,7 @@ test("brief document associations remain distinct from proof after edit and relo
   await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).tap();
   await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).not.toBeVisible();
   await expect(brief).toBeVisible();
-  await brief.getByRole("button", "Modifier", { exact: true }).tap();
+  await brief.getByRole("button", "Modifier", { exact: true }).click();
   await brief.getByDisplayValue(ASSOCIATED_TEXT, { exact: true }).fill(EDITED_TEXT);
   await brief.getByRole("button", "Enregistrer et revalider", { exact: true }).tap();
   await expect(editedRow).toContainText(UNCERTAIN_LABEL);
