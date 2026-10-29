@@ -57,7 +57,7 @@ beforeAll(async () => {
   await mkdir(path.dirname(transportLog), { recursive: true });
   await writeFile(transportLog, "");
   await setDecisionsControl({});
-  localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port)], {
+  localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port), "--webpack"], {
     cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development",
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
       ARMY_CHATGPT_TRANSPORT_LOG: transportLog, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
