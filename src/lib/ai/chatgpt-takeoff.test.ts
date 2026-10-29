@@ -33,7 +33,17 @@ it("binds the plan to the persisted creator and active job tenant, rechecking ac
   expect(readChatGptStore).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" });
   expect(eq.mock.calls).toEqual(expect.arrayContaining([["user_id", "creator"], ["tenant_id", "tenant"], ["tenants.is_active", true]]));
   expect(maybeSingle).toHaveBeenCalledTimes(2);
-  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model" });
+  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null });
+});
+it("pins selected reasoning effort with the model on every takeoff chunk", async () => {
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
+  const provider = await resolveLocalTakeoffProvider(client as never, job);
+  await provider!.call(options);
+  await provider!.call(options);
+  expect(provider?.reasoningEffort).toBe("high");
+  for (const call of vi.mocked(callLocalChatGptStructured).mock.calls) {
+    expect(call[2]).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" });
+  }
 });
 it.each([null, "creator"])("refuses missing or revoked creator %s without reading another account", async (created_by) => {
   maybeSingle.mockResolvedValue({ data: null, error: null });

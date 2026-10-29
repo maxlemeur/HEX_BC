@@ -20,6 +20,7 @@ import { generateTakeoffPreparationAssistance } from "@/lib/takeoff/preparation-
 import { classifyPreparationReferenceFormat } from "@/lib/takeoff/preparation-reference-loader";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
+import { assertTakeoffPreparationProcessing, type TakeoffRequestedProcessing } from "@/lib/takeoff/preparation-processing-server";
 
 const projectIdSchema = z.string().uuid();
 const revisionSchema = z.number().int().positive();
@@ -117,6 +118,7 @@ export async function confirmTakeoffPreparation(input: { projectId: string; expe
   if (record?.confirmed_at && record.confirmed_snapshot &&
       (record.revision === input.expectedRevision || record.revision === input.expectedRevision + 1)) {
     const confirmed = takeoffPreparationSchema.parse(record.draft);
+    assertTakeoffPreparationProcessing(confirmed);
     validateCanonicalSources(confirmed, sources);
     if (reconcilePreparationSources(confirmed, sources).changedSourceIds.length) {
       preparationConflict("Les sources ont changé. Vérifiez la préparation avant une nouvelle confirmation.");
@@ -127,6 +129,7 @@ export async function confirmTakeoffPreparation(input: { projectId: string; expe
     preparationConflict("La préparation a changé. Rechargez-la avant de confirmer.");
   }
   const draft = takeoffPreparationSchema.parse(record.draft);
+  assertTakeoffPreparationProcessing(draft);
   validateCanonicalSources(draft, sources);
   const referenceSources = draft.sources.filter((source) => source.active && source.kind !== "plan" && !source.document_id.startsWith("upload:"));
   if (referenceSources.length > 20) {
@@ -217,7 +220,7 @@ export async function assertConfirmedTakeoffPreparation(input: {
   context: AuthenticatedTenantContext; estimateVersionId: string; projectId?: string;
   preparationRevision: number | null; planSetId?: string; upload?: { hash: string; fileName: string };
   sourceVersionId?: string;
-}): Promise<TakeoffPreparationSnapshot> {
+} & TakeoffRequestedProcessing): Promise<TakeoffPreparationSnapshot> {
   revisionSchema.nullable().parse(input.preparationRevision);
   const { data: version, error } = await input.context.supabase.from("estimate_versions")
     .select("id,project_id").eq("tenant_id", input.context.tenantId)
@@ -234,6 +237,7 @@ export async function assertConfirmedTakeoffPreparation(input: {
   }
   const stored = storedPreparationSnapshotSchema.parse(record.confirmed_snapshot);
   const preparation = takeoffPreparationSchema.parse(stored.preparation);
+  assertTakeoffPreparationProcessing(preparation, input);
   if (stored.preparation_revision !== record.revision || stored.confirmed_by !== record.confirmed_by ||
       Date.parse(stored.confirmed_at) !== Date.parse(record.confirmed_at) ||
       JSON.stringify(preparation) !== JSON.stringify(takeoffPreparationSchema.parse(record.draft))) {

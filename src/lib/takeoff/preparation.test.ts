@@ -354,15 +354,19 @@ describe("takeoff preparation snapshots and reusable profiles", () => {
 
   it("reuses a versioned profile without carrying sources, local zones, calibration or confirmations", () => {
     const preparation = countingPreparation();
+    preparation.processing = { level: "C", provider: "chatgpt" };
     preparation.conventions.calibration = {
       document_id: "plan-a", page: 1, reference_length: 3,
       reference_unit: "m", measured_span: 200, measured_span_unit: "paper_mm",
     };
     const profile = createTakeoffPreparationProfile({ preparation, id: "profile-a", name: "Comptage plomberie", version: 2 });
+    expect(profile).not.toHaveProperty("processing");
     const next = createEmptyTakeoffPreparation({ estimateVersionId: "version-new" });
+    next.processing = { level: "B", provider: "gemini" };
     next.scope.levels = ["R+3"];
     const applied = applyTakeoffPreparationProfile(next, profile);
     expect(applied.profile).toEqual({ id: "profile-a", name: "Comptage plomberie", version: 2 });
+    expect(applied.processing).toEqual({ level: "B", provider: "gemini" });
     expect(applied.scope.lots).toEqual(["Plomberie"]);
     expect(applied.scope.levels).toEqual(["R+3"]);
     expect(applied.scope.zones).toEqual([]);

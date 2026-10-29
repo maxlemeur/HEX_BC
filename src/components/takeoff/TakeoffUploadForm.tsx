@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation";
 
 import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
-import type { TakeoffProvider } from "@/lib/takeoff/types";
+import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { useIsHydrated } from "@/hooks/useIsHydrated";
 
 import {
@@ -258,34 +258,6 @@ function validateTakeoffFileSupport(
   return validation.error;
 }
 
-function resolvePreferredLevel(input: {
-  recommendation: TakeoffDocumentRecommendation | null;
-  allowedLevels: TakeoffLevel[];
-  currentLevel: TakeoffLevel;
-  preserveManualSelection: boolean;
-}): TakeoffLevel {
-  const allowedLevels = input.allowedLevels.length > 0 ? input.allowedLevels : TAKEOFF_ALL_LEVELS;
-  const compatibleLevels =
-    input.recommendation?.compatibleLevels.filter((level) =>
-      allowedLevels.includes(level)
-    ) ?? allowedLevels;
-  const recommendedLevel = input.recommendation?.recommendedLevel;
-
-  if (!compatibleLevels.includes(input.currentLevel)) {
-    if (recommendedLevel && compatibleLevels.includes(recommendedLevel)) {
-      return recommendedLevel;
-    }
-
-    return compatibleLevels[0] ?? allowedLevels[0] ?? "A";
-  }
-
-  if (!input.preserveManualSelection && recommendedLevel && compatibleLevels.includes(recommendedLevel)) {
-    return recommendedLevel;
-  }
-
-  return input.currentLevel;
-}
-
 export function TakeoffUploadForm({
   versionId,
   projectId,
@@ -308,7 +280,6 @@ export function TakeoffUploadForm({
       ? level
       : normalizedAllowedLevels[0] ?? "A";
 
-  const [provider, setProvider] = useState<TakeoffProvider>("auto");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileFingerprint, setSelectedFileFingerprint] = useState("");
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -316,8 +287,6 @@ export function TakeoffUploadForm({
   const [stableIdempotencyKey, setStableIdempotencyKey] = useState<string | null>(
     null
   );
-  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel>(initialLevel);
-  const [manuallySelectedLevel, setManuallySelectedLevel] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -344,14 +313,6 @@ export function TakeoffUploadForm({
         normalizedAllowedLevels.includes(optionLevel)
       ) ?? normalizedAllowedLevels,
     [normalizedAllowedLevels, recommendation]
-  );
-  const selectionWarning = useMemo(
-    () =>
-      getTakeoffSelectionWarning({
-        recommendation,
-        selectedLevel,
-      }),
-    [recommendation, selectedLevel]
   );
   useEffect(() => {
     if (!selectedFile || !URL.createObjectURL) { setLocalPreviewUrl(null); return; }
@@ -391,38 +352,10 @@ export function TakeoffUploadForm({
   }, [notifySubmittingChange]);
 
   useEffect(() => {
-    if (!level || !normalizedAllowedLevels.includes(level)) return;
-    setSelectedLevel(level);
-  }, [level, normalizedAllowedLevels]);
-
-  useEffect(() => {
     onClassificationChange?.(recommendation, {
       fileFingerprint: selectedFileFingerprint,
     });
   }, [onClassificationChange, recommendation, selectedFileFingerprint]);
-
-  useEffect(() => {
-    if (!recommendation) {
-      return;
-    }
-
-    const nextLevel = resolvePreferredLevel({
-      recommendation,
-      allowedLevels: normalizedAllowedLevels,
-      currentLevel: selectedLevel,
-      preserveManualSelection: Boolean(level) || manuallySelectedLevel,
-    });
-
-    if (nextLevel !== selectedLevel) {
-      setSelectedLevel(nextLevel);
-    }
-  }, [
-    level,
-    manuallySelectedLevel,
-    normalizedAllowedLevels,
-    recommendation,
-    selectedLevel,
-  ]);
 
   function resetTransientState() {
     setSubmitState("idle");
@@ -449,13 +382,6 @@ export function TakeoffUploadForm({
     resetTransientState();
 
     const nextFingerprint = file ? toFileFingerprint(file) : "";
-    const isSameFileSelection =
-      nextFingerprint.length > 0 && nextFingerprint === selectedFileFingerprint;
-
-    if (!isSameFileSelection) {
-      setManuallySelectedLevel(false);
-    }
-
     const validationMessage = validateTakeoffFileSupport(
       file,
       normalizedAllowedLevels
@@ -487,24 +413,16 @@ export function TakeoffUploadForm({
     setAnnouncement(file ? `Fichier ${file.name} sélectionné.` : "");
   }
 
-  function handleLevelChange(nextLevel: TakeoffLevel) {
-    if (controlsDisabled || nextLevel === selectedLevel) {
-      return;
-    }
-
-    setManuallySelectedLevel(true);
-    setSelectedLevel(nextLevel);
-    resetTransientState();
-    setAnnouncement(`Niveau ${nextLevel} sélectionné.`);
-  }
-
   function openFilePicker() {
     if (controlsDisabled) return;
     fileInputRef.current?.click();
   }
 
-  async function handleSubmit(preparationRevision: number) {
-    if (controlsDisabled) return;
+  async function handleSubmit(preparationRevision: number, processing: TakeoffPreparation["processing"]) {
+    if (controlsDisabled || !processing.level) return;
+    const selectedLevel = processing.level;
+    const provider = processing.provider;
+    const selectionWarning = getTakeoffSelectionWarning({ recommendation, selectedLevel });
 
     const validationMessage = validateTakeoffFileSupport(
       selectedFile,
@@ -706,7 +624,19 @@ export function TakeoffUploadForm({
           </div>
         ) : null}
 
-        <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Options avancées du traitement</summary><div className="mt-3 space-y-4">
+        {projectId && uploadSource && submitState !== "success" ? <TakeoffPreparationPanel
+          key={uploadSource.document_id}
+          projectId={projectId}
+          estimateVersionId={versionId}
+          uploadSource={uploadSource}
+          localPreviewUrl={localPreviewUrl}
+          recommendedLevel={level ?? recommendation?.recommendedLevel ?? initialLevel}
+          compatibleLevels={compatibleLevels}
+          disabled={controlsDisabled}
+          onLaunch={handleSubmit}
+          advancedControls={({ processing, onProcessingChange, isConfirmed }) => {
+            const selectionWarning = getTakeoffSelectionWarning({ recommendation, selectedLevel: processing.level });
+            return <div className="space-y-4">
         {selectedFile && recommendation ? (
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -753,7 +683,7 @@ export function TakeoffUploadForm({
               {TAKEOFF_LEVEL_OPTIONS.filter((option) =>
                 normalizedAllowedLevels.includes(option.level)
               ).map((option) => {
-                const isSelected = selectedLevel === option.level;
+                const isSelected = processing.level === option.level;
                 const isCompatible = compatibleLevels.includes(option.level);
                 const isDisabled = controlsDisabled || !isCompatible;
 
@@ -772,7 +702,7 @@ export function TakeoffUploadForm({
                       name="takeoff-level"
                       checked={isSelected}
                       disabled={isDisabled}
-                      onChange={() => handleLevelChange(option.level)}
+                      onChange={() => { onProcessingChange({ level: option.level }); setStableIdempotencyKey(null); resetTransientState(); }}
                     />
                     <span className="text-sm text-foreground">
                       <span className="font-medium">{option.label}</span>
@@ -792,15 +722,15 @@ export function TakeoffUploadForm({
           </fieldset>
         )}
 
-        <TakeoffProviderSelect value={provider} disabled={controlsDisabled} onChange={(next) => {
-          setProvider(next);
+        <TakeoffProviderSelect value={processing.provider} preserveAutomaticChoice={isConfirmed} disabled={controlsDisabled} onChange={(next) => {
+          onProcessingChange({ provider: next });
           setStableIdempotencyKey(null);
           resetTransientState();
         }} />
 
-        </div></details>
-
-        {projectId && uploadSource && submitState !== "success" ? <TakeoffPreparationPanel key={uploadSource.document_id} projectId={projectId} estimateVersionId={versionId} uploadSource={uploadSource} localPreviewUrl={localPreviewUrl} disabled={controlsDisabled || !isTakeoffLevelCompatible(recommendation, selectedLevel)} onLaunch={handleSubmit} /> : selectedFile && submitState !== "success" ? <p className="text-sm text-muted-foreground">{projectId ? "Vérification du fichier avant préparation…" : "Ouvrez cette extraction depuis son affaire pour préparer le métré."}</p> : null}
+            </div>;
+          }}
+        /> : selectedFile && submitState !== "success" ? <p className="text-sm text-muted-foreground">{projectId ? "Vérification du fichier avant préparation…" : "Ouvrez cette extraction depuis son affaire pour préparer le métré."}</p> : null}
 
         {(submitState === "loading" || uploadProgress > 0) && (
           <div>

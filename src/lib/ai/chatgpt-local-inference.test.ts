@@ -3,6 +3,7 @@ import { z } from "zod";
 
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ getLocalChatGptCredential: vi.fn().mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", profileId: "profile-a" }) }));
 import { callLocalChatGptStructured, listLocalChatGptModels, readChatGptResponse } from "@/lib/ai/chatgpt-local-inference";
+import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 
 const owner = { userId: "user", tenantId: "tenant" };
 const completed = { type: "response.completed", response: { status: "completed", output: [
@@ -72,7 +73,25 @@ describe("ChatGPT plan inference", () => {
       { slug: "hidden", display_name: "Hidden", visibility: "hidden" },
       { slug: "first", display_name: "First", visibility: "list" },
     ] })));
-    expect(await listLocalChatGptModels(owner)).toEqual([{ id: "second", name: "Second" }, { id: "first", name: "First" }]);
+    expect(await listLocalChatGptModels(owner)).toEqual([
+      { id: "second", name: "Second", reasoningEfforts: [], defaultReasoningEffort: null },
+      { id: "first", name: "First", reasoningEfforts: [], defaultReasoningEffort: null },
+    ]);
+  });
+  it("sends the persisted reasoning effort on the actual Responses request independently of Gemini settings", async () => {
+    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "gpt-6.1-terra", reasoningEffort: "max" });
+    const fetchMock = vi.fn().mockResolvedValue(stream([completed])); vi.stubGlobal("fetch", fetchMock);
+    const result = await callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.number() }), thinkingLevel: "low" });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: "gpt-6.1-terra", reasoning: { effort: "max" } });
+    expect(result.reasoningEffort).toBe("max");
+  });
+  it("omits reasoning in automatic mode and refuses a changed effort before another chunk", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(stream([completed])); vi.stubGlobal("fetch", fetchMock);
+    await callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.number() }) });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("reasoning");
+    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "account-model", reasoningEffort: "high" });
+    await expect(callLocalChatGptStructured(owner, { prompt: "Chunk", schema: z.object({ amount: z.number() }) }, { profileId: "profile-a", model: "account-model", reasoningEffort: "medium" })).rejects.toThrow("niveau d’effort");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it.each(["text/plain", "text/csv"])("accepts intake text extracted from spreadsheets and emails (%s)", async (mimeType) => {
     const fetchMock = vi.fn().mockResolvedValue(stream([completed])); vi.stubGlobal("fetch", fetchMock);

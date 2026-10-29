@@ -98,6 +98,12 @@ export const takeoffPreparationAssistanceTraceSchema = z.object({
   accepted_proposal_ids: z.array(textSchema).max(200),
 }).strict();
 
+export const takeoffPreparationProcessingSchema = z.object({
+  level: z.enum(["A", "B", "C"]).nullable(),
+  provider: z.enum(["auto", "chatgpt", "gemini"]),
+}).strict();
+export type TakeoffPreparationProcessing = z.infer<typeof takeoffPreparationProcessingSchema>;
+
 export const takeoffPreparationSchema = z.object({
   schema_version: z.literal(1),
   objective: objectiveSchema.nullable(),
@@ -118,6 +124,10 @@ export const takeoffPreparationSchema = z.object({
     version: z.number().int().positive(),
   }).strict().nullable(),
   assistance: takeoffPreparationAssistanceTraceSchema.nullable().default(null),
+  processing: z.preprocess(
+    (value) => value === null ? undefined : value,
+    takeoffPreparationProcessingSchema.default({ level: null, provider: "auto" })
+  ),
 }).strict();
 
 export type TakeoffPreparation = z.infer<typeof takeoffPreparationSchema>;
@@ -146,6 +156,7 @@ export function createEmptyTakeoffPreparation(input: {
     schema_version: 1,
     objective: null,
     objective_confirmed: false,
+    processing: { level: null, provider: "auto" },
     scope: {
       lots: [], networks: [], levels: [], zones: [], inclusions: [], exclusions: [],
       confirmed: false,

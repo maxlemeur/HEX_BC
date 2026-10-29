@@ -4,7 +4,7 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
-import { assertConfirmedTakeoffPreparation, confirmTakeoffPreparation, loadTakeoffPreparation, saveTakeoffPreparation } from "@/lib/takeoff/preparation-server";
+import { assertConfirmedTakeoffPreparation as assertConfirmedTakeoffPreparationServer, confirmTakeoffPreparation, loadTakeoffPreparation, saveTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import type { PreparationRecordRow } from "@/lib/takeoff/preparation-repository";
 import { toPreparationPlanSource, toPreparationIntakeSource, type PreparationPlanFile, type PreparationIntakeDocument } from "@/lib/takeoff/preparation-sources";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
@@ -14,6 +14,10 @@ vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/takeoff/preparation-assistance-server", () => ({ generateTakeoffPreparationAssistance: vi.fn() }));
 vi.mock("@/lib/takeoff/preparation-copy-provenance-server", () => ({ hasTakeoffPreparationCopyReceipt: vi.fn().mockResolvedValue(false) }));
+
+function assertConfirmedTakeoffPreparation(input: Omit<Parameters<typeof assertConfirmedTakeoffPreparationServer>[0], "level" | "provider"> & Partial<Pick<Parameters<typeof assertConfirmedTakeoffPreparationServer>[0], "level" | "provider">>) {
+  return assertConfirmedTakeoffPreparationServer({ level: "B", provider: "auto", ...input });
+}
 
 function fixture() {
   let record: PreparationRecordRow | null = null;
@@ -53,6 +57,7 @@ function fixture() {
   vi.mocked(createServiceRoleClient).mockReturnValue(server.client as never);
   const ready = confirmedPreparationFixture().preparation;
   ready.objective = "count";
+  ready.processing = { level: "B", provider: "auto" };
   ready.sources = [{ ...toPreparationPlanSource(file), active: true, confirmed: true }];
   return {
     user, server, context, file, ready, content, intake, getRecord: () => record,
@@ -201,5 +206,33 @@ describe("persisted preparation server boundary", () => {
     await expect(confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 })).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TYPE_INVALID" });
     expect(f.user.storageCalls).toEqual([]);
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("persists processing choices and reopens confirmation only after an explicit settings edit", async () => {
+    const f = fixture();
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
+    const confirmed = await confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 });
+    expect((await loadTakeoffPreparation(M3_PROJECT_ID)).draft.processing).toEqual({ level: "B", provider: "auto" });
+    const changed = structuredClone(confirmed.draft);
+    changed.processing = { level: "C", provider: "chatgpt" };
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: changed, expectedRevision: 2 });
+    expect(saved.revision).toBe(3);
+    expect(saved.confirmedAt).toBeNull();
+    expect(saved.draft.scope).toEqual(confirmed.draft.scope);
+    const reconfirmed = await confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 3 });
+    expect(reconfirmed.revision).toBe(4);
+    await expect(assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID,
+      planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "B", provider: "auto" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("réglages de traitement") });
+    await expect(assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID,
+      planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "C", provider: "chatgpt" })).resolves.toMatchObject({ preparation: { processing: { level: "C", provider: "chatgpt" } } });
+  });
+
+  it("requires choosing settings before confirming an old draft with an unset level", async () => {
+    const f = fixture();
+    f.ready.processing = { level: null, provider: "auto" };
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
+    await expect(confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("Choisissez le niveau") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+    expect(f.user.storageCalls).toEqual([]);
   });
 });

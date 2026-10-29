@@ -33,7 +33,7 @@ import {
 import { CheckIcon } from "lucide-react";
 import { LazyTakeoffPreparationPanel } from "@/components/takeoff/LazyTakeoffPreparationPanel";
 import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
-import type { TakeoffProvider } from "@/lib/takeoff/types";
+import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -217,7 +217,6 @@ function LaunchMetreDialogContent({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
-  const [provider, setProvider] = useState<TakeoffProvider>("auto");
   const [launchSuccess, setLaunchSuccess] = useState(false);
   const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
   const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
@@ -294,14 +293,6 @@ function LaunchMetreDialogContent({
       }),
     [availableVersions, currentVersion],
   );
-  const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel>(
-    isPlanSetTakeoffLevel(selectedPlanSetRecommendation?.recommendedLevel) &&
-      compatibleAnalysisLevels.some(
-        ({ level }) => level === selectedPlanSetRecommendation?.recommendedLevel,
-      )
-      ? selectedPlanSetRecommendation.recommendedLevel
-      : compatibleAnalysisLevels[0]?.level ?? "B",
-  );
 
   const selectedVersionOption = useMemo(
     () =>
@@ -318,14 +309,6 @@ function LaunchMetreDialogContent({
       ? `${versionBusinessLabel(selectedVersionOption.versionNumber)} (brouillon)`
       : `Nouveau brouillon depuis ${versionBusinessLabel(selectedVersionOption.versionNumber)}`
     : null;
-  const selectionWarning = useMemo(
-    () =>
-      getTakeoffSelectionWarning({
-        recommendation: selectedPlanSetRecommendation ?? null,
-        selectedLevel,
-      }),
-    [selectedLevel, selectedPlanSetRecommendation],
-  );
 
   useEffect(() => {
     setSelectedPlanSetId((currentId) => {
@@ -347,18 +330,6 @@ function LaunchMetreDialogContent({
     });
   }, [initialPlanSetId, planSetOptions, plansContext?.defaultPlanSetId]);
 
-  useEffect(() => {
-    const recommendedLevel = selectedPlanSetRecommendation?.recommendedLevel;
-    if (
-      isPlanSetTakeoffLevel(recommendedLevel) &&
-      compatibleAnalysisLevels.some(({ level }) => level === recommendedLevel)
-    ) {
-      setSelectedLevel(recommendedLevel);
-      return;
-    }
-
-    setSelectedLevel(compatibleAnalysisLevels[0]?.level ?? "B");
-  }, [compatibleAnalysisLevels, selectedPlanSetRecommendation?.recommendedLevel]);
 
   useEffect(() => {
     setSelectedVersionId(versionOptions[0]?.id ?? null);
@@ -379,7 +350,10 @@ function LaunchMetreDialogContent({
     [isSubmitting, launchSuccess, onOpenChange],
   );
 
-  const handleLaunch = useCallback(async (preparationRevision: number) => {
+  const handleLaunch = useCallback(async (preparationRevision: number, processing: TakeoffPreparation["processing"]) => {
+    const selectedLevel = processing.level;
+    const provider = processing.provider;
+    if (!isPlanSetTakeoffLevel(selectedLevel)) return;
     if (!selectedPlanSet || !hasPlanFiles) {
       return;
     }
@@ -474,8 +448,6 @@ function LaunchMetreDialogContent({
     hasPlanFiles,
     onLaunched,
     projectId,
-    provider,
-    selectedLevel,
     selectedPlanSet,
     selectedPlanSetRecommendation,
     selectedVersionOption,
@@ -537,6 +509,8 @@ function LaunchMetreDialogContent({
                   planSetId={selectedPlanSet.id}
                   estimateVersionId={selectedVersionOption?.id ?? null}
                   targetSelectionKey={targetSelectionKey}
+                  recommendedLevel={selectedPlanSetRecommendation?.recommendedLevel ?? compatibleAnalysisLevels[0]?.level ?? "B"}
+                  compatibleLevels={compatibleAnalysisLevels.map(({ level }) => level)}
                   disabled={isSubmitting}
                   launchDisabled={!hasTargetVersion}
                   onLaunch={handleLaunch}
@@ -557,15 +531,17 @@ function LaunchMetreDialogContent({
                     </NativeSelect>
                     <p className="text-xs text-muted-foreground">{selectedVersionOption?.helper ?? "Aucune version cible disponible."}</p>
                   </div>}
-                  advancedControls={<>
+                  advancedControls={({ processing, onProcessingChange, isConfirmed }) => {
+                    const selectionWarning = getTakeoffSelectionWarning({ recommendation: selectedPlanSetRecommendation, selectedLevel: processing.level });
+                    return <>
                     <fieldset><legend className="mb-2 text-sm font-medium">Niveau d&apos;analyse</legend><div className="space-y-2" role="radiogroup">
-                      {compatibleAnalysisLevels.map((level) => <label key={level.level} className="flex gap-2 text-sm"><input type="radio" name="analysis-level" value={level.level} checked={selectedLevel === level.level} onChange={() => setSelectedLevel(level.level)} aria-label={level.label} /><span>{level.label}<span className="ml-2 text-xs text-muted-foreground">{level.description}</span></span></label>)}
+                      {compatibleAnalysisLevels.map((level) => <label key={level.level} className="flex gap-2 text-sm"><input type="radio" name="analysis-level" value={level.level} checked={processing.level === level.level} onChange={() => onProcessingChange({ level: level.level })} aria-label={level.label} /><span>{level.label}<span className="ml-2 text-xs text-muted-foreground">{level.description}</span></span></label>)}
                     </div>
                     {selectedPlanSetRecommendation?.recommendedLevel && <p className="mt-2 text-xs text-muted-foreground">Niveau recommandé : {TAKEOFF_LEVEL_BUSINESS_LABELS[selectedPlanSetRecommendation.recommendedLevel]}. Le format des pièces ne prouve pas leur lisibilité ni leur échelle.</p>}
                     {selectionWarning && <p className="mt-2 text-xs text-warning">{selectionWarning.message}</p>}
                     </fieldset>
-                    <TakeoffProviderSelect value={provider} onChange={setProvider} disabled={isSubmitting} />
-                  </>}
+                    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} disabled={isSubmitting} preserveAutomaticChoice={isConfirmed} />
+                  </>; }}
                 />
               ) : <div className="space-y-3 py-4 text-center"><p className="text-sm text-muted-foreground">Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.</p><Link href={`/dashboard/affaires/${projectId}/plans`} className={buttonVariants({ variant: "outline" })}>Voir les plans</Link>{planSetsLoadError && <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => void reloadPlanSets()}>Réessayer</button>}</div>}
               {errorMessage && <Alert variant="danger"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
