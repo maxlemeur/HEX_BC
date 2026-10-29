@@ -59,7 +59,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       await browser.keyboard.press("Escape");
       // Une ligne dans la v3 conserve l'accès manuel à la même préparation (HUB01).
       await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
-      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      await app.open(`/dashboard/affaires/${anchor.projectId}#plans`);
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
       dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "chatgpt" } });
@@ -115,8 +115,9 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       expect(savedProcessing).toEqual({ level: "B", provider: "chatgpt" });
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
-      const action = await callServerAction(browser, await serverActionId("launchTakeoffFromSourceVersionPlanSet", actionManifest),
+      const action = await callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction", actionManifest),
         { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B", provider: "chatgpt", preparationRevision: confirmation.revision });
+      expect(action).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
       const versionsAfter = await storedVersions(owner, anchor.projectId);
       const copy = versionsAfter.find((version) => !versionsBefore.some((known) => known.id === version.id)) ?? null;
       if (copy) {
