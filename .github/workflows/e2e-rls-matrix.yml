@@ -9,6 +9,10 @@ on:
   workflow_dispatch:
   pull_request:
     branches: ["main"]
+  schedule:
+    # The only job that measures the CI statement ceilings on main: the Army
+    # suites build alongside their database checks and skip them.
+    - cron: "15 5 * * *"
 
 permissions:
   contents: read

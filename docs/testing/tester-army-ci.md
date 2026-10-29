@@ -68,7 +68,8 @@ et cibles DB/Supabase héritées, crée une pile native loopback et applique les
 migrations du checkout. Les contrôles pgTAP/RLS précèdent les parcours ; le
 build de production peut démarrer en parallèle des contrôles DB, sur la même
 identité de backend. Le plafond SQL de copie n'est alors pas mesuré dans ce
-job ; la matrice RLS l'exécute seule. Voir les [budgets SQL](large-estimate-statement-budget.md).
+job ; la matrice RLS l'exécute seule, sur chaque PR qui touche la base et
+chaque nuit sur `main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
 
 Le compte/tenant ARMY et les secrets sont temporaires. Les sorties partageables
 sont expurgées ; les journaux SQL privés et l'environnement natif ne sont pas

@@ -16,7 +16,7 @@ import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-f
 import { awaitBrowserInstall } from "./tester-army/browser-install";
 import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
-import { CALC_V3_PHASES, CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS, CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
 import { runDevLoopSession } from "./tester-army/dev-loop";
 import {
   DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
@@ -233,11 +233,12 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
   };
 }
 
-// The production build of critical and full needs only the stack's origin and
-// keys (it never receives the ARMY account or the SQL transport): it starts as
-// soon as the stack runs, while the snapshot, pgTAP and the RLS matrix check
-// the database. runApplication, which runs only after they pass, awaits it.
-const buildsEarly = suite === "critical" || (suite === "full" && !fullPhases.every((phase) => phase === "development"));
+// The production build of critical, full and calc-v3 needs only the stack's
+// origin and keys (it never receives the ARMY account or the SQL transport): it
+// starts as soon as the stack runs, while the snapshot, pgTAP and the RLS matrix
+// check the database. runApplication, which runs only after they pass, awaits it.
+const buildsEarly = suite === "critical" || (suite === "full" && !fullPhases.every((phase) => phase === "development")) ||
+  (suite === "calc-v3" && (calcV3Phase ? [calcV3Phase] : CALC_V3_PHASES).some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
 let earlyBuild: { origin: string; anonKey: string; done: Promise<void> } | undefined;
 
 function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
@@ -249,6 +250,13 @@ function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
   // Awaited by runApplication, or in main's finally when the database checks fail first.
   done.catch(() => {});
   earlyBuild = { origin: backend.origin, anonKey: status.anonKey, done };
+}
+
+async function awaitEarlyBuild(build: NonNullable<typeof earlyBuild>, backend: URL, anonKey: string) {
+  if (build.origin !== backend.origin || build.anonKey !== anonKey) {
+    throw new Error("The production build was started for another backend than the journeys'.");
+  }
+  await build.done;
 }
 
 async function runApplication(local: SupabaseEnvironment) {
@@ -426,7 +434,8 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
       databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL, admin,
       owner: { userId: user.user.id, tenantId, laborRoleId: laborRole.id },
       phase: calcV3Phase, grep, remember: (secret) => { knownSecrets.push(secret); }, redact,
-      build: () => runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build"),
+      build: () => earlyBuild ? awaitEarlyBuild(earlyBuild, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+        : runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build"),
     });
     manifest.calcV3 = "calc-v3.json";
     return;
@@ -486,10 +495,7 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
   // Started with the stack (startEarlyBuild), otherwise here. The development
   // phase runs under next dev: alone, it needs no production build.
   if (earlyBuild) {
-    if (earlyBuild.origin !== backend.origin || earlyBuild.anonKey !== local.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      throw new Error("The production build was started for another backend than the journeys'.");
-    }
-    await earlyBuild.done;
+    await awaitEarlyBuild(earlyBuild, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   } else if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
     await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
   }

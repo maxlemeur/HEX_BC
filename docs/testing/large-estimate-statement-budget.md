@@ -31,8 +31,9 @@ DB_CI_STATEMENT_BUDGET=enforce npm run db:ci:local
 ```
 
 Le runner crée et détruit sa pile native. Le plafond de copie s'exécute quand
-les contrôles DB tournent seuls, notamment dans E2E RLS Matrix. Il est
-explicitement ignoré lorsqu'un travail tel qu'un build Army démarre en
+les contrôles DB tournent seuls, notamment dans E2E RLS Matrix (PR qui
+touchent la base et chaque nuit sur `main`). Il est explicitement ignoré
+lorsqu'un travail tel qu'un build Army (critical, full, calc-v3) démarre en
 parallèle. Les budgets locaux restent opt-in ; un run sans cette variable ne
 prouve pas leur respect. Pour un contrôle filtré, voir le [guide local](tester-army-local-development.md).
 
