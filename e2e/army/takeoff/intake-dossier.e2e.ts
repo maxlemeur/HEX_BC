@@ -55,11 +55,11 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   const ambiguous = uploaded.find((doc) => doc.file_name.endsWith("-piece-a-classer.txt"))!;
   expect(ambiguous.document_kind).toBe("a_classer");
   // The deep link highlights the piece's row in the dossier table; its actions live in the row's details dialog.
-  const row = browser.locator(`[aria-label="Intake dossier affaire"] tr[data-document-id="${ambiguous.id}"]`);
+  const row = browser.locator(`[aria-label="Dossier de consultation"] tr[data-document-id="${ambiguous.id}"]`);
   const openDetails = async () => {
-    await expect(row).toHaveAttribute("data-highlighted", "true");
+    await expect(row).toHaveAttribute("aria-selected", "true");
     await row.getByRole("button", `Détails de ${ambiguous.file_name}`, { exact: true }).click();
-    return screen.getByRole("dialog", "Document et provenance", { exact: true });
+    return screen.getByRole("dialog", "Document et détails", { exact: true });
   };
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${ambiguous.id}#intake`);
   let details = await openDetails();
@@ -109,9 +109,9 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
     .eq("project_id", ids.projectId).single()).data!;
   expect(await plansGap()).toEqual([]);
   expect((await readBrief()).received_pieces).toContain(`Plans · ${plan.file_name}`);
-  const planRow = browser.locator(`[aria-label="Intake dossier affaire"] tr[data-document-id="${plan.id}"]`);
+  const planRow = browser.locator(`[aria-label="Dossier de consultation"] tr[data-document-id="${plan.id}"]`);
   await planRow.getByRole("button", `Détails de ${plan.file_name}`, { exact: true }).click();
-  await screen.getByRole("dialog", "Document et provenance", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
+  await screen.getByRole("dialog", "Document et détails", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
   await screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
   await expect(planRow).toHaveCount(0);
   expect((await documents()).find((doc) => doc.id === plan.id)).toMatchObject({ upload_status: "rejected", storage_path: null });
@@ -124,9 +124,9 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
 
   // Deleting the principal CCTP while another CCTP remains hands it the principal role.
   const remainingCctp = (await documents()).find((doc) => doc.file_name === fixtures[2].name)!;
-  const primaryRow = browser.locator(`[aria-label="Intake dossier affaire"] tr[data-document-id="${ambiguous.id}"]`);
+  const primaryRow = browser.locator(`[aria-label="Dossier de consultation"] tr[data-document-id="${ambiguous.id}"]`);
   await primaryRow.getByRole("button", `Détails de ${ambiguous.file_name}`, { exact: true }).click();
-  await screen.getByRole("dialog", "Document et provenance", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
+  await screen.getByRole("dialog", "Document et détails", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
   await screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
   await expect(primaryRow).toHaveCount(0);
   expect((await documents()).find((doc) => doc.id === ambiguous.id)).toMatchObject({ upload_status: "rejected", document_priority: "secondary", storage_path: null });

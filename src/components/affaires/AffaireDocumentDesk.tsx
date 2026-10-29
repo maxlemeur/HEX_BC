@@ -416,7 +416,7 @@ export function AffaireDocumentDesk({
                 "La connexion IA n’est pas disponible.")
               : `${fallbackCount} document${fallbackCount > 1 ? "s" : ""} classé${fallbackCount > 1 ? "s" : ""} d’après le nom après un échec de l’IA. Vous pouvez relancer l’analyse.`}
           </span>
-          <Link href="/dashboard/profile">Vérifier la connexion ChatGPT</Link>
+          <Link href="/dashboard/profile">{workspace.analysisAvailability?.provider === "decisions" ? "Vérifier la disponibilité Decisions" : "Vérifier la connexion ChatGPT"}</Link>
         </div>
       )}
       {(message || progress) && (
@@ -634,7 +634,7 @@ export function AffaireDocumentDesk({
                         )}
                       </td>
                       <td>
-                        {eligible ? (
+                        {eligible && (state !== "valid" || category !== document.detectedCategory) ? (
                           <select
                             aria-label={`Catégorie de ${document.fileName}`}
                             disabled={busy}

@@ -55,7 +55,6 @@ import {
   shouldRenderPlansSection,
 } from "./affaire-workflow";
 import { AffaireCreatedOnboardingBanner } from "./AffaireCreatedOnboardingBanner";
-import { AffaireWorkflowStepper } from "./AffaireWorkflowStepper";
 import { AffaireHubActionBar, AffaireHubFirstVersionActionBar } from "./AffaireHubActionBar";
 import {
   DpgfSourceCard,
@@ -89,6 +88,11 @@ import {
 import { XIcon } from "lucide-react";
 
 export { DpgfSourceCard, getEstimateMarginSettingsHref } from "./AffaireHubSections";
+
+const AffaireDocumentsDrawer = dynamic(
+  () => import("./AffaireDocumentsDrawer").then((module) => module.AffaireDocumentsDrawer),
+  { ssr: false },
+);
 
 const UnifiedImportFlow = dynamic(
   () => import("./UnifiedImportFlow").then((module) => module.UnifiedImportFlow),
@@ -462,6 +466,17 @@ export function AffaireHub({
 }: AffaireHubProps) {
   const router = useRouter();
   const documentSearchParams = useSearchParams();
+  const [documentsOpen, setDocumentsOpen] = useState(false);
+  const [documentsRequested, setDocumentsRequested] = useState(false);
+  const documentsReturnFocus = useRef<HTMLElement | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(() => [...documentSearchParams.keys()].some((key) => /^(register|approval|timeline)/.test(key)));
+  const openDocuments = useCallback(() => {
+    if (document.activeElement instanceof HTMLElement && !document.activeElement.closest(".affaire-documents-drawer")) {
+      documentsReturnFocus.current = document.activeElement;
+    }
+    setDocumentsRequested(true);
+    setDocumentsOpen(true);
+  }, []);
   const toast = useToast();
   const { isExpert } = useUiMode();
   const currentVersionId = summary.currentVersion?.id ?? null;
@@ -622,7 +637,28 @@ export function AffaireHub({
     intakeWorkspace,
     dpgfSource,
     affaireHasLines: summary.affaireHasLines,
-  });
+  }) && (plansSummary?.planFileCount ?? 0) === 0;
+
+  const focusedIntakeDocument = documentSearchParams.get("intakeDocument");
+  const focusedIntakeFilter = documentSearchParams.get("intakeFilter");
+  const focusedHubQuery = documentSearchParams.toString();
+  useEffect(() => {
+    const revealLinkedSurface = (fromHashChange = false) => {
+      const hash = window.location.hash;
+      const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans"].includes(hash);
+      if (!isFreshStartState && !isDetailsLink && (hash === "#intake" || (!fromHashChange && (focusedIntakeDocument || focusedIntakeFilter)))) {
+        openDocuments();
+      }
+      if (isDetailsLink) {
+        setDetailsOpen(true);
+        requestAnimationFrame(() => document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" }));
+      }
+    };
+    revealLinkedSurface();
+    const onHashChange = () => revealLinkedSurface(true);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [focusedIntakeDocument, focusedIntakeFilter, focusedHubQuery, isFreshStartState, openDocuments]);
 
   useEffect(() => {
     cockpitStateRef.current = cockpitState;
@@ -647,11 +683,16 @@ export function AffaireHub({
         "approval-submit": "approval",
       } as const;
 
+      if (surfaceId === "intake-upload") {
+        openDocuments();
+        return;
+      }
+      setDetailsOpen(true);
       const sectionId = sectionBySurface[surfaceId];
-      document.getElementById(sectionId)?.scrollIntoView({
+      requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({
         block: "start",
         behavior: "smooth",
-      });
+      }));
 
       if (surfaceId === "launch-metre") {
         setShowLaunchMetreDialog(true);
@@ -664,7 +705,7 @@ export function AffaireHub({
         surfaceId,
       });
     },
-    [summary.project.id],
+    [summary.project.id, openDocuments],
   );
 
   const handleOpenCockpitSurface = useCallback(
@@ -848,14 +889,29 @@ export function AffaireHub({
     [router, summary.project.id],
   );
 
-  const hasDossierDocuments = (intakeWorkspace?.documents.length ?? 0) > 0;
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in" onClickCapture={(event) => {
+      const link = (event.target as HTMLElement).closest("a[href]");
+      if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const url = new URL(link.getAttribute("href")!, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
+      if (url.hash === "#intake" && !isFreshStartState) {
+        event.preventDefault();
+        if (url.href !== window.location.href) window.history.pushState(null, "", url);
+        openDocuments();
+        return;
+      }
+      if (url.search !== window.location.search) return;
+      if (["#brief", "#register", "#approval", "#timeline", "#plans"].includes(url.hash)) {
+        setDetailsOpen(true);
+        requestAnimationFrame(() => document.getElementById(url.hash.slice(1))?.scrollIntoView({ block: "start" }));
+      }
+    }}>
       {intakeWorkspace?.canManageDocuments && intakeWorkspace.uploadId && !isReadOnlyReview ? (
         <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) router.refresh(); }} />
       ) : null}
-      {hasDossierDocuments && !showImportFlow && <div className="mb-3"><Button variant="outline" onClick={() => { const params = new URLSearchParams(documentSearchParams.toString()); params.set("view", "documents"); router.push(`/dashboard/affaires/${summary.project.id}?${params}`); }}>Ouvrir les documents</Button></div>}
+
       {/* Breadcrumb + edit actions (portal target while the fiche is edited) */}
       {!isReadOnlyReview ? (
         <div className="mb-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">
@@ -988,18 +1044,6 @@ export function AffaireHub({
         </>
       )}
 
-      {!isFreshStartState ? (
-        <Card className="mb-4 px-3 py-3 md:hidden">
-          <AffaireWorkflowStepper
-            summary={summary}
-            dpgfSource={dpgfSource}
-            intakeWorkspace={intakeWorkspace}
-            approvalSummary={approvalSummary}
-            lineCount={summary.lineCount}
-          />
-        </Card>
-      ) : null}
-
       {/* Import result summary banner */}
       {importResult && (
         <Alert variant="success" className="mb-4 animate-fade-in">
@@ -1075,26 +1119,6 @@ export function AffaireHub({
             </div>
           )}
 
-          <div className="mt-4">
-            <AffaireFlowHierarchyPanel
-              projectId={summary.project.id}
-              hubReadiness={summary.hubReadiness ?? null}
-              currentVersion={summary.currentVersion ?? null}
-              versionZeroSummary={versionZeroSummary}
-              takeoffEnabled={takeoffEnabled}
-              plansSummary={plansSummary ?? null}
-              intakeWorkspace={intakeWorkspace ?? null}
-              dpgfSource={dpgfSource}
-              registerSummary={registerSummary ?? null}
-              finishLineSummary={finishLineSummary ?? null}
-              structureMode={summary.structureMode ?? null}
-              cockpitSuggestions={visibleCockpitSuggestions}
-              preparationIsNextStep={dominantFlowIntent === "analyze_plans"}
-              hidePreparationAction={showTakeoffPrompt}
-              onExecuteSuggestion={handleExecuteCockpitSuggestion}
-            />
-          </div>
-
           {!isFreshStartState ? (
             <div className="mt-4">
               <AffairePilotagePanel
@@ -1119,6 +1143,27 @@ export function AffaireHub({
                 structureMode={summary.structureMode ?? null}
                 finishLineSummary={finishLineSummary ?? null}
                 takeoffEnabled={takeoffEnabled}
+                plansError={sectionErrors?.plansSummary}
+                onOpenDocuments={openDocuments}
+                studyContent={
+                  <AffaireFlowHierarchyPanel
+              projectId={summary.project.id}
+              hubReadiness={summary.hubReadiness ?? null}
+              currentVersion={summary.currentVersion ?? null}
+              versionZeroSummary={versionZeroSummary}
+              takeoffEnabled={takeoffEnabled}
+              plansSummary={plansSummary ?? null}
+              intakeWorkspace={intakeWorkspace ?? null}
+              dpgfSource={dpgfSource}
+              registerSummary={registerSummary ?? null}
+              finishLineSummary={finishLineSummary ?? null}
+              structureMode={summary.structureMode ?? null}
+              cockpitSuggestions={visibleCockpitSuggestions}
+              preparationIsNextStep={dominantFlowIntent === "analyze_plans"}
+              hidePreparationAction={showTakeoffPrompt}
+              onExecuteSuggestion={handleExecuteCockpitSuggestion}
+            />
+                }
                 hiddenExceptionIds={hiddenPilotageExceptionIds}
                 onOpenSurface={
                   isReadOnlyReview
@@ -1137,13 +1182,16 @@ export function AffaireHub({
             </div>
           ) : null}
 
+          <details className="affaire-hub-details" open={isFreshStartState || detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+            <summary>Détails du dossier et du devis</summary>
+            {summary.currentVersion && (finishLineSummary?.readyToOrder.counts?.totalSupplierLines ?? 0) > 0 ? <a className="journey-text-action mt-3" href="#finish-line-orders">Préparer les achats de cette version</a> : null}
           {/* Two-column layout (Recommendation #3)
               Left: operational flow (intake, brief, financial, DPGF, timeline)
               Right: control (register, approval, journal, plans) */}
           <div className={`mt-3 grid grid-cols-1 gap-4${isFreshStartState ? "" : " lg:grid-cols-5"}`}>
             <div className={`space-y-4${isFreshStartState ? "" : " lg:col-span-3"}`}>
               {/* Intake workspace: document upload, classification triage */}
-              {intakeWorkspace !== undefined && (
+              {isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="intake" className="scroll-mt-24">
                   <IntakeWorkspace
                     projectId={summary.project.id}
@@ -1293,19 +1341,44 @@ export function AffaireHub({
               ) : null}
             </div> : null}
           </div>
+          </details>
         </>
       )}
 
-      {!isFreshStartState ? (
-        <div className="sticky bottom-0 z-10 -mx-6 mt-6 hidden border-t border-border bg-surface/95 px-6 py-3 backdrop-blur-sm md:block">
-          <AffaireWorkflowStepper
-            summary={summary}
-            dpgfSource={dpgfSource}
-            intakeWorkspace={intakeWorkspace}
-            approvalSummary={approvalSummary}
-            lineCount={summary.lineCount}
-          />
-        </div>
+      {documentsRequested && intakeWorkspace ? (
+        <AffaireDocumentsDrawer
+          documentScope={`${focusedIntakeDocument ?? ""}:${focusedIntakeFilter ?? ""}`}
+          returnFocus={documentsReturnFocus}
+          open={documentsOpen}
+          onOpenChange={(open) => {
+            setDocumentsOpen(open);
+            if (!open && documentSearchParams.has("briefBlock")) {
+              setDetailsOpen(true);
+              const params = new URLSearchParams(documentSearchParams.toString());
+              for (const key of ["intakeDocument", "briefBlock", "briefEntry"]) params.delete(key);
+              window.history.replaceState(null, "", `/dashboard/affaires/${summary.project.id}${params.size ? `?${params}` : ""}#brief`);
+            }
+          }}
+          projectId={summary.project.id}
+          projectName={summary.project.name}
+          workspace={intakeWorkspace}
+          canManage={Boolean(intakeWorkspace.canManageDocuments && !isReadOnlyReview)}
+          onOverview={(anchor) => {
+            setDocumentsOpen(false);
+            if (anchor) {
+              setDetailsOpen(true);
+              requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }));
+            }
+          }}
+          onImportDpgf={(documentId) => {
+            const document = intakeWorkspace.documents.find((item) => item.documentId === documentId && !item.isBeingDeleted && item.uploadStatus === "uploaded" && item.classificationStatus === "classified" && item.detectedCategory === "dpgf");
+            if (!document || isReadOnlyReview || !intakeWorkspace.canManageDocuments) return;
+            setIntakeDpgfCandidates([{ documentId, fileName: document.fileName, label: document.fileName }]);
+            setDocumentsOpen(false);
+            setImportResult(null);
+            setShowImportFlow(true);
+          }}
+        />
       ) : null}
 
       {!isReadOnlyReview ? (

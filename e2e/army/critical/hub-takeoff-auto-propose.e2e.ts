@@ -15,8 +15,7 @@ async function openHubPrompt(ui: Ui, caseId: string, syncedIntake = false) {
   const set = await createPlanSet(ui, ui.army, estimate, "Plans synchronises dossier");
   const file = await uploadSamplePlan(ui, ui.army, set);
   if (syncedIntake) await markOwnedPlansAsIntake(ui.army, estimate, set, file);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
-  if (syncedIntake) await ui.screen.getByRole("button", "Continuer vers le brief", { exact: true }).click();
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}#plans`);
   const prompt = ui.screen.getByRole("region", "Préparation du métré", { exact: true });
   const plansSection = ui.browser.locator("section").filter({ has: ui.screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true }) });
   // A synthetic intake provenance document does not reconcile the register's dossier gaps.

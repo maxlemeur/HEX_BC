@@ -1,0 +1,35 @@
+.affaire-documents-drawer[data-side=right] {
+  width: 94vw;
+  max-width: none;
+  height: 100dvh;
+  gap: 0;
+  overflow: hidden;
+  background: var(--surface);
+  translate: none;
+  transform: translateX(0);
+  transition: transform 200ms ease-out, opacity 200ms ease-out;
+}
+.affaire-documents-drawer[data-starting-style], .affaire-documents-drawer[data-ending-style] { transform: translateX(100%); }
+.affaire-documents-drawer > [data-slot=sheet-header] { padding: 22px 54px 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.affaire-documents-drawer .affaire-document-desk { height: auto; flex: 1; min-height: 0; padding: 20px 24px 24px; }
+.affaire-documents-drawer .document-desk-breadcrumb, .affaire-documents-drawer .document-desk-header > div:first-child { display: none; }
+.affaire-documents-drawer .document-desk-header { justify-content: flex-end; margin-bottom: 18px; }
+.affaire-documents-drawer .document-desk-toolbar { flex-wrap: wrap; }
+.affaire-documents-drawer .document-desk-search { flex: 1; min-width: 180px; }
+.affaire-documents-drawer .document-desk-columns { grid-template-columns: minmax(500px, 2fr) minmax(0, 3fr); }
+.affaire-documents-drawer .document-desk-check { width: 36px; }
+.affaire-documents-drawer .document-desk-category { width: 112px; }
+.affaire-documents-drawer .document-desk-state { width: 94px; }
+.affaire-documents-drawer .document-desk-action { width: 120px; }
+@media (max-width: 1100px) {
+  .affaire-documents-drawer .document-desk-columns { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  .affaire-documents-drawer[data-side=right] { width: 100vw; }
+  .affaire-documents-drawer .affaire-document-desk { padding: 14px; overflow-y: auto; }
+  .affaire-documents-drawer .document-desk-columns { flex: none; }
+  .affaire-documents-drawer .document-desk-table-scroll { max-height: 45dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .affaire-documents-drawer[data-side=right], body:has(.affaire-documents-drawer) [data-slot=sheet-overlay] { transition: none; }
+}

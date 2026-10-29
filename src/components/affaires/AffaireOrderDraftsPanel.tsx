@@ -31,16 +31,13 @@ import {
 
 type AffaireOrderDraftsPanelProps = {
   projectId: string;
+  allowCreate?: boolean;
   currentVersion: {
     id: string;
     status: string;
     versionNumber: number;
   } | null;
   refreshSignal?: PurchaseOrderReadiness | null;
-  onPreparationReadiness?: (
-    versionId: string,
-    readiness: PurchaseOrderReadiness,
-  ) => void;
 };
 
 type DeliverySiteOption = {
@@ -256,9 +253,9 @@ async function fetchDeliverySites(): Promise<DeliverySiteOption[]> {
 
 export function AffaireOrderDraftsPanel({
   projectId,
+  allowCreate = true,
   currentVersion,
   refreshSignal,
-  onPreparationReadiness,
 }: Readonly<AffaireOrderDraftsPanelProps>) {
   const router = useRouter();
   const toast = useToast();
@@ -299,12 +296,6 @@ export function AffaireOrderDraftsPanel({
             blockedLines: preparation.summary.blockedLines,
           })
         : CHECKING_READINESS;
-  const reportReadiness = useCallback(
-    (nextReadiness: PurchaseOrderReadiness) => {
-      if (versionId) onPreparationReadiness?.(versionId, nextReadiness);
-    },
-    [onPreparationReadiness, versionId],
-  );
 
   const refreshPreparation = useCallback(async () => {
     if (!versionId) {
@@ -316,7 +307,6 @@ export function AffaireOrderDraftsPanel({
     }
 
     setIsLoading(true);
-    reportReadiness(CHECKING_READINESS);
     setLoadError(null);
     setReviewConfirmed(false);
     const requestNumber = ++preparationRequestRef.current;
@@ -358,7 +348,6 @@ export function AffaireOrderDraftsPanel({
       );
       setCreateError(null);
       setRequiresRefresh(false);
-      reportReadiness(nextReadiness);
     } catch (error) {
       if (
         activeVersionRef.current !== versionId ||
@@ -368,7 +357,6 @@ export function AffaireOrderDraftsPanel({
         return;
       setPreparation(null);
       setSelectedGroupKeys([]);
-      reportReadiness(UNAVAILABLE_READINESS);
       setLoadError(
         toSafeErrorMessage(
           error,
@@ -384,7 +372,7 @@ export function AffaireOrderDraftsPanel({
         setIsLoading(false);
       }
     }
-  }, [versionId, reportReadiness]);
+  }, [versionId]);
 
   useEffect(() => {
     viewEpochRef.current += 1;
@@ -492,6 +480,7 @@ export function AffaireOrderDraftsPanel({
   const versionHref = buildEstimateVersionHref(currentVersion);
   const formLocked = isCreating || isCheckingReceipt || recoveryKey !== null;
   const canCreateDrafts =
+    allowCreate &&
     selectedGroups.length > 0 &&
     selectedSite !== null &&
     reviewConfirmed &&
@@ -558,7 +547,6 @@ export function AffaireOrderDraftsPanel({
           return;
         preparationRequestRef.current += 1;
         setIsLoading(false);
-        reportReadiness(UNAVAILABLE_READINESS);
         if (
           isEstimateApiError(error) &&
           error.status >= 400 &&
@@ -591,7 +579,7 @@ export function AffaireOrderDraftsPanel({
           setIsCreating(false);
       }
     },
-    [versionId, refreshPreparation, reportReadiness, router, toast],
+    [versionId, refreshPreparation, router, toast],
   );
 
   const handleCreateDrafts = async () => {
@@ -1018,7 +1006,7 @@ export function AffaireOrderDraftsPanel({
             </article>
           ) : null}
 
-          {preparation.groups.length > 0 ? (
+          {allowCreate && preparation.groups.length > 0 ? (
             <article className="mt-4 rounded-xl border border-border bg-surface-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>

@@ -590,6 +590,8 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     ]);
 
     await page.goto(`/dashboard/affaires/${projectId}`);
+    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
+    await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
     await page.getByRole("button", { name: /Lancer l'import structur[ée]/i }).click();
     await expect(page.getByText("Glissez-déposez votre fichier DPGF ici")).toBeVisible();
 
@@ -639,6 +641,8 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     await uploadAndClassifyIntakeDpgf(page, { projectId, fixturePath });
 
     await page.goto("/dashboard/affaires/" + projectId);
+    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
+    await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
     await page.getByRole("button", { name: /Lancer l'import structur[ée]/i }).click();
     await expect(page.getByText("Glissez-déposez votre fichier DPGF ici")).toBeVisible();
 
@@ -1151,7 +1155,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       expect(preparationPayload.data?.blocked_lines ?? []).toHaveLength(0);
 
       expect(preparedGroup?.lines?.map((line) => line.item_id)).toEqual([lineId]);
-      await page.goto(`/dashboard/affaires/${projectId}`);
+      await page.goto(`/dashboard/affaires/${projectId}#finish-line-orders`);
       const purchasePanel = page.locator("#finish-line-orders");
       await expect(purchasePanel.getByText("Brouillons proposés", { exact: true })).toBeVisible();
       await purchasePanel.getByRole("combobox", { name: "Chantier de livraison" }).selectOption({ value: siteId });
@@ -1224,6 +1228,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     const projectId = await createPendingRecoveryFixture(page);
     await page.goto(`/dashboard/affaires/${projectId}`);
 
+    await page.getByText("Détails du dossier et du devis", { exact: true }).click();
     const plansSection = page.locator("#plans");
 
     await expect(plansSection).toBeVisible();
@@ -1243,6 +1248,8 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     const ids = await createHierarchyFixture(page);
     await page.goto(`/dashboard/affaires/${ids.projectId}`);
 
+    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
+    await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
     const flowHierarchy = page
       .locator("section")
       .filter({ has: page.getByText("Prochaine étape", { exact: true }) })

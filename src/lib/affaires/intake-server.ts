@@ -22,11 +22,10 @@ import {
 } from "@/lib/estimates/errors";
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { StructuredAiError, structuredAiFailureMessage } from "@/lib/ai/structured-ai-diagnostic";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { proposeAffaireIntakeCategory } from "@/lib/affaires/intake-decisions";
-import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
+import { classifyAutonomousAffaireDocument, getIntakeDecisionsCapability, getIntakeAnalysisAvailability, isIntakeDecisionsSelected } from "@/lib/affaires/intake-decisions";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -237,7 +236,7 @@ export type CreateAffaireIntakeUploadResult = {
 
 export type AffaireIntakeWorkspace = {
   projectId: string;
-  analysisAvailability?: { available: boolean; message: string };
+  analysisAvailability?: { available: boolean; message: string; provider?: "decisions" | "chatgpt" };
   uploadId: string | null;
   canManageDocuments?: boolean;
   documents: Array<{
@@ -1013,6 +1012,7 @@ async function classifyAffaireIntakeDocument(input: {
   beforeProviderCall?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
   decisionsContext?: { owner: ChatGptOwner; projectId: string; documentId: string; sourceVersion: string };
+  existingMetadata?: AffaireIntakeExtractedMetadata;
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
@@ -1020,6 +1020,14 @@ async function classifyAffaireIntakeDocument(input: {
   const heuristicResult = getHeuristicAffaireDocumentClassification({
     fileName: input.fileName,
     mimeType: input.mimeType,
+  });
+  if (input.existingMetadata) heuristicResult.extractedMetadata = input.existingMetadata;
+
+  if (isIntakeDecisionsSelected()) return classifyAutonomousAffaireDocument({ ...input, heuristicResult,
+    readLocalText: async () => {
+      const payload = await buildClassificationFilePayload(input);
+      return payload?.mimeType.startsWith("text/") ? Buffer.from(payload.data, "base64").toString("utf8") : undefined;
+    },
   });
 
   let filePayload: GeminiStructuredFile | null = null;
@@ -1069,14 +1077,9 @@ async function classifyAffaireIntakeDocument(input: {
     const source =
       mergedResult.documentKind === geminiResult.data.documentKind ? "ai" : "heuristic";
 
-    const result = input.decisionsContext ? await proposeAffaireIntakeCategory({
-      ...input.decisionsContext, fileName: input.fileName, mimeType: input.mimeType,
-      extracted: mergedResult,
-      ...(filePayload.mimeType.startsWith("text/") ? { text: Buffer.from(filePayload.data, "base64").toString("utf8") } : {}),
-    }) : mergedResult;
     return {
-      result,
-      source: result === mergedResult ? source : "ai",
+      result: mergedResult,
+      source,
     };
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
@@ -2695,7 +2698,7 @@ async function processClaimedAffaireIntakeUpload(input: {
   claim: durableIntake.AffaireIntakeClaim;
 }) {
   const { supabase, lifecycleClient, claim } = input;
-  const aiOwner = isLocalChatGptEnabled() || getOpenAiDecisionsCapability().status === "available"
+  const aiOwner = isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
     ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
   const upload = {
     id: claim.uploadId,
@@ -2835,6 +2838,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         bytes,
         beforeProviderCall: renewLease,
         aiOwner,
+        existingMetadata: document.extracted_metadata,
         ...(aiOwner ? { decisionsContext: { owner: aiOwner,
           projectId: document.project_id, documentId: document.id,
           sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") } } : {}),
@@ -3042,7 +3046,7 @@ export async function processAffaireIntakeUpload(uploadId: string) {
  */
 export async function retryAffaireDocumentAnalysis(input: { projectId: string; documentId: string }) {
   const { context, project } = await requireAffaireProjectOwnerOrAdmin(input.projectId);
-  const availability = await getStructuredAiAvailability(context);
+  const availability = await getIntakeAnalysisAvailability(context);
   if (!availability.available) throw badRequest(availability.message);
   const table = () => context.supabase.from("affaire_intake_documents");
   const { data, error } = await table().select(DOCUMENT_SELECT)
@@ -3092,6 +3096,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name,
       mimeType: document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream", bytes,
       aiOwner: context,
+      existingMetadata: document.extracted_metadata,
       beforeProviderCall: async () => {
         const { data: current, error: currentError } = await table().select("id").eq("id", document.id)
           .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("updated_at", reserved.updated_at)
@@ -3227,7 +3232,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   }));
   const [missingPieces, analysisAvailability] = await Promise.all([
     getMissingPiecesForProject({ supabase: context.supabase, project, documents }),
-    project.user_id === context.userId || context.tenantRole === "admin" ? getStructuredAiAvailability(context) : undefined,
+    project.user_id === context.userId || context.tenantRole === "admin" ? getIntakeAnalysisAvailability(context) : undefined,
   ]);
 
   return {

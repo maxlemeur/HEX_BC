@@ -138,7 +138,7 @@ for (const mutation of [
     session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
   }, async ({ app, browser, campaign, army }) => {
     const fixture = scenario(campaign, mutation.scenario, army);
-    await app.open(`/dashboard/affaires/${fixture.projectId}`);
+    await app.open(`/dashboard/affaires/${fixture.projectId}#finish-line-orders`);
     const before = await readEstimate(browser, fixture.versionId);
     expect(await readOrders(browser, fixture)).toEqual([]);
     const preview = await readPreparation(browser, fixture);
@@ -178,7 +178,7 @@ purchaseTest(`local purchase preparation does not transfer already ${status} sou
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, status, army);
-  await app.open(`/dashboard/affaires/${fixture.projectId}`);
+  await app.open(`/dashboard/affaires/${fixture.projectId}#finish-line-orders`);
   const before = await readEstimate(browser, fixture.versionId);
   const prior = await orderEvidence(browser, fixture);
   expect(prior.orders.map((order) => order.id).sort()).toEqual([...fixture.sourceOrderIds].sort());
@@ -271,7 +271,7 @@ purchaseTest("local purchase preparation records two exact drafts and recovers t
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, "valid", army);
-  await app.open(`/dashboard/affaires/${fixture.projectId}`);
+  await app.open(`/dashboard/affaires/${fixture.projectId}#finish-line-orders`);
   expect(await readOrders(browser, fixture)).toEqual([]);
   const before = await readEstimate(browser, fixture.versionId);
   const preview = await readPreparation(browser, fixture);
@@ -331,7 +331,7 @@ purchaseTest("local purchase preparation coalesces concurrent calls for the same
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, "same-intent", army);
-  await app.open(`/dashboard/affaires/${fixture.projectId}`);
+  await app.open(`/dashboard/affaires/${fixture.projectId}#finish-line-orders`);
   expect(await readOrders(browser, fixture)).toEqual([]);
   const before = await readEstimate(browser, fixture.versionId);
   const preview = await readPreparation(browser, fixture);
@@ -356,7 +356,7 @@ purchaseTest("local purchase preparation prevents distinct concurrent intents fr
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 180_000,
 }, async ({ app, browser, campaign, army }) => {
   const fixture = scenario(campaign, "different-intents", army);
-  await app.open(`/dashboard/affaires/${fixture.projectId}`);
+  await app.open(`/dashboard/affaires/${fixture.projectId}#finish-line-orders`);
   expect(await readOrders(browser, fixture)).toEqual([]);
   const before = await readEstimate(browser, fixture.versionId);
   const preview = await readPreparation(browser, fixture);
@@ -378,7 +378,7 @@ purchaseTest("local purchase preparation requires review and recovers a lost res
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, campaign, army }) => {
   const fixture = scenario(campaign, "ui-recovery", army);
-  const hub = `/dashboard/affaires/${fixture.projectId}`;
+  const hub = `/dashboard/affaires/${fixture.projectId}#finish-line-orders`;
   await app.open(hub);
   const before = await readEstimate(browser, fixture.versionId);
   expect(await readOrders(browser, fixture)).toEqual([]);

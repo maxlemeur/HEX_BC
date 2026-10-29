@@ -76,7 +76,7 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
 
   // Exercise the normal classification refresh so the pre-existing missing-plan
   // entry is created through the application, not fabricated by the test.
-  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${copy.documentId}#intake`);
   await screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   const details = screen.getByRole("dialog", "Document et détails", { exact: true });
   await details.getByRole("button", "Reclasser", { exact: true }).click();
@@ -101,7 +101,6 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
   }, { projectId: ids.projectId, documentId: copy.documentId });
   expect(denied).toEqual([404, 404]);
 
-  await screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Validés/).click();
   await screen.getByRole("button", "Importer cette DPGF", { exact: true }).click();
   await expect(screen.getByRole("button", "Lancer l'import", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(screen.getByText(/DPGF du dossier.*exemple-dpgf\.xlsx/)).toBeVisible();

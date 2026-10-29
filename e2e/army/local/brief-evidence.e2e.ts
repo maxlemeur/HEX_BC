@@ -60,13 +60,12 @@ test("brief document associations remain distinct from proof after edit and relo
   );
   await associatedLink.tap();
   await expect(browser).toHaveURL(new RegExp(`intakeDocument=${documentId}.*briefEntry=1#intake$`));
-  await expect(screen.getByText(FILE_NAME, { exact: true }).first()).toBeVisible();
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", FILE_NAME, { exact: true })).toBeVisible();
 
-  // The associated-document link opens the dossier desk; return through its
-  // explicit navigation before editing the brief.
-  await screen.getByRole("button", "Continuer vers le brief", { exact: true }).tap();
+  await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).tap();
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).not.toBeVisible();
   await expect(brief).toBeVisible();
-  await brief.getByRole("button", "Modifier", { exact: true }).tap();
+  await brief.getByRole("button", "Modifier", { exact: true }).click();
   await brief.getByDisplayValue(ASSOCIATED_TEXT, { exact: true }).fill(EDITED_TEXT);
   await brief.getByRole("button", "Enregistrer et revalider", { exact: true }).tap();
   await expect(editedRow).toContainText(UNCERTAIN_LABEL);
