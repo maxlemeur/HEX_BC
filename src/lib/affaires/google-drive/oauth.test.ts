@@ -4,7 +4,7 @@ import { connectionSecretContext, openDriveSecret, sealDriveSecret } from "./sec
 
 const key = Buffer.alloc(32, 3);
 const start = (now = 1_000) => beginDriveAuthorization({ clientId: "fictitious-client", key, redirectUri: "http://localhost:3000/api/google-drive/oauth/callback",
-  returnTo: "/dashboard/affaires/11111111-1111-4111-8111-111111111111", userId: "user_demo", tenantId: "tenant_demo", now });
+  returnTo: "/dashboard/affaires/11111111-1111-4111-8111-111111111111", userId: "user_demo", tenantId: "tenant_demo", generation:"44444444-4444-4444-8444-444444444444", now });
 afterEach(() => vi.unstubAllGlobals());
 describe("Google Drive OAuth boundaries", () => {
   it("asks Google for read-only, durable access with PKCE and a fresh account choice", () => {

@@ -1,6 +1,6 @@
 import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import { z, type ZodTypeAny } from "zod";
-import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
+import { driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
 
 import {
@@ -472,9 +472,18 @@ const administrationContracts: RouteContract[] = [
   {
     id: "start-google-drive-authorization", method: "get", path: "/api/google-drive/oauth/start",
     summary: "Ajouter un compte Google Drive", tags: ["Affaires"],
-    description: "Redirige le membre connecté vers le consentement Google (lecture seule de Drive, accès durable, PKCE). Le compte reste enregistré pour ses prochaines visites.",
-    queryParameters: [{ name: "returnTo", schema: z.string().max(512), description: "Page du tableau de bord où revenir après Google.", required: false }],
+    description: "Connecte un seul compte Google par membre et entreprise, en lecture par défaut. Le mode write ajoute un accès drive.file du même compte, pour les fichiers choisis. État lié à la génération serveur, accès durable et PKCE.",
+    queryParameters: [{ name: "returnTo", schema: z.string().max(512), description: "Page du tableau de bord où revenir après Google.", required: false },{name:"purpose",schema:drivePurposeSchema,description:"read par défaut ; write demande le consentement d'écriture du même compte.",required:false}],
     success: [{ status: "307", description: "Redirection vers Google, ou vers la page de retour si Drive est désactivé." }],
+  },
+  {
+    id:"get-google-drive-connection",method:"get",path:"/api/google-drive/connection",tags:["Affaires"],summary:"Lire le compte Drive du membre dans son entreprise active",description:"Retourne le compte personnel, ses droits et la disponibilité de Google Drive sans ses jetons.",
+    success:[{status:"200",description:"Compte et disponibilité, sans jeton.",schema:{schemaName:"GoogleDriveConnectionStateResponse",io:"output",schema:z.object({ok:z.literal(true),data:driveConnectionStateSchema})}}],
+  },
+  {
+    id:"manage-google-drive-connection",method:"post",path:"/api/google-drive/connection",tags:["Affaires"],summary:"Gérer le compte Drive et ses écritures explicites",
+    description:"Vérifie le membre, le tenant et la version affichée. Désactiver l'écriture efface son jeton, sans révoquer tout le compte Google. Le Picker reçoit uniquement un jeton drive.file court. Commentaire et renommage sont limités aux fichiers autorisés par Google, avec vérification des capacités du fichier. Même origine obligatoire, réponse privée sans cache.",
+    body:{schema:driveConnectionRequestSchema,description:"Action explicite du propriétaire ; aucun jeton fourni par le navigateur."},
   },
   {
     id: "complete-google-drive-authorization", method: "get", path: "/api/google-drive/oauth/callback",

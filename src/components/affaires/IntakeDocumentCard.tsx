@@ -346,7 +346,7 @@ export function IntakeDocumentCard({
           <dt>Fichier</dt><dd className="break-all"><a href={doc.driveSource.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.sourceName}</a></dd>
           {doc.driveSource.folderId && <><dt>Dossier</dt><dd className="break-all"><a href={`https://drive.google.com/drive/folders/${doc.driveSource.folderId}`} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.folderName ?? doc.driveSource.folderId}</a></dd></>}
           {doc.driveSource.revision && <><dt>Révision lue</dt><dd>{doc.driveSource.revision}</dd></>}<dt>Lié le</dt><dd>{new Date(doc.driveSource.linkedAt).toLocaleString("fr-FR")}</dd>
-        </dl><p className="mt-3 text-muted-foreground">MergeOne garde un lien : le fichier reste dans Google Drive, sans copie dans l’affaire. Une modification dans Drive n’est pas réanalysée automatiquement.</p>
+        </dl><p className="mt-3 text-muted-foreground">Le fichier reste dans Google Drive. MergeOne conserve son lien et peut garder une copie pour le métré ou l’import DPGF. Une modification dans Drive n’est pas réanalysée automatiquement.</p>
         {doc.detectedCategory === "plans" && <p className="mt-2 text-muted-foreground">Pour le métré, un plan PDF lié garde une copie de travail, retirée avec le lien.</p>}
         {!doc.driveSource.connectionAvailable && <p className="mt-2 text-warning">Le compte Google qui a lié ce fichier a été retiré : sélectionnez de nouveau ce fichier dans Google Drive pour le rattacher à votre compte.</p>}
       </details>}

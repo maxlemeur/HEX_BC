@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon, ArrowRightIcon, CircleCheckIcon, ExternalLinkIcon, FileTextIcon, FolderIcon, FolderOpenIcon, HardDriveIcon, Link2Icon, RefreshCwIcon, SearchIcon, ShieldCheckIcon, TriangleAlertIcon, UsersIcon } from "lucide-react";
@@ -166,20 +167,15 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     const data = await loadState(controller.current?.signal);
     if (mounted.current) setState(data);
   }
-  async function switchAccount(id: string) {
-    generation.current++;
-    setConnectionId(id); rememberConnection(id); setSelected([]); setResults([]); setTrail([]); setListing(undefined);
-    await loadLocation(ROOT, false, id);
-  }
   async function disconnect() {
     const account = state?.connections.find((connection) => connection.id === connectionId);
     if (!account) return;
-    const { revoked, stillUsed } = await post<{ revoked: boolean; stillUsed: boolean }>({ action: "disconnect", connectionId: account.id });
+    const { revoked, stillUsed } = await post<{ revoked: boolean; stillUsed: boolean | null }>({ action: "disconnect", connectionId: account.id, grantVersion: account.grantVersion });
     generation.current++;
     setListing(undefined); setTrail([]); setSelected([]); setConnectionId(undefined);
     setNotice(revoked ? `Compte ${account.email} retiré. Les fichiers déjà liés restent dans l'affaire.`
       : stillUsed ? `Compte ${account.email} retiré. Il reste connecté ailleurs dans MergeOne : son accès Google n'est pas révoqué.`
-      : `Compte ${account.email} retiré de MergeOne. Vérifiez la révocation dans votre compte Google.`);
+      : `Compte ${account.email} retiré de MergeOne. Révoquer MergeOne dans Google peut aussi couper les autres connexions de ce compte à l’application.`);
     const data = await loadState(controller.current?.signal);
     setState(data);
     const next = data.connections[0]?.id;
@@ -242,8 +238,8 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
           {state && !state.enabled && <p role="status" className="p-6">Connexion réelle en attente de validation OAuth pour ce POC. Aucun accès Google activé.</p>}
           {state?.enabled && state.connections.length === 0 && <div className="space-y-4 p-6"><p className="text-sm text-muted-foreground">Ajoutez un compte Google pour parcourir son Drive. Il reste enregistré pour vos prochaines visites ; Google demandera la lecture seule de Drive.</p><a className="btn btn-primary" href={connectUrl()}>Ajouter un compte Google</a></div>}
           {state?.enabled && state.connections.length > 0 && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2 text-xs text-muted-foreground">
-            <label className="flex items-center gap-2">Compte Google<select className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground" value={connectionId ?? ""} disabled={busy} onChange={(event) => void run(() => switchAccount(event.target.value))}>{state.connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.displayName} ({connection.email})</option>)}</select></label>
-            <span className="flex flex-wrap gap-3"><a className="text-primary underline" href={connectUrl()}>Ajouter un compte</a>{account && <button type="button" className="text-primary underline" disabled={busy} onClick={() => void run(disconnect)}>Retirer ce compte</button>}</span>
+            <span className="break-all">Compte Google : {account?.email}</span>
+            <span className="flex flex-wrap gap-3"><Link className="text-primary underline" href="/dashboard/profile">Gérer mon compte Google</Link>{account && <button type="button" className="text-primary underline" disabled={busy} onClick={() => void run(disconnect)}>Retirer ce compte</button>}</span>
           </div>}
           {account?.status === "reconnect_required" && <p role="alert" className="mx-5 mt-3 rounded-lg border border-warning/30 bg-warning-subtle p-3 text-sm text-warning">L’accès Google de {account.email} a expiré ou a été révoqué. <a className="underline" href={connectUrl()}>Reconnecter ce compte</a></p>}
           {state?.folder && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2 text-xs"><span className="flex items-center gap-2 text-muted-foreground"><Link2Icon size={14} aria-hidden="true" />Dossier Drive de l’affaire : <a href={state.folder.url} target="_blank" rel="noreferrer" className="font-medium text-primary underline">{state.folder.folderName}<ExternalLinkIcon className="ml-1 inline" size={12} aria-hidden="true" /></a></span>{state.enabled && <button type="button" className="text-primary underline" disabled={busy} onClick={() => void run(unlinkFolder)}>Délier le dossier</button>}</div>}
@@ -275,7 +271,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
           {busy && !loadingFolder && <p role="status" className="px-5 py-3 text-sm text-primary">Opération en cours…</p>}
           {open && state && state.links.length > 0 && <details className="mx-5 mb-4 rounded-lg border border-border p-3 text-xs"><summary className="cursor-pointer font-medium">Fichiers Drive liés à l’affaire</summary><ul className="mt-3 space-y-3">{state.links.map(({ documentId, source }) => <li key={documentId}><a href={source.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{source.sourceName}</a>{source.revision && <> · révision {source.revision}</>}<p className="mt-1 text-muted-foreground">Lié le {new Date(source.linkedAt).toLocaleString("fr-FR")}{source.folderName && <> · dossier {source.folderName}</>}</p></li>)}</ul></details>}
         </div>
-        <div className="border-t border-border px-5 py-3"><p className="mb-3 flex gap-2 text-micro text-muted-foreground"><ShieldCheckIcon size={14} className="shrink-0" aria-hidden="true" />PDF, PNG/JPEG/WebP, TXT, CSV, EML, XLS/XLSX, DOC/DOCX · 50 Mo / fichier · 20 fichiers par lien. Aucune copie : l’analyse lit le fichier dans Drive. Google Docs/Sheets/Slides exclus.</p>{selected.length > DRIVE_MAX_FILES && <p role="alert" className="mb-2 text-xs text-warning">Réduisez la sélection à 20 fichiers.</p>}<div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={close}>{results.length ? "Voir les documents de l’affaire" : "Fermer"}</button>{listing && results.length === 0 && <button type="button" className="btn btn-primary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Lier à l’affaire<ArrowRightIcon size={14} aria-hidden="true" /></button>}</div></div>
+        <div className="border-t border-border px-5 py-3"><p className="mb-3 flex gap-2 text-micro text-muted-foreground"><ShieldCheckIcon size={14} className="shrink-0" aria-hidden="true" />PDF, PNG/JPEG/WebP, TXT, CSV, EML, XLS/XLSX, DOC/DOCX · 50 Mo / fichier · 20 fichiers par lien. Le fichier reste dans Drive ; une copie de travail peut être conservée pour le métré ou l’import DPGF. Google Docs/Sheets/Slides exclus.</p>{selected.length > DRIVE_MAX_FILES && <p role="alert" className="mb-2 text-xs text-warning">Réduisez la sélection à 20 fichiers.</p>}<div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={close}>{results.length ? "Voir les documents de l’affaire" : "Fermer"}</button>{listing && results.length === 0 && <button type="button" className="btn btn-primary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Lier à l’affaire<ArrowRightIcon size={14} aria-hidden="true" /></button>}</div></div>
       </DialogContent>
     </Dialog>
   </>;

@@ -1,7 +1,12 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { DRIVE_READ_SCOPE, type DriveOAuthOutcome } from "./contracts";
+import {
+  DRIVE_READ_SCOPE,
+  DRIVE_WRITE_SCOPE,
+  drivePurposeSchema,
+  type DriveOAuthOutcome,
+} from "./contracts";
 import { DriveError } from "./errors";
 import { openDriveSecret, sealDriveSecret } from "./secrets";
 
@@ -17,41 +22,93 @@ const STATE_CONTEXT = "google-drive-oauth-state";
 export type { DriveOAuthOutcome };
 /** Only a dashboard page of this application can be the destination after Google. */
 export function safeDriveReturnPath(value: string | null | undefined) {
-  return value && /^\/dashboard(\/[A-Za-z0-9_-]+)*\/?$/.test(value) ? value : "/dashboard";
+  return value && /^\/dashboard(\/[A-Za-z0-9_-]+)*\/?$/.test(value)
+    ? value
+    : "/dashboard";
 }
 /** The page learns only an outcome code: no Google message or token is put in the URL. */
-export function driveOAuthReturn(origin: string, returnTo: string, outcome: DriveOAuthOutcome, connectionId?: string) {
+export function driveOAuthReturn(
+  origin: string,
+  returnTo: string,
+  outcome: DriveOAuthOutcome,
+  connectionId?: string,
+) {
   const url = new URL(safeDriveReturnPath(returnTo), origin);
   url.searchParams.set("drive", outcome);
   if (connectionId) url.searchParams.set("driveConnection", connectionId);
   return url;
 }
 
-const stateSchema = z.object({
-  state: z.string().min(32), verifier: z.string().min(43), returnTo: z.string(), userId: z.string(), tenantId: z.string(),
-  expiresAt: z.number(),
-}).strict();
+const stateSchema = z
+  .object({
+    state: z.string().min(32),
+    verifier: z.string().min(43),
+    returnTo: z.string(),
+    userId: z.string(),
+    tenantId: z.string(),
+    expiresAt: z.number(),
+    purpose: drivePurposeSchema.default("read"),
+    generation: z.string().uuid(),
+  })
+  .strict();
 export type DriveAuthorization = z.infer<typeof stateSchema>;
 
-export function beginDriveAuthorization(input: { clientId: string; key: Buffer; redirectUri: string; returnTo: string;
-  userId: string; tenantId: string; now?: number }) {
+export function beginDriveAuthorization(input: {
+  clientId: string;
+  key: Buffer;
+  redirectUri: string;
+  returnTo: string;
+  userId: string;
+  tenantId: string;
+  purpose?: "read" | "write";
+  generation: string;
+  now?: number;
+}) {
   const state = randomBytes(32).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   Object.entries({
-    client_id: input.clientId, redirect_uri: input.redirectUri, response_type: "code", scope: DRIVE_READ_SCOPE,
-    access_type: "offline", prompt: "consent select_account", include_granted_scopes: "false", state,
-    code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
+    client_id: input.clientId,
+    redirect_uri: input.redirectUri,
+    response_type: "code",
+    scope: input.purpose === "write" ? DRIVE_WRITE_SCOPE : DRIVE_READ_SCOPE,
+    access_type: "offline",
+    prompt: "consent select_account",
+    include_granted_scopes: "false",
+    state,
+    code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+    code_challenge_method: "S256",
   }).forEach(([key, value]) => url.searchParams.set(key, value));
-  const authorization: DriveAuthorization = { state, verifier, returnTo: safeDriveReturnPath(input.returnTo), userId: input.userId,
-    tenantId: input.tenantId, expiresAt: (input.now ?? Date.now()) + DRIVE_OAUTH_TTL_SECONDS * 1000 };
-  return { url, cookie: sealDriveSecret(input.key, JSON.stringify(authorization), STATE_CONTEXT) };
+  const authorization: DriveAuthorization = {
+    state,
+    verifier,
+    returnTo: safeDriveReturnPath(input.returnTo),
+    userId: input.userId,
+    tenantId: input.tenantId,
+    purpose: input.purpose ?? "read",
+    generation: input.generation,
+    expiresAt: (input.now ?? Date.now()) + DRIVE_OAUTH_TTL_SECONDS * 1000,
+  };
+  return {
+    url,
+    cookie: sealDriveSecret(
+      input.key,
+      JSON.stringify(authorization),
+      STATE_CONTEXT,
+    ),
+  };
 }
 /** The sealed cookie proves this browser started the flow; an expired or altered one is ignored. */
-export function readDriveAuthorization(key: Buffer, cookie: string | undefined, now = Date.now()) {
+export function readDriveAuthorization(
+  key: Buffer,
+  cookie: string | undefined,
+  now = Date.now(),
+) {
   if (!cookie) return null;
   try {
-    const authorization = stateSchema.parse(JSON.parse(openDriveSecret(key, cookie, STATE_CONTEXT)));
+    const authorization = stateSchema.parse(
+      JSON.parse(openDriveSecret(key, cookie, STATE_CONTEXT)),
+    );
     return authorization.expiresAt > now ? authorization : null;
   } catch {
     return null;
@@ -59,51 +116,138 @@ export function readDriveAuthorization(key: Buffer, cookie: string | undefined, 
 }
 
 const tokenSchema = z.object({
-  access_token: z.string().min(1).max(4096), expires_in: z.number().positive(),
-  refresh_token: z.string().min(1).max(4096).optional(), scope: z.string().max(4096).optional(),
+  access_token: z.string().min(1).max(4096),
+  expires_in: z.number().positive(),
+  refresh_token: z.string().min(1).max(4096).optional(),
+  scope: z.string().max(4096).optional(),
 });
-async function tokenRequest(body: Record<string, string>, signal?: AbortSignal) {
+async function tokenRequest(
+  body: Record<string, string>,
+  signal?: AbortSignal,
+) {
   let response: Response;
   try {
-    response = await fetch(TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(body), cache: "no-store", redirect: "error",
-      signal: AbortSignal.any([AbortSignal.timeout(20_000), ...(signal ? [signal] : [])]) });
+    response = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.any([
+        AbortSignal.timeout(20_000),
+        ...(signal ? [signal] : []),
+      ]),
+    });
   } catch {
-    throw new DriveError(422, "DRIVE_NETWORK", "Google est injoignable. Réessayez dans un instant.");
+    throw new DriveError(
+      422,
+      "DRIVE_NETWORK",
+      "Google est injoignable. Réessayez dans un instant.",
+    );
   }
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     if ((payload as { error?: unknown } | null)?.error === "invalid_grant") {
-      throw new DriveError(401, "DRIVE_RECONNECT", "Accès Google expiré ou révoqué. Reconnectez ce compte.");
+      throw new DriveError(
+        401,
+        "DRIVE_RECONNECT",
+        "Accès Google expiré ou révoqué. Reconnectez ce compte.",
+      );
     }
-    throw new DriveError(422, "DRIVE_OAUTH_FAILED", "Google a refusé la connexion. Réessayez.");
+    throw new DriveError(
+      422,
+      "DRIVE_OAUTH_FAILED",
+      "Google a refusé la connexion. Réessayez.",
+    );
   }
   const token = tokenSchema.safeParse(payload);
-  if (!token.success) throw new DriveError(422, "DRIVE_OAUTH_FAILED", "Réponse Google invalide. Réessayez.");
-  return { ...token.data, expiresAt: Date.now() + Math.max(0, token.data.expires_in - 60) * 1000 };
+  if (!token.success)
+    throw new DriveError(
+      422,
+      "DRIVE_OAUTH_FAILED",
+      "Réponse Google invalide. Réessayez.",
+    );
+  return {
+    ...token.data,
+    expiresAt: Date.now() + Math.max(0, token.data.expires_in - 60) * 1000,
+  };
 }
 
-export async function exchangeDriveCode(input: { clientId: string; clientSecret: string; code: string; verifier: string; redirectUri: string }) {
-  const token = await tokenRequest({ grant_type: "authorization_code", code: input.code, client_id: input.clientId,
-    client_secret: input.clientSecret, redirect_uri: input.redirectUri, code_verifier: input.verifier });
-  if (!token.scope?.split(" ").includes(DRIVE_READ_SCOPE)) {
-    throw new DriveError(422, "DRIVE_SCOPE_REFUSED", "La lecture de Google Drive n'a pas été accordée. Recommencez en autorisant l'accès à Drive.");
-  }
-  if (!token.refresh_token) {
-    throw new DriveError(422, "DRIVE_OFFLINE_REFUSED", "Google n'a pas accordé d'accès durable. Retirez MergeOne de votre compte Google puis recommencez.");
-  }
-  return { accessToken: token.access_token, refreshToken: token.refresh_token, expiresAt: token.expiresAt };
+function requireScope(scope: string | undefined, purpose: "read" | "write") {
+  const expected = purpose === "write" ? DRIVE_WRITE_SCOPE : DRIVE_READ_SCOPE;
+  const scopes = new Set(scope?.split(/\s+/).filter(Boolean));
+  if (scopes.size !== 1 || !scopes.has(expected))
+    throw new DriveError(
+      422,
+      "DRIVE_SCOPE_REFUSED",
+      "Les droits accordés par Google ne correspondent pas au choix effectué.",
+    );
 }
-export async function refreshDriveAccess(input: { clientId: string; clientSecret: string; refreshToken: string }, signal?: AbortSignal) {
-  const token = await tokenRequest({ grant_type: "refresh_token", refresh_token: input.refreshToken,
-    client_id: input.clientId, client_secret: input.clientSecret }, signal);
+export async function exchangeDriveCode(input: {
+  clientId: string;
+  clientSecret: string;
+  code: string;
+  verifier: string;
+  redirectUri: string;
+  purpose?: "read" | "write";
+}) {
+  const token = await tokenRequest({
+    grant_type: "authorization_code",
+    code: input.code,
+    client_id: input.clientId,
+    client_secret: input.clientSecret,
+    redirect_uri: input.redirectUri,
+    code_verifier: input.verifier,
+  });
+  requireScope(token.scope, input.purpose ?? "read");
+  if (!token.refresh_token) {
+    throw new DriveError(
+      422,
+      "DRIVE_OFFLINE_REFUSED",
+      "Google n'a pas accordé d'accès durable. Retirez MergeOne de votre compte Google puis recommencez.",
+    );
+  }
+  return {
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token,
+    expiresAt: token.expiresAt,
+  };
+}
+export async function refreshDriveAccess(
+  input: {
+    clientId: string;
+    clientSecret: string;
+    refreshToken: string;
+    purpose?: "read" | "write";
+  },
+  signal?: AbortSignal,
+) {
+  const scope =
+    input.purpose === "write" ? DRIVE_WRITE_SCOPE : DRIVE_READ_SCOPE;
+  const token = await tokenRequest(
+    {
+      grant_type: "refresh_token",
+      refresh_token: input.refreshToken,
+      client_id: input.clientId,
+      client_secret: input.clientSecret,
+      scope,
+    },
+    signal,
+  );
+  requireScope(token.scope ?? scope, input.purpose ?? "read");
   return { accessToken: token.access_token, expiresAt: token.expiresAt };
 }
 /** Revoking the refresh token also ends the access tokens Google issued from it. */
 export async function revokeDriveAccess(refreshToken: string) {
   try {
-    const response = await fetch(REVOKE_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: refreshToken }), cache: "no-store", redirect: "error", signal: AbortSignal.timeout(20_000) });
+    const response = await fetch(REVOKE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: refreshToken }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(20_000),
+    });
     await response.body?.cancel();
     // An already revoked token is reported as invalid: it is gone either way.
     return response.ok || response.status === 400;

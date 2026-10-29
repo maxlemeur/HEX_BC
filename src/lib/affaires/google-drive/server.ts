@@ -44,7 +44,7 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
       await removeDriveFolderLink(access);
       return { folder: null };
     }
-    if (request.action === "disconnect") return disconnectDriveConnection(member(access), configuration, request.connectionId);
+    if (request.action === "disconnect") return disconnectDriveConnection(member(access), request.connectionId,request.grantVersion);
     const connection = await requireOwnDriveConnection(member(access), request.connectionId);
     const reader = new GoogleDriveReader(await driveAccessToken(configuration, connection.id,
       { tenantId: access.context.tenantId, userId: access.context.userId }, signal), signal, () => forgetDriveAccess(connection.id));
