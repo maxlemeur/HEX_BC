@@ -44,6 +44,29 @@ describe("dossier DPGF HTTP boundary", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("points a Drive piece at the same route and streams its bytes as a private attachment", async () => {
+    vi.mocked(getAffaireIntakeDpgfDownload).mockResolvedValue({ documentId } as never);
+    expect((await GET(new Request(url), context)).status).toBe(200);
+    expect(getAffaireIntakeDpgfDownload).toHaveBeenCalledWith(projectId, documentId, `${url}?content=1`);
+
+    const file = new File(["drive bytes"], "DPGF lot 1.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    vi.mocked(readAffaireIntakeDpgfFile).mockResolvedValue(file);
+    const response = await GET(new Request(`${url}?content=1`), context);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("drive bytes");
+    expect(readAffaireIntakeDpgfFile).toHaveBeenCalledWith(projectId, documentId);
+    expect(getAffaireIntakeDpgfDownload).toHaveBeenCalledTimes(1);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-type")).toBe(file.type);
+    expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''DPGF%20lot%201.xlsx");
+
+    vi.mocked(readAffaireIntakeDpgfFile).mockRejectedValue(notFound("Document introuvable."));
+    const refused = await GET(new Request(`${url}?content=1`), context);
+    expect(refused.status).toBe(404);
+    expect(refused.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("imports the server-read spreadsheet and its trusted document identity", async () => {
     const file = new File(["private copy"], "dpgf.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     vi.mocked(readAffaireIntakeDpgfFile).mockResolvedValue(file);

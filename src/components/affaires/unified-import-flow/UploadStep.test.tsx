@@ -51,6 +51,14 @@ describe("UploadStep intake DPGF", () => {
     expect(await file.text()).toBe("a;b\n1;2\n");
   });
 
+  it("shows why a Drive-linked DPGF cannot be read", async () => {
+    const message = "Le compte Google qui a lié ce fichier a été retiré. Sélectionnez de nouveau le fichier dans Google Drive.";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: false, json: async () => ({ ok: false, error: { code: "DRIVE_CONNECTION_REMOVED", message } }) }));
+    render(<UploadStep projectId={projectId} intakeDpgfCandidates={[first]} onImportReady={vi.fn()} />);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(importFile).not.toHaveBeenCalled();
+  });
+
   it("asks which copy to use when several DPGFs are available", async () => {
     const response = downloadResponse(second);
     const fetchMock = vi.fn().mockResolvedValueOnce(response.metadata).mockResolvedValueOnce(response.download);

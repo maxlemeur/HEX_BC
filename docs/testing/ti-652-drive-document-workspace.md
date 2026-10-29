@@ -28,9 +28,16 @@ sans nouvelle pièce. Un compte dont Google a révoqué l’accès est signalé 
 reconnecter ». Un membre retiré d’un tenant perd les comptes Google ajoutés dans ce
 tenant, et le classement ne lit plus jamais un fichier avec le compte d’un ancien membre.
 
-Les plans liés depuis Drive ne sont pas encore envoyés au métré. Décision de Thanh
-(28/10/2026) : ils garderont une copie de travail réservée au métré, supprimée avec
-le lien, à construire après la fusion de la refonte de la synchronisation des plans.
+Une DPGF liée depuis Drive s’importe depuis le dossier comme une copie : MergeOne la
+lit dans Drive au moment de la revue PDF et de l’import, avec le compte du membre qui
+l’a liée, et le navigateur la reçoit par `GET …/intake/files/{documentId}?content=1`
+(réponse privée, non mise en cache, en pièce jointe). La version importée est celle
+présente dans Drive à ce moment.
+
+Les plans liés depuis Drive ne sont pas encore envoyés au métré et ne lèvent pas la
+pièce manquante « plans ». Décision de Thanh (28/10/2026) : ils garderont une copie de
+travail réservée au métré, supprimée avec le lien, à construire maintenant que la
+refonte de la synchronisation des plans est fusionnée.
 
 ### Sécurité
 

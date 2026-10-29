@@ -448,9 +448,10 @@ const administrationContracts: RouteContract[] = [
   {
     id: "read-affaire-intake-dpgf", method: "get", path: "/api/affaires/{projectId}/intake/files/{documentId}",
     summary: "Préparer la lecture d'une DPGF du dossier", tags: ["Affaires"],
-    description: "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible.",
+    description: "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible. Une pièce liée depuis Google Drive n'a pas de copie : son URL est cette route avec content=1, qui lit le fichier dans Drive avec le compte du membre qui l'a lié.",
     pathParameters: [projectIdParameter, { name: "documentId", schema: uuidSchema, description: "Identifiant UUID de la pièce du dossier." }],
-    success: [{ status: "200", description: "Pièce disponible pour l'import.", schema: {
+    queryParameters: [{ name: "content", schema: z.literal("1"), description: "Retourne les octets de la pièce en pièce jointe privée, au lieu de la réponse JSON.", required: false }],
+    success: [{ status: "200", description: "Pièce disponible pour l'import, ou ses octets avec content=1.", schema: {
       schemaName: "AffaireIntakeDpgfDownloadResponse", io: "output", schema: z.object({ ok: z.literal(true), data: z.object({
         documentId: uuidSchema, fileName: z.string(), mimeType: z.string().nullable(), sizeBytes: z.number().int().positive(), downloadUrl: z.string().url(),
       }) }),

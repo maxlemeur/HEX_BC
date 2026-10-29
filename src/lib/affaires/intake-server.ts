@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
+  ApiError,
   badRequest,
   conflict,
   forbidden,
@@ -70,7 +71,7 @@ import {
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
-import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
+import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/google-drive/content";
 import { hasStoredIntakePlan, hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
 import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
@@ -1111,12 +1112,12 @@ export async function requireAffaireProjectOwnerOrAdmin(
   return requireAffaireProjectAccess(projectId, "owner_or_admin");
 }
 
-/** Resolve only an active, classified DPGF belonging to the current affair. */
+/** Resolve only an active, classified DPGF of the current affair: a stored copy or a Drive link. */
 async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
   const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
   const { data, error } = await context.supabase
     .from("affaire_intake_documents" as never)
-    .select("id, file_name, mime_type, size_bytes, storage_path" as never)
+    .select("id, tenant_id, file_name, mime_type, size_bytes, storage_path, drive_connection_id, drive_file_id" as never)
     .eq("id", documentId)
     .eq("tenant_id", context.tenantId)
     .eq("project_id", project.id)
@@ -1129,12 +1130,15 @@ async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
 
   if (error) throw mapSupabaseError(error, "Impossible de charger la DPGF du dossier.");
   const document = data as unknown as {
+    tenant_id: string;
     file_name: string;
     mime_type: string | null;
     size_bytes: number;
     storage_path: string | null;
+    drive_connection_id: string | null;
+    drive_file_id: string | null;
   } | null;
-  if (!document?.storage_path || document.size_bytes <= 0 ||
+  if (!document || !(document.storage_path || document.drive_file_id) || document.size_bytes <= 0 ||
       document.size_bytes > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) {
     throw notFound("DPGF introuvable dans cette affaire. Actualisez le dossier.");
   }
@@ -1142,11 +1146,34 @@ async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
   return { context, document };
 }
 
-export async function getAffaireIntakeDpgfDownload(projectId: string, documentId: string) {
+async function readDpgfFromDrive<T>(read: () => Promise<T>) {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof DriveError) throw new ApiError({ status: error.status, code: error.code, message: error.message });
+    throw error;
+  }
+}
+
+/**
+ * A Drive piece has no stored copy: its downloadUrl is contentUrl, served by the same route
+ * with the account of the member who linked it, and its size is Drive's current one.
+ */
+export async function getAffaireIntakeDpgfDownload(projectId: string, documentId: string, contentUrl: string) {
   const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
+  if (!document.storage_path) {
+    const file = await readDpgfFromDrive(() => readLinkedDriveFile(document));
+    return {
+      documentId,
+      fileName: document.file_name,
+      mimeType: document.mime_type,
+      sizeBytes: Number(file.size),
+      downloadUrl: contentUrl,
+    };
+  }
   const { data: signed, error: signedError } = await context.supabase.storage
     .from(AFFAIRE_INTAKE_BUCKET)
-    .createSignedUrl(document.storage_path!, 60);
+    .createSignedUrl(document.storage_path, 60);
   if (signedError || !signed?.signedUrl) {
     throw internalError("Impossible de récupérer la DPGF du dossier.");
   }
@@ -1162,8 +1189,13 @@ export async function getAffaireIntakeDpgfDownload(projectId: string, documentId
 
 export async function readAffaireIntakeDpgfFile(projectId: string, documentId: string) {
   const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
+  if (!document.storage_path) {
+    // Read from Drive for this request only, nothing is stored.
+    const { bytes } = await readDpgfFromDrive(() => readLinkedDriveDocument(document));
+    return new File([new Uint8Array(bytes)], document.file_name, { type: document.mime_type ?? "application/octet-stream" });
+  }
   const { data: blob, error } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET)
-    .download(document.storage_path!);
+    .download(document.storage_path);
   if (error || !blob || blob.size !== document.size_bytes) {
     throw internalError("Impossible de récupérer la copie DPGF complète.");
   }

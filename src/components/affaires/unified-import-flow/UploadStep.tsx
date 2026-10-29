@@ -24,6 +24,12 @@ type UploadStepProps = {
 
 const NO_INTAKE_CANDIDATES: IntakeDpgfCandidate[] = [];
 
+/** MergeOne errors carry a message worth showing, such as a Google account removed from the link. */
+async function dossierErrorMessage(response: Response, fallback: string) {
+  const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
+  return typeof payload?.error?.message === "string" && payload.error.message ? payload.error.message : fallback;
+}
+
 function getFileExtension(name: string): string | null {
   const ext = name.split(".").pop()?.trim().toLowerCase();
   return ext && ext.length > 0 ? ext : null;
@@ -144,7 +150,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
           `/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(dossierDocumentId)}`,
           { signal: controller.signal, cache: "no-store" }
         );
-        if (!response.ok) throw new Error("Impossible de récupérer cette DPGF. Actualisez le dossier ou choisissez un autre fichier.");
+        if (!response.ok) throw new Error(await dossierErrorMessage(response, "Impossible de récupérer cette DPGF. Actualisez le dossier ou choisissez un autre fichier."));
         const payload = await response.json() as { data?: {
           documentId: string; fileName: string; mimeType: string | null; sizeBytes: number; downloadUrl: string;
         } };
@@ -153,7 +159,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
           throw new Error("Réponse invalide pour la DPGF du dossier.");
         }
         const download = await fetch(source.downloadUrl, { signal: controller.signal, cache: "no-store" });
-        if (!download.ok) throw new Error("Impossible de télécharger la DPGF du dossier.");
+        if (!download.ok) throw new Error(await dossierErrorMessage(download, "Impossible de télécharger la DPGF du dossier."));
         const blob = await download.blob();
         if (blob.size !== source.sizeBytes) throw new Error("La copie DPGF est incomplète. Actualisez le dossier.");
         if (!controller.signal.aborted) {

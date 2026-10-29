@@ -43,13 +43,38 @@ async function readAction(request: Request) {
   return bodySchema.parse(payload);
 }
 
+/** Streamed, so a Drive piece is not bound by the platform's buffered response size. */
+function fileResponse(file: File) {
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
+        controller.enqueue(bytes.subarray(offset, offset + 1024 * 1024));
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, { headers: {
+    "Cache-Control": "private, no-store",
+    "Content-Type": file.type || "application/octet-stream",
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    "X-Content-Type-Options": "nosniff",
+  } });
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ projectId: string; documentId: string }> }
 ) {
   try {
     const { projectId, documentId } = paramsSchema.parse(await params);
-    return noStore(ok(await getAffaireIntakeDpgfDownload(projectId, documentId)));
+    const url = new URL(request.url);
+    // content=1 returns the bytes; Drive pieces are read this way since they have no stored copy.
+    if (url.searchParams.get("content") === "1") {
+      return fileResponse(await readAffaireIntakeDpgfFile(projectId, documentId));
+    }
+    url.search = "?content=1";
+    return noStore(ok(await getAffaireIntakeDpgfDownload(projectId, documentId, url.toString())));
   } catch (error) {
     return noStore(error instanceof ImportsApiError ? toImportsErrorResponse(error) : toErrorResponse(error));
   }
