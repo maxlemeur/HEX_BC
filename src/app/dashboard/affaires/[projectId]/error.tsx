@@ -9,5 +9,7 @@ export default function DashboardAffairesProjectIdError({
   error: Error & { digest?: string };
   retry: () => void;
 }>) {
-  return <RouteError error={error} retry={retry} title="L’affaire n’a pas pu être chargée" source="route.affaires.hub" />;
+  const retryPage = error?.name === "ChunkLoadError" ? () => window.location.reload() : retry;
+
+  return <RouteError error={error} retry={retryPage} title="L’affaire n’a pas pu être chargée" source="route.affaires.hub" />;
 }
