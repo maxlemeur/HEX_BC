@@ -12,14 +12,19 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  RotateCw,
 } from "lucide-react";
-import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
+import {
+  reclassifyAffaireDocument,
+  retryAffaireDocumentAnalysis,
+} from "@/app/dashboard/affaires/_actions/intake";
 import {
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
   type AffaireIntakeDocumentKind,
 } from "@/lib/affaires/intake";
 import {
   canClassifyDossierDocument,
+  canRetryDossierDocument,
   dossierDocumentState,
   type DossierDocument,
 } from "@/lib/affaires/document-triage";
@@ -125,6 +130,20 @@ export function AffaireDocumentDesk({
       selection.includes(document.documentId) &&
       canClassifyDossierDocument(document),
   );
+  const retryableDocuments = documents.filter(canRetryDossierDocument);
+  const selectedRetryableDocuments = selectedDocuments.filter(
+    canRetryDossierDocument,
+  );
+  const analysisAvailable = workspace.analysisAvailability?.available === true;
+  const fallbackCount = retryableDocuments.filter(
+    (item) =>
+      item.classificationSource === "heuristic" &&
+      item.issues.some(
+        (issue) =>
+          issue.includes("l'analyse IA a echoue") ||
+          issue.startsWith("Analyse IA :"),
+      ),
+  ).length;
   const details = documents.find(
     (document) => document.documentId === detailsId,
   );
@@ -235,6 +254,64 @@ export function AffaireDocumentDesk({
     setAddFiles(false);
     router.refresh();
   }
+  async function retryAnalysis(items: DossierDocument[]) {
+    if (!canManage || busy || running.current || !analysisAvailable) return;
+    running.current = true;
+    setBusy(true);
+    setFailures([]);
+    setMessage("");
+    let analyzed = 0;
+    let fallback = 0;
+    let warning = "";
+    const failed: string[] = [];
+    try {
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index];
+        if (!canRetryDossierDocument(item)) continue;
+        setProgress(`Analyse ${index + 1} sur ${items.length}…`);
+        try {
+          const result = await retryAffaireDocumentAnalysis({
+            projectId,
+            documentId: item.documentId,
+          });
+          if (result.analyzed) {
+            analyzed++;
+            if (result.usedFallback) {
+              fallback++;
+              warning = result.warning ?? "L’analyse IA n’a pas abouti.";
+            }
+            setDrafts((prior) => {
+              const next = { ...prior };
+              delete next[item.documentId];
+              return next;
+            });
+            setSelection((prior) =>
+              prior.filter((id) => id !== item.documentId),
+            );
+          }
+        } catch (cause) {
+          failed.push(
+            `${item.fileName} : ${cause instanceof Error ? cause.message : "Analyse interrompue. Réessayez."}`,
+          );
+          // Configuration/auth failures must not be repeated for an entire selection.
+          break;
+        }
+        router.refresh();
+        if (fallback) break;
+      }
+      if (warning)
+        failed.push(`${warning} La sélection restante n’a pas été relancée.`);
+      setFailures(failed);
+      setMessage(
+        `${analyzed} proposition${analyzed > 1 ? "s" : ""} mise${analyzed > 1 ? "s" : ""} à jour.${fallback ? ` L’IA n’a pas abouti pour ${fallback} pièce(s) : proposition basée sur le nom.` : ""} Vérifiez les catégories puis validez-les pour actualiser le dossier et le brief. Les classements manuels sont conservés.`,
+      );
+    } finally {
+      running.current = false;
+      setBusy(false);
+      setProgress("");
+      router.refresh();
+    }
+  }
   const selectableRows = rows.filter(canClassifyDossierDocument);
 
   return (
@@ -284,6 +361,21 @@ export function AffaireDocumentDesk({
             <>
               <button
                 className="document-desk-button"
+                disabled={
+                  busy || !analysisAvailable || retryableDocuments.length === 0
+                }
+                title={
+                  !analysisAvailable
+                    ? workspace.analysisAvailability?.message
+                    : "Relancer uniquement les pièces à vérifier, hors classements manuels"
+                }
+                onClick={() => void retryAnalysis(retryableDocuments)}
+              >
+                <RotateCw size={15} />
+                Relancer l’analyse ({retryableDocuments.length})
+              </button>
+              <button
+                className="document-desk-button"
                 disabled={busy}
                 onClick={() => openGoogleDriveImport(projectId)}
               >
@@ -315,6 +407,17 @@ export function AffaireDocumentDesk({
           Consultation du dossier. Le classement est réservé au responsable de
           l’affaire et aux administrateurs.
         </p>
+      )}
+      {canManage && (fallbackCount > 0 || !analysisAvailable) && (
+        <div className="document-desk-analysis-notice" role="status">
+          <span>
+            {!analysisAvailable
+              ? (workspace.analysisAvailability?.message ??
+                "La connexion IA n’est pas disponible.")
+              : `${fallbackCount} document${fallbackCount > 1 ? "s" : ""} classé${fallbackCount > 1 ? "s" : ""} d’après le nom après un échec de l’IA. Vous pouvez relancer l’analyse.`}
+          </span>
+          <Link href="/dashboard/profile">Vérifier la connexion ChatGPT</Link>
+        </div>
       )}
       {(message || progress) && (
         <p className="document-desk-feedback" role="status">
@@ -378,6 +481,18 @@ export function AffaireDocumentDesk({
                 {selectedDocuments.length} sélectionné
                 {selectedDocuments.length > 1 ? "s" : ""}
               </strong>
+              <button
+                className="document-desk-button"
+                disabled={
+                  busy ||
+                  !analysisAvailable ||
+                  selectedRetryableDocuments.length === 0
+                }
+                onClick={() => void retryAnalysis(selectedRetryableDocuments)}
+              >
+                <RotateCw size={14} />
+                Réanalyser ({selectedRetryableDocuments.length})
+              </button>
               <select
                 aria-label="Catégorie de la sélection"
                 disabled={busy}
@@ -555,6 +670,17 @@ export function AffaireDocumentDesk({
                       </td>
                       <td>
                         <div className="document-desk-row-actions">
+                          {canManage && canRetryDossierDocument(document) && (
+                            <button
+                              className="document-desk-icon"
+                              aria-label={`Relancer l’analyse de ${document.fileName}`}
+                              title="Relancer l’analyse"
+                              disabled={busy || !analysisAvailable}
+                              onClick={() => void retryAnalysis([document])}
+                            >
+                              <RotateCw size={15} />
+                            </button>
+                          )}
                           {eligible &&
                             (state !== "valid" ||
                               category !== document.detectedCategory) && (

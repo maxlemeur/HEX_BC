@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -13,11 +14,14 @@ import {
 const ROOT = "https://api.openai.com/v1";
 const MAX_STREAM_BYTES = 8 * 1024 * 1024;
 
-function providerError(code?: string): Error {
+function providerError(code?: string, status?: number): Error {
   if (code === "subscription_sharing_usage_limit_exceeded" || code === "subscription_sharing_usage_unavailable") {
-    return new Error("Limite du forfait ChatGPT atteinte. Consultez Gérer ma consommation dans Mon profil.");
+    return new StructuredAiError("AI_QUOTA", "Limite du forfait ChatGPT atteinte. Consultez Gérer ma consommation dans Mon profil.", status);
   }
-  return new Error("ChatGPT n’a pas terminé la demande. Vérifiez la connexion dans Mon profil.");
+  if (status === 401 || status === 403) return new StructuredAiError("AI_AUTH_REQUIRED", "L’accès ChatGPT a été refusé. Reconnectez votre compte dans Mon profil.", status);
+  if (status === 429) return new StructuredAiError("AI_RATE_LIMIT", "ChatGPT limite les demandes. Réessayez plus tard ou consultez votre consommation dans Mon profil.", status);
+  if (status === 400 || status === 413 || status === 422) return new StructuredAiError("AI_REQUEST_REJECTED", "ChatGPT a refusé le document ou le format demandé. Vérifiez le modèle choisi ou classez la pièce manuellement.", status);
+  return new StructuredAiError("AI_PROVIDER_FAILED", "ChatGPT n’a pas terminé la demande. Vérifiez la connexion dans Mon profil.", status);
 }
 
 export async function listLocalChatGptModels(owner: ChatGptOwner): Promise<ChatGptAvailableModel[]> {
@@ -78,7 +82,7 @@ export async function selectLocalChatGptModel(owner: ChatGptOwner, model: string
 
 // Read through the terminal event: partial output is never a successful answer.
 export async function readChatGptResponse(response: Response) {
-  if (!response.ok || !response.body) throw providerError();
+  if (!response.ok || !response.body) throw providerError(undefined, response.status);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let pending = "";

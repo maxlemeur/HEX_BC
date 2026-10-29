@@ -1,6 +1,7 @@
 import {
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
+  isAffaireIntakeAnalysisStale,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 
@@ -10,6 +11,7 @@ export function dossierDocumentState(
 ): "review" | "valid" | "processing" | "unavailable" {
   if (document.isBeingDeleted || document.uploadStatus !== "uploaded")
     return "unavailable";
+  if (isAffaireIntakeAnalysisStale(document)) return "review";
   if (isAffaireIntakeDocumentProcessing(document)) return "processing";
   if (
     isAffaireIntakeDocumentNeedingReview(document) ||
@@ -21,6 +23,16 @@ export function dossierDocumentState(
 export function canClassifyDossierDocument(document: DossierDocument) {
   const state = dossierDocumentState(document);
   return state === "review" || state === "valid";
+}
+export function canRetryDossierDocument(document: DossierDocument) {
+  return (
+    dossierDocumentState(document) === "review" &&
+    (document.classificationStatus === "ambiguous" ||
+      document.classificationStatus === "failed" ||
+      isAffaireIntakeAnalysisStale(document)) &&
+    document.classificationSource !== "manual" &&
+    !document.manuallyOverriddenAt
+  );
 }
 export function dossierPreviewFormat(
   document: DossierDocument,

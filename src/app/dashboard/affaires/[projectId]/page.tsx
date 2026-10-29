@@ -48,6 +48,9 @@ import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
+// A document retry may download and parse a large PDF before proposing its category.
+export const maxDuration = 300;
+
 type Props = {
   params: Promise<{ projectId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;

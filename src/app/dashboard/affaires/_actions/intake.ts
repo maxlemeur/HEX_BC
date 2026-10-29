@@ -15,6 +15,7 @@ import {
   setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
   updateAffaireBrief as updateAffaireBriefServer,
   resolveAffaireBriefPlanGap as resolveAffaireBriefPlanGapServer,
+  retryAffaireDocumentAnalysis as retryAffaireDocumentAnalysisServer,
 } from "@/lib/affaires/intake-server";
 
 const reclassifyAffaireDocumentInputSchema = z.object({
@@ -64,6 +65,13 @@ export async function reclassifyAffaireDocument(
   revalidatePath("/dashboard/affaires");
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
 
+  return result;
+}
+
+export async function retryAffaireDocumentAnalysis(input: { projectId: string; documentId: string }) {
+  const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
+  const result = await retryAffaireDocumentAnalysisServer(parsed);
+  revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
   return result;
 }
 

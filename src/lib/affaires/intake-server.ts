@@ -18,7 +18,8 @@ import {
 } from "@/lib/estimates/errors";
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
+import { StructuredAiError, structuredAiFailureMessage } from "@/lib/ai/structured-ai-diagnostic";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { proposeAffaireIntakeCategory } from "@/lib/affaires/intake-decisions";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
@@ -55,6 +56,7 @@ import {
   getHeuristicAffaireDocumentClassification,
   inferAffaireIntakeMimeType,
   isAffaireIntakePrimaryEligibleKind,
+  isAffaireIntakeAnalysisStale,
   isMimeTypeSupportedForAiClassification,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeTextList,
@@ -231,6 +233,7 @@ export type CreateAffaireIntakeUploadResult = {
 
 export type AffaireIntakeWorkspace = {
   projectId: string;
+  analysisAvailability?: { available: boolean; message: string };
   uploadId: string | null;
   canManageDocuments?: boolean;
   documents: Array<{
@@ -244,6 +247,8 @@ export type AffaireIntakeWorkspace = {
     detectedCategory: AffaireIntakeDocumentKind;
     classificationStatus?: AffaireIntakeClassificationStatus;
     classificationSource?: AffaireIntakeClassificationSource | null;
+    manuallyOverriddenAt?: string | null;
+    classificationUpdatedAt?: string | null;
     documentPriority?: AffaireIntakeDocumentPriority | null;
     confidence: number;
     extractedMetadata: AffaireIntakeExtractedMetadata;
@@ -747,6 +752,7 @@ function addIssue(issues: string[], issue: string) {
 }
 
 function getSafeProviderErrorCode(error: unknown) {
+  if (error instanceof StructuredAiError) return error.code;
   return error instanceof TakeoffError && Object.values(TakeoffErrorCode).some((code) => code === error.code)
     ? error.code
     : "PROVIDER_ERROR";
@@ -1102,15 +1108,15 @@ async function classifyAffaireIntakeDocument(input: {
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
       error_code: getSafeProviderErrorCode(error),
+      ...(error instanceof StructuredAiError && error.providerStatus ? { provider_status: error.providerStatus } : {}),
     });
 
     return {
       result: {
         ...heuristicResult,
-        issues: addIssue(
-          heuristicResult.issues,
-          "Classification heuristique retenue car l'analyse IA a echoue."
-        ),
+        issues: addIssue(addIssue(heuristicResult.issues,
+          "Classification heuristique retenue car l'analyse IA a echoue."),
+          `Analyse IA : ${structuredAiFailureMessage(error)}`),
       },
       source: "heuristic",
     };
@@ -2759,8 +2765,7 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
 
     if (
-      document.classification_source === "manual" &&
-      document.classification_status !== "queued"
+      document.classification_source === "manual" || document.manually_overridden_at
     ) {
       continue;
     }
@@ -2773,7 +2778,8 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
 
     await renewLease();
-    const { error: markProcessingError } = await resolveSupabaseQuery<{
+    const { data: processingDocument, error: markProcessingError } = await resolveSupabaseQuery<{
+      data: { id: string } | null;
       error: unknown;
     }>(
       supabase
@@ -2783,7 +2789,10 @@ async function processClaimedAffaireIntakeUpload(input: {
         } as never)
         .eq("id", document.id)
         .eq("classification_status", document.classification_status)
+        .or("classification_source.is.null,classification_source.neq.manual")
+        .is("manually_overridden_at", null)
         .is("deleted_at", null).is("deletion_token", null)
+        .select("id" as never).maybeSingle()
     );
 
     if (markProcessingError) {
@@ -2793,6 +2802,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       });
       continue;
     }
+    if (!processingDocument) continue;
 
     if (!document.storage_path && !document.drive_file_id) {
       await renewLease();
@@ -3053,6 +3063,100 @@ export async function processAffaireIntakeUpload(uploadId: string) {
   }
 }
 
+/** A manual retry owns one document, never rearms its shared import lot.
+ * updated_at fences every outcome; an interrupted reservation can only be
+ * reclaimed explicitly after ten minutes, using the new caller's own account.
+ */
+export async function retryAffaireDocumentAnalysis(input: { projectId: string; documentId: string }) {
+  const { context, project } = await requireAffaireProjectOwnerOrAdmin(input.projectId);
+  const availability = await getStructuredAiAvailability(context);
+  if (!availability.available) throw badRequest(availability.message);
+  const table = () => context.supabase.from("affaire_intake_documents");
+  const { data, error } = await table().select(DOCUMENT_SELECT)
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", input.documentId)
+    .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+  if (error) throw internalError("Impossible de lire le document à réanalyser.", error);
+  const document = normalizeDocumentRow(data);
+  if (!document) throw notFound("Document introuvable.");
+  if (document.classification_source === "manual" || document.manually_overridden_at) {
+    throw conflict("Le classement manuel de cette pièce est conservé. Elle ne sera pas réanalysée.");
+  }
+  const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at });
+  if (document.upload_status !== "uploaded" || (!["ambiguous", "failed"].includes(document.classification_status) && !stale)) {
+    throw conflict("Cette pièce n’est plus disponible pour une nouvelle analyse. Actualisez le dossier.");
+  }
+  const { data: lot, error: lotError } = await context.supabase.from("affaire_intake_uploads")
+    .select("id,status").eq("tenant_id", context.tenantId).eq("project_id", project.id)
+    .eq("id", document.upload_id).maybeSingle();
+  if (lotError || !lot) throw internalError("Impossible de préparer la relance de l’analyse.", lotError);
+  if (!["ready", "partial_failure", "failed"].includes(lot.status)) {
+    throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
+  }
+  const editable = () => table().update({ classification_status: "processing" })
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
+    .eq("upload_status", "uploaded").eq("classification_status", document.classification_status)
+    .eq("updated_at", document.updated_at).or("classification_source.is.null,classification_source.neq.manual")
+    .is("manually_overridden_at", null).is("deleted_at", null).is("deletion_token", null);
+  const { data: reserved, error: reserveError } = await editable().select("updated_at").maybeSingle();
+  if (reserveError) throw internalError("Impossible de réserver cette pièce.", reserveError);
+  if (!reserved) throw conflict("La pièce a changé. Actualisez le dossier.");
+  const fence = (query: ReturnType<ReturnType<typeof table>["update"]>) => query
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
+    .eq("classification_status", "processing").eq("updated_at", reserved.updated_at)
+    .or("classification_source.is.null,classification_source.neq.manual").is("manually_overridden_at", null)
+    .is("deleted_at", null).is("deletion_token", null);
+  let proposalSaved = false;
+  try {
+    const linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+    let bytes: ArrayBuffer;
+    if (linked) bytes = new Uint8Array(linked.bytes).buffer;
+    else {
+      const { data: blob, error: downloadError } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET).download(document.storage_path!);
+      if (downloadError || !blob) throw badRequest("Le fichier ne peut pas être lu. Vérifiez sa disponibilité.");
+      bytes = await blob.arrayBuffer();
+    }
+    if (!bytes.byteLength || bytes.byteLength > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) throw badRequest("La taille du fichier ne permet pas son analyse.");
+    const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name,
+      mimeType: document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream", bytes,
+      aiOwner: context,
+      beforeProviderCall: async () => {
+        const { data: current, error: currentError } = await table().select("id").eq("id", document.id)
+          .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("updated_at", reserved.updated_at)
+          .eq("classification_status", "processing").is("deleted_at", null).is("deletion_token", null).maybeSingle();
+        if (currentError || !current) throw conflict("La pièce a changé avant l’analyse. Actualisez le dossier.");
+      },
+      decisionsContext: { owner: context, projectId: project.id, documentId: document.id,
+        sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") },
+    });
+    // A reanalysis updates a proposal. Confirmation and derived dossier/brief
+    // updates stay in the existing explicit manual validation action.
+    const status = "ambiguous" as const;
+    const { data: updated, error: updateError } = await fence(table().update({
+      classification_status: status, document_kind: classification.result.documentKind,
+      confidence: classification.result.confidence, classification_source: classification.source,
+      issues: classification.result.issues, extracted_metadata: classification.result.extractedMetadata,
+      classified_at: new Date().toISOString(), size_bytes: bytes.byteLength,
+      ...(linked ? { drive_revision: linked.file.version ?? null, drive_modified_time: linked.file.modifiedTime ?? null } : {}),
+    })).select("id").maybeSingle();
+    if (updateError) throw internalError("Impossible d’enregistrer la nouvelle analyse.", updateError);
+    if (!updated) throw conflict("La pièce a changé pendant l’analyse. Le nouveau résultat n’a pas remplacé son classement.");
+    proposalSaved = true;
+    await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
+      actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
+      beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },
+      afterPayload: { document_kind: classification.result.documentKind, classification_status: status,
+        classification_source: classification.source, confidence: classification.result.confidence } });
+    return { analyzed: true, usedFallback: classification.source === "heuristic",
+      warning: classification.result.issues.find((issue) => issue.startsWith("Analyse IA :")) ?? null };
+  } catch (cause) {
+    if (proposalSaved) throw internalError("La nouvelle proposition est enregistrée, mais son historique est incomplet. Vérifiez puis validez la catégorie pour poursuivre.", cause);
+    // Does not release another request's reservation or overwrite a manual choice.
+    await fence(table().update({ classification_status: "failed",
+      issues: addIssue(document.issues, "Analyse interrompue. Vous pouvez relancer cette pièce.") }));
+    throw cause;
+  }
+}
+
 export const fetchAffaireIntakeWorkspace = cache(async (
   projectId: string
 ): Promise<AffaireIntakeWorkspace> => {
@@ -3138,6 +3242,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     detectedCategory: document.document_kind,
     classificationStatus: document.classification_status,
     classificationSource: document.classification_source,
+    manuallyOverriddenAt: document.manually_overridden_at,
+    classificationUpdatedAt: document.updated_at,
     documentPriority: document.document_priority,
     confidence: document.confidence ?? 0,
     extractedMetadata: document.extracted_metadata,
@@ -3146,11 +3252,15 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       ...(document.rejection_reason ? [document.rejection_reason] : []),
     ],
   }));
-  const missingPieces = await getMissingPiecesForProject({ supabase: context.supabase, project, documents });
+  const [missingPieces, analysisAvailability] = await Promise.all([
+    getMissingPiecesForProject({ supabase: context.supabase, project, documents }),
+    project.user_id === context.userId || context.tenantRole === "admin" ? getStructuredAiAvailability(context) : undefined,
+  ]);
 
   return {
     projectId: project.id,
     uploadId: upload.id,
+    analysisAvailability,
     canManageDocuments: project.user_id === context.userId || context.tenantRole === "admin",
     documents: workspaceDocuments,
     missingPieces,
@@ -3390,7 +3500,8 @@ export async function reclassifyAffaireDocument(input: {
     throw notFound("Document intake introuvable.");
   }
 
-  if (document.upload_status !== "uploaded" || document.classification_status === "queued" || document.classification_status === "processing") {
+  const staleAnalysis = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at });
+  if (document.upload_status !== "uploaded" || document.classification_status === "queued" || (document.classification_status === "processing" && !staleAnalysis)) {
     throw conflict("Ce document n’est pas encore disponible pour le classement. Actualisez le dossier.");
   }
 
@@ -3430,7 +3541,8 @@ export async function reclassifyAffaireDocument(input: {
       .eq("tenant_id", context.tenantId)
       .eq("project_id", project.id)
       .eq("upload_status", "uploaded")
-      .in("classification_status", ["classified", "ambiguous", "failed"])
+      .in("classification_status", ["classified", "ambiguous", "failed", "processing"])
+      .eq("updated_at", document.updated_at)
       .is("deleted_at", null).is("deletion_token", null)
       .select("id" as never).maybeSingle()
   );

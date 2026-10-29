@@ -26,6 +26,8 @@
 .document-desk-icon:hover { background: var(--surface-subtle); }
 .document-desk-readonly, .document-desk-feedback, .document-desk-errors { padding: 10px 14px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; flex-shrink: 0; }
 .document-desk-feedback { background: var(--surface); color: var(--success); }
+.document-desk-analysis-notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 14px; margin: 0 0 12px; border: 1px solid #e9cf98; border-radius: 7px; background: #fff7e8; color: #815321; font-size: 12px; flex-shrink: 0; flex-wrap: wrap; }
+.document-desk-analysis-notice > a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .document-desk-errors { color: var(--danger); max-height: 150px; overflow: auto; }
 .document-desk-errors ul { margin: 8px 0 0; padding-left: 18px; }
 .document-desk-columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; flex: 1; min-height: 0; }
@@ -50,7 +52,7 @@
 .document-desk-table-scroll .document-desk-check { width: 40px; }
 .document-desk-table-scroll .document-desk-category { width: 160px; }
 .document-desk-table-scroll .document-desk-state { width: 110px; }
-.document-desk-table-scroll .document-desk-action { width: 130px; }
+.document-desk-table-scroll .document-desk-action { width: 160px; }
 .document-desk-active { background: #eaf1f8; }
 .document-desk-active td:first-child { box-shadow: 3px 0 0 var(--primary) inset; }
 .document-desk-file { display: flex; align-items: center; gap: 10px; text-align: left; padding: 0; border: 0; background: transparent; width: 100%; color: var(--foreground); }
