@@ -6,6 +6,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
@@ -72,6 +73,28 @@ beforeAll(async () => {
     if (localServer.exitCode !== null) throw new Error("ChatGPT local server exited before readiness.");
     return fetch(`${localOrigin}/login`).then((response) => response.ok).catch(() => false);
   }, { timeout: 90_000 }).toBe(true);
+  // next dev compiles protected routes on demand. Prepare the dashboard before
+  // measuring UI sign-in, using a separate session on the owned local backend.
+  // The browser still signs in through the form with the unchanged assertions.
+  const cookies = new Map<string, string>();
+  const warmup = createServerClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    cookies: {
+      getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
+      setAll: (values) => { for (const { name, value } of values) cookies.set(name, value); },
+    },
+  });
+  try {
+    const login = await warmup.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
+    expect(login.error).toBeNull();
+    const response = await fetch(`${localOrigin}/dashboard`, {
+      headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") },
+      redirect: "manual", signal: AbortSignal.timeout(90_000),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+  } finally {
+    await warmup.auth.signOut({ scope: "local" });
+  }
 });
 
 afterAll(async () => {
@@ -80,6 +103,14 @@ afterAll(async () => {
     await new Promise<void>((resolve) => localServer.once("exit", () => resolve()));
   }
   if (fixtureStore) await rm(fixtureStore, { force: true });
+  if (localOrigin) {
+    // Keep only compilation/readiness and non-sensitive dashboard/login timings.
+    const timings = diagnostics.join("").split("\n").filter(line =>
+      /(?:Compiling|Ready in|(?:GET|POST) \/(?:dashboard|login)(?:[/? ]))/.test(line))
+      .map(line => line.replace(/(\/(?:dashboard|login)[^?\s]*)\?[^\s]*/g, "$1?[redacted]"));
+    await mkdir(path.dirname(transportLog), { recursive: true });
+    await writeFile(path.join(path.dirname(transportLog), `chatgpt-local-server-${new URL(localOrigin).port}.log`), timings.join("\n"));
+  }
 });
 
 // Regression: even if an old server key exists, no connection must never create
