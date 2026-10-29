@@ -192,6 +192,10 @@ async function runWorkbookParseInWorker(
       eval: true,
       workerData: {
         fileBytes: Buffer.from(fileBytes),
+        // The worker is evaluated from a string, so Next cannot discover its
+        // require calls. These references make its external packages and their
+        // dependencies part of the route's production file trace.
+        tracedModules: [require.resolve("xlsx"), require.resolve("exceljs")],
       },
     });
 
