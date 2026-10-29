@@ -133,7 +133,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-drive-links"));
   await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).click();
   await screen.getByText("Fichier dans Google Drive", { exact: true }).click();
-  await expect(screen.getByText("MergeOne garde un lien : le fichier reste dans Google Drive, sans copie dans l’affaire. Une modification dans Drive n’est pas réanalysée automatiquement.", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Le fichier reste dans Google Drive. MergeOne conserve son lien et peut garder une copie pour le métré ou l’import DPGF. Une modification dans Drive n’est pas réanalysée automatiquement.", { exact: true })).toBeVisible();
   await expect(screen.getByText("Pour le métré, un plan PDF lié garde une copie de travail, retirée avec le lien.", { exact: true })).toBeVisible();
   await settleMotion();
   const linkScreenshot = await relativeOutputPath(await app.screenshot("TI652-document-drive-link"));
