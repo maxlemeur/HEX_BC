@@ -69,8 +69,10 @@ import {
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
-import { readDriveHistory } from "@/lib/affaires/google-drive/store";
+import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
+import { DriveError } from "@/lib/affaires/google-drive/errors";
+import { driveProvenance } from "@/lib/affaires/google-drive/store";
 import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
@@ -124,6 +126,12 @@ type AffaireIntakeDocumentRow = {
   classified_by: string | null;
   classified_at: string | null;
   manually_overridden_at: string | null;
+  source_provider: "google_drive" | null;
+  drive_connection_id: string | null;
+  drive_file_id: string | null;
+  drive_folder_id: string | null;
+  drive_folder_name: string | null;
+  drive_revision: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -270,6 +278,12 @@ const DOCUMENT_SELECT = [
   "classified_by",
   "classified_at",
   "manually_overridden_at",
+  "source_provider",
+  "drive_connection_id",
+  "drive_file_id",
+  "drive_folder_id",
+  "drive_folder_name",
+  "drive_revision",
   "created_at",
   "updated_at",
 ].join(", ");
@@ -492,6 +506,12 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     classified_by: toStringOrNull(row.classified_by),
     classified_at: toStringOrNull(row.classified_at),
     manually_overridden_at: toStringOrNull(row.manually_overridden_at),
+    source_provider: row.source_provider === "google_drive" ? "google_drive" : null,
+    drive_connection_id: toStringOrNull(row.drive_connection_id),
+    drive_file_id: toStringOrNull(row.drive_file_id),
+    drive_folder_id: toStringOrNull(row.drive_folder_id),
+    drive_folder_name: toStringOrNull(row.drive_folder_name),
+    drive_revision: toStringOrNull(row.drive_revision),
     created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
     updated_at: toStringOrNull(row.updated_at) ?? new Date(0).toISOString(),
   };
@@ -2573,7 +2593,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       continue;
     }
 
-    if (!document.storage_path) {
+    if (!document.storage_path && !document.drive_file_id) {
       await renewLease();
       const { error: markFailedError } = await resolveSupabaseQuery<{
         error: unknown;
@@ -2605,15 +2625,22 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
 
     try {
-      const { data: blob, error: downloadError } = await supabase.storage
-        .from(AFFAIRE_INTAKE_BUCKET)
-        .download(document.storage_path);
+      // A Drive piece is a link: its content is read from Drive for this analysis only.
+      const linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+      let bytes: ArrayBuffer;
+      if (linked) {
+        bytes = new Uint8Array(linked.bytes).buffer;
+      } else {
+        const { data: blob, error: downloadError } = await supabase.storage
+          .from(AFFAIRE_INTAKE_BUCKET)
+          .download(document.storage_path!);
 
-      if (downloadError || !blob) {
-        throw downloadError ?? new Error("Missing blob from storage.");
+        if (downloadError || !blob) {
+          throw downloadError ?? new Error("Missing blob from storage.");
+        }
+
+        bytes = await blob.arrayBuffer();
       }
-
-      const bytes = await blob.arrayBuffer();
       const mimeType =
         document.mime_type ??
         inferAffaireIntakeMimeType(document.file_name) ??
@@ -2644,6 +2671,11 @@ async function processClaimedAffaireIntakeUpload(input: {
             extracted_metadata: classification.result.extractedMetadata,
             classification_source: classification.source,
             classified_at: nowIso,
+            ...(linked ? {
+              drive_revision: linked.file.version ?? null,
+              drive_modified_time: linked.file.modifiedTime ?? null,
+              size_bytes: bytes.byteLength,
+            } : {}),
           } as never)
           .eq("id", document.id)
       );
@@ -2683,7 +2715,9 @@ async function processClaimedAffaireIntakeUpload(input: {
           .from("affaire_intake_documents" as never)
           .update({
             classification_status: "failed",
-            issues: ["Impossible d'analyser le document dans le workspace intake."],
+            issues: [error instanceof DriveError
+              ? `Lecture Google Drive impossible : ${error.message}`
+              : "Impossible d'analyser le document dans le workspace intake."],
           } as never)
           .eq("id", document.id)
       );
@@ -2885,11 +2919,10 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     supabase: context.supabase,
     projectId: project.id,
   });
-  const driveSources = new Map((await readDriveHistory({ context, project })).map((entry) => [entry.documentId, entry.source]));
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
-    driveSource: driveSources.get(document.id),
+    driveSource: document.drive_file_id ? driveProvenance({ ...document, drive_file_id: document.drive_file_id }) : undefined,
     sizeBytes: document.size_bytes,
     detectedCategory: document.document_kind,
     classificationStatus: document.classification_status,

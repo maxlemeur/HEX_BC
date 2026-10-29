@@ -438,16 +438,34 @@ export const insertTemplateIntoVersionBodySchema = z.object({
 const administrationContracts: RouteContract[] = [
   {
     id: "read-affaire-google-drive", method: "get", path: "/api/affaires/{projectId}/intake/google-drive",
-    summary: "Lire la disponibilité et les copies Google Drive de cette affaire",
-    description: "Disponibilité OAuth et provenance des copies privées de cette affaire accessible.", tags: ["Affaires"],
+    summary: "Lire les comptes Google Drive et les liens Drive de cette affaire",
+    description: "Disponibilité OAuth, comptes Google enregistrés du membre (sans jeton), dossier Drive lié et fichiers Drive liés à cette affaire accessible.", tags: ["Affaires"],
     pathParameters: [projectIdParameter],
   },
   {
     id: "import-affaire-google-drive", method: "post", path: "/api/affaires/{projectId}/intake/google-drive",
-    summary: "Parcourir un dossier ou confirmer des copies Drive", tags: ["Affaires"],
-    description: "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Jeton éphémère dans le corps JSON, jamais dans une URL. Aucun contenu téléchargé avant confirmation. Résultats par pièce et reprise par révision.",
+    summary: "Parcourir Drive, lier des fichiers ou le dossier de l'affaire, retirer un compte", tags: ["Affaires"],
+    description: "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Le corps désigne un compte Google enregistré du membre, jamais un jeton. Lier un fichier n'en copie pas le contenu : l'analyse le lit dans Drive. Résultats par fichier.",
     pathParameters: [projectIdParameter],
-    body: { schema: driveRequestSchema, description: "Dossier personnel, au plus 20 pièces et 100 Mo par lot, 50 Mo par pièce. Origine identique requise." },
+    body: { schema: driveRequestSchema, description: "Au plus 20 fichiers par lien, 50 Mo par fichier. Origine identique requise." },
+  },
+  {
+    id: "start-google-drive-authorization", method: "get", path: "/api/google-drive/oauth/start",
+    summary: "Ajouter un compte Google Drive", tags: ["Affaires"],
+    description: "Redirige le membre connecté vers le consentement Google (lecture seule de Drive, accès durable, PKCE). Le compte reste enregistré pour ses prochaines visites.",
+    queryParameters: [{ name: "returnTo", schema: z.string().max(512), description: "Page du tableau de bord où revenir après Google.", required: false }],
+    success: [{ status: "307", description: "Redirection vers Google, ou vers la page de retour si Drive est désactivé." }],
+  },
+  {
+    id: "complete-google-drive-authorization", method: "get", path: "/api/google-drive/oauth/callback",
+    summary: "Terminer l'ajout d'un compte Google Drive", tags: ["Affaires"],
+    description: "Retour de Google : vérifie l'état signé et le membre, échange le code côté serveur et enregistre le jeton chiffré. La page de retour ne reçoit qu'un code de résultat.",
+    queryParameters: [
+      { name: "state", schema: z.string().max(512), description: "État anti-rejeu émis au démarrage.", required: false },
+      { name: "code", schema: z.string().max(2048), description: "Code d'autorisation Google.", required: false },
+      { name: "error", schema: z.string().max(256), description: "Refus ou erreur renvoyé par Google.", required: false },
+    ],
+    success: [{ status: "307", description: "Redirection vers la page de retour avec le résultat drive=connected|refused|scope|offline|expired|disabled|failed." }],
   },
   {
     id: "get-affaire-dpgf-source",

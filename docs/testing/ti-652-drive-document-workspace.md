@@ -1,76 +1,106 @@
-# TI-652 — dossier documentaire et copies Drive
+# TI-652 — dossier documentaire et liens Google Drive
 
-Le dossier d’affaire présente les pièces dans un tableau filtrable et recherchable.
-Le détail donne le dossier et le fichier Drive d’origine, la révision, la date,
-l’auteur de l’import et l’empreinte SHA-256. Le parcours Drive permet de naviguer
-entre les dossiers, de conserver une sélection et de confirmer un lot unique.
-Les résultats restent visibles par pièce, y compris en cas d’échec partiel ;
-un dossier source devenu indisponible ne fait échouer que ses propres pièces.
+## Modèle depuis le 28 octobre 2026 : comptes conservés, pièces liées sans copie
 
-La confirmation importe automatiquement une copie privée dans `affaire-intake`.
-Une sélection seule ne transfère aucun fichier. Une même révision ne crée pas
-une seconde copie active. Une autre révision demande une confirmation explicite.
-Le parcours DPGF existant garde sa prévisualisation, son mapping et sa confirmation.
+Un compte Google ajouté par un membre reste enregistré pour ses prochaines visites,
+dans toutes ses affaires du tenant actif. Les comptes sont personnels : un autre
+membre, même administrateur, ne les voit pas et ne peut pas les utiliser. Le panneau
+Drive permet de choisir le compte, de parcourir Mon Drive, les fichiers partagés
+avec le membre (par exemple le Drive d’un collègue) et les Drives partagés.
 
-La suppression demande une confirmation et attend la fin du traitement du lot.
-Elle supprime les octets de la pièce et de ses copies de plans et vérifie leur absence.
-Si la pièce avait été importée, le registre des pièces manquantes et les plans synchronisés
-sont alors recalculés à partir des pièces restantes, comme après un reclassement, ainsi que
-le brief courant tant qu’il reste une pièce importée. La pièce est ensuite retirée du
-dossier ; une mise à jour interrompue l’y laisse, et reprendre la suppression la termine.
-L’original Drive et les lignes de chiffrage restent conservés. Les événements d’audit
-sont immuables : une ligne technique marquée supprimée subsiste sans chemin de stockage.
-Réimporter la même révision crée une nouvelle génération de stockage et une nouvelle
-provenance finale.
+Une affaire peut mémoriser son dossier Drive : le panneau s’ouvre directement dessus
+à chaque retour, et repart de Mon Drive si le compte choisi n’y a plus accès.
+
+Une pièce choisie dans Drive n’est plus copiée dans `affaire-intake`. MergeOne
+enregistre un lien : identifiant du fichier, dossier d’origine, révision lue, compte
+qui l’a lié. Le classement lit le fichier dans Drive avec le compte de ce membre,
+dans les mêmes limites qu’avant (50 Mo par fichier, 20 fichiers par lien, formats
+du dépôt local), et vérifie que la révision n’a pas changé pendant la lecture.
+Une modification ultérieure dans Drive n’est pas réanalysée automatiquement.
+Un même fichier n’est lié qu’une fois par affaire ; retirer le lien laisse le
+fichier dans Drive et permet de le lier à nouveau.
+
+Retirer un compte efface le jeton et révoque l’accès chez Google, sauf si le même
+compte Google reste connecté ailleurs dans MergeOne (autre tenant ou autre membre) :
+Google révoque en une fois tous les jetons d’un compte. Les pièces déjà liées restent
+dans l’affaire ; les sélectionner de nouveau dans Drive les rattache au compte choisi,
+sans nouvelle pièce. Un compte dont Google a révoqué l’accès est signalé « à
+reconnecter ». Un membre retiré d’un tenant perd les comptes Google ajoutés dans ce
+tenant, et le classement ne lit plus jamais un fichier avec le compte d’un ancien membre.
+
+Les plans liés depuis Drive ne sont pas encore envoyés au métré. Décision de Thanh
+(28/10/2026) : ils garderont une copie de travail réservée au métré, supprimée avec
+le lien, à construire après la fusion de la refonte de la synchronisation des plans.
+
+### Sécurité
+
+- Connexion OAuth côté serveur (code + PKCE, `access_type=offline`, portée
+  `drive.readonly`). L’état est scellé dans un cookie `httpOnly` lié au membre et
+  au tenant, valable 10 minutes ; le retour ne porte qu’un code de résultat.
+- Le refresh token est chiffré par l’application (AES-256-GCM, données associées :
+  tenant, membre, compte Google) avant d’entrer en base, dans `private`, lisible
+  seulement par le service role. Le navigateur ne reçoit jamais de jeton Google.
+- En base, un membre ne peut lier un fichier ou un dossier qu’avec un compte à lui
+  (trigger `zzz_guard_google_drive_connection_reference`) : un autre rédacteur de
+  l’affaire ne peut pas faire lire le Drive d’un collègue au worker.
+- Chaque opération revérifie l’appartenance au tenant et l’accès à l’affaire avant
+  d’utiliser un jeton.
+
+### Configuration d’un environnement
+
+Variables (toutes requises, avec le service role ; sinon Drive reste désactivé) :
+
+- `MERGEONE_GOOGLE_DRIVE_ENABLED=true`
+- `MERGEONE_GOOGLE_DRIVE_CLIENT_ID` et `MERGEONE_GOOGLE_DRIVE_CLIENT_SECRET` d’un
+  client OAuth « Application Web » ;
+- `MERGEONE_GOOGLE_DRIVE_TOKEN_KEY` : 32 octets aléatoires en base64
+  (`openssl rand -base64 32`). En changer oblige les membres à ajouter de nouveau
+  leurs comptes.
+
+Dans Google Cloud, déclarer comme URI de redirection autorisée
+`<origine>/api/google-drive/oauth/callback` pour chaque origine (local et production),
+et la portée `https://www.googleapis.com/auth/drive.readonly` sur l’écran de
+consentement. Cette portée donne la lecture de tout le Drive du compte : son
+activation sur un environnement réel reste soumise à validation.
+
+La migration `20261028213000_google_drive_links` est à appliquer sur le backend
+partagé avant le déploiement de ce code.
+
+### Vérifications
+
+- Unitaires (Google simulé) : persistance d’un compte sans exposer son jeton,
+  renouvellement de l’accès, navigation Partagés avec moi / Drives partagés, lien
+  unique sans téléchargement, échecs partiels, dossier d’affaire, compte d’un autre
+  membre refusé, reconnexion, révocation, jeton scellé pour un autre compte refusé,
+  lecture bornée par le classement ; parcours OAuth (état, cookie, refus, portée,
+  accès durable, retour) ; panneau Drive.
+- pgTAP `google-drive-links.test.sql` : comptes visibles par leur seul membre,
+  jeton illisible et fonction de lecture réservée au service role, enregistrement
+  lié au membre connecté, lien ou dossier refusé avec le compte d’un autre membre,
+  pas de copie stockée pour un lien, lien unique actif, retrait puis nouveau lien,
+  isolation du tenant, suppression d’un compte qui conserve les pièces (y compris
+  retirées), compte Google partagé signalé au serveur, comptes retirés avec le membre.
+- TesterArmy DRV01 (Drive désactivé, aucun jeton accepté depuis le navigateur) et
+  DRV02 (liens sous RLS locale réelle, sans copie, conservés après rechargement,
+  retrait confirmé dans l’UI, nouveau lien). Métadonnées Drive et jeton fictifs :
+  le consentement Google, les appels Google et la lecture par le worker ne sont pas
+  couverts par ces campagnes.
+
+## Historique : copies Drive (qualification du 25 octobre 2026)
+
+Avant le 28 octobre, une pièce Drive était copiée dans `affaire-intake` avec un jeton
+gardé en mémoire dans le navigateur, à redemander à chaque visite. Aucune copie Drive
+n’existait sur le backend partagé au 28/10/2026, donc aucune reprise de données n’est
+nécessaire. La politique Storage de vérification des copies Drive en attente est
+retirée par la migration du 28 octobre.
+
+La suppression d’une pièce (copie locale ou lien) demande une confirmation et attend
+la fin du traitement du lot. Pour une copie locale, elle supprime les octets de la
+pièce et de ses copies de plans et vérifie leur absence. Le registre des pièces
+manquantes, les plans synchronisés et le brief courant sont ensuite recalculés à partir
+des pièces restantes. Les événements d’audit sont immuables : une ligne technique
+marquée supprimée subsiste sans chemin de stockage.
 
 Les opérations concurrentes utilisent une réservation avec reprise après deux
 minutes et un jeton de clôture. Les copies de plans vérifient en base la génération
-source. Le nettoyage après reclassement conserve ses métadonnées jusqu’à la
-suppression Storage vérifiée, pour garder l’autorisation RLS et permettre la reprise.
-
-## Qualification locale du 25 octobre 2026
-
-Sources : branche existante `codex/ti-652-drive-folder-navigation`, synchronisée
-par fusion avec `origin/main` à `a3de99e5` (dernier ajout : reçus de documentation uniquement). La liste des fichiers candidats et leurs
-empreintes est conservée dans `outputs/ti652-validation/candidate-source-final.json`.
-Node 26.12.1 ; dépendances installées par `npm ci` ; Supabase CLI verrouillé 2.121.0.
-Les campagnes utilisent un checkout sans `.env` et une pile native éphémère détenue
-par le runner. Aucun backend partagé ni document Google privé n’est utilisé.
-
-- `npm run supabase:types` : 41 fichiers SQL, 2 486 assertions réussies, matrice RLS
-  et plafonds de statements réussis, types générés après nettoyage de la pile.
-- Relecture indépendante du diff : aucun P1/P2 restant dans le périmètre revu.
-- `NPM_CONFIG_CACHE=/private/tmp/ti652-npm-cache npm run verify:pr` : réussi,
-  3 702 tests Node et 853 tests UI réussis ; 3 tests ignorés et 6 todo conservés ;
-  12 tests de couverture critique réussis (98,03 % de lignes, 95,45 % de branches).
-- Campagne native DRV01/DRV02 : réussie (2 parcours + authentification).
-  DRV02 repris avec écrans stabilisés : réussi (1 parcours + authentification).
-  Reçus et archives dans `outputs/ti652-validation/receipt.md`.
-
-DRV01 vérifie l’API/UI quand OAuth est désactivé. DRV02 utilise les fonctions réelles
-de persistance et de suppression avec le client propriétaire authentifié et la RLS
-locale : octets téléchargés identiques, absence de doublon, deux révisions,
-provenance après rechargement, annulation puis confirmation de suppression dans
-l’UI, absence des deux objets de stockage, conservation de l’autre révision,
-isolation du tenant et réimport après suppression. Les métadonnées Drive sont
-fictives ; le consentement Google, les appels Google et l’extraction du worker ne
-sont pas couverts par cette campagne. Le classement de la fixture est fixé sous RLS.
-
-Les premiers essais échoués sont conservés dans le reçu : fixture de plan créée
-après le transfert (corrigée pour respecter la RLS), chemin SQL de fixture invalide
-(corrigé), cache npm non accessible (cache temporaire dédié), paramètre devenu inutilisé
-et bundle de preuve détectés par ESLint (paramètre retiré et preuves archivées). Ils ne constituent
-pas des réussites de qualification.
-
-## Activation partagée
-
-Les cinq migrations `20261025190729` à `20261025192608` restent à appliquer sur le
-backend partagé avant tout déploiement de ce code. Elles sont append-only et
-répertoriées dans le manifest. Le push Git ne déploie pas Vercel.
-
-L’accès Google réel nécessite la configuration et la validation OAuth existantes
-(`MERGEONE_GOOGLE_DRIVE_ENABLED`, `MERGEONE_GOOGLE_DRIVE_CLIENT_ID`). Les tokens
-restent en mémoire côté client, ne sont pas enregistrés en base et peuvent être
-révoqués depuis l’interface. Les limites existantes restent de 50 Mo par fichier,
-20 pièces et 100 Mo par lot ; les formats Google natifs et Drives partagés restent
-hors du périmètre actuel.
+source.

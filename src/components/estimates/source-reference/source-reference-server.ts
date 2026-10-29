@@ -20,7 +20,7 @@ type IntakeReadDatabase = {
   public: {
     Tables: {
       affaire_intake_documents: {
-        Row: z.infer<typeof documentSchema> & { tenant_id: string; project_id: string; document_kind: string; upload_status: string; mime_type: string | null };
+        Row: z.infer<typeof documentSchema> & { tenant_id: string; project_id: string; document_kind: string; upload_status: string; mime_type: string | null; storage_path: string | null };
         Insert: Record<string, never>;
         Update: Record<string, never>;
         Relationships: [];
@@ -50,6 +50,8 @@ export async function readSourceReferenceDocuments(
     .select("id, file_name, created_at, size_bytes")
     .eq("tenant_id", context.tenantId).eq("project_id", review.projectId)
     .eq("document_kind", "cctp").eq("upload_status", "uploaded")
+    // A Google Drive piece is only a link: a verified reference needs a stored copy.
+    .not("storage_path", "is", null)
     .or("mime_type.eq.application/pdf,file_name.ilike.%.pdf")
     .order("created_at", { ascending: false }).order("id", { ascending: false })
     .range(offset, offset + 20);

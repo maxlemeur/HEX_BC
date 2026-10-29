@@ -3,9 +3,10 @@ import { AFFAIRE_INTAKE_ALLOWED_EXTENSIONS, AFFAIRE_INTAKE_ALLOWED_MIME_TYPES } 
 
 export const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+export const DRIVE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
 export const DRIVE_MAX_FILES = 20;
 export const DRIVE_MAX_FILE_BYTES = 50 * 1024 * 1024;
-export const DRIVE_MAX_BATCH_BYTES = 100 * 1024 * 1024;
+export const DRIVE_OAUTH_START_PATH = "/api/google-drive/oauth/start";
 export const driveIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/);
 export const driveFileSchema = z.object({
   id: driveIdSchema,
@@ -15,58 +16,86 @@ export const driveFileSchema = z.object({
   size: z.string().regex(/^\d+$/).optional(),
   modifiedTime: z.string().optional(),
   parents: z.array(driveIdSchema).optional(),
-  driveId: z.string().optional(),
+  driveId: driveIdSchema.optional(),
   trashed: z.boolean().optional(),
   capabilities: z.object({ canDownload: z.boolean().optional() }).optional(),
   md5Checksum: z.string().optional(),
+  shortcutDetails: z.object({ targetId: driveIdSchema, targetMimeType: z.string().max(255).optional() }).optional(),
 });
 export type DriveFile = z.infer<typeof driveFileSchema>;
-export const driveSelectionSchema = z.object({
-  id: driveIdSchema,
-  version: z.string().regex(/^\d+$/),
-  newVersion: z.boolean().default(false),
-  folderId: driveIdSchema.optional(),
-}).strict();
-export const driveRequestSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("list"), token: z.string().min(1).max(4096), folderId: driveIdSchema,
-    pageToken: z.string().max(2048).optional() }).strict(),
-  z.object({ action: z.literal("import"), token: z.string().min(1).max(4096), folderId: driveIdSchema,
-    files: z.array(driveSelectionSchema).min(1).max(DRIVE_MAX_FILES) }).strict(),
+// "root" is My Drive; a shared drive is browsed from its root folder, whose id is the drive id.
+export const driveLocationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("folder"), folderId: driveIdSchema }).strict(),
+  z.object({ kind: z.literal("shared_with_me") }).strict(),
+  z.object({ kind: z.literal("shared_drives") }).strict(),
 ]);
-export type DriveSelection = z.infer<typeof driveSelectionSchema>;
+export type DriveLocation = z.infer<typeof driveLocationSchema>;
+const connectionIdSchema = z.string().uuid();
+export const driveRequestSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("list"), connectionId: connectionIdSchema, location: driveLocationSchema,
+    pageToken: z.string().max(2048).optional() }).strict(),
+  // Each file names the folder it was chosen in, if any, so its link keeps that folder.
+  z.object({ action: z.literal("link_files"), connectionId: connectionIdSchema,
+    files: z.array(z.object({ id: driveIdSchema, folderId: driveIdSchema.optional() }).strict()).min(1).max(DRIVE_MAX_FILES) }).strict(),
+  z.object({ action: z.literal("link_folder"), connectionId: connectionIdSchema, folderId: driveIdSchema }).strict(),
+  z.object({ action: z.literal("unlink_folder") }).strict(),
+  z.object({ action: z.literal("disconnect"), connectionId: connectionIdSchema }).strict(),
+]);
 export type DriveRequest = z.infer<typeof driveRequestSchema>;
-export const driveProvenanceSchema = z.object({
-  provider: z.literal("google_drive"), folderId: driveIdSchema, fileId: driveIdSchema,
-  folderName: z.string().max(255).optional(),
-  sourceName: z.string().min(1).max(255), sourceMimeType: z.string().min(1).max(255),
-  revision: z.string().regex(/^\d+$/), sourceModifiedTime: z.string().nullable(),
-  sourceUrl: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  importedAt: z.string().datetime(), importedBy: z.string(), tenantId: z.string(), projectId: z.string(),
-});
-export type DriveProvenance = z.infer<typeof driveProvenanceSchema>;
-export type DriveImportResult = {
-  fileId: string;
-  name: string;
-  status: "imported" | "already_imported" | "failed";
-  message: string;
-  uploadId?: string;
-  documentId?: string;
+
+export type DriveConnection = { id: string; email: string; displayName: string; status: "active" | "reconnect_required" };
+export type DriveFolderLink = {
+  folderId: string; folderName: string; sharedDriveId: string | null; connectionId: string | null;
+  linkedAt: string; url: string;
 };
-export type DriveHistory = { documentId: string; uploadId: string; source: DriveProvenance };
+/** A Drive piece of the affaire: MergeOne keeps the link, the file stays in Drive. */
+export type DriveProvenance = {
+  provider: "google_drive"; fileId: string; sourceName: string; sourceUrl: string;
+  folderId: string | null; folderName: string | null; revision: string | null; linkedAt: string;
+  connectionAvailable: boolean;
+};
+export type DriveLinkedFile = { documentId: string; uploadId: string; source: DriveProvenance };
 export type DriveListing = {
-  folder: DriveFile;
+  location: DriveLocation;
+  folder?: DriveFile;
   files: DriveFile[];
   nextPageToken?: string;
-  account: { displayName: string; emailAddress: string };
 };
+export type DriveLinkResult = {
+  fileId: string;
+  name: string;
+  status: "linked" | "already_linked" | "failed";
+  message: string;
+  documentId?: string;
+};
+export type DriveState = {
+  enabled: boolean;
+  projectName: string;
+  connections: DriveConnection[];
+  folder: DriveFolderLink | null;
+  links: DriveLinkedFile[];
+};
+
+export const DRIVE_OAUTH_OUTCOMES = {
+  connected: "Compte Google ajouté. Il reste enregistré pour vos prochaines visites.",
+  refused: "Connexion Google annulée. Aucun compte ajouté.",
+  scope: "La lecture de Google Drive n'a pas été accordée. Recommencez en autorisant l'accès à Drive.",
+  offline: "Google n'a pas accordé d'accès durable. Retirez MergeOne de votre compte Google puis recommencez.",
+  expired: "La connexion a expiré ou a été ouverte depuis une autre session. Recommencez.",
+  disabled: "Google Drive n'est pas activé sur cet environnement.",
+  failed: "Le compte Google n'a pas pu être ajouté. Réessayez.",
+} as const;
+export type DriveOAuthOutcome = keyof typeof DRIVE_OAUTH_OUTCOMES;
+
+export const driveFileUrl = (fileId: string) => `https://drive.google.com/file/d/${fileId}/view`;
+export const driveFolderUrl = (folderId: string) => `https://drive.google.com/drive/folders/${folderId}`;
 
 export function driveFileRejection(file: DriveFile): string | null {
   if (file.trashed) return "Fichier supprimé de Drive.";
-  if (file.driveId) return "Drives partagés non pris en charge dans ce POC.";
   if (file.mimeType.startsWith("application/vnd.google-apps.")) {
-    return "Google Docs, Sheets, Slides, dossiers et raccourcis ne sont pas importables dans ce POC.";
+    return "Google Docs, Sheets, Slides et raccourcis vers un fichier ne peuvent pas encore être liés.";
   }
-  if (file.capabilities?.canDownload === false) return "Téléchargement interdit par le propriétaire.";
+  if (file.capabilities?.canDownload === false) return "Lecture interdite par le propriétaire.";
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (!(AFFAIRE_INTAKE_ALLOWED_EXTENSIONS as readonly string[]).includes(extension) ||
     !(AFFAIRE_INTAKE_ALLOWED_MIME_TYPES as readonly string[]).includes(file.mimeType)) {

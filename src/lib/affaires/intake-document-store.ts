@@ -16,10 +16,10 @@ type DerivedStateRefresh = (removed: { uploadId: string; wasUploaded: boolean })
 export async function deleteIntakeDocumentCopy({ context, project }: Access, documentId: string, refreshDerivedState?: DerivedStateRefresh) {
   const database = context.supabase;
   const lookup = await database.from("affaire_intake_documents" as never)
-    .select("id,upload_id,updated_at,storage_path,deleted_at,deletion_token,deletion_started_at,upload_status,classification_status,document_priority")
+    .select("id,upload_id,updated_at,storage_path,source_provider,deleted_at,deletion_token,deletion_started_at,upload_status,classification_status,document_priority")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).maybeSingle();
   if (lookup.error) throw new DriveStoreError(500, "Impossible de charger le document à supprimer.");
-  const document = lookup.data as { id: string; upload_id: string; storage_path: string | null;
+  const document = lookup.data as { id: string; upload_id: string; storage_path: string | null; source_provider?: string | null;
     updated_at: string; deleted_at: string | null; deletion_token?: string | null; deletion_started_at?: string | null; upload_status: string; classification_status: string; document_priority: string } | null;
   if (!document) throw new DriveStoreError(409, "Document introuvable dans cette affaire. Actualisez le dossier.");
   if (document.deleted_at) return { documentId, deleted: true as const };
@@ -90,7 +90,9 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
 
     const deleted = await database.from("affaire_intake_documents" as never).update({
       deleted_at: new Date().toISOString(), deletion_token: null, deletion_started_at: null, storage_path: null, upload_status: "rejected",
-      document_priority: "secondary", rejection_reason: "Copie supprimée de l’affaire par l’utilisateur.",
+      // A Drive piece is only a link: removing it leaves the file in Drive untouched.
+      document_priority: "secondary", rejection_reason: document.source_provider === "google_drive"
+        ? "Lien Google Drive retiré de l’affaire par l’utilisateur." : "Copie supprimée de l’affaire par l’utilisateur.",
       classification_status: "failed",
     } as never).eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token).select("id");
     if (deleted.error || !(deleted.data as unknown[])?.length) {

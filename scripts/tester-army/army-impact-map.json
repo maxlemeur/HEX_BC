@@ -761,8 +761,10 @@
         "src/components/affaires/GoogleDriveImport*",
         "src/components/affaires/IntakeDropzone*",
         "src/app/api/affaires/[projectId]/intake/google-drive/**",
-        "e2e/army/critical/google-drive-local-store.ts",
-        "e2e/fixtures/sample-plan.pdf"
+        "src/app/api/google-drive/**",
+        "src/components/affaires/IntakeDocumentCard*",
+        "src/components/affaires/IntakeDocumentTable*",
+        "e2e/army/critical/google-drive-local-store.ts"
       ],
       "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts"]
     },
