@@ -53,7 +53,6 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
   const origin = `http://127.0.0.1:${address.port}`;
   let server: ChildProcess | undefined;
   const diagnostics: string[] = [];
-  let releaseInitialActions = () => {};
   const prefix = `ARMY-profile-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
   try {
@@ -71,6 +70,32 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       if (server?.exitCode !== null) throw new Error("Profile fixture server exited before readiness.");
       return fetch(`${origin}/login`).then(response => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
+    // This journey uses its own loopback origin and the SDK's plain test fixture,
+    // not armyTest. Confine browser traffic before loading the login page.
+    await browser.route("**/*", async route => {
+      const url = new URL(route.request.url);
+      const method = route.request.method;
+      if (url.hostname === "api.fontshare.com" && url.pathname === "/v2/css" && method === "GET") {
+        await route.fulfill({ headers: { "content-type": "text/css" }, body: "" });
+        return;
+      }
+      const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
+      const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
+      const appRequest = url.origin === origin && !forbiddenMutation;
+      const authRequest = url.origin === backend.origin && (
+        (url.pathname === "/auth/v1/token" && ["POST", "OPTIONS"].includes(method)) ||
+        (url.pathname === "/auth/v1/user" && ["GET", "OPTIONS"].includes(method))
+      );
+      const ownProfile = url.origin === backend.origin && url.pathname === "/rest/v1/profiles" && (
+        method === "OPTIONS" || (method === "PATCH" && url.searchParams.get("id") === `eq.${userId}`)
+      );
+      if (appRequest || authRequest || ownProfile) {
+        await route.fallback();
+        return;
+      }
+      await route.abort();
+      throw new Error(`Profile campaign blocked ${method} ${url.hostname}; unexpected origin or mutation.`);
+    });
     const open = (pathname = "/dashboard/profile") => app.open(new URL(pathname, origin).href);
     const account = credentials.user("army");
     await open("/login");
@@ -88,24 +113,50 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       cookie.domain === "127.0.0.1" && cookie.name.startsWith("sb-") && cookie.name.includes("-auth-token"))).toBe(true);
     await browser.setViewport({ width: 1280, height: 900 });
     const actionPath = `${origin}/dashboard/profile`;
-    const initialActionsReady = new Promise<void>(resolve => { releaseInitialActions = resolve; });
-    let actionSequence = 0;
-    await browser.route(actionPath, async route => {
-      if (route.request.method === "POST" && route.request.headers["next-action"] && actionSequence < 2) {
-        actionSequence += 1;
-        await initialActionsReady;
-      }
-      await route.fallback();
-    });
+    // Observe the first two distinct Server Action fetches at their source. The
+    // response URL is shared, so two simultaneous waitForResponse calls could
+    // both resolve for one response. Leave URL, headers and request untouched.
+    await browser.addInitScript(({ actionPath }) => {
+      type Action = { sequence: number; status: number | null; contentType: string | null };
+      const audit: { started: number; settled: Action[] } = { started: 0, settled: [] };
+      (window as Window & { __armyProfileActions?: typeof audit }).__armyProfileActions = audit;
+      const originalFetch = window.fetch;
+      window.fetch = function (this: Window, input, init) {
+        let isAction = false;
+        try {
+          const request = input instanceof Request ? input : null;
+          const url = new URL(request?.url ?? String(input), window.location.href);
+          const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+          const headers = new Headers(init?.headers ?? request?.headers);
+          isAction = `${url.origin}${url.pathname}` === actionPath && method === "POST" && headers.has("next-action");
+        } catch { /* Let the original fetch handle an invalid input. */ }
+        const result = Reflect.apply(originalFetch, this, [input, init]) as Promise<Response>;
+        if (!isAction || audit.started >= 2) return result;
+        const sequence = ++audit.started;
+        return result.then(response => {
+          audit.settled.push({ sequence, status: response.status, contentType: response.headers.get("content-type") });
+          return response;
+        }, error => {
+          audit.settled.push({ sequence, status: null, contentType: null });
+          throw error;
+        });
+      };
+    }, { actionPath });
     await open();
-    const initialResponse = browser.waitForResponse(actionPath);
-    releaseInitialActions();
-    const initialAction = await initialResponse;
-    await recordEvidence(army, "profile-initial-action", { actions: [{ status: initialAction.status,
-      contentType: initialAction.headers["content-type"] }], loginStatus: loginResponse.status, sessionCookiePresent: true,
+    const readActions = () => browser.evaluate(() => {
+      const audit = (window as Window & { __armyProfileActions?: { started: number; settled: Array<{
+        sequence: number; status: number | null; contentType: string | null;
+      }> } }).__armyProfileActions;
+      return audit ? { started: audit.started, settled: [...audit.settled].sort((a, b) => a.sequence - b.sequence) } : null;
+    });
+    await expect.poll(async () => (await readActions())?.settled.length ?? 0, { timeout: 30_000 }).toBe(2);
+    const initialActions = await readActions();
+    if (!initialActions) throw new Error("The initial profile-action observer is unavailable.");
+    expect(initialActions.started).toBe(2);
+    expect(initialActions.settled.map(response => response.status)).toEqual([200, 200]);
+    await recordEvidence(army, "profile-initial-action", { actions: initialActions.settled,
+      loginStatus: loginResponse.status, sessionCookiePresent: true,
       runtime: { E2E_ARMY: "1", developmentOutput: ".e2e/army/next/dev", productionSmokeOutput: ".next" } });
-    expect(initialAction.status).toBe(200);
-    await browser.unroute(actionPath);
     await expect(browser).toHaveURL(/\/dashboard\/profile$/);
     await expect(screen.getByRole("heading", "Mon profil", { exact: true })).toBeVisible();
     const model = screen.getByRole("combobox", "Modèle ChatGPT", { exact: true });
@@ -266,7 +317,6 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     await recordEvidence(army, "profile-before-cleanup", { observed, screenshot });
     throw error;
   } finally {
-    releaseInitialActions();
     if (server && server.exitCode === null) {
       const exited = new Promise<void>(resolve => server!.once("exit", () => resolve()));
       server.kill("SIGTERM");
