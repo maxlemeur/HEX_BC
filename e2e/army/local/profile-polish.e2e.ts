@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open as openFile, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,28 +34,38 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
   const profile = (id: string, model: string, reasoningEffort: string, email: string) => ({ id, model, reasoningEffort, email,
     clientId: "army-profile-fixture", issuer: "https://auth.openai.com", subject: id, accessToken: "army-profile-fixture",
     refreshToken: "army-profile-fixture", expiresAt: Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] });
-  await writeFile(storePath, JSON.stringify({ selectedId: firstId, profiles: [
-    profile(firstId, "gpt-6.1-terra", "max", "first@example.test"),
-    profile(secondId, "gpt-6.1-sol", "low", "second@example.test"),
-  ] }), { mode: 0o600, flag: "wx" });
   const artifactRoot = path.resolve(".e2e/army/critical/artifacts");
-  await mkdir(artifactRoot, { recursive: true });
   const control = path.join(artifactRoot, "profile-provider-control.json");
   const transportPath = path.join(artifactRoot, "profile-provider.jsonl");
   const setMode = (mode: string) => writeFile(control, JSON.stringify({ mode }));
-  await setMode("normal");
-  await writeFile(transportPath, "");
-  const reservation = createServer();
-  await new Promise<void>((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
-  const address = reservation.address();
-  if (!address || typeof address === "string") throw new Error("Profile server port reservation failed.");
-  await new Promise<void>((resolve) => reservation.close(() => resolve()));
-  const origin = `http://127.0.0.1:${address.port}`;
   let server: ChildProcess | undefined;
+  let storeCreated = false;
+  let artifactDirectoryReady = false;
   const diagnostics: string[] = [];
   const prefix = `ARMY-profile-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
   try {
+    // Claim the path first: a pre-existing account must never be removed on EEXIST.
+    const store = await openFile(storePath, "wx", 0o600);
+    storeCreated = true;
+    try {
+      await store.writeFile(JSON.stringify({ selectedId: firstId, profiles: [
+        profile(firstId, "gpt-6.1-terra", "max", "first@example.test"),
+        profile(secondId, "gpt-6.1-sol", "low", "second@example.test"),
+      ] }));
+    } finally {
+      await store.close();
+    }
+    await mkdir(artifactRoot, { recursive: true });
+    artifactDirectoryReady = true;
+    await setMode("normal");
+    await writeFile(transportPath, "");
+    const reservation = createServer();
+    await new Promise<void>((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
+    const address = reservation.address();
+    if (!address || typeof address === "string") throw new Error("Profile server port reservation failed.");
+    await new Promise<void>((resolve) => reservation.close(() => resolve()));
+    const origin = `http://127.0.0.1:${address.port}`;
     server = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(address.port), "--webpack"], {
       cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY: "1", E2E_ARMY_SERVER_MODE: "development",
         MERGEONE_OPENAI_DECISIONS: "0", OPENAI_DECISIONS_API_KEY: "", NEXT_TELEMETRY_DISABLED: "1",
@@ -309,25 +319,39 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       disconnectedFixture: true, errorVisibleWithAccountDetailsClosed: true, layout, cleanDesktop, cleanMobile, desktop, mobile, errorScreenshot, transport,
       inference: "simulated only; no real provider request", canonicalProfileTouched: false });
   } catch (error) {
-    const pathname = await browser.evaluate(() => location.pathname);
-    const screenshot = pathname === "/dashboard/profile" ? await app.screenshot("profile-before-server-cleanup") : null;
-    const observed = await browser.evaluate(() => ({ readyState: document.readyState,
-      statuses: [...document.querySelectorAll('[role="alert"], [role="status"]')].map(node => node.textContent),
-      selectLabels: [...document.querySelectorAll("label")].map(node => node.textContent) }));
-    await recordEvidence(army, "profile-before-cleanup", { observed, screenshot });
+    if (server) {
+      try {
+        const pathname = await browser.evaluate(() => location.pathname);
+        const screenshot = pathname === "/dashboard/profile" ? await app.screenshot("profile-before-server-cleanup") : null;
+        const observed = await browser.evaluate(() => ({ readyState: document.readyState,
+          statuses: [...document.querySelectorAll('[role="alert"], [role="status"]')].map(node => node.textContent),
+          selectLabels: [...document.querySelectorAll("label")].map(node => node.textContent) }));
+        await recordEvidence(army, "profile-before-cleanup", { observed, screenshot });
+      } catch {
+        console.warn("Profile failure diagnostics unavailable; preserving the original error.");
+      }
+    }
     throw error;
   } finally {
-    if (server && server.exitCode === null) {
-      const exited = new Promise<void>(resolve => server!.once("exit", () => resolve()));
-      server.kill("SIGTERM");
-      await exited;
+    try {
+      if (server?.pid && server.exitCode === null && server.signalCode === null) {
+        const exited = new Promise<void>(resolve => server!.once("exit", () => resolve()));
+        server.kill("SIGTERM");
+        await exited;
+      }
+    } finally {
+      try {
+        if (storeCreated) await rm(storePath, { force: true });
+      } finally {
+        if (artifactDirectoryReady) {
+          await rm(control, { force: true });
+          await writeFile(path.join(artifactRoot, "profile-local-server.log"), diagnostics.join("")
+            .replace(/([?&](?:state|code|access_token|id_token)=)[^&\s]+/g, "$1[redacted]")
+            .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted-token]")
+            .replace(/(Bearer\s+)[^\s"']+/gi, "$1[redacted]")
+            .replace(/(cookie["']?\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]"));
+        }
+      }
     }
-    await rm(storePath, { force: true });
-    await rm(control, { force: true });
-    await writeFile(path.join(artifactRoot, "profile-local-server.log"), diagnostics.join("")
-      .replace(/([?&](?:state|code|access_token|id_token)=)[^&\s]+/g, "$1[redacted]")
-      .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted-token]")
-      .replace(/(Bearer\s+)[^\s"']+/gi, "$1[redacted]")
-      .replace(/(cookie["']?\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]"));
   }
 });
