@@ -48,9 +48,11 @@ type QueryBuilder = {
   in: (column: string, value: unknown) => QueryBuilder;
   neq: (...args: unknown[]) => QueryBuilder;
   is: (...args: unknown[]) => QueryBuilder;
+  not: (...args: unknown[]) => QueryBuilder;
   order: (...args: unknown[]) => QueryBuilder;
   limit: (...args: unknown[]) => QueryBuilder;
   range: (...args: unknown[]) => QueryBuilder;
+  abortSignal: (...args: unknown[]) => QueryBuilder;
   single: () => Promise<FakeQueryResult>;
   maybeSingle: () => Promise<FakeQueryResult>;
   then: PromiseLike<FakeQueryResult>["then"];
@@ -100,9 +102,11 @@ export function createSupabaseFake(input: {
       },
       neq: () => builder,
       is: () => builder,
+      not: () => builder,
       order: () => builder,
       limit: () => builder,
       range: () => builder,
+      abortSignal: () => builder,
       single: () => run("single"),
       maybeSingle: () => run("maybeSingle"),
       then: <TResult1 = FakeQueryResult, TResult2 = never>(

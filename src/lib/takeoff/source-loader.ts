@@ -12,6 +12,9 @@ import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
+import { assertPreparedUploadBytes, loadPreparedPlanSource, parsePreparationSnapshot } from "@/lib/takeoff/preparation-source-loader";
+import { loadPreparationReferenceFiles } from "@/lib/takeoff/preparation-reference-loader";
+import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import {
   inspectPlanSetResourceBudget,
   PLAN_SET_MAX_FILES,
@@ -44,6 +47,10 @@ export type DownloadedTakeoffFile = {
   sourceFileNamesByPage?: string[];
   /** Référence du fichier de chaque page d'un jeu multi-fichiers. */
   sourceDocumentsByPage?: TakeoffSourceDocumentRef[];
+  sourcePageNumbersByPage?: number[];
+  preparationSnapshot?: TakeoffPreparationSnapshot;
+  contextFiles?: Array<{ data: string; mimeType: string }>;
+  contextSourceHints?: string[];
   sourcePlanFilePageCounts?: Array<{
     filePath: string;
     pageCount: number;
@@ -166,7 +173,16 @@ export async function loadTakeoffSource(input: {
   job: TakeoffJobProcessingRow;
   level: TakeoffSourceLevel;
 }): Promise<DownloadedTakeoffFile> {
+  const preparationSnapshot = parsePreparationSnapshot(input.job.preparation_snapshot);
   const planSetId = normalizeNullableText(input.job.plan_set_id);
+  if (planSetId && preparationSnapshot) {
+    const source = await loadPreparedPlanSource({
+      supabase: input.supabase, job: input.job, snapshot: preparationSnapshot,
+      maxPages: await getPlanSetMaxPdfPages({ supabase: input.supabase, tenantId: input.job.tenant_id, level: input.level }),
+    });
+    const context = await loadPreparationReferenceFiles({ supabase: input.supabase, job: input.job, snapshot: preparationSnapshot });
+    return { ...source, contextFiles: context.files, contextSourceHints: context.sourceHints };
+  }
   if (planSetId) {
     const { data: planFilesData, error: planFilesError } = await readAllRows(() => input.supabase
       .from("plan_files" as never)
@@ -481,7 +497,7 @@ export async function loadTakeoffSource(input: {
     });
   }
 
-  const bytes = await data.arrayBuffer();
+  let bytes = await data.arrayBuffer();
   if (bytes.byteLength === 0) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
@@ -504,10 +520,30 @@ export async function loadTakeoffSource(input: {
         normalizeNullableText(input.job.source_file_type),
     }) ?? inferMimeTypeFromFilename(storageFileName);
 
+  let sourcePageNumbersByPage: number[] | undefined;
+  if (preparationSnapshot) {
+    assertPreparedUploadBytes(input.job, preparationSnapshot, bytes);
+    const pages = preparationSnapshot.preparation.sources.find((source) => source.active)?.pages ?? [];
+    if (pages.length) {
+      if (mimeType !== "application/pdf") {
+        throw new TakeoffError({ code: TakeoffErrorCode.VALIDATION_ERROR, message: "La sélection de pages nécessite un PDF.", retryable: false, jobId: input.job.id });
+      }
+      const document = await PDFDocument.load(bytes);
+      if (pages.some((page) => page > document.getPageCount())) {
+        throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Une page confirmée n'existe pas dans le PDF.", retryable: false, jobId: input.job.id });
+      }
+      const selected = await PDFDocument.create();
+      for (const page of await selected.copyPages(document, pages.map((page) => page - 1))) selected.addPage(page);
+      bytes = toArrayBuffer(await selected.save());
+      sourcePageNumbersByPage = pages;
+    }
+  }
+
   return {
     fileName: jobFileName?.normalize("NFC") ?? storageFileName,
     mimeType,
     bytes,
     sourceDocument: { kind: "job_upload", job_id: input.job.id },
+    ...(preparationSnapshot ? { preparationSnapshot, sourcePageNumbersByPage } : {}),
   };
 }

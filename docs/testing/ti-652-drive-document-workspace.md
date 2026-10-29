@@ -78,7 +78,7 @@ et la portée `https://www.googleapis.com/auth/drive.readonly` sur l’écran de
 consentement. Cette portée donne la lecture de tout le Drive du compte : son
 activation sur un environnement réel reste soumise à validation.
 
-La migration `20261029000932_google_drive_links` est à appliquer sur le backend
+La migration `20261029024800_google_drive_links` est à appliquer sur le backend
 partagé avant le déploiement de ce code.
 
 ### Vérifications

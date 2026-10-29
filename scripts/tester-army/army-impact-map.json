@@ -670,6 +670,7 @@
       ],
       "journeys": [
         "@plans",
+        "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
@@ -751,6 +752,24 @@
         "e2e/army/local/reference-price.e2e.ts",
         "e2e/army/local/source-reference-read.e2e.ts",
         "e2e/army/local/source-reference.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-preparation",
+      "note": "Préparation commune aux lancements depuis le hub et par fichier, reprise et refus métier.",
+      "paths": [
+        "src/lib/takeoff/preparation*",
+        "src/components/takeoff/TakeoffPreparation*",
+        "src/components/takeoff/useTakeoffPreparation.ts",
+        "src/app/dashboard/affaires/_actions/takeoff-preparation.ts",
+        "e2e/army/critical/preparation-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/critical/hub-launch-metre.e2e.ts",
+        "e2e/army/critical/hub-plans-card.e2e.ts",
+        "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+        "e2e/army/takeoff/contracts.e2e.ts",
+        "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
     },
     {

@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Browser } from "@e2e-dev/web";
-import { expect, type App, type Screen } from "e2e";
+import { expect, type App, type JsonValue, type Screen } from "e2e";
 
 import {
   apiRequest, ownEstimate, readEstimate, recordEvidence,
@@ -349,10 +349,10 @@ export async function serverActionId(name: string) {
 }
 
 /**
- * Calls a server action of the current page as its client does (one argument of plain strings). Status and error
+ * Calls a server action of the current page as its client does (one argument of plain JSON). Status and error
  * digest only: production masks a thrown error.
  */
-export async function callServerAction(browser: Browser, id: string, argument: Record<string, string>) {
+export async function callServerAction(browser: Browser, id: string, argument: Record<string, JsonValue>) {
   return browser.evaluate(async (input) => {
     const response = await fetch(location.href, {
       method: "POST", credentials: "same-origin",
@@ -361,6 +361,33 @@ export async function callServerAction(browser: Browser, id: string, argument: R
     const text = await response.text();
     return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null };
   }, { id, argument });
+}
+
+/** Read only the public confirmation envelope from the Server Action's Flight response. */
+export async function confirmTakeoffPreparationViaAction(browser: Browser, input: {
+  actionId: string; projectId: string; expectedRevision: number;
+}) {
+  return browser.evaluate(async (request) => {
+    const response = await fetch(location.href, {
+      method: "POST", credentials: "same-origin",
+      headers: { "content-type": "text/plain;charset=UTF-8", "next-action": request.actionId },
+      body: JSON.stringify([{ projectId: request.projectId, expectedRevision: request.expectedRevision }]),
+    });
+    const text = await response.text();
+    const envelopes: Array<{ ok: boolean; data?: { revision?: number }; error?: { code?: string } }> = [];
+    for (const line of text.split(/\r?\n/)) {
+      const separator = line.indexOf(":");
+      if (separator < 0) continue;
+      try {
+        const value = JSON.parse(line.slice(separator + 1));
+        if (value && typeof value === "object" && typeof value.ok === "boolean") envelopes.push(value);
+      } catch { /* Flight also includes non-JSON records that are not the action envelope. */ }
+    }
+    const envelope = envelopes.length === 1 ? envelopes[0] : null;
+    return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null,
+      ok: envelope?.ok ?? false, revision: envelope?.data?.revision ?? null,
+      errorCode: envelope?.error?.code ?? (envelope ? null : "INVALID_ACTION_ENVELOPE") };
+  }, input);
 }
 
 /* ---------- Captures ---------- */

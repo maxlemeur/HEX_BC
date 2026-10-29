@@ -80,13 +80,18 @@ export async function resolvePlanSetSourceFile(input: {
   planSetId: string;
   jobId: string;
   maxPages: number;
+  selectedFileIds?: string[];
 }) {
-  const { data, error } = await readAllRows(() => input.supabase
+  const { data, error } = await readAllRows(() => {
+    let query = input.supabase
     .from("plan_files" as never)
     .select("file_path, file_name, file_type, file_size_bytes, page_count, id, metadata" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("plan_set_id" as never, input.planSetId as never)
-    .order("created_at" as never, { ascending: true }));
+    .order("created_at" as never, { ascending: true });
+    if (input.selectedFileIds) query = query.in("id" as never, input.selectedFileIds as never);
+    return query;
+  });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les fichiers du jeu de plans.");
@@ -194,6 +199,7 @@ export async function getTakeoffJobById(input: {
     )
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("id" as never, input.jobId as never)
+    .abortSignal(new AbortController().signal)
     .maybeSingle();
 
   if (error) {
@@ -208,6 +214,26 @@ export async function getTakeoffJobById(input: {
   }
 
   return (data ?? null) as TakeoffJobRow | null;
+}
+
+/** A reopened hub targets the created fork, while the first receipt used its parent. */
+export async function getTakeoffPlanSetJobByPreparation(input: {
+  supabase: CreationSupabase; tenantId: string; estimateVersionId: string;
+  planSetId: string; preparationRevision: number | null; level: import("@/lib/takeoff/types").TakeoffLevel;
+  provider?: "auto" | "chatgpt" | "gemini";
+  executionProvider?: "gemini" | "chatgpt_local";
+}) {
+  if (input.preparationRevision === null) return null;
+  let query = input.supabase.from("takeoff_jobs")
+    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at")
+    .eq("tenant_id", input.tenantId).eq("estimate_version_id", input.estimateVersionId)
+    .eq("plan_set_id", input.planSetId).eq("level", input.level)
+    .eq("preparation_snapshot->>preparation_revision", String(input.preparationRevision));
+  if (input.executionProvider) query = query.eq("execution_provider", input.executionProvider);
+  else if (input.provider && input.provider !== "auto") query = query.eq("execution_provider", input.provider === "chatgpt" ? "chatgpt_local" : "gemini");
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(1).abortSignal(new AbortController().signal).maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de retrouver l'analyse de cette préparation.");
+  return data as TakeoffJobRow | null;
 }
 
 type TakeoffTargetVersionAccess = {

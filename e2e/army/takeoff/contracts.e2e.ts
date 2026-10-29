@@ -1,10 +1,10 @@
 import { expect, type JsonValue } from "e2e";
 import type { Browser } from "@e2e-dev/web";
-import { randomUUID } from "node:crypto";
 
 import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { localTakeoffFixture } from "./fixtures";
 import { nativeTest } from "./native-ui";
+import { launchWorkerCsv } from "./worker-support";
 
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; details?: {
   blocked_items?: Array<{ item_id: string; designation: string }>; medium_items?: Array<{ designation: string }>; threshold?: number;
@@ -35,27 +35,17 @@ const definitions = [
 ];
 
 nativeTest("TKF05 a real level-A CSV upload creates a pending job present in the list", options, async ({ ui }) => {
-  const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY level-A upload" }, ui.army);
-  const response = await ui.request.post("/api/takeoff/jobs", {
-    headers: { "idempotency-key": randomUUID() },
-    multipart: { estimate_version_id: ids.versionId, level: "A", file: {
-      name: `${ui.army.runPrefix}.csv`, mimeType: "text/csv", buffer: Buffer.from("designation;quantity;unit\nBloc beton;12;u", "utf8"),
-    } },
-  });
-  const body = await response.json() as { ok: boolean; data: { id: string; status: string; level: string } };
-  expect(response.status()).toBe(201);
-  expect(body.ok).toBe(true);
-  expect(body.data.id).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
-  expect([body.data.status, body.data.level]).toEqual(["pending", "A"]);
+  const { ids, jobId } = await launchWorkerCsv(ui, "TKF05");
+  expect(jobId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
   await expect.poll(async () => {
     const list = await apiRequest<Envelope<{ jobs: { id: string }[] }>>(ui.browser, "GET", `/api/takeoff/jobs?estimate_version_id=${ids.versionId}&limit=20&offset=0`);
     expect(list.status).toBe(200);
-    return list.body.data.jobs.some(job => job.id === body.data.id);
+    return list.body.data.jobs.some(job => job.id === jobId);
   }).toBe(true);
-  const canceled = await apiRequest<Envelope<{ job: { id: string; status: string } }>>(ui.browser, "POST", `/api/takeoff/jobs/${body.data.id}/cancel`);
+  const canceled = await apiRequest<Envelope<{ job: { id: string; status: string } }>>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/cancel`);
   expect(canceled.status).toBe(200);
-  expect(canceled.body.data.job).toMatchObject({ id: body.data.id, status: "canceled" });
-  await recordEvidence(ui.army, "takeoff-level-a-upload", { ids, created: body.data, canceled: canceled.body.data.job });
+  expect(canceled.body.data.job).toMatchObject({ id: jobId, status: "canceled" });
+  await recordEvidence(ui.army, "takeoff-level-a-upload", { ids, jobId, canceled: canceled.body.data.job });
 });
 
 armyTest("TKF01 low-confidence measures require explicit verification before actual apply", options, async ({ app, screen, browser, army }) => {

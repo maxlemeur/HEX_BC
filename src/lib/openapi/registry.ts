@@ -1132,6 +1132,7 @@ const takeoffJobCreateFormDataSchema = z.object({
   estimate_version_id: uuidSchema,
   level: z.enum(["A", "B", "C"]),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
+  preparation_revision: z.string().regex(/^[1-9]\d*$/),
 });
 
 const takeoffJobListDataSchema = sharedTakeoffJobListDataSchema;

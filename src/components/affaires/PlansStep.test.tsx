@@ -25,7 +25,8 @@ vi.mock("@/hooks/useTakeoffAutoProposeDismissed", () => ({
 }));
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
-  launchTakeoffFromPlanSet: vi.fn(),
+  launchPreparedTakeoffFromPlanSetAction: vi.fn(),
+  launchPreparedTakeoffFromSourceVersionPlanSetAction: vi.fn(),
 }));
 
 vi.mock("@/components/ui-legacy/Toast", () => ({

@@ -83,6 +83,7 @@ export async function resumeStaleDriveLots(access: Access) {
 }
 
 // A finished lot runs again, with a fresh retry budget: its failed pieces are analysed anew.
+// No project filter: the caller's RLS fences the lots it may update.
 async function rearmFinishedLot(db: Database, tenantId: string, uploadId: string) {
   const { data, error } = await db.from("affaire_intake_uploads")
     .update({ status: "queued", last_error: null, next_retry_at: null, attempt_count: 0 })

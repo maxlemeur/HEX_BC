@@ -4,6 +4,14 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/preparation-server", () => ({
+  assertConfirmedTakeoffPreparation: vi.fn(),
+}));
+
+import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
+import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
@@ -77,6 +85,7 @@ function createFixture(options: { admissionRejected?: boolean } = {}) {
         count: 1,
       }),
       takeoff_jobs: (query) => {
+        if (query.operation === "select") return { data: null, error: null };
         effects.push(`job:${query.operation}`);
         if (query.operation === "insert") {
           if (options.admissionRejected) {
@@ -136,11 +145,13 @@ function uploadForm() {
   }));
   formData.set("estimate_version_id", M3_VERSION_ID);
   formData.set("level", "A");
+  formData.set("preparation_revision", "1");
   return formData;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(assertConfirmedTakeoffPreparation).mockReset().mockResolvedValue(confirmedPreparationFixture());
   vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({});
   vi.mocked(getTakeoffGeminiDeliveryConfigForTenant).mockResolvedValue({ useBatchApi: false } as never);
@@ -149,6 +160,31 @@ beforeEach(() => {
 });
 
 describe("takeoff creation compensation", () => {
+  it.each(["upload", "plan_set"])("rejects an unconfirmed preparation before any %s side effect", async (entry) => {
+    const { fake, admin, effects } = createFixture();
+    vi.mocked(assertConfirmedTakeoffPreparation).mockRejectedValueOnce(new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Confirmez la préparation avant de lancer le métré.",
+      retryable: false,
+    }));
+
+    const creation = entry === "upload"
+      ? createTakeoffJobFromFormData(uploadForm())
+      : createTakeoffJobFromPlanSet({
+          projectId: M3_PROJECT_ID,
+          planSetId: M3_PLAN_SET_ID,
+          estimateVersionId: M3_VERSION_ID,
+          preparationRevision: 1,
+        });
+    await expect(creation).rejects.toMatchObject({ status: 409, retryable: false });
+    expect(effects).toEqual([]);
+    expect(fake.storageCalls).toEqual([]);
+    expect(admin.storageCalls).toEqual([]);
+    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
+    expect(inspectSourceReferencePdf).not.toHaveBeenCalled();
+  });
+
   it("preserves an inspection timeout as retryable without uploading or retrying", async () => {
     const { fake, admin, effects } = createFixture();
     vi.mocked(inspectSourceReferencePdf).mockRejectedValueOnce(new SourceReferencePdfError("PDF_TIMEOUT", true));
@@ -193,6 +229,7 @@ describe("takeoff creation compensation", () => {
 
     const inserted = fake.writesTo("takeoff_jobs")[0].payload as Record<string, unknown>;
     const uploadedPath = fake.storageCalls[0].paths[0];
+    expect(inserted.preparation_snapshot).toEqual(confirmedPreparationFixture());
     expect(inserted.source_file_path).toBe(uploadedPath);
     expect(admin.storageCalls).toEqual([{
       bucket: "takeoff-files",

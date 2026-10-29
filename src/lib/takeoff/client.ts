@@ -434,6 +434,7 @@ export async function createTakeoffJob(
   formData.append("estimate_version_id", input.estimateVersionId);
   formData.append("level", input.level);
   if (input.provider) formData.append("provider", input.provider);
+  if (input.preparationRevision !== undefined) formData.append("preparation_revision", String(input.preparationRevision));
 
   return new Promise<TakeoffJobCreateResponse>((resolve, reject) => {
     const xhr = new XMLHttpRequest();

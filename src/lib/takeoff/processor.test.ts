@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 
 // Pagination faults are covered with the real SDK in read-all.test.ts.
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
@@ -25,6 +26,7 @@ import {
   reconcileTakeoffBatchJob,
 } from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
+import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -59,6 +61,7 @@ type TakeoffJobRow = {
   level: string;
   status: string;
   plan_set_id?: string | null;
+  preparation_snapshot?: unknown;
   processing_strategy: string | null;
   provider_batch_id: string | null;
   provider_batch_state: string | null;
@@ -1317,6 +1320,30 @@ function createTakeoffProcessorSupabaseMock(
 }
 
 describe("processLevelA", () => {
+  it("passes confirmed exclusions and conventions to the provider and retains the snapshot in the result", async () => {
+    const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.scope.levels = ["R+1"];
+    snapshot.preparation.scope.exclusions = ["RDC", "Zone 2"];
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash,
+      document_name: "niveau-a.csv",
+    };
+    const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: snapshot }, downloadFile: { bytes, mimeType: "text/csv" } });
+    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(buildTakeoffExchange([
+      { designation: "Tube fictif R+1", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
+    ])));
+    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    expect(result.status).toBe("completed");
+    const sent = callGemini.mock.calls[0][0];
+    expect(sent.prompt).toContain('"exclusions":["RDC","Zone 2"]');
+    expect(sent.prompt).toContain('"levels":["R+1"]');
+    expect(sent.prompt).toContain('"unit":"u"');
+    expect(mock.state.takeoffResults[0].provider_meta.preparation_snapshot).toEqual(snapshot);
+    expect(mock.state.takeoffItems[0].metadata).toMatchObject({ preparation_revision: 1, quantity_nature: "proposed" });
+  });
+
   // M1b : le fichier téléversé nomme la source ; une feuille citée par le fournisseur dans
   // source_file n'est pas un fichier et reste une preuve brute.
   it("keeps the uploaded file over a sheet name given as source_file", async () => {
@@ -2193,6 +2220,33 @@ describe("processLevelA", () => {
 });
 
 describe("processLevelB", () => {
+  it("sends only selected PDF pages, restores their original page and does not rewrite confirmed plan metadata", async () => {
+    const bytes = await createPdfArrayBuffer(3);
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.objective = "count";
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash,
+      kind: "plan", pages: [2], page_count: 3, document_name: "selection.pdf",
+    };
+    const mock = createTakeoffProcessorSupabaseMock({ job: {
+      level: "B", preparation_snapshot: snapshot, source_file_name: "selection.pdf",
+      source_file_path: DEFAULT_SOURCE_PATH_B, source_file_type: "application/pdf",
+    }, downloadFile: { bytes, mimeType: "application/pdf" } });
+    const exchange = buildTakeoffExchange([
+      { designation: "Symbole R+1", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Plan retenu" },
+    ], [], { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" });
+    const callGemini = vi.fn().mockImplementation(async (input) => {
+      const sentPdf = await PDFDocument.load(Buffer.from(input.files[0].data, "base64"));
+      expect(sentPdf.getPageCount()).toBe(1);
+      return buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" });
+    });
+    const result = await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    expect(result.status).toBe("completed");
+    expect(mock.state.takeoffItems[0].source_page).toBe(2);
+    expect(vi.mocked(mock.supabase.from).mock.calls.filter(([table]) => table === "plan_files")).toEqual([]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

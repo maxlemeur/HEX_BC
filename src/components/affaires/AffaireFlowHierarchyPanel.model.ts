@@ -32,6 +32,8 @@ export type AffaireFlowHierarchyPanelProps = {
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   structureMode?: AffaireHubSummaryResult["structureMode"];
   cockpitSuggestions?: CockpitSuggestion[];
+  preparationIsNextStep?: boolean;
+  hidePreparationAction?: boolean;
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
 };
 
@@ -194,8 +196,8 @@ function toSuggestionAction(suggestion: CockpitSuggestion, variant: AffaireFlowP
   return {
     kind: "suggestion",
     key: suggestion.actionId,
-    label: suggestion.label,
-    description: suggestion.preview,
+    label: suggestion.intent === "analyze_plans" ? "Préparer le métré" : suggestion.label,
+    description: suggestion.intent === "analyze_plans" ? "Confirmer les sources, le périmètre et les conventions avant l’analyse." : suggestion.preview,
     suggestion,
     variant,
   };
@@ -365,7 +367,6 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   ];
   const documentsCount = documents.length;
   const hasLegacyEntry = input.takeoffEnabled && input.currentVersion !== null && input.plansSummary?.hasLegacyFallback === true;
-  const showEmptyUploadCard = documentsCount === 0 && missingPieces.length === 0;
   const processingDocuments = documents.filter((document) => isDocumentProcessing(document));
 
   const addFilesSuggestion = findSuggestion(suggestions, "add_files");
@@ -430,8 +431,24 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const reviewCouldResolveCriticalMissing =
     reviewDocument !== null && getReviewProbableCategories(reviewDocument).some((category) => hasCriticalMissingCategory(missingPieces, category));
   const structureModeDescription = describeStructureMode(input.structureMode);
+  const standalonePreparationIsNextStep = Boolean(
+    input.preparationIsNextStep && analyzePlansSuggestion && input.takeoffEnabled && input.currentVersion &&
+    (input.plansSummary?.planFileCount ?? 0) > 0 && planExceptionCount === 0 &&
+    reviewDocument === null && processingDocuments.length === 0 &&
+    documents.every((document) => document.detectedCategory === "plans")
+  );
+  const showEmptyUploadCard = documentsCount === 0 && missingPieces.length === 0 && !standalonePreparationIsNextStep;
 
-  if (showEmptyUploadCard) {
+  if (standalonePreparationIsNextStep && analyzePlansSuggestion) {
+    title = "Préparer le métré";
+    summary = "Choisissez le résultat attendu et confirmez les sources, le périmètre et les conventions avant l’analyse. Un comptage sur plans seuls ne nécessite pas de DPGF.";
+    statusLabel = "Préparation à confirmer";
+    statusVariant = "warning";
+    heroState = "plans";
+    readinessLevel = "not_ready";
+    primaryAction = toSuggestionAction(analyzePlansSuggestion);
+    resultCard = null;
+  } else if (showEmptyUploadCard) {
     title = "Déposez les pièces pour lancer l'analyse";
     summary = "CCTP, DPGF, plans, courriers.";
     statusLabel = "Affaire neuve";
@@ -741,21 +758,21 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     readinessLevel = "ready_with_reservations";
     primaryAction = toSuggestionAction(viewExceptionsSuggestion);
   } else if (analyzePlansSuggestion) {
-    title = "Lancer le métré";
-    summary = analyzePlansSuggestion.preview;
-    statusLabel = hasWorkReservations ? "Analyse sous réserves" : "Prêt pour analyse";
-    statusVariant = hasWorkReservations ? "warning" : "success";
+    title = "Préparer le métré";
+    summary = "Confirmez les pièces, le périmètre et les conventions qui seront transmis au traitement.";
+    statusLabel = "Préparation à confirmer";
+    statusVariant = "warning";
     heroState = "plans";
     readinessLevel = input.hubReadiness?.status ?? (hasDocumentReservations ? "ready_with_reservations" : "ready");
     primaryAction = toSuggestionAction(analyzePlansSuggestion);
     resultCard = {
       kind: "plans",
-      title: hasWorkReservations ? "Structure disponible sous réserves" : "Structure prête",
+      title: "Cadrage du métré à confirmer",
       message: hasWorkReservations
         ? hasContinuationHypothesisDriver && !hasDocumentReservations
-          ? "Lancez l'analyse des plans en gardant la trace d'hypothèse active dans le registre."
-          : "Lancez l'analyse des plans, mais le dossier reste incomplet."
-        : "Lancez l'analyse des plans pour extraire les quantités.",
+          ? "Préparez l’analyse en conservant l’hypothèse active du registre."
+          : "Précisez les conditions de l’analyse et conservez les réserves du dossier."
+        : "Confirmez les sources actives et le résultat attendu avant l’analyse.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([
@@ -875,7 +892,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     });
   }
 
-  const blockers = showEmptyUploadCard
+  const blockers = showEmptyUploadCard || standalonePreparationIsNextStep
     ? []
     : dedupe([
         ...(heroState === "review" || heroState === "missing" || heroState === "primary_selection_required"
@@ -892,6 +909,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const hasHybridPrimaryAction = primaryAction ? isHybridStructureAction(primaryAction) : false;
   const allowSecondaryAides = heroState === "ready_to_continue" && !hasDominantRegisterAction;
   const aides: AffaireFlowPanelAction[] = [];
+  if (standalonePreparationIsNextStep) aides.push(toHrefAction({ key: "complete-dossier", label: "Compléter le dossier si besoin", description: "Ajouter les autres pièces selon le résultat attendu ou les besoins du chiffrage.", href: `/dashboard/affaires/${input.projectId}#intake`, variant: "ghost" }));
   if ((allowSecondaryAides || heroState === "structure") && manualEstimateHref && primaryAction?.key !== "manual-estimate" && !hasHybridPrimaryAction) {
     aides.push(
       toHrefAction({

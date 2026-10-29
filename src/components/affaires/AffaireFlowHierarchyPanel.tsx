@@ -456,7 +456,7 @@ function getStateWhyContent(card: PanelResultCard) {
     };
   }
   return {
-    title: "La base devis et les plans sont prêts. Le métré peut démarrer depuis cette étape.",
+    title: "Les plans sont disponibles. Confirmez le périmètre, les sources et les conventions avant l’analyse.",
     hints: card.facts.slice(0, 3),
   };
 }
@@ -487,7 +487,7 @@ function getStateHeroBadgeLabel(card: PanelResultCard) {
       ? "Structure à reprendre"
       : "Structure à générer";
   }
-  return "Analyse des plans";
+  return "Préparation du métré";
 }
 
 function ResultCard({
@@ -496,11 +496,13 @@ function ResultCard({
   intakeWorkspace,
   onOpenIntakeUpload,
   onExecuteSuggestion,
+  hidePrimaryAction = false,
 }: {
   projectId: string;
   card: PanelResultCard;
   intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"];
   onOpenIntakeUpload: () => void;
+  hidePrimaryAction?: boolean;
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
 }) {
   const router = useRouter();
@@ -1055,7 +1057,7 @@ function ResultCard({
                     <div className="mt-3 rounded-full border border-white/25 bg-white/10 px-4 py-2 text-center text-sm font-medium text-sky-50/96 backdrop-blur-sm">
                       {card.message}
                     </div>
-                    {card.action ? (
+                    {card.action && !hidePrimaryAction ? (
                       <div className="mt-3 flex justify-center">
                         <ActionButton action={card.action} onExecuteSuggestion={onExecuteSuggestion} />
                       </div>
@@ -1309,6 +1311,8 @@ export function AffaireFlowHierarchyPanel(
     projectId: props.projectId,
     currentVersion: props.currentVersion,
   });
+  const isPreparationCard = model.heroState === "plans" && model.primaryAction?.kind === "suggestion" && model.primaryAction.suggestion.intent === "analyze_plans";
+  const isStandalonePreparationCard = isPreparationCard && props.preparationIsNextStep && (props.intakeWorkspace?.documents ?? []).every((document) => document.detectedCategory === "plans");
   const readinessBadge = getHubReadinessBadge({
     hubReadiness: props.hubReadiness ?? null,
     fallback: model.readinessLevel,
@@ -1324,7 +1328,7 @@ export function AffaireFlowHierarchyPanel(
 
   const followUps = (
     <>
-      {!model.resultCard && model.primaryAction ? (
+      {!model.resultCard && model.primaryAction && !(props.hidePreparationAction && isPreparationCard) ? (
         <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/5 p-4">
           <p className="text-sm font-medium text-foreground-secondary">
             Continuez depuis l&apos;affaire avec une action dominante, puis ouvrez d&apos;autres
@@ -1395,7 +1399,7 @@ export function AffaireFlowHierarchyPanel(
     </>
   );
   const hasFollowUps =
-    (!model.resultCard && Boolean(model.primaryAction)) ||
+    (!model.resultCard && Boolean(model.primaryAction) && !(props.hidePreparationAction && isPreparationCard)) ||
     model.blockers.length > 0 ||
     model.aides.length > 0 ||
     Boolean(model.legacyAction);
@@ -1428,9 +1432,9 @@ export function AffaireFlowHierarchyPanel(
           <Badge variant={model.statusVariant} dot>
             {model.statusLabel}
           </Badge>
-          <Badge variant={readinessBadge.variant} dot>
+          {!isStandalonePreparationCard && <Badge variant={readinessBadge.variant} dot>
             {readinessBadge.label}
-          </Badge>
+          </Badge>}
         </div>
       </div>
 
@@ -1438,6 +1442,7 @@ export function AffaireFlowHierarchyPanel(
         <ResultCard
           projectId={props.projectId}
           card={model.resultCard}
+          hidePrimaryAction={props.hidePreparationAction && isPreparationCard}
           intakeWorkspace={props.intakeWorkspace}
           onOpenIntakeUpload={handleOpenIntakeUpload}
           onExecuteSuggestion={props.onExecuteSuggestion}

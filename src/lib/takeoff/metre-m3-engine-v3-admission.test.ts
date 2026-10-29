@@ -13,6 +13,13 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/preparation-server", () => ({
+  assertConfirmedTakeoffPreparation: vi.fn(),
+}));
+
+import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
+import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
+
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
@@ -105,6 +112,7 @@ async function buildCreateRequest(input: {
       : new File([await createPdfBytes()], "PLB R+1 indice B.pdf", { type: "application/pdf" });
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("preparation_revision", "1");
   formData.append("estimate_version_id", M3_VERSION_ID);
   formData.append("level", input.level);
   formData.append("provider", input.provider);
@@ -174,6 +182,7 @@ async function createOn(input: {
   existingJob?: ReturnType<typeof takeoffJobRow>;
 }) {
   vi.clearAllMocks();
+  vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(confirmedPreparationFixture());
   mockDefaults();
   const fake = createCreationFake({
     version: estimateVersionRow({ calcEngineVersion: input.engine, status: input.status }),
@@ -215,6 +224,7 @@ function mockDefaults() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(confirmedPreparationFixture());
   mockDefaults();
 });
 
@@ -265,6 +275,7 @@ describe("lancement depuis un jeu de plans", () => {
   )("jeu de plans niveau $level, fournisseur $provider : une v3 passe la garde de version et lit le jeu", async ({ level, provider }) => {
     const fake = createSupabaseFake({
       tables: {
+        takeoff_jobs: () => ({ data: null, error: null }),
         estimate_versions: () => ({ data: estimateVersionRow({ calcEngineVersion: 3 }), error: null }),
         // Jeu absent : le parcours s'arrête au premier contrôle après la version, sans dépôt.
         plan_sets: () => ({ data: null, error: null }),
@@ -282,8 +293,8 @@ describe("lancement depuis un jeu de plans", () => {
       })
     ).rejects.toMatchObject({ status: 404, code: TakeoffErrorCode.NOT_FOUND, message: "Jeu de plans introuvable." });
 
-    expect(fake.tablesTouched).toEqual(["estimate_versions", "plan_sets"]);
-    expect(filterValue(fake.queries[1] as FakeQuery, "id")).toBe(M3_PLAN_SET_ID);
+    expect(fake.tablesTouched).toEqual(["takeoff_jobs", "estimate_versions", "plan_sets"]);
+    expect(filterValue(fake.queries[2] as FakeQuery, "id")).toBe(M3_PLAN_SET_ID);
     expect(getTakeoffExecutionOwner).toHaveBeenCalledTimes(1);
     expect(fake.storageCalls).toEqual([]);
   });
@@ -291,6 +302,7 @@ describe("lancement depuis un jeu de plans", () => {
   it("garde le refus de brouillon : une v3 acceptée n'est pas une cible", async () => {
     const fake = createSupabaseFake({
       tables: {
+        takeoff_jobs: () => ({ data: null, error: null }),
         estimate_versions: () => ({ data: estimateVersionRow({ calcEngineVersion: 3, status: "accepted" }), error: null }),
       },
     });
@@ -304,7 +316,7 @@ describe("lancement depuis un jeu de plans", () => {
         level: "B",
       })
     ).rejects.toMatchObject({ status: 403, code: "READ_ONLY" });
-    expect(fake.tablesTouched).toEqual(["estimate_versions"]);
+    expect(fake.tablesTouched).toEqual(["takeoff_jobs", "estimate_versions"]);
     expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 });

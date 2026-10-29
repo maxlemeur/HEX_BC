@@ -6,13 +6,19 @@ import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
+const loadChatGptConnectionMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
-  launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
-  launchTakeoffFromSourceVersionPlanSet: launchTakeoffFromSourceVersionPlanSetMock,
+  launchPreparedTakeoffFromPlanSetAction: launchTakeoffFromPlanSetMock,
+  launchPreparedTakeoffFromSourceVersionPlanSetAction: launchTakeoffFromSourceVersionPlanSetMock,
 }));
+
+vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
+  TakeoffPreparationPanel: ({ documentControls, destinationControls, advancedControls, onLaunch, disabled, launchDisabled }: { documentControls: React.ReactNode; destinationControls: React.ReactNode; advancedControls: React.ReactNode; onLaunch: (revision: number) => Promise<void>; disabled: boolean; launchDisabled?: boolean }) => <div>{documentControls}{destinationControls}{advancedControls}<button type="button" disabled={disabled || launchDisabled} onClick={() => void onLaunch(7)}>Confirmer et lancer le métré</button></div>,
+}));
+vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
 
 vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => ({
@@ -76,6 +82,7 @@ const defaultProps = {
 describe("LaunchMetreDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    loadChatGptConnectionMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -84,17 +91,17 @@ describe("LaunchMetreDialog", () => {
 
   it("does not promise recovery when its persistence is unconfirmed", async () => {
     const user = userEvent.setup();
-    launchTakeoffFromPlanSetMock.mockResolvedValue({
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ ok: true, data: {
       jobId: "job-unconfirmed",
       dispatch: {
         status: "persistence_unconfirmed",
         correlationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
         persisted: false,
       },
-    });
+    } });
 
     render(<LaunchMetreDialog {...defaultProps} />);
-    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
 
     expect(
       await screen.findByText("Analyse créée, reprise à vérifier")
@@ -107,7 +114,7 @@ describe("LaunchMetreDialog", () => {
 
   it("prefers an exploitable plan set when the default set is empty", async () => {
     const user = userEvent.setup();
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-usable" });
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ ok: true, data: { jobId: "job-usable" } });
 
     render(
       <LaunchMetreDialog
@@ -131,7 +138,7 @@ describe("LaunchMetreDialog", () => {
       />
     );
 
-    const planSetSelect = screen.getByRole("combobox", {
+    const planSetSelect = await screen.findByRole("combobox", {
       name: "Jeu de plans à analyser",
     });
     await waitFor(() => {
@@ -140,19 +147,20 @@ describe("LaunchMetreDialog", () => {
       );
     });
 
-    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
 
     await waitFor(() => {
       expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith(
         expect.objectContaining({
           planSetId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           versionId: "33333333-3333-4333-8333-333333333333",
+          preparationRevision: 7,
         }),
       );
     });
   });
 
-  it("shows an actionable guardrail when no version exists yet", () => {
+  it("shows an actionable guardrail when no version exists yet", async () => {
     render(
       <LaunchMetreDialog
         {...defaultProps}
@@ -170,7 +178,7 @@ describe("LaunchMetreDialog", () => {
       "href",
       "/dashboard/estimates/new?projectId=11111111-1111-1111-1111-111111111111"
     );
-    expect(screen.getByRole("button", { name: "Analyser maintenant" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
   });
 
   it("does not offer analysis for an empty plan set", () => {
@@ -195,11 +203,31 @@ describe("LaunchMetreDialog", () => {
       screen.getByText("Aucun jeu de plans exploitable n'est disponible pour cette affaire.")
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Analyser maintenant" })
+      screen.queryByRole("button", { name: "Confirmer et lancer le métré" })
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Voir les plans" })).toHaveAttribute(
       "href",
       "/dashboard/affaires/11111111-1111-1111-1111-111111111111/plans"
     );
   });
+  it("uses the provider selected after opening the common preparation", async () => {
+    const user = userEvent.setup();
+    loadChatGptConnectionMock.mockResolvedValue({ enabled: true, selectedId: "profile", model: "plan-model", sharing: true, profiles: [] });
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ ok: true, data: { jobId: "job-gemini" } });
+    render(<LaunchMetreDialog {...defaultProps} />);
+    await user.selectOptions(await screen.findByLabelText("Fournisseur IA"), "gemini");
+    await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+    await waitFor(() => expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "gemini", preparationRevision: 7 })));
+  });
+
+  it("shows the safe launch conflict without reporting a successful analysis", async () => {
+    const message = "Les plans ont changé depuis la confirmation. Vérifiez les sources avant de relancer.";
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ ok: false, error: { status: 409, code: "TAKEOFF_CONFLICT", message, retryable: false } });
+    render(<LaunchMetreDialog {...defaultProps} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(screen.queryByText("Analyse transmise au traitement")).not.toBeInTheDocument();
+  });
+
 });

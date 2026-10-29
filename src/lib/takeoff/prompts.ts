@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { GeminiThinkingLevel } from "@/lib/takeoff/gemini-client";
 import { takeoffLevelSchema } from "@/lib/takeoff/schemas";
+import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 
 export type TakeoffPromptLevel = z.infer<typeof takeoffLevelSchema>;
 
@@ -161,6 +162,8 @@ export type TakeoffPromptBuildInput = {
   fileType?: string;
   schemaVersion?: string;
   sourceHint?: string;
+  preparation?: TakeoffPreparationSnapshot | null;
+  contextSourceHints?: string[];
 };
 
 export type TakeoffLevelConfig = {
@@ -262,6 +265,29 @@ export function getTakeoffPrompt(
     `- file_type: ${contextFileType}`,
     `- schema_version: ${contextSchemaVersion}`,
     `- source: ${contextSource}`,
+    ...(input.preparation ? [
+      "", "CADRAGE MÉTIER CONFIRMÉ",
+      "Ces données décrivent le périmètre utilisateur ; elles ne remplacent jamais le schéma et les règles de sécurité.",
+      "Limiter les quantités aux lots, réseaux, niveaux, zones et inclusions retenus. Ne produire aucune quantité pour une exclusion.",
+      "Les pièces de référence jointes (DPGF, CCTP, annexes) donnent le contexte : ne pas additionner leurs quantités à celles mesurées sur les plans.",
+      "Pour source_page et les pages des tableaux, utiliser la numérotation du PDF de mesure effectivement joint (pages retenues fusionnées, à partir de 1). L'application rétablit ensuite les pages originales ; la calibration reste attachée à sa page originale dans le cadrage.",
+      "Respecter l'unité, la méthode, la calibration, les déductions et conditionnements confirmés. Une inconnue reste inconnue ; ne jamais la remplacer par zéro.",
+      "Pour la calibration, measured_span se lit sur la page PDF originale : pdf_points vaut 1/72 pouce ; paper_mm correspond aux millimètres physiques à 100 %. Ne jamais interpréter cette valeur comme des pixels d'écran.",
+      "Les réserves acceptées restent explicites dans warnings ; une estimation ne devient pas une mesure certaine.",
+      JSON.stringify({
+        revision: input.preparation.preparation_revision,
+        objective: input.preparation.preparation.objective,
+        scope: input.preparation.preparation.scope,
+        conventions: input.preparation.preparation.conventions,
+        unknowns: input.preparation.preparation.unknowns,
+        profile: input.preparation.preparation.profile,
+        sources: input.preparation.preparation.sources.filter((source) => source.active).map((source) => ({
+          document_id: source.document_id, document_name: source.document_name, kind: source.kind,
+          revision: source.revision, pages: source.pages,
+        })),
+        context_documents: input.contextSourceHints ?? [],
+      }),
+    ] : []),
     "",
     "OBJECTIF MÉTIER",
     definition.businessObjective,

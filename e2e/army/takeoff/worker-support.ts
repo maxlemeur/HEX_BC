@@ -6,6 +6,7 @@ import { expect } from "e2e";
 
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/plans-support";
+import { fillTakeoffPreparation, openTakeoffPreparation } from "../critical/preparation-support";
 
 export type WorkerUi = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 export type WorkerResult = {
@@ -79,10 +80,12 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string) {
   await expect(source).toBeEnabled();
   await source.setInputFiles(filePath);
   await expect(ui.screen.getByText(fileName, { exact: true })).toBeVisible();
-  await expect(ui.screen.getByRole("button", "Lancer l'extraction", { exact: true })).toBeEnabled();
+  await fillTakeoffPreparation(ui, { sources: [fileName], objective: "extract_quantities", unit: "Unités des lignes sources",
+    inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "" }, ui.browser.locator("form").last());
+  await expect(ui.screen.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
   const [response] = await Promise.all([
     ui.browser.waitForResponse("**/api/takeoff/jobs", { timeout: 30_000 }),
-    ui.screen.getByRole("button", "Lancer l'extraction", { exact: true }).click(),
+    ui.screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click(),
   ]);
   expect(response.status).toBe(201);
   const body = await response.json<{ ok: boolean; data: { id: string; status: string; level: string; dispatch?: { status: string } } }>();
@@ -103,11 +106,12 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   const plans = await createPlanSet(ui, ui.army, ids, `${ui.army.runPrefix} plans`);
   const file = await uploadSamplePlan(ui, ui.army, plans);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
-  await ui.screen.getByRole("button", "Plus", { exact: true }).click();
-  await ui.screen.getByRole("menuitem", "Analyser les plans", { exact: true }).click();
-  const dialog = ui.screen.getByRole("dialog", "Analyser les plans", { exact: true });
+  await openTakeoffPreparation(ui);
+  const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], objective: "extract_quantities", unit: "Unités des lignes sources",
+    inclusions: "Toutes les lignes du tableau", levels: "Tous", zones: "Toutes", exclusions: "" });
+  await dialog.getByText("Options avancées", { exact: true }).click();
   await dialog.getByRole("radio", "Standard", { exact: true }).check();
-  await dialog.getByRole("button", "Analyser maintenant", { exact: true }).click();
+  await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   const jobs = ownedTakeoffJobs(ui.browser, ids);
   await expect.poll(async () => (await jobs.list()).length).toBe(1);
   const [job] = await jobs.list();

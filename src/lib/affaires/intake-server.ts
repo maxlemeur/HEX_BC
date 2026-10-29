@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { cache } from "react";
 
@@ -19,6 +19,8 @@ import {
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { proposeAffaireIntakeCategory } from "@/lib/affaires/intake-decisions";
+import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -1023,6 +1025,7 @@ async function classifyAffaireIntakeDocument(input: {
   bytes: ArrayBuffer;
   beforeProviderCall?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
+  decisionsContext?: { owner: ChatGptOwner; projectId: string; documentId: string; sourceVersion: string };
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
@@ -1080,9 +1083,14 @@ async function classifyAffaireIntakeDocument(input: {
     const source =
       mergedResult.documentKind === geminiResult.data.documentKind ? "ai" : "heuristic";
 
+    const result = input.decisionsContext ? await proposeAffaireIntakeCategory({
+      ...input.decisionsContext, fileName: input.fileName, mimeType: input.mimeType,
+      extracted: mergedResult,
+      ...(filePayload.mimeType.startsWith("text/") ? { text: Buffer.from(filePayload.data, "base64").toString("utf8") } : {}),
+    }) : mergedResult;
     return {
-      result: mergedResult,
-      source,
+      result,
+      source: result === mergedResult ? source : "ai",
     };
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
@@ -2691,7 +2699,8 @@ async function processClaimedAffaireIntakeUpload(input: {
   claim: durableIntake.AffaireIntakeClaim;
 }) {
   const { supabase, lifecycleClient, claim } = input;
-  const aiOwner = isLocalChatGptEnabled() ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
+  const aiOwner = isLocalChatGptEnabled() || getOpenAiDecisionsCapability().status === "available"
+    ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
   const upload = {
     id: claim.uploadId,
     tenant_id: claim.tenantId,
@@ -2756,6 +2765,8 @@ async function processClaimedAffaireIntakeUpload(input: {
           classification_status: "processing",
         } as never)
         .eq("id", document.id)
+        .eq("classification_status", document.classification_status)
+        .is("deleted_at", null).is("deletion_token", null)
     );
 
     if (markProcessingError) {
@@ -2824,6 +2835,9 @@ async function processClaimedAffaireIntakeUpload(input: {
         bytes,
         beforeProviderCall: renewLease,
         aiOwner,
+        ...(aiOwner ? { decisionsContext: { owner: aiOwner,
+          projectId: document.project_id, documentId: document.id,
+          sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") } } : {}),
       });
       await renewLease();
       const classificationStatus = deriveAffaireIntakeClassificationStatus({
@@ -2851,6 +2865,8 @@ async function processClaimedAffaireIntakeUpload(input: {
             } : {}),
           } as never)
           .eq("id", document.id)
+          .eq("classification_status", "processing")
+          .is("deleted_at", null).is("deletion_token", null)
       );
 
       if (updateDocumentError) {
@@ -2893,6 +2909,8 @@ async function processClaimedAffaireIntakeUpload(input: {
               : "Impossible d'analyser le document dans le workspace intake."],
           } as never)
           .eq("id", document.id)
+          .eq("classification_status", "processing")
+          .is("deleted_at", null).is("deletion_token", null)
       );
 
       if (markFailedError) {

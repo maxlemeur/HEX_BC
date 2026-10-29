@@ -37,6 +37,7 @@ export const TAKEOFF_JOB_PROCESSING_SELECT = [
   "created_by",
   "execution_provider",
   "execution_host_id",
+  "preparation_snapshot",
 ].join(", ");
 
 const takeoffJobProcessingSchema = z.object({
@@ -67,6 +68,7 @@ const takeoffJobProcessingSchema = z.object({
   created_by: z.string().uuid().nullable().optional(),
   execution_provider: z.enum(["gemini", "chatgpt_local"]).optional(),
   execution_host_id: z.string().nullable().optional(),
+  preparation_snapshot: z.unknown().nullable().optional(),
 });
 
 export type TakeoffJobProcessingRow =

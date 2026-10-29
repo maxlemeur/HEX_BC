@@ -1,14 +1,14 @@
 "use client";
 
+import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import {
-  launchTakeoffFromPlanSet,
-  launchTakeoffFromSourceVersionPlanSet,
+  launchPreparedTakeoffFromPlanSetAction,
+  launchPreparedTakeoffFromSourceVersionPlanSetAction,
 } from "@/app/dashboard/affaires/_actions/takeoff";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
@@ -31,6 +31,9 @@ import {
   type TakeoffLevel,
 } from "@/lib/takeoff/client";
 import { CheckIcon } from "lucide-react";
+import { LazyTakeoffPreparationPanel } from "@/components/takeoff/LazyTakeoffPreparationPanel";
+import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
+import type { TakeoffProvider } from "@/lib/takeoff/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +91,7 @@ function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOpti
 type LaunchMetreDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onLaunched?: (jobId: string) => void;
+  onLaunched?: (jobId: string, versionId: string) => void;
   projectId: string;
   currentVersion:
     | {
@@ -122,10 +125,12 @@ type LaunchVersionOption = {
   helper: string;
 };
 
-type LaunchVersionMode = LaunchVersionOption["mode"] | "missing";
-
 function isIntakeSyncedPlanSet(source: string | null | undefined) {
   return source === "affaire-intake";
+}
+
+function versionBusinessLabel(versionNumber: number) {
+  return versionNumber > 0 ? `V${versionNumber}` : "version courante";
 }
 
 function buildVersionOptions(input: {
@@ -143,7 +148,7 @@ function buildVersionOptions(input: {
       id: input.currentVersion.id,
       versionNumber: input.currentVersion.versionNumber,
       mode: "existing_draft",
-      label: `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`,
+      label: `Utiliser ${versionBusinessLabel(input.currentVersion.versionNumber)} (brouillon courant)`,
       helper: "Le métré sera rattaché directement à ce brouillon.",
     });
     seen.add(input.currentVersion.id);
@@ -158,8 +163,8 @@ function buildVersionOptions(input: {
       id: version.id,
       versionNumber: version.versionNumber,
       mode: "create_draft_from_source",
-      label: `Créer un brouillon depuis V${version.versionNumber}`,
-      helper: `Un nouveau brouillon sera créé depuis V${version.versionNumber} avant lancement.`,
+      label: `Créer un brouillon depuis ${versionBusinessLabel(version.versionNumber)}`,
+      helper: `Un nouveau brouillon sera créé depuis ${versionBusinessLabel(version.versionNumber)} avant lancement.`,
     });
     seen.add(version.id);
   }
@@ -174,12 +179,12 @@ function buildVersionOptions(input: {
           : "create_draft_from_source",
       label:
         input.currentVersion.status === "draft"
-          ? `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`
-          : `Créer un brouillon depuis V${input.currentVersion.versionNumber}`,
+          ? `Utiliser ${versionBusinessLabel(input.currentVersion.versionNumber)} (brouillon courant)`
+          : `Créer un brouillon depuis ${versionBusinessLabel(input.currentVersion.versionNumber)}`,
       helper:
         input.currentVersion.status === "draft"
           ? "Le métré sera rattaché directement à ce brouillon."
-          : `Un nouveau brouillon sera créé depuis V${input.currentVersion.versionNumber} avant lancement.`,
+          : `Un nouveau brouillon sera créé depuis ${versionBusinessLabel(input.currentVersion.versionNumber)} avant lancement.`,
     });
   }
 
@@ -210,11 +215,15 @@ function LaunchMetreDialogContent({
 }: LaunchMetreDialogProps) {
   const toast = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
+  const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
+  const [provider, setProvider] = useState<TakeoffProvider>("auto");
   const [launchSuccess, setLaunchSuccess] = useState(false);
   const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
   const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [targetSelectionKey, setTargetSelectionKey] = useState(0);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
@@ -301,16 +310,13 @@ function LaunchMetreDialogContent({
       null,
     [selectedVersionId, versionOptions],
   );
-  const versionMode: LaunchVersionMode =
-    selectedVersionOption?.mode ??
-    (currentVersion ? "create_draft_from_source" : "missing");
   const hasTargetVersion = selectedVersionOption !== null;
   const hasPlanFiles = (selectedPlanSet?.fileCount ?? 0) > 0;
   const hasUsablePlanSet = planSetOptions.some((option) => option.fileCount > 0);
   const versionLabel = selectedVersionOption
     ? selectedVersionOption.mode === "existing_draft"
-      ? `V${selectedVersionOption.versionNumber} (brouillon)`
-      : `Nouveau brouillon depuis V${selectedVersionOption.versionNumber}`
+      ? `${versionBusinessLabel(selectedVersionOption.versionNumber)} (brouillon)`
+      : `Nouveau brouillon depuis ${versionBusinessLabel(selectedVersionOption.versionNumber)}`
     : null;
   const selectionWarning = useMemo(
     () =>
@@ -363,12 +369,17 @@ function LaunchMetreDialogContent({
       if (!nextOpen && isSubmitting) {
         return;
       }
+      if (!nextOpen && !launchSuccess && savePreparationRef.current) {
+        setIsSubmitting(true);
+        void savePreparationRef.current().then(() => onOpenChange(false)).catch((cause) => { setErrorMessage(cause instanceof TakeoffActionError ? cause.message : "Enregistrez la préparation avant de fermer."); }).finally(() => setIsSubmitting(false));
+        return;
+      }
       onOpenChange(nextOpen);
     },
-    [isSubmitting, onOpenChange],
+    [isSubmitting, launchSuccess, onOpenChange],
   );
 
-  const handleLaunch = useCallback(async () => {
+  const handleLaunch = useCallback(async (preparationRevision: number) => {
     if (!selectedPlanSet || !hasPlanFiles) {
       return;
     }
@@ -391,32 +402,38 @@ function LaunchMetreDialogContent({
 
       let resolvedVersionLabel = versionLabel ?? "Brouillon";
       let createdJobId: string | null = null;
+      let resolvedVersionId = selectedOption.id;
       let queuedForRecovery = false;
       let recoveryUnconfirmed = false;
 
       if (selectedOption.mode === "existing_draft") {
-        const result = await launchTakeoffFromPlanSet({
+        const result = unwrapTakeoffActionResult(await launchPreparedTakeoffFromPlanSetAction({
           projectId,
           planSetId: selectedPlanSet.id,
           versionId: selectedOption.id,
           level: selectedLevel,
-        });
+          preparationRevision,
+          ...(provider !== "auto" ? { provider } : {}),
+        }));
         createdJobId = result.jobId;
         queuedForRecovery = result.dispatch?.status === "queued_for_recovery";
         recoveryUnconfirmed =
           result.dispatch?.status === "persistence_unconfirmed";
       } else {
-        const result = await launchTakeoffFromSourceVersionPlanSet({
+        const result = unwrapTakeoffActionResult(await launchPreparedTakeoffFromSourceVersionPlanSetAction({
           projectId,
           planSetId: selectedPlanSet.id,
           sourceVersionId: selectedOption.id,
           level: selectedLevel,
-        });
+          preparationRevision,
+          ...(provider !== "auto" ? { provider } : {}),
+        }));
         createdJobId = result.jobId;
         queuedForRecovery = result.dispatch?.status === "queued_for_recovery";
         recoveryUnconfirmed =
           result.dispatch?.status === "persistence_unconfirmed";
-        resolvedVersionLabel = `Nouveau brouillon depuis V${selectedOption.versionNumber}`;
+        resolvedVersionLabel = `Nouveau brouillon depuis ${versionBusinessLabel(selectedOption.versionNumber)}`;
+        resolvedVersionId = result.versionId;
       }
 
       if (!createdJobId) {
@@ -445,10 +462,10 @@ function LaunchMetreDialogContent({
       setLaunchQueuedForRecovery(queuedForRecovery);
       setLaunchRecoveryUnconfirmed(recoveryUnconfirmed);
       setLaunchSuccess(true);
-      onLaunched?.(createdJobId);
+      onLaunched?.(createdJobId, resolvedVersionId);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Impossible de lancer l'analyse.",
+        error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.",
       );
     } finally {
       setIsSubmitting(false);
@@ -457,6 +474,7 @@ function LaunchMetreDialogContent({
     hasPlanFiles,
     onLaunched,
     projectId,
+    provider,
     selectedLevel,
     selectedPlanSet,
     selectedPlanSetRecommendation,
@@ -467,9 +485,9 @@ function LaunchMetreDialogContent({
 
   return (
     <Dialog disablePointerDismissal open={open} onOpenChange={handleOpenChange}>
-      <DialogContent size="md" showCloseButton={!isSubmitting}>
+      <DialogContent size="lg" showCloseButton={!isSubmitting}>
         <DialogHeader>
-          <DialogTitle>Analyser les plans</DialogTitle>
+          <DialogTitle>Préparer le métré</DialogTitle>
         </DialogHeader>
         <DialogBody>
           {launchSuccess ? (
@@ -513,263 +531,47 @@ function LaunchMetreDialogContent({
             </div>
           ) : (
             <div className="space-y-4">
-              {isLoadingPlanSets && !hasUsablePlanSet ? (
-                <div className="py-6 text-center" role="status">
-                  <p className="text-sm text-muted-foreground">
-                    Chargement des jeux de plans…
-                  </p>
-                </div>
-              ) : selectedPlanSet && hasPlanFiles ? (
-                <>
-                  <div>
-                    {planSetOptions.length > 1 ? (
-                      <>
-                        <label
-                          className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground"
-                          htmlFor="launch-metre-plan-set"
-                        >
-                          Jeu de plans à analyser
-                        </label>
-                        <NativeSelect
-                          id="launch-metre-plan-set"
-                          name="launch-metre-plan-set"
-                          wrapperClassName="mb-2"
-                          value={selectedPlanSet.id}
-                          onChange={(event) => {
-                            setSelectedPlanSetId(event.target.value);
-                            setErrorMessage(null);
-                          }}
-                          disabled={isSubmitting}
-                          autoComplete="off"
-                        >
-                          {planSetOptions.map((option) => (
-                            <option
-                              key={option.id}
-                              value={option.id}
-                              disabled={option.fileCount === 0}
-                            >
-                              {option.name} — {option.fileCount > 0
-                                ? `${option.fileCount} fichier${option.fileCount > 1 ? "s" : ""}`
-                                : "vide"}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      </>
-                    ) : (
-                      <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                        Jeu de plans à analyser
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <Badge variant="info">
-                        {selectedPlanSet.name}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {selectedPlanSet.fileCount} fichier
-                        {selectedPlanSet.fileCount > 1 ? "s" : ""}
-                      </span>
+              {isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
+                <LazyTakeoffPreparationPanel
+                  projectId={projectId}
+                  planSetId={selectedPlanSet.id}
+                  estimateVersionId={selectedVersionOption?.id ?? null}
+                  targetSelectionKey={targetSelectionKey}
+                  disabled={isSubmitting}
+                  launchDisabled={!hasTargetVersion}
+                  onLaunch={handleLaunch}
+                  onBusyChange={setIsSubmitting}
+                  onRegisterSave={registerPreparationSave}
+                  documentControls={<div className="space-y-2">
+                    <label className="block text-sm font-medium" htmlFor="launch-metre-plan-set">Jeu de plans à analyser</label>
+                    <NativeSelect id="launch-metre-plan-set" value={selectedPlanSet.id} onChange={(event) => { setSelectedPlanSetId(event.target.value); setErrorMessage(null); }} disabled={isSubmitting}>
+                      {planSetOptions.map((option) => <option key={option.id} value={option.id} disabled={option.fileCount === 0}>{option.name} — {option.fileCount} fichier{option.fileCount > 1 ? "s" : ""}{option.fileCount === 0 ? " · vide" : ""}</option>)}
+                    </NativeSelect>
+                    <p className="text-xs text-muted-foreground">{isIntakeSyncedPlanSet(selectedPlanSet.source) ? "Plans synchronisés depuis les pièces confirmées du dossier. Confirmez les versions à utiliser pour ce métré." : "Choisissez ensuite les fichiers actifs et les révisions applicables."}</p>
+                    {planSetsLoadError && <Alert variant="warning"><AlertDescription>La liste complète des jeux n’a pas pu être actualisée. <button type="button" className="underline" onClick={() => void reloadPlanSets()}>Réessayer</button></AlertDescription></Alert>}
+                  </div>}
+                  destinationControls={<div className="space-y-2">
+                    <label className="block text-sm font-medium" htmlFor="launch-metre-target-version">Version cible</label>
+                    <NativeSelect id="launch-metre-target-version" value={selectedVersionOption?.id ?? ""} onChange={(event) => { setSelectedVersionId(event.target.value); setTargetSelectionKey((value) => value + 1); }} disabled={isSubmitting || !hasTargetVersion}>
+                      {versionOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                    </NativeSelect>
+                    <p className="text-xs text-muted-foreground">{selectedVersionOption?.helper ?? "Aucune version cible disponible."}</p>
+                  </div>}
+                  advancedControls={<>
+                    <fieldset><legend className="mb-2 text-sm font-medium">Niveau d&apos;analyse</legend><div className="space-y-2" role="radiogroup">
+                      {compatibleAnalysisLevels.map((level) => <label key={level.level} className="flex gap-2 text-sm"><input type="radio" name="analysis-level" value={level.level} checked={selectedLevel === level.level} onChange={() => setSelectedLevel(level.level)} aria-label={level.label} /><span>{level.label}<span className="ml-2 text-xs text-muted-foreground">{level.description}</span></span></label>)}
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {isIntakeSyncedPlanSet(selectedPlanSet.source)
-                        ? "Plans synchronisés depuis le dossier de l'affaire. Seuls les plans confirmés sont repris ici."
-                        : "Vérifiez que ce jeu contient bien les plans à analyser."}
-                    </p>
-                    {planSetsLoadError ? (
-                      <Alert variant="warning" className="mt-3">
-                        <AlertDescription className="text-xs">
-                          <p>
-                            La liste complète des jeux n’a pas pu être actualisée.
-                          </p>
-                          <button
-                            type="button"
-                            className="mt-1 font-semibold text-warning underline"
-                            onClick={() => void reloadPlanSets()}
-                          >
-                            Réessayer
-                          </button>
-                        </AlertDescription>
-                      </Alert>
-                    ) : null}
-                  </div>
-
-                  <div className={!hasTargetVersion ? "opacity-50" : ""}>
-                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Version cible
-                    </p>
-                    {selectedVersionOption ? (
-                      <div className="space-y-2">
-                        <label className="sr-only" htmlFor="launch-metre-target-version">
-                          Version cible
-                        </label>
-                        <NativeSelect
-                          id="launch-metre-target-version"
-                          name="launch-metre-target-version"
-                          value={selectedVersionOption.id}
-                          onChange={(event) => setSelectedVersionId(event.target.value)}
-                          disabled={isSubmitting || !hasTargetVersion}
-                          autoComplete="off"
-                        >
-                          {versionOptions.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="info">
-                            {versionLabel}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {selectedVersionOption.helper}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-subtle-foreground">
-                        Aucune version cible disponible.
-                      </p>
-                    )}
-                  </div>
-
-                  <fieldset className={!hasTargetVersion ? "opacity-50" : ""}>
-                    <legend className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Niveau d&apos;analyse
-                    </legend>
-                    <div className="space-y-2" role="radiogroup">
-                      {compatibleAnalysisLevels.map((level) => (
-                        <label
-                          key={level.level}
-                          aria-label={level.label}
-                          className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
-                            selectedLevel === level.level
-                              ? "border-primary bg-primary/5 cursor-pointer"
-                              : "border-border bg-surface cursor-pointer"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="analysis-level"
-                            value={level.level}
-                            checked={selectedLevel === level.level}
-                            onChange={() => setSelectedLevel(level.level)}
-                            className="mt-0.5"
-                          />
-                          <div>
-                            <span className="text-sm font-medium text-foreground">
-                              {level.label}
-                            </span>
-                            <p className="text-xs text-muted-foreground">
-                              {level.description}
-                            </p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                    {selectedPlanSetRecommendation ? (
-                      <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-                        <p className="text-xs text-foreground-secondary">
-                          Niveau recommandé :{" "}
-                          {selectedPlanSetRecommendation.recommendedLevel ? (
-                            <span className="font-semibold text-primary">
-                              {TAKEOFF_LEVEL_BUSINESS_LABELS[
-                                selectedPlanSetRecommendation.recommendedLevel
-                              ]}
-                            </span>
-                          ) : (
-                            <span className="font-semibold text-warning">
-                              Choix manuel requis
-                            </span>
-                          )}
-                        </p>
-                        {selectionWarning ? (
-                          <p
-                            className={`mt-1 text-xs ${
-                              selectionWarning.severity === "critical"
-                                ? "text-warning"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {selectionWarning.message}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </fieldset>
-
-                  <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
-                    <p className="text-xs text-muted-foreground">
-                      Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
-                    </p>
-                  </div>
-
-                  {errorMessage ? (
-                    <Alert variant="danger">
-                      <AlertDescription className="text-danger">{errorMessage}</AlertDescription>
-                    </Alert>
-                  ) : null}
-
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                    <button
-                      type="button"
-                      className={cn(buttonVariants({ variant: "outline", size: "md" }), "w-full sm:w-auto")}
-                      onClick={() => onOpenChange(false)}
-                      disabled={isSubmitting}
-                    >
-                      Annuler
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(buttonVariants({ variant: "primary", size: "md" }), "w-full sm:w-auto")}
-                      onClick={() => void handleLaunch()}
-                      disabled={isSubmitting || !hasTargetVersion}
-                    >
-                      {versionMode === "create_draft_from_source"
-                        ? "Créer un brouillon et analyser"
-                        : "Analyser maintenant"}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="py-4 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.
-                  </p>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    {planSetsLoadError ? (
-                      <button
-                        type="button"
-                        className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-                        onClick={() => void reloadPlanSets()}
-                      >
-                        Réessayer
-                      </button>
-                    ) : null}
-                    <Link
-                      href={`/dashboard/affaires/${projectId}/plans`}
-                      className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-                    >
-                      Voir les plans
-                    </Link>
-                  </div>
-                </div>
-              )}
-
-              {!hasTargetVersion ? (
-                <Alert variant="warning">
-                  <AlertDescription>
-                  Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.
-                  <div className="mt-3">
-                    <Link
-                      href={`/dashboard/estimates/new?projectId=${projectId}`}
-                      className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-                    >
-                      Créer une première version
-                    </Link>
-                  </div>
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+                    {selectedPlanSetRecommendation?.recommendedLevel && <p className="mt-2 text-xs text-muted-foreground">Niveau recommandé : {TAKEOFF_LEVEL_BUSINESS_LABELS[selectedPlanSetRecommendation.recommendedLevel]}. Le format des pièces ne prouve pas leur lisibilité ni leur échelle.</p>}
+                    {selectionWarning && <p className="mt-2 text-xs text-warning">{selectionWarning.message}</p>}
+                    </fieldset>
+                    <TakeoffProviderSelect value={provider} onChange={setProvider} disabled={isSubmitting} />
+                  </>}
+                />
+              ) : <div className="space-y-3 py-4 text-center"><p className="text-sm text-muted-foreground">Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.</p><Link href={`/dashboard/affaires/${projectId}/plans`} className={buttonVariants({ variant: "outline" })}>Voir les plans</Link>{planSetsLoadError && <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => void reloadPlanSets()}>Réessayer</button>}</div>}
+              {errorMessage && <Alert variant="danger"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
+              {!hasTargetVersion && <Alert variant="warning"><AlertDescription>Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.<div className="mt-3"><Link href={`/dashboard/estimates/new?projectId=${projectId}`} className={buttonVariants({ variant: "outline" })}>Créer une première version</Link></div></AlertDescription></Alert>}
             </div>
+
           )}
         </DialogBody>
       </DialogContent>

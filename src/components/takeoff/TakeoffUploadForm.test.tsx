@@ -1,4 +1,5 @@
 vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: vi.fn().mockResolvedValue(null) }));
+import { webcrypto } from "node:crypto";
 import { cleanup,render,screen,waitFor,within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
@@ -10,6 +11,20 @@ import {
 createTakeoffJob,
 TakeoffApiError,
 } from "@/lib/takeoff/client";
+
+vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
+  TakeoffPreparationPanel: ({ onLaunch, disabled }: { onLaunch: (revision: number) => Promise<void>; disabled: boolean }) => <button type="button" disabled={disabled} onClick={() => void onLaunch(7)}>Confirmer et lancer le métré</button>,
+}));
+
+Object.defineProperty(globalThis.crypto, "subtle", { value: webcrypto.subtle, configurable: true });
+File.prototype.arrayBuffer = function () {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(this);
+  });
+};
 
 const pushMock = vi.fn();
 
@@ -52,7 +67,7 @@ describe("TakeoffUploadForm", () => {
   });
 
   it("keeps file controls inactive in server HTML until hydration can retain the selection", async () => {
-    const form = <TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />;
+    const form = <TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />;
     const container = document.createElement("div");
     container.innerHTML = renderToString(form);
     document.body.append(container);
@@ -60,7 +75,7 @@ describe("TakeoffUploadForm", () => {
     expect(before.getByLabelText("Fichier source")).toBeDisabled();
     expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("aria-disabled", "true");
     expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("tabindex", "-1");
-    for (const radio of before.getAllByRole("radio")) expect(radio).toBeDisabled();
+    for (const radio of before.getAllByRole("radio", { hidden: true })) expect(radio).toBeDisabled();
 
     render(form, { container, hydrate: true });
     const input = before.getByLabelText("Fichier source");
@@ -68,7 +83,7 @@ describe("TakeoffUploadForm", () => {
     expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("aria-disabled", "false");
     await userEvent.setup().upload(input, makeCsvFile());
     expect(before.getByText("niveau-a.csv", { exact: true })).toBeVisible();
-    expect(before.getByRole("button", { name: /lancer l'extraction/i })).toBeEnabled();
+    expect(await before.findByRole("button", { name: /Confirmer et lancer le métré/i })).toBeEnabled();
     expect(createTakeoffJob).not.toHaveBeenCalled();
   });
 
@@ -85,12 +100,13 @@ describe("TakeoffUploadForm", () => {
       )
     );
 
-    render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+    render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
+    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
     await user.upload(fileInput, makeCsvFile());
     await user.click(
-      screen.getByRole("button", { name: /lancer l'extraction/i })
+      await screen.findByRole("button", { name: /Confirmer et lancer le métré/i })
     );
 
     const errorAlert = await screen.findByRole("alert");
@@ -98,12 +114,24 @@ describe("TakeoffUploadForm", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it("keeps the source-change explanation returned by the upload API", async () => {
+    const message = "Les sources ont changé. Vérifiez la préparation avant de relancer.";
+    vi.mocked(createTakeoffJob).mockRejectedValue(new TakeoffApiError(message, 409, null, "TAKEOFF_CONFLICT"));
+    render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+    const user = userEvent.setup();
+    await user.upload(screen.getByLabelText("Fichier source"), makeCsvFile());
+    await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
   it("blocks unsupported file types before API call", async () => {
     const user = userEvent.setup();
     const createTakeoffJobMock = vi.mocked(createTakeoffJob);
 
-    render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+    render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
+    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
     await user.upload(
       fileInput,
@@ -113,10 +141,7 @@ describe("TakeoffUploadForm", () => {
     const errorAlert = await screen.findByRole("alert");
     expect(errorAlert).toHaveTextContent("Extension de fichier non supportee.");
 
-    const submitButton = screen.getByRole("button", {
-      name: /lancer l'extraction/i,
-    });
-    expect(submitButton).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Confirmer et lancer le métré/i })).not.toBeInTheDocument();
     expect(createTakeoffJobMock).not.toHaveBeenCalled();
   });
 
@@ -138,19 +163,19 @@ describe("TakeoffUploadForm", () => {
 
     render(
       <TakeoffUploadForm
-        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         onSuccess={vi.fn()}
       />
     );
     await user.upload(screen.getByLabelText("Fichier source"), makeCsvFile());
     await user.click(
-      screen.getByRole("button", { name: /lancer l'extraction/i })
+      await screen.findByRole("button", { name: /Confirmer et lancer le métré/i })
     );
 
     expect(
-      await screen.findByRole("button", { name: "Extraction en attente" })
+      await screen.findByRole("status")
     ).toBeInTheDocument();
-    expect(screen.getByText(/sera relancé automatiquement/i)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/sera relancé automatiquement/i);
   });
 
   it("reuses the same idempotency key when retrying the same file", async () => {
@@ -165,15 +190,16 @@ describe("TakeoffUploadForm", () => {
         new TakeoffApiError("Erreur reseau pendant l'envoi du fichier.", 0, null, "NETWORK_ERROR")
       );
 
-    render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+    render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
+    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
     await user.upload(fileInput, makeCsvFile());
 
-    await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+    await user.click(await screen.findByRole("button", { name: /Confirmer et lancer le métré/i }));
     await screen.findByRole("alert");
 
-    await user.click(screen.getByRole("button", { name: /réessayer l'extraction/i }));
+    await user.click(await screen.findByRole("button", { name: /Confirmer et lancer le métré/i }));
 
     await waitFor(() => {
       expect(createTakeoffJobMock).toHaveBeenCalledTimes(2);
@@ -191,11 +217,12 @@ describe("TakeoffUploadForm", () => {
 
     render(
       <TakeoffUploadForm
-        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         allowedLevels={["B", "C"]}
       />
     );
 
+    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
 
     await user.upload(fileInput, makePdfFile("dpgf-initial.pdf"));
@@ -214,8 +241,9 @@ describe("TakeoffUploadForm", () => {
     const user = userEvent.setup();
     const createTakeoffJobMock = vi.mocked(createTakeoffJob);
 
-    render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+    render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
+    await user.click(screen.getByText("Options avancées du traitement"));
     await user.click(screen.getByRole("radio", { name: /niveau b/i }));
     await user.upload(
       screen.getByLabelText("Fichier source"),
@@ -231,12 +259,13 @@ describe("TakeoffUploadForm", () => {
     expect(screen.getByRole("radio", { name: /niveau c/i })).toBeDisabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+    await user.click(await screen.findByRole("button", { name: /Confirmer et lancer le métré/i }));
 
     await waitFor(() => {
       expect(createTakeoffJobMock).toHaveBeenCalledWith(
         expect.objectContaining({
           level: "A",
+          preparationRevision: 7,
           file: expect.any(File),
         })
       );
@@ -248,14 +277,15 @@ it("sends an explicit provider choice and uses a fresh idempotency key when it c
   vi.mocked(loadChatGptConnection).mockResolvedValueOnce({ enabled: true, selectedId: "profile", model: "plan-model", sharing: true, profiles: [] });
   vi.mocked(createTakeoffJob).mockRejectedValue(new Error("Temporary failure"));
   const user = userEvent.setup();
-  render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+  render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+  await user.click(screen.getByText("Options avancées du traitement"));
   const provider = await screen.findByLabelText("Fournisseur IA");
   await user.upload(screen.getByLabelText("Fichier source"), makeCsvFile());
   await user.selectOptions(provider, "gemini");
-  await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+  await user.click(await screen.findByRole("button", { name: /Confirmer et lancer le métré/i }));
   await waitFor(() => expect(createTakeoffJob).toHaveBeenCalledTimes(1));
   await user.selectOptions(provider, "chatgpt");
-  await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+  await user.click(await screen.findByRole("button", { name: /Confirmer et lancer le métré/i }));
   await waitFor(() => expect(createTakeoffJob).toHaveBeenCalledTimes(2));
   const [first, second] = vi.mocked(createTakeoffJob).mock.calls.map(([input]) => input);
   expect(first.provider).toBe("gemini"); expect(second.provider).toBe("chatgpt");

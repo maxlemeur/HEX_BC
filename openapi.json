@@ -60647,12 +60647,17 @@
               "chatgpt",
               "gemini"
             ]
+          },
+          "preparation_revision": {
+            "type": "string",
+            "pattern": "^[1-9]\\d*$"
           }
         },
         "required": [
           "file",
           "estimate_version_id",
-          "level"
+          "level",
+          "preparation_revision"
         ]
       },
       "ApiTakeoffJobCreateResponse": {

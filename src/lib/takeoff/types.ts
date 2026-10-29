@@ -81,6 +81,7 @@ export type TakeoffProvider = "auto" | "chatgpt" | "gemini";
 export type TakeoffJobCreateInput = {
   provider?: TakeoffProvider;
   estimateVersionId: string;
+  preparationRevision?: number;
   level: TakeoffLevel;
   file: File;
   idempotencyKey?: string;

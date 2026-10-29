@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTakeoffUploadPath,
   deriveDeterministicJobId,
+  derivePlanSetTakeoffJobId,
   extractPayloadFingerprint,
   prepareTakeoffUploadSource,
 } from "@/lib/takeoff/job-creation-input";
@@ -43,6 +44,15 @@ describe("takeoff upload identity", () => {
     const pdf = { ...SOURCE, level: "B" as const, file: { name: "plan.pdf", type: "application/pdf", size: 48 } };
     expect(prepareTakeoffUploadSource({ ...pdf, file: { ...pdf.file, type: "application/octet-stream" } }))
       .toEqual(prepareTakeoffUploadSource(pdf));
+  });
+
+  it("distinguishes preparation revisions and recovers the same prepared plan launch", () => {
+    const one = prepareTakeoffUploadSource({ ...SOURCE, preparationRevision: 2 }).payloadFingerprint;
+    expect(prepareTakeoffUploadSource({ ...SOURCE, preparationRevision: 3 }).payloadFingerprint).not.toBe(one);
+    const plan = { tenantId: TENANT_ID, projectId: "project", planSetId: "plans", estimateVersionId: VERSION_ID, preparationRevision: 2 };
+    expect(derivePlanSetTakeoffJobId(plan)).toBe(derivePlanSetTakeoffJobId({ ...plan }));
+    expect(derivePlanSetTakeoffJobId(plan)).not.toBe(derivePlanSetTakeoffJobId({ ...plan, preparationRevision: 3 }));
+    expect(derivePlanSetTakeoffJobId({ ...plan, sourceVersionId: VERSION_ID })).toBe(derivePlanSetTakeoffJobId({ ...plan, estimateVersionId: "concurrent-fork", sourceVersionId: VERSION_ID }));
   });
 
   it("gives concurrent attempts different owned paths while preserving their replay identity", () => {

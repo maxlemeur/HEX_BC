@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { expect } from "e2e";
 
@@ -6,9 +8,11 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, type ArmyEstimate, type ArmyItem,
 } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, requireLocalPlansBackend, uploadSamplePlan } from "../critical/plans-support";
+import { fillTakeoffPreparation, openTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
+import { querySql } from "./calculation-gate-support";
 import {
   ENGINE_UNAVAILABLE, TAKEOFF_V3_REASON,
-  callServerAction, captureScreen, chooseRounding, chooseTemplate, chooseV2FixedMargin, closePolicy,
+  callServerAction, captureScreen, chooseRounding, chooseTemplate, chooseV2FixedMargin, closePolicy, confirmTakeoffPreparationViaAction,
   createAffaireFromOnboarding, createLaborRole, createTuyauteur, createV2Affaire, createV2Version, createV3Version,
   estimateFacts, fillLabelled, fillProjectStep, insertTemplateOracle, instantiateTemplate, linkDpgfThroughHub, nextStep,
   openPolicy3, openWizard, ownedProjectIdsNamed, policySnapshot, readPricingStep, saveTemplate, seedV2Lines,
@@ -393,47 +397,82 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
       jobs = ownedTakeoffJobs(browser, estimate);
       await switchToExpertMode(ui);
       const planSet = await createPlanSet(ui, army, estimate, `${army.runPrefix} lot metre v3`);
-      await uploadSamplePlan(ui, army, planSet);
-      // Proposition d'analyse du hub, affichée tant que la v3 (V2) n'a pas de ligne (affaire neuve).
-      await app.open(`/dashboard/affaires/${anchor.projectId}`);
-      const prompt = screen.getByRole("region", "Proposition d'analyse automatique", { exact: true });
-      await expect(prompt).toBeVisible({ timeout: 60_000 });
-      const proposal = {
-        targetsV3: (await prompt.getByText("Version cible : V2 (brouillon)", { exact: true }).count()) > 0,
-        reasonShown: (await prompt.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0,
-        launchEnabled: await prompt.getByRole("button", "Analyser maintenant", { exact: true }).isEnabled(),
+      const plan = await uploadSamplePlan(ui, army, planSet);
+      const openPlanPreparation = async () => {
+        // The hub follows a pending request; the plan center remains the explicit
+        // entry for consulting its preparation and recovering the same request.
+        await app.open(`/dashboard/affaires/${anchor.projectId}/plans`);
+        await screen.getByRole("heading", planSet.name, { exact: true }).click();
+        const link = screen.getByRole("link", "Analyser ce jeu", { exact: true });
+        await expect(link).toHaveAttribute("href", `/dashboard/affaires/${anchor.projectId}/takeoff?launch=1&launchPlanSet=${planSet.id}`);
+        await link.click();
+        const preparation = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+        await expect(preparation).toBeVisible();
+        return preparation;
       };
-      await prompt.scrollIntoView();
+      // La préparation du hub reste accessible sur une v3, avant toute ligne de devis.
+      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      const prompt = screen.getByRole("region", "Préparation du métré", { exact: true });
+      await expect(prompt).toBeVisible({ timeout: 60_000 });
+      const prepare = prompt.getByRole("button", "Préparer le métré", { exact: true });
+      const preparationEnabled = await prepare.isEnabled();
+      await prepare.click();
+      let dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+      await dialog.getByRole("button", /Vérifier et lancer$/).click();
+      const proposal = {
+        targetsV3: await dialog.getByLabel("Version cible", { exact: true }).inputValue() === versionId,
+        reasonShown: (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0,
+        launchEnabled: preparationEnabled,
+      };
       await captureScreen(ui, army, "v3c08-takeoff-proposal");
-      // Une ligne dans la v3 : le hub quitte l'état d'affaire neuve et montre « Analyser les plans » (HUB01).
+      await browser.keyboard.press("Escape");
+      // Une ligne dans la v3 conserve l'accès manuel à la même préparation (HUB01).
       await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
-      await screen.getByRole("button", "Plus", { exact: true }).click();
-      await screen.getByRole("menuitem", "Analyser les plans", { exact: true }).click();
-      const dialog = screen.getByRole("dialog");
-      await expect(dialog.getByRole("heading", "Analyser les plans", { exact: true })).toBeVisible();
+      await openTakeoffPreparation({ ...ui, army });
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
       const target = await dialog.getByLabel("Version cible", { exact: true }).inputValue();
       const reasonShown = (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0;
-      const launchEnabled = await dialog.getByRole("button", "Analyser maintenant", { exact: true }).isEnabled();
+      const launchEnabled = await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).isEnabled();
       await captureScreen(ui, army, "v3c08-takeoff-dialog");
-      // Entrée de l'API (fichier de métré niveau A) : la tâche est créée sur la v3 ; le garde de campagne retient le worker.
-      const api = await browser.evaluate(async (input) => {
-        const form = new FormData();
-        form.set("file", new File([input.csv], input.name, { type: "text/csv" }));
-        form.set("estimate_version_id", input.versionId);
-        form.set("level", "A");
-        const response = await fetch("/api/takeoff/jobs", { method: "POST", credentials: "same-origin", body: form });
-        let body: { error?: { code?: string; message?: string } } | null = null;
-        try { body = await response.json(); } catch { body = null; }
-        return { status: response.status, code: body?.error?.code ?? null, message: body?.error?.message ?? null };
-      }, { csv: "designation;quantity;unit\nBloc beton;12;u", name: `${army.runPrefix}-metre.csv`, versionId });
+      await saveTakeoffPreparation({ ...ui, army });
+      await browser.keyboard.press("Escape");
+      // Le fichier de métré niveau A confirme sa propre préparation avant la création réelle sur la v3.
+      const csvName = `${army.runPrefix}-metre.csv`;
+      const csvPath = path.resolve(".e2e/army/critical/artifacts/fixtures", csvName);
+      await mkdir(path.dirname(csvPath), { recursive: true });
+      await writeFile(csvPath, "designation;quantity;unit\nBloc beton;12;u");
+      await app.open(`/dashboard/estimates/${versionId}/takeoff/new`);
+      const upload = screen.getByLabel("Fichier source", { exact: true });
+      await expect(upload).toBeEnabled();
+      await upload.setInputFiles(csvPath);
+      await fillTakeoffPreparation({ ...ui, army }, { sources: [csvName], objective: "extract_quantities", unit: "u",
+        inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "" }, browser.locator("form").last());
+      const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
+        screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click()]);
+      const uploaded = await created.json<{ error?: { code?: string; message?: string } }>();
+      const api = { status: created.status, code: uploaded.error?.code ?? null, message: uploaded.error?.message ?? null };
       // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
       // l'analyse du jeu de plans est lancée sur elle (niveau B).
+      await openPlanPreparation();
+      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      await saveTakeoffPreparation({ ...ui, army });
+      const preparationRevision = async () => {
+        const [row] = await querySql(`select revision from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
+        if (!row || !/^\d+$/.test(row)) throw new Error("Owned v3 preparation revision unavailable.");
+        return Number(row);
+      };
+      const confirmation = await confirmTakeoffPreparationViaAction(browser, {
+        actionId: await serverActionId("confirmTakeoffPreparationAction"),
+        projectId: anchor.projectId, expectedRevision: await preparationRevision(),
+      });
+      expect(confirmation).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
+      expect(confirmation.revision).toBeGreaterThan(0);
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
       const action = await callServerAction(browser, await serverActionId("launchTakeoffFromSourceVersionPlanSet"),
-        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B" });
+        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B", preparationRevision: confirmation.revision });
       const versionsAfter = await storedVersions(owner, anchor.projectId);
       const copy = versionsAfter.find((version) => !versionsBefore.some((known) => known.id === version.id)) ?? null;
       if (copy) {
@@ -444,9 +483,28 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
         versionsAdded: versionsAfter.length - versionsBefore.length,
         versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - insertsBefore,
         copyEngine: copy?.engine ?? null, copyJobLevels: copyJobs ? (await copyJobs.list()).map((job) => job.level) : [] };
+      if (!copy || !copyJobs) throw new Error("The source-version launch did not create its owned fork.");
+      const forkJobs = await copyJobs.list();
+      const beforeReopenRevision = await preparationRevision();
+      const reopenedDialog = await openPlanPreparation();
+      await reopenedDialog.getByRole("button", /Vérifier et lancer$/).click();
+      const reopenedTarget = await reopenedDialog.getByLabel("Version cible", { exact: true }).inputValue();
+      // Rejouer le même niveau B que la demande source ; le niveau recommandé peut être C.
+      await reopenedDialog.getByText("Options avancées", { exact: true }).click();
+      const replayLevel = reopenedDialog.getByRole("radio", "Standard", { exact: true });
+      await replayLevel.check();
+      await expect(replayLevel).toBeChecked();
+      await expect(reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
+      await reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+      await expect(reopenedDialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
+      const replayedForkJobs = await copyJobs.list();
+      const reopen = { targetIsCopy: reopenedTarget === copy.id,
+        preparationRevisionPreserved: await preparationRevision() === beforeReopenRevision,
+        versionsAdded: (await storedVersions(owner, anchor.projectId)).length - versionsAfter.length,
+        sameJobIds: JSON.stringify(replayedForkJobs.map((job) => job.id)) === JSON.stringify(forkJobs.map((job) => job.id)) };
       const written = await jobs.list();
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
-        api: [api.status, api.code], fromSource, jobLevels: written.map((job) => job.level),
+        api: [api.status, api.code], fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
       await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, copyId: copy?.id ?? null, written, observed });
       expect(observed).toEqual({
@@ -454,6 +512,7 @@ armyTest("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, 
         dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },
         api: [201, null],
         fromSource: { status: 200, masked: false, versionsAdded: 1, versionsInserted: 1, copyEngine: 3, copyJobLevels: ["B"] },
+        reopen: { targetIsCopy: true, preparationRevisionPreserved: true, versionsAdded: 0, sameJobIds: true },
         jobLevels: ["A"], policyUnchanged: true,
       });
     } finally {
