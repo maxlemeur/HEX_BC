@@ -78,11 +78,14 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
   // entry is created through the application, not fabricated by the test.
   await app.open(`/dashboard/affaires/${ids.projectId}`);
   await screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
-  const details = screen.getByRole("dialog", "Document et provenance", { exact: true });
+  const details = screen.getByRole("dialog", "Document et détails", { exact: true });
   await details.getByRole("button", "Reclasser", { exact: true }).click();
   await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "dpgf" });
   await details.getByRole("button", "Valider", { exact: true }).click();
+  // The document desk keeps the dialog open while classification is pending.
+  await expect(details.getByRole("button", "Supprimer la copie", { exact: true })).toBeEnabled();
   await details.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(details).toBeHidden();
   const activeGaps = async () => {
     const result = await client.from("affaire_register_entries").select("code").eq("project_id", ids.projectId)
       .eq("kind", "missing_piece").eq("is_active", true);
@@ -98,7 +101,8 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
   }, { projectId: ids.projectId, documentId: copy.documentId });
   expect(denied).toEqual([404, 404]);
 
-  await screen.getByRole("button", "Lancer l'import structuré", { exact: true }).first().click();
+  await screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Validés/).click();
+  await screen.getByRole("button", "Importer cette DPGF", { exact: true }).click();
   await expect(screen.getByRole("button", "Lancer l'import", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(screen.getByText(/DPGF du dossier.*exemple-dpgf\.xlsx/)).toBeVisible();
   const selectedDpgfScreenshot = await app.screenshot("DOG01-dpgf-selection");
@@ -262,11 +266,14 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
     classification: { classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 } });
   await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
-  const details = ui.screen.getByRole("dialog", "Document et provenance", { exact: true });
+  const details = ui.screen.getByRole("dialog", "Document et détails", { exact: true });
   await details.getByRole("button", "Reclasser", { exact: true }).click();
   await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "plans" });
   await details.getByRole("button", "Valider", { exact: true }).click();
+  // The document desk keeps the dialog open while classification is pending.
+  await expect(details.getByRole("button", "Supprimer la copie", { exact: true })).toBeEnabled();
   await details.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(details).toBeHidden();
   await expect.poll(async () => (await readPlanSets(ui.browser, ids.projectId)).length, { timeout: 30_000 }).toBe(1);
   const [set] = await readPlanSets(ui.browser, ids.projectId);
   await expect.poll(async () => (await readPlanFiles(ui.browser, set.id)).length, { timeout: 30_000 }).toBe(1);
@@ -280,6 +287,7 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   const refused = await ui.browser.evaluate(async ({ setId, fileId }) => (await fetch(`/api/takeoff/plan-sets/${setId}/files/${fileId}`, { method: "DELETE" })).status,
     { setId: set.id, fileId: plan.id });
   expect(refused).toBe(409);
+  await ui.screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Validés/).click();
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   await ui.screen.getByRole("button", "Supprimer la copie", { exact: true }).click();
   await ui.screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();

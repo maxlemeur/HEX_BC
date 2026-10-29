@@ -350,7 +350,7 @@ export async function serverActionId(name: string, manifest = ".e2e/army/next/se
 
 /**
  * Calls a server action of the current page as its client does (one argument of plain JSON). Status and error
- * digest only: production masks a thrown error.
+ * digest plus the public failure envelope only; never retain the raw Flight payload.
  */
 export async function callServerAction(browser: Browser, id: string, argument: Record<string, JsonValue>) {
   return browser.evaluate(async (input) => {
@@ -359,7 +359,20 @@ export async function callServerAction(browser: Browser, id: string, argument: R
       headers: { "content-type": "text/plain;charset=UTF-8", "next-action": input.id }, body: JSON.stringify([input.argument]),
     });
     const text = await response.text();
-    return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null };
+    const envelopes: Array<{ ok: boolean; error?: { status?: number; code?: string; message?: string } }> = [];
+    for (const line of text.split(/\r?\n/)) {
+      const separator = line.indexOf(":");
+      if (separator < 0) continue;
+      try {
+        const value = JSON.parse(line.slice(separator + 1));
+        if (value && typeof value === "object" && typeof value.ok === "boolean") envelopes.push(value);
+      } catch { /* Flight also contains non-JSON records. */ }
+    }
+    const envelope = envelopes.length === 1 ? envelopes[0] : null;
+    return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null,
+      ok: envelope?.ok ?? null, errorStatus: envelope?.error?.status ?? null,
+      errorCode: envelope?.error?.code ?? (envelope ? null : "INVALID_ACTION_ENVELOPE"),
+      errorMessage: envelope?.error?.message ?? null };
   }, { id, argument });
 }
 
