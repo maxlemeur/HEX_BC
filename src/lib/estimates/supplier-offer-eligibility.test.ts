@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 
 // Isolation exception: value/quantity safety must remain verifiable while the
@@ -23,6 +23,23 @@ describe("supplier offer applicability", () => {
     expect(supplierOfferIneligibility({ ...priced, valid_to: "2026-10-01" }, context)).toBe("Offre expirée");
     expect(supplierOfferIneligibility({ ...priced, valid_from: context.today, valid_to: context.today }, context)).toBeNull();
   });
+  // Real midnight regression: local preview accepted the next day's offer while
+  // purchase creation correctly rejected it using the SQL function's UTC date.
+  it("uses the UTC purchase calendar when the local day has already changed", () => {
+    vi.stubEnv("TZ", "Europe/Paris");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-29T23:30:00.000Z"));
+    try {
+      expect(new Date().getDate()).toBe(30);
+      const input = { currency: "EUR", quantity: 30, unit: "m" };
+      expect(supplierOfferIneligibility({ ...priced, valid_from: "2026-10-30" }, input)).toBe("Offre pas encore valable");
+      expect(supplierOfferIneligibility({ ...priced, valid_from: "2026-10-29", valid_to: "2026-10-29" }, input)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("keeps the currency fence consistent with manual selection", () => {
     expect(supplierOfferIneligibility({ ...priced, currency: "USD" }, context)).toBe("Conversion de devise requise");
     expect(supplierOfferIneligibility({ ...priced, currency: "EUR" }, context)).toBeNull();

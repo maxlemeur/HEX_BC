@@ -29,8 +29,8 @@ export function supplierOfferIneligibility(
     if (ordered === null) return "Quantité du devis à préciser";
     if (ordered < offer.min_quantity) return `Minimum ${offer.min_quantity} ${offer.unit || "u"}`;
   }
-  const now = new Date();
-  const today = input.today ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  // Purchase creation evaluates validity against clock_timestamp() at time zone 'UTC'.
+  const today = input.today ?? new Date().toISOString().slice(0, 10);
   if (offer.valid_from && offer.valid_from > today) return "Offre pas encore valable";
   if (offer.valid_to && offer.valid_to < today) return "Offre expirée";
   return null;
