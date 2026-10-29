@@ -175,6 +175,7 @@ const GUARD_CASES: GuardCase[] = [
 const ARMY_ROUTE_GUARD_CONTINUES: Record<string, number> = {
   "e2e/army/anonymous-login.e2e.ts | beforeEach | **/*": 1,
   "e2e/army/public-navigation.e2e.ts | beforeEach | **/*": 1,
+  "e2e/army/public-pages.e2e.ts | beforeEach | **/*": 1,
   "e2e/army/critical/access-boundaries.e2e.ts | test | **/*": 1,
   "e2e/army/critical/fixtures.ts | restrictCriticalBrowser | **/*": 1,
   "e2e/army/local/brief-evidence.e2e.ts | test | **/*": 1,

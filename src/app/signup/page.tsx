@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LegalLinks } from "@/components/public/legal-links";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -140,6 +141,7 @@ export default function SignupPage() {
           </Link>
         </p>
       </div>
+      <div className="mt-8 max-w-md"><LegalLinks /></div>
     </main>
   );
 }
