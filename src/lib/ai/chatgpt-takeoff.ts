@@ -8,7 +8,8 @@ import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import type { CallGeminiStructuredOptions } from "@/lib/takeoff/gemini-client";
+import type { CallGeminiStructuredOptions, CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import type { TakeoffProvider } from "@/lib/takeoff/types";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 
@@ -55,7 +56,13 @@ export async function assertLocalTakeoffExecutionHost(job: TakeoffJobProcessingR
   return job.execution_host_id;
 }
 
-export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow) {
+type LocalTakeoffProvider = {
+  model: string;
+  reasoningEffort?: ChatGptReasoningEffort | null;
+  call: <T>(options: CallGeminiStructuredOptions<T>) => Promise<CallGeminiStructuredResult<T>>;
+};
+
+export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow): Promise<LocalTakeoffProvider | null> {
   if (job.execution_provider !== "chatgpt_local") return null;
   await assertLocalTakeoffExecutionHost(job);
   // The persisted job supplies ownership, never the triggering HTTP session.
@@ -79,9 +86,10 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
     code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
     message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré.",
   });
-  const selection = { profileId: profile.id, model: profile.model };
+  const selection = { profileId: profile.id, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null };
   return {
     model: selection.model,
+    reasoningEffort: selection.reasoningEffort,
     call: async <T>(options: CallGeminiStructuredOptions<T>) => {
       await assertOwnerActive();
       try {
@@ -94,7 +102,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
           retryable: false, jobId: job.id,
           message: error instanceof Error && error.message.startsWith("Limite du forfait ChatGPT")
             ? "Limite du forfait ChatGPT atteinte. Consultez Gérer ma consommation dans Mon profil."
-            : "Le métré ChatGPT a échoué. Vérifiez le compte, le modèle et la connexion dans Mon profil, puis relancez le métré.",
+            : "Le métré ChatGPT a échoué. Vérifiez le compte, le modèle, le niveau d’effort et la connexion dans Mon profil, puis relancez le métré.",
           details: { provider: "chatgpt" },
         });
       }

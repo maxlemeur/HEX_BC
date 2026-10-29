@@ -2,8 +2,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { UserProvider, useUserContext } from "@/components/UserContext";
+import type { UserProfile } from "@/lib/auth/server";
+import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
+import type { PreparationAdvancedControlsContext } from "@/components/takeoff/TakeoffPreparationPanel";
 import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
+
+const loadChatGptConnectionMock = vi.hoisted(() => vi.fn());
+vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
 
 const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn() }));
 vi.mock("@/app/dashboard/affaires/_actions/takeoff-preparation", () => ({
@@ -23,7 +30,7 @@ const SOURCE = takeoffPreparationSourceSchema.parse({ document_id: "plan-1", doc
 
 function completePreparation(): TakeoffPreparation {
   const draft = createEmptyTakeoffPreparation({ estimateVersionId: VERSION_ID });
-  return { ...draft, objective: "count", objective_confirmed: true, scope: { ...draft.scope, lots: ["Plomberie"], levels: ["R+1"], zones: ["Zone 1"], exclusions: ["RDC"], confirmed: true }, sources: [SOURCE], conventions: { ...draft.conventions, unit: "u", measurement_basis: "documented", confirmed: true }, destination: { ...draft.destination, reviewer: "Chargé d'affaires", confirmed: true } };
+  return { ...draft, processing: { level: "B", provider: "auto" }, objective: "count", objective_confirmed: true, scope: { ...draft.scope, lots: ["Plomberie"], levels: ["R+1"], zones: ["Zone 1"], exclusions: ["RDC"], confirmed: true }, sources: [SOURCE], conventions: { ...draft.conventions, unit: "u", measurement_basis: "documented", confirmed: true }, destination: { ...draft.destination, reviewer: "Chargé d'affaires", confirmed: true } };
 }
 
 function success<T>(data: T) { return { ok: true as const, data }; }
@@ -40,6 +47,7 @@ beforeEach(() => {
   stored = completePreparation();
   storedRevision = 5;
   storedConfirmedAt = null;
+  loadChatGptConnectionMock.mockResolvedValue(null);
   actions.load.mockImplementation(async () => success(state()));
   actions.save.mockImplementation(async ({ draft, expectedRevision }) => {
     if (expectedRevision !== storedRevision) throw new Error("La préparation a changé.");
@@ -62,7 +70,112 @@ afterEach(cleanup);
 
 const props = { projectId: PROJECT_ID, planSetId: PLAN_SET_ID, estimateVersionId: VERSION_ID };
 
+function processingControls({ processing, onProcessingChange, isConfirmed }: PreparationAdvancedControlsContext) {
+  return <div>
+    {(["A", "B", "C"] as const).map((level) => <label key={level}><input type="radio" name="persisted-processing-level" checked={processing.level === level} onChange={() => onProcessingChange({ level })} />{{ A: "Rapide", B: "Standard", C: "Détaillé" }[level]}</label>)}
+    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} preserveAutomaticChoice={isConfirmed} />
+  </div>;
+}
+
 describe("TakeoffPreparationPanel", () => {
+  it("restores saved Standard and Gemini after reopening despite a Detailed recommendation and launches those exact settings", async () => {
+    stored.processing = { level: "B", provider: "gemini" };
+    storedConfirmedAt = "2026-10-29T12:00:00Z";
+    const user = userEvent.setup();
+    const onLaunch = vi.fn();
+    const view = render(<TakeoffPreparationPanel {...props} recommendedLevel="C" advancedControls={processingControls} onLaunch={onLaunch} />);
+    await user.click(await screen.findByText("Options avancées"));
+    expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
+    expect(screen.getByLabelText("Fournisseur IA")).toHaveValue("gemini");
+    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    expect(actions.save).not.toHaveBeenCalled();
+    view.unmount();
+
+    render(<TakeoffPreparationPanel {...props} recommendedLevel="C" advancedControls={processingControls} onLaunch={onLaunch} />);
+    await user.click(await screen.findByText("Options avancées"));
+    expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
+    expect(screen.getByLabelText("Fournisseur IA")).toHaveValue("gemini");
+    await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5, { level: "B", provider: "gemini" }));
+    expect(actions.save).not.toHaveBeenCalled();
+  });
+
+  it("persists explicit level and provider edits, invalidates confirmation, and restores them after reload", async () => {
+    stored.processing = { level: "B", provider: "gemini" };
+    storedConfirmedAt = "2026-10-29T12:00:00Z";
+    loadChatGptConnectionMock.mockResolvedValue({ enabled: true, selectedId: "profile", model: "plan-model", sharing: true, profiles: [] });
+    const originalScope = structuredClone(stored.scope);
+    const user = userEvent.setup();
+    const view = render(<TakeoffPreparationPanel {...props} advancedControls={processingControls} onLaunch={vi.fn()} />);
+    await user.click(await screen.findByText("Options avancées"));
+    await user.click(screen.getByRole("radio", { name: "Détaillé" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /ChatGPT — forfait local/ })).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText("Fournisseur IA"), "chatgpt");
+    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await waitFor(() => expect(stored.processing).toEqual({ level: "C", provider: "chatgpt" }));
+    expect(storedConfirmedAt).toBeNull();
+    expect(stored.scope).toEqual(originalScope);
+    view.unmount();
+
+    const onLaunch = vi.fn();
+    render(<TakeoffPreparationPanel {...props} recommendedLevel="B" advancedControls={processingControls} onLaunch={onLaunch} />);
+    await user.click(await screen.findByText("Options avancées"));
+    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
+    expect(screen.getByLabelText("Fournisseur IA")).toHaveValue("chatgpt");
+    await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(7, { level: "C", provider: "chatgpt" }));
+  });
+
+  it("preserves incompatible saved settings until an explicit repair rather than using the new source recommendation", async () => {
+    stored.processing = { level: "C", provider: "chatgpt" };
+    storedConfirmedAt = "2026-10-29T12:00:00Z";
+    const user = userEvent.setup();
+    render(<TakeoffPreparationPanel {...props} recommendedLevel="A" compatibleLevels={["A"]} advancedControls={processingControls} onLaunch={vi.fn()} />);
+    expect(await screen.findByText(/Le niveau enregistré n’est pas compatible/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
+    await user.click(screen.getByText("Options avancées"));
+    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
+    expect(screen.getByLabelText("Fournisseur IA")).toHaveValue("chatgpt");
+    expect(await screen.findByText(/Le fournisseur ChatGPT enregistré est actuellement indisponible/)).toBeInTheDocument();
+    expect(actions.save).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("radio", { name: "Rapide" }));
+    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await waitFor(() => expect(stored.processing).toEqual({ level: "A", provider: "chatgpt" }));
+  });
+
+  it("initializes legacy unset processing once and never replaces it with a later recommendation", async () => {
+    stored.processing = { level: null, provider: "auto" };
+    const user = userEvent.setup();
+    const view = render(<TakeoffPreparationPanel {...props} recommendedLevel="C" advancedControls={processingControls} onLaunch={vi.fn()} />);
+    await user.click(await screen.findByText("Options avancées"));
+    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await waitFor(() => expect(stored.processing.level).toBe("C"));
+    actions.save.mockClear();
+    view.rerender(<TakeoffPreparationPanel {...props} recommendedLevel="B" advancedControls={processingControls} onLaunch={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    expect(actions.save).not.toHaveBeenCalled();
+  });
+
+  it("clears the displayed preparation immediately when the active tenant changes", async () => {
+    const profile: UserProfile = { id: "user-a", full_name: "User", phone: null, job_title: null, work_email: null, role: "admin", ui_mode: "simplified", tenant_id: "tenant-a", tenant_role: "admin" };
+    let resolveLoad: (value: unknown) => void = () => undefined;
+    actions.load.mockResolvedValueOnce(success(state())).mockImplementationOnce(() => new Promise((resolve) => { resolveLoad = resolve; }));
+    function SwitchTenant() {
+      const { setProfile } = useUserContext();
+      return <button type="button" onClick={() => setProfile({ ...profile, tenant_id: "tenant-b" })}>Changer d’organisation</button>;
+    }
+    render(<UserProvider initialUserEmail="user@example.test" initialProfile={profile}><SwitchTenant /><TakeoffPreparationPanel {...props} advancedControls={processingControls} onLaunch={vi.fn()} /></UserProvider>);
+    expect(await screen.findByText(/Réglages du traitement : Standard/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Changer d’organisation" }));
+    expect(screen.queryByText(/Réglages du traitement : Standard/)).not.toBeInTheDocument();
+    expect(screen.getByText("Chargement de la préparation…")).toBeInTheDocument();
+    resolveLoad({ ok: false, error: { status: 403, code: "FORBIDDEN", message: "Affaire inaccessible dans cette organisation.", retryable: false } });
+    expect(await screen.findByText("Affaire inaccessible dans cette organisation.")).toBeInTheDocument();
+    expect(actions.save).not.toHaveBeenCalled();
+  });
+
   it("allows editing and saving without an estimate target while keeping launch disabled", async () => {
     stored.destination.estimate_version_id = null;
     const user = userEvent.setup();
@@ -90,7 +203,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(launch).toBeEnabled();
     expect(screen.queryByText(/La comparaison nécessite le DPGF/)).not.toBeInTheDocument();
     await userEvent.setup().click(launch);
-    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(6, { level: "B", provider: "auto" }));
     expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
   });
 
@@ -104,7 +217,7 @@ describe("TakeoffPreparationPanel", () => {
     await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     expect(actions.save).not.toHaveBeenCalled();
     await user.click(launch);
-    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(5));
+    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(5, { level: "B", provider: "auto" }));
     expect(actions.save).not.toHaveBeenCalled();
     expect(actions.confirm).toHaveBeenLastCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
     expect(screen.getByText("Conserve vos réponses et ouvre une nouvelle préparation.")).toBeInTheDocument();
@@ -120,7 +233,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(actions.save).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
-    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(7));
+    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(7, { level: "B", provider: "auto" }));
     expect(actions.confirm).toHaveBeenLastCalledWith({ projectId: PROJECT_ID, expectedRevision: 6 });
     expect(stored).toEqual(original);
   });
@@ -137,7 +250,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(stored.destination.estimate_version_id).toBe(VERSION_ID);
     expect(screen.getByText(/La destination enregistrée est conservée/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
-    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5, { level: "B", provider: "auto" }));
     expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
     expect(stored).toEqual(original);
     expect(actions.save).not.toHaveBeenCalled();

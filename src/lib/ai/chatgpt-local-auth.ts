@@ -55,6 +55,7 @@ export async function getLocalChatGptState(owner: ChatGptOwner) {
     enabled: true as const,
     selectedId: store.selectedId,
     model: selected?.model ?? null,
+    reasoningEffort: selected?.reasoningEffort ?? null,
     sharing: selected ? hasPlanAccess(selected) : false,
     profiles: store.profiles.map((profile, index) => ({
       id: profile.id, email: profile.email, label: `Connexion ${index + 1}`,
@@ -138,7 +139,7 @@ export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, co
       let profile = transaction.profileId ? store.profiles.find((item) => item.id === transaction.profileId) : undefined;
       if (transaction.profileId && !profile) throw new Error("Connexion ChatGPT introuvable.");
       if (!profile) {
-        profile = { id: randomUUID(), clientId, issuer: ISSUER, subject: "", email: "", model: null, scopes: [] };
+        profile = { id: randomUUID(), clientId, issuer: ISSUER, subject: "", email: "", model: null, reasoningEffort: null, scopes: [] };
         store.profiles.push(profile);
         await saveChatGptStore(owner, store);
       }
@@ -184,7 +185,7 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
       await saveChatGptStore(owner, store);
       if (!hasPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
     }
-    return { accessToken: profile.accessToken!, model: profile.model, profileId: profile.id };
+    return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id };
   });
 }
 

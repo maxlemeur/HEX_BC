@@ -40,7 +40,7 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and one im
   const { estimate, planSet, file, read, jobs, client } = await setup(ui, "HUB01");
   let launched = false;
   try {
-    let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
+    let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "gemini" } });
     await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
     await dialog.getByRole("button", /Mes documents$/).click();
     const documentsScreenshot = await ui.app.screenshot("HUB01-preparation-documents");
@@ -68,7 +68,8 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and one im
     await dialog.getByRole("button", /Vérifier et lancer$/).click();
     await expect(dialog.getByLabel("Version cible", { exact: true })).toHaveValue(estimate.versionId);
     await dialog.getByText("Options avancées", { exact: true }).click();
-    await dialog.getByRole("radio", "Standard", { exact: true }).check();
+    await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
+    await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
     launched = true;
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
@@ -102,6 +103,32 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and one im
     if (launched) await jobs.cancel();
     await recordEvidence(ui.army, "HUB01-fixture", { estimate, planSetId: planSet.id, fileId: file.id, jobs: await jobs.list() });
   }
+});
+
+armyTest("PRE05 processing choices survive closing and reloading without silently replacing the provider", options, async (ui) => {
+  const { estimate, file, read, jobs } = await setup(ui, "PRE05");
+  let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "gemini" } });
+  await saveTakeoffPreparation(ui);
+  const saved = await read();
+  expect(saved.draft.processing).toEqual({ level: "B", provider: "gemini" });
+  await ui.browser.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  dialog = await openTakeoffPreparation(ui);
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
+  await dialog.getByText("Options avancées", { exact: true }).click();
+  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
+  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
+  expect((await read()).revision).toBe(saved.revision);
+  await ui.browser.reload();
+  dialog = await openTakeoffPreparation(ui);
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
+  await dialog.getByText("Options avancées", { exact: true }).click();
+  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
+  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
+  const restored = await read();
+  expect(restored).toEqual(saved);
+  expect(await jobs.list()).toEqual([]);
+  await recordEvidence(ui.army, "PRE05-processing-restored", { estimate, saved, restored, noImplicitProcessingChange: true });
 });
 
 armyTest("PRE01 geometry requires a usable measurement basis and DPGF is required only for comparison", options, async (ui) => {

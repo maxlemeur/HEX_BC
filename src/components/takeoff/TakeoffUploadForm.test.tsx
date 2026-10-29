@@ -12,9 +12,16 @@ createTakeoffJob,
 TakeoffApiError,
 } from "@/lib/takeoff/client";
 
-vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
-  TakeoffPreparationPanel: ({ onLaunch, disabled }: { onLaunch: (revision: number) => Promise<void>; disabled: boolean }) => <button type="button" disabled={disabled} onClick={() => void onLaunch(7)}>Confirmer et lancer le métré</button>,
-}));
+vi.mock("@/components/takeoff/TakeoffPreparationPanel", async () => {
+  const { useState } = await import("react");
+  return {
+    TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) => {
+      const [processing, setProcessing] = useState<import("@/lib/takeoff/preparation").TakeoffPreparation["processing"]>({ level: props.recommendedLevel ?? "A", provider: "auto" });
+      const controls = typeof props.advancedControls === "function" ? props.advancedControls({ processing, onProcessingChange: (patch) => setProcessing((current) => ({ ...current, ...patch })), isConfirmed: false }) : props.advancedControls;
+      return <><p>Préparation de {props.uploadSource?.document_name}</p><details><summary>Options avancées</summary>{controls}</details><button type="button" disabled={props.disabled || !processing.level || !props.compatibleLevels?.includes(processing.level)} onClick={() => void props.onLaunch(7, processing)}>Confirmer et lancer le métré</button></>;
+    },
+  };
+});
 
 Object.defineProperty(globalThis.crypto, "subtle", { value: webcrypto.subtle, configurable: true });
 File.prototype.arrayBuffer = function () {
@@ -75,7 +82,7 @@ describe("TakeoffUploadForm", () => {
     expect(before.getByLabelText("Fichier source")).toBeDisabled();
     expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("aria-disabled", "true");
     expect(before.getByRole("button", { name: /Zone de dépôt/ })).toHaveAttribute("tabindex", "-1");
-    for (const radio of before.getAllByRole("radio", { hidden: true })) expect(radio).toBeDisabled();
+    expect(before.queryByRole("radio", { hidden: true })).not.toBeInTheDocument();
 
     render(form, { container, hydrate: true });
     const input = before.getByLabelText("Fichier source");
@@ -102,7 +109,6 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
     await user.upload(fileInput, makeCsvFile());
     await user.click(
@@ -131,7 +137,6 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
     await user.upload(
       fileInput,
@@ -192,7 +197,6 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
     await user.upload(fileInput, makeCsvFile());
 
@@ -212,7 +216,7 @@ describe("TakeoffUploadForm", () => {
     expect(secondCallKey).toBe(firstCallKey);
   });
 
-  it("resets a manual level override when a different file is selected", async () => {
+  it("passes the new document recommendation to preparation when a different file is selected", async () => {
     const user = userEvent.setup();
 
     render(
@@ -222,16 +226,15 @@ describe("TakeoffUploadForm", () => {
       />
     );
 
-    await user.click(screen.getByText("Options avancées du traitement"));
     const fileInput = screen.getByLabelText("Fichier source");
 
     await user.upload(fileInput, makePdfFile("dpgf-initial.pdf"));
+    await user.click(await screen.findByText("Options avancées"));
     expect(screen.getByRole("radio", { name: /niveau b/i })).toBeChecked();
 
-    await user.click(screen.getByRole("radio", { name: /niveau c/i }));
-    expect(screen.getByRole("radio", { name: /niveau c/i })).toBeChecked();
-
     await user.upload(fileInput, makePdfFile("bordereau-second.pdf"));
+    await screen.findByText("Préparation de bordereau-second.pdf");
+    await user.click(await screen.findByText("Options avancées"));
 
     expect(screen.getByRole("radio", { name: /niveau b/i })).toBeChecked();
     expect(screen.getByRole("radio", { name: /niveau c/i })).not.toBeChecked();
@@ -243,13 +246,12 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    await user.click(screen.getByText("Options avancées du traitement"));
-    await user.click(screen.getByRole("radio", { name: /niveau b/i }));
     await user.upload(
       screen.getByLabelText("Fichier source"),
       new File(["designation;quantity;unit"], "niveau-a.csv", { type: "text/csv" })
     );
 
+    await user.click(await screen.findByText("Options avancées"));
     expect(screen.getByText("Metrage structure")).toBeInTheDocument();
     expect(screen.getByText(/Niveau recommande :/)).toBeInTheDocument();
     expect(screen.getByText("Rapide")).toBeInTheDocument();
@@ -274,13 +276,13 @@ describe("TakeoffUploadForm", () => {
 });
 
 it("sends an explicit provider choice and uses a fresh idempotency key when it changes", async () => {
-  vi.mocked(loadChatGptConnection).mockResolvedValueOnce({ enabled: true, selectedId: "profile", model: "plan-model", sharing: true, profiles: [] });
+  vi.mocked(loadChatGptConnection).mockResolvedValueOnce({ enabled: true, selectedId: "profile", model: "plan-model", reasoningEffort: null, sharing: true, profiles: [] });
   vi.mocked(createTakeoffJob).mockRejectedValue(new Error("Temporary failure"));
   const user = userEvent.setup();
   render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
-  await user.click(screen.getByText("Options avancées du traitement"));
-  const provider = await screen.findByLabelText("Fournisseur IA");
   await user.upload(screen.getByLabelText("Fichier source"), makeCsvFile());
+  await user.click(await screen.findByText("Options avancées"));
+  const provider = await screen.findByLabelText("Fournisseur IA");
   await user.selectOptions(provider, "gemini");
   await user.click(await screen.findByRole("button", { name: /Confirmer et lancer le métré/i }));
   await waitFor(() => expect(createTakeoffJob).toHaveBeenCalledTimes(1));

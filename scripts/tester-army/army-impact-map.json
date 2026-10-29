@@ -670,6 +670,7 @@
       ],
       "journeys": [
         "@plans",
+        "e2e/army/local/chatgpt-local.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
