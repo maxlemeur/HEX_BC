@@ -197,6 +197,22 @@ describe("TakeoffJobMonitor", () => {
     cleanup();
   });
 
+  it("opens the review of a completed job from the results action", () => {
+    const detail = createJobDetailResponse("completed");
+    useTakeoffJobPollingMock.mockReturnValue({
+      data: detail, error: null, errorStatus: null, isPolling: false, refetch: vi.fn(),
+    });
+
+    render(
+      <TakeoffJobMonitor jobId={detail.job.id} versionId={detail.job.estimate_version_id} />
+    );
+
+    expect(screen.getByRole("link", { name: "Voir les résultats" })).toHaveAttribute(
+      "href",
+      `/dashboard/estimates/${detail.job.estimate_version_id}/takeoff/${detail.job.id}/review`
+    );
+  });
+
   it.each(["queued", "trigger_failed"] as const)(
     "removes a stale %s dispatch notice when polling leaves the recoverable state",
     (dispatchStatus) => {
