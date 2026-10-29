@@ -15,7 +15,8 @@ type BulkArchiveDraftAffairesRpcRow =
 
 export const bulkDeleteAffairesInputSchema = z.object({
   projectIds: z
-    .array(z.string().uuid("ID projet invalide."))
+    // Stored PostgreSQL UUIDs may predate RFC version/variant constraints.
+    .array(z.guid("ID projet invalide."))
     .min(1, "Sélection vide.")
     .max(
       BULK_DELETE_AFFAIRES_MAX,

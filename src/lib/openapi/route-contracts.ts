@@ -266,7 +266,7 @@ export const jobIdParameter: ParameterContract = {
 };
 
 const bulkAffairesSchema = z.object({
-  projectIds: z.array(uuidSchema).min(1).max(1000),
+  projectIds: z.array(z.string().regex(z.regexes.guid)).min(1).max(1000),
 });
 const affaireIntakeFormSchema = z
   .object({

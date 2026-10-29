@@ -4,6 +4,7 @@
   "suite": {
     "journeys": [
       "e2e/army/critical/access-boundaries.e2e.ts",
+      "e2e/army/critical/affaires-legacy-identifiers.e2e.ts",
       "e2e/army/critical/auth-rejection.e2e.ts",
       "e2e/army/critical/auth.setup.e2e.ts",
       "e2e/army/critical/bulk-edit-sync-sources.e2e.ts",
@@ -875,6 +876,17 @@
       "journeys": [
         "e2e/army/local/chatgpt-local.e2e.ts",
         "e2e/army/local/profile-polish.e2e.ts"
+      ]
+    },
+    {
+      "id": "affaires-bulk-identifiers",
+      "paths": [
+        "src/lib/affaires/delete-server.ts",
+        "src/components/affaires/useBulk{Archive,Delete}Affaires.ts",
+        "src/app/api/affaires/bulk-{archive,delete}/route.ts"
+      ],
+      "journeys": [
+        "e2e/army/critical/affaires-legacy-identifiers.e2e.ts"
       ]
     }
   ]
