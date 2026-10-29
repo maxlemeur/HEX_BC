@@ -8,6 +8,7 @@ import {
   AFFAIRE_INTAKE_BUCKET,
   getAffaireIntakeFileExtension,
 } from "@/lib/affaires/intake";
+import { DriveError } from "@/lib/affaires/google-drive/errors";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { stableImportPlanSetId, stableIntakePlanFileId } from "@/lib/takeoff/default-import-plan-set-id";
 import {
@@ -31,6 +32,7 @@ type SyncProject = {
 
 type SyncDocument = {
   id: string;
+  tenant_id?: string;
   upload_id: string;
   created_by: string | null;
   storage_path: string | null;
@@ -42,7 +44,14 @@ type SyncDocument = {
   document_kind: string;
   classified_at?: string | null;
   plan_copy_generation?: string | null;
+  source_provider?: string | null;
+  drive_connection_id?: string | null;
+  drive_file_id?: string | null;
 };
+
+/** Reads a Drive-linked piece with the account that linked it (google-drive/content). */
+export type LinkedDrivePlanReader = (document: { tenant_id: string; mime_type: string | null;
+  drive_connection_id: string | null; drive_file_id: string | null }) => Promise<{ bytes: ArrayBuffer | Uint8Array }>;
 
 type PlanSetRow = {
   id: string;
@@ -56,14 +65,17 @@ type PlanSetRow = {
 type PlanFileRow = {
   id: string;
   file_path: string;
+  file_size_bytes?: number;
   metadata: Record<string, unknown>;
 };
 
+// A Drive plan has no stored source: its copy names the Drive file instead of a storage path.
 type IntakePlanFileMetadata = {
   source: "affaire-intake";
   intake_document_id: string;
   intake_upload_id: string;
-  intake_storage_path: string;
+  intake_storage_path: string | null;
+  intake_drive_file_id?: string;
   intake_classified_at: string | null;
   intake_generation: string | null;
   [PLAN_FILE_ORIGINAL_NAME_KEY]?: string;
@@ -102,12 +114,16 @@ function buildPlanFileStoragePath(input: {
   return `${input.tenantId}/${input.setId}/${input.fileId}/${input.fileName}`;
 }
 
+function isDrivePlanSource(document: SyncDocument) {
+  return document.source_provider === "google_drive" && !document.storage_path && Boolean(document.drive_file_id);
+}
+
 function isEligiblePlanDocument(document: SyncDocument) {
   if (
     document.upload_status !== "uploaded" ||
     document.classification_status !== "classified" ||
     document.document_kind !== "plans" ||
-    !document.storage_path
+    !(document.storage_path || isDrivePlanSource(document))
   ) {
     return false;
   }
@@ -130,6 +146,7 @@ function toIntakeDocumentId(planFile: PlanFileRow) {
 
 function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocument) {
   if (file.metadata.intake_storage_path !== document.storage_path) return false;
+  if (isDrivePlanSource(document) && file.metadata.intake_drive_file_id !== document.drive_file_id) return false;
   // Older copies predate the generation marker; keep them until a cleanup has
   // actually been reserved, rather than migrating or deleting user files.
   if ("intake_generation" in file.metadata) return file.metadata.intake_generation === (document.plan_copy_generation ?? null);
@@ -224,7 +241,7 @@ async function listSyncedPlanFiles(input: {
 }) {
   const { data, error } = await readAllRows(() => input.supabase
     .from("plan_files" as never)
-    .select("id, file_path, metadata" as never, { count: "exact" })
+    .select("id, file_path, file_size_bytes, metadata" as never, { count: "exact" })
     .eq("plan_set_id" as never, input.planSetId as never));
 
   if (error) {
@@ -245,6 +262,7 @@ async function listSyncedPlanFiles(input: {
       return {
         id: row.id,
         file_path: row.file_path,
+        ...(typeof row.file_size_bytes === "number" ? { file_size_bytes: row.file_size_bytes } : {}),
         metadata,
       } satisfies PlanFileRow;
     })
@@ -282,6 +300,30 @@ async function deleteSyncedPlanFiles(input: {
 }
 
 class IntakePlanCopyRequiresReimport extends Error {}
+class DrivePlanUnreadable extends Error {}
+// The caller's lease could not be renewed before a Drive read: the whole sync stops with its cause.
+class IntakePlanSyncStopped extends Error {}
+
+// The working copy of a Drive plan is read from Drive with the linker's account. An account
+// that must reconnect, or Drive turned off, leaves the plan without a copy until a later sync.
+async function readDrivePlanSource(input: { project: SyncProject; document: SyncDocument; readDriveDocument?: LinkedDrivePlanReader;
+  beforeDriveRead?: () => Promise<void> }) {
+  if (!input.readDriveDocument) throw new DrivePlanUnreadable("Drive reader unavailable.");
+  try {
+    await input.beforeDriveRead?.();
+  } catch (cause) {
+    throw new IntakePlanSyncStopped("Intake plan sync stopped before a Drive read.", { cause });
+  }
+  try {
+    const { bytes } = await input.readDriveDocument({ tenant_id: input.document.tenant_id ?? input.project.tenant_id,
+      mime_type: input.document.mime_type, drive_connection_id: input.document.drive_connection_id ?? null,
+      drive_file_id: input.document.drive_file_id ?? null });
+    return new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
+  } catch (error) {
+    if (error instanceof DriveError) throw new DrivePlanUnreadable(`${error.code}: ${error.message}`);
+    throw error;
+  }
+}
 
 async function createSyncedPlanFile(input: {
   supabase: Supabase;
@@ -289,9 +331,12 @@ async function createSyncedPlanFile(input: {
   planSetId: string;
   document: SyncDocument;
   existing?: PlanFileRow;
+  readDriveDocument?: LinkedDrivePlanReader;
+  beforeDriveRead?: () => Promise<void>;
 }) {
   const sourcePath = input.document.storage_path;
-  if (!sourcePath) return;
+  const drive = isDrivePlanSource(input.document);
+  if (!sourcePath && !drive) return;
   // Legacy v4 paths are permitted temporarily for the old worker during rollout.
   // The new worker never uploads to them, so it cannot resurrect a removed row.
   if (input.existing && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.existing.id)) {
@@ -300,15 +345,27 @@ async function createSyncedPlanFile(input: {
   if (input.existing && !isSameIntakePlanGeneration(input.existing, input.document)) {
     throw new Error("The existing plan copy belongs to another intake generation.");
   }
-  const { data: sourceBlob, error: downloadError } = await input.supabase.storage
-    .from(AFFAIRE_INTAKE_BUCKET).download(sourcePath);
-  if (downloadError || !sourceBlob) throw downloadError ?? new Error("Unable to download intake document.");
-  if (sourceBlob.size !== input.document.size_bytes || sourceBlob.size === 0) {
-    throw new Error("La copie du plan dans le dossier est incomplète.");
+  let sourceBlob: Blob;
+  if (sourcePath) {
+    const { data, error: downloadError } = await input.supabase.storage
+      .from(AFFAIRE_INTAKE_BUCKET).download(sourcePath);
+    if (downloadError || !data) throw downloadError ?? new Error("Unable to download intake document.");
+    if (data.size !== input.document.size_bytes || data.size === 0) {
+      throw new Error("La copie du plan dans le dossier est incomplète.");
+    }
+    sourceBlob = data;
+  } else {
+    sourceBlob = await readDrivePlanSource(input);
+    if (sourceBlob.size === 0) throw new Error("Le plan lu dans Google Drive est vide.");
+    // A reservation records the size of the copy it was made for: other bytes cannot complete it.
+    if (input.existing?.file_size_bytes !== undefined && input.existing.file_size_bytes !== sourceBlob.size) {
+      throw new IntakePlanCopyRequiresReimport();
+    }
   }
 
+  const sourceKey = sourcePath ?? `google-drive:${input.document.drive_file_id}`;
   const fileId = input.existing?.id ?? stableIntakePlanFileId(
-    input.project.tenant_id, input.planSetId, input.document.id, sourcePath, input.document.plan_copy_generation ?? null
+    input.project.tenant_id, input.planSetId, input.document.id, sourceKey, input.document.plan_copy_generation ?? null
   );
   const fileName = input.existing?.file_path.split("/").at(-1) ?? sanitizePdfFilename(input.document.file_name);
   const filePath = input.existing?.file_path ?? buildPlanFileStoragePath({
@@ -317,7 +374,8 @@ async function createSyncedPlanFile(input: {
   const originalFileName = normalizePlanFileOriginalName(input.document.file_name);
   const metadata: IntakePlanFileMetadata = {
     source: "affaire-intake", intake_document_id: input.document.id,
-    intake_upload_id: input.document.upload_id, intake_storage_path: sourcePath,
+    intake_upload_id: input.document.upload_id, intake_storage_path: sourcePath ?? null,
+    ...(drive ? { intake_drive_file_id: input.document.drive_file_id! } : {}),
     intake_classified_at: input.document.classified_at ?? null,
     intake_generation: input.document.plan_copy_generation ?? null,
     ...(originalFileName ? { [PLAN_FILE_ORIGINAL_NAME_KEY]: originalFileName } : {}),
@@ -329,19 +387,24 @@ async function createSyncedPlanFile(input: {
     const { error: insertError } = await input.supabase.from("plan_files" as never).insert({
       id: fileId, tenant_id: input.project.tenant_id, plan_set_id: input.planSetId,
       file_path: filePath, file_name: fileName, file_type: "application/pdf",
-      file_size_bytes: input.document.size_bytes, page_count: null, file_hash: null,
+      file_size_bytes: sourceBlob.size, page_count: null, file_hash: null,
       metadata, created_by: input.document.created_by,
     } as never);
     if (insertError) {
       if (insertError.code !== "23505") throw insertError;
       const { data: existing, error } = await input.supabase.from("plan_files" as never)
-        .select("id,file_path,metadata" as never).eq("id", fileId).maybeSingle();
+        .select("id,file_path,file_size_bytes,metadata" as never).eq("id", fileId).maybeSingle();
       const row = existing as unknown as PlanFileRow | null;
       if (error || !row || row.file_path !== filePath || row.metadata?.intake_document_id !== input.document.id ||
-          row.metadata?.intake_storage_path !== sourcePath || row.metadata?.intake_classified_at !== (input.document.classified_at ?? null) ||
+          row.metadata?.intake_storage_path !== (sourcePath ?? null) || row.metadata?.intake_drive_file_id !== metadata.intake_drive_file_id ||
+          row.metadata?.intake_classified_at !== (input.document.classified_at ?? null) ||
           row.metadata?.intake_generation !== (input.document.plan_copy_generation ?? null) ||
           row.metadata?.source !== "affaire-intake") {
         throw insertError;
+      }
+      // A concurrent sync reserved this copy for another Drive revision: it completes it.
+      if (drive && row.file_size_bytes !== sourceBlob.size) {
+        throw new DrivePlanUnreadable("A concurrent sync reserved this copy for another Drive revision.");
       }
     }
   }
@@ -365,6 +428,9 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
   supabase: Supabase;
   project: SyncProject;
   documents: SyncDocument[];
+  readDriveDocument?: LinkedDrivePlanReader;
+  /** Runs before each Drive read, e.g. to renew a worker lease; its failure stops the sync. */
+  beforeDriveRead?: () => Promise<void>;
 }) {
   const enabled = await isTakeoffEnabled(input.project.tenant_id, {
     supabase: input.supabase,
@@ -434,8 +500,10 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
     const existing = syncedByDocumentId.get(document.id);
     try {
       if (existing && isSameIntakePlanGeneration(existing, document)) {
+        // A Drive copy holds the bytes read from Drive, recorded on its own row.
+        const expectedSize = isDrivePlanSource(document) ? existing.file_size_bytes ?? 0 : document.size_bytes;
         const { data: object, error } = await input.supabase.storage.from(PLAN_FILES_BUCKET).info(existing.file_path);
-        if (!error && object?.size === document.size_bytes && document.size_bytes > 0) continue;
+        if (!error && object?.size === expectedSize && expectedSize > 0) continue;
         const status = Number(error?.statusCode ?? error?.status);
         if (error && status !== 400 && status !== 404) throw error;
       }
@@ -445,9 +513,16 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
         planSetId: planSet.id,
         document,
         existing,
+        readDriveDocument: input.readDriveDocument,
+        beforeDriveRead: input.beforeDriveRead,
       });
       syncedDocumentCount += 1;
     } catch (error) {
+      if (error instanceof IntakePlanSyncStopped) throw error.cause;
+      if (error instanceof DrivePlanUnreadable) {
+        console.warn("Drive plan working copy skipped", { documentId: document.id, reason: error.message });
+        continue;
+      }
       failures.push({
         documentId: document.id,
         error,
@@ -455,8 +530,12 @@ export async function syncTakeoffPlanSetFromAffaireIntake(input: {
     }
   }
 
-  if (failures.some((failure) => failure.error instanceof IntakePlanCopyRequiresReimport)) {
-    throw conflict("Une copie de plan est incomplète. Supprimez sa pièce source du dossier puis importez-la à nouveau.");
+  const incomplete = failures.filter((failure) => failure.error instanceof IntakePlanCopyRequiresReimport)
+    .map((failure) => desiredDocuments.get(failure.documentId));
+  if (incomplete.length > 0) {
+    throw conflict(incomplete.every((document) => document && isDrivePlanSource(document))
+      ? "Une copie de plan est incomplète. Retirez le lien Google Drive du dossier puis liez de nouveau le fichier."
+      : "Une copie de plan est incomplète. Supprimez sa pièce source du dossier puis importez-la à nouveau.");
   }
   if (failures.length > 0) {
     throw new Error(

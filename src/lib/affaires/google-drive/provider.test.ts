@@ -34,6 +34,14 @@ describe("Drive read-only provider boundaries", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("bad")));
     await expect(reader().download(file)).rejects.toThrow("incomplète");
   });
+  it("reports a stream cut or timed out mid-body as a Drive interruption", async () => {
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new Uint8Array([37, 80]));
+      controller.error(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
+    await expect(reader().download(file)).rejects.toMatchObject({ code: "DRIVE_NETWORK", status: 422 });
+  });
   it("rejects a file changed while it was being read", async () => {
     const google = fakeDrive(); google.files.get("plan_demo")!.version = "2";
     vi.stubGlobal("fetch", google.fetchMock);
