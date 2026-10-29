@@ -144,10 +144,22 @@ describe("one Google account with optional writing (Google simulated)", () => {
     });
     expect(await listDriveConnections(backend.access.context)).toEqual([]);
   });
-  it("returns to reading when Google revokes the write grant", async () => {
+  it("returns to reading when Google revokes the write grant after a read reconnection", async () => {
     const id = await save();
     await save(account, "write");
+    // A stale cached access token must not hide a revoked refresh token after
+    // reconnection. Explicit disabling and stale generations are covered above.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      access_token: "previous-write-access",
+      expires_in: 3600,
+      scope: "https://www.googleapis.com/auth/drive.file",
+    })));
+    const before = (await listDriveConnections(backend.access.context))[0];
+    await expect(driveWriteToken(config(), id, backend.access.context, before.grantVersion))
+      .resolves.toBe("previous-write-access");
+    await save();
     const displayed = (await listDriveConnections(backend.access.context))[0];
+    expect(displayed.writeEnabled).toBe(true);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "invalid_grant" }, { status: 400 })));
     await expect(driveWriteToken(config(), id, backend.access.context, displayed.grantVersion))
       .rejects.toMatchObject({ code: "DRIVE_RECONNECT" });

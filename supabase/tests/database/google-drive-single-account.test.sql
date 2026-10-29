@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=extensions,public,pg_catalog;
-select plan(10);
+select plan(20);
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at,confirmation_token,email_change,email_change_token_new,recovery_token)
 values('00000000-0000-0000-0000-000000000000','9a000000-0000-4000-8000-000000000001','authenticated','authenticated','single-drive@example.test',crypt('fixture-only',gen_salt('bf')),now(),'{"provider":"email","providers":["email"]}','{}',now(),now(),'','','','');
 create temporary table drive_fixture on commit drop as select tenant_id,user_id,public.begin_google_drive_authorization(tenant_id,user_id) as generation
@@ -16,8 +16,24 @@ select is((select count(*) from public.google_drive_connections where user_id='9
 select is((select public.save_google_drive_single_connection(tenant_id,user_id,'google_demo','single@example.test','Fixture','v1.dddd.eeee.ffff','write',generation) from drive_fixture),(select id from connection_before),'writing uses the existing account');
 update drive_fixture set generation=public.begin_google_drive_authorization(tenant_id,user_id);
 select is((select refresh_token_ciphertext from public.google_drive_single_secret((select id from connection_before))),'v1.aaaa.bbbb.cccc','write consent preserves the read token');
+-- A read reconnection must not silently erase an independently granted write access.
+-- It must also invalidate older operations and never restore access explicitly disabled by the member.
+create temporary table before_read_reconnection on commit drop as
+ select grant_version,write_refresh_token_ciphertext from public.google_drive_single_secret((select id from connection_before));
+select is((select public.save_google_drive_single_connection(tenant_id,user_id,'google_demo','single@example.test','Fixture','v1.gggg.hhhh.iiii','read',generation) from drive_fixture),(select id from connection_before),'read reconnection keeps the same connection');
+select is((select refresh_token_ciphertext from public.google_drive_single_secret((select id from connection_before))),'v1.gggg.hhhh.iiii','read reconnection replaces the read token');
+select is((select write_enabled from public.google_drive_connections where id=(select id from connection_before)),true,'read reconnection preserves enabled writing');
+select is((select write_refresh_token_ciphertext from public.google_drive_single_secret((select id from connection_before))),(select write_refresh_token_ciphertext from before_read_reconnection),'read reconnection preserves the write token');
+select isnt((select grant_version from public.google_drive_connections where id=(select id from connection_before)),(select grant_version from before_read_reconnection),'read reconnection invalidates older operations');
+select is(public.set_google_drive_read_only((select tenant_id from drive_fixture),(select user_id from drive_fixture),(select id from connection_before),(select grant_version from before_read_reconnection)),false,'an old operation cannot disable writing after reconnection');
+select throws_ok($$select public.save_google_drive_single_connection(tenant_id,user_id,'google_demo','single@example.test','Fixture','v1.dddd.eeee.ffff','write',generation) from drive_fixture$$,'P0001','GOOGLE_DRIVE_AUTHORIZATION_EXPIRED','a completed read authorization cannot be replayed to enable writing');
+update drive_fixture set generation=public.begin_google_drive_authorization(tenant_id,user_id);
 select ok(public.set_google_drive_read_only((select tenant_id from drive_fixture),(select user_id from drive_fixture),(select id from connection_before),(select grant_version from public.google_drive_connections where id=(select id from connection_before))),'writing can be disabled');
 select is((select write_refresh_token_ciphertext from public.google_drive_single_secret((select id from connection_before))),null::text,'write token is deleted');
 select throws_ok($$select public.save_google_drive_single_connection(tenant_id,user_id,'google_demo','single@example.test','Fixture','v1.dddd.eeee.ffff','write',generation) from drive_fixture$$,'P0001','GOOGLE_DRIVE_AUTHORIZATION_EXPIRED','old OAuth state cannot re-enable writing');
+update drive_fixture set generation=public.begin_google_drive_authorization(tenant_id,user_id);
+select is((select public.save_google_drive_single_connection(tenant_id,user_id,'google_demo','single@example.test','Fixture','v1.jjjj.kkkk.llll','read',generation) from drive_fixture),(select id from connection_before),'read reconnection after disabling writing keeps the connection');
+select is((select write_enabled from public.google_drive_connections where id=(select id from connection_before)),false,'read reconnection does not re-enable writing');
+select is((select write_refresh_token_ciphertext from public.google_drive_single_secret((select id from connection_before))),null::text,'read reconnection does not restore a deleted write token');
 select * from finish();
 rollback;

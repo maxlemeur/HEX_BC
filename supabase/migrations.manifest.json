@@ -293,6 +293,7 @@
     "20261029033000_google_drive_plan_working_copies.sql": "7e4a20dedf0a43d483ee69513724282a91580bcba57404b447ca3fb683ac4c46",
     "20261029082013_enforce_takeoff_preparation_processing.sql": "c8c20b74860b473720b30d667d33cb731a2cc3f035d8b926293faef706fd77b7",
     "20261029090854_retire_empty_accepted_legacy_estimate.sql": "2696a5c17d70e1fa170c30572ca4d34e0d08902c4132e4f4bfc64c81ad6433d1",
-    "20261029171045_google_drive_single_account.sql": "36c814614083dc1c1326ea4b6703be6b841ffbd4530676346487cce792e4f764"
+    "20261029171045_google_drive_single_account.sql": "36c814614083dc1c1326ea4b6703be6b841ffbd4530676346487cce792e4f764",
+    "20261029185344_preserve_google_drive_write_on_read_reconnect.sql": "4d588d3f980d1992f582bd4a3cf4a11f88a8f9b27ffd74e5a87909d69f29511b"
   }
 }

@@ -204,6 +204,12 @@ export function GoogleDriveConnectionCard() {
                 selon vos droits. MergeOne propose ici de les commenter ou de
                 les renommer.
               </p>
+              {account.writeEnabled && (
+                <p className="text-sm text-muted-foreground">
+                  La reconnexion conserve l’écriture déjà activée. Pour la désactiver,
+                  choisissez « Revenir à la lecture seule ».
+                </p>
+              )}
               <div className="flex flex-wrap gap-3">
                 {state.enabled && (
                   <a
@@ -211,7 +217,7 @@ export function GoogleDriveConnectionCard() {
                     aria-disabled={busy}
                     href={busy ? undefined : connect("read")}
                   >
-                    Reconnecter en lecture seule
+                    Reconnecter la lecture
                   </a>
                 )}
                 {account.writeEnabled ? (

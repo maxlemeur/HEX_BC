@@ -180,7 +180,7 @@ export const DRIVE_OAUTH_OUTCOMES = {
   scope:
     "La lecture de Google Drive n'a pas été accordée. Recommencez en autorisant l'accès à Drive.",
   offline:
-    "Google n'a pas accordé d'accès durable. Retirez MergeOne de votre compte Google puis recommencez.",
+    "Google n'a pas accordé d'accès durable. Réessayez ou contactez votre administrateur. Ne retirez pas MergeOne de votre compte Google.",
   expired:
     "La connexion a expiré ou a été ouverte depuis une autre session. Recommencez.",
   disabled: "Google Drive n'est pas activé sur cet environnement.",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   DRIVE_READ_SCOPE,
   DRIVE_WRITE_SCOPE,
+  DRIVE_OAUTH_OUTCOMES,
   drivePurposeSchema,
   type DriveOAuthOutcome,
 } from "./contracts";
@@ -204,7 +205,7 @@ export async function exchangeDriveCode(input: {
     throw new DriveError(
       422,
       "DRIVE_OFFLINE_REFUSED",
-      "Google n'a pas accordé d'accès durable. Retirez MergeOne de votre compte Google puis recommencez.",
+      DRIVE_OAUTH_OUTCOMES.offline,
     );
   }
   return {
