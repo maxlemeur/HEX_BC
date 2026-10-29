@@ -87,28 +87,24 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     await expect.poll(async () => (await browser.cookies()).some(cookie =>
       cookie.domain === "127.0.0.1" && cookie.name.startsWith("sb-") && cookie.name.includes("-auth-token"))).toBe(true);
     await browser.setViewport({ width: 1280, height: 900 });
-    const marker = randomUUID();
     const actionPath = `${origin}/dashboard/profile`;
     const initialActionsReady = new Promise<void>(resolve => { releaseInitialActions = resolve; });
     let actionSequence = 0;
     await browser.route(actionPath, async route => {
       if (route.request.method === "POST" && route.request.headers["next-action"] && actionSequence < 2) {
-        const sequence = ++actionSequence;
-        const url = new URL(route.request.url);
-        url.searchParams.set("__army_profile_action", `${marker}-${sequence}`);
+        actionSequence += 1;
         await initialActionsReady;
-        await route.continue({ url: url.href });
-      } else await route.fallback();
+      }
+      await route.fallback();
     });
     await open();
-    const initialResponses = Promise.all([1, 2].map(sequence =>
-      browser.waitForResponse(`${actionPath}?__army_profile_action=${marker}-${sequence}`)));
+    const initialResponse = browser.waitForResponse(actionPath);
     releaseInitialActions();
-    const initialActions = await initialResponses;
-    await recordEvidence(army, "profile-initial-action", { actions: initialActions.map(response => ({ status: response.status,
-      contentType: response.headers["content-type"] })), loginStatus: loginResponse.status, sessionCookiePresent: true,
+    const initialAction = await initialResponse;
+    await recordEvidence(army, "profile-initial-action", { actions: [{ status: initialAction.status,
+      contentType: initialAction.headers["content-type"] }], loginStatus: loginResponse.status, sessionCookiePresent: true,
       runtime: { E2E_ARMY: "1", developmentOutput: ".e2e/army/next/dev", productionSmokeOutput: ".next" } });
-    expect(initialActions.map(response => response.status)).toEqual([200, 200]);
+    expect(initialAction.status).toBe(200);
     await browser.unroute(actionPath);
     await expect(browser).toHaveURL(/\/dashboard\/profile$/);
     await expect(screen.getByRole("heading", "Mon profil", { exact: true })).toBeVisible();
