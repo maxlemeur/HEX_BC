@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open as openFile, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,29 +34,38 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
   const profile = (id: string, model: string, reasoningEffort: string, email: string) => ({ id, model, reasoningEffort, email,
     clientId: "army-profile-fixture", issuer: "https://auth.openai.com", subject: id, accessToken: "army-profile-fixture",
     refreshToken: "army-profile-fixture", expiresAt: Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] });
-  await writeFile(storePath, JSON.stringify({ selectedId: firstId, profiles: [
-    profile(firstId, "gpt-6.1-terra", "max", "first@example.test"),
-    profile(secondId, "gpt-6.1-sol", "low", "second@example.test"),
-  ] }), { mode: 0o600, flag: "wx" });
   const artifactRoot = path.resolve(".e2e/army/critical/artifacts");
-  await mkdir(artifactRoot, { recursive: true });
   const control = path.join(artifactRoot, "profile-provider-control.json");
   const transportPath = path.join(artifactRoot, "profile-provider.jsonl");
   const setMode = (mode: string) => writeFile(control, JSON.stringify({ mode }));
-  await setMode("normal");
-  await writeFile(transportPath, "");
-  const reservation = createServer();
-  await new Promise<void>((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
-  const address = reservation.address();
-  if (!address || typeof address === "string") throw new Error("Profile server port reservation failed.");
-  await new Promise<void>((resolve) => reservation.close(() => resolve()));
-  const origin = `http://127.0.0.1:${address.port}`;
   let server: ChildProcess | undefined;
+  let storeCreated = false;
+  let artifactDirectoryReady = false;
   const diagnostics: string[] = [];
-  let releaseInitialActions = () => {};
   const prefix = `ARMY-profile-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
   try {
+    // Claim the path first: a pre-existing account must never be removed on EEXIST.
+    const store = await openFile(storePath, "wx", 0o600);
+    storeCreated = true;
+    try {
+      await store.writeFile(JSON.stringify({ selectedId: firstId, profiles: [
+        profile(firstId, "gpt-6.1-terra", "max", "first@example.test"),
+        profile(secondId, "gpt-6.1-sol", "low", "second@example.test"),
+      ] }));
+    } finally {
+      await store.close();
+    }
+    await mkdir(artifactRoot, { recursive: true });
+    artifactDirectoryReady = true;
+    await setMode("normal");
+    await writeFile(transportPath, "");
+    const reservation = createServer();
+    await new Promise<void>((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
+    const address = reservation.address();
+    if (!address || typeof address === "string") throw new Error("Profile server port reservation failed.");
+    await new Promise<void>((resolve) => reservation.close(() => resolve()));
+    const origin = `http://127.0.0.1:${address.port}`;
     server = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(address.port), "--webpack"], {
       cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY: "1", E2E_ARMY_SERVER_MODE: "development",
         MERGEONE_OPENAI_DECISIONS: "0", OPENAI_DECISIONS_API_KEY: "", NEXT_TELEMETRY_DISABLED: "1",
@@ -71,6 +80,32 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       if (server?.exitCode !== null) throw new Error("Profile fixture server exited before readiness.");
       return fetch(`${origin}/login`).then(response => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
+    // This journey uses its own loopback origin and the SDK's plain test fixture,
+    // not armyTest. Confine browser traffic before loading the login page.
+    await browser.route("**/*", async route => {
+      const url = new URL(route.request.url);
+      const method = route.request.method;
+      if (url.hostname === "api.fontshare.com" && url.pathname === "/v2/css" && method === "GET") {
+        await route.fulfill({ headers: { "content-type": "text/css" }, body: "" });
+        return;
+      }
+      const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
+      const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
+      const appRequest = url.origin === origin && !forbiddenMutation;
+      const authRequest = url.origin === backend.origin && (
+        (url.pathname === "/auth/v1/token" && ["POST", "OPTIONS"].includes(method)) ||
+        (url.pathname === "/auth/v1/user" && ["GET", "OPTIONS"].includes(method))
+      );
+      const ownProfile = url.origin === backend.origin && url.pathname === "/rest/v1/profiles" && (
+        method === "OPTIONS" || (method === "PATCH" && url.searchParams.get("id") === `eq.${userId}`)
+      );
+      if (appRequest || authRequest || ownProfile) {
+        await route.fallback();
+        return;
+      }
+      await route.abort();
+      throw new Error(`Profile campaign blocked ${method} ${url.hostname}; unexpected origin or mutation.`);
+    });
     const open = (pathname = "/dashboard/profile") => app.open(new URL(pathname, origin).href);
     const account = credentials.user("army");
     await open("/login");
@@ -88,24 +123,50 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       cookie.domain === "127.0.0.1" && cookie.name.startsWith("sb-") && cookie.name.includes("-auth-token"))).toBe(true);
     await browser.setViewport({ width: 1280, height: 900 });
     const actionPath = `${origin}/dashboard/profile`;
-    const initialActionsReady = new Promise<void>(resolve => { releaseInitialActions = resolve; });
-    let actionSequence = 0;
-    await browser.route(actionPath, async route => {
-      if (route.request.method === "POST" && route.request.headers["next-action"] && actionSequence < 2) {
-        actionSequence += 1;
-        await initialActionsReady;
-      }
-      await route.fallback();
-    });
+    // Observe the first two distinct Server Action fetches at their source. The
+    // response URL is shared, so two simultaneous waitForResponse calls could
+    // both resolve for one response. Leave URL, headers and request untouched.
+    await browser.addInitScript(({ actionPath }) => {
+      type Action = { sequence: number; status: number | null; contentType: string | null };
+      const audit: { started: number; settled: Action[] } = { started: 0, settled: [] };
+      (window as Window & { __armyProfileActions?: typeof audit }).__armyProfileActions = audit;
+      const originalFetch = window.fetch;
+      window.fetch = function (this: Window, input, init) {
+        let isAction = false;
+        try {
+          const request = input instanceof Request ? input : null;
+          const url = new URL(request?.url ?? String(input), window.location.href);
+          const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+          const headers = new Headers(init?.headers ?? request?.headers);
+          isAction = `${url.origin}${url.pathname}` === actionPath && method === "POST" && headers.has("next-action");
+        } catch { /* Let the original fetch handle an invalid input. */ }
+        const result = Reflect.apply(originalFetch, this, [input, init]) as Promise<Response>;
+        if (!isAction || audit.started >= 2) return result;
+        const sequence = ++audit.started;
+        return result.then(response => {
+          audit.settled.push({ sequence, status: response.status, contentType: response.headers.get("content-type") });
+          return response;
+        }, error => {
+          audit.settled.push({ sequence, status: null, contentType: null });
+          throw error;
+        });
+      };
+    }, { actionPath });
     await open();
-    const initialResponse = browser.waitForResponse(actionPath);
-    releaseInitialActions();
-    const initialAction = await initialResponse;
-    await recordEvidence(army, "profile-initial-action", { actions: [{ status: initialAction.status,
-      contentType: initialAction.headers["content-type"] }], loginStatus: loginResponse.status, sessionCookiePresent: true,
+    const readActions = () => browser.evaluate(() => {
+      const audit = (window as Window & { __armyProfileActions?: { started: number; settled: Array<{
+        sequence: number; status: number | null; contentType: string | null;
+      }> } }).__armyProfileActions;
+      return audit ? { started: audit.started, settled: [...audit.settled].sort((a, b) => a.sequence - b.sequence) } : null;
+    });
+    await expect.poll(async () => (await readActions())?.settled.length ?? 0, { timeout: 30_000 }).toBe(2);
+    const initialActions = await readActions();
+    if (!initialActions) throw new Error("The initial profile-action observer is unavailable.");
+    expect(initialActions.started).toBe(2);
+    expect(initialActions.settled.map(response => response.status)).toEqual([200, 200]);
+    await recordEvidence(army, "profile-initial-action", { actions: initialActions.settled,
+      loginStatus: loginResponse.status, sessionCookiePresent: true,
       runtime: { E2E_ARMY: "1", developmentOutput: ".e2e/army/next/dev", productionSmokeOutput: ".next" } });
-    expect(initialAction.status).toBe(200);
-    await browser.unroute(actionPath);
     await expect(browser).toHaveURL(/\/dashboard\/profile$/);
     await expect(screen.getByRole("heading", "Mon profil", { exact: true })).toBeVisible();
     const model = screen.getByRole("combobox", "Modèle ChatGPT", { exact: true });
@@ -258,26 +319,39 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       disconnectedFixture: true, errorVisibleWithAccountDetailsClosed: true, layout, cleanDesktop, cleanMobile, desktop, mobile, errorScreenshot, transport,
       inference: "simulated only; no real provider request", canonicalProfileTouched: false });
   } catch (error) {
-    const pathname = await browser.evaluate(() => location.pathname);
-    const screenshot = pathname === "/dashboard/profile" ? await app.screenshot("profile-before-server-cleanup") : null;
-    const observed = await browser.evaluate(() => ({ readyState: document.readyState,
-      statuses: [...document.querySelectorAll('[role="alert"], [role="status"]')].map(node => node.textContent),
-      selectLabels: [...document.querySelectorAll("label")].map(node => node.textContent) }));
-    await recordEvidence(army, "profile-before-cleanup", { observed, screenshot });
+    if (server) {
+      try {
+        const pathname = await browser.evaluate(() => location.pathname);
+        const screenshot = pathname === "/dashboard/profile" ? await app.screenshot("profile-before-server-cleanup") : null;
+        const observed = await browser.evaluate(() => ({ readyState: document.readyState,
+          statuses: [...document.querySelectorAll('[role="alert"], [role="status"]')].map(node => node.textContent),
+          selectLabels: [...document.querySelectorAll("label")].map(node => node.textContent) }));
+        await recordEvidence(army, "profile-before-cleanup", { observed, screenshot });
+      } catch {
+        console.warn("Profile failure diagnostics unavailable; preserving the original error.");
+      }
+    }
     throw error;
   } finally {
-    releaseInitialActions();
-    if (server && server.exitCode === null) {
-      const exited = new Promise<void>(resolve => server!.once("exit", () => resolve()));
-      server.kill("SIGTERM");
-      await exited;
+    try {
+      if (server?.pid && server.exitCode === null && server.signalCode === null) {
+        const exited = new Promise<void>(resolve => server!.once("exit", () => resolve()));
+        server.kill("SIGTERM");
+        await exited;
+      }
+    } finally {
+      try {
+        if (storeCreated) await rm(storePath, { force: true });
+      } finally {
+        if (artifactDirectoryReady) {
+          await rm(control, { force: true });
+          await writeFile(path.join(artifactRoot, "profile-local-server.log"), diagnostics.join("")
+            .replace(/([?&](?:state|code|access_token|id_token)=)[^&\s]+/g, "$1[redacted]")
+            .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted-token]")
+            .replace(/(Bearer\s+)[^\s"']+/gi, "$1[redacted]")
+            .replace(/(cookie["']?\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]"));
+        }
+      }
     }
-    await rm(storePath, { force: true });
-    await rm(control, { force: true });
-    await writeFile(path.join(artifactRoot, "profile-local-server.log"), diagnostics.join("")
-      .replace(/([?&](?:state|code|access_token|id_token)=)[^&\s]+/g, "$1[redacted]")
-      .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted-token]")
-      .replace(/(Bearer\s+)[^\s"']+/gi, "$1[redacted]")
-      .replace(/(cookie["']?\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]"));
   }
 });
