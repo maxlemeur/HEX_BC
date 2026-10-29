@@ -65,12 +65,17 @@ async function hasDrivePlanWorkingCopy(supabase: SupabaseClient<Database>, proje
 /** Verify the bytes behind a classified intake plan before counting it. */
 export async function hasStoredIntakePlan(input: {
   supabase: SupabaseClient<Database>;
+  /**
+   * Reads Drive working copies across takeoff RLS once affaire access has been checked, so
+   * a reader of the dossier without takeoff rights gets the same presence boolean.
+   */
+  serverClient: () => SupabaseClient<Database>;
   projectId: string;
   documents: IntakePlanDocument[];
 }) {
   for (const document of input.documents) {
     if (document.source_provider === "google_drive" && !document.storage_path) {
-      if (await hasDrivePlanWorkingCopy(input.supabase, input.projectId, document)) return true;
+      if (await hasDrivePlanWorkingCopy(input.serverClient(), input.projectId, document)) return true;
       continue;
     }
     if (!document.storage_path || document.size_bytes <= 0) continue;

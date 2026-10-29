@@ -2308,7 +2308,8 @@ async function getMissingPiecesForProject(input: {
     document.upload_status === "uploaded" && document.classification_status === "classified" && document.document_kind === "plans"
   );
   const hasIntakePlan = candidatePlans.length > 0 && await hasStoredIntakePlan({
-    supabase: input.supabase as never, projectId: input.project.id, documents: candidatePlans,
+    supabase: input.supabase as never, serverClient: () => createServiceRoleClient() as never,
+    projectId: input.project.id, documents: candidatePlans,
   });
   const missing = buildAffaireIntakeMissingPieces(activeDocuments
     .filter((document) => hasIntakePlan || !candidatePlans.includes(document))

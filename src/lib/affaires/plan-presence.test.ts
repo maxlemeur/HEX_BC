@@ -27,13 +27,17 @@ const drivePlan = { id: "doc-drive", storage_path: null, size_bytes: 5, source_p
   drive_file_id: "drive_plan", plan_copy_generation: "generation-1" };
 const copy = (overrides: Partial<Copy> = {}): Copy => ({ file_path: "tenant/set/file/plan-drive.pdf", file_size_bytes: 9, project_id: PROJECT_ID,
   metadata: { source: "affaire-intake", intake_document_id: "doc-drive", intake_drive_file_id: "drive_plan", intake_generation: "generation-1" }, ...overrides });
-const present = async (copies: Copy[], stored: Record<string, number>, document = drivePlan) =>
-  hasStoredIntakePlan({ supabase: backend(copies, stored).supabase, projectId: PROJECT_ID, documents: [document] });
+// The caller may read the dossier without takeoff rights: its client sees no plan copy.
+const reader = { from: vi.fn(() => { throw new Error("the caller's client cannot read plan copies"); }) } as never;
+const present = async (copies: Copy[], stored: Record<string, number>, document = drivePlan) => {
+  const server = backend(copies, stored).supabase;
+  return hasStoredIntakePlan({ supabase: reader, serverClient: () => server, projectId: PROJECT_ID, documents: [document] });
+};
 
 describe("hasStoredIntakePlan for plans linked from Google Drive", () => {
-  it("counts a Drive plan whose working copy in this affaire holds complete bytes", async () => {
+  it("counts a Drive plan whose working copy in this affaire holds complete bytes, for any reader of the dossier", async () => {
     const { supabase, contains, eq } = backend([copy()], { "tenant/set/file/plan-drive.pdf": 9 });
-    expect(await hasStoredIntakePlan({ supabase, projectId: PROJECT_ID, documents: [drivePlan] })).toBe(true);
+    expect(await hasStoredIntakePlan({ supabase: reader, serverClient: () => supabase, projectId: PROJECT_ID, documents: [drivePlan] })).toBe(true);
     expect(eq).toHaveBeenCalledWith("plan_sets.project_id", PROJECT_ID);
     expect(contains).toHaveBeenCalledWith("metadata", { source: "affaire-intake", intake_document_id: "doc-drive",
       intake_drive_file_id: "drive_plan", intake_generation: "generation-1" });
