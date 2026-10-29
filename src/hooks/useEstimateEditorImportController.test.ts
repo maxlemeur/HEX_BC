@@ -664,3 +664,16 @@ describe("import controller document identity", () => {
     expect(harness.result.current.state.linkedDpgfSource).toBeNull();
   });
 });
+
+it("waits for the draft lease before auto-opening structure and consumes an explicit close", () => {
+  const harness = createHarness({ autoOpenStructureDraft: true, isMutationBlocked: true });
+  const version = harness.getVersion();
+  expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(false);
+  harness.rerender({ routeVersionId: version.id, activeVersion: version, isMutationBlocked: false });
+  expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(true);
+  act(() => { harness.result.current.actions.closeEstimateStructureDraftDialog(); });
+  expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(false);
+  harness.rerender({ routeVersionId: version.id, activeVersion: version, isMutationBlocked: true });
+  harness.rerender({ routeVersionId: version.id, activeVersion: version, isMutationBlocked: false });
+  expect(harness.result.current.state.isEstimateStructureDraftDialogOpen).toBe(false);
+});

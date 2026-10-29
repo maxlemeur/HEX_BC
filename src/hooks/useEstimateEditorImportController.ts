@@ -243,6 +243,7 @@ export function useEstimateEditorImportController({
     scopedImportUiState.scopeKey === scopeKey;
   const shouldAutoOpenStructureDraft = Boolean(
     autoOpenStructureDraft &&
+      !isMutationBlocked &&
       activeVersionId === routeVersionId &&
       activeVersion?.status === "draft" &&
       (!isImportUiStateCurrent ||
