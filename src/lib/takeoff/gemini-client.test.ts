@@ -3,6 +3,92 @@ import { z } from "zod";
 
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 
+describe("Gemini provider error logging", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("records the provider's schema diagnostic without logging document, prompt, key, or provider text", async () => {
+    const privateMarker = "SYNTHETIC_PRIVATE_DOCUMENT_PROMPT_KEY";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({
+        error: {
+          code: 400,
+          status: "INVALID_ARGUMENT",
+          message: privateMarker,
+          details: [{ fieldViolations: [{ field: `generationConfig.responseSchema.${privateMarker}`, description: privateMarker }] }],
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(callGeminiStructured({
+      prompt: privateMarker,
+      files: [{ data: privateMarker, mimeType: "application/pdf" }],
+      schema: z.object({ value: z.string() }),
+      maxRetries: 3,
+      context: { model: "gemini-3-flash-preview", promptVersion: "synthetic-test" },
+    }, { apiKey: privateMarker })).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith("takeoff.gemini.call", expect.objectContaining({
+      provider_http_status: 400,
+      provider_google_status: "INVALID_ARGUMENT",
+      provider_field_group: "response_schema",
+    }));
+    expect(JSON.stringify(log.mock.calls)).not.toContain(privateMarker);
+  });
+
+  it("recognizes a schema location in the provider message when there are no structured violations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: {
+        code: 400,
+        status: "INVALID_ARGUMENT",
+        message: "GenerateContentRequest.generation_config.response_schema.properties[items].format: unsupported format",
+      } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(callGeminiStructured({ prompt: "synthetic", schema: z.string(), maxRetries: 0 }, { apiKey: "synthetic-key" })).rejects.toMatchObject({ code: "AI_PROVIDER" });
+    expect(log).toHaveBeenCalledWith("takeoff.gemini.call", expect.objectContaining({
+      provider_google_status: "INVALID_ARGUMENT",
+      provider_field_group: "response_schema",
+    }));
+    expect(JSON.stringify(log.mock.calls)).not.toContain("unsupported format");
+  });
+
+  it("discards unfamiliar status and field values instead of logging arbitrary provider strings", async () => {
+    const privateMarker = "SYNTHETIC_UNKNOWN_PROVIDER_SECRET";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: {
+        code: 400,
+        status: privateMarker,
+        message: privateMarker,
+        details: [{ fieldViolations: [{ field: privateMarker, description: privateMarker }] }],
+      } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(callGeminiStructured({ prompt: "synthetic", schema: z.string(), maxRetries: 0 }, { apiKey: "synthetic-key" })).rejects.toMatchObject({ code: "AI_PROVIDER" });
+    expect(log).toHaveBeenCalledWith("takeoff.gemini.call", expect.objectContaining({
+      provider_http_status: 400,
+      provider_google_status: null,
+      provider_field_group: "other",
+    }));
+    expect(JSON.stringify(log.mock.calls)).not.toContain(privateMarker);
+  });
+});
+
 const TestSchema = z
   .object({
     items: z.array(

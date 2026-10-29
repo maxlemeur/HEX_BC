@@ -19,6 +19,7 @@ import {
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { proposeAffaireIntakeCategory } from "@/lib/affaires/intake-decisions";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
@@ -744,6 +745,12 @@ function addIssue(issues: string[], issue: string) {
   return [...issues, trimmed].slice(0, 10);
 }
 
+function getSafeProviderErrorCode(error: unknown) {
+  return error instanceof TakeoffError && Object.values(TakeoffErrorCode).some((code) => code === error.code)
+    ? error.code
+    : "PROVIDER_ERROR";
+}
+
 function buildClassificationPrompt(input: { fileName: string; mimeType: string }) {
   return [
     "RÔLE",
@@ -1039,10 +1046,9 @@ async function classifyAffaireIntakeDocument(input: {
 
   try {
     filePayload = await buildClassificationFilePayload(input);
-  } catch (error) {
+  } catch {
     console.error("Failed to build affaire intake classification payload", {
-      fileName: input.fileName,
-      error,
+      error_code: "CLASSIFICATION_PAYLOAD_ERROR",
     });
   }
 
@@ -1094,8 +1100,7 @@ async function classifyAffaireIntakeDocument(input: {
     };
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
-      fileName: input.fileName,
-      error,
+      error_code: getSafeProviderErrorCode(error),
     });
 
     return {
@@ -2070,7 +2075,7 @@ async function generateAffaireBriefDraft(input: {
     generated = result.data;
   } catch (error) {
     if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
-    console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error: error.cause });
+    console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error_code: getSafeProviderErrorCode(error.cause) });
   }
 
   const generation = mergeGeneratedAffaireBriefWithFallback({
@@ -2696,6 +2701,8 @@ export async function createAffaireIntakeUpload(
 }
 
 export const __securityTesting__ = {
+  classifyAffaireIntakeDocument,
+  generateAffaireBriefDraft,
   validateAffaireIntakeUploadBatch,
   validateSpreadsheetBudget,
   buildSpreadsheetSnippet,

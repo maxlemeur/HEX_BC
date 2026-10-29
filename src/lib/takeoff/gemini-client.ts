@@ -80,7 +80,65 @@ type GeminiCallLoggerPayload = {
   model: string;
   prompt_version: string;
   error_code?: string;
+  provider_http_status?: number | null;
+  provider_google_status?: string | null;
+  provider_field_group?: "response_schema" | "other";
 };
+
+const GEMINI_ERROR_STATUSES = new Set([
+  "INVALID_ARGUMENT",
+  "FAILED_PRECONDITION",
+  "PERMISSION_DENIED",
+  "UNAUTHENTICATED",
+  "RESOURCE_EXHAUSTED",
+  "NOT_FOUND",
+  "INTERNAL",
+  "UNAVAILABLE",
+  "DEADLINE_EXCEEDED",
+]);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function summarizeGeminiProviderError(error: unknown) {
+  const providerError = asRecord(error);
+  const httpStatus = providerError?.status;
+  const payload = asRecord(providerError?.details);
+  const details = asRecord(payload?.error);
+  const googleStatus = details?.status;
+  const messages: string[] = [];
+  if (typeof details?.message === "string") messages.push(details.message.slice(0, 4096));
+  if (Array.isArray(details?.details)) {
+    for (const detail of details.details.slice(0, 20)) {
+      const violations = asRecord(detail)?.fieldViolations;
+      if (!Array.isArray(violations)) continue;
+      for (const violation of violations.slice(0, 20)) {
+        const field = asRecord(violation)?.field;
+        if (typeof field === "string") messages.push(field.slice(0, 4096));
+      }
+    }
+  }
+
+  // A fixed signal records what the provider mentioned, not a proven root cause.
+  // Never include its message, field path, or any other untrusted response text.
+  const mentionsResponseSchema = messages.some((message) =>
+    /generation_?config\.response_?schema\b/i.test(message)
+  );
+  return {
+    provider_http_status:
+      typeof httpStatus === "number" && Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599
+        ? httpStatus
+        : null,
+    provider_google_status:
+      typeof googleStatus === "string" && GEMINI_ERROR_STATUSES.has(googleStatus)
+        ? googleStatus
+        : null,
+    provider_field_group: mentionsResponseSchema ? "response_schema" as const : "other" as const,
+  };
+}
 
 type GeminiCallDependencies = {
   invoke?: (input: {
@@ -1238,6 +1296,7 @@ export async function callGeminiStructured<T>(
         model,
         prompt_version: promptVersion,
         error_code: mapped.code,
+        ...summarizeGeminiProviderError(error),
       });
 
       if (!shouldRetry) {
