@@ -457,6 +457,16 @@ const administrationContracts: RouteContract[] = [
     } }],
   },
   {
+    id: "preview-affaire-intake-document", method: "get", path: "/api/affaires/{projectId}/intake/files/{documentId}/preview",
+    summary: "Ouvrir une pièce active du dossier", tags: ["Affaires"],
+    description: "Lecture privée sans cache, autorisée pour le lecteur de l’affaire dans son tenant actif. Les octets proviennent du stockage privé ou du compte Drive ayant lié la pièce. Les PDF, images PNG/JPEG/WebP et textes sont affichables ; les autres formats sont uniquement téléchargeables. Les pièces supprimées, en suppression ou non déposées sont refusées. Aucun jeton ni chemin Storage n’est exposé.",
+    pathParameters: [projectIdParameter, { name: "documentId", schema: uuidSchema, description: "Identifiant UUID de la pièce du dossier." }],
+    queryParameters: [{ name: "download", schema: z.literal("1"), description: "Forcer le téléchargement du fichier au lieu de l’aperçu." }],
+    success: [{ status: "200", description: "Contenu binaire de la pièce, avec Content-Disposition inline ou attachment, Cache-Control private/no-store et X-Content-Type-Options nosniff.", contents: [
+      { contentType: "application/pdf" }, { contentType: "image/png" }, { contentType: "image/jpeg" }, { contentType: "image/webp" }, { contentType: "text/plain" }, { contentType: "application/octet-stream" },
+    ] }],
+  },
+  {
     id: "read-affaire-google-drive", method: "get", path: "/api/affaires/{projectId}/intake/google-drive",
     summary: "Lire les comptes Google Drive et les liens Drive de cette affaire",
     description: "Disponibilité OAuth, comptes Google enregistrés du membre (sans jeton), dossier Drive lié et fichiers Drive liés à cette affaire accessible.", tags: ["Affaires"],

@@ -20,6 +20,10 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/takeoff/preparation-server", () => ({
   assertConfirmedTakeoffPreparation: vi.fn(),
 }));
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
+  return { ...actual, getTakeoffExecutionOwner: vi.fn().mockResolvedValue({}) };
+});
 
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";

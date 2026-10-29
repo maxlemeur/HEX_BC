@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
+import { badRequest, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
 import { sharedSecretMatches } from "@/lib/http/shared-secret";
-import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
-import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { TakeoffError, TakeoffErrorCode, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import type { TakeoffJobAttemptTrigger } from "@/lib/takeoff/types";
 
 const workerPayloadSchema = z
@@ -79,24 +77,9 @@ export async function POST(request: Request) {
   try {
     assertWorkerSecret(request);
 
-    const payload = await parseWorkerPayload(request);
-    await persistTakeoffDispatchOutcome({
-      jobId: payload.jobId,
-      trigger: payload.trigger,
-      result: {
-        triggered: true,
-        correlationId: payload.correlationId,
-        statusCode: null,
-        outcome: "accepted",
-      },
-    });
-    const outcome = await processTakeoffJobAttempt(payload.jobId, {
-      correlationId: payload.correlationId,
-      trigger: payload.trigger,
-    });
-
-    const status = outcome.should_requeue || outcome.status === "in_progress" ? 202 : 200;
-    return ok(outcome, status);
+    await parseWorkerPayload(request);
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Le traitement distant est désactivé. Utilisez le forfait ChatGPT dans MergeOne local." });
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {

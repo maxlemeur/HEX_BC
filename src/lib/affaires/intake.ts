@@ -402,11 +402,11 @@ const DOCUMENT_KIND_HINTS: Array<{
   {
     kind: "plans",
     patterns: [
-      /\bplan\b/i,
-      /\bcoupe\b/i,
+      /\bplans?\b/i,
+      /\bcoupes?\b/i,
       /\bfaçade\b/i,
-      /\bfacade\b/i,
-      /\belevation\b/i,
+      /\bfacades?\b/i,
+      /\belevations?\b/i,
       /\brdc\b/i,
     ],
     defaultConfidence: 0.84,
@@ -492,12 +492,23 @@ export function buildAffaireIntakeStoragePath(input: {
   ].join("/");
 }
 
+export const AFFAIRE_INTAKE_ANALYSIS_STALE_MS = 10 * 60_000;
+
+export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null }) {
+  const updated = Date.parse(document.classificationUpdatedAt ?? "");
+  return document.classificationStatus === "processing" && Number.isFinite(updated)
+    && updated < Date.now() - AFFAIRE_INTAKE_ANALYSIS_STALE_MS;
+}
+
 export function getHeuristicAffaireDocumentClassification(input: {
   fileName: string;
   mimeType?: string | null;
 }): AffaireIntakeClassificationResult {
-  const normalizedName = input.fileName.trim().toLowerCase();
-  const extension = getAffaireIntakeFileExtension(normalizedName);
+  const extension = getAffaireIntakeFileExtension(input.fileName);
+  // In technical filenames underscores are separators, but RegExp \b treats
+  // them as word characters. Normalize accents and separators before matching.
+  const normalizedName = input.fileName.trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\u2010-\u2015-]+/g, " ");
 
   if (
     (input.mimeType?.trim().toLowerCase() ?? "") === "message/rfc822" ||

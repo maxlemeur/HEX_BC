@@ -82,8 +82,9 @@ it("refuses a different host and production before loading credentials", async (
   expect(readChatGptStore).not.toHaveBeenCalled();
 });
 
-it("honors an explicit Gemini choice even with a connected local plan", async () => {
-  expect(await getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "gemini")).toEqual({});
+it("rejects an explicit obsolete Gemini choice even with a connected local plan", async () => {
+  vi.stubEnv("NODE_ENV", "development");
+  await expect(getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "gemini")).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
   expect(readChatGptStore).not.toHaveBeenCalled();
 });
 it("refuses an explicit ChatGPT choice when disconnected or outside the local runtime", async () => {

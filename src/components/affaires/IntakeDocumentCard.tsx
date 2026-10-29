@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -42,6 +42,8 @@ type IntakeDocumentCardProps = {
   compact?: boolean;
   isEmphasized?: boolean;
   canManage?: boolean;
+  canClassify?: boolean;
+  onPendingChange?: (pending: boolean) => void;
 };
 
 function getFileTypeIcon(fileName: string) {
@@ -106,12 +108,20 @@ export function IntakeDocumentCard({
   compact = false,
   isEmphasized = false,
   canManage = true,
+  canClassify = true,
+  onPendingChange,
 }: IntakeDocumentCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(doc.detectedCategory);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    if (!isPending) return;
+    onPendingChange?.(true);
+    return () => onPendingChange?.(false);
+  }, [isPending, onPendingChange]);
 
   const isAmbiguous = doc.detectedCategory === "a_classer" || doc.confidence < 0.65;
   const isProcessing = doc.confidence === 0 && doc.detectedCategory === "a_classer" && doc.issues.length === 0;
@@ -243,7 +253,7 @@ export function IntakeDocumentCard({
         </div>
 
         {/* Reclassify button */}
-        {!isProcessing && !isEditing && (
+        {canManage && canClassify && !isProcessing && !isEditing && (
           <div className="flex shrink-0 items-center gap-1.5">
             {isPriorityEligible && documentPriority !== "primary" ? (
               <button
@@ -267,7 +277,7 @@ export function IntakeDocumentCard({
       </div>
 
       {/* Inline reclassification */}
-      {isEditing && (
+      {canManage && canClassify && isEditing && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle p-2">
           <label htmlFor={`reclassify-${doc.documentId}`} className="sr-only">
             Nouvelle catégorie

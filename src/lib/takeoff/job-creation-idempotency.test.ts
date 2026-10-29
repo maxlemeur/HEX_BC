@@ -8,7 +8,10 @@ import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-ser
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
-vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ getTakeoffExecutionOwner: vi.fn() }));
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
+  return { ...actual, getTakeoffExecutionOwner: vi.fn() };
+});
 vi.mock("@/lib/takeoff/preparation-server", () => ({ assertConfirmedTakeoffPreparation: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
@@ -80,7 +83,7 @@ describe("prepared plan launch receipts", () => {
     expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 
-  it.each(["gemini", "chatgpt_local"] as const)("recovers the unique target receipt across different IDs after an atomic %s conflict", async (executionProvider) => {
+  it.each(["chatgpt_local"] as const)("recovers the unique target receipt across different IDs after an atomic %s conflict", async (executionProvider) => {
     let winnerVisible = false;
     const winningJob = {
       id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID }),
@@ -90,7 +93,7 @@ describe("prepared plan launch receipts", () => {
     const snapshot = confirmedPreparationFixture();
     snapshot.preparation.sources[0] = { ...snapshot.preparation.sources[0], kind: "plan", document_id: "plan-file", plan_set_id: M3_PLAN_SET_ID };
     vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(snapshot);
-    vi.mocked(getTakeoffExecutionOwner).mockResolvedValue(executionProvider === "gemini" ? {} : { execution_provider: "chatgpt_local", execution_host_id: "fixture-host" });
+    vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" });
     const fake = createSupabaseFake({ tables: {
       takeoff_jobs: (query) => {
         if (query.operation === "insert") {

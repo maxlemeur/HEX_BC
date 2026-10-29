@@ -14,6 +14,11 @@ export type OpenApiContentType =
   | "multipart/form-data"
   | "text/csv"
   | "application/pdf"
+  | "application/octet-stream"
+  | "image/png"
+  | "image/jpeg"
+  | "image/webp"
+  | "text/plain"
   | "application/zip"
   | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 

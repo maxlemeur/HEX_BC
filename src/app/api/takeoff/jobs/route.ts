@@ -100,6 +100,11 @@ export async function POST(request: Request) {
       idempotencyKey: request.headers.get("idempotency-key"),
     });
 
+    // Replaying a receipt must not restart an already running or terminal job.
+    if (data.status !== "pending") {
+      return ok(parseTakeoffJobCreateResponse(data, { versionId: parseEstimateVersionId(formData), level: parseTakeoffLevel(formData) }), 201);
+    }
+
     const triggerResult = await triggerTakeoffJobProcessing({
       jobId: data.id,
       trigger: "create",

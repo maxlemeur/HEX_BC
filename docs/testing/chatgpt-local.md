@@ -10,6 +10,10 @@ La migration `20261023222150_chatgpt_local_takeoff_execution.sql` est requise
 sur la base utilisée par le Mac pour lancer un métré ChatGPT. Son application
 sur une base partagée demande une autorisation distincte. Tant qu’elle manque,
 le lancement est refusé avant le téléversement et aucun job Gemini n’est créé.
+La migration `20261029152340_local_chatgpt_safe_recovery.sql` est également
+nécessaire pour la reprise locale des tâches expirées et du dossier. Sur une base
+qui ne l’a pas reçue, la reprise échoue sans appeler les anciennes fonctions de
+reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation séparée.
 
 1. Utiliser le Node de `.nvmrc`, puis lancer `npm run dev:chatgpt`.
 2. Ouvrir `http://127.0.0.1:3000/dashboard/profile` et se connecter à MergeOne.
@@ -40,8 +44,7 @@ existantes continuent de s’appliquer : connecter un forfait ne réactive pas l
 de devis complet. Les images et PDF sont envoyés en ligne lorsque nécessaires ;
 leur prise en charge dépend du modèle choisi. Les métrés A (tableurs/CSV), B et C
 (PDF) utilisent aussi le forfait du créateur en local. Leurs requêtes passent en
-streaming ; un réglage Gemini batch ne soumet pas de batch lorsque ChatGPT est
-sélectionné. Les découpages PDF, limites de volume et validations métier restent
+streaming. Les découpages PDF, limites de volume et validations métier restent
 applicables. Les restrictions sur les versions de calcul restent inchangées.
 
 Le lancement local exécute le worker Node sur le Mac après la réponse HTTP,
@@ -50,28 +53,33 @@ avec ses leases et sa persistance habituels. À la création, le job réserve
 sont immuables. Le cron partagé l’exclut et la base refuse sa prise en charge
 par un ancien worker Gemini, même avec le rôle de service. Seul le RPC de claim
 local peut le démarrer sur l’hôte réservé. Garder le serveur ouvert pendant
-l’analyse. Les batches Gemini déjà acceptés continuent leur réconciliation
-habituelle ; ils ne sont pas renvoyés à ChatGPT.
+l’analyse.
 
 Les formulaires de téléversement et de lancement depuis un jeu de plans proposent
-**Fournisseur IA** en local : Automatique, ChatGPT (forfait local) ou Gemini (API).
-Automatique conserve le comportement existant. Un choix explicite de ChatGPT
-exige une connexion et un modèle disponibles sur ce Mac ; il ne revient jamais à
-Gemini si cette condition manque. Un choix explicite de Gemini utilise la
-configuration API, même lorsqu’un forfait ChatGPT est connecté. Le choix entre
-dans l’identité de la demande : changer de fournisseur crée une nouvelle demande,
-sans recycler une tâche existante avec une autre facturation.
+**Fournisseur IA** : Automatique ou ChatGPT (forfait local). Les deux exigent
+une connexion et un modèle disponibles sur ce Mac. Une ancienne préparation
+enregistrée avec Gemini reste lisible, mais demande une nouvelle sélection et
+confirmation avant lancement. Les résultats historiques restent consultables.
 
-Sans compte sélectionné, le fournisseur habituel est utilisé. Après sélection,
-un refus, un quota ou une panne ChatGPT ne déclenche aucun appel Gemini de secours.
+Sans compte sélectionné, l’analyse est refusée avant l’envoi de la source. Un
+refus, un quota ou une panne ChatGPT ne déclenche aucun appel Gemini de secours.
 Les traitements métier peuvent conserver leurs replis heuristiques existants.
 Un métré ChatGPT en échec s’arrête sans escalade Gemini ni retry automatique.
 Une perte de connexion ou un arrêt brutal n’autorise pas un changement de
 fournisseur. Après expiration de lease, la reprise manuelle reste réservée au
 Mac d’origine. Une déconnexion du forfait ou une membership révoquée bloque
 l’analyse ; aucun autre compte n’est choisi.
+Pour une relance manuelle, le forfait sélectionné pour le créateur sur son Mac
+est utilisé ; changer de connexion entre deux tentatives change donc ce forfait.
 Son résultat identifie `provider: chatgpt`, le modèle et les jetons consommés ;
 `cost_cents: 0` signifie usage du forfait, sans prix API calculé.
+
+Les anciennes tâches Gemini ne sont plus lancées ni réconciliées par cette
+version. Les intégrations par clé personnelle sont hors de ce lot. Ces
+changements n'ont pas été déployés : le site hébergé et ses traitements déjà
+enregistrés conservent leur fonctionnement tant qu'ils ne sont pas modifiés.
+La fonctionnalité Decisions reste indépendante : si elle est déjà configurée,
+elle utilise son accès API OpenAI distinct et sa facturation propre.
 
 ## Stockage et frontières
 

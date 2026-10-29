@@ -20,7 +20,7 @@ export type PreparationAdvancedControlsContext = {
   isConfirmed: boolean;
 };
 const PROCESSING_LEVELS: TakeoffLevel[] = ["A", "B", "C"];
-const PROCESSING_PROVIDER_LABELS = { auto: "Automatique — fournisseur fixé à la création", chatgpt: "ChatGPT — forfait local", gemini: "Gemini — API" };
+const PROCESSING_PROVIDER_LABELS = { auto: "Automatique — forfait ChatGPT local", chatgpt: "ChatGPT — forfait local", gemini: "Ancien fournisseur indisponible" };
 
 const STEPS = ["Mes documents", "Ce que je veux mesurer", "Points à préciser", "Vérifier et lancer"];
 
@@ -164,7 +164,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {step === 3 && destinationControls}
       {step === 3 && estimateVersionId && draft.destination.estimate_version_id !== estimateVersionId && <div className="space-y-2 rounded-lg border border-border bg-surface-subtle p-3"><p className="text-sm text-muted-foreground">La destination enregistrée est conservée pour retrouver la demande précédente. Pour changer sa destination, choisissez explicitement la version affichée.</p><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: estimateVersionId, confirmed: false } })}>Utiliser la version cible sélectionnée</button></div>}
       <TakeoffPreparationFields draft={draft} onChange={updateDraft} step={step} projectId={projectId} availableSources={uploadSource ? [...availableSources, uploadSource] : availableSources} localPreviewUrl={localPreviewUrl} orderedQuestionIds={orderedQuestionIds} />
-      {step === 3 && <p className="text-sm text-muted-foreground">Réglages du traitement : {draft.processing.level ? TAKEOFF_LEVEL_BUSINESS_LABELS[draft.processing.level] : "Niveau à préciser"} · {PROCESSING_PROVIDER_LABELS[draft.processing.provider]}.</p>}
+      {step === 3 && <p className="text-sm text-muted-foreground">Réglages du traitement : {draft.processing.level ? TAKEOFF_LEVEL_BUSINESS_LABELS[draft.processing.level] : "Niveau à préciser"} · {record?.confirmedAt && draft.processing.provider === "auto" ? "Automatique — fournisseur de la demande confirmée" : PROCESSING_PROVIDER_LABELS[draft.processing.provider]}.</p>}
       {step === 3 && !processingCompatible && <Alert variant="warning"><AlertDescription>Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.</AlertDescription></Alert>}
       {step === 3 && processingControls && <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Options avancées</summary><div className="mt-3 space-y-4">{processingControls}</div></details>}
     </fieldset>

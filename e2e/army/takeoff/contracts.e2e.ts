@@ -34,7 +34,7 @@ const definitions = [
   { designation: "Excluded low conf", quantity: 5, unit: "u", confidence: 0.1, is_excluded: true },
 ];
 
-nativeTest("TKF05 a real level-A CSV upload creates a pending job present in the list", options, async ({ ui }) => {
+nativeTest("TKF05 a stored historical level-A job remains present and can be canceled", options, async ({ ui }) => {
   const { ids, jobId } = await launchWorkerCsv(ui, "TKF05");
   expect(jobId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
   await expect.poll(async () => {

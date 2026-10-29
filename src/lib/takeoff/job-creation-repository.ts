@@ -195,7 +195,7 @@ export async function getTakeoffJobById(input: {
   const { data, error } = await input.supabase
     .from("takeoff_jobs" as never)
     .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, preparation_snapshot" as never
+      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
     )
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("id" as never, input.jobId as never)
@@ -225,7 +225,7 @@ export async function getTakeoffPlanSetJobByPreparation(input: {
 }) {
   if (input.preparationRevision === null) return null;
   let query = input.supabase.from("takeoff_jobs")
-    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,preparation_snapshot")
+    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,preparation_snapshot,execution_provider,execution_host_id,created_by")
     .eq("tenant_id", input.tenantId).eq("estimate_version_id", input.estimateVersionId)
     .eq("plan_set_id", input.planSetId).eq("level", input.level)
     .eq("preparation_snapshot->>preparation_revision", String(input.preparationRevision));

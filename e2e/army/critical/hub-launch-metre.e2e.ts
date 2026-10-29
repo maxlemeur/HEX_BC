@@ -36,11 +36,10 @@ async function setup(ui: Ui, caseId: string) {
   return { estimate, planSet, file, dialog, client, read, jobs: ownedTakeoffJobs(ui.browser, estimate) };
 }
 
-armyTest("HUB01 retained PDF counting preparation persists exclusions and one immutable Standard request", options, async (ui) => {
-  const { estimate, planSet, file, read, jobs, client } = await setup(ui, "HUB01");
-  let launched = false;
+armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks without a local plan", options, async (ui) => {
+  const { estimate, planSet, file, read, jobs } = await setup(ui, "HUB01");
   try {
-    let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "gemini" } });
+    let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B" } });
     await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
     await dialog.getByRole("button", /Mes documents$/).click();
     const documentsScreenshot = await ui.app.screenshot("HUB01-preparation-documents");
@@ -69,38 +68,14 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and one im
     await expect(dialog.getByLabel("Version cible", { exact: true })).toHaveValue(estimate.versionId);
     await dialog.getByText("Options avancées", { exact: true }).click();
     await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
-    await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
-    launched = true;
+    await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
-    await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
-    const [job] = await jobs.list();
-    expect(job).toMatchObject({ estimate_version_id: estimate.versionId, level: "B", source_file_name: "sample-plan.pdf" });
-    const storedJob = await client.from("takeoff_jobs").select("preparation_snapshot").eq("id", job.id).single();
-    expect(storedJob.error).toBeNull();
-    const snapshot = storedJob.data!.preparation_snapshot as NonNullable<PreparationRow["confirmed_snapshot"]>;
-    expect({ ...snapshot.preparation, sources: [] }).toEqual({ ...saved.draft, sources: [] });
-    expect(snapshot.preparation.sources.map((source) => ({ ...source, content_hash: null })))
-      .toEqual(saved.draft.sources.map((source) => ({ ...source, content_hash: null })));
-    expect(snapshot.preparation.sources[0].content_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(snapshot.preparation_revision).toBeGreaterThan(saved.revision);
-    expect(snapshot.preparation.sources.filter((source) => source.active)).toHaveLength(1);
-    expect(snapshot.preparation.sources[0]).toMatchObject({ document_id: file.id, revision: "A", plan_set_id: planSet.id });
-    await recordEvidence(ui.army, "HUB01-preparation-snapshot", { estimate, planSetId: planSet.id, file, saved, job, snapshot,
+    await expect(dialog.getByText(/forfait ChatGPT.*local/i).first()).toBeVisible();
+    expect(await jobs.list()).toEqual([]);
+    await recordEvidence(ui.army, "HUB01-preparation", { estimate, planSetId: planSet.id, file, saved, noJobCreated: true,
       screenshots: [documentsScreenshot, questionsScreenshot, summaryScreenshot],
-      boundary: "Real manual preparation, persistence and launch snapshot; no external AI or worker measurement runs. Plan-only counting needs neither DPGF nor calibration." });
-    await jobs.cancel();
-    const activityPath = `/dashboard/affaires/${estimate.projectId}/takeoff`;
-    const activityLink = dialog.getByRole("link", /Centre d'activit/i);
-    await expect(activityLink).toHaveAttribute("href", activityPath);
-    await activityLink.click();
-    await expect(ui.browser).toHaveURL(activityPath);
-    const canceled = await jobs.list();
-    expect(canceled).toEqual([expect.objectContaining({ id: job.id, status: "canceled" })]);
-    await ui.browser.reload();
-    expect(await jobs.list()).toEqual(canceled);
-    expect((await client.from("takeoff_jobs").select("preparation_snapshot").eq("id", job.id).single()).data!.preparation_snapshot).toEqual(snapshot);
+      boundary: "Real manual preparation and persistence; a launch without the local plan is refused. LOCAL02 covers the successful snapshot and launch." });
   } finally {
-    if (launched) await jobs.cancel();
     await recordEvidence(ui.army, "HUB01-fixture", { estimate, planSetId: planSet.id, fileId: file.id, jobs: await jobs.list() });
   }
 });
@@ -133,24 +108,24 @@ armyTest("PRE06 long inclusions and exclusions remain readable and survive a rel
 
 armyTest("PRE05 processing choices survive closing and reloading without silently replacing the provider", options, async (ui) => {
   const { estimate, file, read, jobs } = await setup(ui, "PRE05");
-  let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "gemini" } });
+  let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "auto" } });
   await saveTakeoffPreparation(ui);
   const saved = await read();
-  expect(saved.draft.processing).toEqual({ level: "B", provider: "gemini" });
+  expect(saved.draft.processing).toEqual({ level: "B", provider: "auto" });
   await ui.browser.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   dialog = await openTakeoffPreparation(ui);
   await dialog.getByRole("button", /Vérifier et lancer$/).click();
   await dialog.getByText("Options avancées", { exact: true }).click();
   await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
-  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
+  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
   expect((await read()).revision).toBe(saved.revision);
   await ui.browser.reload();
   dialog = await openTakeoffPreparation(ui);
   await dialog.getByRole("button", /Vérifier et lancer$/).click();
   await dialog.getByText("Options avancées", { exact: true }).click();
   await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
-  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("gemini");
+  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
   const restored = await read();
   expect(restored).toEqual(saved);
   expect(await jobs.list()).toEqual([]);

@@ -8,8 +8,8 @@ import {
   type ProcurementStorageCleanupDrainResult,
 } from "@/lib/procurement/storage-cleanup-outbox";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
+import type { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
+import type { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import type { DurableWorkflowRpcClient } from "@/lib/workflows/affaire-intake-lifecycle";
 
 export const MAX_DURABLE_RECOVERY_ATTEMPTS = 5;
@@ -227,10 +227,6 @@ export async function recoverDurableWorkflows(
     dependencies.client ??
     (serviceRoleClient as unknown as DurableWorkflowRpcClient);
   const now = dependencies.now ?? (() => new Date());
-  const triggerTakeoff =
-    dependencies.triggerTakeoff ?? triggerTakeoffJobProcessing;
-  const persistTakeoffDispatch =
-    dependencies.persistTakeoffDispatch ?? persistTakeoffDispatchOutcome;
   const processIntake = dependencies.processIntake ?? processAffaireIntakeUpload;
   const drainStorageCleanup =
     dependencies.drainStorageCleanup ?? drainProcurementStorageCleanupOutbox;
@@ -307,7 +303,7 @@ export async function recoverDurableWorkflows(
   }
 
   const { data: recoveredData, error: recoveryError } = await client.rpc(
-    "recover_stale_takeoff_jobs",
+    "recover_stale_local_takeoff_jobs",
     {
       p_now: now().toISOString(),
       p_stale_after: "10 minutes",
@@ -320,7 +316,7 @@ export async function recoverDurableWorkflows(
   }
 
   const { data: dueData, error: dueError } = await client.rpc(
-    "list_due_durable_workflows",
+    "list_due_affaire_intake_workflows",
     {
       p_now: now().toISOString(),
       p_limit: Math.max(1, Math.min(dependencies.limit ?? 20, 100)),
@@ -344,6 +340,11 @@ export async function recoverDurableWorkflows(
   let intakeCount = 0;
 
   for (const workflow of due) {
+    // A historic or malformed response must never requeue a legacy takeoff job.
+    if (workflow.workflowKind === "takeoff") {
+      skippedCount += 1;
+      continue;
+    }
     let retryCount = 0;
     try {
       retryCount = await readRetryCount(workflow);
@@ -369,28 +370,6 @@ export async function recoverDurableWorkflows(
     }
 
     try {
-      if (workflow.workflowKind === "takeoff") {
-        if (workflow.triggerKind === "process") {
-          throw new Error("Trigger takeoff durable invalide.");
-        }
-        const result = await triggerTakeoff({
-          jobId: workflow.workId,
-          trigger: workflow.triggerKind,
-        });
-        await persistTakeoffDispatch({
-          jobId: workflow.workId,
-          trigger: workflow.triggerKind,
-          result,
-        });
-        if (!result.triggered) {
-          throw new Error(
-            `Le relay takeoff a refuse le dispatch (${result.statusCode ?? "sans statut"}).`
-          );
-        }
-        dispatchedCount += 1;
-        continue;
-      }
-
       if (intakeCount >= maxIntakePerRun) {
         skippedCount += 1;
         continue;

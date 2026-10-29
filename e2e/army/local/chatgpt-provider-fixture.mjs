@@ -161,6 +161,13 @@ globalThis.fetch = async (input, init) => {
     data.metadata = { level: "C", prompt_version: "takeoff-c-v1", file_type: "pdf", schema_version: "v1" };
     // Level C requires a global confidence besides the per-item one.
     data.confidence = 0.99;
+    if (JSON.stringify(body.input).includes("Niveau B: tables est requis")) {
+      data.metadata = { level: "B", prompt_version: "takeoff-b-v1", file_type: "pdf", schema_version: "v1" };
+      data.tables = [{ page: 1, title: "Quantités fictives", headers: ["Désignation", "Quantité", "Unité"], rows: [
+        { row_index: 0, cells: ["Tuyauterie cuivre DN20", "12.5", "m"] },
+        { row_index: 1, cells: ["Vanne isolement DN20", "4", "u"] },
+      ] }];
+    }
   }
   const output = JSON.stringify(data);
   await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(transportEntry("chatgpt-fixture")) + "\n");

@@ -19,9 +19,8 @@ import {
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
 import {
-  callGeminiStructured,
-  pollGeminiBatchStructuredOnce,
-  submitGeminiBatchStructured,
+  type pollGeminiBatchStructuredOnce,
+  type submitGeminiBatchStructured,
   type CallGeminiStructuredOptions,
   type CallGeminiStructuredResult,
   type GeminiBatchLifecycleEvent,
@@ -89,6 +88,11 @@ type TakeoffExecutionModelConfig = { model: string; thinkingLevel: GeminiThinkin
 
 type SubmitGeminiBatchStructuredFn = typeof submitGeminiBatchStructured;
 type PollGeminiBatchStructuredOnceFn = typeof pollGeminiBatchStructuredOnce;
+
+async function unavailableLegacyTakeoffProvider(): Promise<never> {
+  throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    message: "Ce fournisseur n’est plus disponible. Préparez une nouvelle analyse avec le forfait ChatGPT local." });
+}
 
 const TAKEOFF_LEVEL_A = "A";
 const TAKEOFF_LEVEL_B = "B";
@@ -3349,9 +3353,9 @@ async function processTakeoffLevel(
   }
 
   const context = await resolveContext(options);
-  const baseCallGemini = options.callGemini ?? callGeminiStructured;
+  const baseCallGemini: CallGeminiStructuredFn = options.callGemini ?? unavailableLegacyTakeoffProvider;
   const baseSubmitGeminiBatch =
-    options.submitGeminiBatch ?? submitGeminiBatchStructured;
+    options.submitGeminiBatch ?? unavailableLegacyTakeoffProvider;
   const now = options.now ?? (() => new Date());
   let levelConfig: TakeoffExecutionModelConfig & { promptVersion: string } = getTakeoffLevelConfig(level);
   let escalationConfig = getTakeoffEscalationModelConfig(level);
@@ -3949,7 +3953,7 @@ export async function reconcileTakeoffBatchJob(
   }
 
   const context = await resolveContext(options);
-  const pollGeminiBatchOnce = options.pollGeminiBatchOnce ?? pollGeminiBatchStructuredOnce;
+  const pollGeminiBatchOnce = options.pollGeminiBatchOnce ?? unavailableLegacyTakeoffProvider;
   const now = options.now ?? (() => new Date());
   const processingStartedAt = now();
   let job = await getTakeoffJobForProcessing({

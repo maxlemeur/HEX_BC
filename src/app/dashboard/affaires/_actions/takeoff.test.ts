@@ -27,6 +27,7 @@ vi.mock("@/lib/auth/tenant-context", () => ({
     supabase: { from: () => ({ delete: unexpectedMutationMock }) },
   })),
 }));
+vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ getTakeoffExecutionOwner: vi.fn().mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" }) }));
 
 vi.mock("@/lib/takeoff/server", () => ({
   createTakeoffJobFromPlanSet: createTakeoffJobFromPlanSetMock,

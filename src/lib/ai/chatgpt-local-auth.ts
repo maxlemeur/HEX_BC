@@ -44,8 +44,9 @@ export function assertLocalChatGptHost(host: string | null) {
   return `http://${host}`;
 }
 
-function hasPlanAccess(profile: ChatGptProfile) {
-  return Boolean(profile.accessToken && profile.scopes.includes(PLAN_SCOPE));
+export function hasLocalChatGptPlanAccess(profile: ChatGptProfile) {
+  return Boolean(profile.accessToken && profile.scopes.includes(PLAN_SCOPE) &&
+    ((profile.expiresAt ?? 0) > Date.now() + 60_000 || profile.refreshToken));
 }
 
 export async function getLocalChatGptState(owner: ChatGptOwner) {
@@ -56,10 +57,10 @@ export async function getLocalChatGptState(owner: ChatGptOwner) {
     selectedId: store.selectedId,
     model: selected?.model ?? null,
     reasoningEffort: selected?.reasoningEffort ?? null,
-    sharing: selected ? hasPlanAccess(selected) : false,
+    sharing: selected ? hasLocalChatGptPlanAccess(selected) : false,
     profiles: store.profiles.map((profile, index) => ({
       id: profile.id, email: profile.email, label: `Connexion ${index + 1}`,
-      connected: Boolean(profile.accessToken), sharing: hasPlanAccess(profile),
+      connected: Boolean(profile.accessToken), sharing: hasLocalChatGptPlanAccess(profile),
     })),
   };
 }
@@ -170,7 +171,7 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
     const store = await readChatGptStore(owner);
     const profile = store.profiles.find((item) => item.id === store.selectedId);
     if (!profile) return null;
-    if (!hasPlanAccess(profile)) throw new Error("Autorisez l’utilisation du forfait ChatGPT en reconnectant le compte.");
+    if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Autorisez l’utilisation du forfait ChatGPT en reconnectant le compte.");
     if ((profile.expiresAt ?? 0) <= Date.now() + 60_000) {
       if (!profile.refreshToken) throw new Error("Reconnectez ChatGPT pour renouveler l’accès.");
       const tokens = await requestTokens(new URLSearchParams({
@@ -183,7 +184,7 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
       profile.expiresAt = Date.now() + tokens.expires_in * 1000;
       if (tokens.scope !== undefined) profile.scopes = tokens.scope.split(/\s+/).filter(Boolean);
       await saveChatGptStore(owner, store);
-      if (!hasPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
+      if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
     }
     return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id };
   });

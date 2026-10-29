@@ -79,43 +79,20 @@ armyTest("HUB07 permanent prompt dismissal keeps the manual analysis action afte
   await recordEvidence(ui.army, "HUB07-permanent-dismissal", { estimate, remainsHiddenAfterReload: true, manualActionVisible: true });
 });
 
-armyTest("HUB08 launching from the prompt persists a request and hides the prompt after reload", options, async (ui) => {
+armyTest("HUB08 without a local plan the prompt retains the preparation without a request", options, async (ui) => {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("Auto-propose requires the campaign's worker-blocking server guard.");
-  const { estimate, set, file, prompt, plansSection } = await openHubPrompt(ui, "HUB08");
+  const { estimate, set, file, prompt } = await openHubPrompt(ui, "HUB08");
   const jobs = ownedTakeoffJobs(ui.browser, estimate);
   expect(await jobs.list()).toEqual([]);
-  let launchAttempted = false;
-  try {
     await prompt.getByRole("button", "Préparer le métré", { exact: true }).click();
     const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
     await dialog.getByText("Options avancées", { exact: true }).click();
     await dialog.getByRole("radio", "Standard", { exact: true }).check();
-    launchAttempted = true;
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
-    await expect(ui.browser.locator('[data-slot="toast"]').getByText("Analyse enregistrée, démarrage en attente", { exact: true })).toBeVisible();
-    await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
-    const [job] = await jobs.list();
-    expect(job).toMatchObject({ estimate_version_id: estimate.versionId, source_file_name: "sample-plan.pdf", level: "B", status: "pending" });
-    await expect(prompt).toBeHidden();
-    await expect(plansSection.getByRole("link", "Suivre l'analyse", { exact: true })).toBeVisible();
-    await expect(plansSection.getByText("En file", { exact: true })).toBeVisible();
-    await ui.browser.reload();
-    await expect(plansSection).toBeVisible();
-    await expect(prompt).toBeHidden();
-    await expect(plansSection.getByText("En file", { exact: true })).toBeVisible();
-    await expect(plansSection.getByRole("link", "Suivre l'analyse", { exact: true })).toHaveAttribute("href", `/dashboard/affaires/${estimate.projectId}/takeoff`);
-    await ui.app.open(`/dashboard/affaires/${estimate.projectId}/takeoff`);
-    await expect(ui.browser).toHaveURL(`/dashboard/affaires/${estimate.projectId}/takeoff`);
-    await expect(ui.screen.getByText(/Jobs|Centre d'activit[ée]|Activit[ée]/i).first()).toBeVisible();
-    await recordEvidence(ui.army, "HUB08-prompt-launch", { estimate, planSetId: set.id, fileId: file.id, job, hiddenAfterReload: true });
-  } finally {
-    if (launchAttempted) {
-      await jobs.cancel();
-      const remaining = await jobs.list();
-      expect(remaining.every((job) => job.status === "canceled")).toBe(true);
-      await recordEvidence(ui.army, "HUB08-cleanup", { estimate, jobs: remaining });
-    }
-  }
+    await expect(dialog.getByText(/forfait ChatGPT.*local/i).first()).toBeVisible();
+    expect(await jobs.list()).toEqual([]);
+    await recordEvidence(ui.army, "HUB08-prompt-blocked", { estimate, planSetId: set.id, fileId: file.id, noJobCreated: true,
+      boundary: "Successful plan-set creation and persisted snapshot are covered by LOCAL02 on a dedicated local server." });
 });
 
 armyTest("HUB09 intake-synced plans retain provenance and analysis choices in the launch dialog", options, async (ui) => {
