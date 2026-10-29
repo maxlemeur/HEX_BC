@@ -790,7 +790,7 @@
           "Affaires"
         ],
         "summary": "Préparer la lecture d'une DPGF du dossier",
-        "description": "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible.",
+        "description": "Retourne une URL privée de courte durée pour une DPGF active et classifiée de l'affaire accessible. Une pièce liée depuis Google Drive n'a pas de copie : downloadUrl est null, sizeBytes est sa taille actuelle dans Drive, et l'analyse comme l'import la lisent côté serveur avec le compte du membre qui l'a liée.",
         "parameters": [
           {
             "name": "projectId",
@@ -1010,8 +1010,8 @@
         "tags": [
           "Affaires"
         ],
-        "summary": "Lire la disponibilité et les copies Google Drive de cette affaire",
-        "description": "Disponibilité OAuth et provenance des copies privées de cette affaire accessible.",
+        "summary": "Lire les comptes Google Drive et les liens Drive de cette affaire",
+        "description": "Disponibilité OAuth, comptes Google enregistrés du membre (sans jeton), dossier Drive lié et fichiers Drive liés à cette affaire accessible.",
         "parameters": [
           {
             "name": "projectId",
@@ -1100,8 +1100,8 @@
         "tags": [
           "Affaires"
         ],
-        "summary": "Parcourir un dossier ou confirmer des copies Drive",
-        "description": "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Jeton éphémère dans le corps JSON, jamais dans une URL. Aucun contenu téléchargé avant confirmation. Résultats par pièce et reprise par révision.",
+        "summary": "Parcourir Drive, lier des fichiers ou le dossier de l'affaire, retirer un compte",
+        "description": "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Le corps désigne un compte Google enregistré du membre, jamais un jeton. Lier un fichier n'en copie pas le contenu : l'analyse le lit dans Drive. Résultats par fichier.",
         "parameters": [
           {
             "name": "projectId",
@@ -1114,7 +1114,7 @@
           }
         ],
         "requestBody": {
-          "description": "Dossier personnel, au plus 20 pièces et 100 Mo par lot, 50 Mo par pièce. Origine identique requise.",
+          "description": "Au plus 20 fichiers par lien, 50 Mo par fichier. Origine identique requise.",
           "required": true,
           "content": {
             "application/json": {
@@ -13347,6 +13347,208 @@
         }
       }
     },
+    "/api/google-drive/oauth/callback": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Terminer l'ajout d'un compte Google Drive",
+        "description": "Retour de Google : vérifie l'état signé et le membre, échange le code côté serveur et enregistre le jeton chiffré. La page de retour ne reçoit qu'un code de résultat.",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "description": "État anti-rejeu émis au démarrage.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CompleteGoogleDriveAuthorizationStateParameter"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Code d'autorisation Google.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CompleteGoogleDriveAuthorizationCodeParameter"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "Refus ou erreur renvoyé par Google.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CompleteGoogleDriveAuthorizationErrorParameter"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Redirection vers la page de retour avec le résultat drive=connected|refused|scope|offline|expired|disabled|failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/google-drive/oauth/start": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Ajouter un compte Google Drive",
+        "description": "Redirige le membre connecté vers le consentement Google (lecture seule de Drive, accès durable, PKCE). Le compte reste enregistré pour ses prochaines visites.",
+        "parameters": [
+          {
+            "name": "returnTo",
+            "in": "query",
+            "description": "Page du tableau de bord où revenir après Google.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StartGoogleDriveAuthorizationReturnToParameter"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Redirection vers Google, ou vers la page de retour si Drive est désactivé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/imports": {
       "get": {
         "tags": [
@@ -23319,8 +23521,15 @@
                 "maximum": 9007199254740991
               },
               "downloadUrl": {
-                "type": "string",
-                "format": "uri"
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -23426,14 +23635,58 @@
                 "type": "string",
                 "const": "list"
               },
-              "token": {
+              "connectionId": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              "folderId": {
-                "type": "string",
-                "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+              "location": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "folder"
+                      },
+                      "folderId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "folderId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "shared_with_me"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "shared_drives"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               },
               "pageToken": {
                 "type": "string",
@@ -23442,8 +23695,8 @@
             },
             "required": [
               "action",
-              "token",
-              "folderId"
+              "connectionId",
+              "location"
             ],
             "additionalProperties": false
           },
@@ -23452,16 +23705,12 @@
             "properties": {
               "action": {
                 "type": "string",
-                "const": "import"
+                "const": "link_files"
               },
-              "token": {
+              "connectionId": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              },
-              "folderId": {
-                "type": "string",
-                "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "files": {
                 "minItems": 1,
@@ -23474,22 +23723,13 @@
                       "type": "string",
                       "pattern": "^[a-zA-Z0-9_-]{1,200}$"
                     },
-                    "version": {
-                      "type": "string",
-                      "pattern": "^\\d+$"
-                    },
-                    "newVersion": {
-                      "default": false,
-                      "type": "boolean"
-                    },
                     "folderId": {
                       "type": "string",
                       "pattern": "^[a-zA-Z0-9_-]{1,200}$"
                     }
                   },
                   "required": [
-                    "id",
-                    "version"
+                    "id"
                   ],
                   "additionalProperties": false
                 }
@@ -23497,9 +23737,64 @@
             },
             "required": [
               "action",
-              "token",
-              "folderId",
+              "connectionId",
               "files"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "link_folder"
+              },
+              "connectionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "folderId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+              }
+            },
+            "required": [
+              "action",
+              "connectionId",
+              "folderId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "unlink_folder"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "disconnect"
+              },
+              "connectionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "action",
+              "connectionId"
             ],
             "additionalProperties": false
           }
@@ -55718,6 +56013,22 @@
           "flag_key",
           "enabled"
         ]
+      },
+      "CompleteGoogleDriveAuthorizationStateParameter": {
+        "type": "string",
+        "maxLength": 512
+      },
+      "CompleteGoogleDriveAuthorizationCodeParameter": {
+        "type": "string",
+        "maxLength": 2048
+      },
+      "CompleteGoogleDriveAuthorizationErrorParameter": {
+        "type": "string",
+        "maxLength": 256
+      },
+      "StartGoogleDriveAuthorizationReturnToParameter": {
+        "type": "string",
+        "maxLength": 512
       },
       "ListImportsProjectIdParameter": {
         "type": "string",

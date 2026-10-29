@@ -1,13 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 import { localClient } from "../takeoff/native-ui";
 import { localDriveStore } from "./google-drive-local-store";
 import { relativeOutputPath } from "../local/sdk-results";
 import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
 
-armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and imports no documents", {
+armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links no documents", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
 }, async (ui) => {
   const { army, app, screen, browser } = ui;
@@ -16,152 +14,149 @@ armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and imports
   // A fresh affaire offers Drive beside the computer in its next step.
   await screen.getByRole("button", "Choisir dans Drive", { exact: true }).click();
   await expect(screen.getByText("Connexion réelle en attente de validation OAuth pour ce POC. Aucun accès Google activé.", { exact: true })).toBeVisible();
-  await expect(screen.getByRole("button", "Connecter Google Drive", { exact: true })).toHaveCount(0);
+  await expect(screen.getByRole("link", "Ajouter un compte Google", { exact: true })).toHaveCount(0);
   const blocked = await browser.evaluate(async (projectId) => {
-    const response = await fetch(`/api/affaires/${projectId}/intake/google-drive`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "list", folderId: "root", token: "fixture-disabled-no-credential" }),
-    });
-    const payload = await response.json();
-    return { status: response.status, code: payload.error?.code };
+    const call = async (body: unknown) => {
+      const response = await fetch(`/api/affaires/${projectId}/intake/google-drive`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      return { status: response.status, code: (await response.json()).error?.code };
+    };
+    // Adding an account goes back to the affaire with an outcome code only.
+    const start = await fetch(`/api/google-drive/oauth/start?returnTo=${encodeURIComponent(`/dashboard/affaires/${projectId}`)}`);
+    return {
+      list: await call({ action: "list", connectionId: "00000000-0000-4000-8000-000000000001", location: { kind: "folder", folderId: "root" } }),
+      // A browser-held Google token is no longer part of the contract.
+      token: await call({ action: "list", folderId: "root", token: "fixture-disabled-no-credential" }),
+      start: new URL(start.url).search,
+    };
   }, ids.projectId);
-  expect(blocked).toEqual({ status: 503, code: "DRIVE_DISABLED" });
+  expect(blocked).toEqual({ list: { status: 503, code: "DRIVE_DISABLED" }, token: { status: 400, code: "VALIDATION_ERROR" }, start: "?drive=disabled" });
   await browser.reload();
   await screen.getByRole("button", "Choisir dans Drive", { exact: true }).click();
-  await expect(screen.getByText("Copies Google Drive et versions importées", { exact: true })).toHaveCount(0);
+  await expect(screen.getByText("Fichiers Drive liés à l’affaire", { exact: true })).toHaveCount(0);
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
-  await recordEvidence(army, "DRV01-drive-disabled", { ids, blocked, scope: "Real local HTTP/UI only; no Google access, OAuth or imported copy." });
+  await recordEvidence(army, "DRV01-drive-disabled", { ids, blocked, scope: "Real local HTTP/UI only; no Google access, OAuth or linked file." });
 });
 
 
-armyTest("DRV02 fictional Drive copies persist in real private Storage with provenance replay and versions", {
+armyTest("DRV02 fictional Drive links persist under real RLS without any stored copy and stay listed across visits", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
 }, async (ui) => {
   const { army, app, screen, browser } = ui;
-  const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV02`, title: "Copies Drive fictives" }, army);
+  const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV02`, title: "Liens Drive fictifs" }, army);
   const { client, userId } = await localClient();
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived")
     .eq("id", ids.projectId).single();
   expect(project.error).toBeNull();
   const store = await localDriveStore(army.runPrefix);
-  const access = { context: { supabase: client, tenantId: project.data!.tenant_id, userId }, project: project.data! } as Parameters<typeof store.persistDriveCopy>[0];
-  const bytes = await readFile(path.resolve("e2e/fixtures/sample-plan.pdf"));
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const file = new File([bytes], "plan-poc-fictif.pdf", { type: "application/pdf" });
-  const source = { provider: "google_drive" as const, folderId: "fixture_folder", fileId: "fixture_plan",
-    sourceName: file.name, sourceMimeType: file.type, revision: "1", sourceModifiedTime: null,
-    sourceUrl: "https://drive.google.com/file/d/fixture_plan/view", sha256, importedAt: new Date().toISOString(),
-    importedBy: userId, tenantId: project.data!.tenant_id, projectId: ids.projectId };
-  const lot = (revision: string) => store.driveBatchUploadId(project.data!.tenant_id, ids.projectId, [{ id: source.fileId, version: revision }]);
-  const parent = async (uploadId: string) => (await client.from("affaire_intake_uploads").select("status,completed_at").eq("id", uploadId).single()).data;
-  const first = await store.persistDriveCopy(access, file, source, lot("1"));
-  expect(first.status).toBe("imported");
-  expect(first.uploadId).toBe(lot("1"));
-  // The caller arms the lot once, after its last copy: persisting a copy never queues it.
-  expect(await parent(first.uploadId)).toMatchObject({ status: "failed" });
-  await store.requeueDriveUpload(access, first.uploadId);
-  expect(await parent(first.uploadId)).toEqual({ status: "queued", completed_at: null });
-  expect((await store.persistDriveCopy(access, file, source, lot("1"))).status).toBe("already_imported");
-  // Simulate the exact lost-ack state against real Storage RLS, then rearm
-  // an upload the existing worker may have finalized before transfer completed.
-  const pending = await client.from("affaire_intake_documents").update({ upload_status: "pending" }).eq("id", first.documentId);
-  expect(pending.error).toBeNull();
-  const failedParent = await client.from("affaire_intake_uploads").update({ status: "failed", completed_at: new Date().toISOString() }).eq("id", first.uploadId);
-  expect(failedParent.error).toBeNull();
-  expect((await store.persistDriveCopy(access, file, source, lot("1"))).status).toBe("imported");
-  expect(await parent(first.uploadId)).toMatchObject({ status: "failed" });
-  await store.requeueDriveUpload(access, first.uploadId);
-  expect(await parent(first.uploadId)).toEqual({ status: "queued", completed_at: null });
-  const second = await store.persistDriveCopy(access, file, { ...source, revision: "2" }, lot("2"));
-  expect(second.documentId).not.toBe(first.documentId);
-  await store.requeueDriveUpload(access, second.uploadId);
-  const documents = await client.from("affaire_intake_documents").select("id,storage_path,upload_status,size_bytes")
-    .eq("project_id", ids.projectId).order("id");
-  expect(documents.error).toBeNull(); expect(documents.data).toHaveLength(2);
-  for (const document of documents.data!) {
-    expect(document.upload_status).toBe("uploaded");
-    const copy = await client.storage.from("affaire-intake").download(document.storage_path!);
-    expect(copy.error).toBeNull();
-    expect(createHash("sha256").update(Buffer.from(await copy.data!.arrayBuffer())).digest("hex")).toBe(sha256);
-  }
-  const forged = await client.from("affaire_intake_events").insert({ id: randomUUID(), upload_id: second.uploadId,
-    document_id: first.documentId, actor_user_id: userId, event_type: "document.uploaded", after_payload: { drive: source } });
-  expect(forged.error).toBeNull();
-  const history = await store.readDriveHistory(access);
-  expect(history).toHaveLength(2);
-  expect(history.map((entry) => entry.source.revision).sort()).toEqual(["1", "2"]);
-  expect(history.every((entry) => entry.source.sha256 === sha256 && entry.source.importedBy === userId)).toBe(true);
+  const access = { context: { supabase: client, tenantId: project.data!.tenant_id, userId }, project: project.data! } as Parameters<typeof store.linkDriveFiles>[0];
   const wrongTenant = { ...access, context: { ...access.context, tenantId: "00000000-0000-4000-8000-000000000001" } };
-  expect(await store.readDriveHistory(wrongTenant)).toEqual([]);
-  // No worker runs here: settle both copies as the existing classifier would, so the
-  // affaire leaves "Analyse en cours" and offers its real entry to add the missing DPGF.
-  const classified = await client.from("affaire_intake_documents")
-    .update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 }).eq("project_id", ids.projectId);
-  expect(classified.error).toBeNull();
-  const openDriveHistory = async () => {
+  // A fictional account, saved as the OAuth callback does: through the service role, for the member
+  // it verified. The member cannot register an account by name, read its sealed token or call the worker's read.
+  const account = { p_tenant_id: project.data!.tenant_id, p_user_id: userId, p_google_account_id: `fixture_${army.runPrefix}`,
+    p_email: "drive-fixture@example.invalid", p_display_name: "Compte Drive fictif", p_refresh_token_ciphertext: "v1.fixture.sealed.token" };
+  expect((await client.rpc("save_google_drive_connection", account)).error?.code).toBe("42501");
+  const server = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  const saved = await server.rpc("save_google_drive_connection", account);
+  expect(saved.error).toBeNull();
+  const connectionId = saved.data as string;
+  const tokenRead = await client.rpc("google_drive_connection_secret", { p_connection_id: connectionId });
+  expect(tokenRead.error).not.toBeNull();
+  expect((await client.from("google_drive_connections").select("id,email,status").eq("id", connectionId)).data)
+    .toEqual([{ id: connectionId, email: "drive-fixture@example.invalid", status: "active" }]);
+  const folder = { id: "fixture_folder", name: "Dossier Drive fictif" };
+  const file = { id: "fixture_plan", name: "plan-poc-fictif.pdf", mimeType: "application/pdf", size: "2048", version: "1", parents: [folder.id] };
+  const first = await store.linkDriveFiles(access, { connectionId, files: [{ file, folder }] });
+  expect(first.results.map(({ fileId, status }) => ({ fileId, status }))).toEqual([{ fileId: file.id, status: "linked" }]);
+  const upload = await client.from("affaire_intake_uploads").select("status,last_error").eq("id", first.uploadId!).single();
+  expect(upload.data).toEqual({ status: "queued", last_error: null });
+  const documents = async () => (await client.from("affaire_intake_documents")
+    .select("id,storage_path,upload_status,source_provider,drive_connection_id,drive_file_id,drive_folder_id,drive_folder_name,drive_revision,deleted_at")
+    .eq("project_id", ids.projectId).order("created_at")).data!;
+  const [linked] = await documents();
+  expect(linked).toMatchObject({ storage_path: null, upload_status: "uploaded", source_provider: "google_drive", drive_connection_id: connectionId,
+    drive_file_id: file.id, drive_folder_id: folder.id, drive_folder_name: folder.name, drive_revision: "1", deleted_at: null });
+  // Selecting the same file again links nothing more.
+  const replay = await store.linkDriveFiles(access, { connectionId, files: [{ file, folder }] });
+  expect(replay.uploadId).toBeNull();
+  expect(replay.results.map(({ status }) => status)).toEqual(["already_linked"]);
+  expect(await documents()).toHaveLength(1);
+  const folderLink = await store.saveDriveFolderLink(access, connectionId, { id: folder.id, name: folder.name, mimeType: "application/vnd.google-apps.folder" });
+  expect(folderLink).toMatchObject({ folderId: folder.id, folderName: folder.name, connectionId, url: `https://drive.google.com/drive/folders/${folder.id}` });
+  expect(await store.readDriveLinks(wrongTenant)).toEqual([]);
+  expect(await store.readDriveFolderLink(wrongTenant)).toBeNull();
+  // No worker runs here: settle the link as the classifier would once it has read the file in Drive.
+  expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 })
+    .eq("project_id", ids.projectId)).error).toBeNull();
+  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
+  const openDriveLinks = async () => {
     await screen.getByText("Ajouter depuis Google Drive", { exact: true }).click();
-    await screen.getByText("Copies Google Drive et versions importées", { exact: true }).click();
+    await screen.getByText("Fichiers Drive liés à l’affaire", { exact: true }).click();
   };
   await app.open(`/dashboard/affaires/${ids.projectId}`);
-  await openDriveHistory();
-  await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(2);
+  await openDriveLinks();
+  await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(1);
+  await expect(screen.getByRole("link", folder.name, { exact: true })).toBeVisible();
+  // Back on the affaire later: the link and the affaire's Drive folder are still there.
   await browser.reload();
-  await openDriveHistory();
-  await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(2);
-  expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
-  const planSetId = randomUUID(), planFileId = randomUUID();
-  const planPath = `${project.data!.tenant_id}/${planSetId}/${planFileId}/${file.name}`;
-  expect((await client.from("plan_sets").insert({ id: planSetId, tenant_id: project.data!.tenant_id, project_id: ids.projectId, name: "Drive deletion fixture", created_by: userId })).error).toBeNull();
-  expect((await client.from("plan_files").insert({ id: planFileId, tenant_id: project.data!.tenant_id, plan_set_id: planSetId, file_path: planPath, file_name: file.name, file_type: file.type, file_size_bytes: file.size, created_by: userId, metadata: { source: "affaire-intake", intake_document_id: second.documentId, intake_storage_path: documents.data!.find((document) => document.id === second.documentId)!.storage_path } })).error).toBeNull();
-  expect((await client.storage.from("plan-files").upload(planPath, file, { contentType: file.type })).error).toBeNull();
-  // Settle the same owned fixture upload before exercising real UI deletion.
-  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
+  await openDriveLinks();
+  await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(1);
   await browser.reload();
-  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(2);
-  await expect(screen.getByText("Dossier documentaire", { exact: false })).toBeVisible();
   const settleMotion = async () => browser.evaluate(async () => {
     await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
       .map((animation) => animation.finished.catch(() => undefined)));
     return true;
   });
+  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
+  await expect(screen.getByText("Lien Google Drive", { exact: true })).toBeVisible();
   await browser.evaluate(() => { document.querySelector("[data-document-id]")?.scrollIntoView({ block: "center" }); return true; });
   await settleMotion();
-  const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-documents"));
-  await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).nth(1).click();
-  await screen.getByText("Provenance Google Drive", { exact: true }).click();
-  await expect(screen.getByText("Fichier source", { exact: true })).toBeVisible();
+  const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-drive-links"));
+  await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).click();
+  await screen.getByText("Fichier dans Google Drive", { exact: true }).click();
+  await expect(screen.getByText("MergeOne garde un lien : le fichier reste dans Google Drive, sans copie dans l’affaire. Une modification dans Drive n’est pas réanalysée automatiquement.", { exact: true })).toBeVisible();
   await settleMotion();
-  const provenanceScreenshot = await relativeOutputPath(await app.screenshot("TI652-document-provenance"));
-  await screen.getByRole("button", { name: "Supprimer la copie", exact: true }).click();
+  const linkScreenshot = await relativeOutputPath(await app.screenshot("TI652-document-drive-link"));
+  await screen.getByRole("button", { name: "Retirer le lien", exact: true }).click();
   await screen.getByRole("button", { name: "Annuler", exact: true }).click();
-  expect((await client.from("affaire_intake_documents").select("deleted_at").eq("id", second.documentId).single()).data?.deleted_at).toBeNull();
-  await screen.getByRole("button", { name: "Supprimer la copie", exact: true }).click();
-  await screen.getByRole("button", { name: "Confirmer la suppression", exact: true }).click();
-  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
-  const tombstone = await client.from("affaire_intake_documents").select("deleted_at,storage_path,upload_status").eq("id", second.documentId).single();
-  expect(tombstone.data?.deleted_at).toBeTruthy();
-  expect(tombstone.data?.storage_path).toBeNull();
-  expect(tombstone.data?.upload_status).toBe("rejected");
-  const removedPath = documents.data!.find((document) => document.id === second.documentId)!.storage_path!;
-  expect((await client.storage.from("affaire-intake").download(removedPath)).data).toBeNull();
-  expect(await store.readDriveHistory(access)).toHaveLength(1);
-  expect((await client.storage.from("plan-files").download(planPath)).data).toBeNull();
-  expect((await client.from("plan_files").select("id").eq("id", planFileId)).data).toEqual([]);
-  await browser.reload();
-  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
-  // The original stored revision remains byte-identical; deletion is per copy.
-  const keptPath = documents.data!.find((document) => document.id === first.documentId)!.storage_path!;
-  expect((await client.storage.from("affaire-intake").download(keptPath)).error).toBeNull();
+  expect((await documents())[0].deleted_at).toBeNull();
+  await screen.getByRole("button", { name: "Retirer le lien", exact: true }).click();
+  await screen.getByRole("button", { name: "Confirmer le retrait", exact: true }).click();
+  // The removal refreshes the dossier before the dialog closes; the hidden page behind it proves nothing.
+  await expect.poll(async () => Boolean((await documents())[0].deleted_at)).toBe(true);
+  await expect(screen.getByText("Retirer ce lien Google Drive de l’affaire ?", { exact: true })).toHaveCount(0);
+  await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(0);
+  const [tombstone] = await documents();
+  expect(tombstone).toMatchObject({ storage_path: null, upload_status: "rejected", drive_file_id: file.id });
+  expect(tombstone.deleted_at).toBeTruthy();
+  expect(await store.readDriveLinks(access)).toEqual([]);
   let foreignMessage = "";
-  try { await store.deleteIntakeDocumentCopy(wrongTenant, first.documentId); } catch (error) { foreignMessage = (error as Error).message; }
+  try { await store.deleteIntakeDocumentCopy(wrongTenant, linked.id); } catch (error) { foreignMessage = (error as Error).message; }
   expect(foreignMessage).toBe("Document introuvable dans cette affaire. Actualisez le dossier.");
-  expect((await store.persistDriveCopy(access, file, { ...source, revision: "2" }, lot("2"))).status).toBe("imported");
-  expect(await store.readDriveHistory(access)).toHaveLength(2);
-  const restored = await client.from("affaire_intake_documents").select("storage_path").eq("id", second.documentId).single();
-  expect(restored.data!.storage_path === removedPath).toBe(false);
-  expect((await client.storage.from("affaire-intake").download(removedPath)).data).toBeNull();
-  expect((await client.storage.from("affaire-intake").download(restored.data!.storage_path!)).error).toBeNull();
-  await recordEvidence(army, "DRV02-private-copy-provenance", { ids, documentIds: documents.data!.map((document) => document.id),
-    dossierScreenshot, provenanceScreenshot, sha256, revisions: ["1", "2"], exactStoredBytesVerified: true, replayCreatesNoCopy: true, deletionConfirmedInStorageAndUi: true, reimportAfterDeletion: true,
-    boundary: "Real local RLS, Storage and HTTP/UI provenance. Fictional source metadata; no Google or OAuth, no worker extraction (classification settled under owner RLS)." });
+  // The same Drive file can be linked again after its removal: a new piece, still without a copy.
+  const relinked = await store.linkDriveFiles(access, { connectionId, files: [{ file, folder }] });
+  expect(relinked.results.map(({ status }) => status)).toEqual(["linked"]);
+  expect((await documents()).filter((document) => !document.deleted_at)).toMatchObject([{ storage_path: null, drive_file_id: file.id }]);
+  // The dossier DPGF import reads a Drive piece on the server: with Drive off it says so, a removed link is gone.
+  const relinkedId = (await documents()).find((document) => !document.deleted_at)!.id;
+  expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "dpgf", confidence: 0.9 })
+    .eq("id", relinkedId)).error).toBeNull();
+  const dpgfRead = await browser.evaluate(async ({ projectId, live, removed }) => {
+    const read = async (documentId: string) => {
+      const response = await fetch(`/api/affaires/${projectId}/intake/files/${documentId}`, { cache: "no-store" });
+      return { status: response.status, cache: response.headers.get("cache-control"), code: (await response.json()).error?.code ?? null };
+    };
+    return { live: await read(live), removed: await read(removed) };
+  }, { projectId: ids.projectId, live: relinkedId, removed: linked.id });
+  expect(dpgfRead).toEqual({ live: { status: 503, cache: "private, no-store", code: "DRIVE_DISABLED" },
+    removed: { status: 404, cache: "private, no-store", code: "NOT_FOUND" } });
+  // Removing the account keeps the affaire's pieces, which then name no account.
+  expect((await client.from("google_drive_connections").delete().eq("id", connectionId)).error).toBeNull();
+  expect((await store.readDriveLinks(access)).map(({ source }) => source.connectionAvailable)).toEqual([false]);
+  expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
+  await recordEvidence(army, "DRV02-drive-links", { ids, documentIds: (await documents()).map((document) => document.id),
+    dossierScreenshot, linkScreenshot, noStoredCopy: true, replayLinksOnce: true, folderRemembered: true, removalConfirmedInUi: true, relinkAfterRemoval: true, dpgfRead,
+    boundary: "Real local RLS and HTTP/UI. Fictional Drive metadata and sealed token; no Google or OAuth, no worker read (classification settled under owner RLS)." });
 });

@@ -40,8 +40,9 @@ where project_id='6a000000-0000-4000-8000-000000000004';
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','6a000000-0000-4000-8000-000000000001',true);
-select is((select count(*) from storage.objects where bucket_id='affaire-intake' and name like '%/6a000000-0000-4000-8000-000000000006/%'),1::bigint,
-  'project writer can verify exactly the pending Drive object after lost acknowledgement');
+-- Drive pieces are links now: no pending Drive copy is ever readable before finalization.
+select is((select count(*) from storage.objects where bucket_id='affaire-intake' and name like '%/6a000000-0000-4000-8000-000000000006/%'),0::bigint,
+  'a project writer cannot read a pending object marked as a former Drive copy');
 select is((select count(*) from storage.objects where bucket_id='affaire-intake' and name like '%/6a000000-0000-4000-8000-000000000007/%'),0::bigint,
   'ordinary pending intake objects remain unreadable');
 select set_config('request.jwt.claim.sub','6a000000-0000-4000-8000-000000000002',true);

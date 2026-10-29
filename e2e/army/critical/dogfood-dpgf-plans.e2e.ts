@@ -1,13 +1,13 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect } from "e2e";
 
 import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
-import { localDriveStore } from "./google-drive-local-store";
 import { readPlanFiles, readPlanSets } from "./plans-support";
 import { localClient } from "../takeoff/native-ui";
+import { buildAffaireIntakeStoragePath } from "../../../src/lib/affaires/intake";
 
 // Verify the app and the authenticated fixture point at the same owned local
 // database before any test creates an affair, including when invoked directly.
@@ -30,30 +30,49 @@ async function requireOwnedApplication(ui: Parameters<typeof createEstimateViaWi
   return local;
 }
 
-armyTest("DOG01 Drive DPGF copy feeds structured import and uploaded plans reconcile the dossier", {
-  session: "army", trace: "off", tags: ["critical", "google-drive", "dpgf", "plan-center", "local"], timeout: 240_000,
+type OwnedClient = Awaited<ReturnType<typeof localClient>>["client"];
+
+// Seeds one stored dossier copy as the local upload leaves it, without running the
+// classifier: a ready lot, its document row, then the bytes under the RLS-checked path.
+// Drive pieces are links read from Google, which the owned campaign never calls.
+async function seedStoredIntakeCopy(client: OwnedClient, input: {
+  tenantId: string; projectId: string; userId: string; file: File; bytes: Buffer;
+  classification: { classification_status: "ambiguous" | "classified"; document_kind: "a_classer" | "dpgf"; confidence: number };
+}) {
+  const uploadId = randomUUID();
+  const documentId = randomUUID();
+  const now = new Date().toISOString();
+  const storagePath = buildAffaireIntakeStoragePath({ tenantId: input.tenantId, projectId: input.projectId, uploadId, documentId, fileName: input.file.name });
+  const upload = await client.from("affaire_intake_uploads").insert({
+    id: uploadId, tenant_id: input.tenantId, project_id: input.projectId, created_by: input.userId, status: "ready", completed_at: now,
+  });
+  if (upload.error) throw new Error(`Owned intake upload failed: ${upload.error.code}`);
+  const document = await client.from("affaire_intake_documents").insert({
+    id: documentId, tenant_id: input.tenantId, project_id: input.projectId, upload_id: uploadId, created_by: input.userId,
+    storage_path: storagePath, file_name: input.file.name, mime_type: input.file.type, size_bytes: input.bytes.length,
+    upload_status: "uploaded", issues: [], classification_source: "heuristic", classified_at: now, ...input.classification,
+    extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
+  });
+  if (document.error) throw new Error(`Owned intake document failed: ${document.error.code}`);
+  const stored = await client.storage.from("affaire-intake").upload(storagePath, input.bytes, { contentType: input.file.type });
+  if (stored.error) throw new Error(`Owned intake copy failed: ${stored.error.message}`);
+  return { uploadId, documentId, storagePath };
+}
+
+armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans reconcile the dossier", {
+  session: "army", trace: "off", tags: ["critical", "dpgf", "plan-center", "local"], timeout: 240_000,
 }, async (ui) => {
   const { army, app, browser, screen } = ui;
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DOG01`, title: "Dossier fictif" }, army);
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", ids.projectId).single();
   expect(project.error).toBeNull();
-  const store = await localDriveStore(army.runPrefix);
-  const access = { context: { supabase: client, tenantId: project.data!.tenant_id, userId }, project: project.data! } as Parameters<typeof store.persistDriveCopy>[0];
   const bytes = await readFile(path.resolve("public/exemple-dpgf.xlsx"));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const file = new File([bytes], "exemple-dpgf.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const source = { provider: "google_drive" as const, folderId: "fixture_folder", fileId: "fixture_dpgf", sourceName: file.name,
-    sourceMimeType: file.type, revision: "1", sourceModifiedTime: null, sourceUrl: "https://drive.google.com/file/d/fixture_dpgf/view",
-    sha256, importedAt: new Date().toISOString(), importedBy: userId, tenantId: project.data!.tenant_id, projectId: ids.projectId };
-  const uploadId = store.driveBatchUploadId(project.data!.tenant_id, ids.projectId, [{ id: source.fileId, version: source.revision }]);
-  const copy = await store.persistDriveCopy(access, file, source, uploadId);
-  expect(copy.status).toBe("imported");
-  const ownedCopy = await client.from("affaire_intake_documents").select("storage_path").eq("id", copy.documentId).single();
-  expect(ownedCopy.error).toBeNull();
-  (army.ownedIntakeCopies ??= []).push({ projectId: ids.projectId, storagePath: ownedCopy.data!.storage_path! });
-  expect((await client.from("affaire_intake_documents").update({ classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 }).eq("id", copy.documentId)).error).toBeNull();
-  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("id", copy.uploadId)).error).toBeNull();
+  const copy = await seedStoredIntakeCopy(client, { tenantId: project.data!.tenant_id, projectId: ids.projectId, userId, file, bytes,
+    classification: { classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 } });
+  (army.ownedIntakeCopies ??= []).push({ projectId: ids.projectId, storagePath: copy.storagePath });
 
   // Exercise the normal classification refresh so the pre-existing missing-plan
   // entry is created through the application, not fabricated by the test.
@@ -155,10 +174,10 @@ armyTest("DOG01 Drive DPGF copy feeds structured import and uploaded plans recon
   expect(versions.error).toBeNull();
   const estimate = await readEstimate(browser, versions.data![0].id);
   expect(estimate.items.filter((item) => item.item_type === "line")).toHaveLength(8);
-  await recordEvidence(army, "DOG01-drive-dpgf-plan", { ids, sourceSha256: sha256, importId: imports.data![0].id,
+  await recordEvidence(army, "DOG01-dossier-dpgf-plan", { ids, sourceSha256: sha256, importId: imports.data![0].id,
     rawRows: raw.data?.length, planSetId: set.id, planFileId: plans[0].id, remainingGaps: remaining, denied,
     screenshots: [selectedDpgfScreenshot, uploadedPlanScreenshot],
-    scope: "Fictional Drive copy in the owned native stack; no Google OAuth or AI provider call. Stack destroyed after the campaign." });
+    scope: "Fictional stored dossier copy in the owned native stack; no Google OAuth or AI provider call. Stack destroyed after the campaign." });
 });
 
 armyTest("DOG02 concurrent preparation returns one canonical import plan set", {
@@ -188,19 +207,11 @@ armyTest("DOG03 stored tabular PDF requires approval of the exact reviewed bytes
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-DOG03`, title: "DPGF PDF fictive" }, ui.army);
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", ids.projectId).single();
   expect(project.error).toBeNull();
-  const store = await localDriveStore(`${ui.army.runPrefix}-pdf`);
   const bytes = await readFile(path.resolve("e2e/fixtures/us22_live_tabular.pdf"));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const file = new File([bytes], "dpgf-fictive.pdf", { type: "application/pdf" });
-  const source = { provider: "google_drive" as const, folderId: "fixture_folder", fileId: "fixture_pdf", sourceName: file.name,
-    sourceMimeType: file.type, revision: "1", sourceModifiedTime: null, sourceUrl: "https://drive.google.com/file/d/fixture_pdf/view",
-    sha256, importedAt: new Date().toISOString(), importedBy: userId, tenantId: project.data!.tenant_id, projectId: ids.projectId };
-  const uploadId = store.driveBatchUploadId(project.data!.tenant_id, ids.projectId, [{ id: source.fileId, version: source.revision }]);
-  const copy = await store.persistDriveCopy({ context: { supabase: client, tenantId: project.data!.tenant_id, userId }, project: project.data! } as Parameters<typeof store.persistDriveCopy>[0], file, source, uploadId);
-  expect(copy.status).toBe("imported");
-  expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "dpgf", confidence: 1 }).eq("id", copy.documentId)).error).toBeNull();
-  const document = await client.from("affaire_intake_documents").select("storage_path").eq("id", copy.documentId).single();
-  expect(document.error).toBeNull();
+  const copy = await seedStoredIntakeCopy(client, { tenantId: project.data!.tenant_id, projectId: ids.projectId, userId, file, bytes,
+    classification: { classification_status: "classified", document_kind: "dpgf", confidence: 1 } });
   await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
   const review = await ui.browser.evaluate(async ({ projectId, documentId }) => {
     const response = await fetch(`/api/affaires/${projectId}/intake/files/${documentId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "review_pdf" }) });
@@ -213,14 +224,14 @@ armyTest("DOG03 stored tabular PDF requires approval of the exact reviewed bytes
   const changed = Buffer.from(bytes);
   changed[changed.length - 1] ^= 1;
   const storage = client.storage.from("affaire-intake");
-  expect((await storage.upload(document.data!.storage_path!, changed, { contentType: "application/pdf", upsert: true })).error).toBeNull();
+  expect((await storage.upload(copy.storagePath, changed, { contentType: "application/pdf", upsert: true })).error).toBeNull();
   const submit = (digest: string) => ui.browser.evaluate(async ({ projectId, documentId, digest, approvedTables }) => {
     const response = await fetch(`/api/affaires/${projectId}/intake/files/${documentId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import", sourceSha256: digest, approvedTables }) });
     const payload = await response.json();
     return { status: response.status, id: (payload.data?.id ?? null) as string | null };
   }, { projectId: ids.projectId, documentId: copy.documentId, digest, approvedTables: review.suggested });
   expect((await submit(review.digest)).status).toBe(409);
-  expect((await storage.upload(document.data!.storage_path!, bytes, { contentType: "application/pdf", upsert: true })).error).toBeNull();
+  expect((await storage.upload(copy.storagePath, bytes, { contentType: "application/pdf", upsert: true })).error).toBeNull();
   const imported = await submit(review.digest);
   expect(imported.status).toBe(201);
   const record = await client.from("dpgf_imports").select("id,row_count,parse_mode,storage_path").eq("project_id", ids.projectId).single();
@@ -238,24 +249,17 @@ armyTest("DOG03 stored tabular PDF requires approval of the exact reviewed bytes
 });
 
 armyTest("DOG04 intake plan copy is recoverable and removed through its source", {
-  session: "army", trace: "off", tags: ["critical", "google-drive", "plan-center", "local"], timeout: 120_000,
+  session: "army", trace: "off", tags: ["critical", "plan-center", "local"], timeout: 120_000,
 }, async (ui) => {
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-DOG04`, title: "Plan du dossier" }, ui.army);
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", ids.projectId).single();
   expect(project.error).toBeNull();
-  const store = await localDriveStore(`${ui.army.runPrefix}-plan`);
   const bytes = await readFile(path.resolve("e2e/fixtures/sample-plan.pdf"));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const file = new File([bytes], "plan-fictif.pdf", { type: "application/pdf" });
-  const source = { provider: "google_drive" as const, folderId: "fixture_folder", fileId: "fixture_plan", sourceName: file.name,
-    sourceMimeType: file.type, revision: "1", sourceModifiedTime: null, sourceUrl: "https://drive.google.com/file/d/fixture_plan/view",
-    sha256, importedAt: new Date().toISOString(), importedBy: userId, tenantId: project.data!.tenant_id, projectId: ids.projectId };
-  const uploadId = store.driveBatchUploadId(project.data!.tenant_id, ids.projectId, [{ id: source.fileId, version: source.revision }]);
-  const copy = await store.persistDriveCopy({ context: { supabase: client, tenantId: project.data!.tenant_id, userId }, project: project.data! } as Parameters<typeof store.persistDriveCopy>[0], file, source, uploadId);
-  expect(copy.status).toBe("imported");
-  expect((await client.from("affaire_intake_documents").update({ classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 }).eq("id", copy.documentId)).error).toBeNull();
-  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("id", copy.uploadId)).error).toBeNull();
+  const copy = await seedStoredIntakeCopy(client, { tenantId: project.data!.tenant_id, projectId: ids.projectId, userId, file, bytes,
+    classification: { classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 } });
   await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   const details = ui.screen.getByRole("dialog", "Document et provenance", { exact: true });

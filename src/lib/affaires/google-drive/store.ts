@@ -1,10 +1,11 @@
 import "server-only";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { AFFAIRE_INTAKE_BUCKET, buildAffaireIntakeStoragePath, createEmptyAffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
+import { createEmptyAffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
 import { readAllRows } from "@/lib/supabase/read-all";
 import type { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
-import { driveProvenanceSchema, type DriveHistory, type DriveProvenance } from "./contracts";
+import { driveFileUrl, driveFolderUrl, type DriveFile, type DriveFolderLink, type DriveLinkResult,
+  type DriveLinkedFile, type DriveProvenance } from "./contracts";
 
 // Kept free of Next so the owned native campaign loads this exact persistence code.
 // server.ts maps it to the API error at the HTTP boundary.
@@ -14,168 +15,178 @@ export class DriveStoreError extends Error {
     this.name = "DriveStoreError";
   }
 }
-const conflict = (message: string) => new DriveStoreError(409, message);
 const internalError = (message: string) => new DriveStoreError(500, message);
+const RECORDING = "Liens Drive en cours d'enregistrement.";
 
 type Access = Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>;
-const documentSchema = z.object({ id: z.string(), upload_id: z.string(), upload_status: z.string(),
-  storage_path: z.string().nullable(), deleted_at: z.string().nullable().optional(), deletion_token: z.string().nullable().optional(), file_name: z.string(), classification_status: z.string() });
+type Database = { from: (table: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+const database = (access: Access) => access.context.supabase as unknown as Database;
+const LINK_SELECT = "id,upload_id,file_name,created_at,drive_file_id,drive_folder_id,drive_folder_name,drive_revision,drive_connection_id";
+const linkRowSchema = z.object({ id: z.string(), upload_id: z.string(), file_name: z.string(), created_at: z.string(),
+  drive_file_id: z.string(), drive_folder_id: z.string().nullable(), drive_folder_name: z.string().nullable(),
+  drive_revision: z.string().nullable(), drive_connection_id: z.string().nullable() });
+export type DriveLinkRow = z.infer<typeof linkRowSchema>;
 
-// Stable keys are enforced by existing primary keys, including across processes.
-function driveStableId(parts: unknown[]) {
-  const hex = createHash("sha256").update(JSON.stringify(["google_drive", ...parts])).digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-export function driveCopyId(tenantId: string, projectId: string, fileId: string, revision: string, kind = "document") {
-  return driveStableId([tenantId, projectId, fileId, revision, kind]);
-}
-// A confirmed selection is one intake upload, like a local drop: the same lot replays to the same upload.
-export function driveBatchUploadId(tenantId: string, projectId: string, selections: { id: string; version: string }[]) {
-  return driveStableId([tenantId, projectId, "batch", selections.map(({ id, version }) => `${id}:${version}`).sort()]);
+export function driveProvenance(row: DriveLinkRow): DriveProvenance {
+  return { provider: "google_drive", fileId: row.drive_file_id, sourceName: row.file_name, sourceUrl: driveFileUrl(row.drive_file_id),
+    folderId: row.drive_folder_id, folderName: row.drive_folder_name, revision: row.drive_revision, linkedAt: row.created_at,
+    connectionAvailable: row.drive_connection_id !== null };
 }
 
-export async function readDriveHistory({ context, project }: Access): Promise<DriveHistory[]> {
-  const { data, error } = await readAllRows(() => context.supabase.from("affaire_intake_events" as never)
-    .select("id,event_type,document_id,upload_id,after_payload,affaire_intake_documents!inner(upload_status,upload_id)", { count: "exact" })
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).in("event_type", ["upload.created", "document.uploaded"])
-    .eq("affaire_intake_documents.upload_status", "uploaded")
-    .contains("after_payload", { drive: { provider: "google_drive" } })
-    .order("created_at", { ascending: false }).order("id", { ascending: false }));
-  if (error) throw internalError("Impossible de lire la provenance des copies Drive.");
-  type Row = { id: string; event_type: string; document_id: string; upload_id: string; after_payload: unknown; affaire_intake_documents: unknown };
-  const rows = (data ?? []) as Row[];
-  const provenance = new Map(rows.filter((row) => row.event_type === "upload.created").map((row) => [row.id, row]));
-  // Event metadata is untrusted. Bind it to the actual document, its parent and the immutable
-  // provenance event: intake events are append-only, so the first written record is authoritative.
-  const seen = new Set<string>();
-  return rows.flatMap((row) => {
-    if (row.event_type !== "document.uploaded") return [];
-    const payload = row.after_payload as { drive?: unknown } | null;
-    const parsed = driveProvenanceSchema.safeParse(payload?.drive);
-    const parent = z.object({ upload_id: z.string() }).safeParse(row.affaire_intake_documents);
-    if (!parsed.success || !parent.success || parsed.data.tenantId !== context.tenantId || parsed.data.projectId !== project.id ||
-      row.document_id !== driveCopyId(context.tenantId, project.id, parsed.data.fileId, parsed.data.revision) ||
-      row.upload_id !== parent.data.upload_id) return [];
-    const created = provenance.get(driveCopyId(context.tenantId, project.id, parsed.data.fileId, parsed.data.revision, "provenance"));
-    if (created?.document_id !== row.document_id || created.upload_id !== parent.data.upload_id) return [];
-    if (seen.has(row.document_id)) return [];
-    seen.add(row.document_id);
-    return [{ documentId: row.document_id, uploadId: parent.data.upload_id,
-      source: { ...parsed.data, sourceUrl: `https://drive.google.com/file/d/${parsed.data.fileId}/view` } }];
-  });
-}
-
-// Armed once per lot by the caller, after its last copy. A lot already classified ("ready")
-// is rearmed too, so a piece retried later into it is classified with the whole lot.
-export async function requeueDriveUpload(access: Access, uploadId: string) {
-  const result = await access.context.supabase.from("affaire_intake_uploads" as never)
-    .update({ status: "queued", attempt_count: 0, next_retry_at: null, completed_at: null, last_error: null,
-      processing_lease_token: null, processing_lease_expires_at: null } as never)
-    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("id", uploadId)
-    .in("status", ["failed", "partial_failure", "ready"]);
-  if (result.error) throw internalError("Copie conservée, reprise du classement interrompue. Reprenez cette pièce.");
-}
-// Verifies an imported copy and reports whether its classification must resume.
-export async function resumeDriveCopy(access: Access, history: DriveHistory) {
-  const result = await access.context.supabase.from("affaire_intake_documents" as never)
-    .select("id,upload_id,upload_status,storage_path,deletion_token,file_name,classification_status")
-    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("id", history.documentId).single();
-  const document = documentSchema.safeParse(result.data);
-  if (result.error || !document.success || document.data.upload_id !== history.uploadId || document.data.upload_status !== "uploaded") {
-    throw conflict("La copie a changé. Actualisez le dossier.");
-  }
-  if (document.data.deletion_token) throw conflict("Suppression de cette copie en cours. Actualisez le dossier.");
-  return document.data.classification_status === "queued";
-}
-
-export async function persistDriveCopy(access: Access, file: File, source: DriveProvenance, batchUploadId: string) {
+/** The Drive pieces currently in the affaire dossier (removed links leave a tombstone). */
+export async function readDriveLinks(access: Access): Promise<DriveLinkedFile[]> {
   const { context, project } = access;
-  const id = driveCopyId(context.tenantId, project.id, source.fileId, source.revision);
-  const eventId = driveCopyId(context.tenantId, project.id, source.fileId, source.revision, "provenance");
-  const lookup = async () => {
-    const result = await context.supabase.from("affaire_intake_documents" as never)
-      .select("id,upload_id,upload_status,storage_path,deleted_at,deletion_token,file_name,classification_status")
-      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", id).maybeSingle();
-    if (result.error) throw internalError("Impossible de vérifier la copie Drive.");
-    return result.data ? documentSchema.parse(result.data) : null;
-  };
-  let existing = await lookup();
-  if (existing?.deletion_token) throw conflict("Suppression de cette copie en cours. Actualisez le dossier.");
-  if (!existing) {
-    const upload = await context.supabase.from("affaire_intake_uploads" as never).insert({
-      id: batchUploadId, project_id: project.id, created_by: context.userId, status: "failed",
-      last_error: "Transfert Drive en attente de confirmation.",
-    } as never);
-    if (upload.error && upload.error.code !== "23505") throw internalError("Impossible de préparer la copie Drive.");
-    const storagePath = buildAffaireIntakeStoragePath({ tenantId: context.tenantId, projectId: project.id,
-      uploadId: batchUploadId, documentId: id, fileName: file.name });
-    const insert = await context.supabase.from("affaire_intake_documents" as never).insert({
-      id, upload_id: batchUploadId, created_by: context.userId, storage_path: storagePath,
-      file_name: file.name, mime_type: file.type, size_bytes: file.size, upload_status: "pending",
-      classification_status: "queued", document_kind: "a_classer", issues: [],
-      extracted_metadata: createEmptyAffaireIntakeExtractedMetadata(),
-    } as never);
-    if (insert.error && insert.error.code !== "23505") throw internalError("Impossible d'enregistrer la pièce Drive.");
-    existing = await lookup();
+  const { data, error } = await readAllRows(() => database(access).from("affaire_intake_documents")
+    .select(LINK_SELECT, { count: "exact" }).eq("tenant_id", context.tenantId).eq("project_id", project.id)
+    .eq("source_provider", "google_drive").is("deleted_at", null)
+    .order("created_at", { ascending: false }).order("id", { ascending: false }));
+  if (error) throw internalError("Impossible de lire les liens Google Drive de l'affaire.");
+  return z.array(linkRowSchema).parse(data ?? []).map((row) => ({ documentId: row.id, uploadId: row.upload_id, source: driveProvenance(row) }));
+}
+
+const folderRowSchema = z.object({ folder_id: z.string(), folder_name: z.string(), shared_drive_id: z.string().nullable(),
+  connection_id: z.string().nullable(), updated_at: z.string() });
+export async function readDriveFolderLink(access: Access): Promise<DriveFolderLink | null> {
+  const { data, error } = await database(access).from("affaire_google_drive_folders")
+    .select("folder_id,folder_name,shared_drive_id,connection_id,updated_at")
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).maybeSingle();
+  if (error) throw internalError("Impossible de lire le dossier Drive de l'affaire.");
+  if (!data) return null;
+  const row = folderRowSchema.parse(data);
+  return { folderId: row.folder_id, folderName: row.folder_name, sharedDriveId: row.shared_drive_id,
+    connectionId: row.connection_id, linkedAt: row.updated_at, url: driveFolderUrl(row.folder_id) };
+}
+export async function saveDriveFolderLink(access: Access, connectionId: string, folder: DriveFile) {
+  const { error } = await database(access).from("affaire_google_drive_folders").upsert({
+    project_id: access.project.id, tenant_id: access.context.tenantId, linked_by: access.context.userId,
+    connection_id: connectionId, folder_id: folder.id, folder_name: folder.name, shared_drive_id: folder.driveId ?? null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "project_id" });
+  if (error) throw internalError("Le dossier Drive n'a pas pu être lié à l'affaire.");
+  return readDriveFolderLink(access);
+}
+export async function removeDriveFolderLink(access: Access) {
+  const { error } = await database(access).from("affaire_google_drive_folders").delete()
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id);
+  if (error) throw internalError("Le dossier Drive n'a pas pu être délié.");
+}
+
+/**
+ * Arms again the lots of this affaire that an interrupted link request left being recorded,
+ * once they are clearly stale. Opening the Drive panel or linking files runs it.
+ */
+export async function resumeStaleDriveLots(access: Access) {
+  const { data } = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("status", "failed")
+    .eq("last_error", RECORDING).lt("created_at", new Date(Date.now() - 120_000).toISOString()).select("id");
+  return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
+}
+
+// A finished lot runs again, with a fresh retry budget: its failed pieces are analysed anew.
+// No project filter: the caller's RLS fences the lots it may update.
+async function rearmFinishedLot(db: Database, tenantId: string, uploadId: string) {
+  const { data, error } = await db.from("affaire_intake_uploads")
+    .update({ status: "queued", last_error: null, next_retry_at: null, attempt_count: 0 })
+    .eq("tenant_id", tenantId).eq("id", uploadId)
+    .in("status", ["ready", "partial_failure", "failed"]).select("id");
+  return !error && Boolean((data as unknown[] | null)?.length);
+}
+
+/**
+ * Once a member reconnects a Google account, the lots holding pieces linked with it whose
+ * analysis failed run again: that failure may be the expired access. Read under the member's RLS.
+ */
+export async function rearmLotsFailedWithConnection(member: { supabase: unknown; tenantId: string }, connectionId: string) {
+  const db = member.supabase as Database;
+  // Across every affaire of the account: paged past the API's row cap.
+  const { data, error } = await readAllRows(() => db.from("affaire_intake_documents").select("id,upload_id", { count: "exact" })
+    .eq("tenant_id", member.tenantId).eq("drive_connection_id", connectionId)
+    .eq("classification_status", "failed").is("deleted_at", null));
+  if (error) return [];
+  const rearmed: string[] = [];
+  for (const uploadId of new Set(((data ?? []) as Array<{ upload_id: string }>).map((row) => row.upload_id))) {
+    if (await rearmFinishedLot(db, member.tenantId, uploadId)) rearmed.push(uploadId);
   }
-  if (!existing) throw internalError("Copie Drive incomplète. Reprenez cette pièce.");
-  // A resumed piece keeps the upload of the lot that first created it.
-  const uploadId = existing.upload_id;
-  // Required, immutable provenance is persisted before any content is stored.
-  const event = await context.supabase.from("affaire_intake_events" as never).insert({
-    id: eventId, upload_id: uploadId, document_id: id, actor_user_id: context.userId,
-    event_type: "upload.created", after_payload: { drive: source },
-  } as never);
-  if (event.error && event.error.code !== "23505") throw internalError("Provenance non enregistrée. Aucune nouvelle copie transférée.");
-  if (event.error?.code === "23505") {
-    const prior = await context.supabase.from("affaire_intake_events" as never).select("document_id,upload_id,after_payload")
-      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", eventId).single();
-    const priorEvent = prior.data as { document_id?: string; upload_id?: string; after_payload?: { drive?: DriveProvenance } } | null;
-    if (prior.error || priorEvent?.document_id !== id || priorEvent.upload_id !== uploadId) {
-      throw conflict("La provenance Drive de cette révision ne correspond pas à cette copie. Actualisez la sélection.");
+  return rearmed;
+}
+
+/**
+ * Records each selected Drive file as a piece of the affaire, without transferring its content.
+ * One selection is one intake upload, armed once after its last link so that the classifier
+ * reads the files from Drive and regenerates the brief and missing pieces from the whole lot.
+ */
+export async function linkDriveFiles(access: Access, input: { connectionId: string; files: Array<{ file: DriveFile; folder?: { id: string; name: string } }> }) {
+  const { context, project } = access;
+  const results: DriveLinkResult[] = [];
+  const active = new Map((await readDriveLinks(access)).map((link) => [link.source.fileId, link]));
+  const candidates = input.files.filter(({ file }) => !active.has(file.id));
+  const rearmed = new Set<string>();
+  for (const { file } of input.files) {
+    const link = active.get(file.id);
+    if (!link) continue;
+    if (link.source.connectionAvailable) {
+      results.push({ fileId: file.id, name: file.name, status: "already_linked", message: "Ce fichier est déjà lié à l'affaire.", documentId: link.documentId });
+      continue;
     }
-    if (priorEvent.after_payload?.drive?.sha256 !== source.sha256) {
-      throw conflict("La révision Drive a un contenu différent. Actualisez la sélection.");
+    // Its Google account was removed: the link is attached to the account chosen now.
+    const attached = await database(access).from("affaire_intake_documents").update({ drive_connection_id: input.connectionId })
+      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", link.documentId)
+      .is("drive_connection_id", null).is("deleted_at", null).select("id,classification_status");
+    const row = attached.error ? undefined : (attached.data as Array<{ classification_status: string }> | null)?.[0];
+    if (!row) {
+      results.push({ fileId: file.id, name: file.name, status: "failed", message: "Lien non rattaché à ce compte. Réessayez." });
+      continue;
     }
+    // Its analysis may have failed for want of that account: it runs again with this one.
+    const retried = row.classification_status === "failed" && (rearmed.has(link.uploadId) || await rearmFinishedLot(database(access), context.tenantId, link.uploadId));
+    if (retried) rearmed.add(link.uploadId);
+    results.push({ fileId: file.id, name: file.name, status: "linked", documentId: link.documentId,
+      message: retried ? "Lien rattaché à ce compte Google. Analyse relancée." : "Lien rattaché à ce compte Google." });
   }
-  if (existing?.deleted_at) {
-    const storagePath = buildAffaireIntakeStoragePath({ tenantId: context.tenantId, projectId: project.id,
-      uploadId: existing.upload_id, documentId: id, fileName: `${randomUUID()}-${file.name}` });
-    // Storage RLS admits only created_by: the restorer (owner or admin) stores this generation; provenance stays in the events.
-    const restored = await context.supabase.from("affaire_intake_documents" as never).update({
-      created_by: context.userId, deleted_at: null, storage_path: storagePath, upload_status: "pending", classification_status: "queued",
-      rejection_reason: null, issues: [],
-    } as never).eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", id).eq("deleted_at", existing.deleted_at).is("deletion_token", null);
-    if (restored.error) throw internalError("Impossible de préparer une nouvelle copie du document supprimé.");
-    existing = await lookup();
-  }
-  if (!existing?.storage_path) throw internalError("Copie Drive incomplète. Reprenez cette pièce.");
-  if (existing.upload_status === "uploaded") {
-    return { documentId: id, uploadId, status: "already_imported" as const,
-      shouldProcess: existing.classification_status === "queued" };
-  }
-  const storage = context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET);
-  const uploaded = await storage.upload(existing.storage_path, file, { contentType: file.type, upsert: false });
-  if (uploaded.error) {
-    // A competing request or a lost response may already have stored these bytes.
-    // Verify the exact private copy; never overwrite a path on recovery.
-    const prior = await storage.download(existing.storage_path);
-    if (prior.error || !prior.data || prior.data.size > 50 * 1024 * 1024 ||
-      createHash("sha256").update(Buffer.from(await prior.data.arrayBuffer())).digest("hex") !== source.sha256) {
-      throw internalError("Copie non finalisée. Reprenez cette pièce ; les succès sont conservés.");
+  const resumed = [...new Set([...rearmed, ...await resumeStaleDriveLots(access)])];
+  if (!candidates.length) return { results, uploadId: null, resumed };
+  const uploadId = randomUUID();
+  // Not queued yet: a recovery worker must not classify a lot that is still being recorded.
+  const upload = await database(access).from("affaire_intake_uploads").insert({ id: uploadId, project_id: project.id,
+    created_by: context.userId, status: "failed", last_error: RECORDING });
+  if (upload.error) throw internalError("Impossible de préparer les liens Drive.");
+  await database(access).from("affaire_intake_events").insert({ upload_id: uploadId, actor_user_id: context.userId,
+    event_type: "upload.created", after_payload: { status: "queued", file_count: candidates.length, drive: { provider: "google_drive" } } });
+  let linked = 0;
+  for (const { file, folder } of candidates) {
+    const documentId = randomUUID();
+    const inserted = await database(access).from("affaire_intake_documents").insert({
+      id: documentId, upload_id: uploadId, created_by: context.userId, storage_path: null, file_name: file.name,
+      mime_type: file.mimeType, size_bytes: Number(file.size), upload_status: "uploaded", classification_status: "queued",
+      document_kind: "a_classer", issues: [], extracted_metadata: createEmptyAffaireIntakeExtractedMetadata(),
+      source_provider: "google_drive", drive_connection_id: input.connectionId, drive_file_id: file.id,
+      drive_folder_id: folder?.id ?? null, drive_folder_name: folder?.name ?? null,
+      drive_shared_drive_id: file.driveId ?? null, drive_revision: file.version ?? null, drive_modified_time: file.modifiedTime ?? null,
+    });
+    if (inserted.error) {
+      // The active-link index settles a concurrent selection of the same file.
+      results.push(inserted.error.code === "23505"
+        ? { fileId: file.id, name: file.name, status: "already_linked", message: "Ce fichier est déjà lié à l'affaire." }
+        : { fileId: file.id, name: file.name, status: "failed", message: "Lien non enregistré. Réessayez." });
+      continue;
     }
+    linked += 1;
+    await database(access).from("affaire_intake_events").insert({ upload_id: uploadId, document_id: documentId, actor_user_id: context.userId,
+      event_type: "document.uploaded", after_payload: { drive: { provider: "google_drive", fileId: file.id, revision: file.version ?? null,
+        folderId: folder?.id ?? null } } });
+    results.push({ fileId: file.id, name: file.name, status: "linked", message: "Lien enregistré. Analyse en cours.", documentId });
   }
-  const completedEvent = await context.supabase.from("affaire_intake_events" as never).insert({
-    id: driveCopyId(context.tenantId, project.id, source.fileId, source.revision, `completed:${existing.storage_path}`),
-    upload_id: uploadId, document_id: id, actor_user_id: context.userId, event_type: "document.uploaded",
-    after_payload: { drive: { ...source, importedAt: new Date().toISOString() } },
-  } as never);
-  if (completedEvent.error && completedEvent.error.code !== "23505") {
-    throw internalError("Copie stockée, provenance finale interrompue. Reprenez cette pièce.");
+  if (!linked) {
+    await database(access).from("affaire_intake_uploads").delete().eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
+    return { results, uploadId: null, resumed };
   }
-  const final = await context.supabase.from("affaire_intake_documents" as never)
-    .update({ upload_status: "uploaded" } as never).eq("tenant_id", context.tenantId)
-    .eq("project_id", project.id).eq("id", id).eq("storage_path", existing.storage_path).is("deletion_token", null).select("id");
-  if (final.error || !((final.data ?? []) as unknown[]).length) throw internalError("Copie stockée, confirmation interrompue. Reprenez cette pièce.");
-  return { documentId: id, uploadId, status: "imported" as const, shouldProcess: true };
+  const queued = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
+  if (queued.error) {
+    // The lot stays "being recorded": opening the Drive panel again later arms it.
+    const message = "Lien enregistré, analyse non lancée. Rouvrez Google Drive dans quelques minutes pour la relancer.";
+    const fresh = new Set(candidates.map(({ file }) => file.id));
+    return { results: results.map((result) => result.status === "linked" && fresh.has(result.fileId) ? { ...result, message } : result), uploadId: null, resumed };
+  }
+  return { results, uploadId, resumed };
 }

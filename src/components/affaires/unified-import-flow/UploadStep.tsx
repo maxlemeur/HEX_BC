@@ -24,6 +24,12 @@ type UploadStepProps = {
 
 const NO_INTAKE_CANDIDATES: IntakeDpgfCandidate[] = [];
 
+/** MergeOne errors carry a message worth showing, such as a Google account removed from the link. */
+async function dossierErrorMessage(response: Response, fallback: string) {
+  const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
+  return typeof payload?.error?.message === "string" && payload.error.message ? payload.error.message : fallback;
+}
+
 function getFileExtension(name: string): string | null {
   const ext = name.split(".").pop()?.trim().toLowerCase();
   return ext && ext.length > 0 ? ext : null;
@@ -37,6 +43,8 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
   );
   const [isLoadingDossierFile, setIsLoadingDossierFile] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // A Drive-linked DPGF has no bytes in the browser: its size comes from Drive.
+  const [selectedFileSize, setSelectedFileSize] = useState(0);
   const [sourceDocumentId, setSourceDocumentId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -75,7 +83,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
     }
   }, [imports, lastImportId, onImportReady]);
 
-  const handleFileSelect = useCallback((file: File, sourceDocumentId?: string | null) => {
+  const handleFileSelect = useCallback((file: File, sourceDocumentId?: string | null, sizeBytes = file.size) => {
     invalidatePendingPdfReview();
     setFileError(null);
     setPdfReview(null);
@@ -91,6 +99,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
     }
 
     setSelectedFile(file);
+    setSelectedFileSize(sizeBytes);
     setSourceDocumentId(sourceDocumentId ?? null);
     if (ext !== "pdf") {
       return;
@@ -144,13 +153,21 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
           `/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(dossierDocumentId)}`,
           { signal: controller.signal, cache: "no-store" }
         );
-        if (!response.ok) throw new Error("Impossible de récupérer cette DPGF. Actualisez le dossier ou choisissez un autre fichier.");
+        if (!response.ok) throw new Error(await dossierErrorMessage(response, "Impossible de récupérer cette DPGF. Actualisez le dossier ou choisissez un autre fichier."));
         const payload = await response.json() as { data?: {
-          documentId: string; fileName: string; mimeType: string | null; sizeBytes: number; downloadUrl: string;
+          documentId: string; fileName: string; mimeType: string | null; sizeBytes: number; downloadUrl: string | null;
         } };
         const source = payload.data;
-        if (!source || source.documentId !== dossierDocumentId || !source.downloadUrl) {
+        if (!source || source.documentId !== dossierDocumentId) {
           throw new Error("Réponse invalide pour la DPGF du dossier.");
+        }
+        if (!source.downloadUrl) {
+          // Drive link: the server reads the file for the review and the import.
+          if (!controller.signal.aborted) {
+            setIsLoadingDossierFile(false);
+            handleFileSelect(new File([], source.fileName, { type: source.mimeType ?? "" }), source.documentId, source.sizeBytes);
+          }
+          return;
         }
         const download = await fetch(source.downloadUrl, { signal: controller.signal, cache: "no-store" });
         if (!download.ok) throw new Error("Impossible de télécharger la DPGF du dossier.");
@@ -332,7 +349,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
                   {selectedFile.name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {(selectedFile.size / 1024).toFixed(1)} Ko
+                  {(selectedFileSize / 1024).toFixed(1)} Ko
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -384,7 +401,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
               <div className="mt-4">
                 <TabularPdfReviewPanel
                   fileName={selectedFile.name}
-                  fileSizeLabel={`${(selectedFile.size / 1024).toFixed(1)} Ko`}
+                  fileSizeLabel={`${(selectedFileSize / 1024).toFixed(1)} Ko`}
                   pdfReview={pdfReview}
                   approvedTables={approvedPdfTables}
                   onToggleTable={(table) => {

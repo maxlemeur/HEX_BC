@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
+  ApiError,
   badRequest,
   conflict,
   forbidden,
@@ -72,9 +73,11 @@ import {
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
+import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/google-drive/content";
 import { hasStoredIntakePlan, hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
-import { readDriveHistory } from "@/lib/affaires/google-drive/store";
 import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
+import { DriveError } from "@/lib/affaires/google-drive/errors";
+import { driveProvenance } from "@/lib/affaires/google-drive/store";
 import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
@@ -131,6 +134,12 @@ type AffaireIntakeDocumentRow = {
   classified_by: string | null;
   classified_at: string | null;
   manually_overridden_at: string | null;
+  source_provider: "google_drive" | null;
+  drive_connection_id: string | null;
+  drive_file_id: string | null;
+  drive_folder_id: string | null;
+  drive_folder_name: string | null;
+  drive_revision: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -281,6 +290,12 @@ const DOCUMENT_SELECT = [
   "classified_by",
   "classified_at",
   "manually_overridden_at",
+  "source_provider",
+  "drive_connection_id",
+  "drive_file_id",
+  "drive_folder_id",
+  "drive_folder_name",
+  "drive_revision",
   "created_at",
   "updated_at",
 ].join(", ");
@@ -505,6 +520,12 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     classified_by: toStringOrNull(row.classified_by),
     classified_at: toStringOrNull(row.classified_at),
     manually_overridden_at: toStringOrNull(row.manually_overridden_at),
+    source_provider: row.source_provider === "google_drive" ? "google_drive" : null,
+    drive_connection_id: toStringOrNull(row.drive_connection_id),
+    drive_file_id: toStringOrNull(row.drive_file_id),
+    drive_folder_id: toStringOrNull(row.drive_folder_id),
+    drive_folder_name: toStringOrNull(row.drive_folder_name),
+    drive_revision: toStringOrNull(row.drive_revision),
     created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
     updated_at: toStringOrNull(row.updated_at) ?? new Date(0).toISOString(),
   };
@@ -1099,12 +1120,12 @@ export async function requireAffaireProjectOwnerOrAdmin(
   return requireAffaireProjectAccess(projectId, "owner_or_admin");
 }
 
-/** Resolve only an active, classified DPGF belonging to the current affair. */
+/** Resolve only an active, classified DPGF of the current affair: a stored copy or a Drive link. */
 async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
   const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
   const { data, error } = await context.supabase
     .from("affaire_intake_documents" as never)
-    .select("id, file_name, mime_type, size_bytes, storage_path" as never)
+    .select("id, tenant_id, file_name, mime_type, size_bytes, storage_path, drive_connection_id, drive_file_id" as never)
     .eq("id", documentId)
     .eq("tenant_id", context.tenantId)
     .eq("project_id", project.id)
@@ -1117,12 +1138,15 @@ async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
 
   if (error) throw mapSupabaseError(error, "Impossible de charger la DPGF du dossier.");
   const document = data as unknown as {
+    tenant_id: string;
     file_name: string;
     mime_type: string | null;
     size_bytes: number;
     storage_path: string | null;
+    drive_connection_id: string | null;
+    drive_file_id: string | null;
   } | null;
-  if (!document?.storage_path || document.size_bytes <= 0 ||
+  if (!document || !(document.storage_path || document.drive_file_id) || document.size_bytes <= 0 ||
       document.size_bytes > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) {
     throw notFound("DPGF introuvable dans cette affaire. Actualisez le dossier.");
   }
@@ -1130,11 +1154,35 @@ async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
   return { context, document };
 }
 
+async function readDpgfFromDrive<T>(read: () => Promise<T>) {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof DriveError) throw new ApiError({ status: error.status, code: error.code, message: error.message });
+    throw error;
+  }
+}
+
+/**
+ * A Drive piece has no stored copy and no downloadUrl: the server reads it from Drive for the
+ * PDF review and the import. Its current Drive metadata is checked here so a lost access shows
+ * up when the DPGF is chosen.
+ */
 export async function getAffaireIntakeDpgfDownload(projectId: string, documentId: string) {
   const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
+  if (!document.storage_path) {
+    const file = await readDpgfFromDrive(() => readLinkedDriveFile(document));
+    return {
+      documentId,
+      fileName: document.file_name,
+      mimeType: document.mime_type,
+      sizeBytes: Number(file.size),
+      downloadUrl: null,
+    };
+  }
   const { data: signed, error: signedError } = await context.supabase.storage
     .from(AFFAIRE_INTAKE_BUCKET)
-    .createSignedUrl(document.storage_path!, 60);
+    .createSignedUrl(document.storage_path, 60);
   if (signedError || !signed?.signedUrl) {
     throw internalError("Impossible de récupérer la DPGF du dossier.");
   }
@@ -1150,8 +1198,13 @@ export async function getAffaireIntakeDpgfDownload(projectId: string, documentId
 
 export async function readAffaireIntakeDpgfFile(projectId: string, documentId: string) {
   const { context, document } = await getAffaireIntakeDpgf(projectId, documentId);
+  if (!document.storage_path) {
+    // The current Drive content, read with the account of the member who linked it.
+    const { bytes } = await readDpgfFromDrive(() => readLinkedDriveDocument(document));
+    return new File([bytes], document.file_name, { type: document.mime_type ?? "application/octet-stream" });
+  }
   const { data: blob, error } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET)
-    .download(document.storage_path!);
+    .download(document.storage_path);
   if (error || !blob || blob.size !== document.size_bytes) {
     throw internalError("Impossible de récupérer la copie DPGF complète.");
   }
@@ -2724,7 +2777,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       continue;
     }
 
-    if (!document.storage_path) {
+    if (!document.storage_path && !document.drive_file_id) {
       await renewLease();
       const { error: markFailedError } = await resolveSupabaseQuery<{
         error: unknown;
@@ -2756,15 +2809,22 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
 
     try {
-      const { data: blob, error: downloadError } = await supabase.storage
-        .from(AFFAIRE_INTAKE_BUCKET)
-        .download(document.storage_path);
+      // A Drive piece is a link: its content is read from Drive for this analysis only.
+      const linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+      let bytes: ArrayBuffer;
+      if (linked) {
+        bytes = new Uint8Array(linked.bytes).buffer;
+      } else {
+        const { data: blob, error: downloadError } = await supabase.storage
+          .from(AFFAIRE_INTAKE_BUCKET)
+          .download(document.storage_path!);
 
-      if (downloadError || !blob) {
-        throw downloadError ?? new Error("Missing blob from storage.");
+        if (downloadError || !blob) {
+          throw downloadError ?? new Error("Missing blob from storage.");
+        }
+
+        bytes = await blob.arrayBuffer();
       }
-
-      const bytes = await blob.arrayBuffer();
       const mimeType =
         document.mime_type ??
         inferAffaireIntakeMimeType(document.file_name) ??
@@ -2798,6 +2858,11 @@ async function processClaimedAffaireIntakeUpload(input: {
             extracted_metadata: classification.result.extractedMetadata,
             classification_source: classification.source,
             classified_at: nowIso,
+            ...(linked ? {
+              drive_revision: linked.file.version ?? null,
+              drive_modified_time: linked.file.modifiedTime ?? null,
+              size_bytes: bytes.byteLength,
+            } : {}),
           } as never)
           .eq("id", document.id)
           .eq("classification_status", "processing")
@@ -2839,7 +2904,9 @@ async function processClaimedAffaireIntakeUpload(input: {
           .from("affaire_intake_documents" as never)
           .update({
             classification_status: "failed",
-            issues: ["Impossible d'analyser le document dans le workspace intake."],
+            issues: [error instanceof DriveError
+              ? `Lecture Google Drive impossible : ${error.message}`
+              : "Impossible d'analyser le document dans le workspace intake."],
           } as never)
           .eq("id", document.id)
           .eq("classification_status", "processing")
@@ -3043,13 +3110,12 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     supabase: context.supabase,
     projectId: project.id,
   });
-  const driveSources = new Map((await readDriveHistory({ context, project })).map((entry) => [entry.documentId, entry.source]));
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
     uploadStatus: document.upload_status,
     isBeingDeleted: Boolean(document.deletion_token),
-    driveSource: driveSources.get(document.id),
+    driveSource: document.drive_file_id ? driveProvenance({ ...document, drive_file_id: document.drive_file_id }) : undefined,
     sizeBytes: document.size_bytes,
     detectedCategory: document.document_kind,
     classificationStatus: document.classification_status,

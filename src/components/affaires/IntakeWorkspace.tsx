@@ -459,7 +459,7 @@ export function IntakeWorkspace({
 
       {/* The dialog keeps its tree position when the first copies end the entry shell. */}
       <div className={driveOfferedByFlowPanel ? undefined : "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-subtle px-4 pb-3 pt-1"}>
-        {driveOfferedByFlowPanel ? null : <div className="pt-2"><p className="text-sm font-semibold text-foreground">Vos documents Drive, réunis dans l’affaire</p><p className="mt-1 text-xs text-muted-foreground">Une copie enregistrée à l’import, avec son dossier source et sa provenance.</p></div>}
+        {driveOfferedByFlowPanel ? null : <div className="pt-2"><p className="text-sm font-semibold text-foreground">Vos documents Drive, liés à l’affaire</p><p className="mt-1 text-xs text-muted-foreground">Un lien vers chaque fichier, sans copie : le fichier reste dans Drive.</p></div>}
         <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={handleUploadComplete} onRefresh={handleReclassified} showTrigger={!driveOfferedByFlowPanel} fallbackFocus={sectionRef} />
       </div>
 

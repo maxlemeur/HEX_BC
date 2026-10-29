@@ -51,6 +51,30 @@ describe("UploadStep intake DPGF", () => {
     expect(await file.text()).toBe("a;b\n1;2\n");
   });
 
+  it("selects a Drive-linked DPGF without downloading it, for the server to read", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ data: {
+      ...first, mimeType: "text/csv", sizeBytes: 2048, downloadUrl: null,
+    } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<UploadStep projectId={projectId} intakeDpgfCandidates={[first]} onImportReady={vi.fn()} />);
+
+    await screen.findByRole("button", { name: "Lancer l'import" });
+    expect(screen.getByText("2.0 Ko")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Lancer l'import" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(importFile).toHaveBeenCalledWith(expect.any(File), { sourceDocumentId: first.documentId });
+    expect((importFile.mock.calls[0][0] as File).name).toBe(first.fileName);
+  });
+
+  it("shows why a Drive-linked DPGF cannot be read", async () => {
+    const message = "Le compte Google qui a lié ce fichier a été retiré. Sélectionnez de nouveau le fichier dans Google Drive.";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: false, json: async () => ({ ok: false, error: { code: "DRIVE_CONNECTION_REMOVED", message } }) }));
+    render(<UploadStep projectId={projectId} intakeDpgfCandidates={[first]} onImportReady={vi.fn()} />);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(importFile).not.toHaveBeenCalled();
+  });
+
   it("asks which copy to use when several DPGFs are available", async () => {
     const response = downloadResponse(second);
     const fetchMock = vi.fn().mockResolvedValueOnce(response.metadata).mockResolvedValueOnce(response.download);

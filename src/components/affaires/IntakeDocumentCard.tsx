@@ -341,20 +341,21 @@ export function IntakeDocumentCard({
         </ul>
       )}
       {doc.driveSource && <details className="mt-4 rounded-lg border border-border bg-surface-subtle p-3 text-xs">
-        <summary className="flex cursor-pointer items-center gap-2 font-medium text-primary"><HardDriveIcon size={14} aria-hidden="true" />Provenance Google Drive</summary>
+        <summary className="flex cursor-pointer items-center gap-2 font-medium text-primary"><HardDriveIcon size={14} aria-hidden="true" />Fichier dans Google Drive</summary>
         <dl className="mt-3 grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-2 text-muted-foreground">
-          <dt>Fichier source</dt><dd className="break-all"><a href={doc.driveSource.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.sourceName}</a></dd>
-          <dt>Dossier source</dt><dd className="break-all"><a href={`https://drive.google.com/drive/folders/${doc.driveSource.folderId}`} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.folderName ?? doc.driveSource.folderId}</a></dd>
-          <dt>Révision</dt><dd>{doc.driveSource.revision}</dd><dt>Copié le</dt><dd>{new Date(doc.driveSource.importedAt).toLocaleString("fr-FR")}</dd>
-          <dt>Importé par</dt><dd className="break-all">{doc.driveSource.importedBy}</dd>
-          <dt>Empreinte</dt><dd className="break-all font-mono text-micro">{doc.driveSource.sha256}</dd>
-        </dl><p className="mt-3 text-muted-foreground">Cette copie est conservée dans l’affaire. Les changements dans Drive ne la modifient pas.</p>
+          <dt>Fichier</dt><dd className="break-all"><a href={doc.driveSource.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.sourceName}</a></dd>
+          {doc.driveSource.folderId && <><dt>Dossier</dt><dd className="break-all"><a href={`https://drive.google.com/drive/folders/${doc.driveSource.folderId}`} target="_blank" rel="noreferrer" className="text-primary underline">{doc.driveSource.folderName ?? doc.driveSource.folderId}</a></dd></>}
+          {doc.driveSource.revision && <><dt>Révision lue</dt><dd>{doc.driveSource.revision}</dd></>}<dt>Lié le</dt><dd>{new Date(doc.driveSource.linkedAt).toLocaleString("fr-FR")}</dd>
+        </dl><p className="mt-3 text-muted-foreground">MergeOne garde un lien : le fichier reste dans Google Drive, sans copie dans l’affaire. Une modification dans Drive n’est pas réanalysée automatiquement.</p>
+        {!doc.driveSource.connectionAvailable && <p className="mt-2 text-warning">Le compte Google qui a lié ce fichier a été retiré : sélectionnez de nouveau ce fichier dans Google Drive pour le rattacher à votre compte.</p>}
       </details>}
-      {canManage && <button type="button" className="mt-3 inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger/5" disabled={isPending || isProcessing} onClick={() => setConfirmDelete(true)}><Trash2Icon size={14} aria-hidden="true" />Supprimer la copie</button>}
+      {canManage && <button type="button" className="mt-3 inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger/5" disabled={isPending || isProcessing} onClick={() => setConfirmDelete(true)}><Trash2Icon size={14} aria-hidden="true" />{doc.driveSource ? "Retirer le lien" : "Supprimer la copie"}</button>}
       <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!isPending) setConfirmDelete(open); }}>
-        <AlertDialogContent><AlertDialogTitle>Supprimer cette copie de l’affaire ?</AlertDialogTitle><AlertDialogDescription>Le fichier « {doc.fileName} » et ses copies dans les plans seront retirés du stockage de l’affaire. Le fichier d’origine dans Google Drive reste conservé. Les lignes de chiffrage et les références historiques existantes restent conservées.</AlertDialogDescription>
+        <AlertDialogContent><AlertDialogTitle>{doc.driveSource ? "Retirer ce lien Google Drive de l’affaire ?" : "Supprimer cette copie de l’affaire ?"}</AlertDialogTitle><AlertDialogDescription>{doc.driveSource
+            ? <>Le lien vers « {doc.fileName} » sera retiré du dossier de l’affaire. Le fichier reste dans Google Drive. Les lignes de chiffrage et les références historiques existantes restent conservées.</>
+            : <>Le fichier « {doc.fileName} » et ses copies dans les plans seront retirés du stockage de l’affaire. Les lignes de chiffrage et les références historiques existantes restent conservées.</>}</AlertDialogDescription>
           {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-          <AlertDialogFooter><button type="button" className="btn btn-secondary" disabled={isPending} onClick={() => setConfirmDelete(false)}>Annuler</button><button type="button" className="btn btn-primary" disabled={isPending} onClick={() => { setError(null); startTransition(async () => { try { await deleteAffaireIntakeDocument({ projectId, documentId: doc.documentId }); setConfirmDelete(false); onReclassified(); } catch (err) { setError(err instanceof Error ? err.message : "Suppression interrompue. Réessayez."); } }); }}>{isPending ? "Suppression…" : "Confirmer la suppression"}</button></AlertDialogFooter>
+          <AlertDialogFooter><button type="button" className="btn btn-secondary" disabled={isPending} onClick={() => setConfirmDelete(false)}>Annuler</button><button type="button" className="btn btn-primary" disabled={isPending} onClick={() => { setError(null); startTransition(async () => { try { await deleteAffaireIntakeDocument({ projectId, documentId: doc.documentId }); setConfirmDelete(false); onReclassified(); } catch (err) { setError(err instanceof Error ? err.message : "Suppression interrompue. Réessayez."); } }); }}>{isPending ? (doc.driveSource ? "Retrait…" : "Suppression…") : doc.driveSource ? "Confirmer le retrait" : "Confirmer la suppression"}</button></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

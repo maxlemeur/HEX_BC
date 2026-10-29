@@ -19,7 +19,7 @@ export async function GET(_request: Request, context: Context) {
 }
 export async function POST(request: Request, context: Context) {
   try {
-    // Same-origin only: tokens are never accepted via query parameters or redirects.
+    // Same-origin only. Google tokens stay on the server; requests carry a connection id.
     if (request.headers.get("origin") !== new URL(request.url).origin) throw badRequest("Origine de requête refusée.");
     if (!request.headers.get("content-type")?.startsWith("application/json")) throw badRequest("Payload JSON requis.");
     const reader = request.body?.getReader();
@@ -40,10 +40,10 @@ export async function POST(request: Request, context: Context) {
     let payload: unknown;
     try { payload = JSON.parse(body); } catch { throw badRequest("Payload JSON invalide."); }
     const result = await executeDriveRequest(await projectId(context), driveRequestSchema.parse(payload), request.signal);
-    for (const uploadId of result.uploads) {
+    for (const uploadId of "uploads" in result ? result.uploads ?? [] : []) {
       after(async () => {
         try { await processAffaireIntakeUpload(uploadId); }
-        catch { console.error("Drive intake processing incomplete", { uploadId }); }
+        catch { console.error("Drive link processing incomplete", { uploadId }); }
       });
     }
     return noStore(ok(result));
