@@ -1,6 +1,20 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
+
+// Testing Library installs these hooks only when Vitest globals are enabled.
+// Our explicit imports need the same environment declaration. React act and
+// awaited interactions still perform synchronization; this flag also preserves
+// warnings for updates outside act in reused VM workers.
+const reactEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+let previousActEnvironment: boolean | undefined;
+beforeAll(() => {
+  previousActEnvironment = reactEnvironment.IS_REACT_ACT_ENVIRONMENT;
+  reactEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+});
+afterAll(() => {
+  reactEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+});
 
 // Vitest runs without `globals`, so Testing Library cannot install its own
 // auto-cleanup (it looks for a global `afterEach`). Without this hook, roots
