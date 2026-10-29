@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 import { localClient } from "../takeoff/native-ui";
 import { localDriveStore } from "./google-drive-local-store";
@@ -51,10 +52,14 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   const store = await localDriveStore(army.runPrefix);
   const access = { context: { supabase: client, tenantId: project.data!.tenant_id, userId }, project: project.data! } as Parameters<typeof store.linkDriveFiles>[0];
   const wrongTenant = { ...access, context: { ...access.context, tenantId: "00000000-0000-4000-8000-000000000001" } };
-  // A fictional account, saved through the binding function as the OAuth callback does. Its
-  // sealed token stays server-side: the member can neither read it nor call the worker's read.
-  const saved = await client.rpc("save_google_drive_connection", { p_google_account_id: `fixture_${army.runPrefix}`,
-    p_email: "drive-fixture@example.invalid", p_display_name: "Compte Drive fictif", p_refresh_token_ciphertext: "v1.fixture.sealed.token" });
+  // A fictional account, saved as the OAuth callback does: through the service role, for the member
+  // it verified. The member cannot register an account by name, read its sealed token or call the worker's read.
+  const account = { p_tenant_id: project.data!.tenant_id, p_user_id: userId, p_google_account_id: `fixture_${army.runPrefix}`,
+    p_email: "drive-fixture@example.invalid", p_display_name: "Compte Drive fictif", p_refresh_token_ciphertext: "v1.fixture.sealed.token" };
+  expect((await client.rpc("save_google_drive_connection", account)).error?.code).toBe("42501");
+  const server = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  const saved = await server.rpc("save_google_drive_connection", account);
   expect(saved.error).toBeNull();
   const connectionId = saved.data as string;
   const tokenRead = await client.rpc("google_drive_connection_secret", { p_connection_id: connectionId });

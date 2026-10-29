@@ -38,13 +38,17 @@ export async function requireOwnDriveConnection(member: Member, connectionId: st
   return toConnection(connectionSchema.parse(data));
 }
 
-/** Stores the account for the signed-in member; the RPC binds the row to auth.uid(). */
+/**
+ * Stores the account Google returned to the OAuth callback, for the member that callback verified.
+ * Only the service role may save one, so no member can register a Google account by name.
+ */
 export async function saveDriveConnection(member: Member, configuration: Enabled,
   account: { permissionId: string; emailAddress: string; displayName: string },
   grant: { refreshToken: string; accessToken: string; expiresAt: number }) {
   const ciphertext = sealDriveSecret(configuration.tokenKey, grant.refreshToken,
     connectionSecretContext(member.tenantId, member.userId, account.permissionId));
-  const { data, error } = await database(member).rpc("save_google_drive_connection", {
+  const { data, error } = await (createServiceRoleClient() as unknown as Query).rpc("save_google_drive_connection", {
+    p_tenant_id: member.tenantId, p_user_id: member.userId,
     p_google_account_id: account.permissionId, p_email: account.emailAddress, p_display_name: account.displayName,
     p_refresh_token_ciphertext: ciphertext,
   });

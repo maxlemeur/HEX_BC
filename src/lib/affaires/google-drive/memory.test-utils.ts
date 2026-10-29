@@ -64,14 +64,14 @@ export function memoryBackend() {
       return Promise.resolve(this.execute()).then(resolve, reject);
     }
   }
-  // The two RPCs of the migration: save binds to the signed-in member, the secret read is service-only.
+  // The two service-only RPCs of the migration: save for the member the callback verified, and the secret read.
   const rpc = vi.fn(async (name: string, args: Record<string, string>) => {
     if (name === "save_google_drive_connection") {
       const connections = rows("google_drive_connections");
-      const existing = [...connections.values()].find((row) => row.tenant_id === access.context.tenantId &&
-        row.user_id === access.context.userId && row.google_account_id === args.p_google_account_id);
+      const existing = [...connections.values()].find((row) => row.tenant_id === args.p_tenant_id &&
+        row.user_id === args.p_user_id && row.google_account_id === args.p_google_account_id);
       const id = String(existing?.id ?? `00000000-0000-4000-8000-${String(connections.size + 1).padStart(12, "0")}`);
-      connections.set(id, { id, tenant_id: access.context.tenantId, user_id: access.context.userId, google_account_id: args.p_google_account_id,
+      connections.set(id, { id, tenant_id: args.p_tenant_id, user_id: args.p_user_id, google_account_id: args.p_google_account_id,
         email: args.p_email, display_name: args.p_display_name, status: "active", created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       rows("google_drive_connection_secrets").set(id, { connection_id: id, refresh_token_ciphertext: args.p_refresh_token_ciphertext });
       return { data: id, error: null };

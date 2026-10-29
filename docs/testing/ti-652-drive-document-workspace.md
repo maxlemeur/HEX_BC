@@ -49,6 +49,10 @@ refonte de la synchronisation des plans est fusionnée.
 - Le refresh token est chiffré par l’application (AES-256-GCM, données associées :
   tenant, membre, compte Google) avant d’entrer en base, dans `private`, lisible
   seulement par le service role. Le navigateur ne reçoit jamais de jeton Google.
+- Seul le retour OAuth enregistre un compte, par le service role, pour le membre et le
+  tenant qu’il a vérifiés : un membre ne peut pas déclarer un compte Google par son
+  identifiant (ce qui ferait passer le compte d’un collègue pour partagé et éviterait sa
+  révocation).
 - En base, un membre ne peut lier un fichier ou un dossier qu’avec un compte à lui
   (trigger `zzz_guard_google_drive_connection_reference`) : un autre rédacteur de
   l’affaire ne peut pas faire lire le Drive d’un collègue au worker.
@@ -85,7 +89,7 @@ partagé avant le déploiement de ce code.
   accès durable, retour) ; panneau Drive.
 - pgTAP `google-drive-links.test.sql` : comptes visibles par leur seul membre,
   jeton illisible et fonction de lecture réservée au service role, enregistrement
-  lié au membre connecté, lien ou dossier refusé avec le compte d’un autre membre,
+  réservé au service role et à un membre du tenant, lien ou dossier refusé avec le compte d’un autre membre,
   pas de copie stockée pour un lien, lien unique actif, retrait puis nouveau lien,
   isolation du tenant, suppression d’un compte qui conserve les pièces (y compris
   retirées), compte Google partagé signalé au serveur, comptes retirés avec le membre.

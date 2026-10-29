@@ -44,7 +44,12 @@ alter table private.google_drive_connection_secrets enable row level security;
 alter table private.google_drive_connection_secrets force row level security;
 revoke all on private.google_drive_connection_secrets from public, anon, authenticated, service_role;
 
+-- Only the OAuth callback stores an account, for the member and tenant it verified and the
+-- Google account Google returned, through the service role. A member cannot create a row
+-- naming any Google account (which would make another member's grant look shared).
 create or replace function public.save_google_drive_connection(
+  p_tenant_id uuid,
+  p_user_id uuid,
   p_google_account_id text,
   p_email text,
   p_display_name text,
@@ -52,15 +57,13 @@ create or replace function public.save_google_drive_connection(
 ) returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare
-  v_user uuid := (select auth.uid());
-  v_tenant uuid := (select public.current_tenant_id());
   v_id uuid;
 begin
-  if v_user is null or v_tenant is null then
+  if not exists (select 1 from public.tenant_memberships m where m.tenant_id = p_tenant_id and m.user_id = p_user_id) then
     raise exception using errcode = '42501', message = 'GOOGLE_DRIVE_CONNECTION_DENIED';
   end if;
   insert into public.google_drive_connections as c (tenant_id, user_id, google_account_id, email, display_name)
-  values (v_tenant, v_user, p_google_account_id, p_email, p_display_name)
+  values (p_tenant_id, p_user_id, p_google_account_id, p_email, p_display_name)
   on conflict (tenant_id, user_id, google_account_id) do update
     set email = excluded.email, display_name = excluded.display_name, status = 'active', updated_at = now()
   returning c.id into v_id;
@@ -71,8 +74,8 @@ begin
   return v_id;
 end;
 $$;
-revoke all on function public.save_google_drive_connection(text, text, text, text) from public, anon;
-grant execute on function public.save_google_drive_connection(text, text, text, text) to authenticated;
+revoke all on function public.save_google_drive_connection(uuid, uuid, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.save_google_drive_connection(uuid, uuid, text, text, text, text) to service_role;
 
 -- The server reads a token only after checking who may use the connection: the member
 -- for browsing, or the intake worker for a piece that member linked. A connection whose

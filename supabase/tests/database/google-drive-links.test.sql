@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
-select plan(32);
+select plan(34);
 
 -- Fictional members: the affaire owner, an admin of the same tenant and a member of another tenant.
 insert into auth.users (instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -26,13 +26,33 @@ values ('6b000000-0000-4000-8000-000000000005','6b000000-0000-4000-8000-00000000
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','6b000000-0000-4000-8000-000000000001',true);
-select isnt(public.save_google_drive_connection('owner_account','drive-link-owner@example.test','Compte fictif','v1.aaaa.bbbb.cccc'),null,
-  'a member saves a Google account for themselves');
-select is((select count(*) from public.google_drive_connections),1::bigint,'the member sees the saved account');
-select is(public.save_google_drive_connection('owner_account','drive-link-owner@example.test','Compte fictif','v1.dddd.eeee.ffff'),
+select throws_ok($$select public.save_google_drive_connection(public.current_tenant_id(),'6b000000-0000-4000-8000-000000000001',
+  'colleague_account','x@example.test','Forged','v1.aaaa.bbbb.cccc')$$,'42501',null,
+  'a member cannot register a Google account by name: only the OAuth callback saves one');
+reset role;
+
+-- The OAuth callback saves, through the service role, the account Google returned for the member it verified.
+set local role service_role;
+select isnt(public.save_google_drive_connection((select tenant_id from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000001'),
+  '6b000000-0000-4000-8000-000000000001','owner_account','drive-link-owner@example.test','Compte fictif','v1.aaaa.bbbb.cccc'),null,
+  'the OAuth callback saves a Google account for the member it verified');
+select is(public.save_google_drive_connection((select tenant_id from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000001'),
+  '6b000000-0000-4000-8000-000000000001','owner_account','drive-link-owner@example.test','Compte fictif','v1.dddd.eeee.ffff'),
   (select id from public.google_drive_connections where google_account_id='owner_account'),'adding the same Google account again keeps one row');
-select throws_ok($$select public.save_google_drive_connection('owner_other','drive-link-owner@example.test','Compte fictif','plain-refresh-token')$$,
+select throws_ok($$select public.save_google_drive_connection((select tenant_id from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000001'),
+  '6b000000-0000-4000-8000-000000000001','owner_other','drive-link-owner@example.test','Compte fictif','plain-refresh-token')$$,
   '23514',null,'only an encrypted token can be stored');
+select throws_ok($$select public.save_google_drive_connection((select tenant_id from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000001'),
+  '6b000000-0000-4000-8000-000000000003','foreign_account','drive-link-foreign@example.test','Compte fictif','v1.aaaa.bbbb.cccc')$$,
+  '42501','GOOGLE_DRIVE_CONNECTION_DENIED','an account is saved only for a member of that tenant');
+select isnt(public.save_google_drive_connection((select tenant_id from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000001'),
+  '6b000000-0000-4000-8000-000000000002','admin_account','drive-link-admin@example.test','Admin fictif','v1.gggg.hhhh.iiii'),null,
+  'the admin gets an account of their own');
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub','6b000000-0000-4000-8000-000000000001',true);
+select is((select count(*) from public.google_drive_connections),1::bigint,'the member sees only their saved account');
 select throws_ok($$select * from private.google_drive_connection_secrets$$,'42501',null,'a member cannot read stored tokens');
 select throws_ok($$select * from public.google_drive_connection_secret((select id from public.google_drive_connections limit 1))$$,'42501',null,
   'a member cannot call the token read reserved to the server');
@@ -41,11 +61,10 @@ select throws_ok($$insert into public.google_drive_connections (tenant_id,user_i
   'accounts are saved only through the binding function');
 
 select set_config('request.jwt.claim.sub','6b000000-0000-4000-8000-000000000002',true);
-select is((select count(*) from public.google_drive_connections),0::bigint,'a same-tenant admin does not see another member''s accounts');
-with removed as (delete from public.google_drive_connections returning id)
+select is((select count(*) from public.google_drive_connections where user_id<>'6b000000-0000-4000-8000-000000000002'),0::bigint,
+  'a same-tenant admin does not see another member''s accounts');
+with removed as (delete from public.google_drive_connections where user_id<>'6b000000-0000-4000-8000-000000000002' returning id)
 select is((select count(*) from removed),0::bigint,'a same-tenant admin cannot remove another member''s account');
-select isnt(public.save_google_drive_connection('admin_account','drive-link-admin@example.test','Admin fictif','v1.gggg.hhhh.iiii'),null,
-  'the admin saves an account of their own');
 reset role;
 create temporary table fixture_connection on commit drop as
 select google_account_id, id from public.google_drive_connections where google_account_id in ('owner_account','admin_account');
@@ -94,11 +113,12 @@ select set_config('request.jwt.claim.sub','6b000000-0000-4000-8000-000000000003'
 select is((select count(*) from public.affaire_google_drive_folders) + (select count(*) from public.google_drive_connections)
   + (select count(*) from public.affaire_intake_documents where upload_id='6b000000-0000-4000-8000-000000000005'),0::bigint,
   'another tenant sees no account, folder or linked piece');
-select isnt(public.save_google_drive_connection('owner_account','drive-link-owner@example.test','Compte fictif','v1.jjjj.kkkk.llll'),null,
-  'the same Google account can be added in another tenant');
 reset role;
 
 set local role service_role;
+select isnt(public.save_google_drive_connection((select tenant_id from public.tenant_memberships where user_id='6b000000-0000-4000-8000-000000000003'),
+  '6b000000-0000-4000-8000-000000000003','owner_account','drive-link-owner@example.test','Compte fictif','v1.jjjj.kkkk.llll'),null,
+  'the same Google account can be added in another tenant');
 select is((select refresh_token_ciphertext from public.google_drive_connection_secret((select id from fixture_connection where google_account_id='owner_account'))),
   'v1.dddd.eeee.ffff','the server reads the latest encrypted token for the intake worker');
 select is((select shared_grant from public.google_drive_connection_secret((select id from fixture_connection where google_account_id='owner_account'))),
