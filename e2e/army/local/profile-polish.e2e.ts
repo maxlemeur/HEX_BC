@@ -20,8 +20,14 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
   const client = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const login = await client.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
+  // The parallel ChatGPT journeys keep a store for the campaign account.
+  // Give this profile journey its own owner on the disposable backend so its
+  // fixture and profile writes cannot collide with another worker's account.
+  const prefix = `ARMY-profile-${Date.now()}`;
+  const email = `army-profile-${randomUUID()}@example.test`;
+  const login = await client.auth.signUp({ email, password: process.env.E2E_LOGIN_PASSWORD! });
   expect(login.error).toBeNull();
+  expect(login.data.session).not.toBeNull();
   const userId = login.data.user!.id;
   const membership = await client.from("tenant_memberships").select("tenant_id, tenants!inner(is_active)")
     .eq("user_id", userId).eq("tenants.is_active", true).order("is_default", { ascending: false }).order("created_at").limit(1).single();
@@ -42,7 +48,6 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
   let storeCreated = false;
   let artifactDirectoryReady = false;
   const diagnostics: string[] = [];
-  const prefix = `ARMY-profile-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
   try {
     // Claim the path first: a pre-existing account must never be removed on EEXIST.
@@ -112,7 +117,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
     await expect(screen.getByRole("button", "Masquer le mot de passe", { exact: true })).toBeVisible();
     await screen.getByRole("button", "Masquer le mot de passe", { exact: true }).tap();
-    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel("Email", { exact: true }).fill(email);
     await screen.getByLabel(/Mot de passe/).fill(account.password);
     const [loginResponse] = await Promise.all([
       browser.waitForResponse("**/auth/v1/token?grant_type=password"),

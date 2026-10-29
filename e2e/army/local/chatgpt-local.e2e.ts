@@ -73,8 +73,8 @@ beforeAll(async () => {
     if (localServer.exitCode !== null) throw new Error("ChatGPT local server exited before readiness.");
     return fetch(`${localOrigin}/login`).then((response) => response.ok).catch(() => false);
   }, { timeout: 90_000 }).toBe(true);
-  // next dev compiles protected routes on demand. Prepare the dashboard before
-  // measuring UI sign-in, using a separate session on the owned local backend.
+  // next dev compiles routes on demand. Prepare the dashboard, profile and
+  // callback before the UI flow, using a separate session on the owned backend.
   // The browser still signs in through the form with the unchanged assertions.
   const cookies = new Map<string, string>();
   const warmup = createServerClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
@@ -86,12 +86,16 @@ beforeAll(async () => {
   try {
     const login = await warmup.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
     expect(login.error).toBeNull();
-    const response = await fetch(`${localOrigin}/dashboard`, {
-      headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") },
-      redirect: "manual", signal: AbortSignal.timeout(90_000),
-    });
-    expect(response.status).toBe(200);
-    await response.text();
+    for (const [pathname, status] of [["/dashboard", 200], ["/dashboard/profile", 200], ["/auth/chatgpt/callback", 303]] as const) {
+      // No state or cookie on the warmup callback: it rejects before reading a
+      // pending transaction. The test below still exercises real PKCE/refusal.
+      const response = await fetch(`${localOrigin}${pathname}`, {
+        headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") },
+        redirect: "manual", signal: AbortSignal.timeout(90_000),
+      });
+      expect(response.status).toBe(status);
+      await response.text();
+    }
   } finally {
     await warmup.auth.signOut({ scope: "local" });
   }
@@ -478,6 +482,9 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
 if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visible for review without changing the preparation", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
+  // Earlier LOCAL journeys also use Decisions; count only this scenario's calls.
+  const transportBefore = (await readFile(transportLog, "utf8")).trim();
+  const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
   const account = credentials.user("army");
   await app.open(`${localOrigin}/login`);
   await screen.getByLabel("Email", { exact: true }).fill(account.username);
@@ -511,7 +518,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   expect(await read()).toEqual(before);
   expect(before.confirmed_snapshot).toBeNull();
   const observed = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
-  expect(observed.filter(entry => entry.provider === "decisions-fixture")).toHaveLength(1);
+  expect(observed.slice(transportStart).filter(entry => entry.provider === "decisions-fixture")).toHaveLength(1);
   expect(observed.filter(entry => entry.provider === "forbidden")).toEqual([]);
   // A provider timeout leaves the draft intact and gives the user a route to
   // adjust the account's effort; it does not change that setting implicitly.
@@ -526,7 +533,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
     await setDecisionsControl({ hold: true });
     try {
       await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
-      await expect.poll(async () => (await readFile(transportLog, "utf8")).trim().split("\n")
+      await expect.poll(async () => (await readFile(transportLog, "utf8")).trim().split("\n").slice(transportStart)
         .map(line => JSON.parse(line)).filter(entry => entry.provider === "decisions-fixture").length).toBe(3);
       const changed = await client.from("plan_files").update({ file_hash: "b".repeat(64) }).eq("id", file.id).select("id").single();
       expect(changed.error).toBeNull();
