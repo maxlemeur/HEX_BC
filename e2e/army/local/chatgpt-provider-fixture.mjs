@@ -1,9 +1,21 @@
 // Test-only transport. Only the dedicated local browser test preloads this file.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { appendFile } from "node:fs/promises";
 import { z } from "zod";
+
+// Preserve crash locations without raw errors, provider payloads, URLs or tokens.
+const processDiagnostic = (kind, code, error) => {
+  const frames = (error?.stack ?? new Error().stack ?? "").split("\n").slice(1)
+    .flatMap(line => [...line.matchAll(/([^/\s():]+\.(?:[cm]?js|ts)):(\d+):(\d+)/g)]
+      .map(match => `${match[1]}:${match[2]}:${match[3]}`)).slice(0, 12);
+  try { appendFileSync(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "process-diagnostic", kind,
+    pid: process.pid, code: typeof code === "number" ? code : null, frames }) + "\n"); } catch { /* Preserve the original exit. */ }
+};
+process.on("uncaughtExceptionMonitor", error => processDiagnostic("uncaught", null, error));
+const originalExit = process.exit.bind(process);
+process.exit = code => { processDiagnostic("exit", typeof code === "number" ? code : process.exitCode); return originalExit(code); };
 
 const preparationText = z.string().trim().min(1).max(1000);
 const preparationSourceIds = z.array(z.string().min(1).max(4000)).max(20);

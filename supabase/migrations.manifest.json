@@ -296,6 +296,7 @@
     "20261029152340_local_chatgpt_safe_recovery.sql": "33a286aa41eae9244116ec5b3762842ec0441e8cf0b100949212e74aad09158e",
     "20261029171045_google_drive_single_account.sql": "36c814614083dc1c1326ea4b6703be6b841ffbd4530676346487cce792e4f764",
     "20261029185344_preserve_google_drive_write_on_read_reconnect.sql": "4d588d3f980d1992f582bd4a3cf4a11f88a8f9b27ffd74e5a87909d69f29511b",
-    "20261029204225_estimate_pdf_contract_parent_index.sql": "f1d25996214b8b1e2120fce32a5f9b2dfe75c1dce12731d501d1ed140dc165bb"
+    "20261029204225_estimate_pdf_contract_parent_index.sql": "f1d25996214b8b1e2120fce32a5f9b2dfe75c1dce12731d501d1ed140dc165bb",
+    "20261029224500_estimate_v3_freeze_revision_effects.sql": "d4f7b9d02fba2e9c33165a5d41ea92de1ca29431fceaed8e1b585e2f719267f3"
   }
 }
