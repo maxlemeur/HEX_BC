@@ -4,11 +4,11 @@ import { mkdir, open as openFile, readFile, rm, writeFile } from "node:fs/promis
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createClient } from "@supabase/supabase-js";
 import { test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
 import { recordEvidence } from "../critical/fixtures";
+import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
 
 test("PFL01 profile preserves saved details, AI preferences and accessible account management", {
   tags: ["critical", "local", "profile"], session: "army", timeout: 300_000,
@@ -17,12 +17,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
   if (!["localhost", "127.0.0.1"].includes(backend.hostname) || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST) {
     throw new Error("Profile writes require the owned local backend.");
   }
-  const client = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const login = await client.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL!, password: process.env.E2E_LOGIN_PASSWORD! });
-  expect(login.error).toBeNull();
-  const userId = login.data.user!.id;
+  const { client, userId, email } = await createLocalChatGptOwner();
   const membership = await client.from("tenant_memberships").select("tenant_id, tenants!inner(is_active)")
     .eq("user_id", userId).eq("tenants.is_active", true).order("is_default", { ascending: false }).order("created_at").limit(1).single();
   expect(membership.error).toBeNull();
@@ -35,11 +30,13 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     clientId: "army-profile-fixture", issuer: "https://auth.openai.com", subject: id, accessToken: "army-profile-fixture",
     refreshToken: "army-profile-fixture", expiresAt: Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] });
   const artifactRoot = path.resolve(".e2e/army/critical/artifacts");
-  const control = path.join(artifactRoot, "profile-provider-control.json");
-  const transportPath = path.join(artifactRoot, "profile-provider.jsonl");
+  const instance = randomUUID();
+  const control = path.join(artifactRoot, `profile-provider-control-${instance}.json`);
+  const transportPath = path.join(artifactRoot, `profile-provider-${instance}.jsonl`);
   const setMode = (mode: string) => writeFile(control, JSON.stringify({ mode }));
   let server: ChildProcess | undefined;
   let storeCreated = false;
+  let workspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
   let artifactDirectoryReady = false;
   const diagnostics: string[] = [];
   const prefix = `ARMY-profile-${Date.now()}`;
@@ -66,8 +63,9 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     if (!address || typeof address === "string") throw new Error("Profile server port reservation failed.");
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     const origin = `http://127.0.0.1:${address.port}`;
+    workspace = await prepareChatGptServerWorkspace();
     server = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(address.port), "--webpack"], {
-      cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY: "1", E2E_ARMY_SERVER_MODE: "development",
+      cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
         MERGEONE_OPENAI_DECISIONS: "0", OPENAI_DECISIONS_API_KEY: "", NEXT_TELEMETRY_DISABLED: "1",
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/profile-provider-fixture.mjs")).href}`,
         ARMY_PROFILE_PROVIDER_CONTROL: control, ARMY_PROFILE_PROVIDER_LOG: transportPath },
@@ -80,6 +78,8 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       if (server?.exitCode !== null) throw new Error("Profile fixture server exited before readiness.");
       return fetch(`${origin}/login`).then(response => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
+    await workspace.assertReady();
+    await warmChatGptServer(origin, email);
     // This journey uses its own loopback origin and the SDK's plain test fixture,
     // not armyTest. Confine browser traffic before loading the login page.
     await browser.route("**/*", async route => {
@@ -107,7 +107,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       throw new Error(`Profile campaign blocked ${method} ${url.hostname}; unexpected origin or mutation.`);
     });
     const open = (pathname = "/dashboard/profile") => app.open(new URL(pathname, origin).href);
-    const account = credentials.user("army");
+    const account = { ...credentials.user("army"), username: email };
     await open("/login");
     await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
     await expect(screen.getByRole("button", "Masquer le mot de passe", { exact: true })).toBeVisible();
@@ -166,7 +166,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     expect(initialActions.settled.map(response => response.status)).toEqual([200, 200]);
     await recordEvidence(army, "profile-initial-action", { actions: initialActions.settled,
       loginStatus: loginResponse.status, sessionCookiePresent: true,
-      runtime: { E2E_ARMY: "1", developmentOutput: ".e2e/army/next/dev", productionSmokeOutput: ".next" } });
+      runtime: { E2E_ARMY: "1", developmentOutput: `.e2e/army/next-${workspace.id}/dev`, productionSmokeOutput: ".next" } });
     await expect(browser).toHaveURL(/\/dashboard\/profile$/);
     await expect(screen.getByRole("heading", "Mon profil", { exact: true })).toBeVisible();
     const model = screen.getByRole("combobox", "Modèle ChatGPT", { exact: true });
@@ -342,6 +342,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     } finally {
       try {
         if (storeCreated) await rm(storePath, { force: true });
+        await workspace?.cleanup();
       } finally {
         if (artifactDirectoryReady) {
           await rm(control, { force: true });

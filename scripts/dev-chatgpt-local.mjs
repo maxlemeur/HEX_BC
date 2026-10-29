@@ -6,6 +6,10 @@ const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev",
   stdio: "inherit",
   env: { ...process.env, MERGEONE_CHATGPT_LOCAL: "1" },
 });
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
-child.on("exit", (code) => { process.exitCode = code ?? 1; });
+let stopping = false;
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { stopping = true; child.kill(signal); });
+child.on("exit", (code, signal) => {
+  console.error(`Local Next process exited at ${new Date().toISOString()}: exitCode=${code}, signal=${signal}, requested=${stopping}`);
+  process.exitCode = code ?? 1;
+});
 child.on("error", () => { process.exitCode = 1; });
