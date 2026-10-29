@@ -37,6 +37,26 @@ armyTest("TKW01 real CSV upload runs the owned worker once and applies exact qua
   expect(released.body.data.released).toBe(true);
   const before = await readEstimate(ui.browser, ids.versionId);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
+  const reviewPath = `/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`;
+  const resultsLink = ui.screen.getByRole("link", "Voir les résultats", { exact: true });
+  await expect(resultsLink).toBeVisible();
+  await expect(resultsLink).toHaveAttribute("href", reviewPath);
+  await resultsLink.click();
+  await expect(ui.browser).toHaveURL(reviewPath);
+  await expect(ui.screen.getByRole("heading", "Revue d’extraction", { exact: true })).toBeVisible();
+  await ui.screen.getByRole("tab", "Assisté : Revue guidée carte par carte", { exact: true }).click();
+  for (const item of completed.items) {
+    const card = ui.screen.getByRole("article", item.designation, { exact: true });
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(`${item.quantity} ${item.unit}`);
+    await expect(card.getByText(fileName, { exact: true })).toBeVisible();
+    await expect(card.getByText(`p. ${item.source_page}`, { exact: true })).toBeVisible();
+  }
+  await recordEvidence(ui.army, "TKW01-monitor-results-review", {
+    ids, jobId, reviewPath, items: completed.items,
+    boundary: "The owned worker uses the real processor and a controlled provider response.",
+  });
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
   await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
   await dialog.getByLabel("Section cible", { exact: true }).selectOption({ value: String(target.parent_id) });

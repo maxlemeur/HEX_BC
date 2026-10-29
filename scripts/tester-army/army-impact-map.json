@@ -515,6 +515,16 @@
       ]
     },
     {
+      "id": "takeoff-monitor-results",
+      "note": "Le suivi d'un métré terminé ouvre sa revue et ses lignes extraites (TKW01).",
+      "paths": [
+        "src/components/takeoff/TakeoffJobMonitor.tsx"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/worker-lifecycle.e2e.ts"
+      ]
+    },
+    {
       "id": "estimate-print",
       "note": "Impression : V3E01 y lit un brouillon v3 sans bandeau (2.6), V3M02 les montants du document v3 (S2 puis S5, 2.7).",
       "paths": [

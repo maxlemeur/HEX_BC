@@ -708,7 +708,7 @@ export default function TakeoffJobMonitor({
       <div className="mt-4 flex flex-wrap gap-3">
         {isCompleted && (
           <Link
-            href={`/dashboard/estimates/${versionId}`}
+            href={`/dashboard/estimates/${versionId}/takeoff/${jobId}/review`}
             className={buttonVariants({ variant: "primary" })}
           >
             Voir les résultats
