@@ -222,7 +222,7 @@ export function memoryBackend() {
         created_at: existing?.created_at ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
         grant_version: randomUUID(),
-        write_enabled: args.p_purpose === "write",
+        write_enabled: args.p_purpose === "write" || existing?.write_enabled === true,
       });
       const secrets = rows("google_drive_connection_secrets");
       secrets.set(id, {
@@ -232,7 +232,9 @@ export function memoryBackend() {
             ? secrets.get(id)?.refresh_token_ciphertext
             : args.p_refresh_token_ciphertext,
         write_refresh_token_ciphertext:
-          args.p_purpose === "write" ? args.p_refresh_token_ciphertext : null,
+          args.p_purpose === "write"
+            ? args.p_refresh_token_ciphertext
+            : (secrets.get(id)?.write_refresh_token_ciphertext ?? null),
       });
       generations.set(memberKey, randomUUID());
       return { data: id, error: null };

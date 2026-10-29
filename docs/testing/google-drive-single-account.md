@@ -10,6 +10,10 @@ compte. Un retrait conserve les liens et copies existants. La révocation distan
 Google est manuelle car elle peut affecter toutes les connexions du même compte.
 Le consentement à l'écriture Google et l'autorisation effective dans MergeOne sont
 distincts : désactiver l'écriture supprime son jeton côté serveur.
+Une reconnexion en lecture conserve le droit d'écriture précédemment activé et
+son jeton. Si Google révoque ce jeton, le prochain renouvellement de l'accès
+d'écriture le détecte et demande de réactiver l'écriture ; une désactivation
+volontaire ne peut pas être annulée par une reconnexion en lecture.
 
 Échecs à couvrir avant livraison : substitution de compte ou de tenant, accès à
 une connexion d'un autre membre, deux retours concurrents créant deux comptes,

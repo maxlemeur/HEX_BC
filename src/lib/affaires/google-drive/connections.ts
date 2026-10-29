@@ -58,8 +58,8 @@ const changed = () =>
     "Les droits du compte ont changé. Actualisez avant de recommencer.",
   );
 const accessTokens = new Map<string, { token: string; expiresAt: number }>();
-const cacheKey = (id: string, cipher: string) =>
-  `${id}:${createHash("sha256").update(cipher).digest("hex")}`;
+const cacheKey = (id: string, cipher: string, grantVersion: string) =>
+  `${id}:${grantVersion}:${createHash("sha256").update(cipher).digest("hex")}`;
 
 export async function listDriveConnections(member: DriveMember) {
   const { data, error } = await db(member)
@@ -162,10 +162,10 @@ export async function saveDriveConnection(
       "DRIVE_CONNECTION_NOT_SAVED",
       "Le compte Google n’a pas pu être enregistré.",
     );
-  accessTokens.set(cacheKey(id.data, cipher), {
-    token: grant.accessToken,
-    expiresAt: grant.expiresAt,
-  });
+  // The database rotated grant_version. Discard this instance's old tokens;
+  // other instances also miss their old cache entries because the version is
+  // part of the key. The first use refreshes the newly saved grant.
+  forgetDriveAccess(id.data);
   return id.data;
 }
 const secretSchema = z.object({
@@ -228,7 +228,7 @@ async function token(
     purpose === "write"
       ? row.write_refresh_token_ciphertext!
       : row.refresh_token_ciphertext;
-  const key = cacheKey(id, ciphertext);
+  const key = cacheKey(id, ciphertext, row.grant_version);
   const cached = accessTokens.get(key);
   const verify = async () => {
     const current = await secret(id);

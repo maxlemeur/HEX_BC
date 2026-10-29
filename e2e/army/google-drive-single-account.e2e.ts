@@ -123,7 +123,10 @@ test(
         throw new Error(`Unexpected URL: ${url.pathname}`);
       }
     });
-    await app.open("/__army-fixture/drive-account");
+    await app.open("/__army-fixture/drive-account?drive=offline");
+    await expect(
+      screen.getByText("Google n'a pas accordé d'accès durable. Réessayez ou contactez votre administrateur. Ne retirez pas MergeOne de votre compte Google.", { exact: true }),
+    ).toBeVisible();
     await expect(
       screen.getByText("fixture@example.invalid", { exact: true }),
     ).toBeVisible();
@@ -138,6 +141,15 @@ test(
     ).toHaveCount(0);
     connection = { ...connection!, writeEnabled: true };
     await screen.getByRole("button", "Actualiser", { exact: true }).click();
+    await expect(
+      screen.getByRole("link", "Reconnecter la lecture", { exact: true }),
+    ).toHaveAttribute("href", /purpose=read/);
+    await expect(
+      screen.getByText("La reconnexion conserve l’écriture déjà activée. Pour la désactiver, choisissez « Revenir à la lecture seule ».", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      screen.getByRole("button", "Revenir à la lecture seule", { exact: true }),
+    ).toBeVisible();
     await screen
       .getByRole("button", "Choisir un fichier à modifier", { exact: true })
       .click();
