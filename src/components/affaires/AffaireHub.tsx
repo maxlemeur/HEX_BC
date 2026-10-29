@@ -43,6 +43,7 @@ import type {
 } from "@/lib/affaires/register";
 import { AffaireRegisterCard } from "./AffaireRegisterCard";
 import { AffaireFlowHierarchyPanel } from "./AffaireFlowHierarchyPanel";
+import { AffaireEmptyDossierStep } from "./AffaireEmptyDossierStep";
 import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
@@ -645,7 +646,7 @@ export function AffaireHub({
   useEffect(() => {
     const revealLinkedSurface = (fromHashChange = false) => {
       const hash = window.location.hash;
-      const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans"].includes(hash);
+      const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans", "#financial"].includes(hash);
       if (!isFreshStartState && !isDetailsLink && (hash === "#intake" || (!fromHashChange && (focusedIntakeDocument || focusedIntakeFilter)))) {
         openDocuments();
       }
@@ -903,7 +904,7 @@ export function AffaireHub({
         return;
       }
       if (url.search !== window.location.search) return;
-      if (["#brief", "#register", "#approval", "#timeline", "#plans"].includes(url.hash)) {
+      if (["#brief", "#register", "#approval", "#timeline", "#plans", "#financial"].includes(url.hash)) {
         setDetailsOpen(true);
         requestAnimationFrame(() => document.getElementById(url.hash.slice(1))?.scrollIntoView({ block: "start" }));
       }
@@ -1119,7 +1120,12 @@ export function AffaireHub({
             </div>
           )}
 
-          {!isFreshStartState ? (
+          {isFreshStartState ? (
+            <AffaireEmptyDossierStep
+              projectId={summary.project.id}
+              manualEstimateHref={summary.currentVersion ? `/dashboard/estimates/${summary.currentVersion.id}/edit?entry=manual` : `/dashboard/estimates/new?projectId=${summary.project.id}`}
+            />
+          ) : (
             <div className="mt-4">
               <AffairePilotagePanel
                 projectId={summary.project.id}
@@ -1174,7 +1180,7 @@ export function AffaireHub({
                 }
               />
             </div>
-          ) : null}
+          )}
 
           {directionSignals && directionSignals.alerts.length > 0 ? (
             <div className="mt-4">

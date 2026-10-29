@@ -112,7 +112,7 @@ export async function expectStoredTotalsMatchLines(
   const { estimate, projectName, step, expected } = input;
   const read = await readStoredTotals(browser, estimate.versionId);
 
-  await app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await app.open(`/dashboard/affaires/${estimate.projectId}#financial`);
   // The KPI labels are rendered uppercase: rendered text is matched case-insensitively.
   const hub = browser.locator("#financial");
   await expect(hub).toContainText(/HT version courante/i, { timeout: 30_000 });

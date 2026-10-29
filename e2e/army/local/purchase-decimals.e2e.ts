@@ -304,7 +304,7 @@ decimalTest("local decimal purchase form persists fractional quantities and exac
 decimalTest("local decimal purchase preparation creates exact quantities and replays its receipt", {
   session: "army", tags: ["critical", "local", "business-corpus"], trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser, fixture, army }) => {
-  await app.open(`/dashboard/affaires/${fixture.projectId}`);
+  await app.open(`/dashboard/affaires/${fixture.projectId}#finish-line-orders`);
   const source = await readEstimate(browser, fixture.versionId);
   const endpoint = `/api/estimates/${fixture.versionId}/purchase-order-drafts`;
   const preview = await apiRequest<Envelope<Preparation>>(browser, "GET", endpoint);
@@ -381,7 +381,7 @@ decimalTest("local decimal purchase preparation creates exact quantities and rep
   expect(fixture.requests.filter((entry) => entry.pathname === endpoint && entry.method === "POST")).toHaveLength(1);
   await retry.tap();
   await expect(screen.getByText("Préparation déjà enregistrée", { exact: true })).toBeVisible();
-  await app.open(`/dashboard/affaires/${fixture.projectId}`);
+  await browser.reload();
   await expect(screen.getByText("Préparation déjà enregistrée", { exact: true })).toBeVisible();
   expect(fixture.requests.filter((entry) => entry.pathname === endpoint && entry.method === "POST")).toHaveLength(1);
   expect(await items(browser, order.purchase_order_id)).toEqual(persisted);

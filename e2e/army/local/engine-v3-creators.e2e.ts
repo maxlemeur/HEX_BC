@@ -428,7 +428,7 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       await browser.keyboard.press("Escape");
       // Une ligne dans la v3 conserve l'accès manuel à la même préparation (HUB01).
       await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
-      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      await app.open(`/dashboard/affaires/${anchor.projectId}#plans`);
       // The prerequisite uses the API; reload the hub to read its committed line count.
       await browser.reload();
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
@@ -579,7 +579,6 @@ armyTest("V3C09 the AI structure opens on a v3 without a reason, by its button a
       await browser.keyboard.press("Escape");
       // Suggestion du hub (cockpit) : l'éditeur ouvert par ?openStructureDraft=1 ouvre l'assistant, qui génère la preview.
       await app.open(`/dashboard/estimates/${versionId}/edit?openStructureDraft=1`);
-      await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
       const dialog = screen.getByRole("dialog", "Structure IA", { exact: true });
       await expect(dialog).toBeVisible({ timeout: 30_000 });
       const proceed = dialog.getByRole("button", "Continuer", { exact: true });
@@ -637,7 +636,7 @@ armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on 
       expect(versions.map((version) => [version.versionNumber, version.engine, version.totals[0]]))
         .toEqual([[1, 2, 11500], [2, 2, 11000], [3, 3, 0], [4, 3, 13130], [5, 3, 11110]]);
       await switchToExpertMode(ui);
-      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      await app.open(`/dashboard/affaires/${anchor.projectId}#financial`);
       await expect(screen.getByRole("heading", "Analyse de marge", { exact: true })).toBeVisible({ timeout: 60_000 });
       const read = await browser.evaluate(() => {
         const clean = (text: string | null | undefined) => (text ?? "").replace(/[\s\u00a0\u202f]+/g, " ").trim();
@@ -682,7 +681,8 @@ armyTest("V3C10 the hub margin evolution traces each priced v3 at its margin on 
 
 /** The hub's « Analyse de marge » card, read once the hub is out of its fresh start ; `null` when it is absent. */
 async function readMarginCard(ui: Ui, projectId: string) {
-  await ui.app.open(`/dashboard/affaires/${projectId}`);
+  await ui.app.open(`/dashboard/affaires/${projectId}#financial`);
+  await ui.browser.reload();
   // Same server render as the margin card (the Expert mode is the profile's) : the card is decided once this shows.
   await expect(ui.screen.getByRole("heading", "Résumé financier", { exact: true })).toBeVisible({ timeout: 60_000 });
   return ui.browser.evaluate(() => {

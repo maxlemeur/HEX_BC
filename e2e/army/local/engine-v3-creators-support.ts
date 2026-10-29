@@ -680,6 +680,8 @@ export async function linkDpgfThroughHub(ui: Ui, army: ArmyState, projectId: str
   const backToHub = screen.getByRole("button", "Retour au hub", { exact: true });
   await expect(backToHub).toBeEnabled({ timeout: 30_000 });
   await backToHub.tap();
+  await expect(screen.getByRole("heading", "Mapping enregistré", { exact: true })).toBeVisible();
+  await screen.getByRole("button", "Continuer", { exact: true }).tap();
   let source: { status: number; body: Envelope<Record<string, unknown> | null> } | null = null;
   await expect.poll(async () => {
     source = await apiRequest<Envelope<Record<string, unknown> | null>>(browser, "GET", `/api/affaires/${projectId}/dpgf-source`);

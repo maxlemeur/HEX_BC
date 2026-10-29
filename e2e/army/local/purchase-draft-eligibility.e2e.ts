@@ -70,7 +70,7 @@ test("local purchase drafts recheck current supplier conditions without changing
   await recordEvidence(army, "purchase-draft-fixtures", {
     fixture, retained: true, cleanup: "none", emails: "none", environment: "isolated-loopback",
   });
-  const hubPath = "/dashboard/affaires/" + fixture.projectId;
+  const hubPath = `/dashboard/affaires/${fixture.projectId}#finish-line-orders`;
   await app.open(hubPath);
   const before = await readEstimate(browser, fixture.versionId);
   expect(before.project.id).toBe(fixture.projectId);
@@ -159,6 +159,7 @@ test("local purchase drafts recheck current supplier conditions without changing
       item_id: fixture.lineId, reason: "supplier_offer_ineligible", reason_detail: scenario.reason,
     })]);
     await app.open(hubPath);
+    await browser.reload();
     await expect(screen.getByText(scenario.reason, { exact: true })).toBeVisible();
     const rejected = await apiRequest<Envelope<unknown>>(browser, "POST", endpoint, request);
     expect(rejected.status).toBe(409);

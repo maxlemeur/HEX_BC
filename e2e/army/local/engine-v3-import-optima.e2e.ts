@@ -346,8 +346,9 @@ async function expectLargeDownloads(ui: Ui, army: ArmyState, projectId: string, 
   expect(Math.round(Number(cell(footer!, "Total HT (EUR)")) * 100)).toBe(state.version.total_ht_cents);
 
   await ui.app.open(`/dashboard/affaires/${projectId}`);
-  await expect(ui.screen.getByText("1900 lignes de devis disponibles depuis la DPGF importée.", { exact: true }))
-    .toBeVisible({ timeout: 30_000 });
+  await ui.screen.getByRole("button", /Étude Structure, métrés et prix/).tap();
+  await expect(ui.screen.getByText(/^1900 lignes dans la version courante/)).toBeVisible();
+  await ui.screen.getByRole("button", /Remise Validation, PDF et email client/).tap();
   await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).tap();
   const generate = ui.screen.getByRole("button", "Générer et télécharger", { exact: true });
   await expect(generate).toBeEnabled({ timeout: 30_000 });

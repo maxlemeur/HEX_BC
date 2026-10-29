@@ -455,7 +455,7 @@ purchaseTest("local purchase preparation requires review and recovers a lost res
   const afterRetry = await orderEvidence(browser, fixture);
   expect(afterRetry).toEqual(persisted);
   expect(await browser.evaluate(() => (window as typeof window & { __purchaseRecoveryProbe: { count: number } }).__purchaseRecoveryProbe.count)).toBe(1);
-  await app.open(hub);
+  await browser.reload();
   await expect(screen.getByText("Préparation déjà enregistrée", { exact: true })).toBeVisible();
   const afterReload = await orderEvidence(browser, fixture);
   const after = await readEstimate(browser, fixture.versionId);

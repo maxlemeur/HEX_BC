@@ -105,7 +105,24 @@ armyTest("DOG01 stored dossier DPGF feeds structured import and uploaded plans r
   await expect(screen.getByRole("button", "Lancer l'import", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(screen.getByText(/DPGF du dossier.*exemple-dpgf\.xlsx/)).toBeVisible();
   const selectedDpgfScreenshot = await app.screenshot("DOG01-dpgf-selection");
-  await screen.getByRole("button", "Lancer l'import", { exact: true }).click();
+  let submitted = 0;
+  await browser.route(`**/api/affaires/${ids.projectId}/intake/files/${copy.documentId}`, async route => {
+    if (route.request.method === "POST") submitted += 1;
+    await route.fallback();
+  });
+  // Read current geometry after the async dossier selection: the SDK's cached
+  // observation pointed at the adjacent container. Keep a real native pointer.
+  const submitPoint = await browser.evaluate(() => {
+    const button = [...document.querySelectorAll("button")]
+      .find(element => element.textContent?.trim() === "Lancer l'import")!;
+    button.scrollIntoView({ block: "center", behavior: "instant" });
+    const rect = button.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  await browser.mouse.move(submitPoint.x, submitPoint.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect.poll(() => submitted).toBe(1);
   const nextMapping = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
   const editMapping = screen.getByRole("button", "Modifier le mapping", { exact: true });
   await expect.poll(async () => (await nextMapping.isVisible()) || (await editMapping.isVisible()), { timeout: 30_000 }).toBe(true);
@@ -264,6 +281,7 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   const copy = await seedStoredIntakeCopy(client, { tenantId: project.data!.tenant_id, projectId: ids.projectId, userId, file, bytes,
     classification: { classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 } });
   await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+  await ui.screen.getByRole("button", "Ouvrir les documents", { exact: true }).click();
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   const details = ui.screen.getByRole("dialog", "Document et détails", { exact: true });
   await details.getByRole("button", "Reclasser", { exact: true }).click();
@@ -286,7 +304,7 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   const refused = await ui.browser.evaluate(async ({ setId, fileId }) => (await fetch(`/api/takeoff/plan-sets/${setId}/files/${fileId}`, { method: "DELETE" })).status,
     { setId: set.id, fileId: plan.id });
   expect(refused).toBe(409);
-  await ui.screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Validés/).click();
+  await ui.screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", /^Validés/).click();
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   await ui.screen.getByRole("button", "Supprimer la copie", { exact: true }).click();
   await ui.screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
