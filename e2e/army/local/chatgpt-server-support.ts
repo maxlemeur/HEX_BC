@@ -79,19 +79,36 @@ export async function warmChatGptServer(origin: string, email: string) {
     if (login.error) throw new Error("ChatGPT readiness login failed.");
     const signal = AbortSignal.timeout(90_000);
     const absentPlanSet = "00000000-0000-4000-8000-000000000001";
-    const paths = ["/dashboard", "/dashboard/profile", "/auth/chatgpt/callback",
-      `/api/takeoff/plan-sets/${absentPlanSet}/files`, `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
-    // Compile the upload/finalization handlers too: Storage success precedes
-    // metadata reconciliation, whose cold compilation otherwise outlives UI assertions.
-    // All requests are GETs; absent IDs and the missing OAuth state exercise real refusals.
-    await Promise.all(paths.map(async pathname => {
+    const paths = ["/dashboard", "/dashboard/profile", "/dashboard/estimates/new",
+      `/dashboard/estimates/${absentPlanSet}/edit`, `/api/estimates/${absentPlanSet}`,
+      `/api/estimates/${absentPlanSet}/suggestion-learning`, `/dashboard/affaires/${absentPlanSet}/plans`,
+      "/auth/chatgpt/callback", `/api/takeoff/plan-sets/${absentPlanSet}/files`,
+      `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
+    // Cold editor/plan compilation must finish before the timed business journey.
+    // Compile sequentially so parallel realms do not compile every entry at once.
+    // GETs only: absent IDs and missing OAuth state preserve the real refusals.
+    for (const pathname of paths) {
       const response = await fetch(new URL(pathname, origin), { redirect: "manual", signal,
         headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
-      const expected = pathname.startsWith("/api/") ? [400, 403, 404, 405]
-        : pathname === "/auth/chatgpt/callback" ? [302, 303, 307] : [200];
+      const learning = pathname === `/api/estimates/${absentPlanSet}/suggestion-learning`;
+      const expected = learning ? [200, 404]
+        : pathname.startsWith(`/api/estimates/${absentPlanSet}`) ? [404]
+        : pathname.startsWith("/api/") ? [400, 403, 404, 405]
+        : pathname === "/auth/chatgpt/callback" ? [302, 303, 307]
+        // Next may start streaming before the missing project calls notFound().
+        : pathname === `/dashboard/affaires/${absentPlanSet}/plans` ? [200, 404] : [200];
       if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${pathname}: ${response.status}.`);
-      await response.text();
-    }));
+      if (learning && response.status === 200) {
+        // Disabled learning returns its empty state before checking the version.
+        const body = await response.json();
+        if (body?.ok !== true || body.data?.config?.enabled !== false ||
+            !Array.isArray(body.data?.proposals) || body.data.proposals.length !== 0) {
+          throw new Error("ChatGPT readiness expected disabled suggestion learning.");
+        }
+      } else {
+        await response.text();
+      }
+    }
   } finally {
     await client.auth.signOut({ scope: "local" });
   }

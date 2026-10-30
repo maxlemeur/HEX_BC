@@ -101,7 +101,7 @@ afterAll(async () => {
   if (localOrigin && transportLog) {
     // Keep only compilation/readiness and non-sensitive dashboard/login timings.
     const timings = diagnostics.join("").split("\n").filter(line =>
-      /(?:Compiling|Ready in|Local Next process exited|restarting|Restarting|FATAL ERROR|heap limit|allocation failed|(?:GET|POST) \/(?:dashboard|login)(?:[/? ]))/.test(line))
+      /(?:Compiling|Ready in|Local Next process exited|restarting|Restarting|FATAL ERROR|heap limit|allocation failed|worker.*exited|SIGKILL|ENOMEM|out of memory|(?:GET|POST) \/(?:dashboard|login)(?:[/? ]))/.test(line))
       .map(line => line.replace(/(\/(?:dashboard|login)[^?\s]*)\?[^\s]*/g, "$1?[redacted]"));
     await mkdir(path.dirname(transportLog), { recursive: true });
     await writeFile(path.join(path.dirname(transportLog), `chatgpt-local-server-${new URL(localOrigin).port}.log`), timings.join("\n"));
