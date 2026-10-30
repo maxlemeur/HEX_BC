@@ -38,6 +38,8 @@ type AuthenticatedUserLookup = {
 
 type ActiveTenantMembershipLookup = {
   membership: ActiveTenantMembership | null;
+  /** Name of the active tenant, read with the membership for the dashboard shell. */
+  tenantName: string | null;
   error: PostgrestError | null;
 };
 
@@ -68,16 +70,20 @@ export const readActiveTenantMembership = cache(async (
   const { data, error } = await supabase
     .from("tenant_memberships")
     .select(
-      "id, tenant_id, user_id, role, is_default, created_at, updated_at, tenants!inner(is_active)"
+      "id, tenant_id, user_id, role, is_default, created_at, updated_at, tenants!inner(is_active, name)"
     )
     .eq("user_id", userId)
     .eq("tenants.is_active", true)
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true })
     .limit(1);
+  const row = data?.[0] as unknown as
+    | (ActiveTenantMembership & { tenants?: { name?: string | null } | null })
+    | undefined;
 
   return {
-    membership: (data?.[0] as unknown as ActiveTenantMembership | undefined) ?? null,
+    membership: row ?? null,
+    tenantName: row?.tenants?.name?.trim() || null,
     error,
   };
 });

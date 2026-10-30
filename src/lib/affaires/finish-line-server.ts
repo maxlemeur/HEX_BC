@@ -2,7 +2,7 @@ import { cache } from "react";
 
 import { ESTIMATE_READINESS_CATEGORY_ORDER } from "@/lib/estimates/readiness";
 import { getEstimateSendGating } from "@/lib/estimates/server";
-import { getEstimatePurchaseOrderDraftPreparation } from "@/lib/estimates/purchase-order-drafts";
+import { getEstimatePurchaseOrderReadinessCounts } from "@/lib/estimates/purchase-order-drafts";
 import {
   buildPurchaseOrderReadiness,
   type PurchaseOrderReadiness,
@@ -89,7 +89,7 @@ export function buildAffaireSubmissionReadinessSnapshot(input: {
 }
 
 async function computeAffaireOrderReadiness(versionId: string) {
-  const { summary } = await getEstimatePurchaseOrderDraftPreparation(versionId);
+  const summary = await getEstimatePurchaseOrderReadinessCounts(versionId);
   return buildPurchaseOrderReadiness({
     totalSupplierLines: summary.total_supplier_lines,
     draftableLines: summary.draftable_lines,
