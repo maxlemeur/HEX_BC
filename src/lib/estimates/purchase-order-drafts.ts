@@ -323,6 +323,28 @@ function parseProjection<T>(schema: z.ZodType<T>, data: unknown): T {
 export async function getEstimatePurchaseOrderDraftPreparation(
   versionId: string
 ): Promise<EstimatePurchaseOrderDraftPreparation> {
+  return prepareEstimatePurchaseOrderDrafts(versionId, { compareUnselectedLines: true });
+}
+
+/**
+ * The four counts of the affaire hub. Only a line with a selected offer can be
+ * prepared, so the catalogue comparison of the other lines, one catalogue search
+ * per line title, changes their blocked reason but never these counts.
+ */
+export async function getEstimatePurchaseOrderReadinessCounts(versionId: string) {
+  const { summary } = await prepareEstimatePurchaseOrderDrafts(versionId, { compareUnselectedLines: false });
+  return {
+    total_supplier_lines: summary.total_supplier_lines,
+    draftable_lines: summary.draftable_lines,
+    transferred_lines: summary.transferred_lines,
+    blocked_lines: summary.blocked_lines,
+  };
+}
+
+async function prepareEstimatePurchaseOrderDrafts(
+  versionId: string,
+  options: { compareUnselectedLines: boolean }
+): Promise<EstimatePurchaseOrderDraftPreparation> {
   const { items } = await listEstimateItems(versionId);
   const context = await getDraftOrderContext();
   const scopedLines = items.filter(isSupplierScopedLine);
@@ -333,7 +355,9 @@ export async function getEstimatePurchaseOrderDraftPreparation(
   const transferred_lines = parseProjection(z.object({ lines: z.array(purchaseTransferSchema) }), transferData).lines;
   const transferredIds = new Set(transferred_lines.map((line) => line.item_id));
   const supplierLines = scopedLines.filter((item) => !transferredIds.has(item.id));
-  const supplierLineIds = supplierLines.map((item) => item.id);
+  const supplierLineIds = supplierLines
+    .filter((item) => options.compareUnselectedLines || item.selected_supplier_price_id !== null)
+    .map((item) => item.id);
   const { stale_price_days, comparisons } =
     supplierLineIds.length > 0
       ? await loadSupplierComparisonMap(versionId, supplierLineIds)

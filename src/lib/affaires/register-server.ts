@@ -1786,7 +1786,7 @@ export async function fetchAffaireRegisterScopeOptions(input: {
     .eq("version_id", versionId)
     .in("item_type", ["section", "line"])
     .order("position", { ascending: true })
-    .order("id", { ascending: true }));
+    .order("id", { ascending: true }), { concurrency: 4 });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les scopes du registre.");

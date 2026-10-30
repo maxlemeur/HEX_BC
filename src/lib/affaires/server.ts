@@ -2365,7 +2365,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     .from("estimate_items")
     .select(MARGIN_ANALYSIS_ITEM_COLUMNS, { count: "exact" })
     .eq("tenant_id", context.tenantId)
-    .eq("version_id", currentVersion.id));
+    .eq("version_id", currentVersion.id), { concurrency: 4 });
 
   if (itemsError) {
     throw mapSupabaseError(itemsError, "Impossible de charger les lignes pour l'analyse de marge.");

@@ -82,7 +82,7 @@ describe("authenticated tenant context", () => {
 
     expect(result.membership?.tenant_id).toBe(TENANT_ID);
     expect(select).toHaveBeenCalledWith(
-      expect.stringContaining("tenants!inner(is_active)")
+      expect.stringContaining("tenants!inner(is_active, name)")
     );
     expect(membershipBuilder.eq).toHaveBeenNthCalledWith(1, "user_id", USER_ID);
     expect(membershipBuilder.eq).toHaveBeenNthCalledWith(

@@ -10,7 +10,10 @@ vi.mock("@/lib/auth/tenant-context", () => ({
 }));
 
 import { readActiveTenantMembership, readAuthenticatedUser } from "@/lib/auth/tenant-context";
-import { getEstimatePurchaseOrderDraftPreparation } from "@/lib/estimates/purchase-order-drafts";
+import {
+  getEstimatePurchaseOrderDraftPreparation,
+  getEstimatePurchaseOrderReadinessCounts,
+} from "@/lib/estimates/purchase-order-drafts";
 import { getEstimateSupplierComparisons, listEstimateItems } from "@/lib/estimates/server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -19,6 +22,7 @@ const USER_ID = "33333333-3333-4333-8333-333333333333";
 const SUPPLIER_ID = "44444444-4444-4444-8444-444444444444";
 const SECOND_SUPPLIER_ID = "66666666-6666-4666-8666-666666666666";
 const LINE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const UNSELECTED_LINE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 function thenable<T>(result: () => T) {
   const builder = {
@@ -169,6 +173,28 @@ describe("purchase preparation coherent review", () => {
     expect(result.blocked_lines).toEqual([expect.objectContaining({
       item_id: LINE_ID, reason: "supplier_offer_ineligible", reason_detail: message,
     })]);
+  });
+
+  it("counts the hub readiness without comparing the lines that have no selected offer", async () => {
+    const snapshot = coveredSnapshot();
+    const unselected = { ...snapshot.line, id: UNSELECTED_LINE_ID, title: "Ligne sans offre", selected_supplier_price_id: null };
+    vi.mocked(listEstimateItems).mockResolvedValue({ items: [snapshot.line, unselected] } as never);
+    installDatabase(snapshot);
+
+    const preparation = await getEstimatePurchaseOrderDraftPreparation(VERSION_ID);
+    expect(getEstimateSupplierComparisons).toHaveBeenCalledWith(VERSION_ID, [LINE_ID, UNSELECTED_LINE_ID]);
+    vi.mocked(getEstimateSupplierComparisons).mockClear();
+
+    const counts = await getEstimatePurchaseOrderReadinessCounts(VERSION_ID);
+    expect(getEstimateSupplierComparisons).toHaveBeenCalledTimes(1);
+    expect(getEstimateSupplierComparisons).toHaveBeenCalledWith(VERSION_ID, [LINE_ID]);
+    expect(counts).toEqual({ total_supplier_lines: 2, draftable_lines: 1, transferred_lines: 0, blocked_lines: 1 });
+    expect(counts).toEqual({
+      total_supplier_lines: preparation.summary.total_supplier_lines,
+      draftable_lines: preparation.summary.draftable_lines,
+      transferred_lines: preparation.summary.transferred_lines,
+      blocked_lines: preparation.summary.blocked_lines,
+    });
   });
 
   it("fails closed when current offer conditions cannot be read", async () => {
