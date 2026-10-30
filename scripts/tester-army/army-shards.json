@@ -39,6 +39,7 @@
     "e2e/army/critical/dashboard-ux.e2e.ts": 36,
     "e2e/army/critical/deslop-components.e2e.ts": 9,
     "e2e/army/critical/dpgf-import.e2e.ts": 23,
+    "e2e/army/critical/editor-idle-requests.e2e.ts": 15,
     "e2e/army/critical/estimate-integrity.e2e.ts": 100,
     "e2e/army/critical/hub-launch-metre.e2e.ts": 12,
     "e2e/army/critical/hub-plans-card.e2e.ts": 14,

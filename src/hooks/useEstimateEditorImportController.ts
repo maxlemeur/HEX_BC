@@ -273,6 +273,12 @@ export function useEstimateEditorImportController({
     generation: 0,
   });
 
+  // Read the loader through a ref, never as an effect dependency: the production
+  // minifier inlines the default loader into the parameter default, a new function
+  // on every render. The source effect then ran again after each of its responses,
+  // a request loop for as long as the editor stayed open.
+  const loadLinkedDpgfSourceRef = useRef(loadLinkedDpgfSource);
+
   const cancelLinkedSourceRequest = useCallback(() => {
     cancelSourceRequest(sourceRequestRef);
   }, []);
@@ -280,7 +286,8 @@ export function useEstimateEditorImportController({
   useLayoutEffect(() => {
     activeVersionIdRef.current = activeVersionId;
     activeProjectIdRef.current = activeProjectId;
-  }, [activeProjectId, activeVersionId]);
+    loadLinkedDpgfSourceRef.current = loadLinkedDpgfSource;
+  }, [activeProjectId, activeVersionId, loadLinkedDpgfSource]);
 
   useLayoutEffect(() => {
     controllerScopeRef.current = controllerScope;
@@ -363,7 +370,7 @@ export function useEstimateEditorImportController({
     });
 
     try {
-      const source = await loadLinkedDpgfSource(
+      const source = await loadLinkedDpgfSourceRef.current(
         activeProjectId,
         controller.signal
       );
@@ -395,7 +402,6 @@ export function useEstimateEditorImportController({
     activeVersionId,
     linkedDpgfSource,
     linkedSourceScopeKey,
-    loadLinkedDpgfSource,
     isControllerScopeCurrent,
     routeVersionId,
   ]);
@@ -432,7 +438,7 @@ export function useEstimateEditorImportController({
 
     async function loadSource() {
       try {
-        const source = await loadLinkedDpgfSource(
+        const source = await loadLinkedDpgfSourceRef.current(
           targetProjectId,
           controller.signal
         );
@@ -477,7 +483,6 @@ export function useEstimateEditorImportController({
     activeVersionId,
     cancelLinkedSourceRequest,
     linkedSourceScopeKey,
-    loadLinkedDpgfSource,
     isControllerScopeCurrent,
     routeVersionId,
   ]);
