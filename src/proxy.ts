@@ -62,7 +62,14 @@ export async function proxy(request: NextRequest) {
     return applySessionResponse(response, redirectResponse);
   }
 
-  if (user && (pathname === "/login" || pathname === "/signup")) {
+  // A valid signature does not prove the account or session still exists. The
+  // dashboard checks with Auth and sends such a session back here, so leaving the
+  // login page needs the same answer, or the two redirects would loop.
+  if (
+    user &&
+    (pathname === "/login" || pathname === "/signup") &&
+    (await supabase.auth.getUser()).data.user
+  ) {
     const redirectResponse = NextResponse.redirect(
       new URL("/dashboard", request.url)
     );

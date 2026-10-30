@@ -8,6 +8,18 @@ function session(expiresAt: number) {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   return { access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: user.id, exp: expiresAt })}.c3ludGhldGlj`, refresh_token: "synthetic-refresh", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user };
 }
+let signingKeyCount = 0;
+async function asymmetricSession() {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  // A new key id per session: the SDK caches the signing keys across clients.
+  const jwk = { ...(await crypto.subtle.exportKey("jwk", keys.publicKey)), kid: `review-key-${++signingKeyCount}`, alg: "ES256", use: "sig" };
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+  const signed = `${encode({ alg: "ES256", typ: "JWT", kid: jwk.kid })}.${encode({ sub: user.id, role: "authenticated", exp: expiresAt })}`;
+  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(signed));
+  const stored = { ...session(expiresAt), access_token: `${signed}.${Buffer.from(signature).toString("base64url")}` };
+  return { jwk, cookie: `sb-auth-review-auth-token=base64-${Buffer.from(JSON.stringify(stored)).toString("base64url")}` };
+}
 function request(path: string) {
   const value = Buffer.from(JSON.stringify(session(Math.floor(Date.now() / 1000) - 300))).toString("base64url");
   return new NextRequest(`https://app.example.invalid${path}`, { headers: { cookie: `sb-auth-review-auth-token=base64-${value}` } });
@@ -44,30 +56,44 @@ describe("session refresh response security with the installed SSR SDK", () => {
     expect(response.status).toBe(path === "/login" || path === "/signup" ? 307 : 200);
   });
 
-  it("verifies an asymmetric session with the cached signing keys, without one Auth call per request", async () => {
-    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-    const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-    const jwk = { ...(await crypto.subtle.exportKey("jwk", keys.publicKey)), kid: "review-key", alg: "ES256", use: "sig" };
-    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-    const signed = `${encode({ alg: "ES256", typ: "JWT", kid: jwk.kid })}.${encode({ sub: user.id, role: "authenticated", exp: expiresAt })}`;
-    const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(signed));
-    const stored = { ...session(expiresAt), access_token: `${signed}.${Buffer.from(signature).toString("base64url")}` };
-    const cookie = `sb-auth-review-auth-token=base64-${Buffer.from(JSON.stringify(stored)).toString("base64url")}`;
+  it("verifies an asymmetric session with the cached signing keys, asking Auth only before leaving the login page", async () => {
+    const { cookie, jwk } = await asymmetricSession();
     const authCalls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
       const url = new URL(input);
       authCalls.push(url.pathname);
       if (url.pathname === "/auth/v1/.well-known/jwks.json") return Response.json({ keys: [jwk] });
+      if (url.pathname === "/auth/v1/user") return Response.json(user);
       throw new Error("Unexpected Auth endpoint");
     }));
 
     const dashboard = await proxy(new NextRequest("https://app.example.invalid/dashboard/affaires", { headers: { cookie } }));
-    const login = await proxy(new NextRequest("https://app.example.invalid/login", { headers: { cookie } }));
-
+    const prefetch = await proxy(new NextRequest("https://app.example.invalid/dashboard/estimates?_rsc=1", { headers: { cookie } }));
     expect(dashboard.status).toBe(200);
+    expect(prefetch.status).toBe(200);
+    expect(authCalls).toEqual(["/auth/v1/.well-known/jwks.json"]);
+
+    const login = await proxy(new NextRequest("https://app.example.invalid/login", { headers: { cookie } }));
     expect(login.status).toBe(307);
     expect(login.headers.get("location")).toBe("https://app.example.invalid/dashboard");
-    expect(authCalls).toEqual(["/auth/v1/.well-known/jwks.json"]);
+    expect(authCalls).toEqual(["/auth/v1/.well-known/jwks.json", "/auth/v1/user"]);
+  });
+
+  it("keeps the login page open for a deleted account whose token is still validly signed", async () => {
+    const { cookie, jwk } = await asymmetricSession();
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      const url = new URL(input);
+      if (url.pathname === "/auth/v1/.well-known/jwks.json") return Response.json({ keys: [jwk] });
+      if (url.pathname === "/auth/v1/user") {
+        return Response.json({ code: "user_not_found", msg: "User from sub claim in JWT does not exist" }, { status: 403 });
+      }
+      throw new Error("Unexpected Auth endpoint");
+    }));
+
+    // The dashboard's own getUser check sends this account to /login: a redirect back would loop.
+    const login = await proxy(new NextRequest("https://app.example.invalid/login", { headers: { cookie } }));
+    expect(login.status).toBe(200);
+    expect(login.headers.get("location")).toBeNull();
   });
 
   it("clears a rejected session and preserves protection on the login redirect", async () => {
