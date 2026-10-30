@@ -88,8 +88,8 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
       `/dashboard/affaires/${absentPlanSet}/takeoff`,
       "/auth/chatgpt/callback", `/api/takeoff/plan-sets/${absentPlanSet}/files`,
       `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
-    // Compile only this journey's entries, at most two at once. This avoids both
-    // an unbounded compilation burst and serial cold builds exceeding readiness.
+    // Submit this journey's entries together: Next coalesces pending entries
+    // and serializes its Webpack compiler. Barriers create extra cold builds.
     // GETs only: absent IDs and missing OAuth state preserve the real refusals.
     const warm = async (pathname: string) => {
       const routeStarted = Date.now();
@@ -121,8 +121,9 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
         requests.push({ path: pathname, status, elapsedMs: Date.now() - routeStarted });
       }
     };
-    for (let index = 0; index < paths.length; index += 2) {
-      await Promise.all(paths.slice(index, index + 2).map(warm));
+    const results = await Promise.allSettled(paths.map(warm));
+    for (const result of results) {
+      if (result.status === "rejected") throw result.reason;
     }
   } finally {
     try {
