@@ -28,14 +28,23 @@ export function normalizeEstimateCurrency(
   return isSupportedEstimateCurrency(value) ? normalizeCurrencyInput(value) as SupportedEstimateCurrency : null;
 }
 
+// One formatter per currency: building an Intl.NumberFormat costs far more than formatting with it,
+// and the editor formats every line amount on each render.
+const currencyFormatters = new Map<SupportedEstimateCurrency, Intl.NumberFormat>();
+
 export function formatCurrency(
   cents: number,
   currency: SupportedEstimateCurrency
 ) {
-  return new Intl.NumberFormat(CURRENCY_LOCALE_BY_CODE[currency], {
-    style: "currency",
-    currency,
-  }).format(cents / 100);
+  let formatter = currencyFormatters.get(currency);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(CURRENCY_LOCALE_BY_CODE[currency], {
+      style: "currency",
+      currency,
+    });
+    currencyFormatters.set(currency, formatter);
+  }
+  return formatter.format(cents / 100);
 }
 
 function stripCurrencyMarkers(

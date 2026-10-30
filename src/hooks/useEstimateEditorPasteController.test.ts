@@ -657,4 +657,35 @@ describe("document-owned paste receipts", () => {
     expect(document.getSnapshot().items).toMatchObject(data.items);
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
+
+  it("keeps its actions across renders whose inputs did not change", () => {
+    // The editor table props are built from these actions: new ones on every render redraw every row.
+    const version = createVersion();
+    const input: Parameters<typeof useEstimateEditorPasteController>[0] = {
+      settings: { margin_multiplier: 1.2, tax_rate_bp: 2000 },
+      isLaborSplitEnabled: false,
+      isMutationBlocked: false,
+      mutationBlockedMessage: "Mutation interdite.",
+      supplyTypeIdByLowerName: new Map([["acier", "supply-steel"]]),
+      getItemsSnapshot: () => [],
+      getVersionSnapshot: () => version,
+      setItems: vi.fn(),
+      setTotalsOutOfSync: vi.fn(),
+      reportError: vi.fn(),
+      resolveErrorMessage: (message) => `public:${message}`,
+      applyVersionToken: vi.fn(),
+      ensureGroupedActionCanProceed: vi.fn().mockResolvedValue(true),
+      handleVersionConflict: vi.fn().mockReturnValue(false),
+      triggerVersionReload: vi.fn(),
+      pushHistoryCommand: vi.fn(),
+      recreateItemsFromSnapshots: vi.fn(),
+      reloadItems: vi.fn().mockResolvedValue(undefined),
+    };
+    const { result, rerender } = renderHook(() => useEstimateEditorPasteController(input));
+    const firstActions = result.current.actions;
+
+    rerender();
+
+    expect(result.current.actions).toBe(firstActions);
+  });
 });

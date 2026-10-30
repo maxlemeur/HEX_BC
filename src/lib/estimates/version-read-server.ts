@@ -17,12 +17,14 @@ import {
   assertEstimateVersionUnchanged,
   readAllEstimateItems,
 } from "@/lib/estimates/read-all-items-server";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database, Json } from "@/types/database";
 import { mapSupabaseError, notFound } from "./errors";
 import {
   enrichEstimateItemsWithGeneratedOuvrageProvenance,
+  readGeneratedOuvrageApplicationsForVersion,
 } from "./generated-ouvrage-provenance";
-import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
+import { enrichEstimateItemsWithAiStructureProvenance, readAiStructureApplicationsForVersion } from "./structure-drafts";
 import {
   enrichEstimateItemsWithVersionZeroProvenance,
   fetchVersionZeroDraftSummary,
@@ -267,11 +269,17 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
   });
 }
 
+type VersionApplicationReads = {
+  aiStructure: ReturnType<typeof readAiStructureApplicationsForVersion>;
+  generatedOuvrage: ReturnType<typeof readGeneratedOuvrageApplicationsForVersion>;
+};
+
 async function enrichEstimateItemsWithSourceMetadata(input: {
   supabase: Supabase;
   tenantId: string;
   targetVersionId: string;
   items: EstimateItemRow[];
+  versionApplications?: VersionApplicationReads;
 }): Promise<EstimateItemWithTruthRow[]> {
   const withTakeoff = await enrichEstimateItemsWithTakeoffProvenance(input);
   const withAiStructure = await enrichEstimateItemsWithAiStructureProvenance({
@@ -279,12 +287,14 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
     tenantId: input.tenantId,
     versionId: input.targetVersionId,
     items: withTakeoff,
+    versionApplications: input.versionApplications?.aiStructure,
   });
   const withGeneratedOuvrage = await enrichEstimateItemsWithGeneratedOuvrageProvenance({
     supabase: input.supabase,
     tenantId: input.tenantId,
     versionId: input.targetVersionId,
     items: withAiStructure,
+    versionApplications: input.versionApplications?.generatedOuvrage,
   });
   const withVersionZero = await enrichEstimateItemsWithVersionZeroProvenance({
     supabase: input.supabase,
@@ -377,6 +387,13 @@ export async function getEstimateVersionDetails(
         .order("threshold_cents", { ascending: true })
         .order("position", { ascending: true });
 
+  // The provenance applications are keyed by the version alone: read them with the items instead
+  // of after them. Applied to the items as before, so the result is unchanged.
+  const versionApplications = options?.includeItems === false ? undefined : {
+    aiStructure: startConcurrentRead(readAiStructureApplicationsForVersion({ supabase, tenantId, versionId })),
+    generatedOuvrage: startConcurrentRead(readGeneratedOuvrageApplicationsForVersion({ supabase, tenantId, versionId })),
+  };
+
   const [
     rawItems,
     categoriesResult,
@@ -441,6 +458,7 @@ export async function getEstimateVersionDetails(
     tenantId,
     targetVersionId: versionId,
     items: rawItems,
+    versionApplications,
   });
 
   const selectedSuppliers = options?.includeExportCalculationContext

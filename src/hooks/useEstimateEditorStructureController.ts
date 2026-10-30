@@ -92,9 +92,14 @@ export function useEstimateEditorStructureController({
   convertV3Items,
   clearHistory,
 }: EstimateEditorStructureControllerInput) {
+  // Stable, so the structure actions (and the editor table props built from them) survive unrelated renders.
+  const applyItemsVersionToken = useCallback(
+    (updatedAt: string, _totals?: unknown, contentRevision?: number) => applyVersionToken(updatedAt, contentRevision),
+    [applyVersionToken]
+  );
   const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt, releaseItemsOperation } = useEstimateEditorItemsOperation({
     document, getItemsSnapshot, setItems,
-    applyVersionToken: (updatedAt, _totals, contentRevision) => applyVersionToken(updatedAt, contentRevision),
+    applyVersionToken: applyItemsVersionToken,
   });
   const documentGeneration = document?.getSnapshot().generation;
   const documentGenerationRef = useRef(documentGeneration);

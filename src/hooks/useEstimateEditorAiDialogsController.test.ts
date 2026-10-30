@@ -199,4 +199,16 @@ describe("useEstimateEditorAiDialogsController scope resets", () => {
       harness.dependencies.invalidateAfterMutation
     ).not.toHaveBeenCalled();
   });
+
+  it("keeps the highlighted ids of a new scope across renders", () => {
+    // The editor table receives these ids: a new set on every render redraws every row.
+    const harness = renderController(defaultProps());
+    const nextScope = defaultProps({ tenantId: "tenant-2" });
+    harness.rerender(nextScope);
+    const firstIds = harness.result.current.state.highlightedItemIds;
+
+    harness.rerender({ ...nextScope });
+
+    expect(harness.result.current.state.highlightedItemIds).toBe(firstIds);
+  });
 });

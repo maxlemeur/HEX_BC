@@ -1,3 +1,5 @@
+import { preload } from "react-dom";
+
 import { EstimateEditorPage } from "@/components/estimates/editor/EstimateEditorPage";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import type { SettingsSection } from "@/components/estimates/EstimateSettingsSummaryBar";
@@ -30,6 +32,8 @@ async function readEngineUnavailableVersion(versionId: string) {
     return null;
   }
 }
+
+const VERSION_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export default async function EditEstimateRoutePage({
   params,
@@ -75,6 +79,13 @@ export default async function EditEstimateRoutePage({
     requestedSettingsSection === "general"
       ? requestedSettingsSection
       : null;
+
+  // La première lecture de l'éditeur part avec la page plutôt qu'après le chargement de ses scripts :
+  // sa propre requête vers cette URL (même identifiant en minuscules) reçoit alors cette réponse.
+  // Demandée avant la lecture du moteur, elle n'attend pas celle-ci.
+  if (VERSION_ID_PATTERN.test(versionId)) {
+    preload(`/api/estimates/${versionId.toLowerCase()}`, { as: "fetch", crossOrigin: "anonymous" });
+  }
 
   const engineUnavailableVersion = await readEngineUnavailableVersion(versionId);
   if (engineUnavailableVersion) {

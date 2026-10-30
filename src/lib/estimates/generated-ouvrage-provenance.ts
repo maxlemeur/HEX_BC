@@ -147,11 +147,26 @@ function normalizeRiskSignals(value: unknown): GeneratedOuvrageRiskSignal[] {
     .slice(0, 8);
 }
 
+/** A version's generated-ouvrage applications. It needs only the version id, so the editor read starts it with the items. */
+export function readGeneratedOuvrageApplicationsForVersion(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}) {
+  return readAllRows(() => input.supabase
+    .from("estimate_generated_ouvrage_applications" as never)
+    .select("*, estimate_items!inner(version_id)" as never, { count: "exact" })
+    .eq("tenant_id", input.tenantId)
+    .eq("estimate_items.version_id", input.versionId));
+}
+
 export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
   supabase: Supabase;
   tenantId: string;
   versionId?: string;
   items: EstimateItemRow[];
+  /** `readGeneratedOuvrageApplicationsForVersion` already started for `versionId`. */
+  versionApplications?: ReturnType<typeof readGeneratedOuvrageApplicationsForVersion>;
 }) {
   const itemIds = input.items.map((item) => item.id);
 
@@ -160,11 +175,7 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
   }
 
   const { data: applicationData, error: applicationError } = input.versionId
-    ? await readAllRows(() => input.supabase
-      .from("estimate_generated_ouvrage_applications" as never)
-      .select("*, estimate_items!inner(version_id)" as never, { count: "exact" })
-      .eq("tenant_id", input.tenantId)
-      .eq("estimate_items.version_id", input.versionId!))
+    ? await (input.versionApplications ?? readGeneratedOuvrageApplicationsForVersion({ supabase: input.supabase, tenantId: input.tenantId, versionId: input.versionId }))
     : await selectInChunks(itemIds, (chunk) => input.supabase
       .from("estimate_generated_ouvrage_applications" as never)
       .select("*" as never)
