@@ -66,10 +66,12 @@ export async function prepareChatGptServerWorkspace() {
 }
 
 /** Compile the real protected pages and the callback's missing-state rejection before UI assertions. */
-export async function warmChatGptServer(origin: string, email: string) {
+export async function warmChatGptServer(origin: string, email: string, workflow: "profile" | "takeoff" = "takeoff") {
   const app = new URL(origin);
   if (app.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(app.hostname)) throw new Error("Local ChatGPT server required.");
   const cookies = new Map<string, string>();
+  const started = Date.now();
+  const requests: Array<{ path: string; status: number | null; elapsedMs: number }> = [];
   const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: { getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
       setAll: values => { for (const { name, value } of values) cookies.set(name, value); } },
@@ -79,39 +81,58 @@ export async function warmChatGptServer(origin: string, email: string) {
     if (login.error) throw new Error("ChatGPT readiness login failed.");
     const signal = AbortSignal.timeout(90_000);
     const absentPlanSet = "00000000-0000-4000-8000-000000000001";
-    const paths = ["/dashboard", "/dashboard/profile", "/dashboard/estimates/new",
+    const paths = workflow === "profile" ? ["/dashboard", "/dashboard/profile", "/auth/chatgpt/callback"] : [
+      "/dashboard", "/dashboard/profile", "/dashboard/estimates/new",
       `/dashboard/estimates/${absentPlanSet}/edit`, `/api/estimates/${absentPlanSet}`,
       `/api/estimates/${absentPlanSet}/suggestion-learning`, `/dashboard/affaires/${absentPlanSet}/plans`,
       `/dashboard/affaires/${absentPlanSet}/takeoff`,
       "/auth/chatgpt/callback", `/api/takeoff/plan-sets/${absentPlanSet}/files`,
       `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
-    // Cold editor/plan compilation must finish before the timed business journey.
-    // Compile sequentially so parallel realms do not compile every entry at once.
+    // Compile only this journey's entries, at most two at once. This avoids both
+    // an unbounded compilation burst and serial cold builds exceeding readiness.
     // GETs only: absent IDs and missing OAuth state preserve the real refusals.
-    for (const pathname of paths) {
-      const response = await fetch(new URL(pathname, origin), { redirect: "manual", signal,
-        headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
-      const learning = pathname === `/api/estimates/${absentPlanSet}/suggestion-learning`;
-      const expected = learning ? [200, 404]
-        : pathname.startsWith(`/api/estimates/${absentPlanSet}`) ? [404]
-        : pathname.startsWith("/api/") ? [400, 403, 404, 405]
-        : pathname === "/auth/chatgpt/callback" ? [302, 303, 307]
-        // Next may start streaming before the missing project calls notFound().
-        : ["plans", "takeoff"].some(page => pathname === `/dashboard/affaires/${absentPlanSet}/${page}`)
-          ? [200, 404] : [200];
-      if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${pathname}: ${response.status}.`);
-      if (learning && response.status === 200) {
-        // Disabled learning returns its empty state before checking the version.
-        const body = await response.json();
-        if (body?.ok !== true || body.data?.config?.enabled !== false ||
-            !Array.isArray(body.data?.proposals) || body.data.proposals.length !== 0) {
-          throw new Error("ChatGPT readiness expected disabled suggestion learning.");
+    const warm = async (pathname: string) => {
+      const routeStarted = Date.now();
+      let status: number | null = null;
+      try {
+        const response = await fetch(new URL(pathname, origin), { redirect: "manual", signal,
+          headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
+        status = response.status;
+        const learning = pathname === `/api/estimates/${absentPlanSet}/suggestion-learning`;
+        const expected = learning ? [200, 404]
+          : pathname.startsWith(`/api/estimates/${absentPlanSet}`) ? [404]
+          : pathname.startsWith("/api/") ? [400, 403, 404, 405]
+          : pathname === "/auth/chatgpt/callback" ? [302, 303, 307]
+          // Next may start streaming before the missing project calls notFound().
+          : ["plans", "takeoff"].some(page => pathname === `/dashboard/affaires/${absentPlanSet}/${page}`)
+            ? [200, 404] : [200];
+        if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${pathname}: ${response.status}.`);
+        if (learning && response.status === 200) {
+          // Disabled learning returns its empty state before checking the version.
+          const body = await response.json();
+          if (body?.ok !== true || body.data?.config?.enabled !== false ||
+              !Array.isArray(body.data?.proposals) || body.data.proposals.length !== 0) {
+            throw new Error("ChatGPT readiness expected disabled suggestion learning.");
+          }
+        } else {
+          await response.text();
         }
-      } else {
-        await response.text();
+      } finally {
+        requests.push({ path: pathname, status, elapsedMs: Date.now() - routeStarted });
       }
+    };
+    for (let index = 0; index < paths.length; index += 2) {
+      await Promise.all(paths.slice(index, index + 2).map(warm));
     }
   } finally {
-    await client.auth.signOut({ scope: "local" });
+    try {
+      const artifacts = path.resolve(".e2e/army/critical/artifacts");
+      await mkdir(artifacts, { recursive: true });
+      // Only constant refusal paths, response statuses and timings; no cookies or bodies.
+      await writeFile(path.join(artifacts, `chatgpt-readiness-${app.port}.json`),
+        JSON.stringify({ workflow, elapsedMs: Date.now() - started, requests }));
+    } finally {
+      await client.auth.signOut({ scope: "local" });
+    }
   }
 }

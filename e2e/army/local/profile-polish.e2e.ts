@@ -79,7 +79,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       return fetch(`${origin}/login`).then(response => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
-    await warmChatGptServer(origin, email);
+    await warmChatGptServer(origin, email, "profile");
     // This journey uses its own loopback origin and the SDK's plain test fixture,
     // not armyTest. Confine browser traffic before loading the login page.
     await browser.route("**/*", async route => {
