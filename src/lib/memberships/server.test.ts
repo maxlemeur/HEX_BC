@@ -186,7 +186,7 @@ class MembershipQuery {
     }
 
     if (
-      this.selectedColumns.includes("tenants!inner(is_active)") &&
+      /tenants!inner\([^)]*\bis_active\b/.test(this.selectedColumns) &&
       this.hasFilter("tenants.is_active", true) &&
       !this.scenario.tenantActive
     ) {
