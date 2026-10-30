@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture")
 vi.mock("@/lib/estimates/server", () => ({
   getEstimateSendGating: vi.fn(),
   getEstimateSupplierComparisons: vi.fn(),
-  listEstimateItems: vi.fn(),
+  listEstimateItemRows: vi.fn(),
   listEstimateProjectVersions: vi.fn(),
 }));
 
@@ -40,7 +40,7 @@ import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server"
 import {
   getEstimateSendGating,
   getEstimateSupplierComparisons,
-  listEstimateItems,
+  listEstimateItemRows,
 } from "@/lib/estimates/server";
 import {
   buildAffaireHubReadinessSnapshot,
@@ -119,7 +119,7 @@ beforeEach(() => {
       checkedAt: "2026-03-14T10:00:00.000Z",
     },
   } as never);
-  vi.mocked(listEstimateItems).mockResolvedValue({
+  vi.mocked(listEstimateItemRows).mockResolvedValue({
     items: [],
   } as never);
   vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({

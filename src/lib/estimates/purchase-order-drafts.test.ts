@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/server", () => ({
-  listEstimateItems: vi.fn(),
+  listEstimateItemRows: vi.fn(),
   getEstimateSupplierComparisons: vi.fn(),
 }));
 vi.mock("@/lib/auth/tenant-context", () => ({
@@ -14,7 +14,7 @@ import {
   getEstimatePurchaseOrderDraftPreparation,
   getEstimatePurchaseOrderReadinessCounts,
 } from "@/lib/estimates/purchase-order-drafts";
-import { getEstimateSupplierComparisons, listEstimateItems } from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons, listEstimateItemRows } from "@/lib/estimates/server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -50,7 +50,7 @@ function coveredSnapshot() {
     unit: "u", min_quantity: 1, currency: "EUR", is_active: true,
     valid_from: "2000-01-01", valid_to: "2099-12-31", unit_price_cents: 1800,
   };
-  vi.mocked(listEstimateItems).mockResolvedValue({ items: [line] } as never);
+  vi.mocked(listEstimateItemRows).mockResolvedValue({ items: [line] } as never);
   vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
     stale_price_days: 90,
     comparisons: [{ item_id: LINE_ID, coverage_status: "covered", risk_flags: [],
@@ -178,7 +178,7 @@ describe("purchase preparation coherent review", () => {
   it("counts the hub readiness without comparing the lines that have no selected offer", async () => {
     const snapshot = coveredSnapshot();
     const unselected = { ...snapshot.line, id: UNSELECTED_LINE_ID, title: "Ligne sans offre", selected_supplier_price_id: null };
-    vi.mocked(listEstimateItems).mockResolvedValue({ items: [snapshot.line, unselected] } as never);
+    vi.mocked(listEstimateItemRows).mockResolvedValue({ items: [snapshot.line, unselected] } as never);
     installDatabase(snapshot);
 
     const preparation = await getEstimatePurchaseOrderDraftPreparation(VERSION_ID);

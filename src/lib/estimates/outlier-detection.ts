@@ -110,24 +110,25 @@ function normalizeConfig(
   };
 }
 
-function isOutlierByIqr(value: number, values: number[], factor: number) {
-  if (values.length < 4) return false;
+// Bounds are computed once per sample: a group of n lines costs one sort, not n.
+function buildIqrOutlierTest(values: number[], factor: number) {
+  if (values.length < 4) return () => false;
 
   const sorted = [...values].sort((left, right) => left - right);
   const q1 = quantile(sorted, 0.25);
   const q3 = quantile(sorted, 0.75);
 
-  if (q1 === null || q3 === null) return false;
+  if (q1 === null || q3 === null) return () => false;
 
   const iqr = q3 - q1;
   const lowerBound = q1 - factor * iqr;
   const upperBound = q3 + factor * iqr;
 
-  return value < lowerBound || value > upperBound;
+  return (value: number) => value < lowerBound || value > upperBound;
 }
 
-function isOutlierByZScore(value: number, values: number[], threshold: number) {
-  if (values.length < 3) return false;
+function buildZScoreOutlierTest(values: number[], threshold: number) {
+  if (values.length < 3) return () => false;
 
   const mean = values.reduce((sum, current) => sum + current, 0) / values.length;
   const variance =
@@ -136,13 +137,18 @@ function isOutlierByZScore(value: number, values: number[], threshold: number) {
       return sum + delta * delta;
     }, 0) / values.length;
 
-  if (variance <= 0) return false;
+  if (variance <= 0) return () => false;
 
   const stdDeviation = Math.sqrt(variance);
-  if (!Number.isFinite(stdDeviation) || stdDeviation === 0) return false;
+  if (!Number.isFinite(stdDeviation) || stdDeviation === 0) return () => false;
 
-  const zScore = Math.abs((value - mean) / stdDeviation);
-  return zScore > threshold;
+  return (value: number) => Math.abs((value - mean) / stdDeviation) > threshold;
+}
+
+function buildOutlierTest(values: number[], config: EstimateOutlierDetectionConfig) {
+  return config.method === "iqr"
+    ? buildIqrOutlierTest(values, config.threshold)
+    : buildZScoreOutlierTest(values, config.threshold);
 }
 
 function buildLineGroups(
@@ -222,26 +228,22 @@ export function detectEstimateOutliers(input: {
         } => entry.value !== null
       );
 
-    const priceSample = unitPriceValues.map((entry) => entry.value);
-    const quantitySample = quantityValues.map((entry) => entry.value);
+    const isPriceOutlier = buildOutlierTest(
+      unitPriceValues.map((entry) => entry.value),
+      config
+    );
+    const isQuantityOutlier = buildOutlierTest(
+      quantityValues.map((entry) => entry.value),
+      config
+    );
 
     unitPriceValues.forEach((entry) => {
-      const isOutlier =
-        config.method === "iqr"
-          ? isOutlierByIqr(entry.value, priceSample, config.threshold)
-          : isOutlierByZScore(entry.value, priceSample, config.threshold);
-
-      if (!isOutlier) return;
+      if (!isPriceOutlier(entry.value)) return;
       appendFlag(flagsByItemId, entry.itemId, "price_outlier");
     });
 
     quantityValues.forEach((entry) => {
-      const isOutlier =
-        config.method === "iqr"
-          ? isOutlierByIqr(entry.value, quantitySample, config.threshold)
-          : isOutlierByZScore(entry.value, quantitySample, config.threshold);
-
-      if (!isOutlier) return;
+      if (!isQuantityOutlier(entry.value)) return;
       appendFlag(flagsByItemId, entry.itemId, "quantity_outlier");
     });
   });

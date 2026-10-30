@@ -26,6 +26,7 @@ import {
   toEstimateV3ApiError,
 } from "@/lib/estimates/v3-persistence";
 import { isFeatureEnabled } from "@/lib/feature-flags";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -199,13 +200,45 @@ async function resolveEstimateCalculationContext(input: {
 
   const laborRatesById = new Map<string, number>();
   const uniqueRoleIds = Array.from(laborRoleIds);
-  if (uniqueRoleIds.length > 0) {
-    const { data, error } = await readAllRowsInChunks(uniqueRoleIds, (pageIds) => input.supabase
+  // The three reads are independent: start them together, then check them in
+  // their former order so the first reported error does not change.
+  const laborRolesPromise = uniqueRoleIds.length > 0
+    ? startConcurrentRead(readAllRowsInChunks(uniqueRoleIds, (pageIds) => input.supabase
       .from("labor_roles")
       .select("id, tenant_id, user_id, hourly_rate_cents", { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("user_id", input.projectUserId)
-      .in("id", pageIds));
+      .in("id", pageIds)))
+    : null;
+  const marginTiersPromise = input.version.margin_mode !== "tiered"
+    ? null
+    : dependencies
+      ? startConcurrentRead(readAllRows(() => input.supabase
+        .from("margin_tiers")
+        .select("id, threshold_cents, multiplier, position", { count: "exact" })
+        .eq("tenant_id", input.tenantId)
+        .order("threshold_cents", { ascending: true })
+        .order("position", { ascending: true })
+        .order("id", { ascending: true })))
+      : startConcurrentRead(loadMarginTiersForTotals({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+      }));
+  const laborSplitPromise = dependencies
+    ? startConcurrentRead(input.supabase
+      .from("feature_flags")
+      .select("id, enabled")
+      .eq("tenant_id", input.tenantId)
+      .eq("flag_key", "EST_031_LABOR_SPLIT")
+      .maybeSingle())
+    : startConcurrentRead(isFeatureEnabled(
+      input.tenantId,
+      "EST_031_LABOR_SPLIT",
+      { supabase: input.supabase }
+    ));
+
+  if (laborRolesPromise) {
+    const { data, error } = await laborRolesPromise;
 
     if (error) {
       throw mapSupabaseError(
@@ -239,25 +272,16 @@ async function resolveEstimateCalculationContext(input: {
   }
 
   let loadedMarginTiers: ResolvedEstimateCalculationContext["marginTiers"] = [];
-  if (input.version.margin_mode === "tiered") {
-    if (dependencies) {
-      const { data, error } = await readAllRows(() => input.supabase
-        .from("margin_tiers")
-        .select("id, threshold_cents, multiplier, position", { count: "exact" })
-        .eq("tenant_id", input.tenantId)
-        .order("threshold_cents", { ascending: true })
-        .order("position", { ascending: true })
-        .order("id", { ascending: true }));
-      if (error) {
-        throw mapSupabaseError(error, "Impossible de charger les tranches de marge.");
-      }
-      dependencies.margin_tiers = data ?? [];
-      loadedMarginTiers = dependencies.margin_tiers;
+  if (marginTiersPromise) {
+    const tiers = await marginTiersPromise;
+    if (Array.isArray(tiers)) {
+      loadedMarginTiers = tiers;
     } else {
-      loadedMarginTiers = await loadMarginTiersForTotals({
-        supabase: input.supabase,
-        tenantId: input.tenantId,
-      });
+      if (tiers.error) {
+        throw mapSupabaseError(tiers.error, "Impossible de charger les tranches de marge.");
+      }
+      if (dependencies) dependencies.margin_tiers = tiers.data ?? [];
+      loadedMarginTiers = tiers.data ?? [];
     }
   }
   const marginTiers =
@@ -265,24 +289,15 @@ async function resolveEstimateCalculationContext(input: {
       ? getMarginTiers()
       : loadedMarginTiers;
   let isLaborSplitEnabled: boolean;
-  if (dependencies) {
-    const { data, error } = await input.supabase
-      .from("feature_flags")
-      .select("id, enabled")
-      .eq("tenant_id", input.tenantId)
-      .eq("flag_key", "EST_031_LABOR_SPLIT")
-      .maybeSingle();
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de charger le réglage de ventilation de main-d'œuvre.");
-    }
-    dependencies.labor_split_flag = data;
-    isLaborSplitEnabled = data?.enabled === true;
+  const laborSplit = await laborSplitPromise;
+  if (typeof laborSplit === "boolean") {
+    isLaborSplitEnabled = laborSplit;
   } else {
-    isLaborSplitEnabled = await isFeatureEnabled(
-      input.tenantId,
-      "EST_031_LABOR_SPLIT",
-      { supabase: input.supabase }
-    );
+    if (laborSplit.error) {
+      throw mapSupabaseError(laborSplit.error, "Impossible de charger le réglage de ventilation de main-d'œuvre.");
+    }
+    if (dependencies) dependencies.labor_split_flag = laborSplit.data;
+    isLaborSplitEnabled = laborSplit.data?.enabled === true;
   }
   return {
     laborRatesById,

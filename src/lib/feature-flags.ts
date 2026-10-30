@@ -10,6 +10,7 @@ import {
 } from "@/lib/estimate-editor-virtualization";
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -169,8 +170,6 @@ export async function listFeatureFlagsForTenant(
   const userId = parseUserIdOrThrow(input.userId);
   const supabase = await getSupabase(input.supabase);
 
-  await getTenantMembershipOrThrow(supabase, tenantId, userId);
-
   let query = supabase
     .from(FEATURE_FLAGS_TABLE)
     .select(featureFlagSelect)
@@ -180,7 +179,10 @@ export async function listFeatureFlagsForTenant(
     query = query.eq("enabled", true);
   }
 
-  const { data, error } = await query.order("flag_key", { ascending: true });
+  // Read the flags alongside the membership check; they are used only once access is confirmed.
+  const flagsPromise = startConcurrentRead(query.order("flag_key", { ascending: true }));
+  await getTenantMembershipOrThrow(supabase, tenantId, userId);
+  const { data, error } = await flagsPromise;
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les feature flags.");

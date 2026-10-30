@@ -1,5 +1,6 @@
 import "server-only";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
 import { mapSupabaseError, notFound } from "./errors";
 import {
@@ -236,12 +237,30 @@ export async function listEstimateProjectVersions(input: {
     max: MAX_VERSION_TIMELINE_PAGE_SIZE,
   });
 
-  const { data: projectData, error: projectError } = await supabase
+  // The project, the anchor and the total count are independent reads: start them together and
+  // check them in their former order, so access is still refused before any other result is used.
+  const projectPromise = startConcurrentRead(supabase
     .from("estimate_projects")
     .select("id, tenant_id, user_id")
     .eq("id", input.projectId)
     .eq("tenant_id", tenantId)
-    .single();
+    .single());
+  const anchorPromise = input.page === undefined && input.anchorVersionId
+    ? startConcurrentRead(supabase
+      .from("estimate_versions")
+      .select("version_number")
+      .eq("tenant_id", tenantId)
+      .eq("project_id", input.projectId)
+      .eq("id", input.anchorVersionId)
+      .maybeSingle())
+    : null;
+  const totalCountPromise = startConcurrentRead(supabase
+    .from("estimate_versions")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("project_id", input.projectId));
+
+  const { data: projectData, error: projectError } = await projectPromise;
 
   if (projectError || !projectData) {
     throw notFound("Projet de chiffrage introuvable.");
@@ -264,14 +283,8 @@ export async function listEstimateProjectVersions(input: {
     min: 1,
   });
 
-  if (input.page === undefined && input.anchorVersionId) {
-    const { data: anchorData, error: anchorError } = await supabase
-      .from("estimate_versions")
-      .select("version_number")
-      .eq("tenant_id", tenantId)
-      .eq("project_id", input.projectId)
-      .eq("id", input.anchorVersionId)
-      .maybeSingle();
+  if (anchorPromise) {
+    const { data: anchorData, error: anchorError } = await anchorPromise;
 
     if (anchorError) {
       throw mapSupabaseError(
@@ -299,11 +312,7 @@ export async function listEstimateProjectVersions(input: {
     }
   }
 
-  const { count: totalCountRaw, error: totalCountError } = await supabase
-    .from("estimate_versions")
-    .select("id", { count: "exact", head: true })
-    .eq("tenant_id", tenantId)
-    .eq("project_id", input.projectId);
+  const { count: totalCountRaw, error: totalCountError } = await totalCountPromise;
 
   if (totalCountError) {
     throw mapSupabaseError(

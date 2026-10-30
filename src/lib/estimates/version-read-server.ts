@@ -475,6 +475,26 @@ export async function getEstimateVersionDetails(
   return result;
 }
 
+/**
+ * The version's item rows without the source provenance (four more sequential reads), for a
+ * caller that never reads it: the purchase preparation and its hub counts.
+ */
+export async function listEstimateItemRows(versionId: string) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const items = await readAllEstimateItems({ supabase, tenantId, versionId });
+
+  await assertEstimateVersionUnchanged({
+    supabase,
+    version: { ...version, tenant_id: tenantId },
+  });
+
+  return {
+    items,
+  };
+}
+
 export async function listEstimateItems(versionId: string) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;

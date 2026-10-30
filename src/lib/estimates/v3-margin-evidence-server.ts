@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
@@ -48,6 +49,34 @@ export async function loadV3MarginEvidence(input: {
 }): Promise<V3MarginEvidence | null> {
   const engine = resolveEstimateEngineVersionForDisplay(input.authorizedVersion);
   if (engine === null || !usesSaleCoefficients(engine) || input.authorizedVersion.status !== "draft") return null;
+  const version = input.authorizedVersion;
+  return loadV3MarginEvidenceForRevision(input.supabase, input.tenantId, input.projectUserId,
+    version.id, version.project_id, version.status, version.updated_at, version.content_revision, version.total_ht_cents);
+}
+
+/**
+ * Le calcul vivant d'une révision (plusieurs centaines de ms sur un gros devis) se fait une fois par
+ * rendu : le résumé du hub, les signaux Direction et les règles d'approbation lisent la même révision.
+ * Toute écriture change `updated_at`, donc la clé : une version modifiée est recalculée.
+ */
+const loadV3MarginEvidenceForRevision = cache(async (
+  supabase: Supabase,
+  tenantId: string,
+  projectUserId: string,
+  versionId: string,
+  projectId: string,
+  status: string,
+  updatedAt: string,
+  contentRevision: number,
+  totalHtCents: number,
+): Promise<V3MarginEvidence | null> => {
+  const input = {
+    supabase, tenantId, projectUserId,
+    authorizedVersion: {
+      id: versionId, project_id: projectId, status, updated_at: updatedAt,
+      content_revision: contentRevision, total_ht_cents: totalHtCents,
+    },
+  };
   const { data, error } = await input.supabase.from("estimate_versions").select("*")
     .eq("tenant_id", input.tenantId).eq("id", input.authorizedVersion.id).single();
   if (error) throw mapSupabaseError(error, "Impossible de charger la preuve de marge.");
@@ -86,4 +115,4 @@ export async function loadV3MarginEvidence(input: {
     net_ht_cents: version.total_ht_cents,
     cost_subtotal_cents: breakdown.totals.cost_subtotal_cents,
   };
-}
+});
