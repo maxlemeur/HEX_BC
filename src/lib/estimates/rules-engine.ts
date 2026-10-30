@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   buildAffaireRegisterSubmissionSignalMessage,
@@ -1322,16 +1323,17 @@ async function loadCurrentEstimateContentRevision(input: {
   return revision;
 }
 
-export async function evaluateRules(input: {
+type EstimateRulesWithApprovals = {
+  rules: EstimateRuleRow[];
+  approvals: EstimateApprovalRow[];
+};
+
+/** The tenant's active rules and the version's current approvals for them: no item is needed. */
+async function loadEstimateRulesWithApprovals(input: {
   supabase: SupabaseClient<Database> | Supabase;
   tenantId: string;
-  version: RulesEngineVersion;
-  project: RulesEngineProject;
-  items: RulesEngineItemAccess[];
-  preserveApprovedRequiresApproval?: boolean;
-  fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
-  v3MarginEvidence?: V3MarginEvidence | null;
-}): Promise<EvaluateRulesResult> {
+  versionId: string;
+}): Promise<EstimateRulesWithApprovals> {
   const supabase = toRulesSupabaseClient(input.supabase);
 
   const { data: rulesData, error: rulesError } = await readAllRows(() => supabase
@@ -1355,6 +1357,52 @@ export async function evaluateRules(input: {
       threshold_value: normalizedThreshold ?? 0,
     } satisfies EstimateRuleRow;
   });
+
+  if (rules.length === 0) {
+    return { rules, approvals: [] };
+  }
+
+  const relevantRuleIds = rules.map((rule) => rule.id);
+  const { data: approvalsData, error: approvalsError } = await readAllRowsInChunks(relevantRuleIds, (pageIds) => supabase
+    .from("estimate_approvals")
+    .select(
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at",
+      { count: "exact" }
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .in("rule_id", pageIds)
+    .is("superseded_at", null)
+    .order("created_at", { ascending: false }), { order: [{ column: "created_at", ascending: false }] });
+
+  if (approvalsError) {
+    throw mapSupabaseError(
+      approvalsError,
+      "Impossible de charger les approbations de devis."
+    );
+  }
+
+  return { rules, approvals: (approvalsData ?? []) as EstimateApprovalRow[] };
+}
+
+export async function evaluateRules(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  tenantId: string;
+  version: RulesEngineVersion;
+  project: RulesEngineProject;
+  items: RulesEngineItemAccess[];
+  preserveApprovedRequiresApproval?: boolean;
+  fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
+  v3MarginEvidence?: V3MarginEvidence | null;
+  /** Started earlier by a caller that reads them alongside its items. */
+  rulesWithApprovals?: Promise<EstimateRulesWithApprovals>;
+}): Promise<EvaluateRulesResult> {
+  const supabase = toRulesSupabaseClient(input.supabase);
+  const { rules, approvals } = await (input.rulesWithApprovals ?? loadEstimateRulesWithApprovals({
+    supabase,
+    tenantId: input.tenantId,
+    versionId: input.version.id,
+  }));
 
   if (rules.length === 0) {
     return {
@@ -1386,28 +1434,8 @@ export async function evaluateRules(input: {
     rules,
   });
 
-  const relevantRuleIds = rules.map((rule) => rule.id);
-  const { data: approvalsData, error: approvalsError } = await readAllRowsInChunks(relevantRuleIds, (pageIds) => supabase
-    .from("estimate_approvals")
-    .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at",
-      { count: "exact" }
-    )
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.version.id)
-    .in("rule_id", pageIds)
-    .is("superseded_at", null)
-    .order("created_at", { ascending: false }), { order: [{ column: "created_at", ascending: false }] });
-
-  if (approvalsError) {
-    throw mapSupabaseError(
-      approvalsError,
-      "Impossible de charger les approbations de devis."
-    );
-  }
-
   const latestApprovalByRule = resolveLatestApprovalByRule({
-    approvals: (approvalsData ?? []) as EstimateApprovalRow[],
+    approvals,
   });
   const needsApprovalFreshnessCheck =
     [...latestApprovalByRule.values()].some(
@@ -1663,14 +1691,10 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
   };
 }
 
-async function enrichSubmissionReadinessWithAffaireRegister(input: {
+async function loadSubmissionReadinessRegisterContext(input: {
   supabase: SupabaseClient<Database> | Supabase;
   projectId: string;
   versionId: string;
-  submissionReadiness: {
-    blockers: EstimateApprovalSubmissionSignal[];
-    alerts: EstimateApprovalSubmissionSignal[];
-  };
 }) {
   const [registerSummary, versionZeroSummary] = await Promise.all([
     fetchAffaireRegisterGateSummary({
@@ -1680,7 +1704,33 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
     }),
     fetchVersionZeroDraftSummary({ versionId: input.versionId }).catch(() => null),
   ]);
+  return { registerSummary, versionZeroSummary };
+}
 
+async function enrichSubmissionReadinessWithAffaireRegister(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  projectId: string;
+  versionId: string;
+  submissionReadiness: {
+    blockers: EstimateApprovalSubmissionSignal[];
+    alerts: EstimateApprovalSubmissionSignal[];
+  };
+}) {
+  return applySubmissionReadinessRegisterContext({
+    ...input,
+    ...(await loadSubmissionReadinessRegisterContext(input)),
+  });
+}
+
+function applySubmissionReadinessRegisterContext(input: {
+  projectId: string;
+  versionId: string;
+  submissionReadiness: {
+    blockers: EstimateApprovalSubmissionSignal[];
+    alerts: EstimateApprovalSubmissionSignal[];
+  };
+} & Awaited<ReturnType<typeof loadSubmissionReadinessRegisterContext>>) {
+  const { registerSummary, versionZeroSummary } = input;
   const blockers = [...input.submissionReadiness.blockers];
   const alerts = [...input.submissionReadiness.alerts];
   const criticalMissingPieceEntries = registerSummary.criticalOpenEntries.filter(
@@ -1951,6 +2001,7 @@ async function evaluateApprovalSummaryBundle(input: {
   evaluatedAt?: string;
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
   v3MarginEvidence?: V3MarginEvidence | null;
+  rulesWithApprovals?: Promise<EstimateRulesWithApprovals>;
 }) {
   const evaluatedAt = input.evaluatedAt ?? new Date().toISOString();
   const rulesEvaluation = await evaluateRules({
@@ -1962,6 +2013,7 @@ async function evaluateApprovalSummaryBundle(input: {
     preserveApprovedRequiresApproval: true,
     fixedDiscountEvidence: input.fixedDiscountEvidence,
     v3MarginEvidence: input.v3MarginEvidence,
+    rulesWithApprovals: input.rulesWithApprovals,
   });
 
   return {
@@ -3065,6 +3117,32 @@ export async function listEstimateApprovalDecisionJournal(input: {
   };
 }
 
+/**
+ * The first review reads of the approval panel depend only on the version and project, never on
+ * the rule evaluation, and none of them reads what the approval projection writes (approval
+ * columns of the version, version events): they start with the summary instead of after it.
+ */
+function startApprovalReviewReads(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  projectId: string;
+}) {
+  return {
+    cycleRows: startConcurrentRead(listEstimateReviewCycles({
+      context: input.context,
+      versionId: input.versionId,
+    })),
+    targetContext: startConcurrentRead(loadApprovalCommentTargetContext({
+      context: input.context,
+      versionId: input.versionId,
+      projectId: input.projectId,
+    })),
+    availableReviewers: startConcurrentRead(listAvailableEstimateApprovalReviewers({
+      context: input.context,
+    })),
+  };
+}
+
 async function enrichEstimateApprovalSummary(input: {
   context: AuthenticatedContext;
   version: VersionAccessRow;
@@ -3075,17 +3153,11 @@ async function enrichEstimateApprovalSummary(input: {
     blockers: EstimateApprovalSubmissionSignal[];
     alerts: EstimateApprovalSubmissionSignal[];
   };
+  reviewReads: ReturnType<typeof startApprovalReviewReads>;
 }): Promise<EstimateApprovalSummary> {
   const [cycleRows, targetContext] = await Promise.all([
-    listEstimateReviewCycles({
-      context: input.context,
-      versionId: input.version.id,
-    }),
-    loadApprovalCommentTargetContext({
-      context: input.context,
-      versionId: input.version.id,
-      projectId: input.project.id,
-    }),
+    input.reviewReads.cycleRows,
+    input.reviewReads.targetContext,
   ]);
   const cycleIds = cycleRows.map((cycle) => cycle.id);
   const [resolvedCommentRows, correctionItemRows, correctionEventRows] =
@@ -3173,9 +3245,7 @@ async function enrichEstimateApprovalSummary(input: {
     }));
   const latestCompletedCycle = reviewHistory[0] ?? null;
   const pendingApprovalCount = activeCyclePendingApprovals.length;
-  const availableReviewers = await listAvailableEstimateApprovalReviewers({
-    context: input.context,
-  });
+  const availableReviewers = await input.reviewReads.availableReviewers;
   const canPrepareRequest =
     (input.context.tenantRole === "admin" || input.context.tenantRole === "engineer") &&
     canAccessOwnerResource({
@@ -3481,81 +3551,76 @@ async function syncEstimateApprovalSummary(input: {
 }): Promise<EstimateApprovalSummary> {
   // Lot 2, sous-lot 2.5 : une v3 a sa preuve de marque nette (D5) ; le moteur reste exigé en clair.
   requireEstimateEngineVersion(input.version);
-  const items = await loadApprovalSummaryItems({
+  // Reads that need neither the items nor the evidences start now, alongside them.
+  const reviewReads = startApprovalReviewReads({
     context: input.context,
     versionId: input.version.id,
+    projectId: input.project.id,
   });
+  const registerContextPromise = startConcurrentRead(loadSubmissionReadinessRegisterContext({
+    supabase: input.context.supabase,
+    projectId: input.project.id,
+    versionId: input.version.id,
+  }));
+  const rulesWithApprovals = startConcurrentRead(loadEstimateRulesWithApprovals({
+    supabase: input.context.supabase,
+    tenantId: input.context.tenantId,
+    versionId: input.version.id,
+  }));
+  const evidenceInput = {
+    supabase: input.context.supabase, tenantId: input.context.tenantId,
+    projectUserId: input.project.user_id, authorizedVersion: input.version,
+  };
+  // The items and both evidences are independent reads of the same authorized version.
+  const [items, fixedDiscountEvidence, v3MarginEvidence] = await Promise.all([
+    loadApprovalSummaryItems({
+      context: input.context,
+      versionId: input.version.id,
+    }),
+    loadCanonicalFixedDiscountEvidence(evidenceInput),
+    loadV3MarginEvidence(evidenceInput),
+  ]);
   const evaluatedAt = new Date().toISOString();
-  const fixedDiscountEvidence = await loadCanonicalFixedDiscountEvidence({
-    supabase: input.context.supabase, tenantId: input.context.tenantId,
-    projectUserId: input.project.user_id, authorizedVersion: input.version,
-  });
-  const v3MarginEvidence = await loadV3MarginEvidence({
-    supabase: input.context.supabase, tenantId: input.context.tenantId,
-    projectUserId: input.project.user_id, authorizedVersion: input.version,
-  });
-  const coreSummary = await evaluateApprovalSummary({
-    supabase: input.context.supabase,
-    tenantId: input.context.tenantId,
-    fixedDiscountEvidence,
-    v3MarginEvidence,
-    version: {
-      id: input.version.id,
-      project_id: input.version.project_id,
-      total_ht_cents: input.version.total_ht_cents,
-      margin_bp: input.version.margin_bp,
-      margin_multiplier: input.version.margin_multiplier,
-      margin_mode: input.version.margin_mode,
-      discount_bp: input.version.discount_bp,
-      discount_amount_cents: input.version.discount_amount_cents,
-      gross_ht_cents: input.version.gross_ht_cents,
-      discount_applied_cents: input.version.discount_applied_cents,
-      tenant_id: input.version.tenant_id,
-      status: input.version.status,
-      updated_at: input.version.updated_at,
-      calc_engine_version: input.version.calc_engine_version,
-      content_revision: input.version.content_revision,
-      calc_snapshot_content_revision:
-        input.version.calc_snapshot_content_revision,
-      calc_snapshot_context: input.version.calc_snapshot_context,
-    },
-    project: {
-      id: input.project.id,
-      client_name: input.project.client_name,
-    },
-    items,
-    evaluatedAt,
-  });
-  const submissionReadiness = await evaluateSubmissionReadiness({
-    supabase: input.context.supabase,
-    tenantId: input.context.tenantId,
-    fixedDiscountEvidence,
-    v3MarginEvidence,
-    version: {
-      id: input.version.id,
-      project_id: input.version.project_id,
-      total_ht_cents: input.version.total_ht_cents,
-      margin_bp: input.version.margin_bp,
-      margin_multiplier: input.version.margin_multiplier,
-      margin_mode: input.version.margin_mode,
-      discount_bp: input.version.discount_bp,
-      discount_amount_cents: input.version.discount_amount_cents,
-      gross_ht_cents: input.version.gross_ht_cents,
-      discount_applied_cents: input.version.discount_applied_cents,
-      tenant_id: input.version.tenant_id,
-      status: input.version.status,
-      updated_at: input.version.updated_at,
-      calc_engine_version: input.version.calc_engine_version,
-      content_revision: input.version.content_revision,
-      calc_snapshot_content_revision:
-        input.version.calc_snapshot_content_revision,
-      calc_snapshot_context: input.version.calc_snapshot_context,
-    },
-    project: {
-      id: input.project.id,
-      client_name: input.project.client_name,
-    },
-    items,
+  // One rule evaluation gives both the approval summary and the submission readiness.
+  const { summary: coreSummary, submissionReadiness: rulesSubmissionReadiness } =
+    await evaluateApprovalSummaryBundle({
+      supabase: input.context.supabase,
+      tenantId: input.context.tenantId,
+      fixedDiscountEvidence,
+      v3MarginEvidence,
+      version: {
+        id: input.version.id,
+        project_id: input.version.project_id,
+        total_ht_cents: input.version.total_ht_cents,
+        margin_bp: input.version.margin_bp,
+        margin_multiplier: input.version.margin_multiplier,
+        margin_mode: input.version.margin_mode,
+        discount_bp: input.version.discount_bp,
+        discount_amount_cents: input.version.discount_amount_cents,
+        gross_ht_cents: input.version.gross_ht_cents,
+        discount_applied_cents: input.version.discount_applied_cents,
+        tenant_id: input.version.tenant_id,
+        status: input.version.status,
+        updated_at: input.version.updated_at,
+        calc_engine_version: input.version.calc_engine_version,
+        content_revision: input.version.content_revision,
+        calc_snapshot_content_revision:
+          input.version.calc_snapshot_content_revision,
+        calc_snapshot_context: input.version.calc_snapshot_context,
+      },
+      project: {
+        id: input.project.id,
+        client_name: input.project.client_name,
+      },
+      items,
+      evaluatedAt,
+      rulesWithApprovals,
+    });
+  const submissionReadiness = applySubmissionReadinessRegisterContext({
+    projectId: input.project.id,
+    versionId: input.version.id,
+    submissionReadiness: rulesSubmissionReadiness,
+    ...(await registerContextPromise),
   });
 
   const previousStatus = input.version.approval_status ?? "not_required";
@@ -3573,6 +3638,7 @@ async function syncEstimateApprovalSummary(input: {
       project: input.project,
       items,
       submissionReadiness,
+      reviewReads,
       summary: {
         ...coreSummary,
         evaluatedAt: input.version.approval_evaluated_at ?? coreSummary.evaluatedAt,
@@ -3591,6 +3657,7 @@ async function syncEstimateApprovalSummary(input: {
       project: input.project,
       items,
       submissionReadiness,
+      reviewReads,
       summary: coreSummary,
     });
   }
@@ -3609,6 +3676,7 @@ async function syncEstimateApprovalSummary(input: {
       project: input.project,
       items,
       submissionReadiness,
+      reviewReads,
       summary: coreSummary,
     });
   }
@@ -3666,6 +3734,7 @@ async function syncEstimateApprovalSummary(input: {
     project: input.project,
     items,
     submissionReadiness,
+    reviewReads,
     summary: coreSummary,
   });
 }

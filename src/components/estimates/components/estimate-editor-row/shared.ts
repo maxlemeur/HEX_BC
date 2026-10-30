@@ -47,11 +47,27 @@ export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"]
 export type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 export type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 
+// Building an Intl.NumberFormat costs far more than formatting with one, and the
+// editor formats several cells per row: keep one formatter per option pair.
+const NUMBER_DISPLAY_FORMATTERS = new Map<string, Intl.NumberFormat>();
+
+function getNumberDisplayFormatter(minDecimals: number, maxDecimals: number) {
+  const key = `${minDecimals}:${maxDecimals}`;
+  let formatter = NUMBER_DISPLAY_FORMATTERS.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("fr-FR", {
+      minimumFractionDigits: minDecimals,
+      maximumFractionDigits: maxDecimals,
+    });
+    NUMBER_DISPLAY_FORMATTERS.set(key, formatter);
+  }
+  return formatter;
+}
+
 export function formatLaborRoleOptionLabel(role: LaborRole) {
-  const hourlyRate = new Intl.NumberFormat("fr-FR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Math.max(role.hourly_rate_cents, 0) / 100);
+  const hourlyRate = getNumberDisplayFormatter(2, 2).format(
+    Math.max(role.hourly_rate_cents, 0) / 100
+  );
 
   return `${hourlyRate} €/h ${role.name}${
     !role.is_active ? " (inactif)" : ""
@@ -284,11 +300,7 @@ export function formatNumberDisplay(
 ) {
   const minDecimals = options?.minDecimals ?? 0;
   const maxDecimals = options?.maxDecimals ?? minDecimals;
-  const formatter = new Intl.NumberFormat("fr-FR", {
-    minimumFractionDigits: minDecimals,
-    maximumFractionDigits: maxDecimals,
-  });
-  return formatter.format(value);
+  return getNumberDisplayFormatter(minDecimals, maxDecimals).format(value);
 }
 
 /** TI-534 : provision FO d'une ligne v3, avec 2 ou 3 décimales (1,03 ; 1,025) ; 1,00 sans valeur. */

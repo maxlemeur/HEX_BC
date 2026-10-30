@@ -590,7 +590,10 @@ describe("submitEstimateApproval", () => {
     });
     const projectApprovalSummary = vi.fn(() => createListBuilder([]));
 
+    // Reviewer lookups (submission, then the summary's review reads, which start before its
+    // projection) fall back to the session client; the projection and its events follow.
     vi.mocked(createOptionalServiceRoleClient)
+      .mockReturnValueOnce(null as never)
       .mockReturnValueOnce(null as never)
       .mockReturnValueOnce({
         from: vi.fn(() => ({ update: projectApprovalSummary })),
@@ -1053,6 +1056,8 @@ describe("submitEstimateApproval", () => {
       status: "pending",
       cycleId: "77777777-7777-4777-8777-777777777777",
     });
+    // One rule evaluation feeds both the summary and the submission readiness.
+    expect(from.mock.calls.filter(([table]) => table === "estimate_rules")).toHaveLength(1);
   });
 
   it("adds affaire register blockers and alerts to approval submission readiness", async () => {

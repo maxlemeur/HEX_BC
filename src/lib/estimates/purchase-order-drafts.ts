@@ -14,7 +14,7 @@ import {
 } from "@/lib/estimates/errors";
 import {
   getEstimateSupplierComparisons,
-  listEstimateItems,
+  listEstimateItemRows,
   type EstimateSupplierComparisonAlternative,
   type EstimateSupplierComparisonCoverageStatus,
   type EstimateSupplierComparisonRiskFlag,
@@ -33,13 +33,14 @@ import {
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import { purchaseReceiptSchema, purchaseReviewSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
 import { isValidOrderQuantity } from "@/lib/purchase-orders/quantities";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
 
 type SupplierComparisonRecord = Awaited<
   ReturnType<typeof getEstimateSupplierComparisons>
 >["comparisons"][number];
 
-type EstimateLineRecord = Awaited<ReturnType<typeof listEstimateItems>>["items"][number];
+type EstimateLineRecord = Awaited<ReturnType<typeof listEstimateItemRows>>["items"][number];
 
 const SUPPLIER_COMPARISON_BATCH_SIZE = 200;
 
@@ -242,7 +243,7 @@ async function readCurrentOfferEligibility(
   )));
   if (priceIds.length === 0) return { currency: "EUR", offers, activeSupplierIds };
 
-  // listEstimateItems already checked access to this version. Keep the tenant
+  // listEstimateItemRows already checked access to this version. Keep the tenant
   // fence here too; absent data must never turn into permissive conditions.
   const { data: version, error: versionError } = await context.supabase
     .from("estimate_versions").select("currency")
@@ -345,12 +346,17 @@ async function prepareEstimatePurchaseOrderDrafts(
   versionId: string,
   options: { compareUnselectedLines: boolean }
 ): Promise<EstimatePurchaseOrderDraftPreparation> {
-  const { items } = await listEstimateItems(versionId);
-  const context = await getDraftOrderContext();
-  const scopedLines = items.filter(isSupplierScopedLine);
-  const { data: transferData, error: transferError } = await context.supabase.rpc(
+  // The transfers do not depend on the items, and their read-only RPC checks access itself:
+  // read them alongside, then use the results in the former order.
+  const itemsPromise = startConcurrentRead(listEstimateItemRows(versionId));
+  const contextPromise = startConcurrentRead(getDraftOrderContext());
+  const transfersPromise = startConcurrentRead(contextPromise.then((context) => context.supabase.rpc(
     "get_estimate_purchase_order_transfers", { p_version_id: versionId }
-  );
+  )));
+  const { items } = await itemsPromise;
+  const context = await contextPromise;
+  const scopedLines = items.filter(isSupplierScopedLine);
+  const { data: transferData, error: transferError } = await transfersPromise;
   if (transferError) throw mapPurchasePreparationError(transferError);
   const transferred_lines = parseProjection(z.object({ lines: z.array(purchaseTransferSchema) }), transferData).lines;
   const transferredIds = new Set(transferred_lines.map((line) => line.item_id));

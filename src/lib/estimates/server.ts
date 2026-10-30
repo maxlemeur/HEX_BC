@@ -27,6 +27,7 @@ export {
   getEstimateVersionDetails,
   type EstimateItemRow,
   listEstimateItems,
+  listEstimateItemRows,
   listEstimateVersionEvents,
   type EstimateVersionEvent,
 } from "./version-read-server";
