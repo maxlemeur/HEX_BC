@@ -47,9 +47,11 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims refreshes the session like getUser, then verifies the access token
+  // against the project's asymmetric signing keys (cached JWKS) instead of calling
+  // Auth on every request, prefetches included. A symmetric token still goes to Auth.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
 
   const pathname = request.nextUrl.pathname;
 
