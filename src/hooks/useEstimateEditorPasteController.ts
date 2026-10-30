@@ -91,8 +91,10 @@ export function useEstimateEditorPasteController({
   reloadItems,
   v3Writer,
 }: EstimateEditorPasteControllerInput) {
+  // Stable, so the paste action (and the editor table props built from it) survives unrelated renders.
+  const applyItemsVersionToken = useCallback((updatedAt: string) => applyVersionToken(updatedAt), [applyVersionToken]);
   const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt, acceptDeletedItems, releaseItemsOperation } = useEstimateEditorItemsOperation({
-    document, getItemsSnapshot, setItems, applyVersionToken: (updatedAt) => applyVersionToken(updatedAt),
+    document, getItemsSnapshot, setItems, applyVersionToken: applyItemsVersionToken,
   });
   const reorderSiblings = useCallback(
     async (versionId: string, parentId: string | null, orderedIds: string[], operation?: ReturnType<typeof beginItemsOperation>) => {

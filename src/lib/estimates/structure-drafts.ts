@@ -3096,11 +3096,26 @@ export async function applyEstimateStructureDraft(
   };
 }
 
+/** A version's structure-draft applications. It needs only the version id, so the editor read starts it with the items. */
+export function readAiStructureApplicationsForVersion(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}) {
+  return readAllRows(() => input.supabase
+    .from("estimate_structure_draft_applications")
+    .select("draft_id, draft_node_id, estimate_item_id, applied_action, created_at, id, estimate_items!inner(version_id)", { count: "exact" })
+    .eq("tenant_id", input.tenantId)
+    .eq("estimate_items.version_id", input.versionId));
+}
+
 export async function enrichEstimateItemsWithAiStructureProvenance(input: {
   supabase: Supabase;
   tenantId: string;
   versionId?: string;
   items: EstimateItemRow[];
+  /** `readAiStructureApplicationsForVersion` already started for `versionId`. */
+  versionApplications?: ReturnType<typeof readAiStructureApplicationsForVersion>;
 }) {
   const itemIds = input.items.map((item) => item.id);
 
@@ -3109,11 +3124,7 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
   }
 
   const { data: applicationData, error: applicationError } = input.versionId
-    ? await readAllRows(() => input.supabase
-      .from("estimate_structure_draft_applications")
-      .select("draft_id, draft_node_id, estimate_item_id, applied_action, created_at, id, estimate_items!inner(version_id)", { count: "exact" })
-      .eq("tenant_id", input.tenantId)
-      .eq("estimate_items.version_id", input.versionId!))
+    ? await (input.versionApplications ?? readAiStructureApplicationsForVersion({ supabase: input.supabase, tenantId: input.tenantId, versionId: input.versionId }))
     : await selectInChunks(itemIds, (chunk) => readAllRows(() => input.supabase
       .from("estimate_structure_draft_applications")
       .select(

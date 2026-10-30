@@ -135,8 +135,10 @@ export function useEstimateEditorItemsController({
   buildItemUpdatePayload = buildEstimateItemUpdatePayload,
   v3Writer,
 }: EstimateEditorItemsControllerInput) {
+  // Stable, so the item actions (and the editor table props built from them) survive unrelated renders.
+  const applyItemsVersionToken = useCallback((updatedAt: string) => applyVersionToken(updatedAt), [applyVersionToken]);
   const { beginItemsOperation, isItemsOperationCurrent, isItemsDocumentCurrent, rollbackItems, acceptItemsReceipt, acceptDeletedItems, releaseItemsOperation } = useEstimateEditorItemsOperation({
-    document, getItemsSnapshot, setItems, applyVersionToken: (updatedAt) => applyVersionToken(updatedAt),
+    document, getItemsSnapshot, setItems, applyVersionToken: applyItemsVersionToken,
   });
   const buildItemInsertPayload = v3Writer?.buildInsertPayload ?? buildEstimateItemInsertPayload;
   // v1/v2 : suppression directe (inchangée) ; v3 : un lot `delete`, recalculé et vérifié (D12).

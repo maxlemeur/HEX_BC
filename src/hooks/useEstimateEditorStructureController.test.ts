@@ -586,4 +586,33 @@ describe("useEstimateEditorStructureController route races", () => {
     expect(harness.applyVersionToken).not.toHaveBeenCalled();
     expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
   });
+
+  it("keeps its actions across renders whose inputs did not change", () => {
+    // The editor table props are built from these actions: new ones on every render redraw every row.
+    const version = createVersion();
+    const input: Parameters<typeof useEstimateEditorStructureController>[0] = {
+      routeVersionId: version.id,
+      isMutationBlocked: false,
+      mutationBlockedMessage: "Mutation interdite.",
+      getItemsSnapshot: () => [],
+      getVersionSnapshot: () => version,
+      setItems: vi.fn(),
+      setTotalsOutOfSync: vi.fn(),
+      reportError: vi.fn(),
+      resolveErrorMessage: (message) => `public:${message}`,
+      applyVersionToken: vi.fn(),
+      handleVersionConflict: vi.fn().mockReturnValue(false),
+      ensureGroupedActionCanProceed: vi.fn().mockResolvedValue(true),
+      pushHistoryCommand: vi.fn(),
+      reloadItems: vi.fn().mockResolvedValue(undefined),
+      clearHistory: vi.fn(),
+      highlightItems: vi.fn(),
+    };
+    const { result, rerender } = renderHook(() => useEstimateEditorStructureController(input));
+    const firstActions = result.current.actions;
+
+    rerender();
+
+    expect(result.current.actions).toBe(firstActions);
+  });
 });

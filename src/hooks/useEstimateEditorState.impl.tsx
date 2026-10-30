@@ -2190,6 +2190,30 @@ export function useEstimateEditorState({
     ]
   );
 
+  // The table recomputes every section total when this object changes: keep it across unrelated renders.
+  const sectionCalculation = useMemo<EstimateEditorTableProps["sectionCalculation"]>(
+    () => ({
+      marginMode: settings?.margin_mode ?? "fixed",
+      marginTiers: settings?.margin_tiers ?? [],
+      globalCoefficient: settings?.global_coefficient ?? 1,
+      discountMode: settings?.discount_mode ?? "simple",
+      discountStepsBp: settings?.discount_steps ?? [],
+      calcEngineVersion,
+      // v3 : les sections somment les nets de l'aperçu, sans calcul v2.
+      preserveStoredSnapshot: isReadOnly || isV3,
+    }),
+    [
+      calcEngineVersion,
+      isReadOnly,
+      isV3,
+      settings?.discount_mode,
+      settings?.discount_steps,
+      settings?.global_coefficient,
+      settings?.margin_mode,
+      settings?.margin_tiers,
+    ]
+  );
+
   const editorTableProps = useMemo<EstimateEditorTableProps>(
     () => ({
       versionId: version?.id ?? resolvedVersionId,
@@ -2211,16 +2235,7 @@ export function useEstimateEditorState({
         totals?.appliedMarginMultiplier ?? editorTableBaseConfig.marginMultiplier,
       discountCents: totals?.discountCents ?? editorTableBaseConfig.discountCents,
       taxRateBp: editorTableBaseConfig.taxRateBp,
-      sectionCalculation: {
-        marginMode: settings?.margin_mode ?? "fixed",
-        marginTiers: settings?.margin_tiers ?? [],
-        globalCoefficient: settings?.global_coefficient ?? 1,
-        discountMode: settings?.discount_mode ?? "simple",
-        discountStepsBp: settings?.discount_steps ?? [],
-        calcEngineVersion,
-        // v3 : les sections somment les nets de l'aperçu, sans calcul v2.
-        preserveStoredSnapshot: isReadOnly || isV3,
-      },
+      sectionCalculation,
       currency: settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY,
       laborRateById,
       isLaborSplitEnabled,
@@ -2284,7 +2299,6 @@ export function useEstimateEditorState({
     }),
     [
       categories,
-      calcEngineVersion,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
       editorTableBaseConfig,
@@ -2325,12 +2339,12 @@ export function useEstimateEditorState({
       canRedo,
       isUndoRedoBusy,
       isLaborSplitEnabled,
-      isReadOnly,
       isV3,
       isViewerReadOnly,
       laborRateById,
       laborRoles,
       outlierActionPendingByItemId,
+      sectionCalculation,
       sectionDuplicateTargets,
       outlierConfig.method,
       outlierConfig.threshold,
@@ -2352,11 +2366,6 @@ export function useEstimateEditorState({
       handleToggleFinalizationPanel,
       handleShowChecklistAnomalies,
       settings?.currency,
-      settings?.discount_mode,
-      settings?.discount_steps,
-      settings?.global_coefficient,
-      settings?.margin_mode,
-      settings?.margin_tiers,
       totals?.appliedMarginMultiplier,
       totals?.discountCents,
       version?.id,

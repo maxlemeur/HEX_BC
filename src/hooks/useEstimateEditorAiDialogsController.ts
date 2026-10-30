@@ -175,10 +175,12 @@ export function useEstimateEditorAiDialogsController({
   const [scopedState, setScopedState] = useState<ScopedAiDialogsState>(() =>
     createEmptyAiDialogsState(scopeKey)
   );
+  // One empty state per scope: a new one on every render would hand the table new highlighted ids each time.
+  const emptyScopedState = useMemo(() => createEmptyAiDialogsState(scopeKey), [scopeKey]);
   const projectedState =
     scopedState.scopeKey === scopeKey
       ? scopedState
-      : createEmptyAiDialogsState(scopeKey);
+      : emptyScopedState;
   const {
     isGeneratedOuvrageDialogOpen,
     isVersionZeroDialogOpen,

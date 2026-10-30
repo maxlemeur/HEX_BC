@@ -769,4 +769,26 @@ describe("useEstimateEditorItemsController", () => {
       "version-2-line",
     ]);
   });
+
+  it("keeps its actions across renders whose inputs did not change", () => {
+    // The editor table props are built from these actions: new ones on every render redraw every row.
+    const version = createVersion();
+    const input: ControllerInput = {
+      version,
+      settings: { margin_multiplier: 1.2, tax_rate_bp: 2000 },
+      isLaborSplitEnabled: false,
+      isMutationBlocked: false,
+      mutationBlockedMessage: "Conflit de version actif.",
+      getItemsSnapshot: () => [],
+      getVersionSnapshot: () => version,
+      setItems: vi.fn(),
+      ...createDependencies(),
+    };
+    const { result, rerender } = renderHook(() => useEstimateEditorItemsController(input));
+    const firstActions = result.current.actions;
+
+    rerender();
+
+    expect(result.current.actions).toBe(firstActions);
+  });
 });
