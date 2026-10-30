@@ -76,7 +76,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     });
     await expect.poll(async () => {
       if (server?.exitCode !== null) throw new Error("Profile fixture server exited before readiness.");
-      return fetch(`${origin}/login`).then(response => response.ok).catch(() => false);
+      return fetch(`${origin}/favicon.ico`).then(response => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
     await warmChatGptServer(origin, email, "profile");

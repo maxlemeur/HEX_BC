@@ -86,7 +86,7 @@ beforeAll(async () => {
   });
   await expect.poll(async () => {
     if (localServer.exitCode !== null) throw new Error("ChatGPT local server exited before readiness.");
-    return fetch(`${localOrigin}/login`).then((response) => response.ok).catch(() => false);
+    return fetch(`${localOrigin}/favicon.ico`).then((response) => response.ok).catch(() => false);
   }, { timeout: 90_000 }).toBe(true);
   await serverWorkspace.assertReady();
   await warmChatGptServer(localOrigin, fixtureEmail);

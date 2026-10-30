@@ -6,14 +6,32 @@ import { appendFile } from "node:fs/promises";
 import { z } from "zod";
 
 // Preserve crash locations without raw errors, provider payloads, URLs or tokens.
-const processDiagnostic = (kind, code, error) => {
+const processDiagnostic = (kind, code, error, origin) => {
   const frames = (error?.stack ?? new Error().stack ?? "").split("\n").slice(1)
     .flatMap(line => [...line.matchAll(/([^/\s():]+\.(?:[cm]?js|ts)):(\d+):(\d+)/g)]
       .map(match => `${match[1]}:${match[2]}:${match[3]}`)).slice(0, 12);
+  const name = ["Error", "TypeError", "RangeError", "SyntaxError", "AbortError", "TimeoutError", "ResponseAborted"].includes(error?.name) ? error.name : null;
+  const nodeCode = ["ECONNRESET", "EPIPE", "ENOENT", "EACCES", "EADDRINUSE", "ABORT_ERR", "ERR_INVALID_STATE",
+    "ERR_INVALID_ARG_TYPE", "ERR_INVALID_URL", "ERR_STREAM_DESTROYED", "ERR_STREAM_PREMATURE_CLOSE", "ERR_HTTP_HEADERS_SENT"].includes(error?.code) ? error.code : null;
+  const controlFlow = ["NEXT_REDIRECT", "NEXT_HTTP_ERROR_FALLBACK", "NEXT_NOT_FOUND"].find(value =>
+    typeof error?.digest === "string" && error.digest.startsWith(value + ";")) ?? null;
+  const messageKind = ["aborted", "socket hang up", "The operation was aborted", "This operation was aborted"].includes(error?.message)
+    ? error.message : null;
   try { appendFileSync(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "process-diagnostic", kind,
-    pid: process.pid, code: typeof code === "number" ? code : null, frames }) + "\n"); } catch { /* Preserve the original exit. */ }
+    timestamp: Date.now(), pid: process.pid, ppid: process.ppid,
+    role: ["next", "next-dev.js", "start-server.js", "processChild.js", "_tsc.js", "detached-flush.js", "dev-chatgpt-local.mjs"].find(value => value === path.basename(process.argv[1] ?? "")) ?? "other",
+    code: typeof code === "number" ? code : null, name, nodeCode, controlFlow, messageKind,
+    origin: ["uncaughtException", "unhandledRejection", "application-hook"].includes(origin) ? origin : null,
+    errorType: typeof error, frames }) + "\n"); } catch { /* Preserve the original exit. */ }
 };
-process.on("uncaughtExceptionMonitor", error => processDiagnostic("uncaught", null, error));
+process.on("uncaughtExceptionMonitor", (error, origin) => processDiagnostic("uncaught", null, error, origin));
+const originalConsoleError = console.error;
+console.error = (...args) => {
+  if (args[0] === "[error-reporter]" && args[1] === "uncaughtException") {
+    processDiagnostic("application-uncaught", null, args[2], "application-hook");
+  }
+  return originalConsoleError(...args);
+};
 const originalExit = process.exit.bind(process);
 process.exit = code => { processDiagnostic("exit", typeof code === "number" ? code : process.exitCode); return originalExit(code); };
 
