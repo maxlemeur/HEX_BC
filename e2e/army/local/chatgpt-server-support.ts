@@ -82,6 +82,7 @@ export async function warmChatGptServer(origin: string, email: string) {
     const paths = ["/dashboard", "/dashboard/profile", "/dashboard/estimates/new",
       `/dashboard/estimates/${absentPlanSet}/edit`, `/api/estimates/${absentPlanSet}`,
       `/api/estimates/${absentPlanSet}/suggestion-learning`, `/dashboard/affaires/${absentPlanSet}/plans`,
+      `/dashboard/affaires/${absentPlanSet}/takeoff`,
       "/auth/chatgpt/callback", `/api/takeoff/plan-sets/${absentPlanSet}/files`,
       `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
     // Cold editor/plan compilation must finish before the timed business journey.
@@ -96,7 +97,8 @@ export async function warmChatGptServer(origin: string, email: string) {
         : pathname.startsWith("/api/") ? [400, 403, 404, 405]
         : pathname === "/auth/chatgpt/callback" ? [302, 303, 307]
         // Next may start streaming before the missing project calls notFound().
-        : pathname === `/dashboard/affaires/${absentPlanSet}/plans` ? [200, 404] : [200];
+        : ["plans", "takeoff"].some(page => pathname === `/dashboard/affaires/${absentPlanSet}/${page}`)
+          ? [200, 404] : [200];
       if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${pathname}: ${response.status}.`);
       if (learning && response.status === 200) {
         // Disabled learning returns its empty state before checking the version.
