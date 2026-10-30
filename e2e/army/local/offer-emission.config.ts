@@ -7,6 +7,9 @@ import type { E2EConfig } from "e2e";
 
 import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector.mjs";
 import { offerServerMode, validateOfferProductionBuild } from "../../../scripts/tester-army/run-offer-local.mjs";
+import { assertInstalledDependencies } from "../../../scripts/tester-army/installed-dependencies.mjs";
+
+assertInstalledDependencies();
 
 function explicitOrigin(name: string, collector = false) {
   const value = process.env[name];

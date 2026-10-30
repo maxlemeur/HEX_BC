@@ -11,6 +11,7 @@ import { COLLECTOR_SENTINEL, startCollector } from "./offer-collector.mjs";
 import { probeOfferGuard } from "./check-offer-network-guard.mjs";
 import { buildOutputEvidence, offerBuildProfileEvidence } from "./build-local.mjs";
 import { assertRecipeHost, buildCommands, buildSourceEvidence, readProof, requireValue, sha256 } from "./local-recipe-common.mjs";
+import { assertInstalledDependencies } from "./installed-dependencies.mjs";
 
 // This runner owns new local-only evidence; it never seeds users, tokens or statuses.
 const root = process.cwd();
@@ -80,6 +81,7 @@ const selection = process.argv[3] ?? "OF00";
 if (!["--list", "--execute"].includes(mode) || !["OF00", "OF01", "OF02", "OF03", "OF04", "OF0L", "OF0[012]", "OF0[012L]", "OF0[01234L]", "PDFL1", "PDFL2", "PDFL3", "PDFL4", "PDFL5", "PDFL6", "PDFL7", "PDFL8", "PDFL[1-6]", "PDFL[1-7]", "PDFL[1-8]", "EF01", "EF02", "EF03", "EF04", "EF05", "NF02", "NF03", "NF04"].includes(selection)) {
   throw new Error("Use --list|--execute OF00|OF01|OF02|OF03|OF04|OF0L|OF0[01234L]|PDFL1…PDFL8|PDFL[1-8]|EF01|EF02|EF03|EF04|EF05|NF02|NF03|NF04.");
 }
+const toolchain = assertInstalledDependencies(root);
 const selectedGrep = selection.startsWith("PDFL") || selection.startsWith("EF") || selection.startsWith("NF") ? `^${selection}(?:\\s|$)` : selection;
 if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("Node 24 or 26 required.");
 if (git("branch", "--show-current").trim() !== "main") throw new Error("Existing main checkout required.");
@@ -112,7 +114,7 @@ const inputs = async () => {
 };
 const before = await inputs();
 await writeFile(path.join(publicDirectory, "source-before.json"), `${JSON.stringify(before, null, 2)}\n`);
-const manifest = { schemaVersion: "local-offer-recipe-1", startedAt, mode, selection, node: process.version,
+const manifest = { schemaVersion: "local-offer-recipe-1", startedAt, mode, selection, node: process.version, toolchain,
   command: [process.execPath, ...process.execArgv.map((arg) => arg.startsWith("--env-file") ? "--env-file=[explicit-private-profile]" : arg), ...process.argv.slice(1)],
   environment: { appOrigin, backendOrigin: backend.origin, account: "ordinary dedicated local login; profile/roles unchanged", externalDelivery: false,
     serverMode, runtime: serverMode === "production" ? "owned exact production build; next start" : "webpack dev; not production-build proof",

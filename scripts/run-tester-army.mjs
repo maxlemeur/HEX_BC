@@ -11,6 +11,7 @@ import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-
 import { localJourneyCoverageProblems } from "./tester-army/journey-preflight.mjs";
 import { prepareArmyTypeScriptConfig } from "./tester-army/local-recipe-common.mjs";
 import { SHARED_WRITE_ACKNOWLEDGEMENT, assertSharedWriteAcknowledged } from "./tester-army/shared-write-guard.mjs";
+import { assertInstalledDependencies } from "./tester-army/installed-dependencies.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // Read before loadEnvConfig: a shared-base write is acknowledged per run, never by a .env file.
@@ -245,6 +246,7 @@ let setupAppLog = { reason: "runner-not-started" };
 let reportBeforeSha256;
 const appLog = path.join(output, "logs", "app.log");
 try {
+  manifest.toolchain = assertInstalledDependencies(root);
   if (coverage) {
     const profile = await loadCoverageProfile(root, { discoveryOnly });
     Object.assign(process.env, profile.env);
@@ -300,6 +302,7 @@ try {
   inputs = [
     path.join(root, "e2e.config.ts"),
     path.join(root, "scripts", "run-tester-army.mjs"),
+    ...(coverage ? [] : [path.join(root, "scripts", "tester-army", "installed-dependencies.mjs")]),
     path.join(root, "package-lock.json"),
     path.join(root, "package.json"),
     path.join(root, "next.config.ts"),

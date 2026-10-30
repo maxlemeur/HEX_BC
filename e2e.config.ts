@@ -4,6 +4,9 @@ import { pathToFileURL } from "node:url";
 import { web } from "@e2e-dev/web";
 import type { E2EConfig } from "e2e";
 import { chatgpt } from "e2e/oauth/chatgpt";
+import { assertInstalledDependencies } from "./scripts/tester-army/installed-dependencies.mjs";
+
+assertInstalledDependencies();
 
 const critical = process.env.E2E_ARMY_SUITE === "critical";
 const full = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "full";
