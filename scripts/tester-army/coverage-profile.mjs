@@ -97,7 +97,7 @@ async function installationArtifacts(root, application, prefix, { nested = false
 // This reads an explicitly supplied local profile; it never provisions fixtures,
 // loads .env.local, installs a runtime or contacts the backend.
 export async function loadCoverageProfile(root, { discoveryOnly = false, configuredPath = undefined } = {}) {
-  if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("Coverage requires Node.js 24 or 26.");
+  if (!["26"].includes(process.versions.node.split(".")[0])) throw new Error("Coverage requires Node.js 26.");
   const configured = configuredPath ?? process.env.E2E_COVERAGE_PROFILE_PATH;
   if (!configured) throw new Error("E2E_COVERAGE_PROFILE_PATH is required; no default profile is allowed.");
   const profileFile = await ownedPath(root, configured);

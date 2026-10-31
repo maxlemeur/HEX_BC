@@ -83,7 +83,7 @@ if (!["--list", "--execute"].includes(mode) || !["OF00", "OF01", "OF02", "OF03",
 }
 const toolchain = assertInstalledDependencies(root);
 const selectedGrep = selection.startsWith("PDFL") || selection.startsWith("EF") || selection.startsWith("NF") ? `^${selection}(?:\\s|$)` : selection;
-if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("Node 24 or 26 required.");
+if (!["26"].includes(process.versions.node.split(".")[0])) throw new Error("Node 26 required.");
 if (git("branch", "--show-current").trim() !== "main") throw new Error("Existing main checkout required.");
 const serverMode = offerServerMode();
 const productionBuild = await validateOfferProductionBuild();

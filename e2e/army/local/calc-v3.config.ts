@@ -43,7 +43,7 @@ function ownedDirectory(name: string, root: string) {
   return directory;
 }
 
-if (!["24", "26"].includes(process.versions.node.split(".")[0])) throw new Error("calc-v3 profile requires Node 24 or 26.");
+if (!["26"].includes(process.versions.node.split(".")[0])) throw new Error("calc-v3 profile requires Node 26.");
 if (process.env.E2E_CALC_V3_OWNED_STACK !== "1") throw new Error("calc-v3 runs only on the owned ephemeral stack of run-tester-army-ci.ts calc-v3.");
 const phase = process.env.E2E_CALC_V3_PHASE;
 if (!isCalcV3Phase(phase)) throw new Error("calc-v3 requires an explicit E2E_CALC_V3_PHASE.");

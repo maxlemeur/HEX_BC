@@ -73,7 +73,7 @@ export function sdkEvidenceDirectory(report) {
 }
 
 export function assertRecipeHost() {
-  requireValue(process.cwd() === repositoryRoot && /^v(?:24|26)\./.test(process.version), "Run from the repository root with Node 24 or 26.");
+  requireValue(process.cwd() === repositoryRoot && /^v26\./.test(process.version), "Run from the repository root with Node 26.");
 }
 
 export function loopbackOrigin(value) {

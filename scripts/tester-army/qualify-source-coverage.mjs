@@ -63,7 +63,7 @@ const receipt = {
   ],
 };
 try {
-  check(["24", "26"].includes(process.versions.node.split(".")[0]), "node-supported");
+  check(["26"].includes(process.versions.node.split(".")[0]), "node-supported");
   await owned(runBase); await owned(run, runBase);
   const files = await walk(run);
   const manifest = await json(path.join(run, "manifest.json"));

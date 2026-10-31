@@ -8,8 +8,8 @@ import path from "node:path";
 import { repositoryRoot as root, ignoredFile, relativePath, sha256, requireValue, redactOutput } from "./local-recipe-common.mjs";
 
 const args = process.argv.slice(2);
-requireValue(process.platform === "win32" && /^v(?:24|26)\./.test(process.version) && args.length === 4 && args[0] === "--plan" && args[2] === "--distribution" &&
-  /^[a-zA-Z0-9][a-zA-Z0-9.-]{1,60}$/.test(args[3]), "Use --plan <exact ignored plan> --distribution <explicit WSL distribution> from Windows Node 24 or 26; offline only.");
+requireValue(process.platform === "win32" && /^v26\./.test(process.version) && args.length === 4 && args[0] === "--plan" && args[2] === "--distribution" &&
+  /^[a-zA-Z0-9][a-zA-Z0-9.-]{1,60}$/.test(args[3]), "Use --plan <exact ignored plan> --distribution <explicit WSL distribution> from Windows Node 26; offline only.");
 const planFile = await ignoredFile(args[1]), bytes = await readFile(planFile), plan = JSON.parse(bytes);
 const nativeFile = await ignoredFile(plan.nativeRecipePath), native = JSON.parse(await readFile(nativeFile));
 requireValue(sha256(await readFile(nativeFile)) === plan.nativeRecipeSha256, "Named native qualification SHA differs.");

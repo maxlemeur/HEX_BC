@@ -53,7 +53,7 @@ export async function probeOfferGuard({ directory, appOrigin, backendOrigin }) {
   try {
     report.toolchain = assertInstalledDependencies();
     const lockedSdkVersion = JSON.parse(await readFile("package-lock.json", "utf8")).packages?.["node_modules/resend"]?.version;
-    check(["24", "26"].includes(process.versions.node.split(".")[0]) && typeof lockedSdkVersion === "string" && report.sdkVersion === lockedSdkVersion, "runtime-version");
+    check(["26"].includes(process.versions.node.split(".")[0]) && typeof lockedSdkVersion === "string" && report.sdkVersion === lockedSdkVersion, "runtime-version");
     const collectorDirectory = path.join(run, "collector");
     await mkdir(collectorDirectory);
     collector = await startCollector({ directory: collectorDirectory });

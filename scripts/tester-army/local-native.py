@@ -309,7 +309,7 @@ def main():
     save(out / 'receipt.json', receipt)
     try:
         node = subprocess.run([CONFIG['nodePath'], '--version'], env=safe_env(), capture_output=True, text=True, timeout=10)
-        require(node.returncode == 0 and re.fullmatch(r'v(?:24|26)\.\d+\.\d+\s*', node.stdout), 'Native Node 24 or 26 required')
+        require(node.returncode == 0 and re.fullmatch(r'v26\.\d+\.\d+\s*', node.stdout), 'Native Node 26 required')
         cli = subprocess.run([str(CLI), '--version'], env=safe_env(), capture_output=True, text=True, timeout=15)
         pinned = json.loads((ROOT / 'package.json').read_text())['devDependencies']['supabase']
         require(cli.returncode == 0 and cli.stdout.strip() == pinned and re.fullmatch(r'\d+\.\d+\.\d+', pinned), 'Native CLI version differs from exact repository pin')

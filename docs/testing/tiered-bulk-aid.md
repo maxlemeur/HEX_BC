@@ -107,7 +107,7 @@ Remove-Item Env:BULK_AID_FUNCTIONS_JSON -ErrorAction SilentlyContinue
 node scripts/test-tiered-bulk-aid-sql.mjs
 ```
 
-Le runtime PGlite est celui déjà installé pour la recette, Node 24 LTS. Si ce
+Le runtime PGlite est celui déjà installé pour la recette, Node 26.12.1 de `.nvmrc`. Si ce
 cache local n'existe pas dans un autre checkout, fournir son propre module PGlite
 via `PGLITE_MODULE`. Aucun secret, .env.local ou connexion Supabase n'est lu.
 

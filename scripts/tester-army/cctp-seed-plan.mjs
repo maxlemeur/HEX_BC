@@ -41,7 +41,7 @@ export async function newCctpPlan({ campaign, owner, prefix, apiUrl, approvalRef
   plan.records = await cctpRecords(plan); return plan;
 }
 export async function cctpRecords(plan) {
-  // Node24 strips this module's erasable TypeScript natively. Using tsx here
+  // Node 26 strips this module's erasable TypeScript natively. Using tsx here
   // would require esbuild for both Windows and the SQL helper's Linux host.
   const imported = await import(pathToFileURL(path.join(root, "src/lib/affaires/intake.ts")).href);
   const intake = imported.default ?? imported;
