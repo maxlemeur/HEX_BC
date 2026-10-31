@@ -6,6 +6,10 @@ import {
   listEstimateImportSectionsResultSchema, listEstimateImportSourcesResultSchema,
 } from "@/lib/estimates/section-copy-contracts";
 import { importLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
+import {
+  priceReuseApplyInputSchema, priceReuseApplySchema, priceReuseArbitrationInputSchema, priceReuseArbitrationSchema,
+  priceReusePreviewInputSchema, priceReusePreviewSchema,
+} from "@/lib/estimates/price-reuse-contracts";
 import { z } from "zod";
 
 import { purchaseOrderItemHistorySchema } from "@/lib/purchase-orders/schemas";
@@ -364,6 +368,42 @@ const estimateWorkflowContracts: RouteContract[] = [
     body: { schema: importEstimateSectionsSchema, description: "Version source, sections et mode d'import." },
     success: [{ status: "201", description: "Réponse validée du parcours de copie/import.",
       schema: { schemaName: "ImportEstimateSectionsResponse", schema: z.object({ ok: z.literal(true), data: importEstimateSectionsResponseSchema }), io: "output" } }],
+  },
+  {
+    id: "preview-estimate-price-reuse",
+    method: "post",
+    path: "/api/estimates/{versionId}/price-reuse/preview",
+    summary: "Comparer avec un devis de reference",
+    description: "Lecture seule (docs/metier/reprise-des-prix.md). Rapproche les lignes chiffrables (priced, not_priced) de la version cible moteur 3 des lignes chiffrees d'un autre devis moteur 3 accessible : identical (memes cotes, mots et unite), to_review (candidats sans cote contraire, ecarts nommes, ou plusieurs prix pour le meme article), new. Une cote differente (DN, dimension, epaisseur, classe) ou une autre unite exclut un article. preselected seulement pour un article identique sans prix saisi. arbiters indique la disponibilite de Decisions et du forfait ChatGPT, sans appel. Moteur 1/2 : 409 PRICE_REUSE_ENGINE_UNSUPPORTED.",
+    tags: ["Estimates"],
+    pathParameters: [versionIdParameter],
+    body: { schema: priceReusePreviewInputSchema, description: "Version de reference." },
+    success: [{ status: "200", description: "Comparaison des lignes avec la reference.",
+      schema: { schemaName: "PreviewEstimatePriceReuseResponse", schema: z.object({ ok: z.literal(true), data: priceReusePreviewSchema }), io: "output" } }],
+  },
+  {
+    id: "arbitrate-estimate-price-reuse",
+    method: "post",
+    path: "/api/estimates/{versionId}/price-reuse/arbitration",
+    summary: "Departager les lignes a verifier",
+    description: "Sans ecriture. Recalcule la comparaison et n'envoie au fournisseur choisi que les lignes encore to_review avec leurs candidats (100 au plus par demande). decisions : API Decisions facturee separement, seulement si MERGEONE_OPENAI_DECISIONS=1 et une cle serveur ; chatgpt : forfait ChatGPT de MergeOne local. Chaque reponse est une proposition (reference_line_id ou null, confiance) ; aucun repli d'un fournisseur vers l'autre. Reference modifiee depuis la comparaison : 409 PRICE_REUSE_REFERENCE_CHANGED.",
+    tags: ["Estimates"],
+    pathParameters: [versionIdParameter],
+    body: { schema: priceReuseArbitrationInputSchema, description: "Reference, fournisseur et lignes a departager." },
+    success: [{ status: "200", description: "Propositions de l'arbitre, a confirmer.",
+      schema: { schemaName: "ArbitrateEstimatePriceReuseResponse", schema: z.object({ ok: z.literal(true), data: priceReuseArbitrationSchema }), io: "output" } }],
+  },
+  {
+    id: "apply-estimate-price-reuse",
+    method: "post",
+    path: "/api/estimates/{versionId}/price-reuse",
+    summary: "Reprendre les prix d'un devis de reference",
+    description: "Ecriture atomique du brouillon moteur 3 par l'ecrivain de lot v3, au jeton If-Match exact, avec un bail de page actif et la cle operation_key. Pour chaque ligne choisie, copie les saisies de prix de l'article de reference (nature, statut chiffre, PR FO, type FO, K FO, heures par unite, majoration, K MO, roles de main-d'oeuvre repris par leur nom chez le proprietaire de l'affaire) ; jamais la quantite, la designation, l'unite, la TVA ni la categorie. Le devis de reference n'est pas ecrit. La comparaison est recalculee : seul un candidat courant, sur une ligne comparee, peut etre ecrit (409 PRICE_REUSE_SELECTION_STALE). Refus nommes, rien n'est ecrit : brouillon modifie depuis la comparaison (target_updated_at) 409 PRICE_REUSE_TARGET_CHANGED, reference modifiee 409 PRICE_REUSE_REFERENCE_CHANGED, unite differente 409 PRICE_REUSE_UNIT_MISMATCH, role absent ou ambigu 422 PRICE_REUSE_LABOR_ROLE_MISSING / PRICE_REUSE_LABOR_ROLE_AMBIGUOUS, recu de plus de 2 Mio 413 PRICE_REUSE_TOO_LARGE. Une offre fournisseur retenue sur la ligne est detachee. lines compare le PU de vente obtenu a celui de la reference.",
+    tags: ["Estimates"],
+    pathParameters: [versionIdParameter],
+    body: { schema: priceReuseApplyInputSchema, description: "Reference a son jeton de comparaison, cle et lignes retenues." },
+    success: [{ status: "200", description: "Prix repris et PU de vente obtenus.",
+      schema: { schemaName: "ApplyEstimatePriceReuseResponse", schema: z.object({ ok: z.literal(true), data: priceReuseApplySchema }), io: "output" } }],
   },
   {
     id: "duplicate-estimate-section",

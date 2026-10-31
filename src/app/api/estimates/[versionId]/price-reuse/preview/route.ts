@@ -1,0 +1,26 @@
+import { z } from "zod";
+
+import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { priceReusePreviewInputSchema } from "@/lib/estimates/price-reuse-contracts";
+import { previewPriceReuse } from "@/lib/estimates/price-reuse-server";
+
+const versionIdParamSchema = z.object({ versionId: z.string().uuid("versionId invalide.") });
+
+async function parseJsonBody(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    throw badRequest("Payload JSON invalide.");
+  }
+}
+
+/** Comparaison en lecture seule avec un devis de référence (docs/metier/reprise-des-prix.md). */
+export async function POST(request: Request, { params }: { params: Promise<{ versionId: string }> }) {
+  try {
+    const { versionId } = versionIdParamSchema.parse(await params);
+    const body = priceReusePreviewInputSchema.parse(await parseJsonBody(request));
+    return ok(await previewPriceReuse(versionId, body));
+  } catch (error) {
+    return toErrorResponse(error);
+  }
+}

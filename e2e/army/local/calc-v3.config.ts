@@ -6,9 +6,12 @@ import { web } from "@e2e-dev/web";
 import type { E2EConfig } from "e2e";
 
 import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector.mjs";
+import { assertInstalledDependencies } from "../../../scripts/tester-army/installed-dependencies.mjs";
 import {
   CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, isCalcV3Phase,
 } from "../../../scripts/tester-army/calc-v3-phases";
+
+assertInstalledDependencies();
 
 // Lot 2 profile on the owned ephemeral native stack only. It is started by
 // `scripts/run-tester-army-ci.ts calc-v3`, one TesterArmy invocation per phase;

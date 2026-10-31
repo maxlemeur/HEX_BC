@@ -12,13 +12,14 @@ import { fileURLToPath } from "node:url";
 import { Resend } from "resend";
 import { COLLECTOR_SENTINEL, startCollector } from "./offer-collector.mjs";
 import { installOfferNetworkGuard } from "./offer-network-guard.mjs";
+import { assertInstalledDependencies } from "./installed-dependencies.mjs";
 
 // Cases fixed before this probe: ignored transport/.../three-origin-probe-cases.md
 // and docs/testing/offer-emission-local.md. This never calls product or native APIs.
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const check = (condition, code) => { if (!condition) throw new Error(`oracle:${code}`); };
 const git = (...args) => execFileSync("git", args, { cwd: process.cwd(), encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
-const sources = ["scripts/tester-army/check-offer-network-guard.mjs", "scripts/tester-army/offer-network-guard.mjs", "scripts/tester-army/offer-collector.mjs", "node_modules/resend/dist/index.mjs", "node_modules/resend/package.json"];
+const sources = ["scripts/tester-army/check-offer-network-guard.mjs", "scripts/tester-army/offer-network-guard.mjs", "scripts/tester-army/offer-collector.mjs", "scripts/tester-army/installed-dependencies.mjs", "package-lock.json", "node_modules/resend/dist/index.mjs", "node_modules/resend/package.json"];
 
 export async function probeOfferGuard({ directory, appOrigin, backendOrigin }) {
   const permittedRoot = path.resolve(".e2e/army/offer");
@@ -50,7 +51,9 @@ export async function probeOfferGuard({ directory, appOrigin, backendOrigin }) {
     report.cases.push({ id, expected, actual, status: "pass", startedAt, completedAt: new Date().toISOString() });
   }
   try {
-    check(["24", "26"].includes(process.versions.node.split(".")[0]) && report.sdkVersion === "6.17.2", "runtime-version");
+    report.toolchain = assertInstalledDependencies();
+    const lockedSdkVersion = JSON.parse(await readFile("package-lock.json", "utf8")).packages?.["node_modules/resend"]?.version;
+    check(["24", "26"].includes(process.versions.node.split(".")[0]) && typeof lockedSdkVersion === "string" && report.sdkVersion === lockedSdkVersion, "runtime-version");
     const collectorDirectory = path.join(run, "collector");
     await mkdir(collectorDirectory);
     collector = await startCollector({ directory: collectorDirectory });
@@ -81,12 +84,17 @@ export async function probeOfferGuard({ directory, appOrigin, backendOrigin }) {
       check(receipt.id === acceptedId && receipt.pdf.sha256 === sha(bytes) && sha(pdf) === sha(bytes), "receipt-before-ack");
       return { dataId: acceptedId, receiptCount: (await readdir(receiptRoot)).length, pdfSha256: sha(pdf) };
     });
-    await step("G2", "same-ID replay;409 conflict;422 Buffer with no extra receipt", async () => {
+    await step("G2", "same-ID replay;409 conflict;Buffer PDF accepted byte-for-byte;invalid PDF rejected", async () => {
       const replay = await sdk.emails.send(payload, { idempotencyKey: key });
       const conflict = await sdk.emails.send({ ...payload, subject: "DIFFERENT LOCAL SUBJECT" }, { idempotencyKey: key });
-      const buffer = await sdk.emails.send({ ...payload, attachments: [{ filename: "packet.pdf", content: bytes }] }, { idempotencyKey: `buffer/${randomUUID()}` });
-      check(replay.error === null && replay.data?.id === acceptedId && conflict.data === null && conflict.error?.name === "invalid_idempotent_request" && conflict.error?.statusCode === 409 && buffer.data === null && buffer.error?.statusCode === 422 && (await readdir(receiptRoot)).length === 1, "idempotency-buffer");
-      return { replaySameId: true, conflictStatus: 409, bufferStatus: 422, receiptCount: 1 };
+      const bufferKey = `buffer/${randomUUID()}`;
+      // Resend 6.37 encodes Buffer contents to base64 before sending. Keep a
+      // malformed binary counterexample to prove the collector still rejects it.
+      const buffer = await sdk.emails.send({ ...payload, attachments: [{ filename: "packet.pdf", content: bytes }] }, { idempotencyKey: bufferKey });
+      const invalid = await sdk.emails.send({ ...payload, attachments: [{ filename: "packet.pdf", content: Buffer.from("not a PDF") }] }, { idempotencyKey: `invalid/${randomUUID()}` });
+      const bufferPdf = await readFile(path.join(receiptRoot, sha(bufferKey), "private", "attachment.pdf"));
+      check(replay.error === null && replay.data?.id === acceptedId && conflict.data === null && conflict.error?.name === "invalid_idempotent_request" && conflict.error?.statusCode === 409 && buffer.error === null && typeof buffer.data?.id === "string" && sha(bufferPdf) === sha(bytes) && invalid.data === null && invalid.error?.statusCode === 422 && (await readdir(receiptRoot)).length === 2, "idempotency-buffer");
+      return { replaySameId: true, conflictStatus: 409, bufferStatus: "accepted", bufferPdfSha256: sha(bufferPdf), invalidStatus: 422, receiptCount: 2 };
     });
     await step("G3", "dummy app actual loopback HTTP and exact-port socket aliases only", async () => {
       const response = await fetch(`${appOrigin}/health`);
@@ -118,8 +126,8 @@ export async function probeOfferGuard({ directory, appOrigin, backendOrigin }) {
       await collector.close();
       const before = guard.stats.denied;
       const result = await sdk.emails.send(payload, { idempotencyKey: `stopped/${randomUUID()}` });
-      check(result.data === null && result.error?.name === "application_error" && result.error?.statusCode === null && guard.stats.denied === before && (await readdir(receiptRoot)).length === 1, "stopped-sdk");
-      return { listenerClosed: true, sdkError: result.error.name, statusCode: result.error.statusCode, externalFallbackAttempts: 0, receiptCount: 1 };
+      check(result.data === null && result.error?.name === "application_error" && result.error?.statusCode === null && guard.stats.denied === before && (await readdir(receiptRoot)).length === 2, "stopped-sdk");
+      return { listenerClosed: true, sdkError: result.error.name, statusCode: result.error.statusCode, externalFallbackAttempts: 0, receiptCount: 2 };
     });
     report.status = "pass";
   } catch (error) {

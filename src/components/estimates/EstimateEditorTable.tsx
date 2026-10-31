@@ -299,6 +299,7 @@ type EstimateEditorTableProps = {
   onOpenBulkSuggestDialog: () => void;
   onOpenSupplierPreselectionDialog: () => void;
   onOpenImportFromEstimateDialog?: () => void;
+  onOpenPriceReuseDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
   onOpenGeneratedOuvrageDialog?: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
@@ -929,6 +930,7 @@ export function EstimateEditorTable({
   onOpenBulkSuggestDialog,
   onOpenSupplierPreselectionDialog,
   onOpenImportFromEstimateDialog,
+  onOpenPriceReuseDialog,
   onOpenEstimateStructureDraftDialog,
   onOpenGeneratedOuvrageDialog,
   onReorder,
@@ -2517,6 +2519,7 @@ export function EstimateEditorTable({
                 }
                 onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
                 onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
+                onOpenPriceReuseDialog={onOpenPriceReuseDialog}
                 onOpenEstimateStructureDraftDialog={
                   onOpenEstimateStructureDraftDialog
                 }

@@ -7,6 +7,20 @@ installer Chromium avec `npx @e2e-dev/web install chromium --with-deps`.
 macOS et Linux sont utilisables ; sous Windows, préférer un checkout WSL avec
 ses propres dépendances. Docker et un login Supabase distant sont inutiles.
 
+Avant les tests, le contrôle `check:installed-dependencies` vérifie Node et les
+versions des paquets installés par rapport au manifeste et au lockfile. Il
+refuse une installation manquante ou décalée avant de lancer les parcours ;
+les manifestes TesterArmy conservent les versions réellement résolues du SDK,
+du moteur web et du pilote Playwright. Ce contrôle compare les versions, il ne
+vérifie pas l'intégrité de chaque fichier installé. En cas d'écart, utiliser le
+Node prévu et `npm ci` dans un checkout isolé ; ne pas remplacer les dépendances
+d'un serveur en cours d'utilisation.
+
+Depuis TesterArmy 0.22, un agent utilisant la vision peut recevoir des captures
+même après la saisie d'un secret. Les champs sécurisés sont masqués, mais une
+valeur affichée en clair peut apparaître : réserver les parcours avec modèle à
+des données et comptes de test autorisés.
+
 ## Exécuter et développer
 
 ```sh

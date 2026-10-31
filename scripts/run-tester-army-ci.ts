@@ -28,6 +28,7 @@ import {
 } from "./tester-army/journey-preflight.mjs";
 import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
+import { assertInstalledDependencies } from "./tester-army/installed-dependencies.mjs";
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "dev-loop", "calc-v3", "explore"].includes(suite)) {
@@ -703,6 +704,7 @@ async function main() {
     process.on("SIGTERM", terminateDevelopment);
   }
   try {
+    manifest.toolchain = assertInstalledDependencies(root);
     createLocalCiEnvironment(process.env);
     // An open (or stale) loop shares .e2e/army/next and .e2e/army/critical with every run of this checkout.
     if (suite !== "dev-loop" && fs.existsSync(path.join(root, DEV_LOOP_STATE_FILE))) {

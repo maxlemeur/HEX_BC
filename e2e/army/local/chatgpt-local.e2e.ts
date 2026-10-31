@@ -17,6 +17,7 @@ import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import { buildTakeoffUploadPath, deriveDeterministicJobId, prepareTakeoffUploadSource } from "@/lib/takeoff/job-creation-input";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
+import { verifyPriceReuseArbitration } from "./engine-v3-price-reuse-support";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 
 let localServer: ChildProcess;
@@ -897,6 +898,36 @@ test("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and 
     await restrictCriticalBrowser(browser, ui.app, army);
     await verifyV3TakeoffCreation(ui, army, { userId, tenantId: member.data!.tenant_id },
       path.resolve(`.e2e/army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`));
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+// Reprise des prix (docs/metier/reprise-des-prix.md) : Decisions et le forfait ChatGPT ne reçoivent que les lignes
+// à vérifier, leurs réponses restent des propositions jusqu'à ce que l'utilisateur les retienne.
+if (!existsSync(liveProbePath)) test("PRX02 Decisions and the ChatGPT plan arbitrate only the price reuse lines to review, as proposals", {
+  tags: ["critical", "local", "chatgpt", "engine-v3"], session: "army", timeout: 600_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("PRX02 requires its own temporary ChatGPT fixture.");
+  try {
+    const account = { ...credentials.user("army"), username: fixtureEmail };
+    await app.open(`${localOrigin}/login`);
+    await screen.getByLabel("Email", { exact: true }).fill(account.username);
+    await screen.getByLabel(/Mot de passe/).fill(account.password);
+    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard/);
+    const { client, userId } = await localClient();
+    const member = await client.from("tenant_memberships").select("tenant_id").eq("user_id", userId).single();
+    expect(member.error).toBeNull();
+    const prefix = `ARMY-local-prx-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = { app: { ...app, baseUrl: localOrigin, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    await restrictCriticalBrowser(browser, ui.app, army);
+    const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    await verifyPriceReuseArbitration(ui, army, { userId, tenantId: member.data!.tenant_id }, readTransport);
+    expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;

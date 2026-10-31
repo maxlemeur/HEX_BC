@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import {
+  applyEstimatePriceReuse,
   applyEstimateStructureDraft,
   fetchEstimateEditorData,
   fetchAffaireLinkedDpgfSource,
@@ -26,8 +27,24 @@ import {
   type ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/client";
 import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import type { PriceReuseApplyInput, PriceReuseApplyResult } from "@/lib/estimates/price-reuse-contracts";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
+
+const euros = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+
+/** Résumé de l'éditeur : les PU de vente différents de la référence (coefficients, taux horaires) sont nommés. */
+function describePriceReuseResult(result: PriceReuseApplyResult) {
+  const applied = `${result.applied_count} prix repris depuis le devis de référence.`;
+  const unchanged = result.unchanged_count > 0 ? ` ${result.unchanged_count} ligne(s) avaient déjà ce prix.` : "";
+  const different = result.lines.filter((line) => line.reference_pu_ht_cents !== null && line.pu_ht_cents !== null &&
+    line.reference_pu_ht_cents !== line.pu_ht_cents);
+  if (different.length === 0) return applied + unchanged;
+  const listed = different.slice(0, 5).map((line) =>
+    `« ${line.title} » ${euros.format(line.pu_ht_cents! / 100)} au lieu de ${euros.format(line.reference_pu_ht_cents! / 100)}`).join(" ; ");
+  return `${applied}${unchanged} PU de vente différent de la référence (coefficients ou taux horaires de ce devis) : ${listed}` +
+    `${different.length > 5 ? ` et ${different.length - 5} autre(s)` : ""}.`;
+}
 
 const LINKED_DPGF_LOAD_ERROR =
   "Impossible de charger la source DPGF de l'affaire.";
@@ -39,7 +56,11 @@ const BARRIER_BLOCKED_MESSAGE =
 export type EstimateEditorImportMutation =
   | "estimate-sections"
   | "structure-draft"
-  | "linked-dpgf";
+  | "linked-dpgf"
+  | "price-reuse";
+
+/** Reprise des prix confirmée dans le dialogue (docs/metier/reprise-des-prix.md). */
+export type EstimateEditorPriceReuseInput = PriceReuseApplyInput;
 
 type LinkedDpgfSourceLoader = (
   projectId: string,
@@ -78,6 +99,7 @@ export type EstimateEditorImportController = {
     isImportingDpgfSource: boolean;
     isImportFromEstimateDialogOpen: boolean;
     isEstimateStructureDraftDialogOpen: boolean;
+    isPriceReuseDialogOpen: boolean;
     importSummaryMessage: string | null;
     activeMutation: EstimateEditorImportMutation | null;
   };
@@ -91,6 +113,9 @@ export type EstimateEditorImportController = {
     ) => Promise<void>;
     openEstimateStructureDraftDialog: () => boolean;
     closeEstimateStructureDraftDialog: () => void;
+    openPriceReuseDialog: () => boolean;
+    closePriceReuseDialog: () => void;
+    confirmPriceReuse: (input: EstimateEditorPriceReuseInput) => Promise<void>;
     applyEstimateStructureDraft: (
       draftId: string,
       input: ApplyEstimateStructureDraftPayload
@@ -120,6 +145,7 @@ type ScopedImportUiState = {
   scopeKey: string;
   isImportFromEstimateDialogOpen: boolean;
   isEstimateStructureDraftDialogOpen: boolean;
+  isPriceReuseDialogOpen: boolean;
   isStructureDraftAutoOpenConsumed: boolean;
   importSummaryMessage: string | null;
   activeMutation: EstimateEditorImportMutation | null;
@@ -171,6 +197,7 @@ function createEmptyImportUiState(scopeKey: string): ScopedImportUiState {
     scopeKey,
     isImportFromEstimateDialogOpen: false,
     isEstimateStructureDraftDialogOpen: false,
+    isPriceReuseDialogOpen: false,
     isStructureDraftAutoOpenConsumed: false,
     importSummaryMessage: null,
     activeMutation: null,
@@ -256,6 +283,9 @@ export function useEstimateEditorImportController({
     ? scopedImportUiState.isEstimateStructureDraftDialogOpen ||
       shouldAutoOpenStructureDraft
     : shouldAutoOpenStructureDraft;
+  const isPriceReuseDialogOpen = isImportUiStateCurrent
+    ? scopedImportUiState.isPriceReuseDialogOpen
+    : false;
   const importSummaryMessage = isImportUiStateCurrent
     ? scopedImportUiState.importSummaryMessage
     : null;
@@ -701,6 +731,46 @@ export function useEstimateEditorImportController({
     [runStructuralMutation]
   );
 
+  const openPriceReuseDialog = useCallback(() => {
+    if (!canOpenDialog()) return false;
+    setScopedImportUiState({
+      ...createEmptyImportUiState(scopeKey),
+      isPriceReuseDialogOpen: true,
+      isStructureDraftAutoOpenConsumed: true,
+    });
+    return true;
+  }, [canOpenDialog, scopeKey]);
+
+  const closePriceReuseDialog = useCallback(() => {
+    if (!isControllerScopeCurrent() || routeVersionIdRef.current !== routeVersionId) return;
+    setScopedImportUiState((previous) =>
+      previous.scopeKey === scopeKey
+        ? { ...previous, isPriceReuseDialogOpen: false }
+        : previous
+    );
+  }, [isControllerScopeCurrent, routeVersionId, scopeKey]);
+
+  const confirmPriceReuse = useCallback(
+    async (input: EstimateEditorPriceReuseInput) => {
+      await runStructuralMutation<PriceReuseApplyResult>({
+        kind: "price-reuse",
+        actionLabel: "reprendre les prix du devis de référence",
+        failureMessage: "Impossible de reprendre les prix.",
+        tokenRefreshFailureMessage:
+          "Impossible de rafraichir le jeton de version après la reprise des prix.",
+        execute: (versionId) => {
+          const token = getVersionSnapshot()?.updated_at;
+          if (!token) throw new ExpectedImportOperationError(STALE_OPERATION_MESSAGE);
+          return applyEstimatePriceReuse(versionId, input, token);
+        },
+        getResultVersionId: (result) => result.version.id,
+        getVersionToken: (result) => result.version,
+        buildSummary: (result) => describePriceReuseResult(result),
+      });
+    },
+    [getVersionSnapshot, runStructuralMutation]
+  );
+
   const openEstimateStructureDraftDialog = useCallback(() => {
     if (!canOpenDialog()) return false;
     setScopedImportUiState({
@@ -789,6 +859,7 @@ export function useEstimateEditorImportController({
       isImportingDpgfSource,
       isImportFromEstimateDialogOpen,
       isEstimateStructureDraftDialogOpen,
+      isPriceReuseDialogOpen,
       importSummaryMessage,
       activeMutation,
     }),
@@ -797,6 +868,7 @@ export function useEstimateEditorImportController({
       importSummaryMessage,
       isEstimateStructureDraftDialogOpen,
       isImportFromEstimateDialogOpen,
+      isPriceReuseDialogOpen,
       isImportingDpgfSource,
       isLoadingLinkedDpgfSource,
       linkedDpgfSource,
@@ -813,6 +885,9 @@ export function useEstimateEditorImportController({
       confirmImportFromEstimate,
       openEstimateStructureDraftDialog,
       closeEstimateStructureDraftDialog,
+      openPriceReuseDialog,
+      closePriceReuseDialog,
+      confirmPriceReuse,
       applyEstimateStructureDraft: applyStructureDraft,
       clearImportSummary,
     }),
@@ -821,10 +896,13 @@ export function useEstimateEditorImportController({
       clearImportSummary,
       closeEstimateStructureDraftDialog,
       closeImportFromEstimateDialog,
+      closePriceReuseDialog,
       confirmImportFromEstimate,
+      confirmPriceReuse,
       importLinkedDpgfSource,
       openEstimateStructureDraftDialog,
       openImportFromEstimateDialog,
+      openPriceReuseDialog,
       refreshLinkedDpgfSource,
     ]
   );

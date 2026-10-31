@@ -45,6 +45,7 @@
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
+      "e2e/army/local/engine-v3-price-reuse.e2e.ts",
       "e2e/army/local/estimate-copy-large-v2.e2e.ts",
       "e2e/army/local/estimate-copy-row-limit.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
@@ -254,6 +255,7 @@
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
+      "e2e/army/local/engine-v3-price-reuse.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
       "e2e/army/local/legacy-editor-parity.e2e.ts",
@@ -877,6 +879,20 @@
       ]
     },
     {
+      "id": "price-reuse",
+      "note": "Reprise des prix d'un devis de référence : rapprochement, arbitrage Decisions/ChatGPT et écriture v3 (docs/metier/reprise-des-prix.md).",
+      "paths": [
+        "src/lib/estimates/price-reuse-*.ts",
+        "src/app/api/estimates/[versionId]/price-reuse/**",
+        "src/components/estimates/PriceReuseDialog.tsx",
+        "e2e/army/local/engine-v3-price-reuse-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/engine-v3-price-reuse.e2e.ts"
+      ]
+    },
+    {
       "id": "chatgpt-local",
       "note": "Connexion personnelle locale : profil, consentement OAuth et refus récupérable, sans abonnement réel en CI.",
       "paths": [
@@ -891,7 +907,8 @@
         "e2e/army/local/chatgpt-server-support.ts",
         "e2e/army/local/engine-v3-takeoff-journey.ts",
         "e2e/army/local/engine-v3-creators.e2e.ts",
-        "e2e/army/local/engine-v3-creators-support.ts"
+        "e2e/army/local/engine-v3-creators-support.ts",
+        "e2e/army/local/engine-v3-price-reuse-support.ts"
       ],
       "journeys": [
         "e2e/army/local/chatgpt-local.e2e.ts",

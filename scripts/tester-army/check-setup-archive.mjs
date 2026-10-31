@@ -107,6 +107,7 @@ async function fixture(name) {
   await writeFile(path.join(cwd, "scripts/run-tester-army.mjs"), runnerBytes);
   if (helperBytes) await writeFile(path.join(cwd, "scripts/tester-army/setup-failure-archive.mjs"), helperBytes);
   await cp(path.join(root, "scripts/tester-army/coverage-evidence.mjs"), path.join(cwd, "scripts/tester-army/coverage-evidence.mjs"));
+  await cp(path.join(root, "scripts/tester-army/installed-dependencies.mjs"), path.join(cwd, "scripts/tester-army/installed-dependencies.mjs"));
   await cp(path.join(root, "scripts/tester-army/local-recipe-common.mjs"), path.join(cwd, "scripts/tester-army/local-recipe-common.mjs"));
   await cp(path.join(root, "scripts/tester-army/shared-write-guard.mjs"), path.join(cwd, "scripts/tester-army/shared-write-guard.mjs"));
   await writeFile(path.join(cwd, "scripts/tester-army/coverage-profile.mjs"), 'export async function loadCoverageProfile(){if(process.env.E2E_ARMY_BASE_URL?.startsWith("invalid-"))throw new Error("profile setup failed for password "+process.env.E2E_LOGIN_PASSWORD);return {env:{},metadata:{scenarioSet:"harness-only",fixture:{scope:"no business/auth"}},evidence:[]};}\n');
@@ -116,6 +117,20 @@ async function fixture(name) {
   await writeFile(path.join(cwd, "node_modules/e2e/dist/cli/bin.js"), fixtureCli);
   await mkdir(path.join(cwd, "e2e/army"), { recursive: true });
   for (const file of ["e2e.config.ts", "next.config.ts", "tsconfig.json", "package.json", "package-lock.json"]) await writeFile(path.join(cwd, file), file.endsWith(".json") ? "{}\n" : "export {};\n");
+  // A valid synthetic installation lets this archive harness exercise the
+  // same dependency preflight as a real invocation.
+  const dependencies = { "@next/env": "1.0.0" };
+  const devDependencies = { "e2e": "0.22.0", "@e2e-dev/web": "0.15.4", "playwright": "1.64.1" };
+  const manifest = { name: "archive-fixture", version: "1.0.0", engines: { node: `^${process.versions.node}` }, dependencies, devDependencies };
+  const packageVersions = { ...dependencies, ...devDependencies, "playwright-core": "1.64.1" };
+  const packages = Object.fromEntries(Object.entries(packageVersions).map(([name, version]) => [`node_modules/${name}`, { version }]));
+  await writeFile(path.join(cwd, "package.json"), JSON.stringify(manifest));
+  await writeFile(path.join(cwd, "package-lock.json"), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, packages: { "": manifest, ...packages } }));
+  for (const [name, version] of Object.entries(packageVersions)) {
+    const directory = path.join(cwd, "node_modules", name);
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "package.json"), JSON.stringify({ name, version }));
+  }
   // The real wrapper imports and executes the journey preflight before setup.
   // Mount its actual collectors and documented exclusions; the fixture CLI
   // still owns all test execution, without a browser or backend.
@@ -164,6 +179,16 @@ async function test(name, body) {
   try { await body(f); results.push({ name, status: "passed", directory: relative(f.cwd) }); }
   catch (error) { results.push({ name, status: "failed", directory: relative(f.cwd), error: error.message }); }
 }
+
+await test("stale-installation-stops-before-sdk", async f => {
+  await writeFile(path.join(f.cwd, "node_modules/e2e/package.json"), JSON.stringify({ name: "e2e", version: "0.21.3" }));
+  const run = await execute(f, "missing");
+  assert.notEqual(run.exitCode, 0);
+  assert.equal(run.manifest.result.status, "evidence_unavailable");
+  assert.match(run.manifest.result.error, /e2e/);
+  assert.equal(run.manifest.report, undefined);
+  assert.ok(!run.stdout.includes("setup stdout"), "the fixture SDK must not start");
+});
 
 await test("absent-and-second-invocation", async f => {
   await mkdir(path.join(f.output, "logs")); await writeFile(path.join(f.output, "logs/app.log"), `PREVIOUS INVOCATION ${secret}\n`);
@@ -219,6 +244,8 @@ await test("application-log-junction", async f => {
 await test("fresh-success-contract", async f => {
   await mkdir(path.join(f.output, "artifacts/business"), { recursive: true }); await writeFile(path.join(f.output, "artifacts/business/ARMY-OLD-stale.json"), '{"marker":"STALE-BUSINESS"}\n');
   const run = await execute(f, "fresh"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "passed"); assert.equal((await failures(f)).length, 0);
+  const pilotPaths = run.manifest.source.pilotInputs.map(entry => entry.path);
+  assert.equal(new Set(pilotPaths).size, pilotPaths.length, "coverage proof must contain each input exactly once");
   const archiveDirectory = path.join(f.cwd, run.manifest.archive.path);
   const archived = JSON.parse(await readFile(path.join(archiveDirectory, "manifest.json"), "utf8")); assert.equal(archived.report.sha256, digest(await readFile(path.join(f.cwd, archived.report.path)))); assert.equal(archived.result.summary.passed, 2);
   assert.deepEqual(run.manifest.evidenceRoots, { sdk: ".e2e/army/coverage/results", business: ".e2e/army/coverage/artifacts" });

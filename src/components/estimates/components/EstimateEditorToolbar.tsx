@@ -53,6 +53,7 @@ export type EstimateEditorToolbarProps = {
   onOpenSupplierPreselectionDialog: () => void;
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
+  onOpenPriceReuseDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
   onOpenGeneratedOuvrageDialog?: () => void;
   onExpandAllSections?: () => void;
