@@ -57,6 +57,10 @@ Le premier périmètre comprend :
 - Cockpit : sur demande explicite, conseil parmi les candidats reconstruits côté
   serveur et encore visibles dans le cockpit. Les actions épinglées sont
   préservées. La réponse n’exécute rien et ne réordonne aucune liste en cours.
+- Reprise des prix : sur demande explicite dans l’éditeur, choix parmi les articles
+  candidats d’un devis de référence pour les seules lignes « à vérifier »
+  (question `choice`, valeur « aucun » admise). La proposition ne coche aucune ligne
+  et n’écrit rien ; voir [Reprise des prix](../metier/reprise-des-prix.md).
 
 L’adaptateur utilise `gpt-6-luna` et `POST /v1/decisions`. Il valide séparément
 chaque réponse, ses choix et ses scores. Une réponse absente, invalide ou refusée

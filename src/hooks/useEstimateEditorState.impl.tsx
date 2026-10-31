@@ -37,6 +37,7 @@ import {
   type EstimateSectionDuplicateTarget,
 } from "@/components/estimates/EstimateEditorTable";
 import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
+import type { PriceReuseDialog } from "@/components/estimates/PriceReuseDialog";
 import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateV3GridModel } from "@/components/estimates/v3/V3LineCells";
@@ -256,6 +257,7 @@ export type EstimateEditorStateModel = {
         importFromEstimateDialogProps:
           | ComponentProps<typeof ImportFromEstimateDialog>
           | null;
+        priceReuseDialogProps: ComponentProps<typeof PriceReuseDialog> | null;
         estimateStructureDraftDialogProps:
           | ComponentProps<typeof EstimateStructureDraftDialog>
           | null;
@@ -1663,6 +1665,7 @@ export function useEstimateEditorState({
     isImportingDpgfSource,
     isImportFromEstimateDialogOpen,
     isEstimateStructureDraftDialogOpen,
+    isPriceReuseDialogOpen,
     importSummaryMessage,
   } = importController.state;
   const {
@@ -1675,8 +1678,15 @@ export function useEstimateEditorState({
     closeEstimateStructureDraftDialog:
       closeEstimateStructureDraftDialogAction,
     applyEstimateStructureDraft: handleConfirmEstimateStructureDraftDialog,
+    openPriceReuseDialog: openPriceReuseDialogAction,
+    closePriceReuseDialog,
+    confirmPriceReuse: handleConfirmPriceReuse,
     clearImportSummary,
   } = importController.actions;
+  const handleOpenPriceReuseDialog = useCallback(() => {
+    clearImportSummary();
+    openPriceReuseDialogAction();
+  }, [clearImportSummary, openPriceReuseDialogAction]);
   const {
     hasLinkedDpgfSource,
     isImportDpgfSourceDisabled: isImportControllerDpgfSourceDisabled,
@@ -2256,6 +2266,8 @@ export function useEstimateEditorState({
       // Lot 3.2, entrée 1 (D-b) : v3, conversion ligne ↔ section par un lot de l'écrivain v3.
       onConvertItems: isV3 ? handleConvertItems : undefined,
       onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
+      // Reprise des prix d'un devis de référence : écrivain de lot v3 seulement (docs/metier/reprise-des-prix.md).
+      onOpenPriceReuseDialog: isV3 ? handleOpenPriceReuseDialog : undefined,
       onOpenEstimateStructureDraftDialog: handleOpenEstimateStructureDraftDialog,
       onOpenGeneratedOuvrageDialog: handleOpenGeneratedOuvrageDialog,
       onDeleteItem: handleDeleteItem,
@@ -2313,6 +2325,7 @@ export function useEstimateEditorState({
       handleDuplicateSectionToVersion,
       handleConvertItems,
       handleOpenImportFromEstimateDialog,
+      handleOpenPriceReuseDialog,
       handleOpenEstimateStructureDraftDialog,
       handleOpenGeneratedOuvrageDialog,
       handleApplyBulkMajoration,
@@ -2679,6 +2692,15 @@ export function useEstimateEditorState({
     ]
   );
 
+  const priceReuseDialogProps = useMemo<ComponentProps<typeof PriceReuseDialog> | null>(
+    () =>
+      isPriceReuseDialogOpen && version
+        ? { isOpen: true, targetVersionId: version.id, onClose: closePriceReuseDialog, onConfirm: handleConfirmPriceReuse,
+            prepareComparison: () => ensureGroupedActionCanProceed("comparer avec le devis de référence") }
+        : null,
+    [closePriceReuseDialog, ensureGroupedActionCanProceed, handleConfirmPriceReuse, isPriceReuseDialogOpen, version]
+  );
+
   const estimateStructureDraftDialogProps = useMemo<
     ComponentProps<typeof EstimateStructureDraftDialog> | null
   >(
@@ -2788,6 +2810,7 @@ export function useEstimateEditorState({
       bulkSuggestDialogProps,
       supplierPreselectionDialogProps,
       importFromEstimateDialogProps,
+      priceReuseDialogProps,
       estimateStructureDraftDialogProps,
       generatedOuvrageDialogProps,
       versionZeroDraftDialogProps,

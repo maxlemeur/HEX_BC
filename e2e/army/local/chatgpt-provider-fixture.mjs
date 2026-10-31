@@ -123,7 +123,10 @@ globalThis.fetch = async (input, init) => {
     const answers = request.questions.map((question) => {
       if (question.type === "choice") {
         const preferred = question.name.startsWith("document_") ? "plans" : "sources";
-        const choice = question.choices.find((candidate) => candidate.value === preferred) ?? question.choices[0];
+        // Reprise des prix (PRX02) : le dernier candidat, différent de la proposition du rapprochement (le premier).
+        const choice = question.name.startsWith("ligne_")
+          ? question.choices.filter((candidate) => candidate.value !== "aucun").at(-1)
+          : question.choices.find((candidate) => candidate.value === preferred) ?? question.choices[0];
         return { name: question.name, type: "choice", choice: choice.value, confidence: 0.8,
           probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === choice.value ? 1 : 0 })) };
       }
@@ -180,6 +183,19 @@ globalThis.fetch = async (input, init) => {
   if (url.pathname === "/v1/models") return Response.json({ models: [{ slug: "army-plan-model", display_name: "ARMY plan model", visibility: "list" }] });
   assert.equal(url.pathname, "/v1/responses");
   assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
+  // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».
+  const priceReuseSchema = body.input.find(entry => entry.role === "developer")?.content;
+  if (typeof priceReuseSchema === "string" && priceReuseSchema.includes("\"price_reuse_answers\"")) {
+    const prompt = body.input.find(entry => entry.role === "user")?.content?.find(part => part.type === "input_text")?.text ?? "";
+    const evidence = JSON.parse(prompt.split("\n").at(-1));
+    const answers = evidence.lignes.map(line => ({ ligne: line.ligne, choix: line.choix.at(-2), confiance: 0.7 }));
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG,
+      JSON.stringify({ provider: "chatgpt-fixture", task: "price-reuse", lines: answers.length, model: body.model }) + "\n");
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ price_reuse_answers: answers }) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 12, output_tokens: 6, total_tokens: 18 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
   assert(sourceMatched(), "Uploaded source must reach the plan request.");
   const data = { items: [{ designation: "ARMY copper pipe", quantity: 12.5, unit: "m", source_page: 1 }], warnings: [],
     metadata: { level: "A", prompt_version: "takeoff-a-v1", file_type: "csv", schema_version: "v1" } };

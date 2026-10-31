@@ -76,6 +76,13 @@ const ImportFromEstimateDialog = dynamic(
     })),
   { ssr: false, loading: () => null }
 );
+const PriceReuseDialog = dynamic(
+  () =>
+    import("@/components/estimates/PriceReuseDialog").then((module) => ({
+      default: module.PriceReuseDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
 const EstimateSendGatingDialog = dynamic(
   () =>
     import("@/components/estimates/EstimateSendGatingDialog").then((module) => ({
@@ -331,6 +338,11 @@ export function EstimateEditorPage({
       {readyMeta.importFromEstimateDialogProps ? (
         <div data-testid="estimate-editor-import-from-estimate-dialog-region">
           <ImportFromEstimateDialog {...readyMeta.importFromEstimateDialogProps} />
+        </div>
+      ) : null}
+      {readyMeta.priceReuseDialogProps ? (
+        <div data-testid="estimate-editor-price-reuse-dialog-region">
+          <PriceReuseDialog {...readyMeta.priceReuseDialogProps} />
         </div>
       ) : null}
       {readyMeta.estimateStructureDraftDialogProps ? (

@@ -114,6 +114,7 @@ export function EstimateEditorCommandBar({
   onOpenSupplierPreselectionDialog,
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
+  onOpenPriceReuseDialog,
   onOpenEstimateStructureDraftDialog,
   onOpenGeneratedOuvrageDialog,
   onExpandAllSections,
@@ -759,6 +760,22 @@ export function EstimateEditorCommandBar({
                         data-testid="estimate-editor-supplier-preselection-button"
                       >
                         Présélectionner les fournisseurs ({supplierPreselectionEligibleCount})
+                      </Button>
+                    ) : null}
+                    {onOpenPriceReuseDialog ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="md"
+                        className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
+                        onClick={() => {
+                          displayClose();
+                          onOpenPriceReuseDialog();
+                        }}
+                        disabled={meta.isReadOnly}
+                        data-testid="estimate-editor-price-reuse-button"
+                      >
+                        Reprendre les prix d’un devis
                       </Button>
                     ) : null}
                   </div>
