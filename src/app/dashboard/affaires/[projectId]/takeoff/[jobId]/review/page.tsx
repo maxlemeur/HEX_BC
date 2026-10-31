@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 
 type Props = {
@@ -21,10 +19,7 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
   if (!enabled) notFound();
 
   return (
-    <div className="min-w-0 space-y-4">
-      <TakeoffRouteHierarchyBanner
-        descriptor={buildTakeoffRouteHierarchy({ kind: "affaire_review" })}
-      />
+    <div className="min-w-0">
       <TakeoffReviewPage
         jobId={jobId}
         versionId={versionId}

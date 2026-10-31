@@ -151,7 +151,6 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
   if (!latestJob || !radarData || radarData.items.length === 0) {
     return (
       <EmptyState
-        headingLevel={2}
         icon={<CircleAlertIcon aria-hidden="true" />}
         title="Aucune exception"
         description="Aucun signal de risque ne remonte pour cette version."

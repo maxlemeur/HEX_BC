@@ -11,7 +11,7 @@ import {
 } from "@/components/affaires/AffaireProjectDetailsCard";
 import { BlueprintCreationAnimation } from "@/components/affaires/BlueprintCreationAnimation";
 import { ProjectIconPicker, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
-import { PageHeader } from "@/components/layout/page-header";
+import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { Button } from "@/components/ui/button";
 
 const INITIAL_METADATA: AffaireProjectDetailsValues = {
@@ -74,9 +74,10 @@ export function AffaireOnboardingClient() {
           />
         )}
       </AnimatePresence>
-      <PageHeader
+      <JourneyPageHeader
         title="Nouvelle affaire"
-        description="Nommez l'affaire pour la créer : vous ajouterez ensuite les pièces (DPGF, plans, CCTP)."
+        stage="Cadrage"
+        context="Nommez l'affaire pour la créer : vous ajouterez ensuite les pièces (DPGF, plans, CCTP)."
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
           { label: "Nouvelle affaire" },

@@ -12,6 +12,7 @@ import { buildPilotageExceptions, type PilotageAction } from "./AffairePilotageP
 import { buildAffaireJourney, type JourneyInput, type JourneyStage } from "./AffaireJourneyPanel.model";
 import { AffaireFinishLineActions } from "./AffaireFinishLineActions";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
+import "@/components/journey/journey.css";
 import "./AffaireJourneyPanel.css";
 
 type Props = JourneyInput & {

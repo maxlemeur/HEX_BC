@@ -41,7 +41,6 @@ export default function TakeoffApplicationHistoryTab({
   if (jobs.length === 0) {
     return (
       <EmptyState
-        headingLevel={2}
         icon={<ClockIcon aria-hidden="true" />}
         title="Aucune application"
         description="Aucune extraction n’a encore été appliquée au devis."

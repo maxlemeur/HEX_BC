@@ -1,0 +1,109 @@
+/* « Parcours » language of the affaire journey (hub redesign of 29-30/10/2026):
+   one panel that says what to do now, facts beside it, the rest folded away. */
+.journey-page { min-width: 0; }
+.journey-page > * + * { margin-top: 24px; }
+
+.journey-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
+.journey-page-heading > div:first-child { min-width: 0; }
+.journey-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.journey-page-title { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.025em; color: var(--foreground); overflow-wrap: anywhere; }
+.journey-tag { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 4px; background: var(--info-subtle); color: var(--primary); font-size: 10px; font-weight: 550; line-height: 1.2; white-space: nowrap; }
+.journey-page-context { margin-top: 8px; max-width: 640px; font-size: 13px; line-height: 1.6; color: var(--muted-foreground); }
+.journey-page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+
+.journey-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: 24px; align-items: start; }
+.journey-panel, .journey-facts { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.journey-panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.journey-panel-heading h2 { font-size: 14px; font-weight: 600; }
+.journey-panel-heading > span { color: var(--muted-foreground); font-size: 11px; }
+.journey-panel-body { padding: 24px; }
+
+/* The one thing to do now: a title, a sentence, one primary button. */
+.journey-next > h3 { font-size: 23px; font-weight: 600; line-height: 1.3; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.journey-description { font-size: 13px; color: var(--muted-foreground); line-height: 1.7; margin: 12px 0 20px; }
+.journey-next > .journey-description:last-child { margin-bottom: 0; }
+
+.journey-facts { padding: 30px 26px; }
+.journey-facts > h3 { text-transform: uppercase; font-size: 10px; letter-spacing: .1em; color: var(--muted-foreground); font-weight: 600; }
+.journey-facts > dl { margin: 24px 0; }
+.journey-facts > dl > div { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 23px; font-size: 12px; }
+.journey-facts > dl dt { color: var(--muted-foreground); }
+.journey-facts > dl dd { font-weight: 550; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.journey-facts-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.journey-facts > .journey-help { margin-top: 18px; }
+
+.journey-text-action { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; background: transparent; border: 0; color: var(--primary); font-size: 12px; font-weight: 550; cursor: pointer; }
+.journey-text-action:hover { text-decoration: underline; text-underline-offset: 3px; }
+.journey-text-action:disabled { color: var(--muted-foreground); cursor: default; text-decoration: none; }
+/* Controls of this language that carry no focus style of their own (house buttons and fields do). */
+.journey-text-action:focus-visible, .journey-view-switch > button:focus-visible, .journey-help > summary:focus-visible, .journey-rail button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+.journey-issues { margin-top: 24px; }
+.journey-issue { display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--warning-border); background: var(--warning-subtle); border-radius: 7px; padding: 15px; }
+.journey-issue strong, .journey-additional-issue strong { font-size: 12px; font-weight: 600; }
+.journey-issue p, .journey-additional-issue p { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; margin: 5px 0; }
+.journey-issue-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); margin-top: 6px; flex-shrink: 0; }
+.journey-issue-dot.journey-critical { background: var(--danger); }
+.journey-additional-issue { padding: 12px 0; border-top: 1px solid var(--border); }
+
+.journey-number { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 50%; font-size: 12px; }
+.journey-number.journey-done { background: var(--success-subtle); color: var(--success); border-color: transparent; }
+.journey-number.journey-current { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+
+/* Explanations and expert settings stay one quiet line until opened. */
+.journey-help { border-top: 1px solid var(--border); }
+.journey-help > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 12px 0; font-size: 12px; color: var(--muted-foreground); cursor: pointer; list-style: none; }
+.journey-help > summary::-webkit-details-marker { display: none; }
+.journey-help > summary:hover { color: var(--foreground); }
+.journey-help > summary > svg { flex-shrink: 0; transition: transform 150ms ease-out; }
+.journey-help[open] > summary > svg { transform: rotate(180deg); }
+.journey-help > div { padding: 0 0 18px; font-size: 12px; line-height: 1.7; color: var(--muted-foreground); }
+.journey-help > div > * + * { margin-top: 10px; }
+.journey-help dt { color: var(--foreground); font-weight: 600; }
+.journey-help dd + dt { margin-top: 10px; }
+
+/* Rows of a list inside a panel, separated by hairlines. */
+.journey-list { border-top: 1px solid var(--border); }
+.journey-list > * + * { border-top: 1px solid var(--border); }
+
+/* A panel's folded filters. */
+.journey-filters[hidden] { display: none; }
+.journey-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; padding: 16px 24px 20px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
+
+/* A result count read as a quiet line of the page rather than as the foot of a filter bar. */
+.journey-result-row .table-filter-bar__status { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 4px 12px; padding: 0; background: none; border: 0; border-radius: 0; text-align: left; }
+
+/* Views of one panel (Analyses, Exceptions, Historique). */
+.journey-view-switch { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.journey-view-switch > button { min-height: 32px; padding: 6px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); font-size: 12px; font-weight: 500; cursor: pointer; }
+.journey-view-switch > button:hover { color: var(--foreground); }
+.journey-view-switch > button[aria-selected=true] { background: var(--info-subtle); color: var(--primary); font-weight: 600; }
+
+/* Numbered rail of a short sequence (wizard steps). */
+.journey-rail { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; }
+.journey-rail > li { display: flex; flex: 1; align-items: center; min-width: 0; font-size: 12px; color: var(--muted-foreground); }
+.journey-rail > li:last-child { flex: 0 0 auto; }
+.journey-rail > li:not(:last-child)::after { content: ""; flex: 1; height: 1px; min-width: 16px; margin: 0 18px; background: var(--border); }
+.journey-rail button { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 36px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; white-space: nowrap; }
+.journey-rail button:not(:disabled) { cursor: pointer; }
+.journey-rail button:not(:disabled):hover { color: var(--foreground); }
+.journey-rail .journey-number { width: 26px; height: 26px; font-size: 11px; }
+.journey-rail [aria-current=step] { color: var(--primary); font-weight: 600; }
+
+@media (max-width: 900px) { .journey-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; } }
+@media (max-width: 639.98px) {
+  .journey-page > * + * { margin-top: 18px; }
+  .journey-page-heading { flex-direction: column; gap: 14px; margin-bottom: 20px; }
+  .journey-page-actions { justify-content: flex-start; }
+  .journey-page-title { font-size: 22px; }
+  .journey-panel-heading { padding: 18px; }
+  .journey-panel-body { padding: 18px; }
+  .journey-next > h3 { font-size: 20px; }
+  .journey-facts { padding: 24px 20px; }
+  .journey-filters { padding: 14px 18px 18px; grid-template-columns: minmax(0, 1fr); }
+  .journey-rail > li:not(:last-child)::after { margin: 0 8px; }
+  /* Only the current step keeps a visible label; the others stay named for assistive tech. */
+  .journey-rail button > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .journey-rail [aria-current=step] > span:last-child { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+}
+@media (prefers-reduced-motion: reduce) { .journey-help > summary > svg { transition: none; } }

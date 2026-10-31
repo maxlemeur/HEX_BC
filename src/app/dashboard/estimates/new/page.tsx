@@ -1,4 +1,5 @@
 import { NewEstimatePage } from "@/components/estimates/NewEstimatePage";
+import { fetchAffaireProjectBasic } from "@/lib/affaires/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 
@@ -17,11 +18,16 @@ export default async function NewEstimateRoutePage({ searchParams }: Readonly<Ne
   const projectIdValue = resolvedSearchParams.projectId;
   const projectId = (Array.isArray(projectIdValue) ? projectIdValue[0] : projectIdValue) || undefined;
   const { supabase, tenantId } = await getAuthenticatedContext();
-  const policy = await readTenantCalcPolicy(supabase, tenantId);
+  const [policy, project] = await Promise.all([
+    readTenantCalcPolicy(supabase, tenantId),
+    // The breadcrumb names the affaire; one that cannot be read keeps the generic label.
+    projectId ? fetchAffaireProjectBasic(projectId).catch(() => null) : null,
+  ]);
 
   return (
     <NewEstimatePage
       projectId={projectId}
+      projectName={project?.name ?? null}
       creationEngine={{
         engine: policy.engine,
         saleCoefficientFo: policy.defaultSaleCoefficientFo,

@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation";
 
-import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
+import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
-import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireHubPlansSummary,
@@ -15,7 +14,6 @@ import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { countLegacyPlanSets } from "@/lib/takeoff/flow-hierarchy";
 import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
-import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -86,45 +84,47 @@ export default async function AffaireTakeoffPage({ params }: Props) {
   });
 
   return (
-    <div className="min-w-0">
-      <TakeoffActivityCenter
-        projectId={projectId}
-        ribbonHeader={
-          <ProductionRibbonHeader
-            breadcrumbs={[
-              { label: "Affaires", href: "/dashboard/affaires" },
-              {
-                label: project.name,
-                href: `/dashboard/affaires/${projectId}`,
-              },
-              { label: "Métrés" },
-            ]}
-            title="Centre d'activité — Métrés"
-            description="Analyses de plans, exceptions et historique d'application"
-          />
-        }
-        ribbonPreamble={
-          <>
-            <TakeoffRouteHierarchyBanner
-              descriptor={buildTakeoffRouteHierarchy({
-                kind: "affaire_takeoff",
-              })}
-            />
-            <TakeoffFlowHierarchyPanel
-              currentKind="adjacent"
-              legacyPlanSetCount={countLegacyPlanSets(planSets)}
-            />
-          </>
-        }
-        versions={versions}
-        launchContext={launchContext}
-        planSets={planSets.map((ps) => ({
-          id: ps.id,
-          name: ps.name,
-          metadata: ps.metadata,
-          fileCount: ps.file_count,
-        }))}
-      />
-    </div>
+    <TakeoffActivityCenter
+      projectId={projectId}
+      header={
+        <JourneyPageHeader
+          breadcrumbs={[
+            { label: "Affaires", href: "/dashboard/affaires" },
+            {
+              label: project.name,
+              href: `/dashboard/affaires/${projectId}`,
+            },
+            { label: "Métrés" },
+          ]}
+          title="Métrés"
+          stage="Étude"
+          context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
+        />
+      }
+      help={
+        <TakeoffFlowHierarchyPanel
+          currentKind="adjacent"
+          legacyPlanSetCount={countLegacyPlanSets(planSets)}
+        />
+      }
+      versions={versions}
+      launchContext={launchContext}
+      latestJobContext={
+        plansSummary?.latestJob
+          ? {
+              jobId: plansSummary.latestJob.jobId,
+              reviewVersionId: plansSummary.latestJob.reviewVersionId,
+              failureReasonLabel: plansSummary.failureReasonLabel,
+            }
+          : null
+      }
+      initialHasAnalyses={Boolean(plansSummary?.latestJob)}
+      planSets={planSets.map((ps) => ({
+        id: ps.id,
+        name: ps.name,
+        metadata: ps.metadata,
+        fileCount: ps.file_count,
+      }))}
+    />
   );
 }
