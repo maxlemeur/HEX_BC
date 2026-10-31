@@ -86,9 +86,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .next/cache/eslint
-          key: eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tools/next-eslint-root-glob/**') }}-${{ github.event.pull_request.base.sha || github.sha }}
+          key: eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tools/next-eslint-root-glob/**', 'tools/minimatch-v3-api/**') }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
-            eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tools/next-eslint-root-glob/**') }}-
+            eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tools/next-eslint-root-glob/**', 'tools/minimatch-v3-api/**') }}-
 
       # Les etapes tournent meme si une precedente echoue : une PR voit ainsi
       # tous ses problemes en une passe au lieu d'un par aller-retour.

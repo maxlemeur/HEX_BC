@@ -374,3 +374,116 @@ Le test de sauvegarde passe aussi depuis un checkout sans `outputs` préexistant
 Preuves canoniques : `.e2e/patch-integration-20261023/ci/2026-10-23T09-26-25-366Z-critical/` ;
 la révision testée et les assertions d'export y sont conservées. Le worktree de vérification
 a été retiré. Aucune migration distante ni publication n'a été effectuée pour ce lot.
+
+## Audit des dépendances — minimatch, 31/10/2026
+
+- GHSA-g3hv-75wg-m249 (npm 1244012, modérée) vise toutes les versions avant 11.0.1 : au
+  niveau d'optimisation 2 ou plus, minimatch multiplie les `globParts` quand `**` précède
+  `..`. 11.0.3 plafonne le nombre de ces parties à 100 000, pas leur taille ; minimatch 3.1.5,
+  qui n'a pas ce prétraitement, est signalé par sa seule plage de versions. Les copies 5.x et
+  10.x passent déjà à 11.0.3. Restait minimatch 3.1.5 pour eslint-plugin-import 2.32.0,
+  -jsx-a11y 6.10.2 et -react 7.37.5 (dernières versions) et pour glob 7.2.3, chargé par
+  archiver-utils 2.1.0/3.0.4 et rimraf 2.7.1 sous exceljs 4.4.0. Ces appelants utilisent
+  l'API 3.x (fonction, `.default` Babel, `makeRe`, internes de `Minimatch`) et cassent si on
+  leur donne simplement minimatch 11.
+- Aucune exception d'audit : une version corrigée existe. Comme pour le paquet Next du
+  10/10, des overrides ciblés installent deux paquets locaux qui délèguent tout appariement
+  aux versions corrigées, déclarées en dépendances et donc vues par l'audit (alias
+  `minimatch-11` et `glob-14`). Aucun code de minimatch 3, 5 ou 10 n'est recopié.
+- `tools/minimatch-v3-api` fournit `minimatch(chemin, motif, options)`,
+  `new Minimatch(motif).match(chemin)` et `makeRe(motif).test(chemin)`. Il accepte les
+  options `nocomment`, `nonegate`, `noglobstar`, `nobrace`, `noext`, `dot`, `nocase`,
+  `matchBase` et `flipNegate`, puis apparie avec minimatch 11.0.3 au niveau 0, hors du
+  prétraitement plafonné. Toute autre option, dont `optimizationLevel`, lève une TypeError.
+  Il lève aussi une TypeError pour chaque construction où le différentiel trouve deux
+  réponses. Comme 3.1.5 et 11.0.3, il lit parenthèses, extglobs et échappements portion par
+  portion, entre deux `/`. Sont refusés : classes non simples et `[.]` ; `*`, `?`, `+`, `@`
+  ou `!` suivis de `]`, ou de `)` ou `|` hors extglob, que 3.1.5 reporte après ce caractère
+  (`\[*]` et `(*)`, forme des segments Next.js `[id]` et `(groupe)`, `*]`, `(a*|b)`) ;
+  extglob précédé de `*`, vide (`@()`), non fermé dans sa portion (`@(src/*)`) ou `!(…)`
+  suivi d'autres caractères ; `@` échappé et `\` devant un terminateur de ligne ; `|` ou `)`
+  isolés ; accolades après `${` ou contenant `{}` ; `**` adjacents ou plus de deux ; portions
+  `.`, `..` ou pointées selon le motif ; caractère non ASCII avec `nocase` ; caractère hors
+  du plan de base dans le chemin. Il refuse aussi plus de 64 extglobs imbriqués, avant la
+  récursion de 11.0.3. `makeRe` refuse de plus une première portion non littérale, `**`, une
+  classe, `!(…)`, `matchBase`, `flipNegate` et un chemin non normalisé ou contenant un
+  terminateur de ligne ; comme 3.1.5, il renvoie `false` pour un
+  commentaire, un motif vide ou des accolades sans alternative (`{,}`). Sous Windows : UNC
+  et casse du lecteur. Le refus « deux `**` et une portion pointée » dépasse les écarts
+  trouvés : un motif construit depuis une racine pointée, comme un worktree sous
+  `~/Projects/.workspaces/`, échoue alors pour chaque fichier. Aucune règle activée
+  n'appelle le paquet.
+- `tools/glob-v7-api` fournit à rimraf `glob(motif, options, rappel)`, `sync` et
+  `hasMagic` avec glob 14.0.3. glob 14 n'utilise pas le minimatch 11.0.3 installé à côté de
+  lui mais sa propre copie embarquée (11.0.1 ou plus, corrigée) : un futur correctif de
+  minimatch demandera aussi une nouvelle version de glob. Le paquet passe `nocase: false` sur
+  toutes les plateformes : glob 14 ignore la casse par défaut sous macOS et Windows, glob 7
+  jamais, et rimraf y supprimait `Ab.txt` pour `a*`. Il accepte `nosort` et `silent` et se
+  limite aux motifs où glob 7.2.3 et 14.0.3 renvoient les mêmes fichiers. Il refuse
+  notamment les accolades après `${`, que glob 14 développe et non glob 7, et une portion
+  littérale après `**` : glob 7 la cherche par `stat`, selon la casse du système de
+  fichiers, alors que glob 14 compare les noms. Il refuse aussi `**` avec des accolades et
+  les accolades qui pourraient former un `**`, ainsi que `?` : glob 14 y lit un point de code et
+  glob 7 une unité UTF-16, si bien que les noms à caractères astraux (`a😀.txt`) divergent.
+  `hasMagic` répond vrai partout où glob 7 peut voir un caractère de motif (`[1]`, `{a}`,
+  `a{,}b`, `a(b)`…) : rimraf vérifie d'abord le chemin, supprime littéralement un chemin
+  existant comme glob 7, et envoie un chemin absent vers ces refus au lieu de le traiter
+  silencieusement comme littéral. archiver-utils reçoit directement glob
+  14.0.3 : son seul appel, `glob.sync` dans `file.expand`, existe encore mais ne trie plus
+  les fichiers ; archiver 5 et zip-stream 4 ne l'appellent jamais. glob 14 apparie au
+  niveau 2 : aucun motif non fiable ne doit atteindre `file.expand` ni un autre appel direct
+  de glob 14.
+- Exécution : avec la configuration du dépôt, les plugins chargent le paquet sans l'appeler
+  (lint instrumenté : 15 chargements, 0 appel). exceljs charge rimraf et archiver-utils sans
+  globber : il n'utilise pas unzipper.Extract, qui ne remplace d'ailleurs aucun chemin existant.
+  La clé du cache ESLint de la CI inclut `tools/minimatch-v3-api/**`, comme le paquet du 10/10.
+- Le lock, pas npm, garde les plugins sur `minimatch-v3-api`. Avec `install-links=true`, npm
+  tient tout paquet installé nommé `minimatch` pour conforme à un override `file:` vers un
+  dossier (`linkValid` d'arborist). Les overrides de rimraf et du 10/10 tiennent, faute
+  d'autre glob ou fast-glob accessible depuis leur consommateur ; un minimatch 11.0.3 placé
+  sur le chemin des plugins les capte. `npm install`, `npm ci`, l'ajout d'une dépendance et
+  le passage d'eslint-config-next à 16.4.2 gardent le paquet ; `npm dedupe` et un lock
+  recalculé sans l'actuel le perdent, sans avis d'audit ni dépendance invalide. Une mise à
+  jour, y compris de Dependabot, qui déplace un de ces minimatch a le même effet. Seul le
+  premier cas de `src/test/minimatch-compat.test.ts` (`test:ci:node`) le détecte : ce test
+  doit rester. Réparation vérifiée sur les deux dérives : dans `package-lock.json`, copier
+  chaque minimatch réel que résolvent les plugins (`node_modules/minimatch` ou
+  `node_modules/eslint-config-next/node_modules/minimatch`) sous chacun de ses autres
+  consommateurs (`<consommateur>/node_modules/minimatch`), supprimer l'entrée d'origine,
+  puis lancer `npm install` et ce test.
+- Validation locale, Node 26.12.1 : les 5 241 réponses enregistrées de minimatch 3.1.5,
+  `hasMagic` de glob 7.2.3, les suppressions de rimraf 2.7.1 (intégrité du lock), 15 cas
+  de règles des vrais plugins et 26 constructions enregistrées avec 3.1.5 et 11.0.3 sont
+  reproduits. Une revue adverse a montré que la première version du paquet répondait
+  autrement que 3.1.5, sans erreur, pour `\[*]`, `(*)`, `*]`, `(a*|b)`, `[.]`, `${`, `{,}`
+  et des caractères Unicode : 276 écarts sur les 661 005 comparaisons de son corpus des
+  plugins, 1 378 avec les cas ajoutés pour ces constructions. Une seconde revue a trouvé
+  l'extglob fermé dans une portion suivante, l'extglob vide, `\` devant un terminateur de
+  ligne, `{}` près d'une alternative vide, un terminateur de ligne dans un test `makeRe` et
+  la casse de `glob-v7-api` sous macOS et Windows ; une troisième, `?` sur les noms astraux et
+  un `hasMagic` plus étroit que glob 7. Avec les refus ci-dessus, ce corpus
+  étendu (729 423 comparaisons), 3 millions de comparaisons aléatoires, un second fuzz
+  (900 000 appariements POSIX et Windows, 600 000 tests `makeRe`, 10 822 globbings),
+  7,2 millions de comparaisons d'un fuzz à états et 1,85 million tirées des fichiers, imports
+  et noms JSX du dépôt ne montrent plus qu'égalité ou TypeError ; sous macOS, sur une
+  arborescence à casse mixte, `glob-v7-api` renvoie les fichiers de glob 7.2.3 ou une
+  TypeError. Ce résultat vaut pour les entrées testées ; ce n'est pas une preuve
+  d'équivalence, et `glob-v7-api` n'a pas été exécuté sous Windows. `npm ci` est
+  reproductible, il ne reste dans le graphe npm aucun minimatch avant 11.0.1 et l'audit
+  passe sans exception (4 avis faibles deepmerge). Lint et typecheck sont verts, les tests
+  aussi, sauf ceux dont le serveur 127.0.0.1 reçoit le `GET /` que l'application T3 Code
+  envoie à chaque nouvel écouteur local de ce Mac : pdf-generator (« uploads once after a
+  CPU render outlives the pooled connection ») et, selon les passes, source-reference-storage
+  (« closes a success stream on the first byte beyond 50 MiB »). Le build et les 4 parcours
+  XLSX passent. La CI Linux reste à vérifier sur le SHA poussé.
+- Retrait : `minimatch-v3-api` quand les trois plugins acceptent minimatch 11.0.1 ou plus ;
+  `glob-v7-api` quand exceljs ne passe plus par rimraf 2 et fstream ; l'override
+  d'archiver-utils quand son archiver accepte glob 14. Les clés d'override visent toutes les
+  versions et leurs chemins `file:` supposent la profondeur actuelle des consommateurs
+  (`node_modules/eslint-config-next/node_modules/<plugin>`, `node_modules/rimraf`) : une
+  nouvelle version ou un déplacement de l'un d'eux demande une revue. Next 16.4.3 embarque
+  encore du code de minimatch 3, compilé dans `next/dist/compiled/glob` et
+  `next/dist/compiled/serve-handler`, hors graphe npm (l'audit ne le voit pas), sans le
+  prétraitement de niveau 2 et hors de ce lot : « aucun minimatch avant 11.0.1 » vaut pour
+  le graphe npm. Ce complément ne modifie ni les dispositions historiques ni les artefacts
+  canoniques du scan.

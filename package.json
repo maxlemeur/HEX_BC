@@ -92,6 +92,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@mergeone/glob-v7-api": "file:tools/glob-v7-api",
     "@react-email/components": "^1.0.8",
     "@react-pdf/renderer": "^4.9.0",
     "@supabase/ssr": "^0.12.7",
@@ -122,6 +123,7 @@
   "devDependencies": {
     "@ai-sdk/openai": "4.0.106",
     "@e2e-dev/web": "0.15.4",
+    "@mergeone/minimatch-v3-api": "file:tools/minimatch-v3-api",
     "@mergeone/next-eslint-root-glob": "file:tools/next-eslint-root-glob",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
@@ -166,6 +168,21 @@
     },
     "eslint": {
       "minimatch": "11.0.3"
+    },
+    "eslint-plugin-import": {
+      "minimatch": "file:../../../../tools/minimatch-v3-api"
+    },
+    "eslint-plugin-jsx-a11y": {
+      "minimatch": "file:../../../../tools/minimatch-v3-api"
+    },
+    "eslint-plugin-react": {
+      "minimatch": "file:../../../../tools/minimatch-v3-api"
+    },
+    "archiver-utils": {
+      "glob": "14.0.3"
+    },
+    "rimraf": {
+      "glob": "file:../../tools/glob-v7-api"
     }
   }
 }
