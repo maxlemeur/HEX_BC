@@ -50,6 +50,7 @@
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",
     "prices:sofinther": "node --import tsx scripts/sofinther-prices.ts",
+    "takeoff:bench:check": "node --import tsx scripts/check-takeoff-bench.ts",
     "typecheck": "node scripts/typecheck.mjs",
     "pretest": "npm run check:installed-dependencies",
     "pretest:ci:node": "npm run check:installed-dependencies",
