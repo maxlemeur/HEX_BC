@@ -44,7 +44,7 @@ export const POLISH_ROUTES: PolishRoute[] = [
   {
     id: "affaire-takeoff",
     path: "/dashboard/affaires/:takeoffProjectId/takeoff",
-    heading: "Centre d'activité — Métrés",
+    heading: "Métrés",
     tags: ["affaires", "takeoff"],
   },
   {

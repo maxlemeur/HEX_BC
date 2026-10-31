@@ -12,9 +12,7 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/layout/empty-state";
 import {
-  CounterCard,
   PAGE_SIZE_OPTIONS,
   formatCount,
   formatTimestamp,
@@ -26,22 +24,12 @@ import {
   getStatusCss,
   isCoverageLow,
 } from "@/components/takeoff/takeoff-job-list-shared";
-import { FileTextIcon } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Card } from "@/components/ui/card";
 
 type Props = {
   projectId: string;
   data: TakeoffActivityCenterResponse;
-  emptyState?: {
-    title: string;
-    description: string;
-    actionLabel?: string;
-    actionHref?: string;
-    onAction?: () => void;
-  };
   onPageChange: (offset: number) => void;
   onPageSizeChange: (size: number) => void;
   pageSize: number;
@@ -52,7 +40,6 @@ type ActionKind = "reconcile" | "resubmit" | "cancel";
 export default function TakeoffJobsTable({
   projectId,
   data,
-  emptyState,
   onPageChange,
   onPageSizeChange,
   pageSize,
@@ -124,7 +111,12 @@ export default function TakeoffJobsTable({
   );
 
   const { jobs } = data;
-  const hasAnalyses = jobs.length > 0 || data.pagination.total > 0;
+  const smallestPageSize = PAGE_SIZE_OPTIONS[0];
+  // Page size and paging only matter once the list runs past one short page.
+  const showPaging =
+    data.pagination.total > smallestPageSize ||
+    pageSize !== smallestPageSize ||
+    data.pagination.offset > 0;
 
   const renderJobActions = (
     job: TakeoffActivityCenterResponse["jobs"][number],
@@ -194,30 +186,9 @@ export default function TakeoffJobsTable({
 
   return (
     <div>
-      {/* Counter cards */}
-      {hasAnalyses ? (
-        <div
-          className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
-          aria-live="polite"
-        >
-          <CounterCard
-            label="Analyses en cours"
-            value={data.counters.technicalJobs}
-          />
-          <CounterCard
-            label="Analyses exploitables"
-            value={data.counters.usableJobs}
-          />
-          <CounterCard
-            label="Exceptions bloquantes"
-            value={data.counters.blockingExceptionsJobs}
-          />
-        </div>
-      ) : null}
-
       {actionError ? (
         <div
-          className="rounded-xl border border-danger bg-danger-light p-3 text-sm text-danger mb-4"
+          className="mx-4 mt-4 rounded-xl border border-danger bg-danger-light p-3 text-sm text-danger sm:mx-6"
           role="alert"
         >
           {actionError}
@@ -226,7 +197,7 @@ export default function TakeoffJobsTable({
 
       {actionNotice ? (
         <div
-          className="mb-4 rounded-xl border border-warning-border bg-warning-light p-3 text-sm text-foreground-secondary"
+          className="mx-4 mt-4 rounded-xl border border-warning-border bg-warning-light p-3 text-sm text-foreground-secondary sm:mx-6"
           role="status"
         >
           {actionNotice}
@@ -234,33 +205,11 @@ export default function TakeoffJobsTable({
       ) : null}
 
       {jobs.length === 0 ? (
-        <EmptyState
-          headingLevel={2}
-          icon={<FileTextIcon aria-hidden="true" />}
-          title={emptyState?.title ?? "Aucune analyse trouvée"}
-          description={
-            emptyState?.description ?? "Aucune analyse n’est disponible."
-          }
-          action={
-            emptyState?.actionLabel ? (
-              emptyState.onAction ? (
-                <Button variant="primary" className="min-h-11 sm:min-h-9" onClick={emptyState.onAction}>
-                  {emptyState.actionLabel}
-                </Button>
-              ) : emptyState.actionHref ? (
-                <Link
-                  href={emptyState.actionHref}
-                  className={cn(buttonVariants({ variant: "primary" }), "min-h-11 sm:min-h-9")}
-                >
-                  {emptyState.actionLabel}
-                </Link>
-              ) : null
-            ) : null
-          }
-          className="px-4 py-10 sm:px-6 sm:py-12"
-        />
+        <p className="px-4 py-5 text-sm text-muted-foreground sm:px-6">
+          Aucune analyse à afficher.
+        </p>
       ) : (
-        <Card className="overflow-hidden">
+        <div>
           <div className="space-y-3 p-4 md:hidden">
             {jobs.map((job) => {
               const pendingAction = pendingActions[job.jobId];
@@ -306,17 +255,19 @@ export default function TakeoffJobsTable({
                     <Badge variant="neutral" size="sm">
                       {getProcessingStrategyLabel(job.processingStrategy)}
                     </Badge>
-                    <Badge
-                      variant={getProviderBatchStateBadgeVariant(
-                        job.providerBatchState
-                      )}
-                      size="sm"
-                    >
-                      {getProviderBatchStateLabel({
-                        strategy: job.processingStrategy,
-                        state: job.providerBatchState,
-                      })}
-                    </Badge>
+                    {job.processingStrategy === "sync" ? null : (
+                      <Badge
+                        variant={getProviderBatchStateBadgeVariant(
+                          job.providerBatchState
+                        )}
+                        size="sm"
+                      >
+                        {getProviderBatchStateLabel({
+                          strategy: job.processingStrategy,
+                          state: job.providerBatchState,
+                        })}
+                      </Badge>
+                    )}
                     {job.operatorState && job.operatorState !== "none" ? (
                       <Badge
                         variant={getOperatorStateBadgeVariant(
@@ -476,17 +427,20 @@ export default function TakeoffJobsTable({
                           >
                             {job.statusLabel}
                           </span>
-                          <Badge
-                            variant={getProviderBatchStateBadgeVariant(
-                              job.providerBatchState
-                            )}
-                            size="sm"
-                          >
-                            {getProviderBatchStateLabel({
-                              strategy: job.processingStrategy,
-                              state: job.providerBatchState,
-                            })}
-                          </Badge>
+                          {/* An immediate analysis has no provider batch: its badge would repeat the strategy. */}
+                          {job.processingStrategy === "sync" ? null : (
+                            <Badge
+                              variant={getProviderBatchStateBadgeVariant(
+                                job.providerBatchState
+                              )}
+                              size="sm"
+                            >
+                              {getProviderBatchStateLabel({
+                                strategy: job.processingStrategy,
+                                state: job.providerBatchState,
+                              })}
+                            </Badge>
+                          )}
                           <Badge
                             variant={getConfidenceBadgeVariant(
                               job.confidenceLabel
@@ -558,50 +512,52 @@ export default function TakeoffJobsTable({
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
             <p className="text-sm text-muted-foreground">
-              {formatCount(data.pagination.total)} analyses
+              {formatCount(data.pagination.total)} analyse{data.pagination.total > 1 ? "s" : ""}
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label
-                htmlFor="ac-page-size"
-                className="text-xs font-semibold text-muted-foreground"
-              >
-                Taille
-              </label>
-              <NativeSelect
-                id="ac-page-size"
-                size="sm" className="h-9 min-w-[88px]"
-                value={pageSize}
-                onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              >
-                {PAGE_SIZE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </NativeSelect>
-              <button
-                className={buttonVariants({ variant: "outline" })}
-                disabled={data.pagination.offset === 0}
-                onClick={() =>
-                  onPageChange(Math.max(0, data.pagination.offset - pageSize))
-                }
-              >
-                Précédent
-              </button>
-              <button
-                className={buttonVariants({ variant: "outline" })}
-                disabled={
-                  data.pagination.offset + pageSize >= data.pagination.total
-                }
-                onClick={() => onPageChange(data.pagination.offset + pageSize)}
-              >
-                Suivant
-              </button>
-            </div>
+            {showPaging ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <label
+                  htmlFor="ac-page-size"
+                  className="text-xs font-semibold text-muted-foreground"
+                >
+                  Taille
+                </label>
+                <NativeSelect
+                  id="ac-page-size"
+                  size="sm" className="h-9 min-w-[88px]"
+                  value={pageSize}
+                  onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                >
+                  {PAGE_SIZE_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </NativeSelect>
+                <button
+                  className={buttonVariants({ variant: "outline" })}
+                  disabled={data.pagination.offset === 0}
+                  onClick={() =>
+                    onPageChange(Math.max(0, data.pagination.offset - pageSize))
+                  }
+                >
+                  Précédent
+                </button>
+                <button
+                  className={buttonVariants({ variant: "outline" })}
+                  disabled={
+                    data.pagination.offset + pageSize >= data.pagination.total
+                  }
+                  onClick={() => onPageChange(data.pagination.offset + pageSize)}
+                >
+                  Suivant
+                </button>
+              </div>
+            ) : null}
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );

@@ -272,6 +272,7 @@ export function PlanFileUploadZone({
         ref={inputRef}
         type="file"
         name="plan-files"
+        aria-label="Plans PDF à ajouter"
         className="sr-only"
         accept={PLAN_PDF_ACCEPT}
         autoComplete="off"
@@ -285,7 +286,7 @@ export function PlanFileUploadZone({
         disabled={hasActiveUploads}
       />
 
-      {/* Drop zone */}
+      {/* Drop zone, named by its visible text, then by what it is (label in name) */}
       <div
         className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
           dragActive
@@ -294,7 +295,6 @@ export function PlanFileUploadZone({
         }`}
         role="button"
         tabIndex={hasActiveUploads ? -1 : 0}
-        aria-label="Zone de dépôt PDF. Glissez des fichiers ou appuyez pour sélectionner."
         aria-disabled={hasActiveUploads}
         onClick={() => !hasActiveUploads && inputRef.current?.click()}
         onKeyDown={(e) => {
@@ -336,6 +336,7 @@ export function PlanFileUploadZone({
         <p className="mt-1 text-xs text-muted-foreground">
           PDF uniquement — {PLAN_PDF_MAX_SIZE_LABEL} max par fichier
         </p>
+        <span className="sr-only">Zone de dépôt PDF</span>
       </div>
 
       {/* Upload entries */}

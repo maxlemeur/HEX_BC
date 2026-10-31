@@ -7,7 +7,8 @@ export type DashboardNavigationMode = "workspace";
 const PRODUCTION_WORKSPACE_ROUTE_PATTERNS = [
   /^\/dashboard\/estimates\/[^/]+\/edit(?:\/|$)/,
   /^\/dashboard\/estimates\/[^/]+\/takeoff(?:\/|$)/,
-  /^\/dashboard\/affaires\/[^/]+\/takeoff(?:\/|$)/,
+  // The affaire's métrés page is an ordinary journey page; its review stays a workspace.
+  /^\/dashboard\/affaires\/[^/]+\/takeoff\/[^/]+/,
 ];
 
 export function isProductionWorkspaceRoute(pathname: string): boolean {

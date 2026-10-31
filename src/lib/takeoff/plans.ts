@@ -926,6 +926,29 @@ export const fetchPlanSetsForProject = cache(async (projectId: string) => {
   return response.plan_sets;
 });
 
+/** Whether the affaire already has a métré analysis, as the hub's latest-job query sees it. */
+export const hasTakeoffAnalysisForProject = cache(async (projectId: string) => {
+  const parsedProjectId = parseWithSchema(
+    projectIdParamSchema,
+    projectId,
+    "project_id invalide."
+  );
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const { data, error } = await supabase
+    .from("takeoff_jobs" as never)
+    .select("id, estimate_versions!inner(project_id)" as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("estimate_versions.project_id" as never, parsedProjectId as never)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de vérifier les analyses de l'affaire.");
+  }
+
+  return data !== null;
+});
+
 export const fetchLinkedTakeoffJobs = cache(async (versionId: string) => {
   const parsedVersionId = parseWithSchema(
     versionIdParamSchema,

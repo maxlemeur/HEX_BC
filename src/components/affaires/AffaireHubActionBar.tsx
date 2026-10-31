@@ -70,12 +70,13 @@ export function AffaireHubActionBar({
     isEstimateAiDraftEnabled() &&
     (versionZeroSummary?.activeDraft || versionZeroSummary?.canGenerate);
 
+  // The journey panel below holds the page's single primary action: the bar stays secondary.
   return (
     <div className={cn("action-bar animate-fade-in stagger-1 max-sm:!grid max-sm:gap-2 lg:flex-nowrap lg:justify-end", freshStart ? "max-sm:grid-cols-2" : "max-sm:grid-cols-3")}>
       {showTakeoffInBar ? (
         <Link
           href={takeoffHref}
-          className={buttonVariants({ variant: freshStart ? "outline" : "primary", size: "md", className: "col-span-full min-h-11 w-full sm:min-h-9 sm:w-auto" })}
+          className={buttonVariants({ variant: "outline", size: "md", className: "col-span-full min-h-11 w-full sm:min-h-9 sm:w-auto" })}
         >
           Ouvrir les métrés
         </Link>
@@ -84,7 +85,7 @@ export function AffaireHubActionBar({
       <Link
         href={`/dashboard/estimates/${currentVersion.id}/edit`}
         className={cn(
-          buttonVariants({ variant: takeoffEnabled || freshStart ? "outline" : "primary", size: "md" }),
+          buttonVariants({ variant: "outline", size: "md" }),
           "min-h-11 sm:min-h-9",
           ACTION_CLASS
         )}

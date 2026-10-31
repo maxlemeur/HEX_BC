@@ -7,7 +7,7 @@ import {
   type EstimateCreationResult,
 } from "@/components/estimates/EstimateCreationWizard";
 import type { EstimateCreationEngine } from "@/components/estimates/estimate-creation-wizard/shared";
-import { PageHeader } from "@/components/layout/page-header";
+import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { useToast } from "@/components/ui-legacy/Toast";
 import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/client";
 
@@ -34,8 +34,9 @@ function describeTemplateConversion(conversion: InstantiateEstimateTemplateConve
 
 export function NewEstimatePage({
   projectId,
+  projectName = null,
   creationEngine,
-}: Readonly<{ projectId?: string; creationEngine: EstimateCreationEngine }>) {
+}: Readonly<{ projectId?: string; projectName?: string | null; creationEngine: EstimateCreationEngine }>) {
   const router = useRouter();
   const toast = useToast();
 
@@ -61,15 +62,16 @@ export function NewEstimatePage({
   const title = isExistingProject ? "Nouvelle version" : "Nouveau chiffrage";
 
   return (
-    <div className="animate-fade-in">
-      <PageHeader
+    <div className="journey-page animate-fade-in">
+      <JourneyPageHeader
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
-          ...(projectId ? [{ label: "Affaire", href: `/dashboard/affaires/${projectId}` }] : []),
+          ...(projectId ? [{ label: projectName ?? "Affaire", href: `/dashboard/affaires/${projectId}` }] : []),
           { label: title },
         ]}
         title={title}
-        description={
+        stage="Étude"
+        context={
           isExistingProject
             ? "Ajoutez une version à cette affaire."
             : "Créez un nouveau projet avec l’assistant de création."

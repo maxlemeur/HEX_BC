@@ -23,7 +23,6 @@ import {
 import { useEstimateCreationResources } from "@/components/estimates/hooks/useEstimateCreationResources";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/client";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
@@ -55,6 +54,7 @@ export function EstimateCreationWizard({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const projectNameInputRef = useRef<HTMLInputElement | null>(null);
   const quickCreateHintId = useId();
+  const stepHeadingId = useId();
 
   const {
     data,
@@ -170,115 +170,120 @@ export function EstimateCreationWizard({
         </Alert>
       )}
 
-      <Card className="p-5 sm:p-8">
-        <h2 className="mb-1 text-lg font-semibold text-foreground">
-          {STEPS[currentStep].label}
-        </h2>
-        <p className="mb-6 text-sm text-muted-foreground">
-          {currentStep === 1 && usesSaleCoefficients(creationEngine.engine)
-            ? V3_PRICING_STEP_DESCRIPTION
-            : STEPS[currentStep].description}
-        </p>
+      <section className="journey-panel" aria-labelledby={stepHeadingId}>
+        <header className="journey-panel-heading">
+          <h2 id={stepHeadingId}>{STEPS[currentStep].label}</h2>
+          <span>
+            Étape {currentStep + 1} sur {STEPS.length}
+          </span>
+        </header>
+        <div className="journey-panel-body">
+          <p className="mb-6 text-sm text-muted-foreground">
+            {currentStep === 1 && usesSaleCoefficients(creationEngine.engine)
+              ? V3_PRICING_STEP_DESCRIPTION
+              : STEPS[currentStep].description}
+          </p>
 
-        {currentStep === 0 && (
-          <ProjectStep
-            data={data}
-            errors={errors}
-            projectId={projectId}
-            projectNameInputRef={projectNameInputRef}
-            updateField={updateField}
-          />
-        )}
-        {currentStep === 1 && (
-          <PricingStep
-            data={data}
-            errors={errors}
-            engine={creationEngine.engine}
-            updateField={updateField}
-          />
-        )}
-        {currentStep === 2 && (
-          <ImportStep
-            data={data}
-            errors={errors}
-            projectId={projectId}
-            resources={resources}
-            updateField={updateField}
-          />
-        )}
+          {currentStep === 0 && (
+            <ProjectStep
+              data={data}
+              errors={errors}
+              projectId={projectId}
+              projectNameInputRef={projectNameInputRef}
+              updateField={updateField}
+            />
+          )}
+          {currentStep === 1 && (
+            <PricingStep
+              data={data}
+              errors={errors}
+              engine={creationEngine.engine}
+              updateField={updateField}
+            />
+          )}
+          {currentStep === 2 && (
+            <ImportStep
+              data={data}
+              errors={errors}
+              projectId={projectId}
+              resources={resources}
+              updateField={updateField}
+            />
+          )}
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-6">
-          <div className="flex items-center gap-3">
-            {currentStep > 0 && (
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={goBack}
-                disabled={isSubmitting}
-              >
-                Retour
-              </Button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            {!isLastStep && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="lg"
-                      onClick={handleQuickCreate}
-                      disabled={isSubmitting}
-                      aria-describedby={quickCreateHintId}
-                    />
-                  }
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-6">
+            <div className="flex items-center gap-3">
+              {currentStep > 0 && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={goBack}
+                  disabled={isSubmitting}
                 >
-                  Créer directement
-                </TooltipTrigger>
-                <TooltipContent>{QUICK_CREATE_HINT}</TooltipContent>
-              </Tooltip>
-            )}
-            {!isLastStep && (
-              <span id={quickCreateHintId} className="sr-only">
-                {QUICK_CREATE_HINT}
-              </span>
-            )}
+                  Retour
+                </Button>
+              )}
+            </div>
 
-            {isLastStep ? (
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                aria-busy={isSubmitting || undefined}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2Icon
-                      aria-hidden="true"
-                      className="animate-spin motion-reduce:animate-none"
-                    />
-                    Création…
-                  </>
-                ) : (
-                  "Créer le chiffrage"
-                )}
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={goNext}
-                disabled={isSubmitting}
-              >
-                Suivant
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {!isLastStep && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="lg"
+                        onClick={handleQuickCreate}
+                        disabled={isSubmitting}
+                        aria-describedby={quickCreateHintId}
+                      />
+                    }
+                  >
+                    Créer directement
+                  </TooltipTrigger>
+                  <TooltipContent>{QUICK_CREATE_HINT}</TooltipContent>
+                </Tooltip>
+              )}
+              {!isLastStep && (
+                <span id={quickCreateHintId} className="sr-only">
+                  {QUICK_CREATE_HINT}
+                </span>
+              )}
+
+              {isLastStep ? (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                  aria-busy={isSubmitting || undefined}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2Icon
+                        aria-hidden="true"
+                        className="animate-spin motion-reduce:animate-none"
+                      />
+                      Création…
+                    </>
+                  ) : (
+                    "Créer le chiffrage"
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={goNext}
+                  disabled={isSubmitting}
+                >
+                  Suivant
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </Card>
+      </section>
     </div>
   );
 }

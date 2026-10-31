@@ -13,7 +13,7 @@ import {
 
 import { useUiMode } from "@/hooks/useUiMode";
 import { useIsWideViewport } from "@/hooks/useIsTablet";
-import { PageHeader } from "@/components/layout/page-header";
+import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { cn } from "@/lib/utils";
@@ -627,21 +627,31 @@ export function AffairesPageClient({
 
   const hasPrevPage = cursorStack.length > 0;
   const hasNextPage = data.list.hasNextPage;
+  // A list that fits one default page needs no paging controls.
+  const showPagination = hasPrevPage || hasNextPage || pageSize !== DEFAULT_PAGE_SIZE;
   const emptyVariant = data.counters.totalCount === 0 ? "no-data" : "filtered";
 
   const selectedCount = selectedProjectIds.length;
-  const selectionLabel =
-    selectedCount === 0
-      ? "Aucune affaire sélectionnée"
-      : `${selectedCount} affaire${selectedCount > 1 ? "s" : ""} sélectionnée${selectedCount > 1 ? "s" : ""}`;
+  const selectionLabel = `${selectedCount} affaire${selectedCount > 1 ? "s" : ""} sélectionnée${selectedCount > 1 ? "s" : ""}`;
+  const hasSelection = selectedCount > 0;
+  const selectDraftsRef = useRef<HTMLButtonElement>(null);
+  const toolbarToggleRef = useRef<HTMLButtonElement>(null);
+  const hadSelectionRef = useRef(hasSelection);
+  // The quiet draft link and the toolbar replace each other: the focus moves to the one shown.
+  useEffect(() => {
+    if (hadSelectionRef.current === hasSelection) return;
+    hadSelectionRef.current = hasSelection;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    (hasSelection ? toolbarToggleRef : selectDraftsRef).current?.focus();
+  }, [hasSelection]);
 
   return (
     <div className="animate-fade-in">
       <AffaireConfirmDialog {...bulkArchive.modalProps} />
       <AffaireConfirmDialog {...bulkDelete.modalProps} />
-      <PageHeader
+      <JourneyPageHeader
         title="Affaires"
-        description="Suivez vos affaires et leurs versions de chiffrage."
+        context="Suivez vos affaires et leurs versions de chiffrage."
         actions={
           <Link
             href="/dashboard/affaires/new"
@@ -672,14 +682,14 @@ export function AffairesPageClient({
           type="button"
           onClick={handleToggleFavoritesOnly}
           className={cn(
-            "inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:min-h-0",
+            "inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:min-h-0",
             favoritesOnly
-              ? "bg-warning text-warning-foreground"
-              : "bg-warning-light text-warning hover:bg-warning-border"
+              ? "border-warning bg-warning text-warning-foreground"
+              : "border-border bg-surface text-foreground-secondary hover:border-border-strong hover:bg-surface-subtle"
           )}
           aria-pressed={favoritesOnly}
         >
-          <StarIcon fill={favoritesOnly ? "currentColor" : "none"} aria-hidden="true" size={14} />
+          <StarIcon fill={favoritesOnly ? "currentColor" : "none"} aria-hidden="true" size={14} className={favoritesOnly ? undefined : "text-warning"} />
           Favoris
         </button>
         <SortControl
@@ -690,65 +700,72 @@ export function AffairesPageClient({
         />
       </div>
 
-      {/* Result count */}
-      <ResultCount
-        filteredCount={data.counters.filteredCount}
-        totalCount={data.counters.totalCount}
-        label="affaires"
-        activeFilterCount={activeFilterCount}
-        searchValue={searchValue}
-        onClearAll={handleClearAll}
-      />
-
-      <div
-        className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
-        role="toolbar"
-        aria-label="Actions groupées sur les brouillons"
-      >
-        <span
-          className="mr-auto text-sm font-medium text-foreground-secondary"
-          aria-live="polite"
-        >
-          {selectionLabel}
-        </span>
-        <Button
-          variant="outline"
-          size="md"
-          disabled={visibleDraftIds.length === 0}
-          aria-pressed={allVisibleDraftsSelected}
-          onClick={handleToggleAllVisibleDrafts}
-        >
-          {allVisibleDraftsSelected ? "Retirer" : "Sélectionner"} les brouillons
-          affichés ({visibleDraftIds.length})
-        </Button>
-        {selectedCount > 0 ? (
-          <>
-            <Button
-              variant="ghost"
-              size="md"
-              onClick={() => setSelectedProjectIds([])}
-            >
-              Tout désélectionner
-            </Button>
-            <Button
-              variant="outline"
-              size="md"
-              leftIcon={<ArchiveIcon aria-hidden="true" />}
-              onClick={() => bulkArchive.requestArchive(selectedProjectIds)}
-            >
-              Archiver
-            </Button>
-            <Button
-              variant="danger"
-              size="md"
-              leftIcon={<TrashIcon aria-hidden="true" />}
-              onClick={() => bulkDelete.requestDelete(selectedProjectIds)}
-            >
-              Supprimer
-            </Button>
-          </>
+      {/* Result count, with draft selection as a quiet action until something is selected */}
+      <div className="journey-result-row flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <ResultCount
+          filteredCount={data.counters.filteredCount}
+          totalCount={data.counters.totalCount}
+          label="affaires"
+          activeFilterCount={activeFilterCount}
+          searchValue={searchValue}
+          onClearAll={handleClearAll}
+        />
+        {!hasSelection && visibleDraftIds.length > 0 ? (
+          <Button ref={selectDraftsRef} variant="link" size="sm" onClick={handleToggleAllVisibleDrafts}>
+            Sélectionner les brouillons affichés ({visibleDraftIds.length})
+          </Button>
         ) : null}
       </div>
+
+      {/* Kept mounted so the selection count is announced when the toolbar appears. */}
+      <span className="sr-only" aria-live="polite">
+        {hasSelection ? selectionLabel : ""}
+      </span>
+      {hasSelection ? (
+        <div
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
+          role="toolbar"
+          aria-label="Actions groupées sur les brouillons"
+        >
+          <span className="mr-auto text-sm font-medium text-foreground-secondary">
+            {selectionLabel}
+          </span>
+          <Button
+            ref={toolbarToggleRef}
+            variant="outline"
+            size="md"
+            disabled={visibleDraftIds.length === 0}
+            aria-pressed={allVisibleDraftsSelected}
+            onClick={handleToggleAllVisibleDrafts}
+          >
+            {allVisibleDraftsSelected ? "Retirer" : "Sélectionner"} les brouillons
+            affichés ({visibleDraftIds.length})
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => setSelectedProjectIds([])}
+          >
+            Tout désélectionner
+          </Button>
+          <Button
+            variant="outline"
+            size="md"
+            leftIcon={<ArchiveIcon aria-hidden="true" />}
+            onClick={() => bulkArchive.requestArchive(selectedProjectIds)}
+          >
+            Archiver
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            leftIcon={<TrashIcon aria-hidden="true" />}
+            onClick={() => bulkDelete.requestDelete(selectedProjectIds)}
+          >
+            Supprimer
+          </Button>
+        </div>
+      ) : null}
 
       {/* Content */}
       <div className="mt-4">
@@ -794,52 +811,54 @@ export function AffairesPageClient({
       </div>
 
       {/* Pagination */}
-      <nav
-        className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-        aria-label="Pagination des affaires"
-      >
-        <div
-          className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
-          role="group"
-          aria-label="Nombre d’affaires par page"
+      {showPagination ? (
+        <nav
+          className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          aria-label="Pagination des affaires"
         >
-          <span className="mr-1">Afficher</span>
-          {PAGE_SIZE_OPTIONS.map((size) => (
-            <Button
-              key={size}
-              variant={pageSize === size ? "primary" : "ghost"}
-              size="xs"
-              className="min-w-9"
-              aria-pressed={pageSize === size}
-              onClick={() => handlePageSizeChange(size)}
-            >
-              {size}
-            </Button>
-          ))}
-          <span className="ml-1">par page</span>
-        </div>
+          <div
+            className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
+            role="group"
+            aria-label="Nombre d’affaires par page"
+          >
+            <span className="mr-1">Afficher</span>
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <Button
+                key={size}
+                variant={pageSize === size ? "primary" : "ghost"}
+                size="xs"
+                className="min-w-9"
+                aria-pressed={pageSize === size}
+                onClick={() => handlePageSizeChange(size)}
+              >
+                {size}
+              </Button>
+            ))}
+            <span className="ml-1">par page</span>
+          </div>
 
-        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-          <Button
-            variant="outline"
-            size="md"
-            leftIcon={<ChevronLeftIcon aria-hidden="true" />}
-            onClick={handlePrevPage}
-            disabled={!hasPrevPage}
-          >
-            Précédent
-          </Button>
-          <Button
-            variant="outline"
-            size="md"
-            rightIcon={<ChevronRightIcon aria-hidden="true" />}
-            onClick={handleNextPage}
-            disabled={!hasNextPage}
-          >
-            Suivant
-          </Button>
-        </div>
-      </nav>
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            <Button
+              variant="outline"
+              size="md"
+              leftIcon={<ChevronLeftIcon aria-hidden="true" />}
+              onClick={handlePrevPage}
+              disabled={!hasPrevPage}
+            >
+              Précédent
+            </Button>
+            <Button
+              variant="outline"
+              size="md"
+              rightIcon={<ChevronRightIcon aria-hidden="true" />}
+              onClick={handleNextPage}
+              disabled={!hasNextPage}
+            >
+              Suivant
+            </Button>
+          </div>
+        </nav>
+      ) : null}
     </div>
   );
 }
