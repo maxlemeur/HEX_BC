@@ -49,7 +49,7 @@ export const PLAN_CAUSES = [
 export type PlanCause = (typeof PLAN_CAUSES)[number];
 
 export const NETWORK_CODES = [
-  "EF", "EFA", "ECS", "RECS", "EU", "EV", "EUV", "EUG", "EP", "CS", "VP", "GAZ", "RIA", "SPK",
+  "EF", "EFA", "ECS", "RECS", "EU", "EV", "EUV", "EUG", "EP", "CS", "COND", "VP", "GAZ", "RIA", "SPK",
   "CHW", "CHW-S", "CHW-R", "HW", "HW-S", "HW-R", "GLY", "GLY-S", "GLY-R",
   "HRC", "HRC-S", "HRC-R", "CW", "CW-S", "CW-R",
 ] as const;
@@ -59,13 +59,15 @@ export const NETWORKS: Record<NetworkCode, KeyInfo> = {
   EF: { label: "Eau froide", aliases: ["EF", "eau froide"] },
   EFA: { label: "Eau froide adoucie", aliases: ["EFA", "eau adoucie"] },
   ECS: { label: "Eau chaude sanitaire", aliases: ["ECS", "eau chaude sanitaire"] },
-  RECS: { label: "Retour (bouclage) d'eau chaude sanitaire", aliases: ["RECS", "BECS", "ECS-R", "bouclage ECS"] },
+  // « BECS » is left to the ballon organ: plumbing legends print it for « ballon ECS ».
+  RECS: { label: "Retour (bouclage) d'eau chaude sanitaire", aliases: ["RECS", "ECS-R", "bouclage ECS"] },
   EU: { label: "Eaux usées", aliases: ["EU", "eaux usees"] },
   EV: { label: "Eaux vannes", aliases: ["EV", "eaux vannes"] },
   EUV: { label: "Eaux usées et eaux vannes confondues", aliases: ["EU/EV", "EU-EV", "EUEV", "EV/EU"] },
   EUG: { label: "Eaux usées grasses", aliases: ["EUG", "eaux grasses"] },
   EP: { label: "Eaux pluviales", aliases: ["EP", "eaux pluviales"] },
-  CS: { label: "Condensats", aliases: ["CS", "COND", "condensats"] },
+  CS: { label: "Colonne sèche", aliases: ["CS", "colonne seche", "colonnes seches"] },
+  COND: { label: "Condensats", aliases: ["COND", "condensats"] },
   VP: { label: "Ventilation primaire", aliases: ["VP", "ventilation primaire"] },
   GAZ: { label: "Gaz", aliases: ["GAZ", "gaz"] },
   RIA: { label: "Robinets d'incendie armés", aliases: ["RIA", "incendie"] },
@@ -89,7 +91,7 @@ export const NETWORKS: Record<NetworkCode, KeyInfo> = {
 
 export const MATERIAL_CODES = [
   "cuivre", "inox", "inox-304l", "inox-316l", "multicouche", "per", "pvc", "pvc-pression",
-  "pehd", "pp", "fonte", "acier", "acier-noir", "acier-galvanise", "calorifuge",
+  "pehd", "pp", "fonte", "acier", "acier-noir", "acier-galvanise", "calorifuge", "cordon-chauffant",
 ] as const;
 export type MaterialCode = (typeof MATERIAL_CODES)[number];
 
@@ -109,16 +111,21 @@ export const MATERIALS: Record<MaterialCode, KeyInfo> = {
   "acier-noir": { label: "Acier noir", aliases: ["acier noir", "tube noir"] },
   "acier-galvanise": { label: "Acier galvanisé", aliases: ["acier galvanise", "galva"] },
   calorifuge: { label: "Calorifuge (longueur isolée le long d'un réseau)", aliases: ["calorifuge", "calo", "isolation"] },
+  "cordon-chauffant": {
+    label: "Cordon chauffant (longueur tracée le long d'un réseau)",
+    aliases: ["cordon chauffant", "ruban chauffant", "tracage electrique"],
+  },
 };
 
 export const ORGAN_CODES = [
-  "vanne", "vanne-equilibrage", "vanne-motorisee", "clapet-anti-retour", "filtre", "purgeur",
-  "reducteur-pression", "disconnecteur", "compteur", "manchette-antivibratile", "soupape",
+  "vanne", "vanne-equilibrage", "vanne-motorisee", "clapet-anti-retour", "clapet-anti-pollution",
+  "anti-siphonnage", "filtre", "purgeur", "reducteur-pression", "disconnecteur", "compteur",
+  "manchette-antivibratile", "manchette-temoin", "mitigeur", "soupape",
   "robinet-vidange", "robinet-puisage", "clapet-aerateur", "tampon-visite", "siphon-sol",
-  "regard", "collecteur", "nourrice", "pompe", "vase-expansion", "echangeur", "ballon",
-  "chauffe-eau", "lavabo", "lave-mains", "wc", "urinoir", "evier", "douche", "baignoire",
-  "fontaine", "attente", "piquage", "soudure", "support", "fourreau", "radiateur",
-  "ventilo-convecteur", "thermometre", "manometre", "doigt-de-gant",
+  "regard", "collecteur", "nourrice", "skid", "pompe", "vase-expansion", "echangeur", "ballon",
+  "chauffe-eau", "lavabo", "lave-mains", "wc", "urinoir", "evier", "vidoir", "douche", "baignoire",
+  "fontaine", "attente", "piquage", "soudure", "support", "fourreau", "raccordement-electrique",
+  "radiateur", "ventilo-convecteur", "thermometre", "manometre", "doigt-de-gant",
 ] as const;
 export type OrganCode = (typeof ORGAN_CODES)[number];
 
@@ -127,12 +134,19 @@ export const ORGANS: Record<OrganCode, KeyInfo> = {
   "vanne-equilibrage": { label: "Vanne d'équilibrage", aliases: ["vanne d'equilibrage"] },
   "vanne-motorisee": { label: "Vanne motorisée 2 ou 3 voies", aliases: ["vanne motorisee", "V2V", "V3V"] },
   "clapet-anti-retour": { label: "Clapet anti-retour", aliases: ["clapet anti-retour"] },
+  "clapet-anti-pollution": {
+    label: "Clapet anti-pollution (anti-retour contrôlable, type EA)",
+    aliases: ["clapet anti-pollution", "clapet anti pollution", "clapet EA"],
+  },
+  "anti-siphonnage": { label: "Dispositif anti-siphonnage (casse-vide)", aliases: ["anti-siphonnage", "casse-vide"] },
   filtre: { label: "Filtre", aliases: ["filtre", "filtre a tamis"] },
   purgeur: { label: "Purgeur", aliases: ["purgeur", "purgeur d'air"] },
   "reducteur-pression": { label: "Réducteur de pression", aliases: ["reducteur de pression", "detendeur"] },
   disconnecteur: { label: "Disconnecteur", aliases: ["disconnecteur"] },
   compteur: { label: "Compteur", aliases: ["compteur", "sous-compteur"] },
   "manchette-antivibratile": { label: "Manchette antivibratile", aliases: ["manchette antivibratile"] },
+  "manchette-temoin": { label: "Manchette témoin (contrôle de corrosion)", aliases: ["manchette temoin"] },
+  mitigeur: { label: "Mitigeur, thermostatique ou non", aliases: ["mitigeur", "mitigeur thermostatique", "MT"] },
   soupape: { label: "Soupape de sûreté", aliases: ["soupape", "groupe de securite"] },
   "robinet-vidange": { label: "Robinet de vidange", aliases: ["vidange", "robinet de vidange"] },
   "robinet-puisage": { label: "Robinet de puisage", aliases: ["robinet de puisage"] },
@@ -142,16 +156,21 @@ export const ORGANS: Record<OrganCode, KeyInfo> = {
   regard: { label: "Regard", aliases: ["regard"] },
   collecteur: { label: "Collecteur", aliases: ["collecteur"] },
   nourrice: { label: "Nourrice", aliases: ["nourrice"] },
+  skid: {
+    label: "Skid hydraulique (module préfabriqué de vannes et de raccordement d'un terminal)",
+    aliases: ["skid", "skid hydraulique"],
+  },
   pompe: { label: "Pompe ou circulateur", aliases: ["pompe", "circulateur"] },
   "vase-expansion": { label: "Vase d'expansion", aliases: ["vase d'expansion"] },
   echangeur: { label: "Échangeur", aliases: ["echangeur"] },
-  ballon: { label: "Ballon de stockage", aliases: ["ballon", "ballon tampon"] },
+  ballon: { label: "Ballon de stockage", aliases: ["ballon", "ballon tampon", "ballon ECS", "BECS"] },
   "chauffe-eau": { label: "Chauffe-eau", aliases: ["chauffe-eau"] },
   lavabo: { label: "Lavabo ou vasque", aliases: ["lavabo", "vasque"] },
   "lave-mains": { label: "Lave-mains", aliases: ["lave-mains"] },
   wc: { label: "WC", aliases: ["WC", "cuvette"] },
   urinoir: { label: "Urinoir", aliases: ["urinoir"] },
   evier: { label: "Évier", aliases: ["evier"] },
+  vidoir: { label: "Vidoir", aliases: ["vidoir"] },
   douche: { label: "Douche", aliases: ["douche"] },
   baignoire: { label: "Baignoire", aliases: ["baignoire"] },
   fontaine: { label: "Fontaine réfrigérée", aliases: ["fontaine"] },
@@ -160,6 +179,10 @@ export const ORGANS: Record<OrganCode, KeyInfo> = {
   soudure: { label: "Soudure", aliases: ["soudure"] },
   support: { label: "Support ou collier", aliases: ["support", "collier"] },
   fourreau: { label: "Fourreau ou traversée", aliases: ["fourreau", "traversee"] },
+  "raccordement-electrique": {
+    label: "Raccordement électrique d'un appareil (prestation)",
+    aliases: ["raccordement electrique"],
+  },
   radiateur: { label: "Radiateur", aliases: ["radiateur"] },
   "ventilo-convecteur": { label: "Ventilo-convecteur", aliases: ["ventilo-convecteur"] },
   thermometre: { label: "Thermomètre", aliases: ["thermometre"] },
