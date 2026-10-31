@@ -14,12 +14,17 @@ import {
   TruthFileSchema,
   type ManifestDocument,
   type TruthFile,
+  type TruthLine,
 } from "@/lib/takeoff/bench/schemas";
+import { pdfStructureError, xlsxStructureError } from "@/lib/takeoff/bench/structure";
 
 // Read-only check of the private takeoff bench dataset (TI-659): every binary
-// matches its Drive size, its SHA-256 and a structure check; every truth file
-// validates, refers to manifest documents and uses known keys. It reports every
-// error with its file and JSON path, and never writes to the dataset.
+// matches its Drive size, its SHA-256 and a structure check (structure.ts); every
+// truth file validates, refers to manifest documents of its own lot and uses known
+// keys; no devis cell is split between plans or counted twice; truth/noise.json
+// records the noise result. It reports every error with its file and JSON path,
+// and never writes to the dataset. A truth plan whose download failed keeps its
+// devis truth: it is listed in summary.truthWithoutBinary, and the bench skips it.
 
 export type BenchIssue = { file: string; path: string; message: string };
 export type BenchLotSummary = { lines: number; observable: number };
@@ -32,6 +37,8 @@ export type BenchCheckSummary = {
   pageFiles: number;
   groupFiles: number;
   lots: Partial<Record<TruthLot, BenchLotSummary>>;
+  /** Truth or reserve plans without a verified binary, whose truth comes from a devis. */
+  truthWithoutBinary: string[];
 };
 export type BenchCheckResult = { ok: boolean; errors: BenchIssue[]; summary: BenchCheckSummary };
 
@@ -46,16 +53,35 @@ function formatPath(segments: ReadonlyArray<PropertyKey>) {
 }
 
 const TRUTH_FILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*\.json$/;
-const PDF_EDGE_BYTES = 1024;
+const MODULE_CLAIM_EPSILON = 1e-9;
 
 type KnownDocument = { index: number; document: ManifestDocument };
-/** One use of a workbook row; `column` null means the whole row, which overlaps every column. */
-type CellUse = { file: string; path: string; column: string | null; module: boolean; documents: ReadonlySet<string> };
+/**
+ * One use of a workbook row; `column` null means the whole row, which overlaps
+ * every column. A module line claims `modules / devisModules` of the cell for
+ * its `view`, the kinds of documents its file covers (plans, schemas).
+ */
+type CellUse = {
+  file: string;
+  path: string;
+  column: string | null;
+  module: boolean;
+  claim: { modules: number; devisModules: number } | null;
+  view: string;
+  documents: ReadonlySet<string>;
+};
+
+/** The errno code of a file system error; null for any other error, which is a bug of the check. */
+function errnoCode(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return typeof code === "string" ? code : null;
+}
 
 class DatasetCheck {
   readonly errors: BenchIssue[] = [];
   readonly summary: BenchCheckSummary = {
     documents: 0, verifiedBinaries: 0, truthFiles: 0, truthLines: 0, noise: "absent", pageFiles: 0, groupFiles: 0, lots: {},
+    truthWithoutBinary: [],
   };
   /** Every id the manifest lists, even on an entry that fails its schema. */
   readonly knownIds = new Set<string>();
@@ -64,6 +90,7 @@ class DatasetCheck {
   /** raw_path of every manifest entry, valid or not, so that only unnamed files are reported. */
   readonly listedRawPaths = new Set<string>();
   readonly cells = new Map<string, CellUse[]>();
+  readonly truthWithoutBinary = new Set<string>();
   coverageComplete = true;
 
   constructor(readonly root: string) {}
@@ -81,7 +108,9 @@ class DatasetCheck {
     try {
       source = await readFile(path.join(this.root, file), "utf8");
     } catch (error) {
-      this.error(file, [], (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unreadable");
+      const code = errnoCode(error);
+      if (code === null) throw error;
+      this.error(file, [], code === "ENOENT" ? "missing" : `unreadable (${code})`);
       return null;
     }
     try {
@@ -97,7 +126,10 @@ class DatasetCheck {
       return (await readdir(path.join(this.root, directory), { withFileTypes: true }))
         .filter((entry) => !entry.name.startsWith("."))
         .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
-    } catch {
+    } catch (error) {
+      const code = errnoCode(error);
+      if (code === null) throw error;
+      if (code !== "ENOENT" && code !== "ENOTDIR") this.error(directory, [], `unreadable directory (${code})`);
       return null;
     }
   }
@@ -114,62 +146,23 @@ class DatasetCheck {
 // ---------------------------------------------------------------------------
 // Binaries
 
-function pdfStructureError(bytes: Buffer) {
-  if (!bytes.subarray(0, PDF_EDGE_BYTES).toString("latin1").includes("%PDF-")) {
-    return "no %PDF- header in the first 1024 bytes (undecoded base64 or not a PDF?)";
-  }
-  if (!bytes.subarray(Math.max(0, bytes.length - PDF_EDGE_BYTES)).toString("latin1").includes("%%EOF")) {
-    return "no %%EOF marker in the last 1024 bytes (truncated download?)";
-  }
-  return null;
-}
-
-const ZIP_END_SIGNATURE = 0x06054b50;
-const ZIP_ENTRY_SIGNATURE = 0x02014b50;
-
-function xlsxStructureError(bytes: Buffer) {
-  let end = -1;
-  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 22 - 0xffff); offset -= 1) {
-    if (bytes.readUInt32LE(offset) === ZIP_END_SIGNATURE) {
-      end = offset;
-      break;
-    }
-  }
-  if (end < 0) return "not a ZIP archive: no end of central directory (undecoded base64 or truncated download?)";
-  const entries = bytes.readUInt16LE(end + 10);
-  const size = bytes.readUInt32LE(end + 12);
-  const start = bytes.readUInt32LE(end + 16);
-  if (entries === 0xffff || size === 0xffffffff || start === 0xffffffff) return "ZIP64 archive: not an expected XLSX";
-  if (start + size > end) return "ZIP central directory overlaps its end record";
-  const names = new Set<string>();
-  let cursor = start;
-  for (let entry = 0; entry < entries; entry += 1) {
-    if (cursor + 46 > end || bytes.readUInt32LE(cursor) !== ZIP_ENTRY_SIGNATURE) return "corrupt ZIP central directory entry";
-    const nameLength = bytes.readUInt16LE(cursor + 28);
-    names.add(bytes.subarray(cursor + 46, cursor + 46 + nameLength).toString("utf8"));
-    cursor += 46 + nameLength + bytes.readUInt16LE(cursor + 30) + bytes.readUInt16LE(cursor + 32);
-  }
-  if (cursor !== start + size) return "ZIP central directory size does not match its entries";
-  for (const required of ["[Content_Types].xml", "xl/workbook.xml"]) {
-    if (!names.has(required)) return `ZIP archive without ${required}: not an XLSX workbook`;
-  }
-  return null;
-}
-
 async function checkBinary(check: DatasetCheck, { index, document }: KnownDocument) {
   const file = document.raw_path as string;
   const absolute = path.join(check.root, file);
+  let bytes: Buffer;
   try {
     const stats = await lstat(absolute);
     if (!stats.isFile()) {
       check.error(file, [], "not a regular file (store the file itself, not a link or a folder)");
       return;
     }
-  } catch {
-    check.error(file, [], `missing, while documents[${index}] says binary`);
+    bytes = await readFile(absolute);
+  } catch (error) {
+    const code = errnoCode(error);
+    if (code === null) throw error;
+    check.error(file, [], code === "ENOENT" ? `missing, while documents[${index}] says binary` : `unreadable (${code})`);
     return;
   }
-  const bytes = await readFile(absolute);
   let verified = true;
   if (bytes.length !== document.file_size) {
     check.error(file, [], `size ${bytes.length} bytes differs from the Drive fileSize ${document.file_size}`);
@@ -178,7 +171,9 @@ async function checkBinary(check: DatasetCheck, { index, document }: KnownDocume
     check.error(file, [], `SHA-256 differs from documents[${index}].sha256`);
     verified = false;
   }
-  const structure = document.file_type === "pdf" ? pdfStructureError(bytes) : xlsxStructureError(bytes);
+  const structure = document.file_type === "pdf"
+    ? await pdfStructureError(bytes, document.pages)
+    : xlsxStructureError(bytes);
   if (structure) {
     check.error(file, [], structure);
     verified = false;
@@ -258,11 +253,58 @@ function zonesAndLevels(documents: readonly ManifestDocument[]) {
   return { zones, levels };
 }
 
+function isTruthPlan(document: ManifestDocument) {
+  return (document.role === "truth" || document.role === "reserve")
+    && (document.kind === "plan" || document.kind === "schema");
+}
+
+/** A level truth holds every zone of its level, a lot truth every plan of its lot (TI-659 section 6). */
+function checkScopeCompleteness(check: DatasetCheck, file: string, truth: TruthFile, covered: readonly ManifestDocument[]) {
+  let level: string | null = null;
+  if (truth.scope === "level") {
+    const levels = new Set(covered.map((document) => document.level));
+    if (levels.size !== 1 || levels.has(null)) {
+      check.error(file, ["documents"], "a level truth covers documents of one level");
+      return;
+    }
+    [level] = levels;
+  } else if (truth.scope !== "lot") {
+    return;
+  }
+  const missing = [...check.documents.values()]
+    .map(({ document }) => document)
+    .filter((document) => document.lot === truth.lot && isTruthPlan(document)
+      && (level === null || document.level === level) && !truth.documents.includes(document.id))
+    .map((document) => document.id);
+  if (missing.length > 0) {
+    const scope = level === null ? `lot ${truth.lot}` : `level ${level} of lot ${truth.lot}`;
+    check.error(file, ["documents"], `a ${truth.scope} truth covers every truth or reserve plan of ${scope}: `
+      + `${missing.join(", ")} missing`);
+  }
+}
+
+/** A source is a devis or surfaces table of the truth's lot, or the text layer of a plan the truth covers. */
+function checkSourceDocument(check: DatasetCheck, file: string, segments: ReadonlyArray<PropertyKey>, truth: TruthFile,
+  id: string) {
+  const document = check.reference(file, segments, id);
+  if (!document) return null;
+  if (document.lot !== truth.lot) {
+    check.error(file, segments, `${id} belongs to lot ${document.lot}: a lot ${truth.lot} truth reads its own lot's sources`);
+  }
+  if ((document.kind === "plan" || document.kind === "schema") && !truth.documents.includes(id)) {
+    check.error(file, segments, `${id} is a ${document.kind}, not a document of this truth: `
+      + "a plan's text layer is a source only of its own truth");
+  }
+  return document;
+}
+
 function checkTruthDocuments(check: DatasetCheck, file: string, truth: TruthFile) {
   const stem = path.posix.basename(file, ".json");
   if (truth.scope === "document" && (truth.documents.length !== 1 || truth.documents[0] !== stem)) {
     check.error(file, ["scope"], "a document truth covers one document and is named truth/<that id>.json");
   }
+  const source = checkSourceDocument(check, file, ["source_document"], truth, truth.source_document);
+  if (source?.raw_status === "failed") check.error(file, ["source_document"], `${truth.source_document} failed to download`);
   const covered: ManifestDocument[] = [];
   for (const [index, id] of truth.documents.entries()) {
     const document = check.reference(file, ["documents", index], id);
@@ -274,53 +316,81 @@ function checkTruthDocuments(check: DatasetCheck, file: string, truth: TruthFile
     if (document.kind !== "plan" && document.kind !== "schema") {
       check.error(file, ["documents", index], `${id} is a ${document.kind}: truth covers plans and schemas`);
     }
-    if (document.raw_status !== "binary") check.error(file, ["documents", index], `${id} has no verified binary`);
+    if (document.raw_status !== "binary") {
+      // Its devis truth stays valid: the bench skips the plan until a binary is stored.
+      if (source?.kind === "devis" || source?.kind === "surfaces") {
+        check.truthWithoutBinary.add(id);
+      } else {
+        check.error(file, ["documents", index], `${id} has no verified binary: only a devis or surfaces table `
+          + "can be the source of its truth, not its own text layer");
+      }
+    }
     if (document.lot !== truth.lot) check.error(file, ["documents", index], `${id} belongs to lot ${document.lot}`);
   }
   const roles = new Set(covered.map((document) => document.role));
   if (roles.has("reserve") && roles.has("truth")) {
     check.error(file, ["documents"], "documents mix reserve and truth roles: a reserve is held out whole");
   }
-  if (truth.scope === "level") {
-    const levels = new Set(covered.map((document) => document.level));
-    if (levels.size !== 1 || levels.has(null)) check.error(file, ["documents"], "a level truth covers documents of one level");
-  }
-  const source = check.reference(file, ["source_document"], truth.source_document);
-  if (source?.raw_status === "failed") check.error(file, ["source_document"], `${truth.source_document} failed to download`);
+  checkScopeCompleteness(check, file, truth, covered);
   return covered;
+}
+
+function lineSources(line: TruthLine, index: number) {
+  return [
+    { source: line.source, segments: ["lines", index, "source"] },
+    ...(line.additional_sources ?? []).map((source, position) => ({
+      source, segments: ["lines", index, "additional_sources", position],
+    })),
+  ];
 }
 
 function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, covered: readonly ManifestDocument[]) {
   const { zones, levels } = zonesAndLevels(covered);
   const coveredIds = new Set(truth.documents);
   const names = truth.documents.join(", ");
+  const complete = covered.length === truth.documents.length;
+  const view = [...new Set(covered.map((document) => document.kind))].sort().join("+");
+  // Rule 7: the lengths of a schema without a title-block scale are not observable on it.
+  const unscaled = complete && covered.length > 0 && covered.every((document) => document.kind === "schema"
+    && document.scale === null && document.scales === undefined);
   for (const [index, line] of truth.lines.entries()) {
-    if (line.zone !== null && covered.length === truth.documents.length && !zones.has(line.zone)) {
+    if (line.zone !== null && complete && !zones.has(line.zone)) {
       check.error(file, ["lines", index, "zone"], `zone ${line.zone} is not a zone of ${names}`);
     }
-    if (line.level !== null && covered.length === truth.documents.length && !levels.has(line.level)) {
+    if (line.level !== null && complete && !levels.has(line.level)) {
       check.error(file, ["lines", index, "level"], `level ${line.level} is not a level of ${names}`);
     }
-    const sources = [
-      { source: line.source, segments: ["lines", index, "source"] },
-      ...(line.additional_sources ?? []).map((source, position) => ({
-        source, segments: ["lines", index, "additional_sources", position],
-      })),
-    ];
-    for (const { source, segments } of sources) {
-      const document = check.reference(file, [...segments, "document"], source.document);
+    if (unscaled && line.unit === "ml" && line.observable_on_plan) {
+      check.error(file, ["lines", index, "observable_on_plan"], `${names} is a schema with no scale: its lengths are `
+        + "not observable on the plan (rule 7, plan_cause no_scale)");
+    }
+    const claim = line.module_scope === "module" && truth.modules_on_plan != null && line.devis_modules !== undefined
+      ? { modules: truth.modules_on_plan, devisModules: line.devis_modules }
+      : null;
+    for (const { source, segments } of lineSources(line, index)) {
+      const document = checkSourceDocument(check, file, [...segments, "document"], truth, source.document);
+      if (document?.raw_status === "failed") check.error(file, segments, `${source.document} failed to download: it is no source`);
       if (document?.file_type === "xlsx" && (source.sheet === null || source.row === null)) {
         check.error(file, segments, `${source.document} is a workbook: the source names its sheet and row`);
       }
       if (document?.file_type === "pdf" && (source.page ?? null) === null) {
         check.error(file, segments, `${source.document} is a PDF: the source names its page`);
       }
+      if (document && source.column != null) {
+        if (document.columns === undefined) {
+          check.error(file, [...segments, "column"], `${source.document} declares no columns in the manifest: `
+            + "a source names a column by a header its document declares");
+        } else if (!document.columns.includes(source.column)) {
+          check.error(file, [...segments, "column"],
+            `${source.column} is not a column ${source.document} declares (${document.columns.join(", ")})`);
+        }
+      }
       if (source.sheet !== null && source.row !== null) {
         const cell = `${source.document} / ${source.sheet} / row ${source.row}`;
         const uses = check.cells.get(cell) ?? [];
         uses.push({
           file, path: formatPath(segments), column: source.column ?? null,
-          module: line.module_scope === "module", documents: coveredIds,
+          module: line.module_scope === "module", claim, view, documents: coveredIds,
         });
         check.cells.set(cell, uses);
       }
@@ -360,6 +430,49 @@ function sameCell(left: CellUse, right: CellUse) {
   return left.column === null || right.column === null || left.column === right.column;
 }
 
+function formatClaim(uses: readonly CellUse[]) {
+  const claims = uses.map((use) => use.claim as NonNullable<CellUse["claim"]>);
+  const [first] = claims;
+  if (claims.every((claim) => claim.devisModules === first.devisModules)) {
+    return `${claims.reduce((sum, claim) => sum + claim.modules, 0)}/${first.devisModules}`;
+  }
+  return `${Number(claims.reduce((sum, claim) => sum + claim.modules / claim.devisModules, 0).toFixed(4))} times`;
+}
+
+/** Lot C: the plans (or the schemas) that cite one cell never claim more modules than the devis counts. */
+function checkModuleClaims(check: DatasetCheck, row: string, uses: readonly CellUse[]) {
+  const views = new Map<string, CellUse[]>();
+  for (const use of uses) {
+    if (!use.module || use.claim === null) continue;
+    views.set(use.view, [...(views.get(use.view) ?? []), use]);
+  }
+  const reported = new Set<CellUse>();
+  for (const [view, viewUses] of views) {
+    const columns = [...new Set(viewUses.map((use) => use.column).filter((column) => column !== null))];
+    const buckets = columns.length === 0
+      ? [{ column: null, uses: viewUses }]
+      : columns.map((column) => ({ column, uses: viewUses.filter((use) => use.column === null || use.column === column) }));
+    for (const bucket of buckets) {
+      let total = 0;
+      for (const [position, use] of bucket.uses.entries()) {
+        const claim = use.claim as NonNullable<CellUse["claim"]>;
+        total += claim.modules / claim.devisModules;
+        if (total <= 1 + MODULE_CLAIM_EPSILON || reported.has(use)) continue;
+        reported.add(use);
+        const cell = bucket.column === null ? row : `${row}, column ${bucket.column}`;
+        const claimed = bucket.uses.slice(0, position + 1);
+        check.errors.push({
+          file: use.file,
+          path: use.path,
+          message: `devis cell ${cell}: the ${view} files claim ${formatClaim(claimed)} of its modules `
+            + `(${[...new Set(claimed.map((entry) => entry.file))].join(", ")}): more modules than the devis counts`,
+        });
+        break;
+      }
+    }
+  }
+}
+
 function checkCells(check: DatasetCheck) {
   for (const [row, uses] of check.cells) {
     for (const [position, use] of uses.entries()) {
@@ -376,14 +489,14 @@ function checkCells(check: DatasetCheck) {
         });
       }
     }
+    checkModuleClaims(check, row, uses);
   }
 }
 
 function checkCoverage(check: DatasetCheck) {
   if (!check.coverageComplete) return;
   for (const { index, document } of check.documents.values()) {
-    if ((document.role === "truth" || document.role === "reserve")
-      && (document.kind === "plan" || document.kind === "schema") && !check.coverage.has(document.id)) {
+    if (isTruthPlan(document) && !check.coverage.has(document.id)) {
       check.error("manifest.json", ["documents", index], `${document.id} is a ${document.role} ${document.kind} with no truth file`);
     }
   }
@@ -477,6 +590,10 @@ async function checkTruthDirectory(check: DatasetCheck) {
     if (entry.name === "noise.json") await checkNoise(check, file);
     else await checkTruthFile(check, file);
   }
+  if (!entries.some((entry) => entry.name === "noise.json")) {
+    check.error("truth/noise.json", [], "missing: record the noise result, or status not_measured with its reason "
+      + "when it cannot be measured (TI-659 section 9)");
+  }
   await checkAnnotations(check, "pages");
   await checkAnnotations(check, "groups");
 }
@@ -489,5 +606,6 @@ export async function checkTakeoffBenchDataset(datasetRoot: string): Promise<Ben
     checkCells(check);
     checkCoverage(check);
   }
+  check.summary.truthWithoutBinary = [...check.truthWithoutBinary].sort();
   return { ok: check.errors.length === 0, errors: check.errors, summary: check.summary };
 }

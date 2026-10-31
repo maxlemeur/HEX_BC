@@ -111,7 +111,7 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
     document("a-plan-02", { level: "R+1", zone: "Z2", role: "reserve" }),
     document("a-devis-01", {
       file_type: "xlsx", raw_path: "raw/a-devis-01.xlsx", pages: null, format: null, scale: null,
-      index: "0", vector: null, ocg_count: null,
+      index: "0", vector: null, ocg_count: null, columns: ["Fictional Z1 column", "Fictional Z2 column"],
       structure_check: { status: "passed", method: "unzip -tq", detail: null },
     }),
     document("a-devis-02", {
@@ -132,6 +132,17 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
       notes: "Fictional failure: exceeded the persist byte limit.",
     }),
     document("load-plan-01", { role: "load_test", scale: null, index: null }),
+    document("b-devis-01", {
+      file_type: "xlsx", raw_status: "text_only", raw_path: null, file_size: 3072, pages: null,
+      format: null, scale: null, index: "F1", vector: null, ocg_count: null,
+      structure_check: { status: "not_run", method: null, detail: "returned inline" },
+    }),
+    // A truth plan whose download failed: its truth comes from a devis, so it is kept.
+    document("b-plan-01", {
+      raw_status: "failed", raw_path: null, file_size: 12_345_678, pages: null, level: "R+1", zone: "Z1",
+      structure_check: { status: "not_run", method: null, detail: null },
+      notes: "Fictional failure: over the connector size limit.",
+    }),
   ];
   for (const entry of documents) {
     const bytes = raws[entry.id as string];
@@ -163,6 +174,14 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
         line({ zone: "Z2", level: "R+1", network: "ECS", material: "inox-316l", dn: "DN 22", quantity: 8,
           source: { document: "a-devis-01", sheet: "Lot", row: 7, text: "Fictional stainless 22x1,2" },
           additional_sources: [{ document: "a-devis-01", sheet: "Lot", row: 8, text: "Fictional same key" }] }),
+      ],
+    },
+    "truth/b-plan-01.json": {
+      schema_version: 1, lot: "b", scope: "document", documents: ["b-plan-01"],
+      source_document: "b-devis-01", rules: "Fictional rule: one line per devis key.",
+      lines: [
+        line({ zone: "Z1", level: "R+1", network: "HW-S", material: "acier-noir", dn: "DN 50", quantity: 7,
+          source: { document: "b-devis-01", sheet: "Lot", row: 2, text: "Fictional black steel 50" } }),
       ],
     },
     "truth/c-plan-01.json": {

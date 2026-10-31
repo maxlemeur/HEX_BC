@@ -1,6 +1,7 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { strToU8, zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -16,22 +17,36 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 // - the decoded size differs from Drive's fileSize (truncated or padded download);
 // - a truncated PDF or an undecoded base64 XLSX is recorded with its own size and
 //   hash: only the structure check (header, %%EOF, ZIP central directory) sees it;
+// - a PDF that pdfjs cannot open, or whose page count differs from the manifest
+//   (page ranges and page truths are bounded by that count);
+// - a workbook entry corrupted inside the archive (its CRC-32 no longer matches);
+// - a raw file that cannot be read (permissions) aborts the report;
 // - a binary is missing, or raw/ holds a file the manifest does not name (an
 //   original title used as a file name);
 // - a raw_path leaves raw/ or is not named after the anonymous id;
 // - a truth file is out of schema (comma decimal, missing field, unknown field);
 // - a network, material, organ, unit or DN outside the known keys;
-// - a truth line or header refers to a document absent from the manifest;
+// - a truth line or header refers to a document absent from the manifest, or to
+//   another lot's devis, or to a plan the truth file does not cover;
+// - a manifest header out of schema, or a duplicate_of that names no document;
 // - the same key twice in a file, or one devis cell in two truth lines (a quantity
 //   split between plans or counted twice), except a lot C module line;
 // - a devis row with one column per zone: its two columns flagged as one cell, or
-//   one column (or the whole row next to a column) used twice let through;
+//   one column (or the whole row next to a column) used twice let through, or one
+//   cell cited by letter in one file and by header in another;
+// - plans that together claim more modules of a devis cell than the devis counts;
 // - a module quantity that does not follow devis x modules_on_plan / devis_modules,
 //   or a fractional count not flagged ambiguous;
 // - a line zone or level outside its truth documents;
 // - truth on a no_truth document, reserve and truth mixed in one file, a truth or
 //   reserve plan left without truth;
-// - a raw quantity in noise.json;
+// - a truth plan whose download failed: kept when a devis is its source (the
+//   bench skips it), refused when its own text layer is the source;
+// - a level truth that leaves out a zone of its level, a lot truth that leaves
+//   out a plan of its lot;
+// - an unscaled schema with lengths marked observable (rule 7), a sheet with
+//   several scales that downstream code cannot tell from an unscaled one;
+// - a raw quantity in noise.json, or no noise.json at all;
 // - a missing manifest or invalid JSON stops the check instead of being reported;
 // - only the first error is reported.
 
@@ -60,15 +75,17 @@ describe("takeoff bench dataset check", () => {
     expect(result.errors).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.summary).toMatchObject({
-      documents: 9,
+      documents: 11,
       verifiedBinaries: 6,
-      truthFiles: 4,
-      truthLines: 10,
+      truthFiles: 5,
+      truthLines: 11,
       noise: "measured",
       pageFiles: 1,
       groupFiles: 0,
+      truthWithoutBinary: ["b-plan-01"],
     });
     expect(result.summary.lots.a).toEqual({ lines: 4, observable: 3 });
+    expect(result.summary.lots.b).toEqual({ lines: 1, observable: 1 });
     expect(result.summary.lots.c).toEqual({ lines: 5, observable: 5 });
   });
 
@@ -249,22 +266,41 @@ describe("takeoff bench dataset check", () => {
       (truth.lines as Array<{ source: Source }>)[0].source = source;
     });
     await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
-      (truth.lines as Array<{ source: Source }>)[0].source.column = "Qte Z1";
+      (truth.lines as Array<{ source: Source }>)[0].source.column = "Fictional Z1 column";
     });
-    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Qte Z2", text: "Fictional zone 2" });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Fictional Z2 column", text: "Fictional zone 2" });
     expect((await checkTakeoffBenchDataset(dataset.root)).errors).toEqual([]);
 
-    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Qte Z1", text: "Fictional zone 1 again" });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Fictional Z1 column", text: "Fictional zone 1 again" });
     let result = await checkTakeoffBenchDataset(dataset.root);
-    expectIssue(result, "truth/a-plan-02.json", "lines[0].source", /row 4, column Qte Z1 .*truth\/a-plan-01\.json/);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source",
+      /row 4, column Fictional Z1 column .*truth\/a-plan-01\.json/);
 
     await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, text: "Fictional whole row" });
     result = await checkTakeoffBenchDataset(dataset.root);
-    expectIssue(result, "truth/a-plan-02.json", "lines[0].source", /row 4 .*truth\/a-plan-01\.json.*column Qte Z1/);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source", /row 4 .*truth\/a-plan-01\.json.*column Fictional Z1 column/);
 
     await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 9, column: " ", text: "Fictional blank column" });
     result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/a-plan-02.json", "lines[0].source.column", /.+/);
+  });
+
+  it("names a devis column by a header the manifest declares, never by a letter", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      (truth.lines as Array<{ source: Record<string, unknown> }>)[0].source.column = "Fictional Z1 column";
+    });
+    // The same cell cited by its column letter would otherwise count as a second cell.
+    await dataset.mutateJson("truth/a-plan-02.json", (truth) => {
+      (truth.lines as Array<{ source: Record<string, unknown> }>)[0].source = {
+        document: "a-devis-01", sheet: "Lot", row: 4, column: "F", text: "Fictional same cell by letter",
+      };
+    });
+    await dataset.mutateJson("truth/b-plan-01.json", (truth) => {
+      (truth.lines as Array<{ source: Record<string, unknown> }>)[0].source.column = "Fictional Z1 column";
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source.column", /F is not a column a-devis-01 declares/);
+    expectIssue(result, "truth/b-plan-01.json", "lines[0].source.column", /b-devis-01 declares no columns/);
   });
 
   it("checks lot C module quantities against devis x modules_on_plan / devis_modules", async () => {
@@ -309,6 +345,171 @@ describe("takeoff bench dataset check", () => {
     expectIssue(result, "truth/e-plan-01.json", "documents[0]", /no_truth/);
     expectIssue(result, "truth/a-level.json", "documents", /reserve.*truth/);
     expectIssue(result, "manifest.json", "documents[6]", /d-plan-01.*no truth file/);
+  });
+
+  it("bounds the modules that plans claim from one devis cell, per document kind", async () => {
+    type Line = Record<string, unknown>;
+    const modulePlan = await dataset.readJson("truth/c-plan-01.json");
+    // Every module of the devis drawn on one sheet: devis x 12 / 12, the commun line left out.
+    const fullClaim = (id: string, observable: boolean) => ({
+      ...modulePlan,
+      documents: [id],
+      modules_on_plan: 12,
+      lines: (modulePlan.lines as Line[]).filter((line) => line.module_scope === "module").map((line) => ({
+        ...line,
+        quantity: line.devis_quantity,
+        ambiguous: undefined,
+        ambiguity_reason: undefined,
+        ...(observable || line.unit !== "ml" ? {} : { observable_on_plan: false, plan_cause: "no_scale" }),
+      })),
+    });
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      const documents = manifest.documents as Line[];
+      const plan = documents.find((entry) => entry.id === "c-plan-01") as Line;
+      documents.push(
+        { ...plan, id: "c-plan-02", drive_id: "fixture-drive-c-plan-02", raw_path: "raw/c-plan-02.pdf", level: "R+2" },
+        { ...plan, id: "c-schema-01", kind: "schema", drive_id: "fixture-drive-c-schema-01",
+          raw_path: "raw/c-schema-01.pdf", scale: null, level: null },
+      );
+    });
+    for (const id of ["c-plan-02", "c-schema-01"]) {
+      await writeFile(path.join(dataset.root, "raw", `${id}.pdf`), await readFile(path.join(dataset.root, "raw", "c-plan-01.pdf")));
+    }
+    await dataset.writeJson("truth/c-plan-02.json", { ...fullClaim("c-plan-02", true), lines: fullClaim("c-plan-02", true)
+      .lines.map((line) => ({ ...line, level: "R+2" })) });
+    await dataset.writeJson("truth/c-schema-01.json", { ...fullClaim("c-schema-01", false), lines: fullClaim("c-schema-01", false)
+      .lines.map((line) => ({ ...line, level: null })) });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    // c-plan-01 claims 2 of 12 modules, c-plan-02 all 12: 14 of 12.
+    expectIssue(result, "truth/c-plan-02.json", "lines[0].source", /row 10.*14\/12 of its modules.*truth\/c-plan-01\.json/);
+    expectIssue(result, "truth/c-plan-02.json", "lines[2].source", /row 12.*14\/12/);
+    // A schema is another view of the same modules: its own bound, 12 of 12.
+    expect(result.errors.filter((issue) => issue.file === "truth/c-schema-01.json")).toEqual([]);
+  });
+
+  it("keeps a failed-download truth plan only when a devis is its source", async () => {
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      const plan = (manifest.documents as Array<Record<string, unknown>>)[6];
+      Object.assign(plan, {
+        raw_status: "failed", raw_path: null, sha256: null, pages: null,
+        structure_check: { status: "not_run", method: null, detail: null }, notes: "Fictional failure.",
+      });
+    });
+    await rm(path.join(dataset.root, "raw", "d-plan-01.pdf"));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/d-plan-01.json", "documents[0]", /d-plan-01 has no verified binary.*its own text layer/);
+    expectIssue(result, "truth/d-plan-01.json", "lines[0].source", /d-plan-01 failed to download/);
+    expect(result.summary.truthWithoutBinary).toEqual(["b-plan-01"]);
+  });
+
+  it("ties every truth source to the truth file's lot and documents", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      const lines = truth.lines as Array<{ source: Record<string, unknown> }>;
+      truth.source_document = "b-devis-01";
+      lines[0].source.document = "c-devis-01";
+      lines[1].source = { document: "load-plan-01", sheet: null, row: null, page: 1, text: "Fictional load-test text" };
+      lines[2].source = { document: "a-plan-02", sheet: null, row: null, page: 1, text: "Fictional zone 2 text" };
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-01.json", "source_document", /b-devis-01 belongs to lot b/);
+    expectIssue(result, "truth/a-plan-01.json", "lines[0].source.document", /c-devis-01 belongs to lot c/);
+    expectIssue(result, "truth/a-plan-01.json", "lines[1].source.document", /load-plan-01 .*not a document of this truth/);
+    expectIssue(result, "truth/a-plan-01.json", "lines[2].source.document", /a-plan-02 .*not a document of this truth/);
+  });
+
+  it("makes a level truth cover every zone of its level and a lot truth every plan of its lot", async () => {
+    const zone1 = await dataset.readJson("truth/a-plan-01.json");
+    await rm(path.join(dataset.root, "truth", "a-plan-01.json"));
+    await dataset.writeJson("truth/a-r1.json", { ...zone1, scope: "level" });
+    await dataset.writeJson("truth/a-all.json", { ...zone1, scope: "lot", lines: [] });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-r1.json", "documents", /every truth or reserve plan of level R\+1 of lot a: a-plan-02 missing/);
+    expectIssue(result, "truth/a-all.json", "documents", /every truth or reserve plan of lot a: a-plan-02 missing/);
+  });
+
+  it("keeps the lengths of an unscaled schema off the plan, and records several scales", async () => {
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      const documents = manifest.documents as Array<Record<string, unknown>>;
+      const plan = documents.find((entry) => entry.id === "c-plan-01") as Record<string, unknown>;
+      plan.scale = null;
+      plan.scales = ["1/20", "1/500"];
+      documents.push({ ...plan, id: "c-schema-01", kind: "schema", drive_id: "fixture-drive-c-schema-01",
+        raw_path: "raw/c-schema-01.pdf", scales: undefined });
+      documents[0].scales = ["1/20"];
+      documents[6].scales = ["1/100", "1/200"];
+    });
+    await writeFile(path.join(dataset.root, "raw", "c-schema-01.pdf"), await readFile(path.join(dataset.root, "raw", "c-plan-01.pdf")));
+    await dataset.writeJson("truth/c-schema-01.json", {
+      ...(await dataset.readJson("truth/c-plan-01.json")), documents: ["c-schema-01"],
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/c-schema-01.json", "lines[0].observable_on_plan", /c-schema-01 is a schema with no scale/);
+    expectIssue(result, "truth/c-schema-01.json", "lines[1].observable_on_plan", /no scale/);
+    expect(result.errors.filter((issue) => issue.file === "truth/c-schema-01.json" && issue.path.startsWith("lines[2]")))
+      .toEqual([]);
+    expectIssue(result, "manifest.json", "documents[0].scales", /at least 2/);
+    expectIssue(result, "manifest.json", "documents[6].scales", /scale is null/);
+    expect(result.errors.filter((issue) => issue.file === "manifest.json" && issue.path.startsWith("documents[4]")))
+      .toEqual([]);
+  });
+
+  it("opens each PDF with pdfjs and compares its page count with the manifest", async () => {
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      (manifest.documents as Array<Record<string, unknown>>)[6].pages = 7;
+    });
+    await dataset.replaceRaw("a-plan-02", Buffer.from("%PDF-1.7\nFictional broken body\n%%EOF\n"), { record: true });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "raw/d-plan-01.pdf", "", /pdfjs opens 1 page.*manifest says 7/);
+    expectIssue(result, "raw/a-plan-02.pdf", "", /pdfjs cannot open/);
+    expect(result.summary.verifiedBinaries).toBe(4);
+  });
+
+  it("checks the CRC-32 of every workbook entry, like unzip -t", async () => {
+    const stored = Buffer.from(zipSync({
+      "[Content_Types].xml": strToU8("<Types>fictional</Types>"),
+      "xl/workbook.xml": strToU8("<workbook><sheets><sheet name=\"Lot\"/></sheets></workbook>"),
+    }, { level: 0 }));
+    const dataStart = 30 + stored.readUInt16LE(26) + stored.readUInt16LE(28);
+    stored[dataStart + 3] ^= 0x20;
+    await dataset.replaceRaw("a-devis-01", stored, { record: true });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "raw/a-devis-01.xlsx", "", /\[Content_Types\]\.xml.*CRC-32/);
+  });
+
+  it.skipIf(process.getuid?.() === 0)("reports an unreadable binary and goes on with the report", async () => {
+    await chmod(path.join(dataset.root, "raw", "a-plan-02.pdf"), 0o000);
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      (truth.lines as Array<Record<string, unknown>>)[0].network = "XYZ";
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "raw/a-plan-02.pdf", "", /unreadable \(EACCES\)/);
+    expectIssue(result, "truth/a-plan-01.json", "lines[0].network", /unknown network/);
+  });
+
+  it("rejects a manifest header out of schema and a duplicate_of that names no document", async () => {
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      manifest.schema_version = 2;
+      manifest.extra = "Fictional";
+      (manifest.documents as Array<Record<string, unknown>>)[7].duplicate_of = "e-plan-09";
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "manifest.json", "schema_version", /1/);
+    expectIssue(result, "manifest.json", "", /extra/);
+    expectIssue(result, "manifest.json", "documents[7].duplicate_of", /e-plan-09.*not in the manifest/);
+  });
+
+  it("requires truth/noise.json and accepts a noise that could not be measured", async () => {
+    await rm(path.join(dataset.root, "truth", "noise.json"));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "", /missing.*not_measured/);
+
+    await dataset.writeJson("truth/noise.json", {
+      schema_version: 1, status: "not_measured", reason: "Fictional: the plan index differs between the two devis.",
+      baseline_document: "a-devis-01", comparison_document: "a-devis-02", documents: ["a-plan-01", "a-plan-02"],
+      plan_index_same: null, rules: "Fictional rule: compare only on an unchanged plan index.", keys: [],
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expect(result.errors).toEqual([]);
+    expect(result.summary.noise).toBe("not_measured");
   });
 
   it("rejects raw quantities in noise.json", async () => {

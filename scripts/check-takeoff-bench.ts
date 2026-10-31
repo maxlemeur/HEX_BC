@@ -4,7 +4,7 @@ import { checkTakeoffBenchDataset, formatBenchIssue } from "../src/lib/takeoff/b
 
 // `npm run takeoff:bench:check -- --dataset <dir>`: read-only check of the private
 // takeoff bench dataset (TI-659). Exit 0 when it passes, 1 on dataset errors,
-// 2 on a usage error.
+// 2 on a usage error, 3 when the check itself crashes (a bug, not a dataset error).
 
 const USAGE = "Usage: npm run takeoff:bench:check -- --dataset <dataset directory>";
 
@@ -52,14 +52,20 @@ async function main() {
   const lots = Object.entries(summary.lots)
     .map(([lot, { lines, observable }]) => `${lot.toUpperCase()} ${observable}/${lines} observable`)
     .join(", ");
+  const withoutBinary = summary.truthWithoutBinary;
   console.log(
     `Takeoff bench dataset passed: ${summary.documents} documents (${summary.verifiedBinaries} binaries verified), `
     + `${summary.truthFiles} truth files, ${summary.truthLines} lines${lots ? ` (${lots})` : ""}, `
-    + `noise ${summary.noise}, ${summary.pageFiles} page files, ${summary.groupFiles} group files.`
+    + `noise ${summary.noise}, ${summary.pageFiles} page files, ${summary.groupFiles} group files`
+    + (withoutBinary.length > 0
+      ? `, ${withoutBinary.length} truth plan${withoutBinary.length === 1 ? "" : "s"} without binary `
+        + `(${withoutBinary.join(", ")}), skipped by the bench`
+      : "")
+    + "."
   );
 }
 
 void main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  console.error(`takeoff:bench:check crashed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+  process.exitCode = 3;
 });

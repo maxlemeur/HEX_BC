@@ -70,6 +70,8 @@ const StructureCheckSchema = z.strictObject({
   detail: NullableText,
 });
 
+const ScaleSchema = z.string().regex(/^1\/[1-9]\d*$/, "must look like \"1/50\"");
+
 const PageRangeSchema = z.strictObject({
   from: z.number().int().min(1),
   to: z.number().int().min(1),
@@ -97,8 +99,10 @@ export const ManifestDocumentSchema = z.strictObject({
   pages: z.number().int().min(1).nullable(),
   /** Paper format from the title block (A0, A1…), not the file type. */
   format: NullableText,
-  /** Title-block scale, e.g. "1/50"; null for an unscaled schema. */
-  scale: z.string().regex(/^1\/[1-9]\d*$/, "must look like \"1/50\"").nullable(),
+  /** Title-block scale, e.g. "1/50"; null for an unscaled schema or a sheet with several scales. */
+  scale: ScaleSchema.nullable(),
+  /** The scales of a sheet whose views have several (title block "as indicated"); scale is null then. */
+  scales: z.array(ScaleSchema).min(2, "scales lists at least 2 scales (a single one goes in scale)").optional(),
   /** Title-block revision index (indice). */
   index: NullableText,
   vector: z.boolean().nullable(),
@@ -107,6 +111,12 @@ export const ManifestDocumentSchema = z.strictObject({
   zone: NullableText,
   /** Levels and zones by page range when one PDF holds several. */
   page_ranges: z.array(PageRangeSchema).optional(),
+  /**
+   * Workbook columns that truth sources cite, by their header as printed (one
+   * quantity column per zone, for instance). A source names a column only from
+   * this list, so that one cell never gets two names (a letter and a header).
+   */
+  columns: z.array(Text).min(1).optional(),
   role: z.enum(DOCUMENT_ROLES),
   duplicate_of: DocumentIdSchema.nullable(),
   notes: NullableText,
@@ -140,6 +150,14 @@ export const ManifestDocumentSchema = z.strictObject({
     addIssue(ctx, ["role"], "the load_test role belongs to lot load, and only to it");
   }
   if (document.duplicate_of === document.id) addIssue(ctx, ["duplicate_of"], "a document does not duplicate itself");
+  if (document.scales !== undefined) {
+    if (document.scale !== null) addIssue(ctx, ["scales"], "with scales, scale is null: a sheet with several scales has no single one");
+    if (new Set(document.scales).size !== document.scales.length) addIssue(ctx, ["scales"], "a scale is listed twice");
+  }
+  if (document.columns !== undefined) {
+    if (document.file_type !== "xlsx") addIssue(ctx, ["columns"], "only a workbook declares columns");
+    if (new Set(document.columns).size !== document.columns.length) addIssue(ctx, ["columns"], "a column is listed twice");
+  }
 
   let previousEnd = 0;
   for (const [index, range] of (document.page_ranges ?? []).entries()) {
@@ -217,7 +235,11 @@ export const TruthSourceSchema = z.strictObject({
   sheet: NullableText,
   /** 1-based workbook row; required when the document is an XLSX. */
   row: z.number().int().min(1).nullable(),
-  /** Column header or letter when one row holds several quantities (one per zone); absent: the whole row. */
+  /**
+   * Column header when one row holds several quantities (one per zone), as the
+   * manifest declares it in the document's `columns`; never a column letter.
+   * Absent: the whole row.
+   */
   column: NullableText.optional(),
   /** 1-based PDF page; required when the document is a PDF (text layer). */
   page: z.number().int().min(1).nullable().optional(),
@@ -334,8 +356,8 @@ export const TruthFileSchema = z.strictObject({
 export type TruthFile = z.infer<typeof TruthFileSchema>;
 
 // ---------------------------------------------------------------------------
-// truth/noise.json: relative deviation per key between two measurements of the
-// same plans (devis ind 0 against V3), never a raw quantity.
+// truth/noise.json: relative deviation per key between two revisions of the same
+// devis on unchanged plans, never a raw quantity.
 
 export const NoiseKeySchema = z.strictObject({
   ...keyShape,
