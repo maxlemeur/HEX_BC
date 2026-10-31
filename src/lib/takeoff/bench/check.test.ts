@@ -24,6 +24,8 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 // - a truth line or header refers to a document absent from the manifest;
 // - the same key twice in a file, or one devis cell in two truth lines (a quantity
 //   split between plans or counted twice), except a lot C module line;
+// - a devis row with one column per zone: its two columns flagged as one cell, or
+//   one column (or the whole row next to a column) used twice let through;
 // - a module quantity that does not follow devis x modules_on_plan / devis_modules,
 //   or a fractional count not flagged ambiguous;
 // - a line zone or level outside its truth documents;
@@ -239,6 +241,30 @@ describe("takeoff bench dataset check", () => {
       && /^lines\[[0-24]\]/.test(issue.path))).toEqual([]);
     expectIssue(result, "truth/c-plan-02.json", "lines[3].source", /row 13/);
     expectIssue(result, "truth/c-zz-lot.json", "lines[0].source", /row 10/);
+  });
+
+  it("tells workbook columns apart: one row feeds one zone per column, never one cell twice", async () => {
+    type Source = Record<string, unknown>;
+    const setZone2Source = (source: Source) => dataset.mutateJson("truth/a-plan-02.json", (truth) => {
+      (truth.lines as Array<{ source: Source }>)[0].source = source;
+    });
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      (truth.lines as Array<{ source: Source }>)[0].source.column = "Qte Z1";
+    });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Qte Z2", text: "Fictional zone 2" });
+    expect((await checkTakeoffBenchDataset(dataset.root)).errors).toEqual([]);
+
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Qte Z1", text: "Fictional zone 1 again" });
+    let result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source", /row 4, column Qte Z1 .*truth\/a-plan-01\.json/);
+
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, text: "Fictional whole row" });
+    result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source", /row 4 .*truth\/a-plan-01\.json.*column Qte Z1/);
+
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 9, column: " ", text: "Fictional blank column" });
+    result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source.column", /.+/);
   });
 
   it("checks lot C module quantities against devis x modules_on_plan / devis_modules", async () => {

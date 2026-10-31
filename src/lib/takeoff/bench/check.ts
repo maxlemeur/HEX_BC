@@ -49,7 +49,8 @@ const TRUTH_FILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*\.json$/;
 const PDF_EDGE_BYTES = 1024;
 
 type KnownDocument = { index: number; document: ManifestDocument };
-type CellUse = { file: string; path: string; module: boolean; documents: ReadonlySet<string> };
+/** One use of a workbook row; `column` null means the whole row, which overlaps every column. */
+type CellUse = { file: string; path: string; column: string | null; module: boolean; documents: ReadonlySet<string> };
 
 class DatasetCheck {
   readonly errors: BenchIssue[] = [];
@@ -317,7 +318,10 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
       if (source.sheet !== null && source.row !== null) {
         const cell = `${source.document} / ${source.sheet} / row ${source.row}`;
         const uses = check.cells.get(cell) ?? [];
-        uses.push({ file, path: formatPath(segments), module: line.module_scope === "module", documents: coveredIds });
+        uses.push({
+          file, path: formatPath(segments), column: source.column ?? null,
+          module: line.module_scope === "module", documents: coveredIds,
+        });
         check.cells.set(cell, uses);
       }
     }
@@ -352,16 +356,22 @@ async function checkTruthFile(check: DatasetCheck, file: string) {
   checkTruthLines(check, file, parsed.data, covered);
 }
 
+function sameCell(left: CellUse, right: CellUse) {
+  return left.column === null || right.column === null || left.column === right.column;
+}
+
 function checkCells(check: DatasetCheck) {
-  for (const [cell, uses] of check.cells) {
+  for (const [row, uses] of check.cells) {
     for (const [position, use] of uses.entries()) {
-      const conflict = uses.slice(0, position).find((earlier) => !(earlier.module && use.module
+      const conflict = uses.slice(0, position).find((earlier) => sameCell(earlier, use) && !(earlier.module && use.module
         && earlier.file !== use.file && [...earlier.documents].every((id) => !use.documents.has(id))));
       if (conflict) {
+        const cell = use.column === null ? row : `${row}, column ${use.column}`;
+        const other = conflict.column === use.column ? "" : ` (${conflict.column === null ? "whole row" : `column ${conflict.column}`})`;
         check.errors.push({
           file: use.file,
           path: use.path,
-          message: `devis cell ${cell} is already used by ${conflict.file}#${conflict.path}: `
+          message: `devis cell ${cell} is already used by ${conflict.file}#${conflict.path}${other}: `
             + "a quantity is never split between plans nor counted twice",
         });
       }

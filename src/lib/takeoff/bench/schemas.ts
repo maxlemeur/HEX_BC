@@ -217,6 +217,8 @@ export const TruthSourceSchema = z.strictObject({
   sheet: NullableText,
   /** 1-based workbook row; required when the document is an XLSX. */
   row: z.number().int().min(1).nullable(),
+  /** Column header or letter when one row holds several quantities (one per zone); absent: the whole row. */
+  column: NullableText.optional(),
   /** 1-based PDF page; required when the document is a PDF (text layer). */
   page: z.number().int().min(1).nullable().optional(),
   /** Designation of the cell or printed text the quantity comes from. */
