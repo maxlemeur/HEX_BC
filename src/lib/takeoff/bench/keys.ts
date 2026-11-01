@@ -25,9 +25,13 @@ export type LineKind = (typeof LINE_KINDS)[number];
 export const UNITS = ["ml", "m2", "u", "ens", "other"] as const;
 export type BenchUnit = (typeof UNITS)[number];
 
-/** Units a line kind may use; TI-660 scores ml, u and m2 and lists the others. */
+/**
+ * Units a line kind may use; TI-660 scores ml, u and m2 and lists the others.
+ * A network line in m2 is an insulation surface (material calorifuge), kept in
+ * the unit of the devis cell that prices it; a pipe length is never in m2.
+ */
 export const UNITS_BY_KIND: Record<LineKind, readonly BenchUnit[]> = {
-  network: ["ml", "ens", "other"],
+  network: ["ml", "m2", "ens", "other"],
   count: ["u", "ens", "other"],
   surface: ["m2"],
 };

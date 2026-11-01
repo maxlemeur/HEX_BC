@@ -26,6 +26,8 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 // - a raw_path leaves raw/ or is not named after the anonymous id;
 // - a truth file is out of schema (comma decimal, missing field, unknown field);
 // - a network, material, organ, unit or DN outside the known keys;
+// - an insulation cell priced in m² refused on its network line (the truth would
+//   have to write another unit than the cell's), or a pipe length let through in m2;
 // - a truth line or header refers to a document absent from the manifest, or to
 //   another lot's devis, or to a plan the truth file does not cover;
 // - a manifest header out of schema, or a duplicate_of that names no document;
@@ -191,6 +193,21 @@ describe("takeoff bench dataset check", () => {
     });
     const result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/a-plan-01.json", `lines[0].${field}`, message);
+  });
+
+  it("keeps the m2 unit of an insulation cell on a network line, and only on insulation", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      const lines = truth.lines as Array<Record<string, unknown>>;
+      lines[0].unit = "m2";
+      lines.push({
+        ...lines[2], material: "calorifuge", unit: "m2", quantity: 3.5, plan_cause: "not_drawn",
+        source: { document: "a-devis-01", sheet: "Lot", row: 9, row_basis: "workbook", text: "Fictional insulation in m2" },
+      });
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-01.json", "lines[0].unit", /m2.*calorifuge/);
+    expect(result.errors.filter((issue) => issue.path.startsWith("lines[3]"))).toEqual([]);
+    expect(result.errors).toHaveLength(1);
   });
 
   it("rejects an unknown organ and a DN that exists for no material", async () => {

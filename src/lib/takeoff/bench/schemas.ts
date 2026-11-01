@@ -179,7 +179,8 @@ export const ManifestSchema = z.strictObject({
 // ---------------------------------------------------------------------------
 // Quantity keys, shared by truth lines and noise keys. One line per key; every
 // field below is part of the key (with the lot C `phase`):
-// - network: zone x level x network x material x DN x unit;
+// - network: zone x level x network x material x DN x unit; the unit is the
+//   devis cell's, so an insulation priced by surface is a calorifuge line in m2;
 // - count: zone x level x network x organ x DN x unit, and material when the
 //   devis names one. The network is kept, finer than TI-659's zone x organ x DN:
 //   an EF valve and an ECS valve of one size are two lines, never added into
@@ -223,6 +224,8 @@ function checkKey(key: QuantityKey, ctx: Ctx) {
   }
   if (!UNITS_BY_KIND[key.kind].includes(key.unit)) {
     addIssue(ctx, ["unit"], `unit ${key.unit} is not used by a ${key.kind} line (${UNITS_BY_KIND[key.kind].join(", ")})`);
+  } else if (key.kind === "network" && key.unit === "m2" && key.material !== "calorifuge") {
+    addIssue(ctx, ["unit"], "a network line in m2 is an insulation surface: its material is calorifuge");
   }
   if (key.dn !== null && key.material !== null && !knownDnKeys(key.material).has(key.dn)) {
     addIssue(ctx, ["dn"], `unknown ${key.dn} for material ${key.material} (src/lib/takeoff/bench/diameters.ts)`);
