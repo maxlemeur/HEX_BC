@@ -519,7 +519,10 @@ function checkModuleClaims(check: DatasetCheck, row: string, uses: readonly Cell
 function checkCells(check: DatasetCheck) {
   for (const [row, uses] of check.cells) {
     for (const [position, use] of uses.entries()) {
+      // Two module lines on disjoint documents may share a cell only when both
+      // allocate modules (checkModuleClaims then bounds them); otherwise it is a double count.
       const conflict = uses.slice(0, position).find((earlier) => sameCell(earlier, use) && !(earlier.module && use.module
+        && earlier.claim !== null && use.claim !== null
         && earlier.file !== use.file && [...earlier.documents].every((id) => !use.documents.has(id))));
       if (conflict) {
         const cell = use.column === null ? row : `${row}, column ${use.column}`;
@@ -545,6 +548,29 @@ function checkCoverage(check: DatasetCheck) {
   }
 }
 
+/** A measured noise compares two usable revisions of a devis of the lot its plans belong to. */
+function checkNoiseRevisions(
+  check: DatasetCheck,
+  file: string,
+  covered: readonly ManifestDocument[],
+  revisions: ReadonlyArray<readonly [string, ManifestDocument | null]>,
+) {
+  const lots = [...new Set(covered.map((document) => document.lot))];
+  if (lots.length > 1) check.error(file, ["documents"], `the noise plans span lots ${lots.join(", ")}: one lot per noise`);
+  const [lot] = lots;
+  for (const [field, document] of revisions) {
+    if (document === null) continue;
+    if (document.kind !== "devis") {
+      check.error(file, [field], `${document.id} is a ${document.kind}: a noise compares two revisions of a devis`);
+    } else if (document.raw_status === "failed") {
+      check.error(file, [field], `${document.id} failed to download: it is no noise source`);
+    }
+    if (lots.length === 1 && document.lot !== lot) {
+      check.error(file, [field], `${document.id} belongs to lot ${document.lot}, the noise plans to lot ${lot}`);
+    }
+  }
+}
+
 async function checkNoise(check: DatasetCheck, file: string) {
   const json = await check.readJson(file);
   if (!json) return;
@@ -555,11 +581,14 @@ async function checkNoise(check: DatasetCheck, file: string) {
   }
   const noise = parsed.data;
   check.summary.noise = noise.status;
-  if (noise.baseline_document !== null) check.reference(file, ["baseline_document"], noise.baseline_document);
-  if (noise.comparison_document !== null) check.reference(file, ["comparison_document"], noise.comparison_document);
+  const baseline = noise.baseline_document === null ? null
+    : check.reference(file, ["baseline_document"], noise.baseline_document);
+  const comparison = noise.comparison_document === null ? null
+    : check.reference(file, ["comparison_document"], noise.comparison_document);
   const covered = noise.documents.map((id, index) => check.reference(file, ["documents", index], id))
     .filter((document): document is ManifestDocument => document !== null);
   if (covered.length !== noise.documents.length) return;
+  if (noise.status === "measured") checkNoiseRevisions(check, file, covered, [["baseline_document", baseline], ["comparison_document", comparison]]);
   const { zones, levels } = zonesAndLevels(covered);
   for (const [index, key] of noise.keys.entries()) {
     if (key.zone !== null && !zones.has(key.zone)) check.error(file, ["keys", index, "zone"], `zone ${key.zone} is not a zone of the noise documents`);

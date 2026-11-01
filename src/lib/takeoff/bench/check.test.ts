@@ -46,6 +46,8 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 // - a row basis on a PDF source, which names a page;
 // - plans that together claim more modules of a devis cell than the devis counts,
 //   including through a truth that covers a plan and a schema at once;
+// - the module exemption from the one-use-per-cell rule granted to a line with
+//   no module allocation (lot C fields outside lot C, or modules_on_plan unknown);
 // - a PDF source (or additional source) citing a page its document does not have;
 // - a plan known to draw no module refused (modules_on_plan 0), or its module
 //   lines let through with a quantity;
@@ -61,7 +63,8 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 // - an unscaled schema with lengths marked observable (rule 7), a sheet with
 //   several scales that downstream code cannot tell from an unscaled one;
 // - a raw quantity in noise.json, or no noise.json at all, or a measured noise
-//   that compares a document with itself;
+//   that compares a document with itself, or anything but two usable devis of
+//   the noise plans' lot;
 // - a missing manifest or invalid JSON stops the check instead of being reported;
 // - only the first error is reported.
 
@@ -503,6 +506,38 @@ describe("takeoff bench dataset check", () => {
     expectIssue(result, "truth/c-r2.json", "lines[0].source", /row 10: the plan files claim 14\/12 of its modules/);
   });
 
+  it("exempts a shared devis cell only for lot C module lines with a module allocation", async () => {
+    type Line = Record<string, unknown>;
+    // Lot C fields outside lot C: refused, so they cannot buy the exemption.
+    for (const id of ["a-plan-01", "a-plan-02"]) {
+      await dataset.mutateJson(`truth/${id}.json`, (truth) => {
+        const [line] = truth.lines as Line[];
+        line.source = { document: "a-devis-01", sheet: "Fictional sheet", row: 4, row_basis: "workbook", text: "Fictional row" };
+        line.module_scope = "module";
+      });
+    }
+    // A lot C plan whose modules are unknown shares c-plan-01's cells without any allocation.
+    const modulePlan = await dataset.readJson("truth/c-plan-01.json");
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      const documents = manifest.documents as Line[];
+      const plan = documents.find((entry) => entry.id === "c-plan-01") as Line;
+      documents.push({ ...plan, id: "c-plan-02", drive_id: "fixture-drive-c-plan-02", raw_path: "raw/c-plan-02.pdf", level: "R+2" });
+    });
+    await writeFile(path.join(dataset.root, "raw", "c-plan-02.pdf"), await readFile(path.join(dataset.root, "raw", "c-plan-01.pdf")));
+    await dataset.writeJson("truth/c-plan-02.json", {
+      ...modulePlan,
+      documents: ["c-plan-02"],
+      modules_on_plan: null,
+      lines: (modulePlan.lines as Line[]).map((line) => ({
+        ...line, level: "R+2", ambiguous: true, ambiguity_reason: "Fictional: modules not counted on this plan.",
+      })),
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-01.json", "lines[0].module_scope", /only lot c lines carry it/);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].module_scope", /only lot c lines carry it/);
+    expectIssue(result, "truth/c-plan-02.json", "lines[0].source", /already used by truth\/c-plan-01\.json/);
+  });
+
   it("bounds the PDF page a truth source cites by its document's page count", async () => {
     await dataset.mutateJson("truth/d-plan-01.json", (truth) => {
       const [line] = truth.lines as Array<Record<string, unknown>>;
@@ -645,6 +680,21 @@ describe("takeoff bench dataset check", () => {
     });
     const result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/noise.json", "comparison_document", /two distinct revisions/);
+  });
+
+  it("accepts a measured noise only between two usable devis of the noise plans' lot", async () => {
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      noise.comparison_document = "c-devis-01";
+    });
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "comparison_document",
+      /c-devis-01 belongs to lot c, the noise plans to lot a/);
+
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      noise.comparison_document = "a-devis-02";
+      noise.baseline_document = "a-plan-01";
+    });
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "baseline_document",
+      /a-plan-01 is a plan: a noise compares two revisions of a devis/);
   });
 
   it("rejects raw quantities in noise.json", async () => {

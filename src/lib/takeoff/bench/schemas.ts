@@ -384,6 +384,9 @@ export const TruthFileSchema = z.strictObject({
   if (truth.lot === "c" && truth.modules_on_plan === undefined) {
     addIssue(ctx, ["modules_on_plan"], "required on lot c truth (null when unknown)");
   }
+  if (truth.lot !== "c" && truth.modules_on_plan != null) {
+    addIssue(ctx, ["modules_on_plan"], "a lot c field: only lot c truth carries it");
+  }
   const seen = new Map<string, number>();
   for (const [index, line] of truth.lines.entries()) {
     const identity = keyIdentity(line, line.phase ?? null);
@@ -393,6 +396,12 @@ export const TruthFileSchema = z.strictObject({
     if (truth.lot === "c") {
       for (const field of ["devis_quantity", "module_scope", "phase"] as const) {
         if (line[field] === undefined) addIssue(ctx, ["lines", index, field], "required on lot c lines (rule 7)");
+      }
+    } else {
+      // Module fields elsewhere would buy the module exemption of the one-use-per-cell
+      // rule; phase (atelier / chantier) stays allowed in every lot.
+      for (const field of ["devis_quantity", "devis_modules", "module_scope"] as const) {
+        if (line[field] !== undefined) addIssue(ctx, ["lines", index, field], "a lot c field: only lot c lines carry it");
       }
     }
     checkModuleQuantity(line, truth.modules_on_plan ?? null, ctx, index);
