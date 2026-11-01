@@ -44,7 +44,9 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 //   another: one cell gets two row numbers (a double count passes) and two cells
 //   share one (a false conflict);
 // - a row basis on a PDF source, which names a page;
-// - plans that together claim more modules of a devis cell than the devis counts;
+// - plans that together claim more modules of a devis cell than the devis counts,
+//   including through a truth that covers a plan and a schema at once;
+// - a PDF source (or additional source) citing a page its document does not have;
 // - a plan known to draw no module refused (modules_on_plan 0), or its module
 //   lines let through with a quantity;
 // - a module quantity that does not follow devis x modules_on_plan / devis_modules,
@@ -58,7 +60,8 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 //   out a plan of its lot;
 // - an unscaled schema with lengths marked observable (rule 7), a sheet with
 //   several scales that downstream code cannot tell from an unscaled one;
-// - a raw quantity in noise.json, or no noise.json at all;
+// - a raw quantity in noise.json, or no noise.json at all, or a measured noise
+//   that compares a document with itself;
 // - a missing manifest or invalid JSON stops the check instead of being reported;
 // - only the first error is reported.
 
@@ -470,6 +473,47 @@ describe("takeoff bench dataset check", () => {
     expect(result.errors.filter((issue) => issue.file === "truth/c-schema-01.json")).toEqual([]);
   });
 
+  it("charges a truth covering a plan and a schema against each kind's module budget", async () => {
+    type Line = Record<string, unknown>;
+    const modulePlan = await dataset.readJson("truth/c-plan-01.json");
+    await dataset.mutateJson("manifest.json", (manifest) => {
+      const documents = manifest.documents as Line[];
+      const plan = documents.find((entry) => entry.id === "c-plan-01") as Line;
+      documents.push(
+        { ...plan, id: "c-plan-02", drive_id: "fixture-drive-c-plan-02", raw_path: "raw/c-plan-02.pdf", level: "R+2" },
+        { ...plan, id: "c-schema-01", kind: "schema", drive_id: "fixture-drive-c-schema-01",
+          raw_path: "raw/c-schema-01.pdf", level: "R+2" },
+      );
+    });
+    for (const id of ["c-plan-02", "c-schema-01"]) {
+      await writeFile(path.join(dataset.root, "raw", `${id}.pdf`), await readFile(path.join(dataset.root, "raw", "c-plan-01.pdf")));
+    }
+    // A level truth on R+2 covers a plan and a schema, every module drawn: 12 of 12.
+    await dataset.writeJson("truth/c-r2.json", {
+      ...modulePlan,
+      scope: "level",
+      documents: ["c-plan-02", "c-schema-01"],
+      modules_on_plan: 12,
+      lines: (modulePlan.lines as Line[]).filter((line) => line.module_scope === "module").map((line) => ({
+        ...line, level: "R+2", quantity: line.devis_quantity, ambiguous: undefined, ambiguity_reason: undefined,
+      })),
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    // Its plan adds to the 2 of 12 claimed on c-plan-01: 14 of 12 on the plans.
+    expectIssue(result, "truth/c-r2.json", "lines[0].source", /row 10: the plan files claim 14\/12 of its modules/);
+  });
+
+  it("bounds the PDF page a truth source cites by its document's page count", async () => {
+    await dataset.mutateJson("truth/d-plan-01.json", (truth) => {
+      const [line] = truth.lines as Array<Record<string, unknown>>;
+      (line.source as Record<string, unknown>).page = 999;
+      line.additional_sources = [{ document: "d-plan-01", sheet: null, row: null, page: 2, text: "Fictional second page" }];
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/d-plan-01.json", "lines[0].source.page", /page 999 is beyond the 1 page of d-plan-01/);
+    expectIssue(result, "truth/d-plan-01.json", "lines[0].additional_sources[0].page", /page 2 is beyond the 1 page of d-plan-01/);
+  });
+
   it("keeps a failed-download truth plan only when a devis is its source", async () => {
     await dataset.mutateJson("manifest.json", (manifest) => {
       const plan = (manifest.documents as Array<Record<string, unknown>>)[6];
@@ -593,6 +637,14 @@ describe("takeoff bench dataset check", () => {
     const result = await checkTakeoffBenchDataset(dataset.root);
     expect(result.errors).toEqual([]);
     expect(result.summary.noise).toBe("not_measured");
+  });
+
+  it("requires two distinct documents for a measured noise", async () => {
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      noise.comparison_document = noise.baseline_document;
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/noise.json", "comparison_document", /two distinct revisions/);
   });
 
   it("rejects raw quantities in noise.json", async () => {

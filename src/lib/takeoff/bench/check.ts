@@ -62,7 +62,8 @@ type KnownDocument = { index: number; document: ManifestDocument };
 /**
  * One use of a workbook row; `column` null means the whole row, which overlaps
  * every column. A module line claims `modules / devisModules` of the cell for
- * its `view`, the kinds of documents its file covers (plans, schemas).
+ * each of its `kinds`, the kinds of documents its file covers (plan, schema): a
+ * file covering a plan and a schema charges both budgets.
  */
 type CellUse = {
   file: string;
@@ -70,7 +71,7 @@ type CellUse = {
   column: string | null;
   module: boolean;
   claim: { modules: number; devisModules: number } | null;
-  view: string;
+  kinds: readonly string[];
   documents: ReadonlySet<string>;
 };
 
@@ -383,7 +384,7 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
   const coveredIds = new Set(truth.documents);
   const names = truth.documents.join(", ");
   const complete = covered.length === truth.documents.length;
-  const view = [...new Set(covered.map((document) => document.kind))].sort().join("+");
+  const kinds = [...new Set(covered.map((document) => document.kind))].sort();
   // Rule 7: the lengths of a schema without a title-block scale are not observable on it.
   const unscaled = complete && covered.length > 0 && covered.every((document) => document.kind === "schema"
     && document.scale === null && document.scales === undefined);
@@ -410,6 +411,10 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
       if (document?.file_type === "pdf" && (source.page ?? null) === null) {
         check.error(file, segments, `${source.document} is a PDF: the source names its page`);
       }
+      if (document?.file_type === "pdf" && source.page != null && document.pages != null && source.page > document.pages) {
+        check.error(file, [...segments, "page"],
+          `page ${source.page} is beyond the ${document.pages} page${document.pages > 1 ? "s" : ""} of ${document.id}`);
+      }
       if (document) checkRowBasis(check, file, segments, source, document);
       if (document && source.column != null) {
         if (document.columns === undefined) {
@@ -425,7 +430,7 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
         const uses = check.cells.get(cell) ?? [];
         uses.push({
           file, path: formatPath(segments), column: source.column ?? null,
-          module: line.module_scope === "module", claim, view, documents: coveredIds,
+          module: line.module_scope === "module", claim, kinds, documents: coveredIds,
         });
         check.cells.set(cell, uses);
       }
@@ -474,12 +479,15 @@ function formatClaim(uses: readonly CellUse[]) {
   return `${Number(claims.reduce((sum, claim) => sum + claim.modules / claim.devisModules, 0).toFixed(4))} times`;
 }
 
-/** Lot C: the plans (or the schemas) that cite one cell never claim more modules than the devis counts. */
+/**
+ * Lot C: the plans (or the schemas) that cite one cell never claim more modules
+ * than the devis counts. A file covering both kinds counts in both budgets.
+ */
 function checkModuleClaims(check: DatasetCheck, row: string, uses: readonly CellUse[]) {
   const views = new Map<string, CellUse[]>();
   for (const use of uses) {
     if (!use.module || use.claim === null) continue;
-    views.set(use.view, [...(views.get(use.view) ?? []), use]);
+    for (const kind of use.kinds) views.set(kind, [...(views.get(kind) ?? []), use]);
   }
   const reported = new Set<CellUse>();
   for (const [view, viewUses] of views) {

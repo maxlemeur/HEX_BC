@@ -431,6 +431,9 @@ export const NoiseFileSchema = z.strictObject({
   if (noise.status === "measured") {
     if (noise.baseline_document === null) addIssue(ctx, ["baseline_document"], "a measured noise names its baseline");
     if (noise.comparison_document === null) addIssue(ctx, ["comparison_document"], "a measured noise names its comparison");
+    if (noise.baseline_document !== null && noise.baseline_document === noise.comparison_document) {
+      addIssue(ctx, ["comparison_document"], "a measured noise compares two distinct revisions, not a document with itself");
+    }
     if (noise.documents.length === 0) addIssue(ctx, ["documents"], "a measured noise names its plans");
     if (noise.plan_index_same !== true) addIssue(ctx, ["plan_index_same"], "noise is measured only on an unchanged plan index");
     if (noise.keys.length === 0) addIssue(ctx, ["keys"], "a measured noise has keys");
