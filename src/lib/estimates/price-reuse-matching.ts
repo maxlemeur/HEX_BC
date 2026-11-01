@@ -39,7 +39,7 @@ export type PriceReuseMatch = {
 export const PRICE_REUSE_MAX_CANDIDATES = 5;
 const SIMILARITY_THRESHOLD = 0.5;
 
-type DimensionKind = "size" | "fraction" | "dn" | "pn" | "labeled" | "diameter" | "mm";
+export type DimensionKind = "size" | "fraction" | "dn" | "pn" | "labeled" | "diameter" | "mm";
 const DIMENSION_LABELS: Record<DimensionKind, string> = {
   size: "dimension", fraction: "fraction", dn: "DN", pn: "classe de pression", labeled: "cote repérée",
   diameter: "diamètre", mm: "cote en mm",
@@ -47,7 +47,8 @@ const DIMENSION_LABELS: Record<DimensionKind, string> = {
 
 const NUMBER = "(\\d+(?:\\.\\d+)?)";
 // Order matters: a size « Ø22x19mm » is read before its diameter marker and its « mm ».
-const DIMENSION_PATTERNS: ReadonlyArray<{ kind: DimensionKind; pattern: RegExp; value: (match: string[]) => string }> = [
+// Read on normalizeDimensionText output; also used by the takeoff bench (TI-660) to read a DN.
+export const DIMENSION_PATTERNS: ReadonlyArray<{ kind: DimensionKind; pattern: RegExp; value: (match: string[]) => string }> = [
   { kind: "size", pattern: new RegExp(`(?:\\bo\\s*)?\\b${NUMBER}\\s*x\\s*${NUMBER}(?:\\s*mm\\b)?`, "g"),
     value: (match) => `${number(match[1])}x${number(match[2])}` },
   // Order-sensitive values: 3/4 is not 4/3, H 600 L 1000 is not H 1000 L 600.
@@ -80,6 +81,9 @@ function normalize(text: string) {
     .replace(/(\d),(\d)/g, "$1.$2")
     .replace(/([a-z])(\d)/g, "$1 $2").replace(/(\d)([a-z])/g, "$1 $2");
 }
+
+/** The text DIMENSION_PATTERNS read: accent-free, lowercase, « Ø » as « o », decimal point, letters apart from digits. */
+export const normalizeDimensionText = normalize;
 
 function singular(word: string) {
   if (word.length <= 3 || /^\d/.test(word)) return word;

@@ -218,6 +218,21 @@ describe("takeoff bench dataset check", () => {
     expect(result.errors).toHaveLength(1);
   });
 
+  // Found in review of TI-660, written before its fix: an observable line takes any
+  // plan cause, so a reviewer can move an unexplained miss to the plan with « other ».
+  it("takes on an observable line only a plan cause of the review (vertical, not drawn, off plan, no separation, service)", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      const lines = truth.lines as Array<Record<string, unknown>>;
+      lines[0].plan_cause = "other";
+      lines[1].plan_cause = "not_drawn";
+      // Not observable: any reason of the exclusion.
+      lines[2].plan_cause = "other";
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-01.json", "lines[0].plan_cause", /vertical, not_drawn, off_plan, no_separation or service/);
+    expect(result.errors).toHaveLength(1);
+  });
+
   it("rejects an unknown organ and a DN that exists for no material", async () => {
     await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
       const count = (truth.lines as Array<Record<string, unknown>>)[1];

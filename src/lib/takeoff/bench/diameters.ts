@@ -138,6 +138,11 @@ export function dnKeysOf(entry: DiameterEntry): string[] {
   return [...new Set(keys)];
 }
 
+/** Whether the table has a series for this material (calorifuge, cordon chauffant and no material have none). */
+export function hasDiameterSeries(material: MaterialCode | null | undefined) {
+  return Boolean(material) && Object.values(DIAMETER_FAMILIES).some((family) => family.materials.includes(material as MaterialCode));
+}
+
 function entriesFor(material: MaterialCode | null | undefined) {
   if (!material) return DIAMETER_TABLE;
   const families = new Set(
@@ -180,10 +185,39 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
-/** A printed outer diameter: within the tolerance, or the outer diameter rounded to the millimetre (« 76 » for 76.1). */
+/** A printed size: within the tolerance, or a size rounded to the millimetre (« 76 » for 76.1). */
+function sameSize(actual: number, printed: number) {
+  return Math.abs(actual - printed) <= OUTER_DIAMETER_TOLERANCE_MM || (Number.isInteger(printed) && Math.round(actual) === printed);
+}
+
 function printsOuterDiameter(entry: DiameterEntry, printed: number) {
-  return Math.abs(entry.od_mm - printed) <= OUTER_DIAMETER_TOLERANCE_MM
-    || (Number.isInteger(printed) && Math.round(entry.od_mm) === printed);
+  return sameSize(entry.od_mm, printed);
+}
+
+/** A DN label and the entries it resolved to. */
+export type DiameterLabel = { printed: string; entries: readonly DiameterEntry[] };
+
+/** Sizes a label names: the size it prints, and the one nominal DN and the one outer diameter its entries agree on. */
+function namedSizes({ printed, entries }: DiameterLabel) {
+  const agreed = (values: ReadonlyArray<number | null>) => {
+    const distinct = new Set(values.filter((value): value is number => value !== null));
+    return distinct.size === 1 ? [...distinct] : [];
+  };
+  // « DN 22 », « Ø 22 », « 22 mm », « 22x1.2 »; an alias (« 20/22 », « 3/4" ») prints no size of its own.
+  const size = /^(?:DN |Ø )?(\d+(?:\.\d+)?)(?:x\d+(?:\.\d+)?| mm)?$/.exec(printed.trim());
+  return [...(size ? [Number(size[1])] : []), ...agreed(entries.map((entry) => entry.nominal_dn)), ...agreed(entries.map((entry) => entry.od_mm))];
+}
+
+/**
+ * Whether two labels name one size when no series restricts them (a count, an
+ * insulation): one prints the size the other names. « DN 22 », « Ø22 » and
+ * « 3/4" » name DN 20 (every series agrees on it), « DN 76 » names DN 76.1. A
+ * shared entry is not enough: « DN 20 » is also a multilayer 20, whose nominal
+ * is 15, but its series disagree on that nominal, so it never names DN 15.
+ */
+export function sameSizeWithoutSeries(left: DiameterLabel, right: DiameterLabel) {
+  const named = namedSizes(right);
+  return namedSizes(left).some((size) => named.some((other) => sameSize(size, other) || sameSize(other, size)));
 }
 
 /**

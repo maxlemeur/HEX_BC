@@ -9,9 +9,11 @@ import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
 import {
   buildPdfChunks,
+  createChunkPromptSourceHint,
   createPdfChunkBytes,
   getPdfPageCount,
   mergeTakeoffChunkExchanges,
+  remapChunkLocalPagesToAbsolute,
   type TakeoffPdfChunk,
 } from "@/lib/takeoff/chunking";
 import {
@@ -1928,35 +1930,6 @@ type ProcessLevelCGeminiAggregate = {
   chunkMetrics: LevelCChunkMetric[];
   providerMeta: Record<string, unknown>;
 };
-
-function createChunkPromptSourceHint(input: {
-  fileName: string;
-  chunk: TakeoffPdfChunk;
-  totalChunks: number;
-}) {
-  return `${input.fileName} | chunk ${input.chunk.index + 1}/${input.totalChunks} | pages ${
-    input.chunk.startPage
-  }-${input.chunk.endPage}`;
-}
-
-function remapChunkLocalPagesToAbsolute(input: {
-  chunk: TakeoffPdfChunk;
-  exchange: TakeoffExchange;
-}): TakeoffExchange {
-  const pageOffset = input.chunk.startPage - 1;
-
-  return {
-    ...input.exchange,
-    items: input.exchange.items.map((item) => ({
-      ...item,
-      source_page: item.source_page === undefined ? undefined : item.source_page + pageOffset,
-    })),
-    tables: input.exchange.tables?.map((table) => ({
-      ...table,
-      page: table.page + pageOffset,
-    })),
-  };
-}
 
 async function upsertDetectedPlanFilePageCount(input: {
   supabase: Supabase;

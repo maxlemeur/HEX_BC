@@ -96,7 +96,8 @@ function normalizeUnit(value: string) {
   return normalized;
 }
 
-function designationSimilarity(left: string, right: string) {
+/** Dice similarity of the normalized designation words; 1 when the normalized texts are equal. */
+export function designationSimilarity(left: string, right: string) {
   const normalizedLeft = normalizeText(left);
   const normalizedRight = normalizeText(right);
   if (normalizedLeft === normalizedRight) return 1;
