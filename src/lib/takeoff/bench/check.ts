@@ -588,6 +588,12 @@ async function checkNoise(check: DatasetCheck, file: string) {
   const covered = noise.documents.map((id, index) => check.reference(file, ["documents", index], id))
     .filter((document): document is ManifestDocument => document !== null);
   if (covered.length !== noise.documents.length) return;
+  for (const [index, document] of covered.entries()) {
+    if (document.kind !== "plan" && document.kind !== "schema") {
+      check.error(file, ["documents", index],
+        `${document.id} is a ${document.kind}: a noise covers the plans or schemas whose index stays the same`);
+    }
+  }
   if (noise.status === "measured") checkNoiseRevisions(check, file, covered, [["baseline_document", baseline], ["comparison_document", comparison]]);
   const { zones, levels } = zonesAndLevels(covered);
   for (const [index, key] of noise.keys.entries()) {

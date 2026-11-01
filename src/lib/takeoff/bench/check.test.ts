@@ -64,8 +64,9 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 //   several scales that downstream code cannot tell from an unscaled one;
 // - a raw quantity in noise.json, or no noise.json at all, or a measured noise
 //   that compares a document with itself, or anything but two usable devis of
-//   the noise plans' lot; workshop and site keys that differ only by phase
-//   merged or refused as duplicates;
+//   the noise plans' lot, or a noise whose covered documents are devis instead
+//   of the plans or schemas held constant; workshop and site keys that differ
+//   only by phase merged or refused as duplicates;
 // - a missing manifest or invalid JSON stops the check instead of being reported;
 // - only the first error is reported.
 
@@ -696,6 +697,24 @@ describe("takeoff bench dataset check", () => {
     });
     expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "baseline_document",
       /a-plan-01 is a plan: a noise compares two revisions of a devis/);
+  });
+
+  it("requires a noise to cover the plans or schemas whose index stays the same, not a devis", async () => {
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      noise.documents = ["a-devis-01"];
+      for (const key of noise.keys as Array<Record<string, unknown>>) {
+        key.zone = null;
+        key.level = null;
+      }
+    });
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "documents[0]",
+      /a-devis-01 is a devis: a noise covers the plans or schemas whose index stays the same/);
+
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      noise.documents = ["a-plan-01", "a-devis-02"];
+    });
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "documents[1]",
+      /a-devis-02 is a devis: a noise covers the plans or schemas/);
   });
 
   it("keeps workshop and site noise keys apart by phase, as truth lines do", async () => {
