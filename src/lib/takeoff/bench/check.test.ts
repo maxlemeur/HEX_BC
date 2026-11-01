@@ -64,7 +64,8 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 //   several scales that downstream code cannot tell from an unscaled one;
 // - a raw quantity in noise.json, or no noise.json at all, or a measured noise
 //   that compares a document with itself, or anything but two usable devis of
-//   the noise plans' lot;
+//   the noise plans' lot; workshop and site keys that differ only by phase
+//   merged or refused as duplicates;
 // - a missing manifest or invalid JSON stops the check instead of being reported;
 // - only the first error is reported.
 
@@ -695,6 +696,22 @@ describe("takeoff bench dataset check", () => {
     });
     expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "baseline_document",
       /a-plan-01 is a plan: a noise compares two revisions of a devis/);
+  });
+
+  it("keeps workshop and site noise keys apart by phase, as truth lines do", async () => {
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      const keys = noise.keys as Array<Record<string, unknown>>;
+      keys.splice(1, 1, { ...keys[0], phase: "atelier", relative_deviation: 0.02 }, { ...keys[0], phase: "chantier" });
+      keys[0].phase = "atelier";
+    });
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/noise.json", "keys[1]", /same key as keys\[0\]/);
+
+    await dataset.mutateJson("truth/noise.json", (noise) => {
+      const keys = noise.keys as Array<Record<string, unknown>>;
+      keys.splice(1, 1);
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expect(result.errors).toEqual([]);
   });
 
   it("rejects raw quantities in noise.json", async () => {

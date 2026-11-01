@@ -416,6 +416,8 @@ export type TruthFile = z.infer<typeof TruthFileSchema>;
 
 export const NoiseKeySchema = z.strictObject({
   ...keyShape,
+  /** Part of the key, as on truth lines: workshop and site quantities of one key deviate separately. */
+  phase: z.enum(["atelier", "chantier"]).optional(),
   /** (comparison - baseline) / baseline; null when undefined (zero baseline, key on one side only). */
   relative_deviation: z.number().nullable(),
   reason: NullableText,
@@ -452,7 +454,7 @@ export const NoiseFileSchema = z.strictObject({
   }
   const seen = new Map<string, number>();
   for (const [index, key] of noise.keys.entries()) {
-    const identity = keyIdentity(key);
+    const identity = keyIdentity(key, key.phase ?? null);
     const first = seen.get(identity);
     if (first === undefined) seen.set(identity, index);
     else addIssue(ctx, ["keys", index], `same key as keys[${first}]`);
