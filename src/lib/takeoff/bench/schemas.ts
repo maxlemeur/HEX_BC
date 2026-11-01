@@ -177,7 +177,15 @@ export const ManifestSchema = z.strictObject({
 });
 
 // ---------------------------------------------------------------------------
-// Quantity keys, shared by truth lines and noise keys
+// Quantity keys, shared by truth lines and noise keys. One line per key; every
+// field below is part of the key (with the lot C `phase`):
+// - network: zone x level x network x material x DN x unit;
+// - count: zone x level x network x organ x DN x unit, and material when the
+//   devis names one. The network is kept, finer than TI-659's zone x organ x DN:
+//   an EF valve and an ECS valve of one size are two lines, never added into
+//   one by the truth. Aggregating counts by zone x organ x DN is the scorer's job
+//   (TI-660). A count with no network (a WC) has network null;
+// - surface: level x room x m2.
 
 const keyShape = {
   kind: knownCode(LINE_KINDS, "kind"),
@@ -229,12 +237,27 @@ function keyIdentity(key: QuantityKey, phase: string | null = null) {
 // ---------------------------------------------------------------------------
 // truth/<id>.json
 
+/**
+ * How a workbook row is numbered. `workbook`: the 1-based worksheet row, as a
+ * spreadsheet shows it, only for a workbook whose binary is stored
+ * (raw_status binary). `drive_text`: the 1-based record index in the Drive
+ * read_file_content export of the sheet, which drops empty rows; required for a
+ * text_only workbook, allowed for a stored one. One document is cited by one
+ * basis across the dataset, so that one cell keeps one row number.
+ */
+export const ROW_BASES = ["workbook", "drive_text"] as const;
+export type RowBasis = (typeof ROW_BASES)[number];
+
 export const TruthSourceSchema = z.strictObject({
   document: DocumentIdSchema,
   /** Workbook sheet (onglet); required when the document is an XLSX. */
   sheet: NullableText,
-  /** 1-based workbook row; required when the document is an XLSX. */
+  /** 1-based workbook row, numbered as row_basis says; required when the document is an XLSX. */
   row: z.number().int().min(1).nullable(),
+  /** Required with a row, absent (or null) without one, as on a PDF source. */
+  row_basis: z.enum(ROW_BASES, {
+    error: (issue) => `unknown row_basis ${JSON.stringify(issue.input)} (workbook or drive_text)`,
+  }).nullable().optional(),
   /**
    * Column header when one row holds several quantities (one per zone), as the
    * manifest declares it in the document's `columns`; never a column letter.
@@ -245,7 +268,15 @@ export const TruthSourceSchema = z.strictObject({
   page: z.number().int().min(1).nullable().optional(),
   /** Designation of the cell or printed text the quantity comes from. */
   text: Text,
+}).superRefine((source, ctx) => {
+  const basis = source.row_basis ?? null;
+  if (source.row !== null && basis === null) {
+    addIssue(ctx, ["row_basis"], "a row names its row_basis (workbook or drive_text)");
+  }
+  if (source.row === null && basis !== null) addIssue(ctx, ["row_basis"], "row_basis goes with a row: this source has none");
 });
+
+export type TruthSource = z.infer<typeof TruthSourceSchema>;
 
 export const TruthLineSchema = z.strictObject({
   ...keyShape,
@@ -258,10 +289,19 @@ export const TruthLineSchema = z.strictObject({
   plan_cause: z.enum(PLAN_CAUSES).optional(),
   // Lot C (repeated modules), rule 7 of TI-659.
   devis_quantity: z.number().nonnegative().optional(),
+  /** Modules the cited devis row prices, read on that row: two devis of one lot may count differently. */
   devis_modules: z.number().int().min(1).optional(),
   module_scope: z.enum(["module", "commun"]).optional(),
   phase: z.enum(["atelier", "chantier"]).optional(),
   ambiguous: z.boolean().optional(),
+  /**
+   * Why the line is ambiguous; it goes to the list for the reviewer. Reasons of
+   * a known kind start with their code: `zone_overlap:` (drawn in a band two
+   * zone plans share; the line keeps its zone's devis quantity),
+   * `label_conflict:` (the plan and the devis disagree on a diameter or a label
+   * of the key), `diameter_notation:` (a size notation the diameter table does
+   * not map, e.g. a multilayer « 20x25 »). Any other reason is free text.
+   */
   ambiguity_reason: Text.optional(),
   notes: Text.optional(),
 }).superRefine((line, ctx) => {
@@ -328,8 +368,11 @@ export const TruthFileSchema = z.strictObject({
   source_document: DocumentIdSchema,
   /** Rules applied to build this file, in plain text. */
   rules: Text,
-  /** Lot C: modules drawn on this plan (title block, title or legend); null when unknown. */
-  modules_on_plan: z.number().int().min(1).nullable().optional(),
+  /**
+   * Lot C: modules drawn on this plan, counted on the plan (title block, title or
+   * legend); 0 when the plan is known to draw none, null only when unknown.
+   */
+  modules_on_plan: z.number().int().nonnegative().nullable().optional(),
   modules_on_plan_source: NullableText.optional(),
   notes: NullableText.optional(),
   lines: z.array(TruthLineSchema),

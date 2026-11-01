@@ -2,11 +2,21 @@ import type { MaterialCode } from "@/lib/takeoff/bench/keys";
 
 // Versioned diameter correspondence of the takeoff bench (TI-659), from public
 // product standards only, no client data. A devis writes « 22x1,2 », a plan
-// « DN 22 »: the truth key is the DN printed on the plan. Thin-wall and plastic
-// series are printed by their outer diameter (`plan_label: "outer_diameter"`),
-// steel, welded stainless and cast iron by their nominal DN. When one text
-// matches entries with different outer diameters, the case is ambiguous and goes
-// to the reviewer; this module never picks one.
+// « DN 22 »: both resolve to one entry, and the truth key is one of that entry's
+// keys (`dnKeysOf`). Thin-wall and plastic series are printed by their outer
+// diameter (`plan_label: "outer_diameter"`), steel, welded stainless and cast
+// iron by their nominal DN.
+// - A plan may round an outer diameter to the millimetre (« DN 76 » for the
+//   76.1x2 press stainless tube, « DN 89 » for 88.9): the label resolves to the
+//   entry, whose truth key stays its outer diameter (`DN 76.1`); `DN 76` is no
+//   truth key. The rounding never applies to a series printed by nominal DN.
+// - « AxB » reads as outer diameter x wall only when B can be a wall (under a
+//   quarter of A). Any other pair (« 20x25 », « 15x20 », a multilayer or PER
+//   inner x outer pair) is an unmapped notation: no entry, unless an alias of
+//   the table names it (none today), and the truth line is ambiguous with the
+//   reason `diameter_notation: ...`.
+// - When one text matches entries with different outer diameters, the case is
+//   ambiguous and goes to the reviewer; this module never picks one.
 
 export const DIAMETER_TABLE_VERSION = 1;
 
@@ -152,6 +162,8 @@ export function knownDnKeys(material: MaterialCode | null): ReadonlySet<string> 
 
 const NUMBER = String.raw`(\d+(?:\.\d+)?)`;
 const OUTER_DIAMETER_TOLERANCE_MM = 0.15;
+/** The thickest wall of the table is under a fifth of its outer diameter; « AxB » with B from A/4 up is no wall. */
+const MAX_WALL_FRACTION = 0.25;
 
 function normalize(text: string) {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
@@ -168,15 +180,18 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
-function sameDiameter(left: number, right: number) {
-  return Math.abs(left - right) <= OUTER_DIAMETER_TOLERANCE_MM;
+/** A printed outer diameter: within the tolerance, or the outer diameter rounded to the millimetre (« 76 » for 76.1). */
+function printsOuterDiameter(entry: DiameterEntry, printed: number) {
+  return Math.abs(entry.od_mm - printed) <= OUTER_DIAMETER_TOLERANCE_MM
+    || (Number.isInteger(printed) && Math.round(entry.od_mm) === printed);
 }
 
 /**
  * Entries a devis or plan designation refers to, restricted to the material's
  * series. Reads, in this order: an alias (« 20/22 », « 3/4" »), a DN, an
  * outer diameter x wall, « Ø n », « n mm ». The first form found decides;
- * several entries with different outer diameters mean an ambiguous size.
+ * several entries with different outer diameters mean an ambiguous size, and
+ * no entry an unknown size or an unmapped notation (« 20x25 »).
  */
 export function findDiameterEntries(text: string, material?: MaterialCode | null): DiameterEntry[] {
   const candidates = entriesFor(material);
@@ -190,13 +205,18 @@ export function findDiameterEntries(text: string, material?: MaterialCode | null
   if (dn) {
     const value = Number(dn[1]);
     return candidates.filter((entry) => entry.nominal_dn === value
-      || (DIAMETER_FAMILIES[entry.family].plan_label === "outer_diameter" && entry.od_mm === value));
+      || (DIAMETER_FAMILIES[entry.family].plan_label === "outer_diameter" && printsOuterDiameter(entry, value)));
   }
 
-  const outer = new RegExp(String.raw`(?<![\d.])${NUMBER}x${NUMBER}`).exec(normalized)
-    ?? new RegExp(String.raw`\bo\s*${NUMBER}(?![\d.])`).exec(normalized)
+  const pair = new RegExp(String.raw`(?<![\d.])${NUMBER}x${NUMBER}`).exec(normalized);
+  if (pair) {
+    const [outer, wall] = [Number(pair[1]), Number(pair[2])];
+    if (wall >= outer * MAX_WALL_FRACTION) return [];
+    return candidates.filter((entry) => printsOuterDiameter(entry, outer));
+  }
+  const outer = new RegExp(String.raw`\bo\s*${NUMBER}(?![\d.])`).exec(normalized)
     ?? new RegExp(String.raw`(?<![\d.x/])${NUMBER}\s*mm\b`).exec(normalized);
   if (!outer) return [];
   const value = Number(outer[1]);
-  return candidates.filter((entry) => sameDiameter(entry.od_mm, value));
+  return candidates.filter((entry) => printsOuterDiameter(entry, value));
 }

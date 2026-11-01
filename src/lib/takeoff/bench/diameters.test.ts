@@ -13,6 +13,14 @@ import {
 // candidate silently chosen when a material has two series with different
 // outer diameters for the same DN; a DN accepted for a material that has no
 // such size (a typo in the truth passes).
+// Then, from the real plans: a plan rounds an outer diameter to the millimetre
+// ("DN 76" on press stainless 76.1x2, "DN 89" for 88.9) and the plan reading
+// never reaches its truth key; that rounding leaks into a series printed by
+// nominal DN (steel "DN 76" taken for the 76.1 tube, whose plans say DN 65);
+// the rounded label accepted as a truth key, so one pipe gets two keys
+// ("DN 76" and "DN 76.1"); a multilayer pair whose second number is no wall
+// ("20x25", "15x20") read as outer diameter x wall, or falling back to "Ø 20",
+// so an unmapped notation gets a size instead of going to the reviewer.
 
 function keys(text: string, material: Parameters<typeof findDiameterEntries>[1]) {
   return [...new Set(findDiameterEntries(text, material).flatMap(dnKeysOf))].sort();
@@ -51,6 +59,43 @@ describe("diameter correspondence table", () => {
   it("finds nothing for a size the material does not have", () => {
     expect(findDiameterEntries("DN 22", "acier")).toEqual([]);
     expect(findDiameterEntries("Cuivre sans diametre", "cuivre")).toEqual([]);
+  });
+
+  it.each([
+    ["DN 76", "inox-316l", [76.1]],
+    ["Inox 316L DN 76", "inox", [76.1]],
+    ["EG-A DN89", "inox-316l", [88.9]],
+    ["DN 140", "inox-304l", [139.7]],
+    ["Ø 140", "inox-304l", [139.7]],
+    ["DN 76", "cuivre", [76.1]],
+  ] as const)("resolves the rounded plan label %s for %s to its outer diameter", (text, material, expected) => {
+    expect(outerDiameters(text, material)).toEqual(expected);
+  });
+
+  it("resolves the rounded plan label to the outer-diameter truth key, never a key of its own", () => {
+    expect(keys("DN 76", "inox-316l")).toEqual(["DN 65", "DN 76.1"]);
+    expect(knownDnKeys("inox-316l").has("DN 76.1")).toBe(true);
+    expect(knownDnKeys("inox-316l").has("DN 76")).toBe(false);
+  });
+
+  it("keeps the rounding to series printed by their outer diameter", () => {
+    expect(findDiameterEntries("DN 76", "acier")).toEqual([]);
+    expect(outerDiameters("DN 65", "acier")).toEqual([76.1]);
+    expect(outerDiameters("DN 100", "inox")).toEqual([108, 114.3]);
+  });
+
+  it.each([
+    ["20x25", "multicouche"],
+    ["Multicouche 15x20", "multicouche"],
+    ["Ø 20x25", "multicouche"],
+    ["16 x 20", "per"],
+  ] as const)("leaves the unmapped pair %s for %s without a size (ambiguous, diameter_notation)", (text, material) => {
+    expect(findDiameterEntries(text, material)).toEqual([]);
+  });
+
+  it("still reads a multilayer outer diameter x wall", () => {
+    expect(outerDiameters("Multicouche 20x2", "multicouche")).toEqual([20]);
+    expect(outerDiameters("26 x 3", "multicouche")).toEqual([26]);
   });
 
   it("knows DN keys by material", () => {

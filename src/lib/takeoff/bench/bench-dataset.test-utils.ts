@@ -76,7 +76,7 @@ function line(overrides: Json): Json {
     room: null,
     unit: "ml",
     quantity: 1,
-    source: { document: "a-devis-01", sheet: "Lot", row: 1, text: "Fictional row" },
+    source: { document: "a-devis-01", sheet: "Lot", row: 1, row_basis: "workbook", text: "Fictional row" },
     observable_on_plan: true,
     ...overrides,
   };
@@ -159,12 +159,12 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
       source_document: "a-devis-01", rules: "Fictional rule: one line per devis key.",
       lines: [
         line({ zone: "Z1", level: "R+1", network: "EF", material: "cuivre", dn: "DN 22", quantity: 12.5,
-          source: { document: "a-devis-01", sheet: "Lot", row: 4, text: "Fictional copper 20/22" } }),
+          source: { document: "a-devis-01", sheet: "Lot", row: 4, row_basis: "workbook", text: "Fictional copper 20/22" } }),
         line({ kind: "count", zone: "Z1", level: "R+1", network: "EF", dn: "DN 20", organ: "vanne",
-          unit: "u", quantity: 3, source: { document: "a-devis-01", sheet: "Lot", row: 5, text: "Fictional valve" } }),
+          unit: "u", quantity: 3, source: { document: "a-devis-01", sheet: "Lot", row: 5, row_basis: "workbook", text: "Fictional valve" } }),
         line({ zone: "Z1", level: "R+1", network: "EV", material: "pvc", dn: "DN 100", quantity: 6,
           observable_on_plan: false, plan_cause: "vertical",
-          source: { document: "a-devis-01", sheet: "Lot", row: 6, text: "Fictional riser" } }),
+          source: { document: "a-devis-01", sheet: "Lot", row: 6, row_basis: "workbook", text: "Fictional riser" } }),
       ],
     },
     "truth/a-plan-02.json": {
@@ -172,8 +172,8 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
       source_document: "a-devis-01", rules: "Fictional rule: reserve plan.",
       lines: [
         line({ zone: "Z2", level: "R+1", network: "ECS", material: "inox-316l", dn: "DN 22", quantity: 8,
-          source: { document: "a-devis-01", sheet: "Lot", row: 7, text: "Fictional stainless 22x1,2" },
-          additional_sources: [{ document: "a-devis-01", sheet: "Lot", row: 8, text: "Fictional same key" }] }),
+          source: { document: "a-devis-01", sheet: "Lot", row: 7, row_basis: "workbook", text: "Fictional stainless 22x1,2" },
+          additional_sources: [{ document: "a-devis-01", sheet: "Lot", row: 8, row_basis: "workbook", text: "Fictional same key" }] }),
       ],
     },
     "truth/b-plan-01.json": {
@@ -181,7 +181,7 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
       source_document: "b-devis-01", rules: "Fictional rule: one line per devis key.",
       lines: [
         line({ zone: "Z1", level: "R+1", network: "HW-S", material: "acier-noir", dn: "DN 50", quantity: 7,
-          source: { document: "b-devis-01", sheet: "Lot", row: 2, text: "Fictional black steel 50" } }),
+          source: { document: "b-devis-01", sheet: "Lot", row: 2, row_basis: "drive_text", text: "Fictional black steel 50" } }),
       ],
     },
     "truth/c-plan-01.json": {
@@ -191,20 +191,20 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
       lines: [
         line({ level: "R+1", network: "CHW-S", material: "inox-316l", dn: "DN 100", quantity: 10,
           devis_quantity: 60, devis_modules: 12, module_scope: "module", phase: "atelier",
-          source: { document: "c-devis-01", sheet: "Modules", row: 10, text: "Fictional workshop spool" } }),
+          source: { document: "c-devis-01", sheet: "Modules", row: 10, row_basis: "drive_text", text: "Fictional workshop spool" } }),
         line({ level: "R+1", network: "CHW-S", material: "inox-316l", dn: "DN 100", quantity: 4,
           devis_quantity: 24, devis_modules: 12, module_scope: "module", phase: "chantier",
-          source: { document: "c-devis-01", sheet: "Modules", row: 11, text: "Fictional site run" } }),
+          source: { document: "c-devis-01", sheet: "Modules", row: 11, row_basis: "drive_text", text: "Fictional site run" } }),
         line({ kind: "count", level: "R+1", network: "CHW-S", dn: "DN 100", organ: "vanne", unit: "u",
           quantity: 4, devis_quantity: 24, devis_modules: 12, module_scope: "module", phase: "atelier",
-          source: { document: "c-devis-01", sheet: "Modules", row: 12, text: "Fictional valves" } }),
+          source: { document: "c-devis-01", sheet: "Modules", row: 12, row_basis: "drive_text", text: "Fictional valves" } }),
         line({ level: "R+1", network: "CHW-R", material: "inox-316l", dn: "DN 150", quantity: 30,
           devis_quantity: 30, module_scope: "commun", phase: "chantier",
-          source: { document: "c-devis-01", sheet: "Modules", row: 13, text: "Fictional header" } }),
+          source: { document: "c-devis-01", sheet: "Modules", row: 13, row_basis: "drive_text", text: "Fictional header" } }),
         line({ kind: "count", level: "R+1", network: "CHW-S", organ: "purgeur", unit: "u", quantity: null,
           devis_quantity: 5, devis_modules: 12, module_scope: "module", phase: "chantier",
           ambiguous: true, ambiguity_reason: "Fictional: 5 x 2 / 12 is not a whole count.",
-          source: { document: "c-devis-01", sheet: "Modules", row: 14, text: "Fictional vents" } }),
+          source: { document: "c-devis-01", sheet: "Modules", row: 14, row_basis: "drive_text", text: "Fictional vents" } }),
       ],
     },
     "truth/d-plan-01.json": {

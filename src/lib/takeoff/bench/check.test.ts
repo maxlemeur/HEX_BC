@@ -34,7 +34,17 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 // - a devis row with one column per zone: its two columns flagged as one cell, or
 //   one column (or the whole row next to a column) used twice let through, or one
 //   cell cited by letter in one file and by header in another;
+// - a workbook row cited without its basis: a worksheet row and a record index of
+//   the Drive text export differ as soon as the sheet has a blank row, so the
+//   reviewer reads another row;
+// - a text_only workbook cited by worksheet row, which no stored binary can show;
+// - one workbook cited by worksheet row in one file and by Drive text record in
+//   another: one cell gets two row numbers (a double count passes) and two cells
+//   share one (a false conflict);
+// - a row basis on a PDF source, which names a page;
 // - plans that together claim more modules of a devis cell than the devis counts;
+// - a plan known to draw no module refused (modules_on_plan 0), or its module
+//   lines let through with a quantity;
 // - a module quantity that does not follow devis x modules_on_plan / devis_modules,
 //   or a fractional count not flagged ambiguous;
 // - a line zone or level outside its truth documents;
@@ -231,7 +241,7 @@ describe("takeoff bench dataset check", () => {
   it("rejects a key counted twice in one truth file", async () => {
     await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
       const lines = truth.lines as Array<Record<string, unknown>>;
-      lines.push({ ...lines[0], source: { document: "a-devis-01", sheet: "Lot", row: 40, text: "Fictional" } });
+      lines.push({ ...lines[0], source: { document: "a-devis-01", sheet: "Lot", row: 40, row_basis: "workbook", text: "Fictional" } });
     });
     const result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/a-plan-01.json", "lines[3]", /same key as lines\[0\]/);
@@ -240,7 +250,7 @@ describe("takeoff bench dataset check", () => {
   it("rejects one devis cell used by two truth lines, except module lines on disjoint plans", async () => {
     await dataset.mutateJson("truth/a-plan-02.json", (truth) => {
       const line = (truth.lines as Array<{ source: Record<string, unknown> }>)[0];
-      line.source = { document: "a-devis-01", sheet: "Lot", row: 4, text: "Fictional split" };
+      line.source = { document: "a-devis-01", sheet: "Lot", row: 4, row_basis: "workbook", text: "Fictional split" };
     });
     await writeFile(path.join(dataset.root, "raw", "c-plan-02.pdf"),
       await readFile(path.join(dataset.root, "raw", "c-plan-01.pdf")));
@@ -268,19 +278,19 @@ describe("takeoff bench dataset check", () => {
     await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
       (truth.lines as Array<{ source: Source }>)[0].source.column = "Fictional Z1 column";
     });
-    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Fictional Z2 column", text: "Fictional zone 2" });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Fictional Z2 column", row_basis: "workbook", text: "Fictional zone 2" });
     expect((await checkTakeoffBenchDataset(dataset.root)).errors).toEqual([]);
 
-    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Fictional Z1 column", text: "Fictional zone 1 again" });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, column: "Fictional Z1 column", row_basis: "workbook", text: "Fictional zone 1 again" });
     let result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/a-plan-02.json", "lines[0].source",
       /row 4, column Fictional Z1 column .*truth\/a-plan-01\.json/);
 
-    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, text: "Fictional whole row" });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 4, row_basis: "workbook", text: "Fictional whole row" });
     result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/a-plan-02.json", "lines[0].source", /row 4 .*truth\/a-plan-01\.json.*column Fictional Z1 column/);
 
-    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 9, column: " ", text: "Fictional blank column" });
+    await setZone2Source({ document: "a-devis-01", sheet: "Lot", row: 9, column: " ", row_basis: "workbook", text: "Fictional blank column" });
     result = await checkTakeoffBenchDataset(dataset.root);
     expectIssue(result, "truth/a-plan-02.json", "lines[0].source.column", /.+/);
   });
@@ -292,7 +302,7 @@ describe("takeoff bench dataset check", () => {
     // The same cell cited by its column letter would otherwise count as a second cell.
     await dataset.mutateJson("truth/a-plan-02.json", (truth) => {
       (truth.lines as Array<{ source: Record<string, unknown> }>)[0].source = {
-        document: "a-devis-01", sheet: "Lot", row: 4, column: "F", text: "Fictional same cell by letter",
+        document: "a-devis-01", sheet: "Lot", row: 4, column: "F", row_basis: "workbook", text: "Fictional same cell by letter",
       };
     });
     await dataset.mutateJson("truth/b-plan-01.json", (truth) => {
@@ -318,6 +328,62 @@ describe("takeoff bench dataset check", () => {
     expectIssue(result, "truth/c-plan-01.json", "lines[3].quantity", /commun.*30/);
     expectIssue(result, "truth/c-plan-01.json", "lines[4]", /whole count.*ambiguous/);
     expectIssue(result, "truth/c-plan-01.json", "lines[1].phase", /lot c/);
+  });
+
+  it("names the basis of every workbook row and pairs it with the stored download", async () => {
+    type Source = Record<string, unknown>;
+    const sourceOf = (truth: Record<string, unknown>, index: number) =>
+      (truth.lines as Array<{ source: Source }>)[index].source;
+    await dataset.mutateJson("truth/c-plan-01.json", (truth) => {
+      delete sourceOf(truth, 0).row_basis;
+      sourceOf(truth, 1).row_basis = "sheet";
+    });
+    // a-devis-01 is cited by worksheet row in a-plan-01: a-plan-02 cannot cite it by Drive text record.
+    await dataset.mutateJson("truth/a-plan-02.json", (truth) => {
+      sourceOf(truth, 0).row_basis = "drive_text";
+    });
+    await dataset.mutateJson("truth/b-plan-01.json", (truth) => {
+      sourceOf(truth, 0).row_basis = "workbook";
+    });
+    await dataset.mutateJson("truth/d-plan-01.json", (truth) => {
+      sourceOf(truth, 0).row_basis = "drive_text";
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/c-plan-01.json", "lines[0].source.row_basis", /row_basis/);
+    expectIssue(result, "truth/c-plan-01.json", "lines[1].source.row_basis", /workbook.*drive_text/);
+    expectIssue(result, "truth/a-plan-02.json", "lines[0].source.row_basis",
+      /a-devis-01 rows are cited by workbook row in truth\/a-plan-01\.json.*one row basis per document/);
+    expect(result.errors.filter((issue) => issue.file === "truth/a-plan-02.json"
+      && issue.path.startsWith("lines[0].additional_sources"))).toEqual([]);
+    expectIssue(result, "truth/b-plan-01.json", "lines[0].source.row_basis", /b-devis-01 is text_only.*drive_text/);
+    expectIssue(result, "truth/d-plan-01.json", "lines[0].source.row_basis", /row/);
+  });
+
+  it("accepts a stored workbook cited by its Drive text records, one basis for every file", async () => {
+    for (const file of ["truth/a-plan-01.json", "truth/a-plan-02.json"]) {
+      await dataset.mutateJson(file, (truth) => {
+        for (const line of truth.lines as Array<{ source: Record<string, unknown>; additional_sources?: Array<Record<string, unknown>> }>) {
+          for (const source of [line.source, ...(line.additional_sources ?? [])]) source.row_basis = "drive_text";
+        }
+      });
+    }
+    expect((await checkTakeoffBenchDataset(dataset.root)).errors).toEqual([]);
+  });
+
+  it("accepts a plan known to draw no module, whose module lines are then 0", async () => {
+    await dataset.mutateJson("truth/c-plan-01.json", (truth) => {
+      truth.modules_on_plan = 0;
+      for (const line of truth.lines as Array<Record<string, unknown>>) {
+        if (line.module_scope === "module" && line.ambiguous !== true) line.quantity = 0;
+      }
+    });
+    expect((await checkTakeoffBenchDataset(dataset.root)).errors).toEqual([]);
+
+    await dataset.mutateJson("truth/c-plan-01.json", (truth) => {
+      (truth.lines as Array<Record<string, unknown>>)[0].quantity = 10;
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/c-plan-01.json", "lines[0].quantity", /60 x 0 \/ 12 = 0/);
   });
 
   it("rejects a line whose zone or level is outside its truth documents", async () => {

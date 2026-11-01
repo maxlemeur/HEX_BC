@@ -13,15 +13,18 @@ import {
   PageTruthFileSchema,
   TruthFileSchema,
   type ManifestDocument,
+  type RowBasis,
   type TruthFile,
   type TruthLine,
+  type TruthSource,
 } from "@/lib/takeoff/bench/schemas";
 import { pdfStructureError, xlsxStructureError } from "@/lib/takeoff/bench/structure";
 
 // Read-only check of the private takeoff bench dataset (TI-659): every binary
 // matches its Drive size, its SHA-256 and a structure check (structure.ts); every
 // truth file validates, refers to manifest documents of its own lot and uses known
-// keys; no devis cell is split between plans or counted twice; truth/noise.json
+// keys; every workbook row is numbered by a basis its download supports, one per
+// document; no devis cell is split between plans or counted twice; truth/noise.json
 // records the noise result. It reports every error with its file and JSON path,
 // and never writes to the dataset. A truth plan whose download failed keeps its
 // devis truth: it is listed in summary.truthWithoutBinary, and the bench skips it.
@@ -90,6 +93,8 @@ class DatasetCheck {
   /** raw_path of every manifest entry, valid or not, so that only unnamed files are reported. */
   readonly listedRawPaths = new Set<string>();
   readonly cells = new Map<string, CellUse[]>();
+  /** The first row basis each workbook is cited by: one document keeps one numbering of its rows. */
+  readonly rowBases = new Map<string, { basis: RowBasis; at: string }>();
   readonly truthWithoutBinary = new Set<string>();
   coverageComplete = true;
 
@@ -344,6 +349,35 @@ function lineSources(line: TruthLine, index: number) {
   ];
 }
 
+/**
+ * A workbook row is numbered as the source's row_basis says: worksheet rows only
+ * on a stored binary, Drive text records otherwise, and one basis per document
+ * so that one cell keeps one row number across the dataset.
+ */
+function checkRowBasis(check: DatasetCheck, file: string, segments: ReadonlyArray<PropertyKey>, source: TruthSource,
+  document: ManifestDocument) {
+  const basis = source.row_basis ?? null;
+  if (basis === null) return;
+  const at = [...segments, "row_basis"];
+  if (document.file_type !== "xlsx") {
+    check.error(file, at, `${source.document} is a PDF: a row basis numbers workbook rows`);
+    return;
+  }
+  if (document.raw_status === "failed") return;
+  if (basis === "workbook" && document.raw_status !== "binary") {
+    check.error(file, at, `${source.document} is ${document.raw_status}: no stored binary shows its worksheet rows, `
+      + "cite them by drive_text");
+    return;
+  }
+  const first = check.rowBases.get(source.document);
+  if (first === undefined) {
+    check.rowBases.set(source.document, { basis, at: `${file}#${formatPath(segments)}` });
+  } else if (first.basis !== basis) {
+    check.error(file, at, `${source.document} rows are cited by ${first.basis} row in ${first.at}: `
+      + "one row basis per document, so that one cell keeps one row number");
+  }
+}
+
 function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, covered: readonly ManifestDocument[]) {
   const { zones, levels } = zonesAndLevels(covered);
   const coveredIds = new Set(truth.documents);
@@ -376,6 +410,7 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
       if (document?.file_type === "pdf" && (source.page ?? null) === null) {
         check.error(file, segments, `${source.document} is a PDF: the source names its page`);
       }
+      if (document) checkRowBasis(check, file, segments, source, document);
       if (document && source.column != null) {
         if (document.columns === undefined) {
           check.error(file, [...segments, "column"], `${source.document} declares no columns in the manifest: `
