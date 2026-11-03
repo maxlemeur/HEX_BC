@@ -10,7 +10,8 @@
 //   needed for a 100 % recall is computed outside the reserve, never below 0.8.
 // Found in review, written before their fix: a page the rule could not exclude
 // (partial call, blank thumbnail) raises the threshold; a confidence of 1 reports
-// a threshold of 1 that still excludes; pages never run count as kept.
+// a threshold of 1 that still excludes; pages never run count as kept, and so do
+// pages skipped after a stop (second review); an unreadable page stays kept.
 import { describe, expect, it } from "vitest";
 
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
@@ -114,6 +115,17 @@ describe("bench page triage score", () => {
       { ...doc("e-plan-01", "no_truth", truth("e-plan-01", "reseau", true)), status: "not_run", run: null },
     ]).main;
     expect(score.kept_recall).toEqual({ kept_pages: 1, wrongly_excluded: 0, recall: 1, not_run_kept: 1 });
+  });
+
+  it("counts pages skipped after a stop as not run, and an unreadable page as kept", () => {
+    const skipped = (reason: "stopped" | "budget_reached" | "render_failed") => ({ ...call(null, null, "review", "skipped"), reason, usage: null, duration_ms: null });
+    const score = scoreTakeoffBenchTriage([
+      { ...doc("e-plan-01", "no_truth", truth("e-plan-01", "reseau", true)), status: "done", run: run([skipped("stopped")]) },
+      { ...doc("e-plan-02", "no_truth", truth("e-plan-02", "reseau", true)), status: "done", run: run([skipped("budget_reached")]) },
+      { ...doc("e-plan-03", "no_truth", truth("e-plan-03", "reseau", true)), status: "done", run: run([skipped("render_failed")]) },
+    ]).main;
+    expect(score.kept_recall).toEqual({ kept_pages: 1, wrongly_excluded: 0, recall: 1, not_run_kept: 2 });
+    expect(score.pages).toMatchObject({ total: 3, not_run: 2 });
   });
 
   it("keeps the threshold at 0.8 when no kept page is excluded", () => {

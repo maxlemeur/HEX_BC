@@ -142,7 +142,7 @@ export async function runTakeoffPageTriage(input: {
   if (rendered.pageCount !== null && rendered.pageCount > maxPages) {
     return { triage: null, run_usage: noRun, calls: [], render, stop: { reason: "page_limit", message: `Ce document compte ${rendered.pageCount} pages : le tri automatique est limité à ${maxPages} pages. Sélectionnez les pages manuellement.` } };
   }
-  if (rendered.pageCount === null || !rendered.pages.length) {
+  if (rendered.pageCount === null || !rendered.pages.some((page) => !page.failed)) {
     return { triage: null, run_usage: noRun, calls: [], render, stop: { reason: "render_failed", message: "Le PDF n’a pas pu être lu pour le tri. La sélection manuelle des pages reste disponible." } };
   }
   if (input.expectedPageCount != null && rendered.pageCount !== input.expectedPageCount) {

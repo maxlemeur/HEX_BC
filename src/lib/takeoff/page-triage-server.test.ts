@@ -12,7 +12,8 @@
 //   so the next acceptance overwrites the user's choice;
 // - the triage usage restarts at the tokens of the last run instead of accumulating;
 // - a page count that differs from the stored one is paid for, then dropped;
-// - one unreadable page stops the reading of every later page.
+// - one unreadable page stops the reading of every later page;
+// - a PDF whose every page is unreadable is saved as a proposal (second review).
 import { PDFDocument, PDFName, StandardFonts, rgb } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
@@ -126,6 +127,18 @@ describe("page triage run", () => {
     const run = await base(new Uint8Array(await pdf.save()), async (input) => { calls += 1; return answer(input); });
     expect(calls).toBe(1);
     expect(run.triage?.pages.map((page) => [page.page, page.proposal, page.reason])).toEqual([[1, "review", "render_failed"], [2, "keep", null]]);
+  });
+
+  it("returns no triage when every page is unreadable", async () => {
+    const pdf = await PDFDocument.create();
+    for (let index = 0; index < 2; index += 1) {
+      const broken = pdf.addPage([400, 300]);
+      broken.node.set(PDFName.of("Contents"), pdf.context.register(pdf.context.stream("BT /F9 12 Tf 20 20 Td (broken) Tj ET /Im9 Do")));
+    }
+    let calls = 0;
+    const run = await base(new Uint8Array(await pdf.save()), async (input) => { calls += 1; return answer(input); });
+    expect(run).toMatchObject({ triage: null, stop: { reason: "render_failed" } });
+    expect(calls).toBe(0);
   });
 
   it("stops at the first failed call and leaves the remaining pages to review", async () => {

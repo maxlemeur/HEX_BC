@@ -110,7 +110,9 @@ function scoreGroup(documents: readonly BenchTriageDocument[]): BenchTriageGroup
     for (const truth of entry.truth.pages) {
       score.pages.total += 1;
       const call = entry.run?.calls.find((candidate) => candidate.page === truth.page);
-      if (!call) {
+      // A page skipped after a stop was never asked; an unreadable page was decided (kept, to review).
+      const neverAsked = call?.status === "skipped" && call.reason !== "render_failed";
+      if (!call || neverAsked) {
         score.pages.not_run += 1;
         if (truth.garder) score.kept_recall.not_run_kept += 1;
         else score.exclusions.excludable_pages += 1;
