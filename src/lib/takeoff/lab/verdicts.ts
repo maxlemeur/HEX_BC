@@ -60,7 +60,27 @@ export async function listLabCampaigns(paths: LabPaths) {
   return [...new Set([...runs.map((run) => run.campaign), ...judged])].sort();
 }
 
-export async function saveLabVerdict(paths: LabPaths, access: LabAccess, campaign: string, elementId: string, verdict: LabVerdict) {
+// Verdict writes and « Annuler » of one campaign run one at a time in this
+// process: otherwise an undo that picked its target could delete a verdict
+// another tab or admin wrote on that element between the pick and the delete.
+const campaignQueues = new Map<string, Promise<void>>();
+
+function inCampaignOrder<T>(paths: LabPaths, campaign: string, work: () => Promise<T>): Promise<T> {
+  const key = `${paths.outputDir}\u0000${campaign}`;
+  const result = (campaignQueues.get(key) ?? Promise.resolve()).then(work);
+  const settled = result.then(() => undefined, () => undefined);
+  campaignQueues.set(key, settled);
+  void settled.then(() => {
+    if (campaignQueues.get(key) === settled) campaignQueues.delete(key);
+  });
+  return result;
+}
+
+export function saveLabVerdict(paths: LabPaths, access: LabAccess, campaign: string, elementId: string, verdict: LabVerdict) {
+  return inCampaignOrder(paths, campaign, () => writeVerdict(paths, access, campaign, elementId, verdict));
+}
+
+async function writeVerdict(paths: LabPaths, access: LabAccess, campaign: string, elementId: string, verdict: LabVerdict) {
   const file = verdictFile(paths, campaign, elementId);
   const element = campaignElements(await listLabRuns(paths), campaign).find((entry) => entry.id === elementId);
   if (!element) throw notFound("Élément introuvable dans cette campagne.");
@@ -75,7 +95,11 @@ export async function saveLabVerdict(paths: LabPaths, access: LabAccess, campaig
 }
 
 /** Deletes the author's latest verdict in the campaign; 404 when there is none. */
-export async function undoLabVerdict(paths: LabPaths, access: LabAccess, campaign: string) {
+export function undoLabVerdict(paths: LabPaths, access: LabAccess, campaign: string) {
+  return inCampaignOrder(paths, campaign, () => removeLatestVerdict(paths, access, campaign));
+}
+
+async function removeLatestVerdict(paths: LabPaths, access: LabAccess, campaign: string) {
   const mine = (await readCampaignVerdicts(paths, campaign)).filter((verdict) => verdict.author.user_id === access.owner.userId)
     .sort((left, right) => (left.at < right.at ? 1 : left.at > right.at ? -1 : 0));
   const latest = mine[0];
