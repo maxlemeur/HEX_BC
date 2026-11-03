@@ -30,7 +30,8 @@ import { cn } from "@/lib/utils";
 // checked groups are the selection « Copier la sélection » gives as the
 // dataset's truth/groups JSON: the lab never writes the dataset. An essai
 // that answers after the document or page changed is not applied to the new
-// selection: a notice points to its document's history.
+// selection: a notice points to its document's history. A run « Afficher »
+// loads from that history is shown only if the selection did not change meanwhile.
 
 const RESULTS_MIN = 320;
 const PALETTE = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-3)", "var(--color-chart-4)", "var(--color-chart-5)"];
@@ -100,7 +101,7 @@ export function LabVectorsScreen() {
   const [rightOpen, setRightOpen] = useState(true);
   const [resultsWidth, setResultsWidth] = useState(420);
   const fieldId = useId();
-  // The selection now, read when an essai answers: one launched before a document or page change stays with its own page.
+  // The selection now, read when an essai or a history run answers: one asked before a document or page change stays with its own page.
   const selection = useRef({ documentId, page });
   useEffect(() => { selection.current = { documentId, page }; }, [documentId, page]);
   const list = useRef<HTMLUListElement>(null);
@@ -167,9 +168,12 @@ export function LabVectorsScreen() {
   }
 
   async function showRun(id: string) {
+    const clicked = selection.current;
     try {
       const shown = await labApi.run(id);
-      if (shown.document.id !== documentId) chooseDocument(shown.document.id);
+      // The document or page changed since the click: the run stays in its document's history.
+      if (selection.current.documentId !== clicked.documentId || selection.current.page !== clicked.page) return;
+      if (shown.document.id !== clicked.documentId) chooseDocument(shown.document.id);
       setPage(shown.crop?.page ?? 1);
       setHidden(new Set());
       setRun(shown);

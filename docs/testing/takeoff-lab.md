@@ -129,7 +129,8 @@ ne s'applique pas à la nouvelle sélection. LAB03 vérifie aussi les refus de s
 route. Les arrêts que le navigateur ne peut pas provoquer (rendu dédié ou appel
 dédié en échec après des réponses payées, course de deux essais sur le plafond,
 appels sans usage) sont vérifiés par `src/lib/takeoff/lab/vectors.test.ts` et
-`src/lib/takeoff/lab/runs.test.ts`.
+`src/lib/takeoff/lab/runs.test.ts` ; un essai de l'historique (« Afficher ») qui
+répond après un changement de document, par `LabVectorsScreen.test.tsx`.
 
 ```sh
 npm run e2e:army:local -- --grep 'LAB0|VEC01'
