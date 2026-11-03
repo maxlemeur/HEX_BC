@@ -53,8 +53,8 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const { record, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt } = useTakeoffPreparation(projectId);
   const [triaging, setTriaging] = useState(false);
   const [step, setStep] = useState(0);
+  const [initialStepResolved, setInitialStepResolved] = useState(false);
   const [orderedQuestionIds, setOrderedQuestionIds] = useState<string[]>([]);
-  const initialStepResolved = useRef(false);
   const previousSelection = useRef<string | null | undefined>(undefined);
   const [confirming, setConfirming] = useState(false);
   const [renewing, setRenewing] = useState(false);
@@ -66,13 +66,15 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const readiness = useMemo(() => draft ? evaluateTakeoffPreparation(draft) : null, [draft]);
   const locked = disabled || confirming || renewing || triaging;
   const processingCompatible = draft?.processing.level !== null && draft?.processing.level !== undefined && compatibleLevels.includes(draft.processing.level);
-  useEffect(() => { onRegisterSave?.(save); }, [onRegisterSave, save]);
-  useEffect(() => {
-    if (!readiness || initialStepResolved.current) return;
-    initialStepResolved.current = true;
+  // The loaded preparation opens on its first step with a blocker, from the render that first shows it.
+  // Chosen in an effect, the documents step was committed first and a step picked before that effect ran
+  // was replaced by the opening step.
+  if (readiness && !initialStepResolved) {
+    setInitialStepResolved(true);
     const paths = readiness.blockers.map((issue) => issue.path);
     setStep(paths.some((path) => path.startsWith("sources")) ? 0 : paths.some((path) => path === "objective" || path === "scope") ? 1 : paths.some((path) => path.startsWith("conventions") || path.startsWith("unknowns")) ? 2 : 3);
-  }, [readiness]);
+  }
+  useEffect(() => { onRegisterSave?.(save); }, [onRegisterSave, save]);
 
   useEffect(() => {
     if (!draft) return;
