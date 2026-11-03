@@ -1,4 +1,5 @@
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
+import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1882,6 +1883,10 @@ const apiTakeoffPreviewConversionSchemaDefinition = successResponseSchemaDefinit
   "ApiTakeoffPreviewConversionResponse",
   takeoffPreviewConversionDataSchema
 );
+const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffVectorReadingResponse",
+  takeoffVectorReadingResponseSchema
+);
 const apiTakeoffJobCompareSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCompareResponse",
   takeoffJobCompareDataSchema
@@ -3099,6 +3104,26 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         apiTakeoffJobDetailSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/vector-pages",
+    summary: "Recuperer la lecture vectorielle d'un job Takeoff",
+    description:
+      "Retourne les pages lues dans les vecteurs du plan (echelle, groupes, detection, surfaces imprimees) et la geometrie de leurs items mesures, en metres ; pour un PDF televerse directement (pages sans plan_file_id), son URL signee (10 min).",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Lecture vectorielle du job takeoff retournee.",
+        apiTakeoffVectorReadingSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+      "413": jsonResponse(
+        "Lecture vectorielle trop volumineuse pour etre affichee (pages, geometries ou segments).",
+        apiTakeoffFailureResponseSchemaDefinition
+      ),
     },
   },
   {

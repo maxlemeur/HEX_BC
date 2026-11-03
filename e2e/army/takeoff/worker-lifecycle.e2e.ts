@@ -1,12 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { expect } from "e2e";
 
 import type { TakeoffJobActionResponse, TakeoffJobDetailResponse } from "@/lib/takeoff/types";
+import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { ownedEstimateContext, querySql } from "../local/calculation-gate-support";
-import { launchWorkerCsv, launchWorkerPdf, startOwnedWorker } from "./worker-support";
+import { signUpDedicatedOwner } from "../local/dedicated-owner";
+import { VECTOR_PLAN } from "./vector-plan-fixture";
+import { launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, startOwnedWorker } from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
 
@@ -277,4 +280,230 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW07-historical-batch", { ids, jobId, batchId, seeded, refused, unchanged: true,
     boundary: "An owned historical batch reference is preserved; no provider or remote dispatch is invoked." });
+});
+
+// TI-662 (L3): the vector reading of a level C plan is persisted beside its result, read back by the review
+// viewer under the user's session, and invisible to another tenant (API and RLS). Fictional plan, no model.
+// Review of PR #147: the room measured on its closed polygon is persisted and drawn with the networks.
+// CI of PR #147 (written before the fix): TKW08 and TKW09 seeded their pending jobs as the campaign account, whose
+// admission budget (10 per user and tenant in 24 h, never freed) the other takeoff journeys of the stack also spend:
+// after one earlier job in its CI shard, TKW09 was refused TAKEOFF_JOB_ADMISSION_LIMIT (it alone was the account's
+// 10th admission of the file). Each now runs as its own dedicated owner and spends none of the campaign's budget.
+armyTest("TKW08 a vector plan read at level C persists its measured networks and room, shows them in the review and stays invisible to another tenant", options, async (ui) => {
+  const { ids, jobId, fileName, tenantId, planFileId, seedJob, owner: jobOwner } = await launchWorkerVectorPlan(ui);
+  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner: jobOwner }).done;
+  expect(completed.outcome.status).toBe("completed");
+  expect(completed.job).toMatchObject({ status: "completed", level: "C" });
+  expect(completed.providerCalls).toBe(1);
+  expect(completed.resultIds).toHaveLength(1);
+  const [resultId] = completed.resultIds;
+  // The level C reading (controlled provider) and the two networks measured on the vectors, side by side; the vector items are
+  // excluded by default with their reason, so applying the level C reading never counts a network twice.
+  expect(completed.items.map(({ designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason }) =>
+    ({ designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason }))).toEqual([
+    { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_file_name: fileName, source_page: 1, is_excluded: false, exclusion_reason: null },
+    { designation: "ARMY worker valve", quantity: 3, unit: "u", source_file_name: fileName, source_page: 1, is_excluded: false, exclusion_reason: null },
+    ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml", source_file_name: fileName, source_page: 1,
+      is_excluded: true, exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." })),
+    // The room: its closed polygon's area (4.00 × 3.50 m), never the printed 13.62 m².
+    { designation: VECTOR_PLAN.room.designation, quantity: VECTOR_PLAN.room.area_m2, unit: "m2", source_file_name: fileName, source_page: 1,
+      is_excluded: true, exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." },
+  ]);
+  const vectorItemIds = Object.fromEntries(completed.items.filter((item) => item.unit === "ml").map((item) => [item.designation, item.id]));
+  const roomItemId = completed.items.find((item) => item.designation === VECTOR_PLAN.room.designation)!.id;
+  expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId, sourceFileName: fileName, sourcePage: 1,
+    scale: { status: "format", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"] }]);
+  const [vectorPage] = completed.vectorPages;
+  expect([...completed.geometries].sort((left, right) => (left.network ?? "").localeCompare(right.network ?? ""))).toEqual([
+    { itemId: roomItemId, tenantId, pageId: vectorPage.id, kind: "surface", network: null, lengthM: null, segments: 0 },
+    ...VECTOR_PLAN.networks.map((entry) => ({ itemId: vectorItemIds[entry.designation], tenantId, pageId: vectorPage.id, kind: "network",
+      network: entry.network, lengthM: entry.length_m, segments: 1 }))]);
+
+  // The API the viewer reads, under the owner's session.
+  const read = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
+  expect([read.status, read.body.ok]).toEqual([200, true]);
+  // A plan-set job's pages go through their plan file: the job's own source is never signed for them.
+  expect(read.body.data.source_download_url).toBeNull();
+  expect(read.body.data.pages).toHaveLength(1);
+  const [page] = read.body.data.pages;
+  expect(page).toMatchObject({ id: vectorPage.id, plan_file_id: planFileId, source_file_name: fileName, source_page: 1 });
+  expect(page.reading).toMatchObject({ mode: "layers", size_pt: VECTOR_PLAN.pageSize, location: { zone: "Z2", level: "R+1", source: "file_name" },
+    scale: { status: "format", reason: null, denominator: 50, format: { cartouche: "Format A3", page_mm: [420, 297], matches: true } }, detection: 1 });
+  expect(page.items.filter((item) => item.geometry.kind === "network").map(({ takeoff_item_id, geometry }) => ({ takeoff_item_id, network: geometry.network,
+    material: geometry.material, dn: geometry.dn, length_m: geometry.length_m, zone: geometry.zone, level: geometry.level }))
+    .sort((left, right) => (left.network ?? "").localeCompare(right.network ?? ""))).toEqual([
+    { takeoff_item_id: vectorItemIds["EF PER DN 16"], network: "EF", material: "per", dn: 16, length_m: 5, zone: "Z2", level: "R+1" },
+    { takeoff_item_id: vectorItemIds["EU/EV PVC DN 40"], network: "EUV", material: "pvc", dn: 40, length_m: 3, zone: "Z2", level: "R+1" },
+  ]);
+  // Centreline of the EF pipe: 100 mm from x = 200 pt at y = 500 pt (PDF), i.e. 341.89 pt from the top, in metres at 1/50.
+  const metres = (points: number) => Math.round(((points * 25.4) / 72) * 50) / 1000;
+  const ef = page.items.find((item) => item.geometry.network === "EF")!;
+  expect(ef.geometry.segments_m).toHaveLength(1);
+  const [x0, y0, x1, y1] = ef.geometry.segments_m[0];
+  expect([x0, y0, x1, y1].map((value) => Math.round(value * 100) / 100)).toEqual([metres(200), metres(841.89 - 500), metres(200) + 5, metres(841.89 - 500)]
+    .map((value) => Math.round(value * 100) / 100));
+  // The room: area and outline in metres from the page's top-left corner (80 × 70 mm from x = 650 pt, y = 400 pt), its printed surface as control.
+  const room = page.items.find((item) => item.geometry.kind === "surface")!;
+  expect(room).toMatchObject({ takeoff_item_id: roomItemId, geometry: { network: null, material: null, dn: null, zone: "Z2", level: "R+1",
+    groups: [page.reading.groups.find((group) => group.class === "mur")!.id], segments_m: [], length_m: null, area_m2: VECTOR_PLAN.room.area_m2, transform: null } });
+  const left = metres(VECTOR_PLAN.room.x), bottom = metres(841.89 - VECTOR_PLAN.room.y);
+  expect(room.geometry.polygon_m!.map((value) => Math.round(value * 100) / 100)).toEqual([left, bottom, left + 4, bottom, left + 4, bottom - 3.5, left, bottom - 3.5, left, bottom]
+    .map((value) => Math.round(value * 100) / 100));
+  expect(page.reading.surfaces).toEqual([{ room: VECTOR_PLAN.room.room, printed_m2: VECTOR_PLAN.room.printed_m2, polygon_m2: VECTOR_PLAN.room.area_m2, deviation: 0.0279 }]);
+
+  // The review viewer: plan, scale, detection, networks and their toggles.
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
+  await expect(viewer).toBeVisible({ timeout: 30_000 });
+  await expect(viewer.getByText("Échelle 1/50 format conforme", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("Détection 100 %", { exact: true })).toBeVisible();
+  const networks = viewer.getByRole("group", "Réseaux", { exact: true });
+  await expect(networks).toContainText("EF 5.00 m");
+  await expect(networks).toContainText("EUV 3.00 m");
+  await expect(networks).not.toContainText("à revoir");
+  await expect(viewer.getByRole("group", "Surfaces", { exact: true })).toContainText("Surfaces (1) 14.00 m²");
+  const shown = viewer.getByText(/éléments affichés$/);
+  await expect(shown).toHaveText("3 / 3 éléments affichés");
+  // The plan itself is drawn under the geometry: a painted canvas, no rendering error, the EF centreline where the PDF draws it.
+  await expect(viewer.getByText(/n’a pas pu être (affiché|chargée)|n’est pas disponible/)).toHaveCount(0);
+  const drawn = await readVectorViewerDrawing(ui);
+  expect(drawn.canvasWidth).toBeGreaterThan(0);
+  expect(drawn.inked).toBeGreaterThan(0); // the blue pipes of the PDF, painted by pdfjs
+  expect(drawn.lines.map((line) => line.network).sort()).toEqual(["EF", "EUV"]);
+  const efLine = drawn.lines.find((line) => line.network === "EF")!;
+  // In page fractions: from x = 200 pt over 283.46 pt (100 mm), at 341.89 pt from the top, on a 1190.55 × 841.89 pt page.
+  expect([efLine.x1 / drawn.width, (efLine.x2 - efLine.x1) / drawn.width, efLine.y1 / drawn.height, efLine.y2 / drawn.height].map((value) => Math.round(value * 1000) / 1000))
+    .toEqual([200 / 1190.55, 283.46 / 1190.55, 341.89 / 841.89, 341.89 / 841.89].map((value) => Math.round(value * 1000) / 1000));
+  // The room's outline where the PDF draws it, in page fractions (x over the width, y over the height, from the top).
+  expect(drawn.polygons).toHaveLength(1);
+  const roomCorners = [650, 441.89, 876.77, 441.89, 876.77, 243.47, 650, 243.47, 650, 441.89];
+  expect(drawn.polygons[0].map((value, index) => Math.round((value / (index % 2 === 0 ? drawn.width : drawn.height)) * 1000) / 1000))
+    .toEqual(roomCorners.map((value, index) => Math.round((value / (index % 2 === 0 ? 1190.55 : 841.89)) * 1000) / 1000));
+  const efToggle = viewer.getByRole("checkbox", "Afficher EF", { exact: true });
+  const euvToggle = viewer.getByRole("checkbox", "Afficher EUV", { exact: true });
+  const surfacesToggle = viewer.getByRole("checkbox", "Afficher les surfaces", { exact: true });
+  const roomPolygon = ui.browser.locator("section[aria-label='Lecture vectorielle du plan'] svg polygon[data-kind='surface']");
+  await efToggle.click({ modifiers: ["Alt"] });
+  await expect(shown).toHaveText("1 / 3 éléments affichés");
+  await expect(efToggle).toBeChecked();
+  await expect(euvToggle).not.toBeChecked();
+  await expect(surfacesToggle).not.toBeChecked();
+  await expect(roomPolygon).toHaveCount(0);
+  await euvToggle.click();
+  await expect(shown).toHaveText("2 / 3 éléments affichés");
+  await surfacesToggle.click();
+  await expect(shown).toHaveText("3 / 3 éléments affichés");
+  await expect(roomPolygon).toHaveCount(1);
+  await efToggle.click();
+  await expect(shown).toHaveText("2 / 3 éléments affichés");
+  await expect(efToggle).not.toBeChecked();
+  await recordEvidence(ui.army, "TKW08-vector-review", { ids, jobId, resultId, vectorPage, geometries: completed.geometries, items: completed.items,
+    reading: { scale: page.reading.scale, detection: page.reading.detection, location: page.reading.location },
+    boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1, real extraction and persistence; level C provider controlled; fictional vector plan." });
+
+  // Control: the same plan read without MERGEONE_TAKEOFF_VECTORS writes no vector row and no vector item.
+  const controlJobId = await seedJob();
+  const control = await startOwnedWorker(ui, ids, controlJobId, "success", { owner: jobOwner }).done;
+  expect(control.outcome.status).toBe("completed");
+  expect(control.job).toMatchObject({ status: "completed", level: "C" });
+  expect([control.vectorPages, control.geometries, control.items.map((item) => item.designation)])
+    .toEqual([[], [], ["ARMY worker pipe", "ARMY worker valve"]]);
+  const controlRead = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${controlJobId}/vector-pages`);
+  expect([controlRead.status, controlRead.body.data.pages]).toEqual([200, []]);
+  await recordEvidence(ui.army, "TKW08-flag-off-control", { controlJobId, items: control.items, vectorPages: control.vectorPages });
+
+  // Another tenant: its owner sees neither the job nor its vector reading, through the API or the RLS.
+  const owner = await ownedEstimateContext(ids.projectId);
+  expect(owner).toMatchObject({ tenantId, userId: jobOwner.userId });
+  const foreign = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "VEC" });
+  expect(foreign.tenantId).not.toBe(tenantId);
+  const denied = await apiRequest<{ ok: boolean; data?: unknown; error?: { code: string } }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
+  expect([denied.status, denied.body.ok, denied.body.data, denied.body.error?.code]).toEqual([404, false, undefined, "TAKEOFF_JOB_NOT_FOUND"]);
+  const rows = async (userId: string) => {
+    const claims = JSON.stringify({ sub: userId, role: "authenticated" });
+    const output = await querySql(`BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '${claims}', true) IS NOT NULL;
+SELECT 'ARMY_TKW08 ' || jsonb_build_object('pages', (SELECT count(*) FROM public.takeoff_vector_pages WHERE job_id = '${jobId}'::uuid),
+  'geometries', (SELECT count(*) FROM public.takeoff_item_geometries WHERE job_id = '${jobId}'::uuid))::text;
+ROLLBACK;\n`);
+    const line = output.find((entry) => entry.startsWith("ARMY_TKW08 "));
+    expect(line).toBeDefined();
+    return JSON.parse(line!.slice("ARMY_TKW08 ".length)) as { pages: number; geometries: number };
+  };
+  expect(await rows(owner.userId)).toEqual({ pages: 1, geometries: 3 });
+  expect(await rows(foreign.userId)).toEqual({ pages: 0, geometries: 0 });
+  await recordEvidence(ui.army, "TKW08-foreign-tenant", { jobId, foreignTenant: foreign.tenantId, api: denied.status, ownerRows: { pages: 1, geometries: 3 },
+    foreignRows: { pages: 0, geometries: 0 } });
+});
+
+// TI-662 (review of PR #147): a plan uploaded directly (no plan set) is measured at the page calibration confirmed in
+// its preparation, which names it `upload:<SHA-256>`; its review draws the uploaded PDF itself, signed for the
+// user's session, and says so when that file is gone. The plan prints no scale. Fictional plan, no model.
+armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed calibration and its review draws the uploaded PDF", options, async (ui) => {
+  const { ids, jobId, fileName, tenantId, sourcePath, sha256, client, owner } = await launchWorkerVectorUpload(ui);
+  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner }).done;
+  expect(completed.outcome.status).toBe("completed");
+  expect(completed.job).toMatchObject({ status: "completed", level: "C" });
+  const [resultId] = completed.resultIds;
+  // Without the calibration the page would be « échelle non vérifiée » (no printed scale) and give no measure.
+  expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId: null, sourceFileName: fileName, sourcePage: 1,
+    scale: { status: "calibrated", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"] }]);
+  expect(completed.items.filter((item) => item.is_excluded).map(({ designation, quantity, unit }) => ({ designation, quantity, unit }))).toEqual([
+    ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml" })),
+    { designation: VECTOR_PLAN.room.designation, quantity: VECTOR_PLAN.room.area_m2, unit: "m2" },
+  ]);
+  expect(completed.geometries.map(({ kind, network, lengthM }) => ({ kind, network, lengthM }))
+    .sort((left, right) => (left.network ?? "").localeCompare(right.network ?? ""))).toEqual([
+    { kind: "surface", network: null, lengthM: null }, { kind: "network", network: "EF", lengthM: 5 }, { kind: "network", network: "EUV", lengthM: 3 }]);
+
+  // The API the viewer reads: the calibrated page, and the uploaded PDF signed for this session (its bytes, never recorded).
+  const read = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
+  expect([read.status, read.body.ok]).toEqual([200, true]);
+  const [page] = read.body.data.pages;
+  expect(page).toMatchObject({ plan_file_id: null, source_file_name: fileName, source_page: 1 });
+  expect(page.reading.scale).toMatchObject({ status: "calibrated", reason: null, denominator: 50, cartouche: null,
+    calibration: { denominator: 50, source: "conventions.calibration de la préparation" } });
+  const signed = read.body.data.source_download_url;
+  expect(signed).toEqual(expect.stringContaining(`/storage/v1/object/sign/takeoff-files/${tenantId}/${jobId}/`));
+  const downloaded = await fetch(signed!);
+  expect(downloaded.status).toBe(200);
+  expect(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex")).toBe(sha256);
+
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
+  await expect(viewer).toBeVisible({ timeout: 30_000 });
+  await expect(viewer.getByText("Échelle 1/50 calibrée", { exact: true })).toBeVisible();
+  const networks = viewer.getByRole("group", "Réseaux", { exact: true });
+  await expect(networks).toContainText("EF 5.00 m");
+  await expect(networks).toContainText("EUV 3.00 m");
+  await expect(viewer.getByText(/éléments affichés$/)).toHaveText("3 / 3 éléments affichés");
+  // The uploaded plan is painted under the geometry, without any message.
+  const drawn = await readVectorViewerDrawing(ui);
+  expect(drawn.canvasWidth).toBeGreaterThan(0);
+  expect(drawn.inked).toBeGreaterThan(0);
+  expect(drawn.lines.map((line) => line.network).sort()).toEqual(["EF", "EUV"]);
+  expect(drawn.polygons).toHaveLength(1);
+  await expect(viewer.getByText(/n’a pas pu être (affiché|chargée)|n’est pas disponible/)).toHaveCount(0);
+  await recordEvidence(ui.army, "TKW09-vector-upload-review", { ids, jobId, resultId, vectorPages: completed.vectorPages, geometries: completed.geometries,
+    scale: page.reading.scale, sourceSha256: sha256, canvas: { width: drawn.canvasWidth, inked: drawn.inked },
+    boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 on a direct upload; preparation confirmed by the product's snapshot builder; fictional plan." });
+
+  // The uploaded file gone, the reading stays readable and the viewer says the plan is unavailable instead of an empty canvas.
+  const removed = await client.storage.from("takeoff-files").remove([sourcePath]);
+  expect(removed.error).toBeNull();
+  const after = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
+  expect([after.status, after.body.data.source_download_url, after.body.data.pages.length]).toEqual([200, null, 1]);
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  await expect(viewer).toBeVisible({ timeout: 30_000 });
+  await expect(viewer.getByText("Le plan source de cette page n’est pas disponible ; la géométrie reste visible.", { exact: true })).toBeVisible();
+  await expect(viewer.getByText(/éléments affichés$/)).toHaveText("3 / 3 éléments affichés");
+
+  // Another tenant: neither the reading nor a signed URL.
+  const foreign = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "VEU" });
+  expect(foreign.tenantId).not.toBe(tenantId);
+  const denied = await apiRequest<{ ok: boolean; data?: unknown; error?: { code: string } }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
+  expect([denied.status, denied.body.ok, denied.body.data, denied.body.error?.code]).toEqual([404, false, undefined, "TAKEOFF_JOB_NOT_FOUND"]);
+  await recordEvidence(ui.army, "TKW09-source-missing-and-foreign", { jobId, sourceRemoved: true, sourceDownloadUrl: null, foreignTenant: foreign.tenantId,
+    api: denied.status });
 });

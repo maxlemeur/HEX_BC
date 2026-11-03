@@ -55,6 +55,16 @@ export type DownloadedTakeoffFile = {
     filePath: string;
     pageCount: number;
   }>;
+  /**
+   * The original bytes of each PDF and its retained pages (TI-662): the vector
+   * reading needs the file as drawn, since a merged copy loses its layer names.
+   */
+  originalPdfSources?: Array<{
+    document: TakeoffSourceDocumentRef;
+    fileName: string;
+    bytes: ArrayBuffer;
+    pages: number[];
+  }>;
 };
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
@@ -312,7 +322,7 @@ export async function loadTakeoffSource(input: {
       const sourceDocument = getPlanFileSourceRef(singleFile);
       return {
         fileName,
-        ...(sourceDocument ? { sourceDocument } : {}),
+        ...(sourceDocument ? { sourceDocument, originalPdfSources: [{ document: sourceDocument, fileName, bytes: downloadedBytes, pages: [] }] } : {}),
         mimeType:
           resolveTakeoffPdfMimeType({
             fileName,
@@ -327,6 +337,7 @@ export async function loadTakeoffSource(input: {
     const actualBudgetFiles: PlanSetResourceBudgetFile[] = [];
     const validatedSources: Array<{
       document: PDFDocument;
+      bytes: ArrayBuffer;
       fileName: string;
       sourceDocument: TakeoffSourceDocumentRef | undefined;
       filePath: string;
@@ -424,6 +435,7 @@ export async function loadTakeoffSource(input: {
 
       validatedSources.push({
         document: sourcePdf,
+        bytes: sourceBytes,
         fileName:
           getPlanFileSourceLabel(planFile) ??
           `plan-${validatedSources.length + 1}.pdf`,
@@ -464,6 +476,9 @@ export async function loadTakeoffSource(input: {
         filePath: source.filePath,
         pageCount: source.pageCount,
       })),
+      // TI-662: each plan file as drawn, all its pages, for the vector reading.
+      originalPdfSources: validatedSources.flatMap((source) => source.sourceDocument
+        ? [{ document: source.sourceDocument, fileName: source.fileName, bytes: source.bytes, pages: [] }] : []),
     };
   }
 
@@ -521,6 +536,7 @@ export async function loadTakeoffSource(input: {
     }) ?? inferMimeTypeFromFilename(storageFileName);
 
   let sourcePageNumbersByPage: number[] | undefined;
+  const originalBytes = bytes;
   if (preparationSnapshot) {
     assertPreparedUploadBytes(input.job, preparationSnapshot, bytes);
     const pages = preparationSnapshot.preparation.sources.find((source) => source.active)?.pages ?? [];
@@ -544,6 +560,10 @@ export async function loadTakeoffSource(input: {
     mimeType,
     bytes,
     sourceDocument: { kind: "job_upload", job_id: input.job.id },
+    ...(mimeType === "application/pdf" ? { originalPdfSources: [{
+      document: { kind: "job_upload" as const, job_id: input.job.id }, fileName: jobFileName?.normalize("NFC") ?? storageFileName,
+      bytes: originalBytes, pages: sourcePageNumbersByPage ?? [],
+    }] } : {}),
     ...(preparationSnapshot ? { preparationSnapshot, sourcePageNumbersByPage } : {}),
   };
 }

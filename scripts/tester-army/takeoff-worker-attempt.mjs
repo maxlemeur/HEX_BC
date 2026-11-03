@@ -60,7 +60,7 @@ const readJob = async () => {
 const runtime = register({ namespace: "army-owned-takeoff-worker" });
 const load = (file) => runtime.require(file, import.meta.url);
 const { processTakeoffJobAttempt } = load("../../src/lib/takeoff/async-worker.ts");
-const { processLevelA, processLevelB } = load("../../src/lib/takeoff/processor.ts");
+const { processLevelA, processLevelB, processLevelC } = load("../../src/lib/takeoff/processor.ts");
 const { TakeoffError, TakeoffErrorCode } = load("../../src/lib/takeoff/errors.ts");
 const events = [];
 const emit = (event) => process.stdout.write("ARMY_WORKER " + JSON.stringify(event) + "\n");
@@ -101,6 +101,8 @@ const callGemini = async (options) => {
     tables: [{ page: 1, title: "ARMY quantities", headers: ["designation", "quantity", "unit"],
       rows: [{ row_index: 0, cells: ["ARMY worker pipe", "12.5", "m"] }, { row_index: 1, cells: ["ARMY worker valve", "3", "u"] }] }],
     metadata: { level: current.level, prompt_version: options.context.promptVersion, file_type: current.level === "A" ? "csv" : "pdf", schema_version: "v1" },
+    // Level C requires a global confidence (schemas.ts).
+    ...(current.level === "C" ? { confidence: 0.95 } : {}),
   });
   return { data, tokenCount: 0, tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
     costCents: 0, durationMs: 1, model: options.context.model, promptVersion: options.context.promptVersion, providerBatchId: null, providerBatchStateRaw: null };
@@ -110,16 +112,27 @@ try {
     correlationId: randomUUID(), trigger: "create",
     processLevelAFn: (id, options) => processLevelA(id, { ...options, callGemini }),
     processLevelBFn: (id, options) => processLevelB(id, { ...options, callGemini }),
+    processLevelCFn: (id, options) => processLevelC(id, { ...options, callGemini }),
   });
   const job = await readJob();
   const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);
-  const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page").eq("job_id", jobId).order("designation");
+  const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason").eq("job_id", jobId).order("designation");
+  // TI-662: the vector reading persisted beside the level C result (MERGEONE_TAKEOFF_VECTORS=1 only).
+  const vectorPages = await worker.from("takeoff_vector_pages").select("id, tenant_id, result_id, plan_file_id, source_file_name, source_page, reading").eq("job_id", jobId).order("source_page");
+  const geometries = await worker.from("takeoff_item_geometries").select("takeoff_item_id, tenant_id, vector_page_id, geometry").eq("job_id", jobId);
   assert.equal(results.error, null);
   assert.equal(items.error, null);
+  assert.equal(vectorPages.error, null);
+  assert.equal(geometries.error, null);
   emit({ event: "result", outcome, job: { id: job.id, status: job.status, level: job.level, retryCount: job.retry_count,
     errorCode: job.error_code, nextRetryAt: job.next_retry_at }, resultIds: results.data.map((row) => row.id), results: results.data.map((row) => ({ id: row.id, failed: row.provider_meta?.status === "failed",
       errorCode: row.provider_meta?.error_code ?? null, extractedJson: row.extracted_json,
-      warningCodes: row.warnings.map((entry) => entry.code) })), items: items.data, providerCalls: events.length });
+      warningCodes: row.warnings.map((entry) => entry.code) })), items: items.data, providerCalls: events.length,
+    vectorPages: vectorPages.data.map((row) => ({ id: row.id, tenantId: row.tenant_id, resultId: row.result_id, planFileId: row.plan_file_id,
+      sourceFileName: row.source_file_name, sourcePage: row.source_page, scale: { status: row.reading.scale.status, denominator: row.reading.scale.denominator },
+      detection: row.reading.detection, classes: row.reading.groups.map((group) => group.class) })),
+    geometries: geometries.data.map((row) => ({ itemId: row.takeoff_item_id, tenantId: row.tenant_id, pageId: row.vector_page_id,
+      kind: row.geometry.kind, network: row.geometry.network, lengthM: row.geometry.length_m, segments: row.geometry.segments_m.length })) });
 } finally {
   clearTimeout(timer);
   input.close();

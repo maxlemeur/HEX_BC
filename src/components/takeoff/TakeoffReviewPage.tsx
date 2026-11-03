@@ -63,6 +63,12 @@ const LazyTakeoffReviewExpert = dynamic(
   }
 );
 
+// TI-662: the plan and the geometry of the vector reading, loaded only on a level C review.
+const LazyTakeoffVectorViewer = dynamic(
+  () => import("@/components/takeoff/review/TakeoffVectorViewer").then((mod) => ({ default: mod.TakeoffVectorViewer })),
+  { ssr: false, loading: () => <LoadingState label="Chargement de la lecture vectorielle…" /> }
+);
+
 const LazyValidationReviewPanel = dynamic(
   () =>
     import("@/components/takeoff/review/ValidationReviewPanel").then((mod) => ({
@@ -1300,6 +1306,7 @@ export default function TakeoffReviewPage({
         className="space-y-4"
       >
       {/* ---- Confidence header (Level C only) ---- */}
+      {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
       {jobLevel === "C" && (
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}

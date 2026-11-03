@@ -17,7 +17,8 @@ export type TakeoffSeedItem = {
 
 // Fixture preparation stays outside the browser and uses the account's RLS.
 // No session token or response containing one enters Army evidence.
-export async function localTakeoffFixture(army: ArmyState, ids: OwnedEstimate, email = process.env.E2E_LOGIN_EMAIL!) {
+export async function localTakeoffFixture(army: ArmyState, ids: OwnedEstimate, email = process.env.E2E_LOGIN_EMAIL!,
+  password = process.env.E2E_LOGIN_PASSWORD!) {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   if (backend.protocol !== "http:" || backend.username || backend.password || backend.pathname !== "/" || backend.search || backend.hash ||
       !["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname) ||
@@ -28,7 +29,7 @@ export async function localTakeoffFixture(army: ArmyState, ids: OwnedEstimate, e
   const client = createClient(backend.href, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
-  const login = await client.auth.signInWithPassword({ email, password: process.env.E2E_LOGIN_PASSWORD! });
+  const login = await client.auth.signInWithPassword({ email, password });
   if (login.error) throw new Error("Local ARMY fixture login failed.");
   const version = await client.from("estimate_versions").select("tenant_id, project_id").eq("id", ids.versionId).single();
   if (version.error || version.data.project_id !== ids.projectId) throw new Error("Owned fixture version unavailable.");
@@ -41,7 +42,7 @@ export async function localTakeoffFixture(army: ArmyState, ids: OwnedEstimate, e
     client,
     tenantId,
     async seed(level: "A" | "B" | "C", items: TakeoffSeedItem[], source = "ARMY-revision.pdf") {
-      const { client: worker } = await localTakeoffWorkerClient(army, ids.versionId, email);
+      const { client: worker } = await localTakeoffWorkerClient(army, ids.versionId, email, password);
       const jobId = randomUUID();
       const resultId = randomUUID();
       const itemIds = items.map(() => randomUUID());
@@ -69,10 +70,11 @@ export async function localTakeoffFixture(army: ArmyState, ids: OwnedEstimate, e
 // Prepare those prerequisites only on the explicitly allowlisted local backend,
 // after proving ownership with the ordinary account. Never pass this client to
 // browser.evaluate or evidence; all actions under test keep the user's session.
-export async function localTakeoffWorkerClient(army: ArmyState, versionId: string, email = process.env.E2E_LOGIN_EMAIL!) {
+export async function localTakeoffWorkerClient(army: ArmyState, versionId: string, email = process.env.E2E_LOGIN_EMAIL!,
+  password = process.env.E2E_LOGIN_PASSWORD!) {
   const ids = army.ownedEstimates.find(item => item.versionId === versionId);
   if (!ids) throw new Error("Worker prerequisites require a newly owned ARMY version.");
-  const fixture = await localTakeoffFixture(army, ids, email);
+  const fixture = await localTakeoffFixture(army, ids, email, password);
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!key) throw new Error("Local worker prerequisite key is missing.");
   await recordEvidence(army, `local-worker-prerequisite-${versionId}`, {
