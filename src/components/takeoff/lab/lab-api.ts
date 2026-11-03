@@ -47,7 +47,8 @@ export const labApi = {
     if (!response.ok) throw new LabApiError("Rapport introuvable.", response.status);
     return response.text();
   },
-  documentUrl: (id: string) => `${ROOT}/documents/${encodeURIComponent(id)}`,
+  /** With `sha256` (an essai's), the server refuses a document that changed since that essai. */
+  documentUrl: (id: string, sha256?: string) => `${ROOT}/documents/${encodeURIComponent(id)}${sha256 ? `?sha256=${sha256}` : ""}`,
 };
 
 export function errorMessage(error: unknown) {

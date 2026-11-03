@@ -247,7 +247,7 @@ export function LabVerdictsScreen() {
                 Source : {current.crop?.box ? "zone recadrée" : `page ${shownPage}`}
                 {current.source_page ? ` · source_page ${current.source_page}` : ""}
               </p>
-              <LabPdfCanvas className="min-h-0 flex-1" label="Zone jugée" url={labApi.documentUrl(current.document.id)}
+              <LabPdfCanvas className="min-h-0 flex-1" label="Zone jugée" url={labApi.documentUrl(current.document.id, current.document.sha256)}
                 page={shownPage} region={current.crop?.box ?? null} />
               {current.answer ? (
                 <div className="max-h-[45%] shrink-0 overflow-auto border-t border-border-subtle p-3"><AnswerBars answer={current.answer} /></div>

@@ -171,7 +171,20 @@ export async function listLabDocuments(): Promise<{ documents: LabDocumentSummar
 export type LabDocument = { summary: LabDocumentSummary; bytes: Buffer; sha256: string };
 
 /** The document's bytes; a dataset PDF only while its size and SHA-256 match the manifest. */
-export async function readLabDocument(id: string): Promise<LabDocument> {
+/**
+ * A lab document. With `expectedSha256` (the hash an essai recorded), a document that changed under
+ * the same id since the essai is refused: its verdicts must never be judged against other evidence.
+ */
+export async function readLabDocument(id: string, options: { expectedSha256?: string } = {}): Promise<LabDocument> {
+  const document = await readCurrentLabDocument(id);
+  if (options.expectedSha256 !== undefined && options.expectedSha256 !== document.sha256) {
+    throw conflict("Ce document a changé depuis l’essai (SHA-256 différent) : il ne peut plus servir de preuve pour ses verdicts.",
+      undefined, "TAKEOFF_LAB_DOCUMENT_CHANGED");
+  }
+  return document;
+}
+
+async function readCurrentLabDocument(id: string): Promise<LabDocument> {
   if (!LAB_NAME_PATTERN.test(id)) throw notFound("Document introuvable.");
   if (id.startsWith(FIXTURE_PREFIX)) {
     const fixture = (await fixtureEntries()).find((entry) => entry.id === id);
