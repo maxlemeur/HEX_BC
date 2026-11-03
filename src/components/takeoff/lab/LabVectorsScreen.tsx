@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 // that answers after the document or page changed is not applied to the new
 // selection: a notice points to its document's history. A run « Afficher »
 // loads from that history is shown only if the selection did not change meanwhile.
+// The reading shown is only ever the asked document, page and run's: while it is
+// read, or when it fails, nothing of another reading is shown or acted on.
 
 const RESULTS_MIN = 320;
 const PALETTE = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-3)", "var(--color-chart-4)", "var(--color-chart-5)"];
@@ -87,14 +89,20 @@ export function LabVectorsScreen() {
   const [campaignEdited, setCampaignEdited] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<LabRun | null>(null);
-  const [reading, setReading] = useState<LabVectorPage | null>(null);
-  const [readingError, setReadingError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // The last reading answered, with the (document, page, run) it answers.
+  const [answered, setAnswered] = useState<{ key: string; reading: LabVectorPage | null; error: string | null } | null>(null);
+  const readingKey = JSON.stringify([documentId, page, runId]);
+  const current = answered?.key === readingKey ? answered : null;
+  const reading = current?.reading ?? null;
+  const readingError = current?.error ?? null;
+  const loading = documentId !== "" && current === null;
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [launchNotice, setLaunchNotice] = useState<string | null>(null);
-  const [copy, setCopy] = useState<{ status: "copied" | "refused"; json: string; count: number } | null>(null);
+  // A copy is of one reading: its notice and JSON go with it.
+  const [copied, setCopied] = useState<{ of: LabVectorPage; status: "copied" | "refused"; json: string; count: number } | null>(null);
+  const copy = copied && copied.of === reading ? copied : null;
   const [history, setHistory] = useState<LabRunSummary[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
@@ -123,18 +131,15 @@ export function LabVectorsScreen() {
 
   useEffect(() => {
     if (!documentId) return;
+    // An answer for a selection left meanwhile is dropped.
     let active = true;
-    setLoading(true);
-    setReadingError(null);
     void labApi.vectors(documentId, page, runId).then((next) => {
-      if (active) setReading(next);
-    }).catch((error) => {
-      if (active) setReadingError(errorMessage(error));
-    }).finally(() => {
-      if (active) setLoading(false);
+      if (active) setAnswered({ key: readingKey, reading: next, error: null });
+    }, (error: unknown) => {
+      if (active) setAnswered({ key: readingKey, reading: null, error: errorMessage(error) });
     });
     return () => { active = false; };
-  }, [documentId, page, runId]);
+  }, [documentId, page, runId, readingKey]);
 
   const loadHistory = useCallback(async () => {
     if (!state.configured) return;
@@ -148,11 +153,9 @@ export function LabVectorsScreen() {
   const documentHistory = history.filter((entry) => entry.document.id === documentId);
 
   function resetPage() {
-    setReading(null);
     setRunId(null);
     setRun(null);
     setHidden(new Set());
-    setCopy(null);
   }
 
   function chooseDocument(id: string) {
@@ -212,9 +215,9 @@ export function LabVectorsScreen() {
       groups: selected.map((group) => ({ page: reading.page, group: group.id, class: group.class })) }, null, 2);
     try {
       await navigator.clipboard.writeText(json);
-      setCopy({ status: "copied", json, count: selected.length });
+      setCopied({ of: reading, status: "copied", json, count: selected.length });
     } catch {
-      setCopy({ status: "refused", json, count: selected.length });
+      setCopied({ of: reading, status: "refused", json, count: selected.length });
     }
   }
 
@@ -234,7 +237,7 @@ export function LabVectorsScreen() {
     : !task ? "La tâche « classe de calque » est absente."
     : !LAB_NAME_PATTERN.test(campaign) ? "Nom de campagne : lettres minuscules, chiffres et tirets."
     : !state.decisions.available ? state.decisions.message
-    : loading || !reading ? (readingError ?? "La page se lit…")
+    : !reading ? (readingError ?? "La page se lit…")
     : null;
 
   async function launch() {
@@ -327,7 +330,7 @@ export function LabVectorsScreen() {
                   ) : null}
                 </div>
               ) : null}
-              {loading && !reading ? <p className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner aria-label="Lecture vectorielle" />Lecture vectorielle…</p> : null}
+              {loading ? <p className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner aria-label="Lecture vectorielle" />Lecture vectorielle…</p> : null}
               {readingError ? <Alert variant="danger" className="shrink-0 px-3 py-2 text-xs">{readingError}</Alert> : null}
               {reading && groups.length === 0 ? <p className="text-xs text-muted-foreground">Aucun tracé sur cette page.</p> : null}
               <ul ref={list} aria-label="Groupes de tracés" className="-mx-2 min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto">
