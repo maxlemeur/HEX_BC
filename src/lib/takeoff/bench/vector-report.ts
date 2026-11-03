@@ -1,5 +1,7 @@
+import type { DecisionsTokenBudgetSnapshot } from "@/lib/ai/decisions-budget";
 import type { BenchReport } from "@/lib/takeoff/bench/report";
 import type { KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
+import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 
 // Comparison of the vector reading with the level C baseline (TI-662
@@ -11,7 +13,11 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // surfaces when neither regresses. Totals use the scopes scored by both runs
 // in all their passes, the others are listed. The baseline is re-scored with
 // the current scorer, so both sides use the same rules. report.md prints shares and
-// errors, never a quantity.
+// errors, never a quantity. With Decisions (TI-662 L3c), per document: calls
+// by kind, tokens of the calls that report usage, latency of the calls and of
+// the renders apart (nearest rank), answers classified (≥ 0.8), proposed or
+// left « à revoir », and the stops; report.md never prints a group id, colour
+// or layer (report.json keeps each group's answer).
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
 export type SideMetrics = { lengths: KindMetrics; surfaces: KindMetrics };
@@ -165,8 +171,40 @@ export function vectorTimings(passes: readonly VectorBenchPass[]) {
   });
 }
 
-/** report.md sections of a vector run: page readings (codes and counts only) and the comparison. */
-export function renderVectorSections(passes: readonly VectorBenchPass[], comparison: VectorComparison | null) {
+/** Per document, over every pass: the Decisions calls, tokens, latencies, answers and stops of its pages (empty without Decisions). */
+export function vectorDecisionsSummary(passes: readonly VectorBenchPass[]) {
+  const ids = [...new Set(passes.flatMap((pass) => pass.documents.map((document) => document.id)))];
+  return ids.flatMap((id) => {
+    const pages = passes.flatMap((pass) => pass.documents.filter((document) => document.id === id)
+      .flatMap((document) => document.pages.flatMap((page) => (page.decisions ? [{ pass: pass.pass, page: page.page, decisions: page.decisions }] : []))));
+    if (pages.length === 0) return [];
+    const calls = pages.flatMap((entry) => entry.decisions.calls);
+    const answers = pages.flatMap((entry) => entry.decisions.answers);
+    const latency = calls.map((call) => call.latency_ms);
+    const renders = pages.flatMap((entry) => [...(entry.decisions.render.legend_ms === null ? [] : [entry.decisions.render.legend_ms]), ...entry.decisions.render.sheets_ms]);
+    const sum = (pick: (usage: NonNullable<(typeof calls)[number]["usage"]>) => number) => calls.reduce((total, call) => total + (call.usage ? pick(call.usage) : 0), 0);
+    return [{
+      document: id, pages: pages.length,
+      calls: { batch: calls.filter((call) => call.kind === "batch").length, dedicated: calls.filter((call) => call.kind === "dedicated").length,
+        without_usage: calls.filter((call) => call.usage === null).length },
+      tokens: { input: sum((usage) => usage.input_tokens), output: sum((usage) => usage.output_tokens), total: sum((usage) => usage.total_tokens) },
+      latency_ms: { p50: nearestRank(latency, 50), p95: nearestRank(latency, 95), raw: latency },
+      render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
+      candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
+      left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
+      answers: {
+        classified: answers.filter((answer) => answer.status === "answered" && answer.class !== null && (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length,
+        proposals: answers.filter((answer) => answer.status === "answered" && answer.class !== null && (answer.confidence ?? 0) < CLASSIFIED_DECISIONS_CONFIDENCE).length,
+        review: answers.filter((answer) => answer.status !== "answered" || answer.class === null).length,
+      },
+      stops: pages.flatMap((entry) => (entry.decisions.stop ? [{ pass: entry.pass, page: entry.page, reason: entry.decisions.stop.reason }] : [])),
+    }];
+  });
+}
+
+/** report.md sections of a vector run: page readings (codes and counts only), Decisions when used, and the comparison. */
+export function renderVectorSections(passes: readonly VectorBenchPass[], comparison: VectorComparison | null,
+  decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null) {
   const lines: string[] = ["## Lecture vectorielle par page (passe 1)", ""];
   const first = passes[0];
   lines.push(...table(["Document", "Page", "Mode", "Échelle", "Cotes (cohérentes / lues)", "Légende (codes)", "Groupes (visibles / classés / réseau)",
@@ -195,6 +233,22 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     "Mémoire max de l’extraction (Mo)"], vectorTimings(passes).map((entry) => [entry.document, entry.samples, entry.failed, entry.operators, entry.stroke_paths,
     `${seconds(entry.extraction_ms.p50)} / ${seconds(entry.extraction_ms.p95)}`, `${seconds(entry.reading_ms.p50)} / ${seconds(entry.reading_ms.p95)}`,
     entry.max_rss_mb])), "");
+  const decided = vectorDecisionsSummary(passes);
+  if (decided.length > 0) {
+    lines.push(`## Decisions, classes des groupes (toutes passes, ${passes.length})`, "");
+    if (decisions) {
+      const { budget } = decisions;
+      lines.push(`Budget : ${budget.spent_tokens} jetons sur ${budget.max_tokens}, ${budget.calls} appels (${budget.calls_without_usage} sans usage), `
+        + `${budget.refused_starts} refus du plafond.`, "");
+    }
+    lines.push(...table(["Document", "Pages", "Appels (lot / dédiés)", "Jetons (entrée / sortie / total)", "Appel p50 / p95 (s)", "Rendu p50 / p95 (s)",
+      "Candidats (hors limite)", "Réponses (≥ 0,8 / < 0,8 / à revoir)", "Arrêts"], decided.map((entry) => [
+      entry.document, entry.pages, `${entry.calls.batch} / ${entry.calls.dedicated}`, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
+      `${seconds(entry.latency_ms.p50)} / ${seconds(entry.latency_ms.p95)}`, `${seconds(entry.render_ms.p50)} / ${seconds(entry.render_ms.p95)}`,
+      `${entry.candidates} (${entry.left_out})`, `${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,
+      entry.stops.map((stop) => `p${stop.page} passe ${stop.pass} : ${stop.reason}`).join(", ") || "–",
+    ])), "");
+  }
   if (comparison) {
     lines.push(`## Comparaison avec la baseline niveau C (médianes de ${comparison.passes.vector} passes vectorielles et ${comparison.passes.baseline} passes de la baseline, re-notée au score courant)`, "");
     const rows = [

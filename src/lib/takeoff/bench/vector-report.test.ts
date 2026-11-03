@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { buildBenchReport, type BenchReport, type BenchReportMetadata, type PassReport } from "@/lib/takeoff/bench/report";
 import { GroupTruthFileSchema } from "@/lib/takeoff/bench/schemas";
 import type { KeyLabel, KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
-import { compareVectorWithBaseline, renderVectorSections, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
-import { runVectorBench } from "@/lib/takeoff/bench/vector-run";
+import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
+import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 
 // Ways the comparison of the vector reading with the level C baseline (TI-662
@@ -25,6 +25,12 @@ import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/ext
 //   mixed into the main totals;
 // - report.md prints a quantity (expected, actual, measured length or area) or
 //   a room label of the private plans, instead of shares and errors.
+// Decisions of the groups (TI-662 L3c, written before the code):
+// - the calls are not split into batch and dedicated, or the tokens of a call
+//   without usage (failed) count as zero tokens of a counted call instead of
+//   no usage; the latency percentiles mix calls and renders;
+// - a document's stop, or the run's budget, is missing from report.md;
+// - report.md prints a group id, a colour or a layer of the private plans.
 
 const LENGTH: KeyLabel = { kind: "network", zone: "Z1", level: "R+1", network: "EF", material: "cuivre", organ: null, dn: "DN 22", room: null, unit: "ml" };
 const LABELS: Record<"length" | "surface" | "count" | "insulation", KeyLabel> = {
@@ -272,5 +278,50 @@ describe("takeoff bench vector comparison", () => {
     }
     expect(markdown).not.toContain("Fictional hall");
     expect(markdown).not.toContain("EF cuivre DN 22");
+  });
+});
+
+describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
+  const call = (kind: "batch" | "dedicated", latency: number, total: number | null, status: "available" | "failed" = "available") => ({
+    kind, questions: kind === "batch" ? 36 : 1, status, latency_ms: latency, render_ms: 50,
+    usage: total === null ? null : { input_tokens: total - 100, output_tokens: 100, total_tokens: total },
+  });
+  const decisions = (calls: VectorPageDecisions["calls"], stop: VectorPageDecisions["stop"] = null): VectorPageDecisions => ({
+    candidates: 40, eligible: 45, left_out: 5, calls, stop, render: { legend_ms: 400, sheets_ms: [100, 300] },
+    answers: [
+      { alias: "groupe_01", group: "oc:FICTIF_SECRET_LAYER", class: "EF", confidence: 0.9, status: "answered", via: "batch" },
+      { alias: "groupe_02", group: "c:#123456|w:0.5|d:", class: "EU", confidence: 0.6, status: "answered", via: "dedicated" },
+      { alias: "groupe_03", group: "c:#654321|w:0.5|d:", class: null, confidence: null, status: "refused", via: "batch" },
+    ],
+  });
+  const passes: VectorBenchPass[] = [{ pass: 1, documents: [
+    { id: "a-plan-01", pages: [
+      { page: 1, status: "ok", error: null, reading: null, raster_items_from_baseline: null,
+        decisions: decisions([call("batch", 1000, 5000), call("dedicated", 2000, 1500), call("dedicated", 4000, 1500)]) },
+      { page: 2, status: "ok", error: null, reading: null, raster_items_from_baseline: null,
+        decisions: decisions([call("batch", 3000, null, "failed")], { reason: "call_failed", message: "Fictional failure." }) },
+    ] },
+  ] }];
+
+  it("sums calls by kind, tokens of the calls with usage, latency of calls and renders apart, and the stops", () => {
+    const [document] = vectorDecisionsSummary(passes);
+    expect(document).toMatchObject({
+      document: "a-plan-01", calls: { batch: 2, dedicated: 2, without_usage: 1 }, tokens: { input: 7700, output: 300, total: 8000 },
+      latency_ms: { p50: 2000, p95: 4000 }, candidates: 80, left_out: 10,
+      answers: { classified: 2, proposals: 2, review: 2 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
+    });
+    // Renders: the legend and the sheets of each page, never the calls.
+    expect(document.render_ms.raw).toEqual([400, 100, 300, 400, 100, 300]);
+  });
+
+  it("prints the Decisions section with the budget, never a group id, colour or layer", () => {
+    const budget = { max_tokens: 100_000, spent_tokens: 8000, calls: 4, calls_without_usage: 1, refused_starts: 0, largest_call_tokens: 5000 };
+    const markdown = renderVectorSections(passes, null, { budget }).join("\n");
+    expect(markdown).toContain("## Decisions");
+    expect(markdown).toContain("2 / 2");
+    expect(markdown).toContain("8000 jetons sur 100000");
+    expect(markdown).toContain("call_failed");
+    for (const secret of ["FICTIF_SECRET_LAYER", "#123456", "#654321", "oc:"]) expect(markdown).not.toContain(secret);
+    expect(renderVectorSections([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }], null).join("\n")).not.toContain("## Decisions");
   });
 });
