@@ -8,6 +8,14 @@ import { DIAMETER_TABLE_VERSION } from "@/lib/takeoff/bench/diameters";
 import { ITEM_KEY_READER_VERSION, scoredUnit, type ScoredUnit } from "@/lib/takeoff/bench/item-keys";
 import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import {
+  countTiers,
+  designationRuleResults,
+  failedCodes,
+  guardTiers,
+  type GuardTier,
+  type TierCounts,
+} from "@/lib/takeoff/bench/rules";
+import {
   BENCH_CHUNKING,
   LOCAL_CHATGPT_TIMEOUT_CAP_MS,
   type BenchRunResult,
@@ -21,6 +29,7 @@ import {
   BENCH_TOLERANCES,
   SCORE_VERSION,
   scoreScopes,
+  type ConfidenceCounts,
   type IndicativeCounts,
   type KeyLabel,
   type KeyScore,
@@ -31,6 +40,10 @@ import {
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
 import { VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE } from "@/lib/takeoff/vectors/extraction";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
+import type { TakeoffItem } from "@/lib/takeoff/types";
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
+import { TAKEOFF_RULE_VERSIONS } from "@/lib/takeoff/rules/evaluate";
+import { TAKEOFF_RULES_VERSION } from "@/lib/takeoff/rules/types";
 
 // Report of a takeoff bench run (TI-660): report.json keeps every call, item and
 // key; report.md publishes codes, counts, relative deviations, tokens and
@@ -133,6 +146,23 @@ export type IndicativeReport = {
   thresholds: TakeoffBenchmarkThresholds;
 };
 
+/** Keys at high confidence and those in error, over the scored scopes of a role (TI-664). */
+export type ConfidenceSummary = Omit<ConfidenceCounts, "high_confidence_errors"> & {
+  scopes: number;
+  high_confidence_errors: Array<ConfidenceCounts["high_confidence_errors"][number] & { scope: string }>;
+};
+
+/**
+ * The fixed rules on a pass (TI-664): per document, its lines rejected, uncertain and at high confidence before and
+ * after the rules, and the failed rule codes; per role, the keys at high confidence and those in error.
+ */
+export type PassRules = {
+  version: number;
+  threshold: number;
+  documents: Array<{ id: string; lot: string; role: "truth" | "reserve"; before: TierCounts; after: TierCounts; failed: Record<string, number> }>;
+  confidence: Record<"main" | "reserve", { before: ConfidenceSummary; after: ConfidenceSummary }>;
+};
+
 export type PassReport = {
   pass: number;
   complete: boolean;
@@ -140,6 +170,7 @@ export type PassReport = {
   scopes: ScopeScore[];
   summary: { main: GroupSummary; reserve: GroupSummary };
   indicative: IndicativeReport;
+  rules?: PassRules;
 };
 
 export type NoiseReport = {
@@ -316,6 +347,55 @@ function indicative(scopes: readonly ScopeScore[]): IndicativeReport {
   };
 }
 
+function confidenceSummary(scopes: readonly ScopeScore[]): ConfidenceSummary {
+  const summary: ConfidenceSummary = {
+    scopes: 0, lines: { rejected: 0, uncertain: 0, high: 0 }, keys_high_confidence: 0, keys_high_confidence_error: 0, high_confidence_errors: [],
+  };
+  for (const scope of scopes) {
+    if (scope.status !== "scored" || !scope.confidence) continue;
+    summary.scopes += 1;
+    for (const tier of ["rejected", "uncertain", "high"] as const) summary.lines[tier] += scope.confidence.lines[tier];
+    summary.keys_high_confidence += scope.confidence.keys_high_confidence;
+    summary.keys_high_confidence_error += scope.confidence.keys_high_confidence_error;
+    summary.high_confidence_errors.push(...scope.confidence.high_confidence_errors.map((entry) => ({ ...entry, scope: scope.id })));
+  }
+  return summary;
+}
+
+/**
+ * Rules of a pass: a document's rule results come from its run (vector pipeline: geometry, pages and the other
+ * documents of its lot) or, without them, from its lines' designations (level C answers).
+ */
+function passRules(read: readonly DocumentRun[], scopes: readonly ScoreScope[], items: ReadonlyMap<string, readonly TakeoffItem[]>,
+  readings: { failures: Map<string, Array<{ start_page: number; end_page: number; status: string }>>; chunks: Map<string, number[][]> },
+  threshold: number) {
+  const before = new Map<string, GuardTier[]>();
+  const after = new Map<string, GuardTier[]>();
+  const documents: PassRules["documents"] = [];
+  for (const document of read) {
+    const results = document.item_rules ?? designationRuleResults(document.items);
+    const tiersBefore = guardTiers(document.items, null, threshold);
+    const tiersAfter = guardTiers(document.items, results, threshold);
+    before.set(document.id, tiersBefore);
+    after.set(document.id, tiersAfter);
+    documents.push({ id: document.id, lot: document.lot, role: document.role, before: countTiers(tiersBefore), after: countTiers(tiersAfter),
+      failed: failedCodes(results) });
+  }
+  const scoredBefore = scoreScopes(scopes, items, { ...readings, tiers: before });
+  const scoredAfter = scoreScopes(scopes, items, { ...readings, tiers: after });
+  const byRole = (scored: readonly ScopeScore[], role: "truth" | "reserve") => confidenceSummary(scored.filter((scope) => scope.role === role));
+  return {
+    after: scoredAfter,
+    rules: {
+      version: TAKEOFF_RULES_VERSION, threshold, documents,
+      confidence: {
+        main: { before: byRole(scoredBefore, "truth"), after: byRole(scoredAfter, "truth") },
+        reserve: { before: byRole(scoredBefore, "reserve"), after: byRole(scoredAfter, "reserve") },
+      },
+    } satisfies PassRules,
+  };
+}
+
 const NOISE_M2_UNDETERMINED = "indéterminé (part absolue 0,5 m² non évaluable sans quantité)";
 
 /**
@@ -358,6 +438,8 @@ export function buildBenchReport(input: {
   vectorRules?: Record<string, unknown>;
   /** Documents a page triage fully excluded (`--pages-from`): scored as read with no item, their keys missed. */
   excludedDocuments?: readonly string[];
+  /** Low-confidence threshold of the apply guard the lines are classed with (TI-664); the guard's default otherwise. */
+  threshold?: number;
 }): BenchReport {
   const promptVersion = getTakeoffPromptVersion("C");
   const vector = input.pipeline === "vector";
@@ -372,6 +454,8 @@ export function buildBenchReport(input: {
       + "DN or unit apart) counts on that key; an unreadable item that may be a missed key makes it indetermine:illisible and counts "
       + "on it; other unreadable items: one group per reason (indetermine:illisible)",
     indicative: INDICATIVE_NOTE,
+    takeoff_rules: { version: TAKEOFF_RULES_VERSION, rules: TAKEOFF_RULE_VERSIONS,
+      tiers: "rejected: blocked by the apply guard (after the rules: or by a failed rule); uncertain: medium; high: neither, confidence >= 0.8" },
   };
   return {
     schema_version: 1,
@@ -408,13 +492,15 @@ export function buildBenchReport(input: {
         const failures = new Map(read.map((document) => [document.id, document.calls.filter((entry) => entry.status !== "ok")
           .map((entry) => ({ start_page: entry.start_page, end_page: entry.end_page, status: entry.status }))]));
         const chunks = new Map(read.map((document) => [document.id, document.item_chunks]));
-        const scores = scoreScopes(input.scopes, items, { failures, chunks });
+        // Scored with each line's tier after the rules; the same scopes before them give the « before » counts only.
+        const { after: scores, rules } = passRules(read, input.scopes, items, { failures, chunks }, input.threshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD);
         const byRole = (role: "truth" | "reserve") => summarizeGroup(
           pass.documents.filter((document) => document.role === role), scores.filter((scope) => scope.role === role), floorMs);
         return {
           pass: pass.pass, complete: pass.complete, documents: pass.documents, scopes: scores,
           summary: { main: byRole("truth"), reserve: byRole("reserve") },
           indicative: indicative(scores.filter((scope) => scope.role === "truth")),
+          rules,
         };
       }),
     })),
@@ -558,6 +644,37 @@ export function commandLine(metadata: Pick<BenchReportMetadata, "command" | "cwd
   return [`cd ${shellWord(metadata.cwd)} &&`, ...env, ...metadata.command.map(shellWord)].join(" ");
 }
 
+function tierCells(counts: TierCounts) {
+  return `${counts.rejected} / ${counts.uncertain} / ${counts.high}`;
+}
+
+/** The rules of a pass: lines per document before and after them, failed codes, keys at high confidence in error. */
+export function rulesSection(rules: PassRules): string[] {
+  const confidenceRow = (label: string, before: ConfidenceSummary, after: ConfidenceSummary) => [
+    label, `${before.keys_high_confidence_error} / ${before.keys_high_confidence}`, `${after.keys_high_confidence_error} / ${after.keys_high_confidence}`,
+    after.high_confidence_errors.map((entry) => `${entry.kind === "invented" ? "inventée" : "hors tolérance"} (${entry.cause ?? "–"}`
+      + `${entry.reason ? `, ${entry.reason}` : ""})`).join(", ") || "–",
+  ];
+  return [
+    `### Règles fixes (v${rules.version}, seuil de confiance ${rules.threshold})`,
+    "",
+    "Lignes rejetées / incertaines / à haute confiance, avant puis après les règles.",
+    "",
+    table(["Document", "Rôle", "Avant", "Après", "Règles en échec"], rules.documents.map((entry) => [
+      entry.id, entry.role === "reserve" ? "réserve" : "hors réserve", tierCells(entry.before), tierCells(entry.after),
+      Object.entries(entry.failed).map(([code, count]) => `${code} ${count}`).join(", ") || "–",
+    ])),
+    "",
+    "Clés à haute confiance en erreur / clés à haute confiance.",
+    "",
+    table(["Rôle", "Avant", "Après", "Erreurs restantes"], [
+      confidenceRow("hors réserve", rules.confidence.main.before, rules.confidence.main.after),
+      confidenceRow("réserve", rules.confidence.reserve.before, rules.confidence.reserve.after),
+    ]),
+    "",
+  ];
+}
+
 export function renderBenchReportMarkdown(report: BenchReport) {
   const { metadata } = report;
   const vector = report.pipeline === "vector";
@@ -603,6 +720,7 @@ export function renderBenchReportMarkdown(report: BenchReport) {
         `- précision ${pass.indicative.precision}, rappel ${pass.indicative.recall}, quantités ${pass.indicative.quantityAccuracy}, `
           + `preuves localisées ${pass.indicative.localizedProofCoverage}, erreurs à haute confiance ${pass.indicative.highConfidenceErrorRate}`,
         "",
+        ...(pass.rules ? rulesSection(pass.rules) : []),
         "### Clés",
         "",
         ...pass.scopes.filter((scope) => scope.status === "scored").flatMap(scopeSection),

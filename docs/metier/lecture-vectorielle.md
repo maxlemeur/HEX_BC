@@ -172,3 +172,8 @@ pages lues : lues dans un même appel, les pages 1 et 3 ne disent rien de la pag
 rapport de tri dont les pages gardées ne montent pas strictement (désordre, doublon, page
 au-delà du document) est refusé : un appel n'est rendu que par sa première et sa dernière
 page.
+
+## Règles fixes (L5)
+
+Les règles fixes qui lisent cette lecture (DN × réseau, doublons Z1/Z2 et recalage,
+aires, pièces, quantités à saisir) sont décrites dans [regles-metre.md](regles-metre.md).

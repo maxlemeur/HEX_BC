@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
+import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import {
   buildItemKey,
   buildPdfChunks,
@@ -98,6 +99,11 @@ export type DocumentRun = {
   items: TakeoffItem[];
   /** The chunks (1-based) that read each item, in the order of `items`. */
   item_chunks: number[][];
+  /**
+   * Fixed-rule results of each item, in the order of `items` (TI-664), when the run computed them with the
+   * geometry and the other documents of its lot (vector pipeline). Absent: read in the items' designations.
+   */
+  item_rules?: TakeoffRuleResult[][];
   duplicate_items: number;
   deduplicated_items: number;
 };
