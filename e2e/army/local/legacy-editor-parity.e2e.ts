@@ -693,6 +693,11 @@ armyTest("LEP05 keyboard drag, undo and redo persist the exact sibling order and
         const transform = getComputedStyle(movingRow).transform;
         return transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
       }, lines[0].id), { message: "ArrowDown must move the actual dragged row before Space drops it" }).toBeGreaterThan(0);
+      // That transform comes from the move render. dnd-kit commits the new drop
+      // target (`over`, read on drop) in a later Scheduler task and announces it
+      // here; a Space sent before that commit drops the row on its own slot
+      // (TI-668). Sibling displacement, what a user sees, lands in that commit.
+      await expect(screen.getByRole("status").filter({ hasText: `was moved over droppable area ${lines[1].id}` })).toBeAttached();
       await browser.keyboard.press("Space");
       await expect(handle).not.toHaveAttribute("aria-pressed", "true");
       await assertOrder("keyboard drag", movedIds);
