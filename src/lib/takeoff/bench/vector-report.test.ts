@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildBenchReport, type BenchReport, type BenchReportMetadata, type PassReport } from "@/lib/takeoff/bench/report";
 import { GroupTruthFileSchema } from "@/lib/takeoff/bench/schemas";
 import type { KeyLabel, KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
-import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
+import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
 import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 
@@ -31,6 +31,12 @@ import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/ext
 //   no usage; the latency percentiles mix calls and renders;
 // - a document's stop, or the run's budget, is missing from report.md;
 // - report.md prints a group id, a colour or a layer of the private plans.
+// Codex review of the PR (written before the fix):
+// - an « autre » answer at 0.8 or more is counted as classified, though
+//   isClassified and the badge leave « autre » unclassified;
+// - the candidates no call answered (images not drawn, budget refused, a
+//   failed call, a stop) are missing from the « à revoir » count, so a page
+//   whose campaign failed reports nothing to review.
 
 const LENGTH: KeyLabel = { kind: "network", zone: "Z1", level: "R+1", network: "EF", material: "cuivre", organ: null, dn: "DN 22", room: null, unit: "ml" };
 const LABELS: Record<"length" | "surface" | "count" | "insulation", KeyLabel> = {
@@ -308,10 +314,37 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
     expect(document).toMatchObject({
       document: "a-plan-01", calls: { batch: 2, dedicated: 2, without_usage: 1 }, tokens: { input: 7700, output: 300, total: 8000 },
       latency_ms: { p50: 2000, p95: 4000 }, candidates: 80, left_out: 10,
-      answers: { classified: 2, proposals: 2, review: 2 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
+      answers: { classified: 2, proposals: 2, review: 76 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
     });
     // Renders: the legend and the sheets of each page, never the calls.
     expect(document.render_ms.raw).toEqual([400, 100, 300, 400, 100, 300]);
+  });
+
+  it("counts « autre » and every candidate left unanswered as to review (Codex review of the PR)", () => {
+    const page = (decisions: VectorPageDecisions) => [{ pass: 1, documents: [{ id: "a-plan-01", pages: [
+      { page: 1, status: "ok" as const, error: null, reading: null, raster_items_from_baseline: null, decisions }] }] }];
+    const autre = { alias: "groupe_01", group: "c:#123456|w:0.5|d:", class: "autre" as const, confidence: 0.95, status: "answered" as const, via: "batch" as const };
+    // Four candidates: one answered « autre » at 0.95, three never asked (the budget refused the next call).
+    const [stopped] = vectorDecisionsSummary(page({ ...decisions([call("batch", 1000, 5000)], { reason: "budget_reached", message: "Fictional." }),
+      candidates: 4, answers: [autre] }));
+    expect(stopped.answers).toEqual({ classified: 0, proposals: 0, review: 4 });
+    // No call at all (the images could not be drawn): every candidate stays to review.
+    const [undrawn] = vectorDecisionsSummary(page({ ...decisions([]), candidates: 3, answers: [] }));
+    expect(undrawn.answers).toEqual({ classified: 0, proposals: 0, review: 3 });
+  });
+
+  it("totals the Decisions of the whole run across documents, calls and renders of every page (review of the PR)", () => {
+    const two = [{ pass: 1, documents: [...passes[0].documents, { ...passes[0].documents[0], id: "b-plan-11" }] }];
+    expect(vectorDecisionsSummary(two)).toHaveLength(2);
+    const total = vectorDecisionsTotal(two);
+    expect(total).toMatchObject({
+      document: null, pages: 4, calls: { batch: 4, dedicated: 4, without_usage: 2 }, tokens: { input: 15400, output: 600, total: 16000 },
+      candidates: 160, left_out: 20, answers: { classified: 4, proposals: 4, review: 152 },
+    });
+    expect(total?.latency_ms.raw).toHaveLength(8);
+    expect(total?.render_ms.raw).toHaveLength(12);
+    expect(vectorDecisionsTotal([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }])).toBeNull();
+    expect(renderVectorSections(two, null).join("\n")).toMatch(/\| Total \| 4 \| 4 \/ 4 \|/);
   });
 
   it("prints the Decisions section with the budget, never a group id, colour or layer", () => {

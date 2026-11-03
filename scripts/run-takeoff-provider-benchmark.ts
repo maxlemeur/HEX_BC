@@ -30,7 +30,7 @@ import {
 import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
-import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorTimings } from "@/lib/takeoff/bench/vector-report";
+import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
 import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
 import {
@@ -365,6 +365,7 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   const decisions = budget && capability ? {
     capability: { status: capability.status, model: capability.model }, budget: budget.snapshot(),
     stop: result.run.stop?.error.name === "DecisionsStop" ? { reason: result.run.stop.error.code, message: result.run.stop.error.message, at: result.run.stop.at } : null,
+    run: vectorDecisionsTotal(result.vector.passes),
     documents: vectorDecisionsSummary(result.vector.passes),
   } : null;
   const full = {

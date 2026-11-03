@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-03",
+  "sourceCommit": "6507c12",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's authorization of 2026-11-03 to apply TI-662's (L3) geometry migration to the shared Supabase after its owned local-stack validation and its merge; no deployment.",
+  "migration": {
+    "repositoryFile": "supabase/migrations/20261103153311_takeoff_vector_geometry.sql",
+    "pullRequest": 147,
+    "bytes": 6458,
+    "lines": 127,
+    "sha256": "1897ff9600aae452718af1ce91a407156e8cbe89ae7bc28ec0e82acb8a495947",
+    "appliedVersion": "20261103194236",
+    "appliedName": "20261103153311_takeoff_vector_geometry",
+    "appliedAtUtc": "2026-11-03T19:42:36Z",
+    "storedStatements": 1,
+    "storedStatementSha256": "2754026b4c4d87b4089c82538b59c51df9026c997a30ed173ca2cd99202d6a6d",
+    "storedStatementEqualsFileWithoutFinalNewline": true,
+    "appliedBy": "MCP apply_migration with the exact file SQL"
+  },
+  "preflight": {
+    "previous": "20261029224500_estimate_v3_freeze_revision_effects (20261030021046)",
+    "missingFromMain": ["20261103153311_takeoff_vector_geometry.sql"],
+    "objectsAbsent": true,
+    "prerequisitesPresent": ["public.current_tenant_id()", "public.can_access_takeoff_estimate_version(uuid, uuid)", "public.takeoff_results", "public.takeoff_items"],
+    "additiveOnly": true,
+    "localValidation": "npm run db:ci:local (pgTAP incl. takeoff-vector-geometry, RLS matrix) and TKW01-09 on an owned local stack before merge"
+  },
+  "history": {
+    "rowsAfter": 352,
+    "rowsForName": 1,
+    "last": true
+  },
+  "objects": [
+    { "table": "public.takeoff_vector_pages", "rls": true, "forceRls": true, "policies": 1, "indexes": 4, "triggers": 1, "anonSelect": false, "authenticatedSelect": true, "authenticatedWrite": false },
+    { "table": "public.takeoff_item_geometries", "rls": true, "forceRls": true, "policies": 1, "indexes": 4, "triggers": 1, "anonSelect": false, "authenticatedSelect": true, "authenticatedWrite": false }
+  ],
+  "securityAdvisors": {
+    "checkedAtUtc": "2026-11-03T19:42:53Z",
+    "newFindingsForTheseObjects": 0,
+    "unchanged": ["INFO rls_enabled_no_policy on server-only tables", "WARN 70 SECURITY DEFINER functions executable by authenticated", "WARN leaked password protection disabled"]
+  },
+  "deployment": false,
+  "dataWritten": false
+}

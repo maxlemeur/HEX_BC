@@ -172,34 +172,54 @@ export function vectorTimings(passes: readonly VectorBenchPass[]) {
 }
 
 /** Per document, over every pass: the Decisions calls, tokens, latencies, answers and stops of its pages (empty without Decisions). */
+type DecisionsPage = { pass: number; page: number; decisions: NonNullable<VectorBenchPass["documents"][number]["pages"][number]["decisions"]> };
+
+function decisionsPages(passes: readonly VectorBenchPass[], id: string | null): DecisionsPage[] {
+  return passes.flatMap((pass) => pass.documents.filter((document) => id === null || document.id === id)
+    .flatMap((document) => document.pages.flatMap((page) => (page.decisions ? [{ pass: pass.pass, page: page.page, decisions: page.decisions }] : []))));
+}
+
+/** The Decisions of some pages: calls by kind, tokens of the calls with usage, latency of calls and renders apart, answers, stops. */
+function summarizeDecisions(document: string | null, pages: readonly DecisionsPage[]) {
+  const calls = pages.flatMap((entry) => entry.decisions.calls);
+  const answers = pages.flatMap((entry) => entry.decisions.answers);
+  const latency = calls.map((call) => call.latency_ms);
+  const renders = pages.flatMap((entry) => [...(entry.decisions.render.legend_ms === null ? [] : [entry.decisions.render.legend_ms]), ...entry.decisions.render.sheets_ms]);
+  const sum = (pick: (usage: NonNullable<(typeof calls)[number]["usage"]>) => number) => calls.reduce((total, call) => total + (call.usage ? pick(call.usage) : 0), 0);
+  return {
+    document, pages: pages.length,
+    calls: { batch: calls.filter((call) => call.kind === "batch").length, dedicated: calls.filter((call) => call.kind === "dedicated").length,
+      without_usage: calls.filter((call) => call.usage === null).length },
+    tokens: { input: sum((usage) => usage.input_tokens), output: sum((usage) => usage.output_tokens), total: sum((usage) => usage.total_tokens) },
+    latency_ms: { p50: nearestRank(latency, 50), p95: nearestRank(latency, 95), raw: latency },
+    render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
+    candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
+    left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
+    answers: (() => {
+      // As isClassified reads them: « autre » is never classified; every candidate without such an answer (unanswered,
+      // refused, « autre », or never asked: images not drawn, budget refused, a failed call or a stop) is to review.
+      const proposed = answers.filter((answer) => answer.status === "answered" && answer.class !== null && answer.class !== "autre");
+      const classified = proposed.filter((answer) => (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length;
+      const proposals = proposed.length - classified;
+      const candidates = pages.reduce((total, entry) => total + entry.decisions.candidates, 0);
+      return { classified, proposals, review: Math.max(0, candidates - classified - proposals) };
+    })(),
+    stops: pages.flatMap((entry) => (entry.decisions.stop ? [{ pass: entry.pass, page: entry.page, reason: entry.decisions.stop.reason }] : [])),
+  };
+}
+
 export function vectorDecisionsSummary(passes: readonly VectorBenchPass[]) {
   const ids = [...new Set(passes.flatMap((pass) => pass.documents.map((document) => document.id)))];
   return ids.flatMap((id) => {
-    const pages = passes.flatMap((pass) => pass.documents.filter((document) => document.id === id)
-      .flatMap((document) => document.pages.flatMap((page) => (page.decisions ? [{ pass: pass.pass, page: page.page, decisions: page.decisions }] : []))));
-    if (pages.length === 0) return [];
-    const calls = pages.flatMap((entry) => entry.decisions.calls);
-    const answers = pages.flatMap((entry) => entry.decisions.answers);
-    const latency = calls.map((call) => call.latency_ms);
-    const renders = pages.flatMap((entry) => [...(entry.decisions.render.legend_ms === null ? [] : [entry.decisions.render.legend_ms]), ...entry.decisions.render.sheets_ms]);
-    const sum = (pick: (usage: NonNullable<(typeof calls)[number]["usage"]>) => number) => calls.reduce((total, call) => total + (call.usage ? pick(call.usage) : 0), 0);
-    return [{
-      document: id, pages: pages.length,
-      calls: { batch: calls.filter((call) => call.kind === "batch").length, dedicated: calls.filter((call) => call.kind === "dedicated").length,
-        without_usage: calls.filter((call) => call.usage === null).length },
-      tokens: { input: sum((usage) => usage.input_tokens), output: sum((usage) => usage.output_tokens), total: sum((usage) => usage.total_tokens) },
-      latency_ms: { p50: nearestRank(latency, 50), p95: nearestRank(latency, 95), raw: latency },
-      render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
-      candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
-      left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
-      answers: {
-        classified: answers.filter((answer) => answer.status === "answered" && answer.class !== null && (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length,
-        proposals: answers.filter((answer) => answer.status === "answered" && answer.class !== null && (answer.confidence ?? 0) < CLASSIFIED_DECISIONS_CONFIDENCE).length,
-        review: answers.filter((answer) => answer.status !== "answered" || answer.class === null).length,
-      },
-      stops: pages.flatMap((entry) => (entry.decisions.stop ? [{ pass: entry.pass, page: entry.page, reason: entry.decisions.stop.reason }] : [])),
-    }];
+    const pages = decisionsPages(passes, id);
+    return pages.length === 0 ? [] : [{ ...summarizeDecisions(id, pages), document: id }];
   });
+}
+
+/** The same over the whole run (every document and pass); null when no page asked Decisions. */
+export function vectorDecisionsTotal(passes: readonly VectorBenchPass[]) {
+  const pages = decisionsPages(passes, null);
+  return pages.length === 0 ? null : summarizeDecisions(null, pages);
 }
 
 /** report.md sections of a vector run: page readings (codes and counts only), Decisions when used, and the comparison. */
@@ -241,8 +261,10 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
       lines.push(`Budget : ${budget.spent_tokens} jetons sur ${budget.max_tokens}, ${budget.calls} appels (${budget.calls_without_usage} sans usage), `
         + `${budget.refused_starts} refus du plafond.`, "");
     }
+    const total = vectorDecisionsTotal(passes);
+    const rows = total ? [...decided, { ...total, document: "Total" }] : decided;
     lines.push(...table(["Document", "Pages", "Appels (lot / dédiés)", "Jetons (entrée / sortie / total)", "Appel p50 / p95 (s)", "Rendu p50 / p95 (s)",
-      "Candidats (hors limite)", "Réponses (≥ 0,8 / < 0,8 / à revoir)", "Arrêts"], decided.map((entry) => [
+      "Candidats (hors limite)", "Réponses (≥ 0,8 / < 0,8 / à revoir)", "Arrêts"], rows.map((entry) => [
       entry.document, entry.pages, `${entry.calls.batch} / ${entry.calls.dedicated}`, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
       `${seconds(entry.latency_ms.p50)} / ${seconds(entry.latency_ms.p95)}`, `${seconds(entry.render_ms.p50)} / ${seconds(entry.render_ms.p95)}`,
       `${entry.candidates} (${entry.left_out})`, `${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,

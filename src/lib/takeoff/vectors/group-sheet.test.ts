@@ -21,6 +21,9 @@ import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 //   overlap, or a tile loses its alias;
 // - the legend crop is not the union of the legend boxes with a margin, or
 //   runs off the page.
+// Review of the PR (written before the fix): one stray legend box far from
+// the others (a lone code read as an entry 3 200 pt away) widens the crop to a
+// strip where the real legend is a few pixels tall.
 
 const A3 = { width: 1190.55, height: 841.89 };
 type Stroke = { color: string; points: readonly number[]; layer?: string | null };
@@ -143,5 +146,14 @@ describe("contact sheets and legend crop (group-sheet.ts)", () => {
       .toEqual({ x0: 20 - GROUP_SHEET.legendMarginPt, y0: 30 - GROUP_SHEET.legendMarginPt, x1: 200 + GROUP_SHEET.legendMarginPt, y1: 140 + GROUP_SHEET.legendMarginPt });
     expect(legendCrop([{ x0: 2, y0: 3, x1: 1189, y1: 840 }], A3.width, A3.height)).toEqual({ x0: 0, y0: 0, x1: A3.width, y1: A3.height });
     expect(legendCrop([], A3.width, A3.height)).toBeNull();
+  });
+
+  it("crops the legend's main cluster of boxes, never a stray box far from it", () => {
+    const sheet = { width: 5669, height: 2409 };
+    const legend = [{ x0: 4363, y0: 300, x1: 4420, y1: 420 }, { x0: 4425, y0: 300, x1: 4478, y1: 420 }];
+    const stray = { x0: 1098, y0: 1500, x1: 1161, y1: 1520 };
+    const margin = GROUP_SHEET.legendMarginPt;
+    expect(legendCrop([legend[0], stray, legend[1]], sheet.width, sheet.height))
+      .toEqual({ x0: 4363 - margin, y0: 300 - margin, x1: 4478 + margin, y1: 420 + margin });
   });
 });

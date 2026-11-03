@@ -1,4 +1,4 @@
-import { applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, isNetworkClass, type DecisionsAnswer, type GroupClass } from "@/lib/takeoff/vectors/classify";
+import { applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, isMeasuredNetwork, type DecisionsAnswer, type GroupClass } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { SegmentIndex, boxContains } from "@/lib/takeoff/vectors/geometry";
 import { readLabelBlocks } from "@/lib/takeoff/vectors/labels";
@@ -93,7 +93,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   };
 }
 
-/** Groups classified as a network by this reading. */
+/** Groups measured as a network by this reading (a Decisions proposal under 0.8 is not). */
 export function networkGroups(reading: VectorPageReading) {
-  return reading.groups.filter((group) => isNetworkClass(group.class));
+  return reading.groups.filter((group) => isMeasuredNetwork(group));
 }
