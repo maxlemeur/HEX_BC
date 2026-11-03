@@ -8,6 +8,7 @@ import {
   assertLocalChatGptOverride, callLocalChatGptStructured, listLocalChatGptModels, type LocalChatGptOverride, type LocalChatGptRawResult,
 } from "@/lib/ai/chatgpt-local-inference";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { callOpenAiDecisions, getOpenAiDecisionsCapability, OPENAI_DECISIONS_MODEL, type OpenAiDecisionAnswer, type OpenAiDecisionQuestion, type OpenAiDecisionsResult } from "@/lib/ai/decisions";
 import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
 import { classifyCallError, describeError } from "@/lib/takeoff/bench/run";
@@ -182,9 +183,19 @@ function overrideKey(model: string, effort: string | null) {
  * assertLocalChatGptOverride: callLocalChatGptStructured then sends them without listing the models
  * again, so the lab's latency is the answer's, not a /models round trip.
  */
-async function preflightChatGpt(owner: ChatGptOwner, configs: readonly Extract<LabConfigInput, { provider: "chatgpt" }>[]) {
+type LabChatGptPreflight = {
+  overrides: Map<string, Readonly<LocalChatGptOverride>>;
+  /**
+   * The profile checked before the first call, passed to every call of the essai: a profile switched
+   * in another tab during the run then stops it (« … a changé », selection_changed) instead of
+   * silently sending the next configurations with another account.
+   */
+  selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null } | undefined;
+};
+
+async function preflightChatGpt(owner: ChatGptOwner, configs: readonly Extract<LabConfigInput, { provider: "chatgpt" }>[]): Promise<LabChatGptPreflight> {
   const checked = new Map<string, Readonly<LocalChatGptOverride>>();
-  if (configs.length === 0) return checked;
+  if (configs.length === 0) return { overrides: checked, selection: undefined };
   const fail = (error: unknown): never => { throw conflict(describeError(error).message, undefined, "TAKEOFF_LAB_CHATGPT"); };
   const credential = await getLocalChatGptCredential(owner).catch(fail);
   if (!credential) throw conflict("Connectez votre compte ChatGPT dans Mon profil.", undefined, "TAKEOFF_LAB_CHATGPT");
@@ -202,7 +213,7 @@ async function preflightChatGpt(owner: ChatGptOwner, configs: readonly Extract<L
     const override = await assertLocalChatGptOverride(owner, credential, { model: config.model, reasoningEffort: config.reasoningEffort }).catch(fail);
     checked.set(overrideKey(config.model, config.reasoningEffort), override);
   }
-  return checked;
+  return { overrides: checked, selection: { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null } };
 }
 
 async function preflightDecisions(paths: LabPaths, request: LabRunRequest) {
@@ -254,12 +265,12 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
   if (decisions && document.summary.pages > 1 && !crop) {
     throw badRequest("Decisions lit une seule page : cochez « Seulement la page » ou tracez une zone.");
   }
-  const overrides = await preflightChatGpt(access.owner, chatgpt);
+  const chatGptPreflight = await preflightChatGpt(access.owner, chatgpt);
   if (decisions) await preflightDecisions(paths, request);
   if (running) throw conflict("Un essai est déjà en cours : attendez sa fin.", undefined, "TAKEOFF_LAB_BUSY");
   running = true;
   try {
-    return await runEssai(paths, access, request, task, document, crop, overrides, clock);
+    return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, clock);
   } finally {
     running = false;
   }
@@ -267,7 +278,7 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
 
 async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunRequest, task: LabTask,
   document: Awaited<ReturnType<typeof readLabDocument>>, crop: LabRunRequest["crop"],
-  overrides: ReadonlyMap<string, Readonly<LocalChatGptOverride>>, clock: () => number): Promise<LabRun> {
+  { overrides, selection }: LabChatGptPreflight, clock: () => number): Promise<LabRun> {
   const now = new Date();
   const runId = newRunId(now);
   const pdf = crop ? await cropLabPdf(document.bytes, crop) : document.bytes;
@@ -327,7 +338,7 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
         const answer: LocalChatGptRawResult<TakeoffExchange> = await callLocalChatGptStructured(access.owner, {
           prompt: request.prompt, schema: TakeoffExchangeSchema, files, timeoutMs: TAKEOFF_C_TIMEOUT_MS_DEFAULT,
           context: { level: "C", promptVersion: task.promptBase ?? undefined },
-        }, undefined, override, { returnRawOnSchemaError: true });
+        }, selection, override, { returnRawOnSchemaError: true });
         const result = { ...base, model: answer.model, reasoning_effort: answer.reasoningEffort, latency_ms: Math.round(clock() - startedAt),
           usage: usageOf(answer.tokenUsage), raw: answer.rawText };
         if (answer.schemaError) {
@@ -341,7 +352,7 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
       } else {
         const answer = await callLocalChatGptStructured(access.owner, {
           prompt: chatGptChoicePrompt(task, request.prompt), schema: chatGptChoiceSchema(task), files, timeoutMs: 120_000,
-        }, undefined, override, { returnRawOnSchemaError: true });
+        }, selection, override, { returnRawOnSchemaError: true });
         const result = { ...base, model: answer.model, reasoning_effort: answer.reasoningEffort, latency_ms: Math.round(clock() - startedAt),
           usage: usageOf(answer.tokenUsage), raw: answer.rawText };
         const name = task.question!.name;
