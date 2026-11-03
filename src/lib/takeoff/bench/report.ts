@@ -6,6 +6,7 @@ import {
 } from "@/lib/takeoff/benchmark";
 import { DIAMETER_TABLE_VERSION } from "@/lib/takeoff/bench/diameters";
 import { ITEM_KEY_READER_VERSION, scoredUnit, type ScoredUnit } from "@/lib/takeoff/bench/item-keys";
+import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import {
   BENCH_CHUNKING,
   LOCAL_CHATGPT_TIMEOUT_CAP_MS,
@@ -28,6 +29,7 @@ import {
   type ScoreScope,
 } from "@/lib/takeoff/bench/score";
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
+import { VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE } from "@/lib/takeoff/vectors/extraction";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 
 // Report of a takeoff bench run (TI-660): report.json keeps every call, item and
@@ -49,6 +51,8 @@ import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 // fictional fixture's.
 
 export const INDICATIVE_NOTE = "indicatif, seuils de la fixture fictive";
+/** A page of the vector pipeline is killed at 15 s: a timeout counts at least that long. */
+export const VECTOR_TIMEOUT_FLOOR_MS = VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE;
 
 export const PRODUCTION_GAPS = [
   "Sans préparation du métré (cadrage, calibration).",
@@ -75,6 +79,10 @@ export type BenchReportMetadata = {
     skipped: Array<{ id: string; reason: string }>;
   };
   profile: { model: string | null; reasoning_effort: ChatGptReasoningEffort | null; unchanged: boolean | null };
+  /** Host and load before and after the run (AGENTS.md: performance figures carry the host load). */
+  host?: { platform: string; release: string; cpus: number; loadavg_before: number[]; loadavg_after: number[] };
+  /** Pages read when the extraction did not read every page (TI-663 « après »). */
+  page_selection?: BenchPageSelection;
 };
 
 export type LatencySummary = { n: number; p50_ms: number | null; p95_ms: number | null };
@@ -148,8 +156,20 @@ export type NoiseReport = {
   }>;
 };
 
+/** The reading a bench run scores: the level C ChatGPT reading (TI-660) or the vector reading (TI-662). */
+export type BenchPipeline = "chatgpt" | "vector";
+
+export const VECTOR_PRODUCTION_GAPS = [
+  "Lecture vectorielle seule, sans appel de modèle : classes par mots-clés (calques, légende) et correspondances de truth/groups.",
+  "Sans préparation du métré : l’échelle vient du cartouche, vérifiée par une cote, ou de la calibration de truth/groups.",
+  "Pages raster : lecture niveau C de la baseline quand --baseline est donné, sinon aucun item.",
+  "Un document à la fois, sans persistance.",
+] as const;
+
 export type BenchReport = {
   schema_version: 1;
+  /** Absent in the reports of TI-660: chatgpt. */
+  pipeline?: BenchPipeline;
   status: BenchRunResult["status"];
   stop: BenchStop | null;
   calls_planned: number;
@@ -198,7 +218,7 @@ const SUMMED_COUNTS = [
   "keys_out_of_score", "false_positive_groups", "false_positive_items", "not_reviewed",
 ] as const;
 
-function summarizeLot(documents: readonly DocumentRun[], scopes: readonly ScopeScore[]): LotSummary {
+function summarizeLot(documents: readonly DocumentRun[], scopes: readonly ScopeScore[], floorMs: number): LotSummary {
   const calls = documents.flatMap((document) => document.calls.map((entry) => ({ document: document.id, call: entry })));
   const statuses = Object.fromEntries(STATUSES.map((status) => [status, 0])) as Record<CallStatus, number>;
   const tokens: TokenUsage = { input: 0, output: 0, reasoning: 0, total: 0 };
@@ -217,7 +237,7 @@ function summarizeLot(documents: readonly DocumentRun[], scopes: readonly ScopeS
       perPage.push(call.duration_ms / call.pages);
       completed.push(call.duration_ms / call.pages);
     } else if (call.status === "timeout") {
-      perPage.push(Math.max(call.duration_ms, LOCAL_CHATGPT_TIMEOUT_CAP_MS) / call.pages);
+      perPage.push(Math.max(call.duration_ms, floorMs) / call.pages);
       timeouts.push({
         document, start_page: call.start_page, end_page: call.end_page, pages: call.pages, bytes: call.bytes,
         model: call.model, reasoning_effort: call.reasoning_effort, duration_ms: call.duration_ms,
@@ -246,7 +266,7 @@ function summarizeLot(documents: readonly DocumentRun[], scopes: readonly ScopeS
     pages: calls.reduce((total, { call }) => total + call.pages, 0),
     statuses,
     tokens,
-    latency_per_page: { ...latency(perPage), timeouts_counted_at_ms: LOCAL_CHATGPT_TIMEOUT_CAP_MS },
+    latency_per_page: { ...latency(perPage), timeouts_counted_at_ms: floorMs },
     completed_latency_per_page: latency(completed),
     timeouts,
     duplicate_items: documents.reduce((total, document) => total + document.duplicate_items, 0),
@@ -254,14 +274,14 @@ function summarizeLot(documents: readonly DocumentRun[], scopes: readonly ScopeS
   };
 }
 
-function summarizeGroup(documents: readonly DocumentRun[], scopes: readonly ScopeScore[]): GroupSummary {
+function summarizeGroup(documents: readonly DocumentRun[], scopes: readonly ScopeScore[], floorMs: number): GroupSummary {
   // A lot is reported once one of its documents ran: a truth whose plans did not run adds no row of zeros.
   const lots = [...new Set([...documents.map((document) => document.lot),
     ...scopes.filter((scope) => scope.status === "scored").map((scope) => scope.lot)])].sort();
   return {
     lots: Object.fromEntries(lots.map((lot) => [lot,
-      summarizeLot(documents.filter((document) => document.lot === lot), scopes.filter((scope) => scope.lot === lot))])),
-    all: summarizeLot(documents, scopes),
+      summarizeLot(documents.filter((document) => document.lot === lot), scopes.filter((scope) => scope.lot === lot), floorMs)])),
+    all: summarizeLot(documents, scopes, floorMs),
   };
 }
 
@@ -333,31 +353,47 @@ export function buildBenchReport(input: {
   run: BenchRunResult;
   scopes: readonly ScoreScope[];
   noise: NoiseFile | null;
+  pipeline?: BenchPipeline;
+  /** Rules of the vector reading (versions and thresholds), recorded with a vector run. */
+  vectorRules?: Record<string, unknown>;
+  /** Documents a page triage fully excluded (`--pages-from`): scored as read with no item, their keys missed. */
+  excludedDocuments?: readonly string[];
 }): BenchReport {
   const promptVersion = getTakeoffPromptVersion("C");
+  const vector = input.pipeline === "vector";
+  const floorMs = vector ? VECTOR_TIMEOUT_FLOOR_MS : LOCAL_CHATGPT_TIMEOUT_CAP_MS;
+  const common = {
+    tolerances: BENCH_TOLERANCES,
+    item_key_reader_version: ITEM_KEY_READER_VERSION,
+    score_version: SCORE_VERSION,
+    diameter_table_version: DIAMETER_TABLE_VERSION,
+    attachment: "items whose key is read / items",
+    causes: "one per key or unpaired false-positive group; pairs are one to one: a group paired with a missed key (one network, "
+      + "DN or unit apart) counts on that key; an unreadable item that may be a missed key makes it indetermine:illisible and counts "
+      + "on it; other unreadable items: one group per reason (indetermine:illisible)",
+    indicative: INDICATIVE_NOTE,
+  };
   return {
     schema_version: 1,
+    ...(vector ? { pipeline: "vector" as const } : {}),
     status: input.run.status,
     stop: input.run.stop,
     calls_planned: input.run.calls_planned,
     calls_done: input.run.calls_done,
     metadata: input.metadata,
-    production_gaps: PRODUCTION_GAPS,
-    rules: {
+    production_gaps: vector ? VECTOR_PRODUCTION_GAPS : PRODUCTION_GAPS,
+    rules: vector ? {
+      vector: input.vectorRules ?? {},
+      ...common,
+      read_failures: "a scope whose document lost a page (timeout, too large, invalid output) is not scored",
+      latency: "nearest-rank p50 / p95 of page duration (extraction in its process, then reading); a timeout counts max(duration, 15 s)",
+    } : {
       prompt: { level: "C", version: promptVersion, schema_version: "v1", schema: "TakeoffExchangeSchema" },
       chunking: BENCH_CHUNKING,
       timeout_ms: { requested: TAKEOFF_C_TIMEOUT_MS_DEFAULT, cap: LOCAL_CHATGPT_TIMEOUT_CAP_MS },
-      tolerances: BENCH_TOLERANCES,
-      item_key_reader_version: ITEM_KEY_READER_VERSION,
-      score_version: SCORE_VERSION,
-      diameter_table_version: DIAMETER_TABLE_VERSION,
-      attachment: "items whose key is read / items",
-      causes: "one per key or unpaired false-positive group; pairs are one to one: a group paired with a missed key (one network, "
-        + "DN or unit apart) counts on that key; an unreadable item that may be a missed key makes it indetermine:illisible and counts "
-        + "on it; other unreadable items: one group per reason (indetermine:illisible)",
+      ...common,
       read_failures: "a scope whose document lost a chunk (timeout, rejection, provider or schema failure) is not scored",
       latency: "nearest-rank p50 / p95 of call duration / chunk pages; a timeout counts max(duration, 180 s)",
-      indicative: INDICATIVE_NOTE,
     },
     couples: input.run.couples.map((couple) => ({
       model: couple.model,
@@ -368,12 +404,13 @@ export function buildBenchReport(input: {
       passes: couple.passes.map((pass) => {
         const read = pass.documents.filter((document) => document.complete);
         const items = new Map(read.map((document) => [document.id, document.items]));
+        for (const id of input.excludedDocuments ?? []) if (!items.has(id)) items.set(id, []);
         const failures = new Map(read.map((document) => [document.id, document.calls.filter((entry) => entry.status !== "ok")
           .map((entry) => ({ start_page: entry.start_page, end_page: entry.end_page, status: entry.status }))]));
         const chunks = new Map(read.map((document) => [document.id, document.item_chunks]));
         const scores = scoreScopes(input.scopes, items, { failures, chunks });
         const byRole = (role: "truth" | "reserve") => summarizeGroup(
-          pass.documents.filter((document) => document.role === role), scores.filter((scope) => scope.role === role));
+          pass.documents.filter((document) => document.role === role), scores.filter((scope) => scope.role === role), floorMs);
         return {
           pass: pass.pass, complete: pass.complete, documents: pass.documents, scopes: scores,
           summary: { main: byRole("truth"), reserve: byRole("reserve") },
@@ -438,6 +475,7 @@ function lotRows(summary: GroupSummary) {
 }
 
 function groupSection(title: string, summary: GroupSummary) {
+  const floor = `${Math.round(summary.all.latency_per_page.timeouts_counted_at_ms / 1000)} s`;
   const rows = lotRows(summary);
   return [
     `### ${title} : score`,
@@ -454,7 +492,7 @@ function groupSection(title: string, summary: GroupSummary) {
       Object.entries(entry.score.causes).map(([cause, count]) => `${cause} ${count}`).join(", ") || "–"])),
     "",
     `### ${title} : mesures`,
-    table(["Lot", "Appels", "Pages", "Jetons entrée", "Jetons sortie", "Jetons raisonnement", "p50 / p95 par page (s, timeouts ≥ 180 s)",
+    table(["Lot", "Appels", "Pages", "Jetons entrée", "Jetons sortie", "Jetons raisonnement", `p50 / p95 par page (s, timeouts ≥ ${floor})`,
       "p50 / p95 terminés (s)", "Timeouts", "Échecs de schéma", "Refus", "Échecs fournisseur", "Doublons fusionnés"],
     rows.map(([lot, entry]) => [
       lotLabel(lot), entry.calls, entry.pages, entry.tokens.input, entry.tokens.output, entry.tokens.reasoning,
@@ -522,8 +560,9 @@ export function commandLine(metadata: Pick<BenchReportMetadata, "command" | "cwd
 
 export function renderBenchReportMarkdown(report: BenchReport) {
   const { metadata } = report;
+  const vector = report.pipeline === "vector";
   const lines = [
-    `# Banc métré niveau C (TI-660) : ${report.status === "complete" ? "run complet" : "run incomplet"}`,
+    `# ${vector ? "Banc métré, lecture vectorielle (TI-662)" : "Banc métré niveau C (TI-660)"} : ${report.status === "complete" ? "run complet" : "run incomplet"}`,
     "",
     `- Date : ${metadata.started_at} → ${metadata.finished_at}`,
     `- Commande : \`${commandLine(metadata)}\``,
@@ -532,10 +571,16 @@ export function renderBenchReportMarkdown(report: BenchReport) {
       + `(${metadata.dataset.documents.map((document) => `${document.id}${document.role === "reserve" ? " réserve" : ""}`).join(", ") || "aucun"})`,
     ...(metadata.dataset.skipped.length > 0
       ? [`- Ignorés : ${metadata.dataset.skipped.map((entry) => `${entry.id} (${entry.reason})`).join(", ")}`] : []),
-    `- Prompt : ${getTakeoffPromptVersion("C")} (niveau C, schéma v1) ; lecteur de clés v${ITEM_KEY_READER_VERSION}, score v${SCORE_VERSION}, `
-      + `table des diamètres v${DIAMETER_TABLE_VERSION}`,
-    `- Profil ChatGPT : ${metadata.profile.model ?? "aucun modèle"} / ${metadata.profile.reasoning_effort ?? "auto"}, inchangé après le run : `
-      + `${metadata.profile.unchanged === null ? "non vérifié" : metadata.profile.unchanged ? "oui" : "NON"}`,
+    vector
+      ? `- Lecture : ${report.couples[0]?.prompt_version ?? "vector"} (sans modèle) ; lecteur de clés v${ITEM_KEY_READER_VERSION}, score v${SCORE_VERSION}, `
+        + `table des diamètres v${DIAMETER_TABLE_VERSION}`
+      : `- Prompt : ${getTakeoffPromptVersion("C")} (niveau C, schéma v1) ; lecteur de clés v${ITEM_KEY_READER_VERSION}, score v${SCORE_VERSION}, `
+        + `table des diamètres v${DIAMETER_TABLE_VERSION}`,
+    ...(vector ? [] : [`- Profil ChatGPT : ${metadata.profile.model ?? "aucun modèle"} / ${metadata.profile.reasoning_effort ?? "auto"}, inchangé après le run : `
+      + `${metadata.profile.unchanged === null ? "non vérifié" : metadata.profile.unchanged ? "oui" : "NON"}`]),
+    ...(metadata.host ? [`- Machine : ${metadata.host.platform} ${metadata.host.release}, ${metadata.host.cpus} CPU, charge ${metadata.host.loadavg_before.map((value) => value.toFixed(2)).join(" ")} → ${metadata.host.loadavg_after.map((value) => value.toFixed(2)).join(" ")}`] : []),
+    ...(metadata.page_selection && metadata.page_selection.mode !== "all"
+      ? [`- Pages lues (${metadata.page_selection.mode}) : ${metadata.page_selection.documents.map((entry) => `${entry.id} ${entry.excluded ? "écarté" : entry.pages_read.join("+")}/${entry.pages_total}`).join(", ")}`] : []),
     `- Appels : ${report.calls_done} faits sur ${report.calls_planned} prévus`,
     "",
     ...stopLines(report.stop),

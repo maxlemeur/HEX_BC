@@ -1,13 +1,20 @@
 import { execFileSync } from "node:child_process";
-import { stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+
+import { z } from "zod";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { assertLocalChatGptOverride, callLocalChatGptStructured, type LocalChatGptOverride } from "@/lib/ai/chatgpt-local-inference";
 import { readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "@/lib/takeoff/bench/args";
-import { BenchDatasetError, loadBenchDataset } from "@/lib/takeoff/bench/dataset";
-import { buildBenchReport, renderBenchReportMarkdown, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
+import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
+import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
+import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner, type BenchArgs, type ChatGptBenchArgs } from "@/lib/takeoff/bench/args";
+import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
+import { remapBenchRunPages, selectBenchPages } from "@/lib/takeoff/bench/pages";
+import { buildBenchReport, renderBenchReportMarkdown, type BenchReport, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import {
   classifyCallError,
   describeError,
@@ -20,7 +27,29 @@ import {
   type RequestedCouple,
   type StopReason,
 } from "@/lib/takeoff/bench/run";
-import { buildScoreScopes } from "@/lib/takeoff/bench/score";
+import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
+import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
+import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
+import { compareVectorWithBaseline, renderVectorSections, vectorTimings } from "@/lib/takeoff/bench/vector-report";
+import { baselineRasterFallback, runVectorBench } from "@/lib/takeoff/bench/vector-run";
+import { getPdfPageCount } from "@/lib/takeoff/chunking";
+import {
+  runTakeoffPageTriage,
+  TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS,
+  TAKEOFF_PAGE_TRIAGE_CONCURRENCY,
+  TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION,
+  TAKEOFF_PAGE_TRIAGE_TEXT,
+  TAKEOFF_PAGE_TRIAGE_THUMBNAIL,
+  takeoffPageTriageRenderLimits,
+} from "@/lib/takeoff/page-triage-server";
+import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
+import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
+import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
+import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
+import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
+import { RASTER_COVERAGE, VECTOR_READING_VERSION } from "@/lib/takeoff/vectors/pipeline";
+import { COTE_RELATIVE_TOLERANCE, FORMAT_TOLERANCE, SCALE_RULE_VERSION } from "@/lib/takeoff/vectors/scale";
+import { SURFACE_RULE_VERSION } from "@/lib/takeoff/vectors/surfaces";
 
 // `npm run takeoff:bench -- --dataset <dir> --docs <ids|all> --models <...> --efforts <...> [--repeat <n>] --out <run_path>`
 // (TI-660): the production level C reading of the private bench plans through the
@@ -38,11 +67,90 @@ import { buildScoreScopes } from "@/lib/takeoff/bench/score";
 // Exit 0: complete run, whatever the score. 1: bench error (usage, dataset,
 // crash). 2: stopped by ChatGPT (quota, rate limit, authorisation, missing
 // account or model, changed profile), with a partial report.
+// `--mode triage` (TI-663): the product's Decisions page triage on every binary
+// PDF with a page truth, under --max-decisions-tokens, scored against
+// truth/pages (see bench/triage.ts). Inject only OPENAI_DECISIONS_API_KEY and
+// MERGEONE_OPENAI_DECISIONS=1 (never --env-file); the key is never recorded.
+// Exit 2 when Decisions is unavailable, at the first failed call, or when the
+// ceiling refuses a call, with a partial report. `--pages` / `--pages-from`
+// restrict an extraction to some pages (the « après » of the triage).
+// `--pipeline vector` (TI-662): the vector reading of the same plans, no model
+// and no owner; `--baseline <report.json>` re-scores a level C report with the
+// current scorer, compares both (report.json `comparison`), and stands for the
+// raster pages (pipeline step 5). Exit 0 or 1 only.
 
 const SCRIPT_ROOT = path.resolve(import.meta.dirname, "..");
 const REPORT_FILES = ["report.json", "report.md"] as const;
 /** The variables a run needs, recorded with its command so that it reruns as is. */
 const RUN_ENV = ["TAKEOFF_BENCH_CHATGPT_OWNER", "TSX_TSCONFIG_PATH"] as const;
+/** Recorded for a triage run; OPENAI_DECISIONS_API_KEY is deliberately absent. */
+const TRIAGE_RUN_ENV = [...RUN_ENV, "MERGEONE_OPENAI_DECISIONS"] as const;
+
+function host(before: number[]) {
+  return { platform: os.platform(), release: os.release(), cpus: os.cpus().length, loadavg_before: before, loadavg_after: os.loadavg() };
+}
+
+function recordedEnv(names: readonly string[]) {
+  return Object.fromEntries(names.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]])));
+}
+
+function datasetMetadata(dataset: BenchDataset) {
+  return {
+    sha256: dataset.sha256,
+    documents: dataset.selected.map(({ document }) => ({
+      id: document.id, lot: document.lot, role: document.role, sha256: document.sha256 as string,
+      bytes: document.file_size as number, pages: document.pages,
+    })),
+    skipped: dataset.skipped,
+  };
+}
+
+const triageReportSchema = z.object({
+  mode: z.literal("triage"),
+  retained: z.array(z.object({ id: z.string(), sha256: z.string().nullable(), page_count: z.number().int().positive(), retained_pages: z.array(z.number().int().positive()) })),
+});
+
+async function readTriageReport(file: string) {
+  const bytes = await readFile(file).catch(() => { throw new BenchRefusal(`--pages-from ${file} cannot be read.`); });
+  const parsed = triageReportSchema.safeParse(JSON.parse(bytes.toString("utf8")));
+  if (!parsed.success) throw new BenchRefusal(`--pages-from ${file} is not a triage report.`);
+  return { path: path.resolve(file), sha256: createHash("sha256").update(bytes).digest("hex"), retained: parsed.data.retained };
+}
+
+async function runTriage(args: ChatGptBenchArgs, owner: ChatGptOwner, startedAt: string, loadBefore: number[]) {
+  const dataset = await loadBenchDataset(args.dataset, args.docs, { mode: "triage" });
+  const budget = createDecisionsTokenBudget(args.maxDecisionsTokens as number, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS);
+  const capability = getOpenAiDecisionsCapability();
+  const inputs = dataset.selected.map(({ document, bytes }) => ({ document, bytes, truth: dataset.pageTruths.get(document.id)! }));
+  const result = capability.status === "available"
+    ? await runTakeoffBenchTriage({ documents: inputs, owner, budget, triage: runTakeoffPageTriage, log: (line) => console.error(line) })
+    : { status: "incomplete" as const, stop: { reason: "decisions_unavailable" as const, message: capability.message, document: null },
+      failures: [], documents: inputs.map((entry) => ({ ...entry, status: "not_run" as const, run: null })) };
+  const status = git(["status", "--porcelain"]);
+  const metadata: BenchTriageMetadata = {
+    started_at: startedAt, finished_at: new Date().toISOString(),
+    command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)], cwd: process.cwd(),
+    env: recordedEnv(TRIAGE_RUN_ENV), node: process.version, commit: git(["rev-parse", "HEAD"]),
+    dirty: status === null ? null : status.length > 0, dataset: datasetMetadata(dataset), host: host(loadBefore),
+    decisions: { status: capability.status, model: capability.model },
+  };
+  const report = buildBenchTriageReport({
+    metadata, status: result.status, stop: result.stop, failures: result.failures, documents: result.documents, budget: budget.snapshot(),
+    rules: {
+      prompt_version: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, model: capability.model, concurrency: TAKEOFF_PAGE_TRIAGE_CONCURRENCY,
+      thumbnail: TAKEOFF_PAGE_TRIAGE_THUMBNAIL, text: TAKEOFF_PAGE_TRIAGE_TEXT, render_limits_one_page: takeoffPageTriageRenderLimits(1),
+      call_estimate_tokens: TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS, retries: 0,
+    },
+  });
+  await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  await writeFile(path.join(args.out, "report.md"), renderBenchTriageReportMarkdown(report), { flag: "wx" });
+  console.log(`Takeoff bench triage ${result.status}: ${budget.snapshot().calls} Decisions calls, ${budget.snapshot().spent_tokens} tokens, reports in ${args.out}.`);
+  if (result.stop) {
+    console.error(`Stopped: ${result.stop.reason}${result.stop.document ? ` at ${result.stop.document}` : ""}: ${result.stop.message}`);
+  }
+  for (const failure of result.failures) console.error(`Not classified: ${failure.document}: ${failure.reason}: ${failure.message}`);
+  if (result.status === "incomplete") process.exitCode = 2;
+}
 
 /** This script, relative to the working directory when under it (main's checkout), absolute otherwise (a worktree). */
 function scriptPath() {
@@ -136,18 +244,114 @@ async function preflight(owner: ChatGptOwner, plans: PlannedDocument[], requeste
   return { profile, couples, overrides };
 }
 
+function vectorRules() {
+  return {
+    extraction: { version: VECTOR_EXTRACTION_VERSION, timeout_ms_per_page: VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, heap_mb: VECTOR_EXTRACTION_HEAP_MB,
+      limits: VECTOR_EXTRACTION_LIMITS },
+    reading: { version: VECTOR_READING_VERSION, raster_coverage: RASTER_COVERAGE },
+    scale: { version: SCALE_RULE_VERSION, cote_relative_tolerance: COTE_RELATIVE_TOLERANCE, format_tolerance: FORMAT_TOLERANCE },
+    legend: { version: LEGEND_RULE_VERSION, tint_tolerance: TINT_TOLERANCE },
+    measure: { version: MEASURE_RULE_VERSION, band_gap_pt: BAND_GAP_PT, band_max_pt: BAND_MAX_PT, run_gap_pt: RUN_GAP_PT, join_pt: JOIN_PT,
+      leader_reach_pt: LEADER_REACH_PT },
+    surfaces: { version: SURFACE_RULE_VERSION, ring_closure_pt: RING_CLOSURE_PT },
+    items: { version: VECTOR_ITEMS_VERSION },
+  };
+}
+
+type BaselineJson = Pick<BenchReport, "status" | "stop" | "calls_planned" | "calls_done" | "metadata" | "couples">;
+
+/** The level C report a vector run compares with: its run, re-scored by the current scorer on the current scopes. */
+async function readBaseline(file: string) {
+  const bytes = await readFile(file);
+  const json = JSON.parse(bytes.toString("utf8")) as BaselineJson & { pipeline?: string };
+  if (!Array.isArray(json.couples) || json.couples.length !== 1 || !Array.isArray(json.couples[0].passes)) {
+    throw new BenchRefusal(`--baseline ${file}: a takeoff:bench report with one couple is expected.`);
+  }
+  if (json.pipeline !== undefined && json.pipeline !== "chatgpt") {
+    throw new BenchRefusal(`--baseline ${file}: a level C (chatgpt) report is expected, not a ${json.pipeline} run.`);
+  }
+  const run: BenchRunResult = {
+    status: json.status, stop: json.stop, calls_planned: json.calls_planned, calls_done: json.calls_done,
+    couples: json.couples.map((couple) => ({
+      model: couple.model, reasoning_effort: couple.reasoning_effort, override: couple.override, prompt_version: couple.prompt_version,
+      passes: couple.passes.map((pass) => ({ pass: pass.pass, complete: pass.complete, documents: pass.documents })),
+    })),
+  };
+  return { file, sha256: createHash("sha256").update(bytes).digest("hex"), metadata: json.metadata, run };
+}
+
+async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
+  assertOwnCode();
+  await assertOutput(args.out);
+  const startedAt = new Date().toISOString();
+  // A load file without truth (TI-662 load criterion) runs unscored.
+  const dataset: BenchDataset = await loadBenchDataset(args.dataset, args.docs, { unscored: true });
+  const scopes: ScoreScope[] = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
+  const baseline = args.baseline ? await readBaseline(path.resolve(args.baseline)) : null;
+  if (baseline) {
+    // A baseline read another revision of a plan when its document's SHA-256 differs: its items would be scored against this truth.
+    const changed = dataset.selected.filter(({ document }) => baseline.run.couples[0].passes.some((pass) =>
+      pass.documents.some((entry) => entry.id === document.id && entry.sha256 !== document.sha256)));
+    if (changed.length > 0) {
+      throw new BenchRefusal(`--baseline read other revisions of ${changed.map(({ document }) => document.id).join(", ")} (SHA-256 differs from the manifest).`);
+    }
+  }
+  const rasterFallback = baseline ? baselineRasterFallback(baseline.run.couples[0]?.passes ?? [], baseline.metadata.page_selection) : undefined;
+  const documents = [];
+  for (const { document, bytes } of dataset.selected) {
+    const copy = new Uint8Array(bytes);
+    documents.push({ id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
+      bytes: copy, sha256: document.sha256 as string, pages: await getPdfPageCount(copy.slice().buffer) });
+  }
+  const result = await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, log: (line) => console.error(line) });
+  const status = git(["status", "--porcelain"]);
+  const metadata: BenchReportMetadata = {
+    started_at: startedAt, finished_at: new Date().toISOString(),
+    command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)], cwd: process.cwd(),
+    env: Object.fromEntries(RUN_ENV.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]]))),
+    node: process.version, commit: git(["rev-parse", "HEAD"]), dirty: status === null ? null : status.length > 0,
+    dataset: {
+      sha256: dataset.sha256,
+      documents: dataset.selected.map(({ document }) => ({
+        id: document.id, lot: document.lot, role: document.role, sha256: document.sha256 as string, bytes: document.file_size as number, pages: document.pages,
+      })),
+      skipped: dataset.skipped,
+    },
+    profile: { model: null, reasoning_effort: null, unchanged: null },
+  };
+  const report = buildBenchReport({ metadata, run: result.run, scopes, noise: dataset.noise, pipeline: "vector", vectorRules: vectorRules() });
+  const baselineReport = baseline ? buildBenchReport({ metadata: baseline.metadata, run: baseline.run, scopes, noise: dataset.noise }) : null;
+  const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport) : null;
+  const full = {
+    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes) }, comparison,
+    baseline: baseline ? { file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256 } : null,
+  };
+  await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
+  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison).join("\n")}\n`;
+  await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
+  console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
+}
+
 async function main() {
   if (process.env.CI !== undefined || process.env.VERCEL !== undefined) {
     throw new BenchRefusal("takeoff:bench refuses to start with CI or VERCEL set: it reads private plans through a local ChatGPT profile.");
   }
   const args = parseBenchArgs(process.argv.slice(2));
+  if (args.pipeline === "vector") {
+    await mainVector(args);
+    return;
+  }
   const owner = parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
   assertOwnCode();
   await assertOutput(args.out);
   const startedAt = new Date().toISOString();
+  const loadBefore = os.loadavg();
+  if (args.mode === "triage") return runTriage(args, owner, startedAt, loadBefore);
   const dataset = await loadBenchDataset(args.dataset, args.docs);
   const scopes = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
-  const plans = await planBenchDocuments(dataset.selected.map(({ document, bytes }) => ({
+  const triage = args.pagesFrom ? await readTriageReport(args.pagesFrom) : null;
+  const { documents: read, selection, pageMaps } = await selectBenchPages(dataset.selected, { pages: args.pages, triage });
+  const plans = await planBenchDocuments(read.map(({ document, bytes }) => ({
     id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
     bytes, sha256: document.sha256 as string,
   })));
@@ -173,25 +377,23 @@ async function main() {
     finished_at: new Date().toISOString(),
     command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)],
     cwd: process.cwd(),
-    env: Object.fromEntries(RUN_ENV.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]]))),
+    env: recordedEnv(RUN_ENV),
     node: process.version,
     commit: git(["rev-parse", "HEAD"]),
     dirty: status === null ? null : status.length > 0,
-    dataset: {
-      sha256: dataset.sha256,
-      documents: dataset.selected.map(({ document }) => ({
-        id: document.id, lot: document.lot, role: document.role, sha256: document.sha256 as string,
-        bytes: document.file_size as number, pages: document.pages,
-      })),
-      skipped: dataset.skipped,
-    },
+    dataset: datasetMetadata(dataset),
+    host: host(loadBefore),
+    page_selection: selection,
     profile: {
       model: checked.profile?.model ?? null,
       reasoning_effort: checked.profile?.reasoningEffort ?? null,
       unchanged: checked.profile ? await profileUnchanged(owner, checked.profile) : null,
     },
   };
-  const report = buildBenchReport({ metadata, run, scopes, noise: dataset.noise });
+  const report = buildBenchReport({
+    metadata, run: remapBenchRunPages(run, pageMaps), scopes, noise: dataset.noise,
+    excludedDocuments: selection.documents.filter((entry) => entry.excluded).map((entry) => entry.id),
+  });
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   await writeFile(path.join(args.out, "report.md"), renderBenchReportMarkdown(report), { flag: "wx" });
   console.log(`Takeoff bench ${run.status}: ${run.calls_done}/${run.calls_planned} calls, reports in ${args.out}.`);

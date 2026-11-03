@@ -6,6 +6,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
@@ -14,6 +15,7 @@ import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/prep
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
+import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { buildTakeoffUploadPath, deriveDeterministicJobId, prepareTakeoffUploadSource } from "@/lib/takeoff/job-creation-input";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
@@ -81,7 +83,7 @@ beforeAll(async () => {
     cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...serverWorkspace.environment,
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
       ARMY_CHATGPT_TRANSPORT_LOG: transportLog, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
-      ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
+      ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
     stdio: ["ignore", "pipe", "pipe"],
   });
   for (const stream of [localServer.stdout, localServer.stderr]) stream?.on("data", (chunk) => {
@@ -547,6 +549,106 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
   }
+});
+
+// Fictional two-page sheet (facade, then plan) and fictional Decisions answers on an owned backend; never the paid API.
+if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, corrected and kept after reload without a new call", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const transportStart = (await readTransport()).length;
+  const triageCalls = async () => (await readTransport()).slice(transportStart).filter((entry) => entry.provider === "decisions-fixture");
+  const account = { ...credentials.user("army"), username: fixtureEmail };
+  await app.open(`${localOrigin}/login`);
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-triage-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Tri des pages" }, army);
+  const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const facade = pdf.addPage([842, 595]);
+  facade.drawText("FACADE NORD - ELEVATION (fictive)", { x: 60, y: 540, size: 18, font });
+  for (let index = 0; index < 4; index++) facade.drawRectangle({ x: 80 + index * 180, y: 120, width: 150, height: 300, borderColor: rgb(0.2, 0.2, 0.2), borderWidth: 3 });
+  const plan = pdf.addPage([842, 595]);
+  plan.drawText("PLAN PLOMBERIE R+1 Zone 1 (fictif)", { x: 60, y: 540, size: 18, font });
+  plan.drawLine({ start: { x: 80, y: 300 }, end: { x: 760, y: 300 }, thickness: 4, color: rgb(0, 0, 0.8) });
+  plan.drawLine({ start: { x: 400, y: 120 }, end: { x: 400, y: 480 }, thickness: 4, color: rgb(0.8, 0, 0) });
+  const pdfPath = path.resolve(".e2e/army/critical/artifacts", `${prefix}-facade-et-plan.pdf`);
+  await mkdir(path.dirname(pdfPath), { recursive: true });
+  await writeFile(pdfPath, await pdf.save());
+  const name = path.basename(pdfPath);
+  await screen.getByRole("heading", planSet.name, { exact: true }).click();
+  const [uploaded] = await Promise.all([
+    browser.waitForResponse(`**/storage/v1/object/upload/sign/plan-files/${planSet.tenant_id}/${planSet.id}/**`),
+    browser.locator("input[type='file'][accept*='pdf']").first().setInputFiles(pdfPath),
+  ]);
+  expect(uploaded.status).toBe(200);
+  await expect(screen.getByRole("button", `Supprimer ${name}`, { exact: true })).toBeVisible();
+  const [planFile] = await readPlanFiles(browser, planSet.id);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [name], processing: { level: "C" } });
+  await dialog.getByRole("button", /Mes documents$/).click();
+  await saveTakeoffPreparation({ ...ui, army });
+  const { client } = await localClient();
+  const read = async () => {
+    const result = await client.from("takeoff_preparations").select("revision,draft,confirmed_snapshot").eq("project_id", estimate.projectId).single();
+    expect(result.error).toBeNull();
+    const draft = result.data!.draft as TakeoffPreparation;
+    return { row: result.data!, source: draft.sources.find((entry) => entry.document_id === planFile.id)! };
+  };
+  const triage = dialog.getByRole("region", "Tri des pages", { exact: true });
+  const propose = triage.getByRole("button", "Proposer le tri des pages", { exact: true });
+  await expect(propose).toBeEnabled();
+  expect(await triageCalls()).toEqual([]);
+  await propose.click();
+  const table = triage.getByRole("table", `Tri proposé pour ${name}`, { exact: true });
+  await expect(table.getByRole("row", /^Page 1\b.*Façade.*À écarter.*Proposée/)).toBeVisible();
+  await expect(table.getByRole("row", /^Page 2\b.*Plan de réseau.*R\+1.*Z1.*À garder.*Proposée/)).toBeVisible();
+  // One call per page, each with its rendered thumbnail; scope R+1 / Zone 1 adds the level and zone questions.
+  expect((await triageCalls()).sort((left, right) => Number(left.page) - Number(right.page))).toEqual([
+    { provider: "decisions-fixture", questions: 3, task: "page-triage", page: 1, images: 1 },
+    { provider: "decisions-fixture", questions: 3, task: "page-triage", page: 2, images: 1 },
+  ]);
+  const proposed = await read();
+  expect(proposed.source).toMatchObject({ active: true, pages: [], page_triage: { accepted: false, page_count: 2 } });
+  expect(proposed.source.page_triage?.pages.map((page) => [page.page, page.type, page.level, page.zone, page.proposal, page.status]))
+    .toEqual([[1, "facade", "R+1", "Z1", "exclude", "proposed"], [2, "reseau", "R+1", "Z1", "keep", "proposed"]]);
+  expect(proposed.row.confirmed_snapshot).toBeNull();
+  await triage.getByRole("button", `Accepter le tri de ${name}`, { exact: true }).click();
+  await saveTakeoffPreparation({ ...ui, army });
+  const accepted = await read();
+  expect(accepted.source).toMatchObject({ active: true, pages: [2], confirmed: false, page_triage: { accepted: true } });
+  expect(accepted.row.confirmed_snapshot).toBeNull();
+  await triage.getByLabel(`Retenir la page 1 de ${name}`, { exact: true }).check();
+  await saveTakeoffPreparation({ ...ui, army });
+  const corrected = await read();
+  expect(corrected.source.active).toBe(true);
+  expect(["[]", "[1,2]"].includes(JSON.stringify(corrected.source.pages))).toBe(true);
+  expect(corrected.source.page_triage?.pages.map((page) => page.status)).toEqual(["corrected", "proposed"]);
+  const callsBeforeReload = (await triageCalls()).length;
+  await browser.reload();
+  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  const reopened = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  await reopened.getByRole("button", /Mes documents$/).click();
+  const reloadedTable = reopened.getByRole("region", "Tri des pages", { exact: true }).getByRole("table", `Tri proposé pour ${name}`, { exact: true });
+  await expect(reloadedTable.getByRole("row", /^Page 1\b.*Corrigée/)).toBeVisible();
+  await expect(reopened.getByLabel(`Retenir la page 1 de ${name}`, { exact: true })).toBeChecked();
+  const reloaded = await read();
+  expect(reloaded.source.pages).toEqual(corrected.source.pages);
+  expect(reloaded.source.page_triage?.pages[0].status).toBe("corrected");
+  expect((await triageCalls()).length).toBe(callsBeforeReload);
+  expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+  await reloadedTable.scrollIntoView();
+  await recordEvidence(army, "page-triage", { estimate, planSetId: planSet.id, planFileId: planFile.id,
+    proposed: proposed.source.page_triage, acceptedPages: accepted.source.pages, correctedPages: corrected.source.pages,
+    decisionsCalls: callsBeforeReload, externalApiCalled: false, screenshot: await app.screenshot("page-triage") });
 });
 
 test("ChatGPT local: profile starts PKCE authorization and recovers from declined consent", {

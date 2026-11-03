@@ -8,6 +8,7 @@ import { TakeoffPreparationQuestionInput } from "@/components/takeoff/TakeoffPre
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/native-select";
+import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import { orderTakeoffPreparationQuestions } from "@/lib/takeoff/preparation-assistance";
 import { TAKEOFF_PREPARATION_OBJECTIVES, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 
@@ -66,7 +67,7 @@ function OptionalNumber({ label, value, onChange, min = 0 }: { label: string; va
 export function TakeoffPreparationFields({ draft, onChange, step, projectId, availableSources, localPreviewUrl, orderedQuestionIds = [] }: Props) {
   const id = useId();
   const changeSource = (documentId: string, patch: Partial<TakeoffPreparation["sources"][number]>) => {
-    onChange({ ...draft, sources: draft.sources.map((source) => source.document_id === documentId ? { ...source, ...patch, confirmed: false } : source) });
+    onChange({ ...draft, sources: draft.sources.map((source) => source.document_id === documentId ? reconcileTakeoffPageTriageStatuses({ ...source, ...patch, confirmed: false }) : source) });
   };
   const changeScope = (key: "lots" | "networks" | "levels" | "zones" | "inclusions" | "exclusions", values: string[]) => {
     onChange({ ...draft, scope: { ...draft.scope, [key]: values, confirmed: false } });
