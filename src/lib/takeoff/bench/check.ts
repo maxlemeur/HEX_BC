@@ -12,6 +12,7 @@ import {
   NoiseFileSchema,
   PageTruthFileSchema,
   TruthFileSchema,
+  type GroupTruthFile,
   type ManifestDocument,
   type PageTruthFile,
   type RowBasis,
@@ -21,6 +22,8 @@ import {
 } from "@/lib/takeoff/bench/schemas";
 import { pdfStructureError, xlsxStructureError } from "@/lib/takeoff/bench/structure";
 import { TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES } from "@/lib/takeoff/page-triage";
+import { isVectorClass } from "@/lib/takeoff/vectors/classify";
+import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 
 // Read-only check of the private takeoff bench dataset (TI-659): every binary
 // matches its Drive size, its SHA-256 and a structure check (structure.ts); every
@@ -618,8 +621,29 @@ function parseAnnotation(kind: "pages" | "groups", value: unknown) {
   }
   const parsed = GroupTruthFileSchema.safeParse(value);
   return parsed.success
-    ? { success: true as const, document: parsed.data.document, pages: parsed.data.groups.map((entry) => entry.page) }
+    ? { success: true as const, document: parsed.data.document, pages: parsed.data.groups.map((entry) => entry.page), groups: parsed.data }
     : parsed;
+}
+
+/** truth/groups: known classes, a (page, group) once, a calibration once per page within the document (TI-662). */
+function checkGroupEntries(check: DatasetCheck, file: string, groups: GroupTruthFile, pageCount: number | null) {
+  const seen = new Set<string>();
+  for (const [index, entry] of groups.groups.entries()) {
+    if (!isVectorClass(entry.class)) {
+      check.error(file, ["groups", index, "class"], `unknown class ${entry.class}: a network code or ${OTHER_CLASSES.join(", ")}`);
+    }
+    const identity = `${entry.page}\t${entry.group}`;
+    if (seen.has(identity)) check.error(file, ["groups", index], `group ${entry.group} of page ${entry.page} is listed twice`);
+    seen.add(identity);
+  }
+  const pages = new Set<number>();
+  for (const [index, calibration] of (groups.calibrations ?? []).entries()) {
+    if (pages.has(calibration.page)) check.error(file, ["calibrations", index, "page"], `page ${calibration.page} is calibrated twice`);
+    pages.add(calibration.page);
+    if (pageCount !== null && calibration.page > pageCount) {
+      check.error(file, ["calibrations", index, "page"], `page ${calibration.page} is beyond the ${pageCount} pages of ${groups.document}`);
+    }
+  }
 }
 
 const hasPdfPages = (document: ManifestDocument) => document.raw_status === "binary" && document.file_type === "pdf" && document.pages !== null;
@@ -657,6 +681,12 @@ async function checkAnnotationFile(check: DatasetCheck, file: string, kind: "pag
     return;
   }
   const document = check.reference(file, ["document"], parsed.document);
+  if ("groups" in parsed && parsed.groups) {
+    if (path.posix.basename(file, ".json") !== parsed.document) {
+      check.error(file, ["document"], "a group truth is named truth/groups/<document id>.json");
+    }
+    checkGroupEntries(check, file, parsed.groups, document?.pages ?? null);
+  }
   if (kind === "pages") {
     if (path.posix.basename(file, ".json") !== parsed.document) {
       check.error(file, ["document"], "a page truth is named truth/pages/<document id>.json");

@@ -8,11 +8,14 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 // page instead of the level C reading: one pass per page and prompt version,
 // always under `--max-decisions-tokens`. An extraction may read only some pages:
 // `--pages 1,3-5` for every document, or `--pages-from <triage report.json>` for
-// the pages each document keeps after the triage.
+// the pages each document keeps after the triage. `--pipeline vector` (TI-662)
+// is the vector reading of the same plans: no model, every page, compared with
+// a level C report given by `--baseline`.
 
 export const BENCH_USAGE = "Usage: npm run takeoff:bench -- --dataset <dir> --docs <ids|all> --models <model,...> "
   + `--efforts <auto|${CHATGPT_REASONING_EFFORTS.join("|")},...> [--repeat <n>] [--pages <list> | --pages-from <report.json>] --out <run_path>\n`
-  + "       npm run takeoff:bench -- --mode triage --dataset <dir> --docs <ids|all> --max-decisions-tokens <n> --out <run_path>";
+  + "       npm run takeoff:bench -- --mode triage --dataset <dir> --docs <ids|all> --max-decisions-tokens <n> --out <run_path>\n"
+  + "       npm run takeoff:bench -- --pipeline vector --dataset <dir> --docs <ids|all> [--baseline <report.json>] [--repeat <n>] --out <run_path>";
 
 export class BenchUsageError extends Error {
   constructor(message: string) {
@@ -23,23 +26,29 @@ export class BenchUsageError extends Error {
 
 export type BenchEffort = ChatGptReasoningEffort | null;
 
-export type BenchArgs = {
-  mode: "extract" | "triage";
-  dataset: string;
-  docs: "all" | string[];
-  models: string[];
-  efforts: BenchEffort[];
-  repeat: number;
-  out: string;
-  /** Decisions token ceiling of a triage run (required there, refused elsewhere). */
-  maxDecisionsTokens: number | null;
-  /** Original page numbers read in every document (extraction only). */
-  pages: number[] | null;
-  /** Triage report whose kept pages are read (extraction only). */
-  pagesFrom: string | null;
-};
+type CommonArgs = { dataset: string; docs: "all" | string[]; repeat: number; out: string };
 
-const FLAGS = ["mode", "dataset", "docs", "models", "efforts", "repeat", "out", "max-decisions-tokens", "pages", "pages-from"] as const;
+/**
+ * `--pipeline chatgpt` (default): the level C reading (TI-660), or with `--mode triage` the Decisions page triage
+ * (TI-663). `--pipeline vector`: the vector reading (TI-662), no provider.
+ */
+export type BenchArgs =
+  | (CommonArgs & {
+    pipeline: "chatgpt";
+    mode: "extract" | "triage";
+    models: string[];
+    efforts: BenchEffort[];
+    /** Decisions token ceiling of a triage run (required there, refused elsewhere). */
+    maxDecisionsTokens: number | null;
+    /** Original page numbers read in every document (extraction only). */
+    pages: number[] | null;
+    /** Triage report whose kept pages are read (extraction only). */
+    pagesFrom: string | null;
+  })
+  | (CommonArgs & { pipeline: "vector"; baseline: string | null });
+export type ChatGptBenchArgs = Extract<BenchArgs, { pipeline: "chatgpt" }>;
+
+const FLAGS = ["pipeline", "mode", "dataset", "docs", "models", "efforts", "baseline", "repeat", "out", "max-decisions-tokens", "pages", "pages-from"] as const;
 type Flag = (typeof FLAGS)[number];
 
 function list(flag: Flag, value: string) {
@@ -90,11 +99,25 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
     if (value === undefined) throw new BenchUsageError(`--${flag} is required.`);
     return value;
   };
-  const mode = values.get("mode") ?? "extract";
-  if (mode !== "extract" && mode !== "triage") throw new BenchUsageError("--mode is extract or triage.");
+  const repeatOf = () => {
+    const repeat = values.get("repeat") ?? "1";
+    if (!/^[1-9]\d*$/.test(repeat)) throw new BenchUsageError("--repeat is a positive integer.");
+    return Number(repeat);
+  };
+  const pipeline = values.get("pipeline") ?? "chatgpt";
+  if (pipeline !== "chatgpt" && pipeline !== "vector") throw new BenchUsageError(`Unknown pipeline ${pipeline} (chatgpt, vector).`);
   const docs = list("docs", required("docs"));
   if (docs.includes("all") && docs.length > 1) throw new BenchUsageError("--docs is all or a list of ids, not both.");
   const common = { dataset: required("dataset"), docs: docs[0] === "all" ? "all" as const : docs, out: required("out") };
+  if (pipeline === "vector") {
+    for (const flag of ["models", "efforts", "mode", "max-decisions-tokens", "pages", "pages-from"] as const) {
+      if (values.has(flag)) throw new BenchUsageError(`--${flag} is for the chatgpt pipeline: the vector pipeline calls no model and reads every page.`);
+    }
+    return { pipeline, ...common, repeat: repeatOf(), baseline: values.get("baseline") ?? null };
+  }
+  if (values.has("baseline")) throw new BenchUsageError("--baseline is for the vector pipeline.");
+  const mode = values.get("mode") ?? "extract";
+  if (mode !== "extract" && mode !== "triage") throw new BenchUsageError("--mode is extract or triage.");
   if (mode === "triage") {
     for (const flag of ["models", "efforts", "repeat", "pages", "pages-from"] as const) {
       if (values.has(flag)) throw new BenchUsageError(`--${flag} does not apply to a triage run (one Decisions pass per page and prompt version).`);
@@ -102,19 +125,18 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
     const ceiling = values.get("max-decisions-tokens");
     if (ceiling === undefined) throw new BenchUsageError("--max-decisions-tokens is required for a triage run.");
     if (!/^[1-9]\d{0,9}$/.test(ceiling)) throw new BenchUsageError("--max-decisions-tokens is a positive integer.");
-    return { mode, ...common, models: [], efforts: [], repeat: 1, maxDecisionsTokens: Number(ceiling), pages: null, pagesFrom: null };
+    return { pipeline, mode, ...common, models: [], efforts: [], repeat: 1, maxDecisionsTokens: Number(ceiling), pages: null, pagesFrom: null };
   }
   if (values.has("max-decisions-tokens")) throw new BenchUsageError("--max-decisions-tokens applies to a triage run only.");
   if (values.has("pages") && values.has("pages-from")) throw new BenchUsageError("--pages and --pages-from are exclusive.");
-  const repeat = values.get("repeat") ?? "1";
-  if (!/^[1-9]\d*$/.test(repeat)) throw new BenchUsageError("--repeat is a positive integer.");
   const pages = values.get("pages");
   return {
+    pipeline,
     mode,
     ...common,
     models: list("models", required("models")),
     efforts: list("efforts", required("efforts")).map(effort),
-    repeat: Number(repeat),
+    repeat: repeatOf(),
     maxDecisionsTokens: null,
     pages: pages === undefined ? null : parsePageList(pages),
     pagesFrom: values.get("pages-from") ?? null,

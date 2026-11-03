@@ -6,6 +6,10 @@
 // - a document whose pages are all excluded is still read (or read in full).
 // Found in review, written before its fix: pages of a subset are reported (and
 // scored against page_ranges) in subset numbers instead of the original ones.
+// Review of the fourth Codex round of PR #145 (written before the fix): a triage
+// report whose kept pages are out of order, repeated or beyond the document is
+// read as given, so a subset call, put back by its first and last page, claims
+// pages it never held (and the raster fallback of a vector run reads them).
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
@@ -55,6 +59,17 @@ describe("bench page selection", () => {
     ]);
     await expect(selectBenchPages([{ document: doc("e-plan-02", 1), bytes: await labelledPdf(1) }], { pages: null, triage })).rejects.toThrow(/e-plan-02 is not in the triage report/);
     await expect(selectBenchPages([{ document: doc("e-plan-01", 2, "c".repeat(64)), bytes: await labelledPdf(2) }], { pages: null, triage })).rejects.toThrow(/another version/);
+  });
+
+  it("refuses a triage report whose kept pages are out of order, repeated or beyond the document", async () => {
+    const selected = [{ document: doc("e-plan-01", 3), bytes: await labelledPdf(3) }];
+    const triageOf = (retained: number[]) => ({ path: "/fixture/triage/report.json", sha256: "b".repeat(64), retained: [
+      { id: "e-plan-01", sha256: "a".repeat(64), page_count: 3, retained_pages: retained },
+    ] });
+    for (const retained of [[3, 1], [1, 1], [4], [0]]) {
+      await expect(selectBenchPages(selected, { pages: null, triage: triageOf(retained) })).rejects.toThrow(/e-plan-01: the triage report/);
+    }
+    expect((await selectBenchPages(selected, { pages: null, triage: triageOf([1, 3]) })).selection.documents[0].pages_read).toEqual([1, 3]);
   });
 
   it("puts back the original page numbers of a subset in calls and items", () => {

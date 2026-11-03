@@ -398,8 +398,15 @@ function isRoomSurface(network: FieldRead<NetworkCode>, material: FieldRead<Mate
   return insulationField >= roomField;
 }
 
-/** Reads the key of an extracted item; `rooms` are the room labels of the truth it is scored against. */
-export function readItemKey(item: ItemText & { unit: string }, context: { rooms: readonly string[] }): ItemKeyReading {
+/**
+ * Reads the key of an extracted item; `rooms` are the room labels of the truth it is scored against.
+ * `resolveNetworks` may read an item naming several networks as one (the scorer's confounded networks,
+ * score v3): its other attributes (DN) are then checked as for any item.
+ */
+export function readItemKey(item: ItemText & { unit: string }, context: {
+  rooms: readonly string[];
+  resolveNetworks?: (among: readonly NetworkCode[], material: MaterialCode | null) => NetworkCode | null;
+}): ItemKeyReading {
   const unit = scoredUnit(item.unit);
   if (unit === null) return { status: "out_of_score", unit: item.unit };
   const network = readNetwork(item);
@@ -428,7 +435,11 @@ export function readItemKey(item: ItemText & { unit: string }, context: { rooms:
     return { status: "read", key: count };
   }
   const length: BenchItemKey = { ...base, material, dn };
-  if (network.found && "ambiguous" in network) return unreadable("network_ambiguous", length, network.among);
+  if (network.found && "ambiguous" in network) {
+    const resolved = context.resolveNetworks?.(network.among as NetworkCode[], material) ?? null;
+    if (resolved === null) return unreadable("network_ambiguous", length, network.among);
+    length.network = resolved;
+  }
   if (dnUnreadable) return unreadable(dnUnreadable, length);
   if (length.network === null) return unreadable("network_missing", length);
   return { status: "read", key: length };
