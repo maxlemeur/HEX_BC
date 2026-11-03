@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
+import { boundRuleResults, readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
 import type { PageAnchors } from "@/lib/takeoff/rules/registration";
 import type { TakeoffFrameTransform, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
@@ -19,8 +19,10 @@ import type { Database } from "@/types/database";
 // partners, never written. Lines without rule inputs (written by the worker,
 // metadata.rule_inputs) get no result: a version read before TI-664 is never
 // touched. write_takeoff_rule_results writes a line only as it was read (its
-// updated_at): a line edited meanwhile keeps its stale results, and the edit's
-// own computation writes it.
+// updated_at), and nothing when the version changed since this computation
+// read its stamp (takeoff_rule_version_stamp): a line edited meanwhile keeps
+// its stale results, and the edit's own computation writes them. Results are
+// bounded before they are written (boundRuleResults), so every read accepts them.
 
 type ServiceClient = SupabaseClient<Database>;
 
@@ -64,8 +66,19 @@ async function readGeometries(supabase: ServiceClient, tenantId: string, jobIds:
   }
 }
 
+/** JSON with object keys sorted: stored jsonb comes back with its keys in another order than the code builds them. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>).filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
 function sameJson(left: unknown, right: unknown) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return canonical(left) === canonical(right);
 }
 
 export type TakeoffRulesRecomputation = { lines: number; written: number; skipped: number };
@@ -81,6 +94,11 @@ export async function recomputeTakeoffRulesForVersion(input: {
   supabase?: ServiceClient;
 }): Promise<TakeoffRulesRecomputation> {
   const supabase = input.supabase ?? createServiceRoleClient();
+  // The version as this computation reads it: the writer writes nothing if it changed meanwhile.
+  const { data: stamp, error: stampError } = await supabase.rpc("takeoff_rule_version_stamp" as never, {
+    p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
+  } as never);
+  if (stampError || typeof stamp !== "string") failed("Impossible de lire l’état de la version pour les règles.", stampError);
   const { data: jobData, error: jobError } = await supabase.from("takeoff_jobs" as never)
     .select("id, status, created_at" as never)
     .eq("tenant_id" as never, input.tenantId as never).eq("estimate_version_id" as never, input.estimateVersionId as never)
@@ -142,7 +160,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
   for (const { item, inputs } of items) {
     if (inputs === null || status.get(item.job_id) !== "completed") continue;
-    const results = evaluation.results.get(item.id) ?? [];
+    const results = boundRuleResults(evaluation.results.get(item.id) ?? []);
     if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, results)) {
       writes.push({ id: item.id, results, expected_updated_at: item.updated_at });
     }
@@ -157,7 +175,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
     const { data, error } = await supabase.rpc("write_takeoff_rule_results" as never, {
       p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
       p_items: writes.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK),
-      p_transforms: transforms.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK),
+      p_transforms: transforms.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK), p_stamp: stamp,
     } as never);
     if (error) failed("Impossible d’enregistrer les résultats des règles.", error);
     written += Array.isArray(data) ? (data as unknown[]).length : 0;

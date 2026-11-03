@@ -14,7 +14,9 @@
 --   la quantité change sans nouvelle attestation ;
 -- - écrire les résultats ne déplace pas updated_at ;
 -- - l'écrivain est réservé au service, ignore une ligne modifiée depuis sa lecture
---   et une ligne d'un job appliqué ;
+--   et une ligne d'un job appliqué, et n'écrit rien quand la version a changé
+--   depuis la lecture du calcul (revue) ;
+-- - un client ne fixe jamais updated_at lui-même (revue) ;
 -- - un override admin avec une ligne bloquée par une ancienne raison et une autre par
 --   une nouvelle seulement réussit et consomme son audit ; un audit qui n'en nomme
 --   qu'une échoue.
@@ -260,12 +262,21 @@ select is(pg_temp.rules_exec('update-10', 'update public.takeoff_items set quant
 select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'), true,
   'a client edit makes the evaluated results stale');
 select is(pg_temp.rules_apply('guard-5', '9e000000-0000-4000-8000-000000000304'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'stale results block the application');
+-- updated_at is the writer's token: a client never sets it itself.
+select is(pg_temp.rules_exec('update-11', 'update public.takeoff_items set updated_at = ''2001-01-01T00:00:00Z'' where id = ''9e000000-0000-4000-8000-000000000408'''), 'ok', 'a client update of updated_at alone');
+select isnt((select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000408'), '2001-01-01T00:00:00Z'::timestamptz,
+  'a client never sets updated_at itself: the trigger writes now()');
 
 reset role;
 
 -- The server's writer (service role) -------------------------------------------------------------
 
+-- A line last edited long ago (triggers off as the owner): a rule write must keep that time, not take now().
+set local session_replication_role = replica;
+update public.takeoff_items set updated_at = '2001-02-03T04:05:06Z' where id = '9e000000-0000-4000-8000-000000000407';
+set local session_replication_role = origin;
 select set_config('test.updated_407', (select updated_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'), true);
+select set_config('test.stamp_106', public.takeoff_rule_version_stamp(current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000000106'), true);
 select set_config('test.updated_404', (select updated_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'), true);
 set local role service_role;
 select is(
@@ -274,8 +285,14 @@ select is(
       jsonb_build_object('id', '9e000000-0000-4000-8000-000000000407', 'results', current_setting('test.duplicate')::jsonb,
         'expected_updated_at', current_setting('test.updated_407')),
       jsonb_build_object('id', '9e000000-0000-4000-8000-000000000408', 'results', '[]'::jsonb,
-        'expected_updated_at', '2001-01-01T00:00:00Z')))),
+        'expected_updated_at', '2001-01-01T00:00:00Z')), '[]'::jsonb, current_setting('test.stamp_106'))),
   1, 'the writer writes a line as it read it, never one changed since');
+select is(
+  (select count(*)::integer from public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
+    '9e000000-0000-4000-8000-000000000104', jsonb_build_array(jsonb_build_object('id', '9e000000-0000-4000-8000-000000000404',
+      'results', '[]'::jsonb, 'expected_updated_at', (select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'))),
+    '[]'::jsonb, 'a stamp read before an edit')),
+  0, 'the writer writes nothing when the version changed since the computation read it');
 select is(
   (select count(*)::integer from public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
     '9e000000-0000-4000-8000-000000000101', jsonb_build_array(jsonb_build_object('id', '9e000000-0000-4000-8000-000000000401',
@@ -290,8 +307,8 @@ reset role;
 
 select is((select rule_results from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
   current_setting('test.duplicate')::jsonb, 'the written results are stored');
-select is((select updated_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
-  current_setting('test.updated_407'), 'writing rule results does not move updated_at');
+select is((select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
+  '2001-02-03T04:05:06Z'::timestamptz, 'writing rule results does not move updated_at');
 select ok((select rules_evaluated_at is not null and not rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'),
   'a computation clears the stale state');
 

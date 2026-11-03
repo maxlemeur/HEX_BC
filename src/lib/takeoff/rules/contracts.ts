@@ -23,22 +23,52 @@ export const TakeoffRuleInputsSchema: z.ZodType<TakeoffRuleInputs> = z.object({
   printed_m2: finite.nullable().optional(),
 });
 
+const LIMITS = { code: 64, reason: 1000, partners: 50, zone: 16, designation: 500 } as const;
+
 const PartnerSchema = z.object({
-  item_id: z.string(), job_id: z.string(), zone: z.string().max(16).nullable(), designation: z.string().max(500),
+  item_id: z.string(), job_id: z.string(), zone: z.string().max(LIMITS.zone).nullable(), designation: z.string().max(LIMITS.designation),
   overlap_m: finite, resolved: z.boolean(),
 });
 
 export const TakeoffRuleResultSchema: z.ZodType<TakeoffRuleResult> = z.object({
   rule: z.enum(TAKEOFF_RULE_IDS),
   status: z.enum(["pass", "fail"]),
-  code: z.string().max(64),
+  code: z.string().max(LIMITS.code),
   version: z.number().int().positive(),
   acceptable: z.boolean(),
-  reason: z.string().max(1000),
-  details: z.object({ partners: z.array(PartnerSchema).max(50).optional() }).passthrough().optional(),
+  reason: z.string().max(LIMITS.reason),
+  details: z.object({ partners: z.array(PartnerSchema).max(LIMITS.partners).optional() }).passthrough().optional(),
 }) as z.ZodType<TakeoffRuleResult>;
 
 export const TakeoffRuleResultsSchema = z.array(TakeoffRuleResultSchema).max(16);
+
+function clip(text: string, max: number) {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/**
+ * Results as every read accepts them: a reason or a partner's designation can quote user text of any length (a
+ * designation of 500 characters, several partners), clipped here; the list of partners is cut at its bound. Throws
+ * when results still do not parse, so that nothing unreadable is ever written (the line then stays stale and blocks
+ * on both sides of the guard).
+ */
+export function boundRuleResults(results: readonly TakeoffRuleResult[]): TakeoffRuleResult[] {
+  const bounded = results.map((entry) => {
+    const partners = entry.details?.partners;
+    return {
+      ...entry,
+      reason: clip(entry.reason, LIMITS.reason),
+      ...(entry.details ? {
+        details: {
+          ...entry.details,
+          ...(partners ? { partners: partners.slice(0, LIMITS.partners).map((partner) => ({ ...partner,
+            designation: clip(partner.designation, LIMITS.designation), zone: partner.zone === null ? null : clip(partner.zone, LIMITS.zone) })) } : {}),
+        },
+      } : {}),
+    };
+  });
+  return TakeoffRuleResultsSchema.parse(bounded);
+}
 
 /** Rule inputs of a line's metadata, or null when it has none (or they no longer parse). */
 export function readRuleInputs(metadata: unknown): TakeoffRuleInputs | null {

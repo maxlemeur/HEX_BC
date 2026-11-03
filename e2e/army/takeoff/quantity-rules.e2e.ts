@@ -144,6 +144,10 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
       const applied = await applyWithLease(ui.browser, ids.versionId, jobs[zone], apply);
       expect([zone, applied.status, (applied.body as Envelope<{ job: { status: string } }>).data?.job?.status]).toEqual([zone, 200, "applied"]);
     }
+    // Z2 applied after Z1: its last computation, just before its application, read Z1 as an applied (frozen) partner.
+    const z2Applied = (await readItems(ui, jobs.Z2)).find((item) => item.id === lines.Z2.ef.id);
+    expect(z2Applied?.rule_results?.find((entry) => entry.rule === "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_RESOLVED",
+      details: { partners: [expect.objectContaining({ item_id: lines.Z1.ef.id, zone: "Z1" })] } });
     const estimate = await readEstimate(ui.browser, ids.versionId);
     const runs = estimate.items.filter((item) => item.title === ZONE_PLANS.designation).map((item) => Number(item.quantity)).sort();
     expect(runs).toEqual([3, 4]);

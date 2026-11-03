@@ -73,15 +73,17 @@ revoke all on function public.takeoff_item_rule_blocked(jsonb, boolean, boolean)
 grant execute on function public.takeoff_item_rule_blocked(jsonb, boolean, boolean) to service_role;
 
 -- Rule writes never move updated_at: only a change of another column does
--- (the review's optimistic concurrency token stays the user's last edit).
+-- (the review's optimistic concurrency token stays the user's last edit). A
+-- client that writes updated_at itself still gets now(): updated_at stays in
+-- the comparison.
 drop trigger if exists set_takeoff_items_updated_at on public.takeoff_items;
 create trigger set_takeoff_items_updated_at
   before update on public.takeoff_items
   for each row
   when (
-    (to_jsonb(old) - array['rule_results', 'rules_evaluated_at', 'rules_stale', 'updated_at'])
+    (to_jsonb(old) - array['rule_results', 'rules_evaluated_at', 'rules_stale'])
       is distinct from
-    (to_jsonb(new) - array['rule_results', 'rules_evaluated_at', 'rules_stale', 'updated_at'])
+    (to_jsonb(new) - array['rule_results', 'rules_evaluated_at', 'rules_stale'])
   )
   execute procedure public.set_updated_at();
 
@@ -416,23 +418,64 @@ $$;
 revoke all on function public.enforce_takeoff_apply_security()
   from public, anon, authenticated, service_role;
 
--- The server's write of a version's rule results, in one statement, service
--- role only. A line changed since the server read it (updated_at moved) keeps
--- its stale results: the computation that change triggers writes it. Lines of a
--- job no longer completed (applied, cancelled) are never written: an applied
--- line is frozen. Page transforms (registration to the level's frame) go to the
--- geometry the vector reading wrote (TI-662 `transform`).
+-- What the rules of a version read: its completed and applied jobs and their
+-- lines, each with the time of its last edit. A recomputation reads this stamp
+-- before reading the version and writes only if it is unchanged: an older
+-- computation never overwrites a newer one (TI-664 review).
+create or replace function public.takeoff_rule_version_stamp(p_tenant_id uuid, p_estimate_version_id uuid)
+returns text
+language sql
+stable
+security invoker
+set search_path = pg_catalog
+as $$
+  select pg_catalog.md5(
+    coalesce((
+      select pg_catalog.string_agg(job.id::text || ':' || job.status::text, ',' order by job.id)
+      from public.takeoff_jobs as job
+      where job.tenant_id = p_tenant_id
+        and job.estimate_version_id = p_estimate_version_id
+        and job.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+    ), '')
+    || '|' ||
+    coalesce((
+      select pg_catalog.string_agg(item.id::text || ':' || item.updated_at::text, ',' order by item.id)
+      from public.takeoff_items as item
+      join public.takeoff_jobs as job on job.id = item.job_id
+      where item.tenant_id = p_tenant_id
+        and job.tenant_id = p_tenant_id
+        and job.estimate_version_id = p_estimate_version_id
+        and job.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+    ), '')
+  );
+$$;
+
+revoke all on function public.takeoff_rule_version_stamp(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_rule_version_stamp(uuid, uuid) to service_role;
+
+-- The server's write of a version's rule results, service role only. A line
+-- changed since the server read it (updated_at moved) keeps its stale results:
+-- the computation that change triggers writes it. Nothing is written when the
+-- version changed since the computation read it (p_stamp, under a lock per
+-- version). Lines of a job no longer completed (applied, cancelled) are never
+-- written (an applied line is frozen), nor those of a job an application holds
+-- (its row locked): left out, never waited for. Page transforms (registration to
+-- the level's frame) go to the geometry the vector reading wrote (TI-662
+-- `transform`). Returns the lines written.
 create or replace function public.write_takeoff_rule_results(
   p_tenant_id uuid,
   p_estimate_version_id uuid,
   p_items jsonb,
-  p_transforms jsonb default '[]'::jsonb
+  p_transforms jsonb default '[]'::jsonb,
+  p_stamp text default null
 )
 returns table (item_id uuid)
 language plpgsql
 security invoker
 set search_path = pg_catalog
 as $$
+declare
+  writable uuid[];
 begin
   if pg_catalog.jsonb_typeof(p_items) is distinct from 'array'
     or pg_catalog.jsonb_typeof(coalesce(p_transforms, '[]'::jsonb)) is distinct from 'array'
@@ -440,17 +483,34 @@ begin
     raise exception 'TAKEOFF_RULE_RESULTS_INVALID' using errcode = '22023';
   end if;
 
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('takeoff-rules:' || p_estimate_version_id::text, 0)
+  );
+  if p_stamp is not null and p_stamp is distinct from public.takeoff_rule_version_stamp(p_tenant_id, p_estimate_version_id) then
+    return;
+  end if;
+
+  -- Completed jobs no application holds; holding them keeps an application from starting meanwhile.
+  select coalesce(pg_catalog.array_agg(job.id), '{}'::uuid[])
+    into writable
+  from (
+    select candidate.id
+    from public.takeoff_jobs as candidate
+    where candidate.tenant_id = p_tenant_id
+      and candidate.estimate_version_id = p_estimate_version_id
+      and candidate.status = 'completed'::public.takeoff_job_status
+    for share skip locked
+  ) as job;
+
   update public.takeoff_item_geometries as stored
-  set geometry = pg_catalog.jsonb_set(stored.geometry, '{transform}', entry.transform)
+  set geometry = pg_catalog.jsonb_set(stored.geometry, '{transform}', coalesce(entry.transform, 'null'::jsonb))
   from pg_catalog.jsonb_to_recordset(coalesce(p_transforms, '[]'::jsonb)) as entry(item_id uuid, transform jsonb)
-  join public.takeoff_jobs as job
-    on job.tenant_id = p_tenant_id and job.estimate_version_id = p_estimate_version_id
   where stored.takeoff_item_id = entry.item_id
     and stored.tenant_id = p_tenant_id
-    and stored.job_id = job.id
-    and job.status = 'completed'::public.takeoff_job_status
+    and stored.job_id = any(writable)
     and (
-      entry.transform = 'null'::jsonb
+      entry.transform is null
+      or entry.transform = 'null'::jsonb
       or (pg_catalog.jsonb_typeof(entry.transform) = 'array' and pg_catalog.jsonb_array_length(entry.transform) = 6)
     );
 
@@ -460,16 +520,13 @@ begin
     rules_evaluated_at = pg_catalog.statement_timestamp(),
     rules_stale = false
   from pg_catalog.jsonb_to_recordset(p_items) as entry(id uuid, results jsonb, expected_updated_at timestamptz)
-  join public.takeoff_jobs as job
-    on job.tenant_id = p_tenant_id and job.estimate_version_id = p_estimate_version_id
   where item.id = entry.id
     and item.tenant_id = p_tenant_id
-    and item.job_id = job.id
-    and job.status = 'completed'::public.takeoff_job_status
+    and item.job_id = any(writable)
     and item.updated_at = entry.expected_updated_at
   returning item.id;
 end;
 $$;
 
-revoke all on function public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb) from public, anon, authenticated;
-grant execute on function public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb) to service_role;
+revoke all on function public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb, text) from public, anon, authenticated;
+grant execute on function public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb, text) to service_role;

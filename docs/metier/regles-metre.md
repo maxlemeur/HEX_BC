@@ -222,7 +222,11 @@ Ces colonnes sont hors de la liste blanche de `enforce_authenticated_takeoff_ite
 L'écrivain `write_takeoff_rule_results`, réservé au service :
 
 - n'écrit jamais une ligne modifiée depuis sa lecture, ni une ligne d'un job appliqué ;
-- ne déplace jamais `updated_at`.
+- n'écrit rien si la version a changé depuis que le calcul l'a lue (`takeoff_rule_version_stamp`, sous un verrou par version) : un calcul plus ancien n'écrase jamais un plus récent ;
+- laisse de côté, sans l'attendre, un job qu'une application tient ;
+- ne déplace jamais `updated_at`, qu'un client ne fixe jamais lui-même.
+
+Les résultats sont bornés avant écriture (raison de 1 000 caractères, 50 partenaires) : toute lecture les accepte.
 
 **Niveaux** : les raisons des règles s'appliquent à toute ligne qui porte des entrées de
 règles, en B comme en C ; les raisons existantes (confiance faible, preuve, page)
