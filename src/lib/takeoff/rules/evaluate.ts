@@ -1,6 +1,6 @@
 import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
 import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
-import { DIAMETER_FAMILIES, findDiameterEntries } from "@/lib/takeoff/bench/diameters";
+import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/bench/diameters";
 import { NETWORK_DIAMETER_TABLE_VERSION, WRAPPING_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
 import { REGISTRATION_VERSION, composeTranslations, registerPages, translation, type PageAnchors, type Registration } from "@/lib/takeoff/rules/registration";
 import {
@@ -269,9 +269,19 @@ function sizesOf(inputs: TakeoffRuleInputs): Set<string> {
   return new Set(entries.map((entry) => `${entry.family}:${entry.od_mm}`));
 }
 
-/** Two lines that may be one run: same kind and network, and one size (an entry in common, or the same printed DN). */
+/**
+ * Two lines that may be one run: same kind and network, and one size: an entry in common, or the same printed DN.
+ * A line whose material has no series (an insulation, no material) is compared by the size it prints, never through
+ * the series of every material, where « DN 15 » and « DN 20 » meet.
+ */
 function sameRun(left: ZoneLine, right: ZoneLine, sizes: ReadonlyMap<string, Set<string>>) {
   if (left.inputs.kind !== right.inputs.kind || left.inputs.network !== right.inputs.network) return false;
+  if (!hasDiameterSeries(left.inputs.material) || !hasDiameterSeries(right.inputs.material)) {
+    const [l, r] = [left.inputs, right.inputs];
+    if (l.dn === null || r.dn === null) return l.dn === r.dn;
+    return l.dn === r.dn || sameSizeWithoutSeries({ printed: l.dn, entries: findDiameterEntries(l.dn, l.material) },
+      { printed: r.dn, entries: findDiameterEntries(r.dn, r.material) });
+  }
   const [a, b] = [sizes.get(left.id) ?? new Set<string>(), sizes.get(right.id) ?? new Set<string>()];
   if (a.size === 0 || b.size === 0) return a.size === 0 && b.size === 0 && left.inputs.dn === right.inputs.dn;
   return [...a].some((entry) => b.has(entry));
@@ -379,10 +389,10 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
           if (!left.is_excluded) unregistered.add(right.id);
           continue;
         }
-        const overlap = commonLength({ id: left.id, segments: left.geometry.segments_m }, leftTransform,
-          { id: right.id, segments: right.geometry.segments_m }, rightTransform);
         const minimum = minCommonLength([pages.get(left.page_key)?.denominator, pages.get(right.page_key)?.denominator]);
-        if (overlap >= minimum) pairs.push({ left: left.id, right: right.id, overlap_m: overlap });
+        const overlap = commonLength({ id: left.id, segments: left.geometry.segments_m }, leftTransform,
+          { id: right.id, segments: right.geometry.segments_m }, rightTransform, minimum);
+        if (overlap > 0 && overlap >= minimum) pairs.push({ left: left.id, right: right.id, overlap_m: overlap });
       }
     }
     const byId = new Map(levelLines.map((line) => [line.id, line]));
@@ -392,6 +402,9 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     const partnersOf = (id: string, includedOnly: boolean) => pairs.filter((pair) => pair.left === id || pair.right === id)
       .map((pair) => byId.get(pair.left === id ? pair.right : pair.left) as ZoneLine)
       .filter((other) => !includedOnly || !other.is_excluded);
+    // What partners cover of a line: its continuous stretches of at least the minimum common length of their pages.
+    const coveredOf = (line: ZoneLine, partners: readonly ZoneLine[]) => coveredBy(overlapLine(line).line, transformOf(line),
+      partners.map(overlapLine), minCommonLength([line, ...partners].map((other) => pages.get(other.page_key)?.denominator)));
     // Groups of duplicates: included lines joined by pairs. A stretch drawn on k pages counts k − 1 times too many.
     const parent = new Map<string, string>();
     const find = (id: string): string => {
@@ -421,8 +434,8 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         const earlier = new Set(ordered.slice(0, index).map((other) => other.id));
         return {
           id: line.id, frozen: line.frozen, reduction_m: reduction(line),
-          covered_m: coveredBy(overlapLine(line).line, transformOf(line), partners.map(overlapLine)),
-          duplicated_m: coveredBy(overlapLine(line).line, transformOf(line), partners.filter((other) => earlier.has(other.id)).map(overlapLine)),
+          covered_m: coveredOf(line, partners),
+          duplicated_m: coveredOf(line, partners.filter((other) => earlier.has(other.id))),
         };
       });
       groupOutcome.set(root, settleDuplicates(settle));
@@ -430,7 +443,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     // An excluded line is shown as it would stand if it came back: settled when its own reduction removes all it shares.
     const outcomeOf = (line: ZoneLine) => {
       if (!line.is_excluded) return groupOutcome.get(find(line.id)) ?? { settled: true, deficit_m: 0 };
-      const covered = coveredBy(overlapLine(line).line, transformOf(line), partnersOf(line.id, true).map(overlapLine));
+      const covered = coveredOf(line, partnersOf(line.id, true));
       const deficit = Math.max(0, Math.round((covered - reduction(line)) * 1000) / 1000);
       return { settled: deficit <= ZONE_OVERLAP.settle_m, deficit_m: deficit <= ZONE_OVERLAP.settle_m ? 0 : deficit };
     };

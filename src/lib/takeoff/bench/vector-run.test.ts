@@ -5,7 +5,8 @@ import { GroupTruthFileSchema, ManifestDocumentSchema, TruthFileSchema, type Gro
 import { buildScoreScopes } from "@/lib/takeoff/bench/score";
 import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import type { BenchPass, CallStatus, DocumentRun } from "@/lib/takeoff/bench/run";
-import { baselineRasterFallback, runVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
+import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
+import type { GroupDecisionsOutcome } from "@/lib/takeoff/vectors/group-decisions-server";
 import {
   VectorExtractionError,
   type VectorGroupKey,
@@ -52,6 +53,16 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // 10 ml item read twice on a two-page plan) instead of the one page its chunk
 // read; when that chunk read several pages, it is put on one of them instead of
 // leaving them « unread ».
+// Decisions classes of the groups (TI-662 L3c, written before the code):
+// - the page is not read again with the hook's answers, so a group Decisions
+//   classes EF at 0.9 gives no item; or a proposal at 0.62 is measured;
+// - the per-group answers (alias, id, class, confidence, status, via) or the
+//   calls are not recorded per page, or a group's confidence is lost;
+// - a Decisions stop (failed call, budget, unavailable) lets the run go on to
+//   later pages, reports it complete, or scores the document it stopped in; a
+//   page whose images could not be drawn (no canvas) ends the run instead of
+//   staying « à revoir »;
+// - a run Decisions is unavailable for reads pages, or claims calls done.
 
 /** An A3 sheet in points (420 × 297 mm). */
 const SHEET = { width: 1190.55, height: 841.89 };
@@ -384,5 +395,102 @@ describe("the baseline's raster fallback (fourth Codex round of PR #145)", () =>
     const report = buildBenchReport({ metadata, run: result.run, scopes: buildScoreScopes([truthOf("a-plan-01", [{ quantity: 30 }])],
       [manifestDocument("a-plan-01", 2)]), noise: null, pipeline: "vector" });
     expect(report.couples[0].passes[0].scopes[0]).toMatchObject({ status: "read_failed", keys: [] });
+  });
+});
+
+describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
+  function outcome(answers: Array<[string, string, string | null, number | null, "batch" | "dedicated"]>,
+    stop: GroupDecisionsOutcome["stop"] = null): GroupDecisionsOutcome {
+    return {
+      answers: new Map(answers.map(([id, alias, value, confidence, via]) => [id, {
+        alias, class: value as never, confidence, status: value === null ? "missing" as const : "answered" as const, via,
+      }])),
+      calls: [{ kind: "batch", questions: answers.length, status: stop?.reason === "call_failed" ? "failed" : "available",
+        usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, latency_ms: 1200, render_ms: 80 }],
+      stop, candidates: answers.length, eligible: answers.length, left_out: 0, render: { legend_ms: 300, sheets_ms: [80] },
+    };
+  }
+
+  it("reads the page again with the hook's answers, measures 0.8 and more only, and records each group's answer", async () => {
+    const seen: Array<[string, number, string | null]> = [];
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 1)], groups: new Map(), repeat: 1, extract: async () => plan(1, 1),
+      decisions: {
+        promptVersion: "fixture-groups-v1",
+        classify: async (document, pageNumber, _extraction, reading) => {
+          seen.push([document.id, pageNumber, reading.groups.find((group) => group.id === RED_ID)?.class ?? null]);
+          return outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"], [BLUE_ID, "groupe_02", "EU", 0.62, "dedicated"]]);
+        },
+      },
+    });
+    // The hook gets the keyword reading (red unclassed); the run reads again with its answers.
+    expect(seen).toEqual([["a-plan-01", 1, null]]);
+    const run = result.run.couples[0].passes[0].documents[0];
+    expect(run.items.map((item) => [item.designation, item.quantity])).toEqual([["EF cuivre DN 22", 12.7]]);
+    expect(result.run.couples[0].prompt_version).toMatch(/^vector-v\d+\+fixture-groups-v1$/);
+    const summary = result.vector.passes[0].documents[0].pages[0];
+    expect(summary.reading?.groups.find((group) => group.id === BLUE_ID)).toMatchObject({ class: "EU", source: "decisions", confidence: 0.62 });
+    // The proposal at 0.62 is neither « classé » nor a measured network group in the page summary (review of the PR).
+    expect(summary.reading).toMatchObject({ groups_classified: 1, groups_network: 1 });
+    expect(summary.decisions).toMatchObject({
+      candidates: 2, left_out: 0, stop: null, calls: [{ kind: "batch", status: "available", usage: { total_tokens: 1000 } }],
+      answers: [
+        { alias: "groupe_01", group: RED_ID, class: "EF", confidence: 0.9, status: "answered", via: "batch" },
+        { alias: "groupe_02", group: BLUE_ID, class: "EU", confidence: 0.62, status: "answered", via: "dedicated" },
+      ],
+    });
+    expect(result.run.status).toBe("complete");
+  });
+
+  it("ends the run at a Decisions stop: incomplete, later pages and documents not run, the document not scored", async () => {
+    const asked: string[] = [];
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2), benchDocument("a-plan-02", 1)], groups: new Map(), repeat: 2,
+      extract: async (_bytes, pageNumber) => plan(pageNumber, 2),
+      decisions: {
+        promptVersion: "fixture-groups-v1",
+        classify: async (document, pageNumber) => {
+          asked.push(`${document.id}:${pageNumber}`);
+          return outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"]], { reason: "call_failed", message: "Fictional failure." });
+        },
+      },
+    });
+    expect(asked).toEqual(["a-plan-01:1"]);
+    expect(result.run).toMatchObject({
+      status: "incomplete", calls_planned: 6, calls_done: 1,
+      stop: { kind: "provider", reason: "other", error: { name: "DecisionsStop", code: "call_failed", message: "Fictional failure." },
+        calls_done: 1, calls_remaining: 5, at: { model: "vector", pass: 1, document: "a-plan-01", chunk: 1 } },
+    });
+    const passes = result.run.couples[0].passes;
+    expect(passes).toHaveLength(1);
+    expect(passes[0]).toMatchObject({ complete: false });
+    expect(passes[0].documents.map((document) => [document.id, document.complete, document.calls.length])).toEqual([["a-plan-01", false, 1]]);
+    const report = buildBenchReport({ metadata, run: result.run, scopes: buildScoreScopes([truthOf("a-plan-01", [{ quantity: 12.7 }])],
+      [manifestDocument("a-plan-01", 2), manifestDocument("a-plan-02", 1)]), noise: null, pipeline: "vector" });
+    expect(report.couples[0].passes[0].scopes[0].status).not.toBe("scored");
+    expect(result.vector.passes[0].documents[0].pages[0].decisions?.stop).toEqual({ reason: "call_failed", message: "Fictional failure." });
+  });
+
+  it("goes on after a page whose images could not be drawn, its groups « à revoir »", async () => {
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1, extract: async (_bytes, pageNumber) => plan(pageNumber, 2),
+      decisions: { promptVersion: "fixture-groups-v1",
+        classify: async () => ({ ...outcome([]), calls: [], stop: { reason: "canvas_unavailable", message: "Fictional: no canvas." } }) },
+    });
+    expect(result.run).toMatchObject({ status: "complete", calls_done: 2, stop: null });
+    expect(result.vector.passes[0].documents[0].pages.map((entry) => entry.decisions?.stop?.reason)).toEqual(["canvas_unavailable", "canvas_unavailable"]);
+    expect(result.run.couples[0].passes[0].documents[0].items).toEqual([]);
+  });
+
+  it("records a run Decisions is unavailable for as stopped before its first page", () => {
+    const result = stoppedVectorBench([benchDocument("a-plan-01", 2), benchDocument("a-plan-02", 1)], 2, "fixture-groups-v1",
+      { reason: "decisions_unavailable", message: "Fictional: disabled." });
+    expect(result.run).toMatchObject({
+      status: "incomplete", calls_planned: 6, calls_done: 0,
+      stop: { kind: "provider", error: { code: "decisions_unavailable" }, calls_done: 0, calls_remaining: 6, at: null },
+    });
+    expect(result.vector.passes).toEqual([]);
+    const report = buildBenchReport({ metadata, run: result.run, scopes: [], noise: null, pipeline: "vector" });
+    expect(renderBenchReportMarkdown(report)).toContain("decisions_unavailable");
   });
 });
