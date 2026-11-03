@@ -34,6 +34,15 @@ est une constante nommée et versionnée dans le code.
      détourage : deux images superposées ne comptent qu'une fois. Une image sur un
      calque masqué par la configuration par défaut (OFF), par exemple un ancien scan
      gardé sous le plan, n'est pas imprimée : elle ne compte pas.
+   - Un trait entièrement transparent (opacité de trait `/CA 0` d'un ExtGState) n'est
+     pas imprimé : il n'est pas lu, mais son tracé détoure encore ce qui le suit (`W S`).
+     Un trait à demi transparent reste lu. Une image peinte à opacité nulle (`/ca 0`)
+     ne compte pas dans la part raster.
+   - Un groupe de transparence (forme `/Group /S /Transparency`) est lu comme pdfjs
+     l'imprime : son cadre BBox le détoure ; peint à opacité 1 sans isolement, il garde
+     l'opacité en cours ; sinon son contenu repart à l'opacité 1 et le groupe est peint
+     à l'opacité de remplissage extérieure (rien n'est imprimé à `/ca 0`). La forme d'un
+     masque de transparence (`/SMask`) n'est jamais imprimée : elle n'est pas lue.
 2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
    - Un groupe est un calque quand la page en a, sinon une couleur avec son
      épaisseur et son tiret.
@@ -111,6 +120,12 @@ est une constante nommée et versionnée dans le code.
      70 pt de côté, qui n'est pas lui-même un tracé de réseau, et qui contient des réseaux
      mais presque pas de fond de plan (ses propres bords ne comptent pas). Un mur ouvert
      en U n'est pas un cadre.
+   - Les morceaux d'un libellé sur une même ligne de base (pdfjs le coupe aux
+     changements de police) sont réunis, même légèrement inclinés : un texte éloigné de
+     cette ligne n'arrête jamais la recherche de la suite. Un libellé à cheval sur deux
+     directions voisines, ou de part et d'autre de ±π (page tournée), est réuni quel que
+     soit l'ordre de lecture. La ligne suivante d'un libellé incliné (« DN 40 » aligné à
+     droite sous son réseau) lui est rattachée de même.
    - Le DN, le matériau et le calorifuge viennent du libellé :
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
        du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
@@ -172,3 +187,9 @@ pages lues : lues dans un même appel, les pages 1 et 3 ne disent rien de la pag
 rapport de tri dont les pages gardées ne montent pas strictement (désordre, doublon, page
 au-delà du document) est refusé : un appel n'est rendu que par sa première et sa dernière
 page.
+
+Un item de la baseline appartient à sa page (`source_page`). Sans elle (le champ est
+facultatif), il appartient à la page que ses appels ont lue (`item_chunks`), parmi les
+pages lues : il n'est jamais recopié sur chaque page raster. Si ses appels ont lu
+plusieurs pages, on ne sait pas de laquelle il vient : ces pages ne sont pas lues,
+plutôt que de lui en donner une.

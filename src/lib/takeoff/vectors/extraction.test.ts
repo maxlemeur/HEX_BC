@@ -61,6 +61,22 @@
 //     clipped, a closed outline inside the page losing its closed flag, a
 //     turned page (/Rotate 90) clipped on the wrong axis, or a coordinate out
 //     of range no longer failing the page because it lies outside the crop.
+// Post-merge Codex review of PR #145 (written before the fix):
+// 20. A stroke under an ExtGState /CA 0 (fully transparent, never printed)
+//     extracted and measured as a pipe, or, once dropped, its path no longer
+//     clipping what follows (W S); a half-transparent stroke (/CA 0.5) or a
+//     stroke after the Q that ends the /CA 0 dropped too; an image painted
+//     under /ca 0 counted as raster coverage, or a printed image no longer
+//     counted.
+// Review of that fix (written before its own fix):
+// 21. A transparency group form (/Group /S /Transparency) read with the alpha
+//     in force at its Do, which pdfjs's canvas resets to 1 inside a group it
+//     isolates (any group painted at ca < 1): its pipe under an outer /CA 0
+//     /ca 0.5 dropped although printed, or a group painted at /ca 0 measured;
+//     a group at ca 1 (pdfjs's simple path) no longer inheriting the outer
+//     /CA 0; the group's BBox not clipping its content; the group form of a
+//     soft mask (/SMask /G), which pdfjs's canvas never paints, read as
+//     printed strokes.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -615,6 +631,68 @@ describe("raster coverage", () => {
     expect(extractions.map((extraction) => readVectorPage(extraction, { clock: () => 0 }).mode)).toEqual([
       "layers", "layers", "layers", "layers", "layers", "layers", "raster", "raster", "raster",
     ]);
+  });
+
+  it("never extracts a stroke or an image an ExtGState makes fully transparent, and keeps its clip (post-merge review of PR #145)", SPAWN, async () => {
+    const bytes = await buildPdf((doc) => {
+      const states = doc.context.obj({
+        Clear: doc.context.obj({ Type: "ExtGState", CA: 0 }),
+        Half: doc.context.obj({ Type: "ExtGState", CA: 0.5 }),
+        Opaque: doc.context.obj({ Type: "ExtGState", CA: 1 }),
+        ClearFill: doc.context.obj({ Type: "ExtGState", ca: 0 }),
+      });
+      // Page 1: a transparent blue pipe; a transparent black outline that clips (W S) a red pipe drawn opaque after it,
+      // so that only its first 50 pt print; a green pipe at /CA 0.5; a black stroke after the Q.
+      addRawPage(doc, [200, 100], [
+        "q /Clear gs 0 0 1 RG 10 20 m 110 20 l S Q",
+        "q /Clear gs 0 0 50 100 re W S /Opaque gs 1 0 0 RG 0 50 m 200 50 l S Q",
+        "q /Half gs 0 1 0 RG 10 80 m 60 80 l S Q",
+        "10 90 m 30 90 l S",
+      ], { ExtGState: states });
+      // Pages 2 and 3: a full-page image painted under /ca 0, then the same image printed.
+      const pixel = { Type: "XObject", Subtype: "Image", Width: 1, Height: 1, ColorSpace: "DeviceGray", BitsPerComponent: 8 };
+      const image = doc.context.register(doc.context.stream(new Uint8Array([128]), pixel));
+      addRawPage(doc, [200, 100], ["q /ClearFill gs 200 0 0 100 0 0 cm /Im1 Do Q"], { ExtGState: states, XObject: doc.context.obj({ Im1: image }) });
+      addRawPage(doc, [200, 100], ["q 200 0 0 100 0 0 cm /Im1 Do Q"], { ExtGState: states, XObject: doc.context.obj({ Im1: image }) });
+    });
+
+    const extraction = await extractVectorPage(bytes, 1);
+    const { groups } = buildPageModel(extraction);
+    expect(groups.filter((group) => group.colors.includes("#0000ff"))).toEqual([]);
+    expect(byColour(groups, "#ff0000").length_pt).toBeCloseTo(50, 2);
+    expect(byColour(groups, "#00ff00").length_pt).toBeCloseTo(50, 2);
+    // Black is the stroke after Q alone (20 pt), not the transparent 300 pt outline.
+    expect(byColour(groups, "#000000").length_pt).toBeCloseTo(20, 2);
+    const images = await Promise.all([2, 3].map((page) => extractVectorPage(bytes, page)));
+    expect(images.map((entry) => [entry.counts.images, Math.round(entry.counts.imageCoverage * 1000) / 1000])).toEqual([[1, 0], [1, 1]]);
+  });
+
+  it("reads a transparency group's strokes at the opacity pdfjs prints them with, clipped to its BBox (review of the post-merge fix)", SPAWN, async () => {
+    const pipe = "1 0 0 RG 4 w 10 50 m 190 50 l S";
+    const bytes = await buildPdf((doc) => {
+      const states = doc.context.obj({
+        Isolating: doc.context.obj({ Type: "ExtGState", CA: 0, ca: 0.5 }),
+        Clear: doc.context.obj({ Type: "ExtGState", ca: 0 }),
+        NoStroke: doc.context.obj({ Type: "ExtGState", CA: 0 }),
+      });
+      const group = (bbox: number[]) => doc.context.register(doc.context.stream(pipe, {
+        Type: "XObject", Subtype: "Form", BBox: bbox, Group: doc.context.obj({ Type: "Group", S: "Transparency" }),
+      }));
+      const whole = group([0, 0, 200, 100]);
+      const half = group([0, 0, 100, 100]);
+      // 1: painted at ca 0.5, its content reset to CA 1 (printed); 2: painted at ca 0 (nothing printed);
+      // 3: at ca 1 the group keeps the outer CA 0 (nothing printed); 4: its BBox keeps x 10 to 100 of the pipe.
+      for (const content of ["q /Isolating gs /Fm1 Do Q", "q /Clear gs /Fm1 Do Q", "q /NoStroke gs /Fm1 Do Q", "/Fm2 Do"]) {
+        addRawPage(doc, [200, 100], [content], { ExtGState: states, XObject: doc.context.obj({ Fm1: whole, Fm2: half }) });
+      }
+      // 5: a soft mask whose group form draws the red pipe; only the blue stroke it masks is printed.
+      const mask = doc.context.obj({ Type: "ExtGState", SMask: doc.context.obj({ Type: "Mask", S: "Luminosity", G: whole }) });
+      addRawPage(doc, [200, 100], ["q /SM gs 0 0 1 RG 4 w 10 80 m 190 80 l S Q"], { ExtGState: doc.context.obj({ SM: mask }) });
+    });
+
+    const models = await Promise.all([1, 2, 3, 4, 5].map(async (page) => buildPageModel(await extractVectorPage(bytes, page))));
+    expect(models.map((model) => Math.round(model.visibleLength_pt))).toEqual([180, 0, 0, 90, 180]);
+    expect(models[4].groups.map((group) => group.colors)).toEqual([["#0000ff"]]);
   });
 
   it("never measures a stroke an outer optional content hides (review of the third round of PR #145)", SPAWN, async () => {

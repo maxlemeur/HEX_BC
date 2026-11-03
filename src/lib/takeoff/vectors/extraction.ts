@@ -36,6 +36,15 @@ import { z } from "zod";
 // - the line width and dash also come from setGState (LW, D); every colour
 //   space reaches the list as setStrokeRGBColor with a hex string, a pattern as
 //   setStrokeColorN (kept as « pattern »);
+// - opacity comes from setGState too (CA for strokes, ca for fills and
+//   images): a stroke at CA 0 is not printed and not extracted, though its path
+//   still clips (W S); an image at ca 0 covers nothing. A transparency group
+//   form arrives as beginGroup [{ matrix, bbox, … }] … endGroup around its
+//   paintFormXObjectBegin (whose bbox is then null): its BBox clips it, and,
+//   as pdfjs's canvas does, a group painted at ca 1 that needs no isolation
+//   keeps the alpha in force, while any other group resets CA and ca to 1
+//   for its content and is painted at the outer ca (nothing printed at 0);
+//   the group form of a soft mask is never painted;
 // - layers: beginMarkedContentProps is ["OC", { type, id }], ["OC", { type:
 //   "OCMD" }] without id or ["OC", null]; the id is a key of
 //   getOptionalContentConfig(). Every beginMarkedContent* pushes (OC or not),
@@ -52,7 +61,7 @@ import { z } from "zod";
 // the page, even outside the crop. pdfjs stops at a content error
 // (stopAtErrors) instead of returning what it read.
 
-export const VECTOR_EXTRACTION_VERSION = 4;
+export const VECTOR_EXTRACTION_VERSION = 5;
 export const VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE = 15_000;
 /** V8 heap of the extraction process, measured on the heaviest plans of the bench (TI-662 load criterion). */
 export const VECTOR_EXTRACTION_HEAP_MB = 1536;
@@ -96,7 +105,8 @@ async function main() {
     // rectangular clip is exact; any other clip path is taken as its bounding box (what lies outside is never printed).
     const PAGE = [0, 0, viewport.width, viewport.height];
     const EDGE = 0.01;
-    let state = { ctm: [1, 0, 0, 1, 0, 0], color: "#000000", pattern: false, width: 1, dash: null, clip: PAGE };
+    // clear: inside a transparency group painted at ca 0, where nothing is printed.
+    let state = { ctm: [1, 0, 0, 1, 0, 0], color: "#000000", pattern: false, width: 1, dash: null, clip: PAGE, strokeAlpha: 1, fillAlpha: 1, clear: false };
     let pendingClip = false;
     const GRID = 256;
     const covered = new Uint8Array(GRID * GRID);
@@ -163,6 +173,25 @@ async function main() {
           }
           break;
         }
+        case OPS.beginGroup: {
+          const group = args[0] || {};
+          stack.push({ ...state });
+          if (group.bbox && group.bbox.length === 4) {
+            const f = Util.transform(Util.transform(vt, state.ctm), group.matrix || [1, 0, 0, 1, 0, 0]);
+            const b = group.bbox, corners = [];
+            for (const [x, y] of [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]]) corners.push(f[0] * x + f[2] * y + f[4], f[1] * x + f[3] * y + f[5]);
+            state.clip = intersect(state.clip, boxOf(corners));
+          }
+          // A soft mask's group form (/SMask /G) is only ever used as a mask: pdfjs's canvas never paints it.
+          if (group.smask) state.clear = true;
+          const simple = (!group.needsIsolation || (!group.isolated && !group.hasSoftMask)) && !group.knockout && !group.isGray && state.fillAlpha === 1;
+          if (!simple) {
+            if (!(state.fillAlpha > 0)) state.clear = true;
+            state.strokeAlpha = 1; state.fillAlpha = 1;
+          }
+          break;
+        }
+        case OPS.endGroup: if (stack.length) state = stack.pop(); break;
         case OPS.clip: case OPS.eoClip: pendingClip = true; break;
         case OPS.paintFormXObjectEnd: if (stack.length) state = stack.pop(); break;
         case OPS.setLineWidth: state.width = args[0]; break;
@@ -171,6 +200,8 @@ async function main() {
           for (const [key, value] of args[0]) {
             if (key === "LW") state.width = value;
             else if (key === "D") state.dash = dashOf(value[0], value[1]);
+            else if (key === "CA") state.strokeAlpha = Number(value);
+            else if (key === "ca") state.fillAlpha = Number(value);
           }
           break;
         case OPS.setStrokeRGBColor: state.color = String(args[0]).toLowerCase(); state.pattern = false; break;
@@ -232,8 +263,9 @@ async function main() {
             const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
             let layer = null;
             for (let k = marked.length - 1; k >= 0; k--) if (marked[k] !== undefined) { layer = marked[k]; if (layer !== null) break; }
-            // Hidden by an outer level (pdfjs's canvas paints only when every open level is shown), and not as an OFF layer's own stroke.
-            if (shown.includes(false) && (layer === null || !offLayers.has(layer))) {
+            // Hidden by an outer level (pdfjs's canvas paints only when every open level is shown), and not as an OFF
+            // layer's own stroke; or fully transparent (CA 0). Either way the path still clips what follows.
+            if ((shown.includes(false) && (layer === null || !offLayers.has(layer))) || !(state.strokeAlpha > 0) || state.clear) {
               if (clipping) { const all = subpaths.flatMap((sub) => sub.coords); if (all.length >= 2) state.clip = intersect(state.clip, boxOf(all)); }
               break;
             }
@@ -282,7 +314,7 @@ async function main() {
             // two images over one half page cover half of it. An image on a hidden layer (a former scan kept OFF under
             // the plan) is not printed: it is counted but covers nothing.
             counts.images++;
-            if (shown.includes(false)) break;
+            if (shown.includes(false) || !(state.fillAlpha > 0) || state.clear) break;
             const m = Util.transform(vt, state.ctm);
             const det = m[0] * m[3] - m[1] * m[2];
             if (det === 0) break;

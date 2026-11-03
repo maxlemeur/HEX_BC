@@ -54,6 +54,22 @@ function nextKey(key: number, step: 1 | -1) {
   return next >= DIRECTION_KEYS ? next - 2 * DIRECTION_KEYS : next < -DIRECTION_KEYS ? next + 2 * DIRECTION_KEYS : next;
 }
 
+/**
+ * The buckets whose texts may lie within 0.02 rad of a bucket's: its two neighbours and, beside the bucket at ±π
+ * (2π is not a multiple of 0.04 rad, so that one is 0.0032 rad wide), the bucket past it on the other side.
+ */
+function poolKeys(key: number) {
+  const keys = [key, nextKey(key, 1), nextKey(key, -1)];
+  if (nextKey(key, 1) === -DIRECTION_KEYS) keys.push(nextKey(-DIRECTION_KEYS, 1));
+  if (nextKey(key, -1) === -DIRECTION_KEYS) keys.push(nextKey(-DIRECTION_KEYS, -1));
+  return keys;
+}
+
+/** The texts a bucket's texts are compared with (poolKeys), in no particular order. */
+function poolOf(buckets: ReadonlyMap<number, number[]>, key: number) {
+  return poolKeys(key).flatMap((entry) => buckets.get(entry) ?? []);
+}
+
 /** Texts of one direction (within 0.02 rad, a bucket of 0.04 rad and its neighbour, across ±π), as the merges compare them. */
 function byDirection(items: readonly VectorText[]) {
   const buckets = new Map<number, number[]>();
@@ -75,30 +91,54 @@ export function mergeTextLines(texts: readonly VectorText[]): VectorText[] {
   const used = new Uint8Array(items.length);
   const lines: VectorText[] = [];
   const buckets = byDirection(items);
-  for (const [key, own] of [...buckets.entries()].sort(([left], [right]) => left - right)) {
-    // Each piece is taken once, in the order of its own reading direction (an upward label starts at its bottom).
-    const mine = new Set(own);
-    const pool = [...own, ...(buckets.get(nextKey(key, 1)) ?? []), ...(buckets.get(nextKey(key, -1)) ?? [])];
+  // Each bucket's pool, in the order of its own reading direction (an upward label starts at its bottom).
+  const pools = [...buckets.entries()].sort(([left], [right]) => left - right).map(([key, own]) => {
     const c = Math.cos(key * 0.04), s = Math.sin(key * 0.04);
     const along = (index: number) => items[index].x * c + items[index].y * s;
-    pool.sort((left, right) => along(left) - along(right));
-    for (const [position, start] of pool.entries()) {
-      if (used[start] || !mine.has(start)) continue;
-      used[start] = 1;
-      let line = { ...items[start] };
-      const lc = Math.cos(line.angle), ls = Math.sin(line.angle);
-      for (let next = position + 1; next < pool.length; next += 1) {
-        const candidate = pool[next];
-        if (used[candidate] || !sameStyle(items[candidate], line)) continue;
-        const piece = items[candidate];
-        const dx = piece.x - line.x, dy = piece.y - line.y;
-        const forward = dx * lc + dy * ls, across = -dx * ls + dy * lc;
-        if (forward > line.width + 1.5 * line.height) break;
-        if (Math.abs(across) > 0.25 * line.height || forward < line.width - 0.5 * line.height) continue;
-        line = { ...line, str: `${line.str}${forward > line.width + 0.15 * line.height ? " " : ""}${piece.str}`, width: forward + piece.width };
-        used[candidate] = 1;
+    return { mine: new Set(own), pool: poolOf(buckets, key).sort((left, right) => along(left) - along(right)), along };
+  });
+  // The pieces after `position` in a pool that the line starting there may take, in order, while `take` accepts them.
+  // The cut-off follows the pool's own order (along the bucket's direction, within 0.02 rad of the line's): a piece
+  // the line may still take lies at most its reach plus that tilt across a quarter height further. Measured along
+  // the line's own angle instead, a text far off its baseline could end the search early.
+  const follow = (entry: (typeof pools)[number], position: number, take: (line: VectorText, piece: number, forward: number) => VectorText | null) => {
+    const { pool, along } = entry;
+    let line: VectorText = { ...items[pool[position]] };
+    const lc = Math.cos(line.angle), ls = Math.sin(line.angle);
+    const origin = along(pool[position]);
+    for (let next = position + 1; next < pool.length; next += 1) {
+      const candidate = pool[next];
+      if (along(candidate) - origin > line.width + 1.5 * line.height + 0.25 * line.height * Math.sin(0.02)) break;
+      if (used[candidate] || candidate === pool[position] || !sameStyle(items[candidate], line)) continue;
+      const piece = items[candidate];
+      const dx = piece.x - line.x, dy = piece.y - line.y;
+      const forward = dx * lc + dy * ls, across = -dx * ls + dy * lc;
+      if (Math.abs(across) > 0.25 * line.height || forward > line.width + 1.5 * line.height || forward < line.width - 0.5 * line.height) continue;
+      line = take(line, candidate, forward) ?? line;
+    }
+    return line;
+  };
+  // A piece that continues another one on its baseline starts no line while that one may still take it, whichever
+  // bucket is read first (a label straddling two buckets, or on either side of ±π): those pieces start lines last.
+  const continues = new Uint8Array(items.length);
+  for (const entry of pools) {
+    for (const position of entry.pool.keys()) {
+      follow(entry, position, (_line, piece) => {
+        continues[piece] = 1;
+        return null;
+      });
+    }
+  }
+  for (const late of [false, true]) {
+    for (const entry of pools) {
+      for (const [position, start] of entry.pool.entries()) {
+        if (used[start] || !entry.mine.has(start) || (!late && continues[start])) continue;
+        used[start] = 1;
+        lines.push(follow(entry, position, (line, piece, forward) => {
+          used[piece] = 1;
+          return { ...line, str: `${line.str}${forward > line.width + 0.15 * line.height ? " " : ""}${items[piece].str}`, width: forward + items[piece].width };
+        }));
       }
-      lines.push(line);
     }
   }
   return lines;
@@ -112,17 +152,20 @@ export function readLabelBlocks(texts: readonly VectorText[]): LabelBlock[] {
   const buckets = byDirection(lines);
   for (const [key, own] of buckets) {
     const mine = new Set(own);
-    const pool = [...own, ...(buckets.get(nextKey(key, 1)) ?? []), ...(buckets.get(nextKey(key, -1)) ?? [])];
+    const pool = poolOf(buckets, key);
     const c = Math.cos(key * 0.04), s = Math.sin(key * 0.04);
     const downOf = (index: number) => -lines[index].x * s + lines[index].y * c;
     pool.sort((left, right) => downOf(left) - downOf(right));
+    // A line's own normal lies within 0.02 rad of the bucket's: across it, a next line offset along by up to the
+    // widest line of the pool sits that far times sin(0.02) further than its own spacing.
+    const tilt = Math.max(0, ...pool.map((index) => lines[index].width)) * Math.sin(0.02);
     for (let a = 0; a < pool.length; a += 1) {
       if (!mine.has(pool[a])) continue;
       const first = lines[pool[a]];
       const h = first.height;
       for (let b = a + 1; b < pool.length; b += 1) {
         const second = lines[pool[b]];
-        if (downOf(pool[b]) - downOf(pool[a]) > 1.8 * Math.max(h, second.height)) break;
+        if (downOf(pool[b]) - downOf(pool[a]) > 1.8 * h + tilt) break;
         if (!sameStyle(first, second)) continue;
         const fc = Math.cos(first.angle), fs = Math.sin(first.angle);
         const dx = second.x - first.x, dy = second.y - first.y;
