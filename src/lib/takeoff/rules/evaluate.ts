@@ -1,6 +1,6 @@
 import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
 import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
-import { DIAMETER_FAMILIES } from "@/lib/takeoff/bench/diameters";
+import { DIAMETER_FAMILIES, findDiameterEntries } from "@/lib/takeoff/bench/diameters";
 import { NETWORK_DIAMETER_TABLE_VERSION, WRAPPING_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
 import { REGISTRATION_VERSION, composeTranslations, registerPages, translation, type PageAnchors, type Registration } from "@/lib/takeoff/rules/registration";
 import {
@@ -25,8 +25,9 @@ import {
   ZONE_OVERLAP,
   ZONE_OVERLAP_VERSION,
   commonLength,
+  coveredBy,
   minCommonLength,
-  settlePairs,
+  settleDuplicates,
   type Centreline,
   type DuplicatePair,
 } from "@/lib/takeoff/rules/zone-overlap";
@@ -257,8 +258,23 @@ function roomOverlaps(lines: readonly RuleLine[], results: Map<string, TakeoffRu
 
 type ZoneLine = RuleLine & { inputs: TakeoffRuleInputs; geometry: NonNullable<RuleLine["geometry"]>; page_key: string };
 
-function zoneKey(line: ZoneLine) {
-  return `${line.inputs.kind}|${line.inputs.network}|${line.inputs.dn ?? ""}`;
+/**
+ * Sizes a line's DN names, as entries of the diameter table (family and outer diameter), through its material's
+ * series; a vector size reads either way (« DN 100 » or « Ø 110 » of one cast-iron pipe).
+ */
+function sizesOf(inputs: TakeoffRuleInputs): Set<string> {
+  if (inputs.dn === null) return new Set();
+  const entries = findDiameterEntries(inputs.dn, inputs.material);
+  if (inputs.source === "vector" && inputs.dn.startsWith("DN ")) entries.push(...findDiameterEntries(`Ø ${inputs.dn.slice(3)}`, inputs.material));
+  return new Set(entries.map((entry) => `${entry.family}:${entry.od_mm}`));
+}
+
+/** Two lines that may be one run: same kind and network, and one size (an entry in common, or the same printed DN). */
+function sameRun(left: ZoneLine, right: ZoneLine, sizes: ReadonlyMap<string, Set<string>>) {
+  if (left.inputs.kind !== right.inputs.kind || left.inputs.network !== right.inputs.network) return false;
+  const [a, b] = [sizes.get(left.id) ?? new Set<string>(), sizes.get(right.id) ?? new Set<string>()];
+  if (a.size === 0 || b.size === 0) return a.size === 0 && b.size === 0 && left.inputs.dn === right.inputs.dn;
+  return [...a].some((entry) => b.has(entry));
 }
 
 function byText(left: string, right: string) {
@@ -347,12 +363,13 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       transforms.set(page.key, alone ? null : registered.transforms.get(page.key) ?? null);
     }
 
-    // Pairs of lines of the same key on two pages, included partners only.
+    // Pairs of lines that may be one run, on two pages: their common length.
     const pairs: DuplicatePair[] = [];
     const unregistered = new Set<string>();
+    const sizes = new Map(levelLines.map((line) => [line.id, sizesOf(line.inputs)]));
     for (const [index, left] of levelLines.entries()) {
       for (const right of levelLines.slice(index + 1)) {
-        if (left.page_key === right.page_key || zoneKey(left) !== zoneKey(right)) continue;
+        if (left.page_key === right.page_key || !sameRun(left, right, sizes)) continue;
         if (left.is_excluded && right.is_excluded) continue;
         const [leftTransform, rightTransform] = [registered.transforms.get(left.page_key), registered.transforms.get(right.page_key)];
         const together = registered.component.get(left.page_key) === registered.component.get(right.page_key);
@@ -369,18 +386,54 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       }
     }
     const byId = new Map(levelLines.map((line) => [line.id, line]));
-    const duplicateLines = new Map(levelLines.map((line) => [line.id, {
-      id: line.id, measured_m: line.geometry.length_m ?? line.inputs.model_quantity, quantity: line.quantity, frozen: line.frozen,
-    }]));
-    const included = pairs.filter((pair) => !byId.get(pair.left)?.is_excluded && !byId.get(pair.right)?.is_excluded);
-    const settled = settlePairs(included, duplicateLines);
-    // An excluded line's pairs are shown as they would stand if it came back: settled by either reduction alone.
-    const reduction = (id: string) => {
-      const line = duplicateLines.get(id);
-      return line ? Math.max(0, line.measured_m - line.quantity) : 0;
+    const transformOf = (line: ZoneLine) => registered.transforms.get(line.page_key) as TakeoffFrameTransform;
+    const overlapLine = (line: ZoneLine) => ({ line: { id: line.id, segments: line.geometry.segments_m }, transform: transformOf(line) });
+    const reduction = (line: ZoneLine) => Math.max(0, (line.geometry.length_m ?? line.inputs.model_quantity) - line.quantity);
+    const partnersOf = (id: string, includedOnly: boolean) => pairs.filter((pair) => pair.left === id || pair.right === id)
+      .map((pair) => byId.get(pair.left === id ? pair.right : pair.left) as ZoneLine)
+      .filter((other) => !includedOnly || !other.is_excluded);
+    // Groups of duplicates: included lines joined by pairs. A stretch drawn on k pages counts k − 1 times too many.
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      let root = id;
+      while (parent.has(root) && parent.get(root) !== root) root = parent.get(root) as string;
+      if (root !== id) parent.set(id, root);
+      return root;
     };
-    const isSettled = (pair: DuplicatePair) => settled.has(pair)
-      || (!included.includes(pair) && Math.max(reduction(pair.left), reduction(pair.right)) >= pair.overlap_m - ZONE_OVERLAP.settle_m);
+    for (const pair of pairs) {
+      if (byId.get(pair.left)?.is_excluded || byId.get(pair.right)?.is_excluded) continue;
+      const [left, right] = [find(pair.left), find(pair.right)];
+      if (left !== right) parent.set(left, right);
+    }
+    const groupOutcome = new Map<string, { settled: boolean; deficit_m: number }>();
+    const members = new Map<string, ZoneLine[]>();
+    for (const line of levelLines) {
+      if (line.is_excluded || partnersOf(line.id, true).length === 0) continue;
+      const root = find(line.id);
+      members.set(root, [...(members.get(root) ?? []), line]);
+    }
+    for (const [root, lines] of members) {
+      // Lines of applied jobs first, then in the level's page order: a line's duplicated length is what lines before it cover.
+      const ordered = [...lines].sort((left, right) => Number(right.frozen) - Number(left.frozen)
+        || (pages.get(left.page_key)?.order ?? 0) - (pages.get(right.page_key)?.order ?? 0) || byText(left.id, right.id));
+      const settle = ordered.map((line, index) => {
+        const partners = partnersOf(line.id, true);
+        const earlier = new Set(ordered.slice(0, index).map((other) => other.id));
+        return {
+          id: line.id, frozen: line.frozen, reduction_m: reduction(line),
+          covered_m: coveredBy(overlapLine(line).line, transformOf(line), partners.map(overlapLine)),
+          duplicated_m: coveredBy(overlapLine(line).line, transformOf(line), partners.filter((other) => earlier.has(other.id)).map(overlapLine)),
+        };
+      });
+      groupOutcome.set(root, settleDuplicates(settle));
+    }
+    // An excluded line is shown as it would stand if it came back: settled when its own reduction removes all it shares.
+    const outcomeOf = (line: ZoneLine) => {
+      if (!line.is_excluded) return groupOutcome.get(find(line.id)) ?? { settled: true, deficit_m: 0 };
+      const covered = coveredBy(overlapLine(line).line, transformOf(line), partnersOf(line.id, true).map(overlapLine));
+      const deficit = Math.max(0, Math.round((covered - reduction(line)) * 1000) / 1000);
+      return { settled: deficit <= ZONE_OVERLAP.settle_m, deficit_m: deficit <= ZONE_OVERLAP.settle_m ? 0 : deficit };
+    };
 
     for (const line of levelLines) {
       const zone = pages.get(line.page_key)?.zone ?? null;
@@ -391,15 +444,16 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         continue;
       }
       // An excluded partner counts nothing: only included lines are the other side of a pair.
-      const own = pairs.filter((pair) => (pair.left === line.id && !byId.get(pair.right)?.is_excluded)
-        || (pair.right === line.id && !byId.get(pair.left)?.is_excluded));
-      const partners: ZoneOverlapPartner[] = own.map((pair) => {
-        const other = byId.get(pair.left === line.id ? pair.right : pair.left) as ZoneLine;
-        return { item_id: other.id, job_id: other.job_id, zone: pages.get(other.page_key)?.zone ?? null, designation: other.designation,
-          overlap_m: pair.overlap_m, resolved: isSettled(pair) };
-      }).sort((left, right) => right.overlap_m - left.overlap_m || byText(left.item_id, right.item_id));
-      const open = partners.filter((partner) => !partner.resolved);
-      const total = Math.round(open.reduce((sum, partner) => sum + partner.overlap_m, 0) * 1000) / 1000;
+      const outcome = outcomeOf(line);
+      const partners: ZoneOverlapPartner[] = pairs
+        .filter((pair) => (pair.left === line.id && !byId.get(pair.right)?.is_excluded) || (pair.right === line.id && !byId.get(pair.left)?.is_excluded))
+        .map((pair) => {
+          const other = byId.get(pair.left === line.id ? pair.right : pair.left) as ZoneLine;
+          return { item_id: other.id, job_id: other.job_id, zone: pages.get(other.page_key)?.zone ?? null, designation: other.designation,
+            overlap_m: pair.overlap_m, resolved: outcome.settled };
+        }).sort((left, right) => right.overlap_m - left.overlap_m || byText(left.item_id, right.item_id));
+      const open = outcome.settled ? [] : partners;
+      const total = outcome.deficit_m;
       if (partners.length === 0) {
         push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_NONE",
           `Aucun tronçon commun avec une autre page du niveau ${level}.`, { level }));
@@ -410,7 +464,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       } else {
         const where = open.map((partner) => `${metres(partner.overlap_m)} avec « ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}`).join(", ");
         push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
-          `Tronçon compté aussi sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. Retirez cette longueur d’une des deux lignes, ou excluez une ligne entièrement en double.`,
+          `Tronçon compté aussi sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. La version compte encore ${metres(total)} deux fois : retirez cette longueur d’une des lignes, ou excluez une ligne entièrement en double.`,
           { level, partners, overlap_m: total }));
       }
     }

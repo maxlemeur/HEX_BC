@@ -7,9 +7,10 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 // lines of the same network and DN on two pages, brought into one frame,
 // whose centrelines run within ZONE_OVERLAP.distance_m of each other along a
 // common length of at least ZONE_OVERLAP.minLength_m. That common length is
-// counted twice by the version: the rule fails both lines until one of them
-// is reduced by it (corrected quantity ≤ measured length − common length), or
-// excluded, or the user accepts it.
+// counted twice by the version: the rule fails the lines until it is removed
+// (settleDuplicates: a group of duplicates is settled when the lines'
+// reductions cover what it counts k − 1 times too many), or a line excluded,
+// or the user accepts it.
 // - Common length: along each centreline of a line, the union of the
 //   stretches a centreline of the other line covers (parallel within
 //   ZONE_OVERLAP.angle_deg, within the distance at both ends of the stretch),
@@ -174,91 +175,38 @@ export function commonLength(left: OverlapLine, leftTransform: TakeoffFrameTrans
   return Math.round(Math.min(forward, backward) * 1000) / 1000;
 }
 
-export type DuplicateLine = {
-  id: string;
-  /** Measured length of the line's centrelines (the quantity the reading proposed). */
-  measured_m: number;
-  quantity: number;
-  /** Item of an applied job: its quantity can no longer change. */
-  frozen: boolean;
-};
-
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
 
-const FLOW_EPSILON = 1e-9;
-
-/** Max flow from pairs (capacity: their common length) through either line to the lines' reductions (Dinic). */
-function settleFlow(pairs: readonly DuplicatePair[], budget: Map<string, number>): Map<DuplicatePair, number> {
-  const lineIds = [...new Set(pairs.flatMap((pair) => [pair.left, pair.right]))].sort();
-  const source = 0, sink = 1 + pairs.length + lineIds.length;
-  const lineNode = new Map(lineIds.map((id, index) => [id, 1 + pairs.length + index]));
-  const to: number[] = [], cap: number[] = [], head = new Array<number>(sink + 1).fill(-1), next: number[] = [];
-  const edge = (from: number, target: number, capacity: number) => {
-    for (const [a, b, c] of [[from, target, capacity], [target, from, 0]] as const) {
-      to.push(b); cap.push(c); next.push(head[a]); head[a] = to.length - 1;
-    }
-    return to.length - 2;
-  };
-  const sourceEdges = pairs.map((pair, index) => {
-    const id = edge(source, 1 + index, pair.overlap_m);
-    edge(1 + index, lineNode.get(pair.left) as number, pair.overlap_m);
-    edge(1 + index, lineNode.get(pair.right) as number, pair.overlap_m);
-    return id;
-  });
-  const sinkEdges = new Map(lineIds.map((id) => [id, edge(lineNode.get(id) as number, sink, Math.max(0, budget.get(id) ?? 0))]));
-  const level = new Array<number>(sink + 1);
-  const cursor = new Array<number>(sink + 1);
-  const push = (node: number, limit: number): number => {
-    if (node === sink) return limit;
-    for (; cursor[node] !== -1; cursor[node] = next[cursor[node]]) {
-      const id = cursor[node];
-      if (cap[id] <= FLOW_EPSILON || level[to[id]] !== level[node] + 1) continue;
-      const sent = push(to[id], Math.min(limit, cap[id]));
-      if (sent > FLOW_EPSILON) {
-        cap[id] -= sent;
-        cap[id ^ 1] += sent;
-        return sent;
-      }
-    }
-    return 0;
-  };
-  for (;;) {
-    level.fill(-1);
-    level[source] = 0;
-    const queue = [source];
-    for (let index = 0; index < queue.length; index += 1) {
-      for (let id = head[queue[index]]; id !== -1; id = next[id]) {
-        if (cap[id] > FLOW_EPSILON && level[to[id]] === -1) {
-          level[to[id]] = level[queue[index]] + 1;
-          queue.push(to[id]);
-        }
-      }
-    }
-    if (level[sink] === -1) break;
-    for (let node = 0; node <= sink; node += 1) cursor[node] = head[node];
-    while (push(source, Infinity) > FLOW_EPSILON) { /* blocking flow */ }
-  }
-  for (const [id, edgeId] of sinkEdges) budget.set(id, Math.max(0, budget.get(id) ?? 0) - cap[edgeId ^ 1]);
-  return new Map(pairs.map((pair, index) => [pair, cap[sourceEdges[index] ^ 1]]));
+/** Length of `line` covered by any of `others`, all brought into the common frame by their page transforms. */
+export function coveredBy(line: OverlapLine, transform: TakeoffFrameTransform,
+  others: ReadonlyArray<{ line: OverlapLine; transform: TakeoffFrameTransform }>): number {
+  const own = transformed(line.segments, transform);
+  const segments = others.flatMap((other) => transformed(other.line.segments, other.transform));
+  if (own.length === 0 || segments.length === 0) return 0;
+  return Math.round(coveredLength(own, new SegmentGrid(segments, 1)) * 1000) / 1000;
 }
 
 /**
- * Which pairs are settled by the reductions (measured − quantity) of their lines: each pair needs its common
- * length removed from either line, a metre of reduction paying once. Solved as a flow, so that the reductions are
- * shared the way that settles the most length whatever the order of the lines. Pairs of two frozen lines (both
- * jobs applied) take the frozen reductions first: only they could pay them; the rest pays the other pairs.
+ * A line of a group of duplicates (the lines joined by pairs): its reduction (measured − quantity), the length of it
+ * other lines of the group cover, and the length of it lines before it in the group's order cover (lines of applied
+ * jobs first): the length it counts again.
  */
-export function settlePairs(pairs: readonly DuplicatePair[], lines: ReadonlyMap<string, DuplicateLine>): Set<DuplicatePair> {
-  const budget = new Map([...lines.values()].map((line) => [line.id, Math.max(0, line.measured_m - line.quantity)]));
-  const frozen = (id: string) => lines.get(id)?.frozen === true;
-  const settled = new Set<DuplicatePair>();
-  const phases = [pairs.filter((pair) => frozen(pair.left) && frozen(pair.right)),
-    pairs.filter((pair) => !(frozen(pair.left) && frozen(pair.right)))];
-  for (const phase of phases) {
-    if (phase.length === 0) continue;
-    for (const [pair, flow] of settleFlow(phase, budget)) {
-      if (flow >= pair.overlap_m - ZONE_OVERLAP.settle_m - FLOW_EPSILON) settled.add(pair);
-    }
-  }
-  return settled;
+export type SettleLine = { id: string; frozen: boolean; reduction_m: number; covered_m: number; duplicated_m: number };
+
+/**
+ * Whether a group of duplicates is counted once: a stretch drawn on k pages is counted k − 1 times too many, the sum
+ * of the lines' duplicated lengths. A line's reduction removes at most what other lines cover of it. The lines of
+ * applied jobs (frozen) first pay what they count twice among themselves, which only they could remove; what their
+ * reductions leave over, and the reductions of the lines that can still change, pay the rest. `deficit_m`: what the
+ * version still counts twice.
+ */
+export function settleDuplicates(lines: readonly SettleLine[]): { settled: boolean; deficit_m: number } {
+  const useful = (line: SettleLine) => Math.max(0, Math.min(line.reduction_m, line.covered_m));
+  const frozen = lines.filter((line) => line.frozen);
+  const current = lines.filter((line) => !line.frozen);
+  const spare = Math.max(0, frozen.reduce((sum, line) => sum + useful(line), 0) - frozen.reduce((sum, line) => sum + line.duplicated_m, 0));
+  const owed = current.reduce((sum, line) => sum + line.duplicated_m, 0);
+  const paid = current.reduce((sum, line) => sum + useful(line), 0) + spare;
+  const deficit = Math.max(0, Math.round((owed - paid) * 1000) / 1000);
+  return { settled: deficit <= ZONE_OVERLAP.settle_m, deficit_m: deficit <= ZONE_OVERLAP.settle_m ? 0 : deficit };
 }
