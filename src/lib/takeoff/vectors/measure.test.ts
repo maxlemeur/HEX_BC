@@ -123,6 +123,17 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   looking for its continuation at an unrelated text of the same style far off
 //   its baseline, so « EF PVC DN » and « 40 » are read without DN because
 //   another part of the sheet holds a note.
+// Review of that fix (written before its own fix; both on main already):
+// - the same cut-off across lines: the continuation line of a tilted label
+//   (« DN 40 » right-aligned 1.2 heights under « EF - PVC PRESSION », 0.019 rad)
+//   lies past the search's end once projected on its direction bucket, and the
+//   label is read without DN;
+// - across ±π (2π is not a multiple of the 0.04 rad buckets, the last one is
+//   0.0032 rad wide), the pieces of one label at π − 0.003 and −π + 0.002 fall
+//   in buckets that never compare, and are read as two labels;
+// - a label straddling two buckets (0.021 and 0.019 rad) whose continuation
+//   lies in the bucket read first: that piece starts a line of its own before
+//   its head is read, and the two are never merged.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -831,5 +842,26 @@ describe("post-merge Codex review of PR #145", () => {
     // The cut-off still holds: a piece of the same baseline past it starts its own line.
     const far = { ...text("DN 63", 100 + 80 * Math.cos(angle), 100 + 80 * Math.sin(angle)), angle };
     expect(mergeTextLines([head, note, far]).map((entry) => entry.str).sort()).toEqual(["DN 63", "EF PVC DN", "NOTE"]);
+  });
+
+  it("reads the continuation line of a tilted label, right-aligned under its first line", () => {
+    const angle = 0.019, h = 2.5;
+    const c = Math.cos(angle), sn = Math.sin(angle);
+    const head = { ...text("EF - PVC PRESSION", 100, 100, h), width: 100, angle };
+    // 90 pt along the first line and 1.2 heights below its baseline (down is (−sin, cos) in page space, y down).
+    const tail = { ...text("DN 40", 100 + 90 * c - 1.2 * h * sn, 100 + 90 * sn + 1.2 * h * c, h), width: 25, angle };
+    expect(readLabelBlocks([head, tail]).map((block) => block.label)).toEqual([expect.objectContaining({ network: "EF", material: "pvc-pression", dn: 40 })]);
+  });
+
+  it("merges the pieces of a label straddling two direction buckets, or either side of ±π", () => {
+    // Read right to left, at π − 0.003 then −π + 0.002: the last bucket before π and the first one after it.
+    const head = { ...text("EU - PVC", 500, 300, 2.5), width: 40, angle: Math.PI - 0.003 };
+    const tail = { ...text("DN 40", 458.5, 300 + 41.5 * Math.sin(0.003), 2.5), width: 25, angle: -Math.PI + 0.002 };
+    expect(mergeTextLines([head, tail]).map((entry) => entry.str)).toEqual(["EU - PVC DN 40"]);
+    expect(readLabelBlocks([head, tail]).map((block) => block.label)).toEqual([expect.objectContaining({ network: "EU", material: "pvc", dn: 40 })]);
+    // Upright, the head at 0.021 rad (bucket 1) and its continuation at 0.019 rad (bucket 0, read first).
+    const upright = { ...text("EF - PVC", 100, 100, 2.5), width: 40, angle: 0.021 };
+    const after = { ...text("DN 40", 100 + 41.5 * Math.cos(0.021), 100 + 41.5 * Math.sin(0.021), 2.5), width: 25, angle: 0.019 };
+    expect(mergeTextLines([upright, after]).map((entry) => entry.str)).toEqual(["EF - PVC DN 40"]);
   });
 });

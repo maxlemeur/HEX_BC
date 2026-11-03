@@ -38,6 +38,10 @@ est une constante nommée et versionnée dans le code.
      pas imprimé : il n'est pas lu, mais son tracé détoure encore ce qui le suit (`W S`).
      Un trait à demi transparent reste lu. Une image peinte à opacité nulle (`/ca 0`)
      ne compte pas dans la part raster.
+   - Un groupe de transparence (forme `/Group /S /Transparency`) est lu comme pdfjs
+     l'imprime : son cadre BBox le détoure ; peint à opacité 1 sans isolement, il garde
+     l'opacité en cours ; sinon son contenu repart à l'opacité 1 et le groupe est peint
+     à l'opacité de remplissage extérieure (rien n'est imprimé à `/ca 0`).
 2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
    - Un groupe est un calque quand la page en a, sinon une couleur avec son
      épaisseur et son tiret.
@@ -117,7 +121,10 @@ est une constante nommée et versionnée dans le code.
      en U n'est pas un cadre.
    - Les morceaux d'un libellé sur une même ligne de base (pdfjs le coupe aux
      changements de police) sont réunis, même légèrement inclinés : un texte éloigné de
-     cette ligne n'arrête jamais la recherche de la suite.
+     cette ligne n'arrête jamais la recherche de la suite. Un libellé à cheval sur deux
+     directions voisines, ou de part et d'autre de ±π (page tournée), est réuni quel que
+     soit l'ordre de lecture. La ligne suivante d'un libellé incliné (« DN 40 » aligné à
+     droite sous son réseau) lui est rattachée de même.
    - Le DN, le matériau et le calorifuge viennent du libellé :
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
        du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
