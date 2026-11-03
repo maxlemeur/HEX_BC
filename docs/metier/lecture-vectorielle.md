@@ -136,11 +136,16 @@ est une constante nommée et versionnée dans le code.
      réduction) est coupé entre eux : à la fin de trait la plus proche du milieu des
      deux libellés, ou à ce milieu si aucun trait ne finit entre eux. Un tuyau exporté
      en nombreux morceaux est donc coupé lui aussi.
-   - Deux libellés qui diffèrent au même endroit du tronçon (à moins de 7 pt l'un de
-     l'autre le long du tuyau, l'un au-dessus et l'autre en dessous par exemple) ne
-     disent pas où couper : ce morceau garde un DN vide (« à revoir ») et aucun DN ne
-     lui est donné. Un DN propagé le traverse vers les tronçons suivants.
-   - Ces valeurs passent aux tronçons raccordés, du plus proche au plus loin :
+   - Des libellés à moins de 7 pt l'un de l'autre le long du tuyau (l'un au-dessus et
+     l'autre en dessous par exemple) sont au même endroit : le tronçon n'est jamais
+     coupé entre eux. S'ils diffèrent, le morceau qui les porte garde un DN vide
+     (« à revoir ») et aucun DN ne lui est donné ; un DN propagé le traverse vers les
+     tronçons suivants. Le tronçon reste coupé entre cet endroit et un libellé clair
+     plus loin, qui garde sa section.
+   - Ces valeurs passent aux tronçons raccordés, du plus proche au plus loin (en
+     raccords). Un DN porte le réseau que son libellé nomme : « EU - PVC DN 40 » sur un
+     tronçon EU/EV passe aux tronçons EU, jamais aux EV. De deux libellés aussi proches
+     d'un tronçon, celui de son propre réseau l'emporte :
      - du même réseau ;
      - d'un réseau parent à un de ses membres et inversement : EU/EV avec EU ou EV,
        CHW, HW, GLY, HRC et CW avec leur départ ou leur retour (les familles du score) ;

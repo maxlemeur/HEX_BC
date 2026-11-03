@@ -45,15 +45,20 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // - a run whose labels disagree on DN, material or insulation (sections of one
 //   network touching end to end at a reducer) is cut between each two
 //   disagreeing labels: at the stroke end nearest their middle, or at that
-//   middle when no stroke ends between them. Two such labels within
-//   LABEL_CUT_MIN_PT along the run (printed at the same place) give no cut: the
-//   piece holding them keeps DN null (« conflict », « à revoir ») and is given
-//   no DN, but a DN passes through it to the runs beyond;
+//   middle when no stroke ends between them. Labels within LABEL_CUT_MIN_PT of
+//   each other along the run (printed at the same place) are one place, never
+//   cut apart: a place whose labels disagree leaves its piece DN null
+//   (« conflict », « à revoir »), given no DN but letting a DN pass through it
+//   to the runs beyond, and the run is still cut between that place and a
+//   clear label further along;
 // - DN and material go from labelled runs to connected runs (an end within
 //   JOIN_PT of another run) of the same network, or of a parent and one of its
 //   members (EUV and EU or EV, HW and HW-S or HW-R: PARENT_NETWORK), never
-//   between two members (EU and EV are two pipes), even through their parent;
-//   nearest label first; a run reached by none keeps DN null (« à revoir »).
+//   between two members (EU and EV are two pipes), even through their parent:
+//   a DN carries the network its label names (« EU - PVC DN 40 » on an EU/EV
+//   run reaches EU runs, never EV ones); nearest label first (in joins), and
+//   of labels as near, one naming the run's own network; a run reached by none
+//   keeps DN null (« à revoir »).
 //   A run of a shared legend colour takes the network of its component's
 //   labels among its candidates, else stays « à revoir ».
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
@@ -470,23 +475,32 @@ function disagree(labels: readonly Attachment[]) {
   return new Set(labels.map((entry) => valueOf(entry.block)).filter((value) => value !== null)).size > 1;
 }
 
+/** The distinct values (DN, material, insulation) of a cluster of DN-bearing labels, as one key. */
+const valuesOf = (cluster: readonly Attachment[]) => [...new Set(cluster.map((entry) => valueOf(entry.block)))].sort().join("|");
+
 /**
- * Runs cut where their labels change DN, material or insulation: between two disagreeing labels, at the stroke end
- * nearest the middle of the two labels, or at that middle when no stroke ends between them. Two labels within
- * LABEL_CUT_MIN_PT of each other along the run (printed at the same place), or a middle off the run, give no cut:
- * the piece holding them stays whole, « conflict ».
+ * Runs cut where their labels change DN, material or insulation. The DN-bearing labels are grouped by place: each
+ * within LABEL_CUT_MIN_PT of the previous one along the run (printed at the same place, above and below) is in its
+ * group. Between two consecutive groups of different values, the run is cut at the stroke end nearest the middle of
+ * their facing labels, or at that middle when no stroke ends between them (no cut when it falls off the run). A
+ * piece whose labels disagree (a group of two values) stays « conflict ».
  */
 function splitAtLabelChanges(runs: readonly Run[], labels: ReadonlyArray<readonly Attachment[]>) {
   const pieces: Array<{ run: Run; labels: Attachment[]; conflict: boolean }> = [];
   runs.forEach((run, id) => {
     const own = [...labels[id]].sort((left, right) => left.t - right.t);
-    const valued = own.filter((entry) => valueOf(entry.block) !== null);
+    const groups: Attachment[][] = [];
+    for (const entry of own) {
+      if (valueOf(entry.block) === null) continue;
+      const last = groups[groups.length - 1];
+      if (last && entry.t - last[last.length - 1].t <= LABEL_CUT_MIN_PT) last.push(entry);
+      else groups.push([entry]);
+    }
     const cuts: number[] = [];
-    for (let index = 1; index < valued.length; index += 1) {
-      const left = valued[index - 1], right = valued[index];
-      if (valueOf(left.block) === valueOf(right.block)) continue;
+    for (let index = 1; index < groups.length; index += 1) {
+      if (valuesOf(groups[index - 1]) === valuesOf(groups[index])) continue;
+      const left = groups[index - 1][groups[index - 1].length - 1], right = groups[index][0];
       const low = Math.max(left.t, run.a + RUN_GAP_PT), high = Math.min(right.t, run.b - RUN_GAP_PT);
-      if (right.t - left.t <= LABEL_CUT_MIN_PT) continue;
       const middle = (left.t + right.t) / 2;
       const between = places(run.breaks.filter((value) => value > low && value < high));
       const cut = between.length === 0 ? middle : between.reduce((best, value) => (Math.abs(value - middle) < Math.abs(best - middle) ? value : best));
@@ -613,11 +627,12 @@ export function measureNetworks(input: {
     if (run.network === null && decided !== null && run.candidates.includes(decided)) run.network = decided;
   });
   // DN and material: from labelled runs to connected runs of the same network, or of a parent and its members
-  // (never two members, even through their parent's run), nearest first (breadth first). A conflict run keeps
-  // DN null but lets the DN pass on to the runs beyond it.
+  // (never two members, even through their parent's run: a DN carries its label's network), nearest first
+  // (breadth first, one join at a time; of the DN reaching a run at once, one of the run's own network first).
+  // A conflict run keeps DN null but lets the DN pass on to the runs beyond it.
   type Carried = { network: NetworkCode | null; dn: number; material: MaterialCode | null; insulated: boolean; label: string };
   const reached = new Uint8Array(result.length);
-  const queue: Array<{ id: number; carried: Carried }> = [];
+  let frontier: Array<{ id: number; carried: Carried }> = [];
   for (const [id, block] of labelled) {
     const run = result[id];
     if (block.label.dn === null || run.attached === "conflict") continue;
@@ -627,26 +642,31 @@ export function measureNetworks(input: {
     run.label = block.text;
     run.attached = "label";
     reached[id] = 1;
-    queue.push({ id, carried: { network: run.network, dn: run.dn, material: run.material, insulated: run.insulated, label: block.text } });
+    frontier.push({ id, carried: { network: block.label.network ?? run.network, dn: run.dn, material: run.material, insulated: run.insulated,
+      label: block.text } });
   }
-  for (let head = 0; head < queue.length; head += 1) {
-    const { id: current, carried } = queue[head];
-    for (const next of neighbours[current]) {
-      const run = result[next];
-      if (reached[next] || !joins(result[current].network, run.network) || !joins(carried.network, run.network)) continue;
-      if (run.attached === "conflict") {
-        reached[next] = 1;
-        queue.push({ id: next, carried });
-        continue;
+  while (frontier.length > 0) {
+    const offers = new Map<number, Carried>();
+    for (const { id: current, carried } of frontier) {
+      for (const next of neighbours[current]) {
+        const run = result[next];
+        if (reached[next] || (run.attached !== null && run.attached !== "conflict")) continue;
+        if (!joins(result[current].network, run.network) || !joins(carried.network, run.network)) continue;
+        const known = offers.get(next);
+        if (!known || (known.network !== run.network && carried.network === run.network)) offers.set(next, carried);
       }
-      if (run.attached !== null) continue;
+    }
+    frontier = [];
+    for (const [next, carried] of offers) {
+      const run = result[next];
       reached[next] = 1;
+      frontier.push({ id: next, carried });
+      if (run.attached === "conflict") continue;
       run.dn = carried.dn;
       run.material = carried.material;
       run.insulated = carried.insulated;
       run.label = carried.label;
       run.attached = "propagated";
-      queue.push({ id: next, carried });
     }
   }
   const totals = new Map<string, MeasuredNetwork>();
