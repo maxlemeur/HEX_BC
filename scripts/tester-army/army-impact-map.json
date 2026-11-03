@@ -140,7 +140,7 @@
     "e2e.resend-portal.config.ts",
     "e2e/polish/**",
     "e2e/army/*.e2e.ts",
-    "e2e/army/{development,extended,local,performance,polish,takeoff}/**",
+    "e2e/army/{development,extended,local,performance,polish,takeoff}/**/*.ts",
     "e2e/fixtures/{autosave-navigation,catalogue-offer,ui-polish}.tsx",
     "e2e/fixtures/sample.csv",
     "e2e/fixtures/.gitignore"
@@ -940,13 +940,16 @@
     },
     {
       "id": "takeoff-lab-vectors",
-      "note": "Labo métré, écran Vecteurs et tâche « classe de calque » (TI-662) : lecture par mots-clés, classement Decisions des groupes de tracés en fixture et mesure, parcours VEC01 de chatgpt-local.e2e.ts ; refus d'accès dans LAB03.",
+      "note": "Labo métré, écran Vecteurs et tâche « classe de calque » (TI-662) : lecture par mots-clés, classement Decisions des groupes de tracés en fixture et mesure, parcours VEC01 de chatgpt-local.e2e.ts, qui juge aussi l'essai sur l'écran Verdicts par les routes de campagne ; refus d'accès dans LAB03.",
       "paths": [
         "src/app/dashboard/admin/takeoff/lab/vectors/**",
         "src/app/api/admin/takeoff/lab/vectors/**",
         "src/components/takeoff/lab/LabVectorsScreen.tsx",
         "src/components/takeoff/lab/LabPdfCanvas.tsx",
         "src/components/takeoff/lab/LabResultColumn.tsx",
+        "src/components/takeoff/lab/LabVerdictsScreen.tsx",
+        "src/app/dashboard/admin/takeoff/lab/verdicts/**",
+        "src/app/api/admin/takeoff/lab/campaigns/**",
         "src/lib/takeoff/lab/vectors.ts",
         "src/lib/takeoff/lab/tasks.ts",
         "src/lib/takeoff/lab/runs.ts",

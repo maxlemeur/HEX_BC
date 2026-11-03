@@ -303,6 +303,21 @@ describe("TesterArmy critical impact map", () => {
       .toEqual([map.suite.setup, map.suite.anchor, "e2e/army/critical/auth-rejection.e2e.ts"].sort());
   });
 
+  it("selects the journeys of the lab's Verdicts screen and of the provider fixtures the local server preloads", () => {
+    // TI-662 review: VEC01 (chatgpt-local.e2e.ts) judges a run on the Verdicts screen through the campaign routes.
+    const chatgptLocal = "e2e/army/local/chatgpt-local.e2e.ts";
+    const takeoffLab = "e2e/army/local/takeoff-lab.e2e.ts";
+    const verdicts = ["src/components/takeoff/lab/LabVerdictsScreen.tsx", "src/app/dashboard/admin/takeoff/lab/verdicts/page.tsx",
+      ...files.filter((file) => file.startsWith("src/app/api/admin/takeoff/lab/campaigns/") && file.endsWith("/route.ts"))];
+    expect(verdicts.length).toBeGreaterThanOrEqual(5);
+    for (const file of verdicts) expect(select([file]).files, file).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
+    // Preloaded with NODE_OPTIONS --import (no import names them): their rule, not the nonRuntime journey folders, decides.
+    expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).files).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
+    expect(select(["e2e/army/local/profile-provider-fixture.mjs"]).files).toContain("e2e/army/local/profile-polish.e2e.ts");
+    // The helpers of those folders stay non-runtime themselves: their importing journeys select them.
+    expect(select(["e2e/army/local/takeoff-lab-support.ts"]).files).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
+  });
+
   it("runs every takeoff journey a pull request reaches, and all of them when unsure", () => {
     const all = [map.suite.setup, ...map.fullOnly.journeys].sort();
 
