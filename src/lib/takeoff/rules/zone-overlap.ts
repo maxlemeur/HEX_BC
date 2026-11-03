@@ -156,14 +156,18 @@ function continues(a: Centreline, b: Centreline, gap: number) {
   return lateral(b[0], b[1]) <= distance + EPSILON_M && lateral(b[2], b[3]) <= distance + EPSILON_M;
 }
 
+/** A covered stretch: on centreline `segment` of the line, from `lo` to `hi` metres along it, and its ends. */
+type Stretch = { segment: number; lo: number; hi: number; at: Centreline };
+
 /**
- * Total length of the continuous stretches at least `minimum` long: covered stretches that continue one another
- * (continues, with a gap under `minimum`) are one stretch, so a run drawn in short legs or dashes keeps its length
- * and touches at the zone limit never add up.
+ * The covered stretches that belong to a continuous stretch at least `minimum` long: covered stretches that continue
+ * one another (continues, with a gap under `minimum`) are one stretch, so a run drawn in short legs or dashes keeps
+ * its length and touches at the zone limit never add up.
  */
-function continuousLength(stretches: readonly Centreline[], minimum: number) {
-  const lengths = stretches.map(([x0, y0, x1, y1]) => Math.hypot(x1 - x0, y1 - y0));
-  if (minimum <= 0) return lengths.reduce((sum, length) => sum + length, 0);
+function continuous(covered: readonly Stretch[], minimum: number): Stretch[] {
+  if (minimum <= 0) return [...covered];
+  const stretches = covered.map((entry) => entry.at);
+  const lengths = covered.map((entry) => entry.hi - entry.lo);
   const parent = stretches.map((_, index) => index);
   const find = (index: number): number => {
     while (parent[index] !== index) index = parent[index] = parent[parent[index]];
@@ -196,15 +200,24 @@ function continuousLength(stretches: readonly Centreline[], minimum: number) {
   });
   const totals = new Map<number, number>();
   lengths.forEach((length, index) => totals.set(find(index), (totals.get(find(index)) ?? 0) + length));
-  return [...totals.values()].filter((length) => length + EPSILON_M >= minimum).reduce((sum, length) => sum + length, 0);
+  return covered.filter((_, index) => (totals.get(find(index)) ?? 0) + EPSILON_M >= minimum);
+}
+
+/** Length of the union of stretches, centreline by centreline (two partners covering one stretch count it once). */
+function unionLength(stretches: readonly Stretch[]) {
+  const bySegment = new Map<number, Array<[number, number]>>();
+  for (const { segment, lo, hi } of stretches) bySegment.set(segment, [...(bySegment.get(segment) ?? []), [lo, hi]]);
+  let total = 0;
+  for (const intervals of bySegment.values()) for (const [lo, hi] of union(intervals)) total += hi - lo;
+  return total;
 }
 
 /** Stretches of `line` covered by `other` (one direction), both already in one frame. */
-function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Centreline[] {
+function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Stretch[] {
   const { distance_m: distance, angle_deg: angle } = ZONE_OVERLAP;
   const sinMax = Math.sin((angle * Math.PI) / 180);
-  const stretches: Centreline[] = [];
-  for (const segment of line) {
+  const stretches: Stretch[] = [];
+  for (const [index, segment] of line.entries()) {
     const [x0, y0, x1, y1] = segment;
     const length = Math.hypot(x1 - x0, y1 - y0);
     if (length === 0) continue;
@@ -226,7 +239,9 @@ function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Cent
       if (Math.abs(at(lo)) > distance || Math.abs(at(hi)) > distance) continue;
       intervals.push([lo, hi]);
     }
-    for (const [lo, hi] of union(intervals)) stretches.push([x0 + ux * lo, y0 + uy * lo, x0 + ux * hi, y0 + uy * hi]);
+    for (const [lo, hi] of union(intervals)) {
+      stretches.push({ segment: index, lo, hi, at: [x0 + ux * lo, y0 + uy * lo, x0 + ux * hi, y0 + uy * hi] });
+    }
   }
   return stretches;
 }
@@ -241,24 +256,28 @@ export function commonLength(left: OverlapLine, leftTransform: TakeoffFrameTrans
   const b = transformed(right.segments, rightTransform);
   if (a.length === 0 || b.length === 0) return 0;
   const cell = 1;
-  const forward = continuousLength(coveredStretches(a, new SegmentGrid(b, cell)), minimum);
+  const forward = unionLength(continuous(coveredStretches(a, new SegmentGrid(b, cell)), minimum));
   if (forward === 0) return 0;
-  const backward = continuousLength(coveredStretches(b, new SegmentGrid(a, cell)), minimum);
+  const backward = unionLength(continuous(coveredStretches(b, new SegmentGrid(a, cell)), minimum));
   return Math.round(Math.min(forward, backward) * 1000) / 1000;
 }
 
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
 
 /**
- * Length of `line` covered by any of `others`, all brought into the common frame by their page transforms: the
- * continuous stretches of at least `minimum`.
+ * Length of `line` covered by any of `others`, all brought into the common frame by their page transforms: for each
+ * other line, the continuous stretches of at least its pair's `minimum` (minCommonLength of their two pages), then
+ * their union. A coarser partner never raises the minimum of another pair.
  */
 export function coveredBy(line: OverlapLine, transform: TakeoffFrameTransform,
-  others: ReadonlyArray<{ line: OverlapLine; transform: TakeoffFrameTransform }>, minimum = 0): number {
+  others: ReadonlyArray<{ line: OverlapLine; transform: TakeoffFrameTransform; minimum?: number }>): number {
   const own = transformed(line.segments, transform);
-  const segments = others.flatMap((other) => transformed(other.line.segments, other.transform));
-  if (own.length === 0 || segments.length === 0) return 0;
-  return Math.round(continuousLength(coveredStretches(own, new SegmentGrid(segments, 1)), minimum) * 1000) / 1000;
+  if (own.length === 0) return 0;
+  const kept = others.flatMap((other) => {
+    const segments = transformed(other.line.segments, other.transform);
+    return segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), other.minimum ?? 0);
+  });
+  return Math.round(unionLength(kept) * 1000) / 1000;
 }
 
 /**

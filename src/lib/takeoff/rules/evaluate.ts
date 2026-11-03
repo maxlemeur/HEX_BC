@@ -402,9 +402,10 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     const partnersOf = (id: string, includedOnly: boolean) => pairs.filter((pair) => pair.left === id || pair.right === id)
       .map((pair) => byId.get(pair.left === id ? pair.right : pair.left) as ZoneLine)
       .filter((other) => !includedOnly || !other.is_excluded);
-    // What partners cover of a line: its continuous stretches of at least the minimum common length of their pages.
+    // What partners cover of a line: with each partner, its continuous stretches of at least that pair's minimum.
     const coveredOf = (line: ZoneLine, partners: readonly ZoneLine[]) => coveredBy(overlapLine(line).line, transformOf(line),
-      partners.map(overlapLine), minCommonLength([line, ...partners].map((other) => pages.get(other.page_key)?.denominator)));
+      partners.map((other) => ({ ...overlapLine(other),
+        minimum: minCommonLength([pages.get(line.page_key)?.denominator, pages.get(other.page_key)?.denominator]) })));
     // Groups of duplicates: included lines joined by pairs. A stretch drawn on k pages counts k − 1 times too many.
     const parent = new Map<string, string>();
     const find = (id: string): string => {
