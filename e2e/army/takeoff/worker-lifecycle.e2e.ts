@@ -305,7 +305,7 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
     { designation: "ARMY worker valve", quantity: 3, unit: "u", source_file_name: fileName, source_page: 1, is_excluded: false, exclusion_reason: null },
     ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml", source_file_name: fileName, source_page: 1,
       is_excluded: true, exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." })),
-    // The room: its closed polygon's area (4.00 × 3.50 m), never the printed 13.62 m².
+    // The room: its closed polygon's area (4.00 × 3.50 m), never the printed 13.80 m².
     { designation: VECTOR_PLAN.room.designation, quantity: VECTOR_PLAN.room.area_m2, unit: "m2", source_file_name: fileName, source_page: 1,
       is_excluded: true, exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." },
   ]);
@@ -349,7 +349,7 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   const left = metres(VECTOR_PLAN.room.x), bottom = metres(841.89 - VECTOR_PLAN.room.y);
   expect(room.geometry.polygon_m!.map((value) => Math.round(value * 100) / 100)).toEqual([left, bottom, left + 4, bottom, left + 4, bottom - 3.5, left, bottom - 3.5, left, bottom]
     .map((value) => Math.round(value * 100) / 100));
-  expect(page.reading.surfaces).toEqual([{ room: VECTOR_PLAN.room.room, printed_m2: VECTOR_PLAN.room.printed_m2, polygon_m2: VECTOR_PLAN.room.area_m2, deviation: 0.0279 }]);
+  expect(page.reading.surfaces).toEqual([{ room: VECTOR_PLAN.room.room, printed_m2: VECTOR_PLAN.room.printed_m2, polygon_m2: VECTOR_PLAN.room.area_m2, deviation: 0.0145 }]);
 
   // The review viewer: plan, scale, detection, networks and their toggles.
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);

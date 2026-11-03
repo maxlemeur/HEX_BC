@@ -6,7 +6,7 @@ import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 import { groupId, type PageModel } from "@/lib/takeoff/vectors/page-model";
 
 // Room surfaces of a page (TI-662 step 4). The area of the smallest closed
-// stroked polygon around the room's printed surface (« Infirmerie 13.62m² »,
+// stroked polygon around the room's printed surface (« Local fictif 13.80m² »,
 // or a label line above « 84.95 m² ») × scale² is the measure; the printed
 // surface is its control, never the quantity nor its fallback: a room with
 // neither a closed polygon nor a valid fill between walls (below) has no
