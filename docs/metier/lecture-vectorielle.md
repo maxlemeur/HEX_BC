@@ -1,0 +1,99 @@
+# Lecture vectorielle des plans (métré L3)
+
+La lecture vectorielle mesure les réseaux et les surfaces de pièces à partir des
+tracés et du texte du PDF, sans modèle. Elle est déterministe : la même page donne
+toujours les mêmes groupes, la même échelle et les mêmes longueurs.
+
+Le code est dans [`src/lib/takeoff/vectors/`](../../src/lib/takeoff/vectors/).
+Le banc la mesure avec `npm run takeoff:bench -- --pipeline vector`
+([`vector-run.ts`](../../src/lib/takeoff/bench/vector-run.ts)).
+
+Les seuils ci-dessous sont des valeurs de départ. Max peut les changer : chacun
+est une constante nommée et versionnée dans le code.
+
+## Étapes
+
+1. **Extraction** ([`extraction.ts`](../../src/lib/takeoff/vectors/extraction.ts)).
+   - pdfjs lit la page dans un processus séparé. Ce processus est tué après 15 s :
+     la page échoue alors explicitement et rien n'est mesuré.
+   - On garde :
+     - les tracés peints en trait, avec leur couleur, leur épaisseur, leur tiret et
+       leur calque ;
+     - les textes, avec leur position.
+   - Les surfaces seulement remplies et les tracés de détourage ne sont pas mesurés.
+2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
+   - Un groupe est un calque quand la page en a, sinon une couleur avec son
+     épaisseur et son tiret.
+   - Couleur quasi blanche : luminosité ≥ 0,75 et saturation < 0,25, ou luminosité
+     ≥ 0,93.
+   - Couleur grise : saturation < 0,1.
+   - Un groupe quasi blanc ou gris n'est jamais classé réseau par mot-clé.
+3. **Échelle** ([`scale.ts`](../../src/lib/takeoff/vectors/scale.ts)), page par page.
+   - On lit l'échelle du cartouche (« Échelle 1/50 »).
+   - On la contrôle par une cote : un nombre au-dessus d'une ligne dont les deux
+     extrémités sont barrées.
+     - L'unité est le mètre si le nombre a des décimales, le millimètre sinon.
+     - La cote est incohérente au-delà de max(2 %, une demi-unité d'arrondi).
+   - Statut de la page :
+     - **vérifiée** : au moins une cote cohérente, aucune incohérente ;
+     - **format** : aucune cote, et le format du cartouche est celui de la page ;
+     - **calibrée** : la page a une calibration (`conventions.calibration` ; au banc,
+       `truth/groups/<id>.json`) ;
+     - **non vérifiée** : pas d'échelle, échelle ambiguë, cote incohérente, ou aucune
+       cote alors que le format diffère. La raison est donnée.
+   - Une page non vérifiée ne donne ni longueur ni surface. Les comptages restent
+     possibles.
+4. **Classement** ([`classify.ts`](../../src/lib/takeoff/vectors/classify.ts),
+   [`vocabulary.ts`](../../src/lib/takeoff/vectors/vocabulary.ts),
+   [`legend.ts`](../../src/lib/takeoff/vectors/legend.ts)). Mots-clés d'abord :
+   - **calque** : son nom est découpé sur « _ », les espaces, « - » et « / ». Les codes
+     génériques (EF, ECS, EU, EV, EP, VP, CHW…) donnent le réseau. S, A, D ou R donnent
+     le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes ;
+   - **légende** : un code seul, avec les tracés dessinés sur sa ligne, donne la couleur
+     du réseau.
+     - Les teintes de cette couleur (mêlée de blanc à 10 – 85 %) et ses ombres (de noir
+       à 10 – 60 %) suivent.
+     - Une couleur partagée par EU et EU/EV donne EUV. Une couleur partagée par deux
+       réseaux distincts reste « à revoir » ; les libellés la tranchent tronçon par
+       tronçon ;
+   - **libellés** : une couleur sans légende prend le réseau de ses libellés. Il faut au
+     moins 2 libellés, d'accord à 80 %, dont la ligne de rappel finit sur elle.
+
+   Viennent ensuite les correspondances de l'utilisateur (au banc, celles de
+   `truth/groups`), puis Decisions pour les groupes restés sans classe (étape à venir).
+
+   Le badge « Détection X % » vaut la longueur classée divisée par la longueur des
+   tracés de la page hors quasi-blancs.
+5. **Mesure** ([`measure.ts`](../../src/lib/takeoff/vectors/measure.ts)).
+   - Un tuyau est dessiné en bande : deux contours et des teintes. La mesure prend son
+     axe :
+     - traits parallèles (à 0,5° près), regroupés tant qu'ils sont à moins de 2,5 pt
+       l'un de l'autre, dans une bande de 7 pt au plus ;
+     - intervalles fusionnés au-delà des trous de 1 pt au plus ;
+     - un trait en double ne compte qu'une fois.
+   - Les embouts et les manchons posés en travers d'une bande ne comptent pas.
+   - Ne sont pas mesurés : les échantillons de la légende et les cadres de détail. Un
+     cadre de détail est un rectangle sombre qui contient des réseaux mais presque pas
+     de fond de plan.
+   - Le DN, le matériau et le calorifuge viennent du libellé :
+     - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe ;
+     - sinon par sa position, parallèle au tuyau.
+   - Ces valeurs passent aux tronçons raccordés du même réseau, du plus proche au plus
+     loin. Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à
+     revoir »).
+   - Longueur réelle = longueur sur la feuille (mm) × dénominateur de l'échelle.
+6. **Surfaces** ([`surfaces.ts`](../../src/lib/takeoff/vectors/surfaces.ts)).
+   - La mesure est l'aire du plus petit polygone fermé autour de la surface imprimée
+     d'une pièce, × échelle².
+   - La surface imprimée sert de contrôle, jamais de repli : une pièce sans polygone
+     fermé n'a pas d'aire mesurée. Elle est comptée au rapport.
+7. **Page raster.** Quand des images couvrent au moins 90 % de la page, ses vecteurs
+   ne mesurent pas ses réseaux. La lecture niveau C reste la source.
+
+## Score au banc
+
+Le banc note les items vectoriels avec le scoreur du niveau C (TI-660).
+
+Depuis la version 3 du score, un item EU ou EV compte sur une clé EUV, et un départ ou
+un retour sur sa clé confondue (CHW, HW, GLY, HRC, CW). Cela ne vaut que si le
+périmètre chiffre le parent et jamais le membre. RECS ne compte jamais sur ECS.

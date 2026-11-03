@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { assertLocalChatGptOverride, callLocalChatGptStructured, type LocalChatGptOverride } from "@/lib/ai/chatgpt-local-inference";
 import { readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "@/lib/takeoff/bench/args";
-import { BenchDatasetError, loadBenchDataset } from "@/lib/takeoff/bench/dataset";
-import { buildBenchReport, renderBenchReportMarkdown, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
+import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
+import { buildBenchReport, renderBenchReportMarkdown, type BenchReport, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import {
   classifyCallError,
   describeError,
@@ -20,7 +21,18 @@ import {
   type RequestedCouple,
   type StopReason,
 } from "@/lib/takeoff/bench/run";
-import { buildScoreScopes } from "@/lib/takeoff/bench/score";
+import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
+import { compareVectorWithBaseline, renderVectorSections, vectorTimings } from "@/lib/takeoff/bench/vector-report";
+import { runVectorBench } from "@/lib/takeoff/bench/vector-run";
+import { getPdfPageCount } from "@/lib/takeoff/chunking";
+import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
+import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
+import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
+import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
+import { RASTER_COVERAGE, VECTOR_READING_VERSION } from "@/lib/takeoff/vectors/pipeline";
+import { COTE_RELATIVE_TOLERANCE, FORMAT_TOLERANCE, SCALE_RULE_VERSION } from "@/lib/takeoff/vectors/scale";
+import { SURFACE_RULE_VERSION } from "@/lib/takeoff/vectors/surfaces";
+import type { TakeoffItem } from "@/lib/takeoff/types";
 
 // `npm run takeoff:bench -- --dataset <dir> --docs <ids|all> --models <...> --efforts <...> [--repeat <n>] --out <run_path>`
 // (TI-660): the production level C reading of the private bench plans through the
@@ -38,6 +50,10 @@ import { buildScoreScopes } from "@/lib/takeoff/bench/score";
 // Exit 0: complete run, whatever the score. 1: bench error (usage, dataset,
 // crash). 2: stopped by ChatGPT (quota, rate limit, authorisation, missing
 // account or model, changed profile), with a partial report.
+// `--pipeline vector` (TI-662): the vector reading of the same plans, no model
+// and no owner; `--baseline <report.json>` re-scores a level C report with the
+// current scorer, compares both (report.json `comparison`), and stands for the
+// raster pages (pipeline step 5). Exit 0 or 1 only.
 
 const SCRIPT_ROOT = path.resolve(import.meta.dirname, "..");
 const REPORT_FILES = ["report.json", "report.md"] as const;
@@ -136,11 +152,97 @@ async function preflight(owner: ChatGptOwner, plans: PlannedDocument[], requeste
   return { profile, couples, overrides };
 }
 
+function vectorRules() {
+  return {
+    extraction: { version: VECTOR_EXTRACTION_VERSION, timeout_ms_per_page: VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, heap_mb: VECTOR_EXTRACTION_HEAP_MB,
+      limits: VECTOR_EXTRACTION_LIMITS },
+    reading: { version: VECTOR_READING_VERSION, raster_coverage: RASTER_COVERAGE },
+    scale: { version: SCALE_RULE_VERSION, cote_relative_tolerance: COTE_RELATIVE_TOLERANCE, format_tolerance: FORMAT_TOLERANCE },
+    legend: { version: LEGEND_RULE_VERSION, tint_tolerance: TINT_TOLERANCE },
+    measure: { version: MEASURE_RULE_VERSION, band_gap_pt: BAND_GAP_PT, band_max_pt: BAND_MAX_PT, run_gap_pt: RUN_GAP_PT, join_pt: JOIN_PT,
+      leader_reach_pt: LEADER_REACH_PT },
+    surfaces: { version: SURFACE_RULE_VERSION },
+    items: { version: VECTOR_ITEMS_VERSION },
+  };
+}
+
+type BaselineJson = Pick<BenchReport, "status" | "stop" | "calls_planned" | "calls_done" | "metadata" | "couples">;
+
+/** The level C report a vector run compares with: its run, re-scored by the current scorer on the current scopes. */
+async function readBaseline(file: string) {
+  const bytes = await readFile(file);
+  const json = JSON.parse(bytes.toString("utf8")) as BaselineJson;
+  if (!Array.isArray(json.couples) || json.couples.length !== 1 || !Array.isArray(json.couples[0].passes)) {
+    throw new BenchRefusal(`--baseline ${file}: a takeoff:bench report with one couple is expected.`);
+  }
+  const run: BenchRunResult = {
+    status: json.status, stop: json.stop, calls_planned: json.calls_planned, calls_done: json.calls_done,
+    couples: json.couples.map((couple) => ({
+      model: couple.model, reasoning_effort: couple.reasoning_effort, override: couple.override, prompt_version: couple.prompt_version,
+      passes: couple.passes.map((pass) => ({ pass: pass.pass, complete: pass.complete, documents: pass.documents })),
+    })),
+  };
+  return { file, sha256: createHash("sha256").update(bytes).digest("hex"), metadata: json.metadata, run };
+}
+
+async function mainVector(args: Extract<ReturnType<typeof parseBenchArgs>, { pipeline: "vector" }>) {
+  assertOwnCode();
+  await assertOutput(args.out);
+  const startedAt = new Date().toISOString();
+  // A load file without truth (TI-662 load criterion) runs unscored.
+  const dataset: BenchDataset = await loadBenchDataset(args.dataset, args.docs, { unscored: true });
+  const scopes: ScoreScope[] = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
+  const baseline = args.baseline ? await readBaseline(path.resolve(args.baseline)) : null;
+  const baselinePasses = baseline?.run.couples[0]?.passes ?? [];
+  const rasterFallback = baseline ? (document: string, pass: number): TakeoffItem[] | null => {
+    if (baselinePasses.length === 0) return null;
+    const source = baselinePasses[(pass - 1) % baselinePasses.length];
+    return source.documents.find((entry) => entry.id === document && entry.complete)?.items ?? null;
+  } : undefined;
+  const documents = [];
+  for (const { document, bytes } of dataset.selected) {
+    const copy = new Uint8Array(bytes);
+    documents.push({ id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
+      bytes: copy, sha256: document.sha256 as string, pages: await getPdfPageCount(copy.slice().buffer) });
+  }
+  const result = await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, log: (line) => console.error(line) });
+  const status = git(["status", "--porcelain"]);
+  const metadata: BenchReportMetadata = {
+    started_at: startedAt, finished_at: new Date().toISOString(),
+    command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)], cwd: process.cwd(),
+    env: Object.fromEntries(RUN_ENV.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]]))),
+    node: process.version, commit: git(["rev-parse", "HEAD"]), dirty: status === null ? null : status.length > 0,
+    dataset: {
+      sha256: dataset.sha256,
+      documents: dataset.selected.map(({ document }) => ({
+        id: document.id, lot: document.lot, role: document.role, sha256: document.sha256 as string, bytes: document.file_size as number, pages: document.pages,
+      })),
+      skipped: dataset.skipped,
+    },
+    profile: { model: null, reasoning_effort: null, unchanged: null },
+  };
+  const report = buildBenchReport({ metadata, run: result.run, scopes, noise: dataset.noise, pipeline: "vector", vectorRules: vectorRules() });
+  const baselineReport = baseline ? buildBenchReport({ metadata: baseline.metadata, run: baseline.run, scopes, noise: dataset.noise }) : null;
+  const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport) : null;
+  const full = {
+    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes) }, comparison,
+    baseline: baseline ? { file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256 } : null,
+  };
+  await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
+  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison).join("\n")}\n`;
+  await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
+  console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
+}
+
 async function main() {
   if (process.env.CI !== undefined || process.env.VERCEL !== undefined) {
     throw new BenchRefusal("takeoff:bench refuses to start with CI or VERCEL set: it reads private plans through a local ChatGPT profile.");
   }
   const args = parseBenchArgs(process.argv.slice(2));
+  if (args.pipeline === "vector") {
+    await mainVector(args);
+    return;
+  }
   const owner = parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
   assertOwnCode();
   await assertOutput(args.out);

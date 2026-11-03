@@ -18,6 +18,9 @@ import { toUnitToken } from "@/lib/takeoff/units";
 //   (document, or page range by source_page); a zone the manifest cannot give
 //   is reported, never guessed. A truth without zone (or level) adds the items
 //   of all its documents, whatever their zone (or level).
+// - Confounded networks (v3): an EU or EV item counts on an EUV key, a supply
+//   or return item on its CHW, HW, GLY, HRC or CW key, in a scope that prices
+//   the parent and never the member (CONFOUNDED_NETWORKS).
 // - DN: a key whose material has a series matches an item that shares one of
 //   its entries (diameters.ts); a key without series (a count, an insulation)
 //   matches only an item that names its size (sameSizeWithoutSeries), never
@@ -52,7 +55,20 @@ import { toUnitToken } from "@/lib/takeoff/units";
 // - Causes count once per key and per unpaired false-positive group, unpaired
 //   unreadable items making one group per reason.
 
-export const SCORE_VERSION = 2;
+export const SCORE_VERSION = 3;
+
+/**
+ * Networks a confounded truth key collects (score v3, TI-662): a devis that
+ * prices EU and EV together (EUV), or supply and return together (CHW, HW,
+ * GLY, HRC, CW), while the plan draws and labels them apart. An item of a
+ * member network is read as its parent only in a scope that has a key of the
+ * parent and none of the member: a scope pricing EU apart keeps its EU items.
+ * RECS is never ECS (a return loop is priced apart).
+ */
+export const CONFOUNDED_NETWORKS: Partial<Record<NetworkCode, NetworkCode>> = {
+  EU: "EUV", EV: "EUV", "CHW-S": "CHW", "CHW-R": "CHW", "HW-S": "HW", "HW-R": "HW", "GLY-S": "GLY", "GLY-R": "GLY",
+  "HRC-S": "HRC", "HRC-R": "HRC", "CW-S": "CW", "CW-R": "CW",
+};
 
 export const BENCH_TOLERANCES: Record<ScoredUnit, { absolute: number; relative: number }> = {
   u: { absolute: 0, relative: 0 },
@@ -464,6 +480,13 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
   }
 
   const rooms = [...new Set(keys.filter((key) => key.label.room !== null).map((key) => key.label.room as string))];
+  const scopeNetworks = new Set(keys.map((key) => key.label.network).filter((network): network is NetworkCode => network !== null));
+  const rollUp = (network: NetworkCode | null) => {
+    const parent = network === null ? undefined : CONFOUNDED_NETWORKS[network];
+    return parent && network !== null && !scopeNetworks.has(network) && scopeNetworks.has(parent) ? parent : network;
+  };
+  const rolledUp = <T extends { kind: LineKind; network: NetworkCode | null }>(key: T): T =>
+    (key.kind === "network" ? { ...key, network: rollUp(key.network) } : key);
   const attachedByKey = new Map<string, AttachedItem[]>(keys.map((key) => [key.id, []]));
   const unmatched: AttachedItem[] = [];
   const unreadable: UnreadableItem[] = [];
@@ -496,14 +519,16 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       }
       const located = locate(document, item.source_page, zones, levels);
       if (reading.status === "unreadable") {
-        addUnreadable(reading.reason, entry, located === null ? null : { ...reading.key, ...located }, reading.among);
+        const among = reading.reason === "network_missing" || reading.reason === "network_ambiguous"
+          ? [...new Set(reading.among.map((network) => rollUp(network as NetworkCode) as string))] : reading.among;
+        addUnreadable(reading.reason, entry, located === null ? null : rolledUp({ ...reading.key, ...located }), among);
         continue;
       }
       if (located === null) {
-        addUnreadable("zone_unresolved", entry, { ...reading.key, zone: null, level: null });
+        addUnreadable("zone_unresolved", entry, rolledUp({ ...reading.key, zone: null, level: null }));
         continue;
       }
-      const key: LocatedKey = { ...reading.key, ...located };
+      const key: LocatedKey = rolledUp({ ...reading.key, ...located });
       let candidates = keys.filter((truthKey) => sameKey(key, truthKey));
       if (candidates.length > 1) {
         const exact = key.dn === null ? "" : key.dn.entries.map(entryId).sort().join(",");

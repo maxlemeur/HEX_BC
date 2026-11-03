@@ -6,7 +6,8 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 // or repeated items. `--efforts auto` is the model's automatic effort (null).
 
 export const BENCH_USAGE = "Usage: npm run takeoff:bench -- --dataset <dir> --docs <ids|all> --models <model,...> "
-  + `--efforts <auto|${CHATGPT_REASONING_EFFORTS.join("|")},...> [--repeat <n>] --out <run_path>`;
+  + `--efforts <auto|${CHATGPT_REASONING_EFFORTS.join("|")},...> [--repeat <n>] --out <run_path>`
+  + "\n   or: npm run takeoff:bench -- --pipeline vector --dataset <dir> --docs <ids|all> [--baseline <report.json>] [--repeat <n>] --out <run_path>";
 
 export class BenchUsageError extends Error {
   constructor(message: string) {
@@ -17,16 +18,14 @@ export class BenchUsageError extends Error {
 
 export type BenchEffort = ChatGptReasoningEffort | null;
 
-export type BenchArgs = {
-  dataset: string;
-  docs: "all" | string[];
-  models: string[];
-  efforts: BenchEffort[];
-  repeat: number;
-  out: string;
-};
+type CommonArgs = { dataset: string; docs: "all" | string[]; repeat: number; out: string };
 
-const FLAGS = ["dataset", "docs", "models", "efforts", "repeat", "out"] as const;
+/** `--pipeline chatgpt` (default): the level C reading (TI-660). `--pipeline vector`: the vector reading (TI-662), no provider. */
+export type BenchArgs =
+  | (CommonArgs & { pipeline: "chatgpt"; models: string[]; efforts: BenchEffort[] })
+  | (CommonArgs & { pipeline: "vector"; baseline: string | null });
+
+const FLAGS = ["pipeline", "dataset", "docs", "models", "efforts", "baseline", "repeat", "out"] as const;
 type Flag = (typeof FLAGS)[number];
 
 function list(flag: Flag, value: string) {
@@ -66,13 +65,21 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
   if (docs.includes("all") && docs.length > 1) throw new BenchUsageError("--docs is all or a list of ids, not both.");
   const repeat = values.get("repeat") ?? "1";
   if (!/^[1-9]\d*$/.test(repeat)) throw new BenchUsageError("--repeat is a positive integer.");
+  const pipeline = values.get("pipeline") ?? "chatgpt";
+  if (pipeline !== "chatgpt" && pipeline !== "vector") throw new BenchUsageError(`Unknown pipeline ${pipeline} (chatgpt, vector).`);
+  const common = { dataset: required("dataset"), docs: docs[0] === "all" ? "all" as const : docs, repeat: Number(repeat), out: required("out") };
+  if (pipeline === "vector") {
+    for (const flag of ["models", "efforts"] as const) {
+      if (values.has(flag)) throw new BenchUsageError(`--${flag} is for the chatgpt pipeline: the vector pipeline calls no model.`);
+    }
+    return { pipeline, ...common, baseline: values.get("baseline") ?? null };
+  }
+  if (values.has("baseline")) throw new BenchUsageError("--baseline is for the vector pipeline.");
   return {
-    dataset: required("dataset"),
-    docs: docs[0] === "all" ? "all" : docs,
+    pipeline,
+    ...common,
     models: list("models", required("models")),
     efforts: list("efforts", required("efforts")).map(effort),
-    repeat: Number(repeat),
-    out: required("out"),
   };
 }
 

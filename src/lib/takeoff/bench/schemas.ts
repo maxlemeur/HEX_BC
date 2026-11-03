@@ -482,10 +482,23 @@ export const PageTruthFileSchema = z.looseObject({
   pages: z.array(z.looseObject({ page: z.number().int().min(1), type: Text })).min(1),
 });
 
+/**
+ * truth/groups/<id>.json (TI-662): document-specific correspondences, never in
+ * Git. `groups`: a group id of the vector reading (`oc:<layer id>` or
+ * `c:<#rrggbb>|w:<width>|d:<dash>`) and its class (a network code or mur,
+ * cloison, fond, cotation, texte, autre), checked by the user. `calibrations`:
+ * a page scale that stands for conventions.calibration (TI-662 §2) when the
+ * cartouche scale cannot be verified by a cote, with its provenance.
+ */
 export const GroupTruthFileSchema = z.looseObject({
   schema_version: z.literal(1),
   document: DocumentIdSchema,
   groups: z.array(z.looseObject({ page: z.number().int().min(1), group: Text, class: Text })),
+  calibrations: z.array(z.strictObject({
+    page: z.number().int().min(1),
+    denominator: z.number().finite().positive().max(100_000),
+    source: Text,
+  })).optional(),
 });
 
 export type ManifestDocument = z.infer<typeof ManifestDocumentSchema>;

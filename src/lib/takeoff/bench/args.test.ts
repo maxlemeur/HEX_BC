@@ -12,18 +12,30 @@ import { BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "
 // - --repeat is not a positive integer;
 // - the couples are not models x efforts in the order given, one at a time;
 // - an owner that is not <userId>:<tenantId> is accepted.
+// Ways the vector pipeline flag (TI-662) could start a run nobody asked for:
+// - the default pipeline is not chatgpt, or the result does not say which
+//   pipeline runs (the script would branch on a missing field);
+// - --pipeline vector accepts --models or --efforts, as if a model were called;
+// - --baseline is accepted for the chatgpt pipeline, where nothing reads it;
+// - an unknown pipeline is accepted (and silently run as one of the two);
+// - the vector pipeline starts without --dataset, --docs or --out;
+// - the --baseline value is lost, or a vector run without it gets a baseline
+//   instead of null; --pipeline or --baseline given twice or without value.
 
 const required = ["--dataset", "/fixture/dataset", "--docs", "all", "--models", "model-a", "--efforts", "auto", "--out", "/fixture/run"];
 
 describe("takeoff bench arguments", () => {
   it("reads the documents, models, efforts, passes and output, auto as null", () => {
     expect(parseBenchArgs(required)).toEqual({
-      dataset: "/fixture/dataset", docs: "all", models: ["model-a"], efforts: [null], repeat: 1, out: "/fixture/run",
+      pipeline: "chatgpt", dataset: "/fixture/dataset", docs: "all", models: ["model-a"], efforts: [null], repeat: 1, out: "/fixture/run",
     });
+    expect(parseBenchArgs(["--pipeline", "chatgpt", ...required])).toEqual(parseBenchArgs(required));
     expect(parseBenchArgs([
       "--dataset=/fixture/dataset", "--docs=a-plan-01,c-plan-01", "--models", "model-a,model-b", "--efforts", "none,max,auto",
       "--repeat", "3", "--out", "/fixture/run",
-    ])).toMatchObject({ docs: ["a-plan-01", "c-plan-01"], models: ["model-a", "model-b"], efforts: ["none", "max", null], repeat: 3 });
+    ])).toMatchObject({
+      pipeline: "chatgpt", docs: ["a-plan-01", "c-plan-01"], models: ["model-a", "model-b"], efforts: ["none", "max", null], repeat: 3,
+    });
   });
 
   it.each([
@@ -40,6 +52,36 @@ describe("takeoff bench arguments", () => {
     [[...required, "--repeat", "1.5"]],
     [[...required, "--repeat"]],
   ])("refuses %j", (args) => {
+    expect(() => parseBenchArgs(args)).toThrow(BenchUsageError);
+  });
+
+  const vector = ["--pipeline", "vector", "--dataset", "/fixture/dataset", "--docs", "a-plan-01,load-plan-01", "--out", "/fixture/run"];
+
+  it("reads a vector run without model nor effort, its baseline null unless given", () => {
+    expect(parseBenchArgs(vector)).toEqual({
+      pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 1, out: "/fixture/run", baseline: null,
+    });
+    expect(parseBenchArgs([...vector, "--baseline", "/fixture/baseline/report.json", "--repeat", "3"]))
+      .toEqual({ pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 3, out: "/fixture/run",
+        baseline: "/fixture/baseline/report.json" });
+    expect(parseBenchArgs(["--pipeline=vector", "--dataset=/fixture/dataset", "--docs=all", "--out=/fixture/run",
+      "--baseline=/fixture/baseline/report.json"])).toMatchObject({ pipeline: "vector", docs: "all", baseline: "/fixture/baseline/report.json" });
+  });
+
+  it.each([
+    ["--models on the vector pipeline", [...vector, "--models", "model-a"]],
+    ["--efforts on the vector pipeline", [...vector, "--efforts", "auto"]],
+    ["--baseline on the default chatgpt pipeline", [...required, "--baseline", "/fixture/baseline/report.json"]],
+    ["--baseline on an explicit chatgpt pipeline", ["--pipeline", "chatgpt", ...required, "--baseline", "/fixture/baseline/report.json"]],
+    ["an unknown pipeline", [...required, "--pipeline", "gemini"]],
+    ["an unknown pipeline without models", vector.map((value) => (value === "vector" ? "vectors" : value))],
+    ["a vector run without --dataset", vector.filter((_, index) => index !== 2 && index !== 3)],
+    ["a vector run without --docs", vector.filter((_, index) => index !== 4 && index !== 5)],
+    ["a vector run without --out", vector.slice(0, 6)],
+    ["--pipeline given twice", [...vector, "--pipeline", "vector"]],
+    ["--baseline without value", [...vector, "--baseline"]],
+    ["--baseline given twice", [...vector, "--baseline", "/fixture/a.json", "--baseline", "/fixture/b.json"]],
+  ])("refuses %s", (_case, args) => {
     expect(() => parseBenchArgs(args)).toThrow(BenchUsageError);
   });
 

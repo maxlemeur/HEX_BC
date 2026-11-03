@@ -4,9 +4,11 @@ import path from "node:path";
 
 import { checkTakeoffBenchDataset, formatBenchIssue } from "@/lib/takeoff/bench/check";
 import {
+  GroupTruthFileSchema,
   ManifestSchema,
   NoiseFileSchema,
   TruthFileSchema,
+  type GroupTruthFile,
   type ManifestDocument,
   type NoiseFile,
   type TakeoffBenchManifest,
@@ -34,6 +36,8 @@ export type BenchDataset = {
   manifest: TakeoffBenchManifest;
   truthFiles: ScoreTruthFile[];
   noise: NoiseFile | null;
+  /** truth/groups/<id>.json by document id (TI-662: correspondences and page calibrations). */
+  groups: Map<string, GroupTruthFile>;
   selected: Array<{ document: ManifestDocument; bytes: Buffer }>;
   skipped: Array<{ id: string; reason: string }>;
 };
@@ -88,7 +92,10 @@ async function readJson(root: string, file: string) {
   return JSON.parse(await readFile(path.join(root, file), "utf8")) as unknown;
 }
 
-export async function loadBenchDataset(datasetRoot: string, docs: "all" | readonly string[]): Promise<BenchDataset> {
+/**
+ * `unscored`: an explicit id may be a PDF without quantity truth (the vector pipeline's load files, TI-662): it runs, unscored.
+ */
+export async function loadBenchDataset(datasetRoot: string, docs: "all" | readonly string[], options: { unscored?: boolean } = {}): Promise<BenchDataset> {
   const root = path.resolve(datasetRoot);
   await requireEntry(root, "manifest.json", "file");
   await requireEntry(root, "raw", "directory");
@@ -104,6 +111,12 @@ export async function loadBenchDataset(datasetRoot: string, docs: "all" | readon
     if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === "noise.json") continue;
     const file = `truth/${entry.name}`;
     truthFiles.push({ file, truth: TruthFileSchema.parse(await readJson(root, file)) });
+  }
+  const groups = new Map<string, GroupTruthFile>();
+  for (const entry of await readdir(path.join(root, "truth", "groups"), { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name.startsWith(".")) continue;
+    const parsed = GroupTruthFileSchema.parse(await readJson(root, `truth/groups/${entry.name}`));
+    groups.set(parsed.document, parsed);
   }
   const noiseFile = await stat(path.join(root, "truth", "noise.json")).catch(() => null);
   const noise = noiseFile ? NoiseFileSchema.parse(await readJson(root, "truth/noise.json")) : null;
@@ -123,7 +136,9 @@ export async function loadBenchDataset(datasetRoot: string, docs: "all" | readon
     ids = [];
     for (const id of docs) {
       if (ids.includes(id)) throw new BenchDatasetError(`${id} is given twice.`);
-      if (!cited.includes(id)) throw new BenchDatasetError(`${id} has no quantity truth: no truth/*.json covers it.`);
+      if (!cited.includes(id) && !(options.unscored && documents.has(id))) {
+        throw new BenchDatasetError(`${id} has no quantity truth: no truth/*.json covers it.`);
+      }
       if (!usable(id)) throw new BenchDatasetError(`${id} has no verified binary: the bench cannot read it.`);
       ids.push(id);
     }
@@ -134,5 +149,5 @@ export async function loadBenchDataset(datasetRoot: string, docs: "all" | readon
     const document = documents.get(id) as ManifestDocument;
     selected.push({ document, bytes: await readVerifiedPdf(root, document) });
   }
-  return { root, sha256: await datasetSha256(root), manifest, truthFiles, noise, selected, skipped };
+  return { root, sha256: await datasetSha256(root), manifest, truthFiles, noise, groups, selected, skipped };
 }
