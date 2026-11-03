@@ -129,13 +129,21 @@ est une constante nommée et versionnée dans le code.
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
        du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
      - sinon par sa position : le tuyau parallèle le plus proche.
-   - Deux tronçons bout à bout dont les libellés diffèrent (DN, matériau ou calorifuge,
-     à une réduction) sont coupés là où un de leurs traits finit, s'il y a exactement un
-     tel endroit entre les deux libellés. Sinon le tronçon garde un DN vide
-     (« à revoir ») et aucun DN ne lui est propagé.
-   - Ces valeurs passent aux tronçons raccordés du même réseau, du plus proche au plus
-     loin, jamais à un autre réseau. Un tronçon qui n'est rattaché à aucun libellé
-     garde un DN vide (« à revoir »).
+   - Un tronçon dont deux libellés diffèrent (DN, matériau ou calorifuge, à une
+     réduction) est coupé entre eux : à la fin de trait la plus proche du milieu des
+     deux libellés, ou à ce milieu si aucun trait ne finit entre eux. Un tuyau exporté
+     en nombreux morceaux est donc coupé lui aussi.
+   - Deux libellés qui diffèrent au même endroit du tronçon (à moins de 7 pt l'un de
+     l'autre le long du tuyau, l'un au-dessus et l'autre en dessous par exemple) ne
+     disent pas où couper : ce morceau garde un DN vide (« à revoir ») et aucun DN ne
+     lui est donné. Un DN propagé le traverse vers les tronçons suivants.
+   - Ces valeurs passent aux tronçons raccordés, du plus proche au plus loin :
+     - du même réseau ;
+     - d'un réseau parent à un de ses membres et inversement : EU/EV avec EU ou EV,
+       CHW, HW, GLY, HRC et CW avec leur départ ou leur retour (les familles du score) ;
+     - jamais entre deux membres (EU et EV, un départ et un retour sont deux tuyaux),
+       même par un tronçon de leur parent, ni vers un autre réseau.
+   - Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à revoir »).
    - Les recherches de voisinage (libellés, raccords, embouts) trouvent tout tracé, même
      un long tuyau en diagonale d'une feuille A0.
    - Longueur réelle = longueur sur la feuille (mm) × dénominateur de l'échelle.

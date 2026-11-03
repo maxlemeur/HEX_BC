@@ -5,7 +5,7 @@ import type { NetworkCode } from "@/lib/takeoff/bench/keys";
 import { applyCorrespondences, classifyByKeywords } from "@/lib/takeoff/vectors/classify";
 import { isGrey, isNearWhite } from "@/lib/takeoff/vectors/colors";
 import { extractVectorPage, type VectorGroupKey, type VectorPageExtraction, type VectorPath, type VectorText } from "@/lib/takeoff/vectors/extraction";
-import { pointsToMetres } from "@/lib/takeoff/vectors/geometry";
+import { distanceToSegment, pointsToMetres, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines, readLabelBlocks } from "@/lib/takeoff/vectors/labels";
 import { matchLegendColor, readLegend } from "@/lib/takeoff/vectors/legend";
 import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
@@ -137,6 +137,24 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
+// Cut and propagation of DN (TI-662 L3c, written before the change; the bench
+// showed bundled runs of hundreds of strokes always left « conflict »):
+// - a run whose labels disagree, drawn in several strokes between the labels
+//   (a pipe exported in pieces), is never cut: it stays whole without DN, and
+//   both sections lose their DN;
+// - the cut lands outside the two labels (a section takes the other label's
+//   DN), or not at the stroke end nearest the middle of the two labels;
+// - a run drawn as one stroke between two disagreeing labels keeps no DN
+//   instead of being cut midway between them;
+// - two disagreeing labels printed at the same place along the run (one above,
+//   one below) are cut anyway, so one side gets a DN nothing says is its own,
+//   instead of the run staying « conflict » (« à revoir »);
+// - a conflict run stops the DN of a labelled run from reaching the runs
+//   joined beyond it, or takes that DN itself;
+// - a DN labelled on a parent network (EU/EV, HW) never reaches a joined run of
+//   one of its members (EU, EV, HW-S), nor a member's DN its parent's run;
+// - a DN crosses between two members of one parent (EU and EV, HW-S and HW-R
+//   are different pipes), joined directly or through a run of their parent.
 
 const A3 = { width: 1190.55, height: 841.89 };
 /** Sheet points that are 5 m (and 3 m) on site at 1/50. */
@@ -636,8 +654,8 @@ describe("review of PR #145 (Codex, 3/11/2026)", () => {
     expect([dnOfRunAt(nearLower, 100), dnOfRunAt(nearLower, 106)]).toEqual([null, 16]);
   });
 
-  it("cuts a run where two touching sections change DN, and leaves a run « à revoir » when no single cut is drawn", () => {
-    // Two 100 pt EF sections touching at x 200, each labelled inline above itself.
+  it("cuts a run where two touching sections change DN, midway between the labels when no stroke ends between them", () => {
+    // Two 100 pt EF sections touching at x 200, each labelled inline above itself (label centres at x 150 and 250).
     const labels = { texts: [text("EF - PVC DN 40", 127, 297), text("EF - PVC DN 20", 227, 297)] };
     const sections = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 200, 300), line(BLUE, 200, 300, 300, 300)] }, labels]));
     expect(totals(sections).map(({ network, material, dn, length_m }) => ({ network, material, dn, length_m }))).toEqual(expect.arrayContaining([
@@ -645,13 +663,13 @@ describe("review of PR #145 (Codex, 3/11/2026)", () => {
       { network: "EF", material: "pvc", dn: 20, length_m: expect.closeTo(pointsToMetres(100, 50), 3) },
     ]));
     expect(totals(sections)).toHaveLength(2);
-    // The same 200 pt drawn as one stroke: nothing says where DN 40 ends, so neither DN is given to it.
+    // The same 200 pt drawn as one stroke (TI-662 L3c): cut midway between the two labels, at x 200.
     const single = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 300, 300)] }, labels]));
-    expect(totals(single)).toEqual([{ network: "EF", material: null, dn: null, runs: 1, length_m: expect.closeTo(pointsToMetres(200, 50), 3) }]);
-    // Nor does a DN reach it from a joined run of its network.
-    const joined = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 300, 300), line(BLUE, 300, 300, 300, 500)] }, labels,
-      { texts: [text("EF - PVC DN 32", 303, 400)] }]));
-    expect(dnOfRunAt(joined, 300)).toBeNull();
+    expect(totals(single).map(({ dn, length_m }) => ({ dn, length_m }))).toEqual(expect.arrayContaining([
+      { dn: 40, length_m: expect.closeTo(pointsToMetres(100.1, 50), 2) },
+      { dn: 20, length_m: expect.closeTo(pointsToMetres(99.9, 50), 2) },
+    ]));
+    expect(totals(single)).toHaveLength(2);
   });
 
   it("never drops a short pipe of another network crossing a longer pipe as its cap", () => {
@@ -863,5 +881,84 @@ describe("post-merge Codex review of PR #145", () => {
     const upright = { ...text("EF - PVC", 100, 100, 2.5), width: 40, angle: 0.021 };
     const after = { ...text("DN 40", 100 + 41.5 * Math.cos(0.021), 100 + 41.5 * Math.sin(0.021), 2.5), width: 25, angle: 0.019 };
     expect(mergeTextLines([upright, after]).map((entry) => entry.str)).toEqual(["EF - PVC DN 40"]);
+  });
+});
+
+describe("cut and propagation of DN (TI-662 L3c)", () => {
+  /** The run whose centreline passes through a point: its network, DN and how it got it. */
+  const runAt = (reading: VectorPageReading, point: Point) => {
+    const run = (reading.networks?.runs ?? []).find((entry) => distanceToSegment(point, entry.segment) < 0.5);
+    return run ? { network: run.network, dn: run.dn, attached: run.attached } : null;
+  };
+
+  it("cuts a run drawn in several strokes between two disagreeing labels at the stroke end nearest their middle", () => {
+    // EF from x 100 to 400 in six 50 pt strokes; DN 40 centred at x 150, DN 20 at x 330: their middle is x 240, the nearest stroke end x 250.
+    const strokes = [100, 150, 200, 250, 300, 350].map((x) => line(BLUE, x, 300, x + 50, 300));
+    const reading = read(page([...LEGEND, { strokes }, { texts: [text("EF - PVC DN 40", 126.9, 297), text("EF - PVC DN 20", 306.9, 297)] }]));
+    expect(totals(reading).map(({ dn, runs, length_m }) => ({ dn, runs, length_m }))).toEqual(expect.arrayContaining([
+      { dn: 40, runs: 1, length_m: expect.closeTo(pointsToMetres(150, 50), 3) },
+      { dn: 20, runs: 1, length_m: expect.closeTo(pointsToMetres(150, 50), 3) },
+    ]));
+    expect(totals(reading)).toHaveLength(2);
+  });
+
+  it("leaves a run « conflict » when two disagreeing labels are printed at the same place along it", () => {
+    // DN 40 above and DN 20 below the pipe, both centred at x 200.
+    const reading = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 300, 300)] },
+      { texts: [text("EF - PVC DN 40", 176.9, 297), text("EF - PVC DN 20", 176.9, 309)] }]));
+    expect((reading.networks?.runs ?? []).map((run) => [run.dn, run.attached])).toEqual([[null, "conflict"]]);
+    expect(totals(reading)).toEqual([{ network: "EF", material: null, dn: null, runs: 1, length_m: expect.closeTo(pointsToMetres(200, 50), 3) }]);
+  });
+
+  it("lets a DN pass through a conflict run to the runs joined beyond it, never giving it to the conflict run", () => {
+    // EF: X (x 100 to 300, y 300) with DN 40 and DN 20 both pointing at x 201; Y (x 300, down to y 500) labelled DN 32; Z (x 100) unlabelled.
+    const reading = read(page([...LEGEND,
+      { strokes: [line(BLUE, 100, 300, 300, 300), line(BLUE, 300, 300, 300, 500), line(BLUE, 100, 300, 100, 500)] },
+      leaderLabel("EF - PVC DN 40", 220, 262, { x: 201, y: 301 }), leaderLabel("EF - PVC DN 20", 220, 345, { x: 201, y: 299 }),
+      leaderLabel("EF - PVC DN 32", 320, 402, { x: 301, y: 400 }),
+    ]));
+    expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "EF", dn: null, attached: "conflict" });
+    expect(runAt(reading, { x: 300, y: 400 })).toEqual({ network: "EF", dn: 32, attached: "label" });
+    expect(runAt(reading, { x: 100, y: 400 })).toEqual({ network: "EF", dn: 32, attached: "propagated" });
+  });
+
+  it("passes a parent's DN to the joined runs of its members, and a member's DN to its parent's run", () => {
+    const layers = [{ id: "1", name: "FICTIF_EU/EV" }, { id: "2", name: "FICTIF_EU" }, { id: "3", name: "FICTIF_EV" }];
+    const reading = read(page([{
+      strokes: [
+        // EU/EV labelled DN 100, an EU run joined at its right end, an EV run at its left end.
+        line(BLUE, 100, 300, 300, 300, { layer: "1" }), line(BLUE, 300, 300, 300, 450, { layer: "2" }), line(BLUE, 100, 300, 100, 450, { layer: "3" }),
+        // EU labelled DN 40, an EU/EV run joined at its right end.
+        line(BLUE, 500, 300, 700, 300, { layer: "2" }), line(BLUE, 700, 300, 700, 450, { layer: "1" }),
+      ],
+      texts: [text("EU/EV - PVC DN 100", 170.3, 297), text("EU - PVC DN 40", 576.9, 297)],
+    }], layers));
+    expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "EUV", dn: 100, attached: "label" });
+    expect(runAt(reading, { x: 300, y: 400 })).toEqual({ network: "EU", dn: 100, attached: "propagated" });
+    expect(runAt(reading, { x: 100, y: 400 })).toEqual({ network: "EV", dn: 100, attached: "propagated" });
+    expect(runAt(reading, { x: 600, y: 300 })).toEqual({ network: "EU", dn: 40, attached: "label" });
+    expect(runAt(reading, { x: 700, y: 400 })).toEqual({ network: "EUV", dn: 40, attached: "propagated" });
+  });
+
+  it("never passes a DN between two members of one parent, joined directly or through their parent's run", () => {
+    const layers = [{ id: "1", name: "FICTIF_EU/EV" }, { id: "2", name: "FICTIF_EU" }, { id: "3", name: "FICTIF_EV" },
+      { id: "4", name: "FICTIF_HW" }, { id: "5", name: "FICTIF_HW-S" }, { id: "6", name: "FICTIF_HW-R" }];
+    const reading = read(page([{
+      strokes: [
+        // EU labelled DN 40; EV joined at its right end; EU/EV joined at its left end, and EV joined to that run's lower end.
+        line(BLUE, 100, 300, 300, 300, { layer: "2" }), line(BLUE, 300, 300, 300, 450, { layer: "3" }),
+        line(BLUE, 100, 300, 100, 450, { layer: "1" }), line(BLUE, 100, 450, 250, 450, { layer: "3" }),
+        // HW labelled DN 35; HW-S joined at its right end; HW-R joined to the lower end of HW-S only.
+        line(BLUE, 500, 300, 700, 300, { layer: "4" }), line(BLUE, 700, 300, 700, 450, { layer: "5" }), line(BLUE, 700, 450, 850, 450, { layer: "6" }),
+      ],
+      texts: [text("EU - PVC DN 40", 176.9, 297), text("HW - cuivre DN 35", 553.6, 297)],
+    }], layers));
+    expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "EU", dn: 40, attached: "label" });
+    expect(runAt(reading, { x: 100, y: 400 })).toEqual({ network: "EUV", dn: 40, attached: "propagated" });
+    expect(runAt(reading, { x: 300, y: 400 })).toEqual({ network: "EV", dn: null, attached: null });
+    expect(runAt(reading, { x: 200, y: 450 })).toEqual({ network: "EV", dn: null, attached: null });
+    expect(runAt(reading, { x: 600, y: 300 })).toEqual({ network: "HW", dn: 35, attached: "label" });
+    expect(runAt(reading, { x: 700, y: 400 })).toEqual({ network: "HW-S", dn: 35, attached: "propagated" });
+    expect(runAt(reading, { x: 800, y: 450 })).toEqual({ network: "HW-R", dn: null, attached: null });
   });
 });

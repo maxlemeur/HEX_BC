@@ -33,10 +33,12 @@ export const LEGEND_RULE_VERSION = 3;
 /** Longest legend sample, in text heights: a longer run after a code is a pipe tagged inline, not a sample. */
 export const LEGEND_SAMPLE_MAX_HEIGHTS = 25;
 
-const PARENT: Partial<Record<NetworkCode, NetworkCode>> = {
+/** The parent network of a member (EU and EV of EUV, a supply or a return of its network), as the bench's CONFOUNDED_NETWORKS. */
+export const PARENT_NETWORK: Partial<Record<NetworkCode, NetworkCode>> = {
   EU: "EUV", EV: "EUV", "CHW-S": "CHW", "CHW-R": "CHW", "HW-S": "HW", "HW-R": "HW", "GLY-S": "GLY", "GLY-R": "GLY",
   "HRC-S": "HRC", "HRC-R": "HRC", "CW-S": "CW", "CW-R": "CW",
 };
+const PARENT = PARENT_NETWORK;
 
 /** The network containing every one of these (itself included), or null. */
 export function commonNetwork(networks: readonly NetworkCode[]): NetworkCode | null {
