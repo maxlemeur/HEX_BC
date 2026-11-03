@@ -48,7 +48,9 @@ export function normalizeToken(segment: string) {
 
 /** Segments of a layer name (TI-662: « _ », spaces, « - », « / »). */
 export function layerSegments(name: string) {
-  return name.split(/[_\s\-/]+/).map(normalizeToken).filter((segment) => segment.length > 0);
+  // A level (R+1, R-1, RDC, SS2) is no segment: its « R » would read as a return.
+  return name.replace(/(?:^|(?<=[_\s/]))(?:R[+-]\d{1,2}|RDC|SS\d{1,2})(?=$|[_\s/-])/gi, " ")
+    .split(/[_\s\-/]+/).map(normalizeToken).filter((segment) => segment.length > 0);
 }
 
 /** The network named by a list of segments, with its direction, or null (none or two networks). */

@@ -30,7 +30,9 @@ import { z } from "zod";
 // - getOperatorList({ annotationMode: AnnotationMode.DISABLE }); no
 //   disableWorker (removed in 6.x): the legacy build runs its fake worker in
 //   the process.
-// Curves are flattened (2 to 16 chords by size). Points are rounded to 0.01 pt.
+// Curves are flattened (2 to 16 chords by size). Points are rounded to 0.01 pt;
+// a coordinate that is not finite or beyond 10^7 pt fails the page. pdfjs
+// stops at a content error (stopAtErrors) instead of returning what it read.
 
 export const VECTOR_EXTRACTION_VERSION = 1;
 export const VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE = 15_000;
@@ -55,7 +57,7 @@ async function main() {
   const { OPS, Util, AnnotationMode } = pdfjs;
   const task = pdfjs.getDocument({ data: new Uint8Array(bytes), standardFontDataUrl: input.packageRoot + "/standard_fonts/",
     cMapUrl: input.packageRoot + "/cmaps/", cMapPacked: true, wasmUrl: input.packageRoot + "/wasm/", iccUrl: input.packageRoot + "/iccs/",
-    useWorkerFetch: false, isEvalSupported: false, enableScripting: false, useSystemFonts: false, verbosity: 0 });
+    useWorkerFetch: false, isEvalSupported: false, enableScripting: false, useSystemFonts: false, verbosity: 0, stopAtErrors: true });
   try {
     const pdf = await task.promise;
     if (input.page < 1 || input.page > pdf.numPages) throw new Error("page " + input.page + " out of 1.." + pdf.numPages);
@@ -82,6 +84,7 @@ async function main() {
     const counts = { operators: ops.fnArray.length, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0 };
     let imageArea = 0;
     const push = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e7 || Math.abs(y) > 1e7) throw new Error("coordinate out of range");
       if (used + 2 > points.length) {
         if (points.length >= input.maxPoints * 2) throw new Error("point budget");
         const next = new Float32Array(Math.min(points.length * 2, input.maxPoints * 2));

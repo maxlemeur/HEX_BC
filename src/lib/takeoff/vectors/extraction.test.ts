@@ -32,6 +32,11 @@
 //     or failed); a deadline not enforced (reason timeout).
 // 12. A page past the text budget returned with its texts truncated instead of
 //     failing as too_large, or a page at the budget refused.
+// 13. Raster: a page painted by an image over its whole surface not reported
+//     as covered (imageCoverage), so a scanned plan reads as vectors.
+// 14. A malformed content stream (an operator with too many arguments, a Do
+//     of a missing form) recovered by pdfjs and returned as a partial page; a
+//     coordinate out of range returned as a page whose lengths are NaN.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -454,5 +459,56 @@ describe("extractVectorPage", () => {
     if (whole.status === "fulfilled") expect(whole.value.texts).toHaveLength(VECTOR_EXTRACTION_LIMITS.maxTexts);
     expect(refused.status).toBe("rejected");
     if (refused.status === "rejected") expect(refused.reason).toMatchObject({ name: "VectorExtractionError", reason: "too_large" });
+  });
+});
+
+describe("raster coverage", () => {
+  it("reports a page covered by an image, and half of it for an image on half the page", SPAWN, async () => {
+    // A 1 x 1 white PNG, stretched by the image matrix.
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", "base64");
+    const bytes = await buildPdf(async (doc) => {
+      const image = await doc.embedPng(png);
+      doc.addPage([200, 100]).drawImage(image, { x: 0, y: 0, width: 200, height: 100 });
+      doc.addPage([200, 100]).drawImage(image, { x: 0, y: 0, width: 100, height: 100 });
+    });
+    const full = await extractVectorPage(new Uint8Array(bytes), 1);
+    const half = await extractVectorPage(new Uint8Array(bytes), 2);
+    expect(full.counts).toMatchObject({ images: 1 });
+    expect(full.counts.imageCoverage).toBeCloseTo(1, 3);
+    expect(half.counts.imageCoverage).toBeCloseTo(0.5, 3);
+  });
+});
+
+/** A one-page PDF written byte by byte, so that its content may be malformed. */
+function rawPdf(content: string, extra: string[] = [], resources = "<< >>") {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources ${resources} >>`,
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`, ...extra,
+  ];
+  let out = "%PDF-1.7\n";
+  const offsets: number[] = [];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(out));
+    out += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(out);
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new Uint8Array(Buffer.from(out, "latin1"));
+}
+
+describe("malformed pages", () => {
+  it("fails a page whose content pdfjs would only read in part, and a page with out-of-range coordinates", SPAWN, async () => {
+    const control = await extractVectorPage(rawPdf("0 0 m 100 0 l S\n0 50 m 100 50 l S\n0 90 m 100 90 l S"), 1);
+    expect(control.counts.strokePaths).toBe(3);
+    const many = Array.from({ length: 34 }, (_, index) => String(index)).join(" ");
+    for (const bytes of [
+      rawPdf(`0 0 m 100 0 l S\n${many} w\n0 50 m 100 50 l S`),
+      rawPdf("0 0 m 100 0 l S\n/Fm1 Do\n0 90 m 100 90 l S", [], "<< /XObject << /Fm1 99 0 R >> >>"),
+      rawPdf("1000000000000 0 0 1000000000000 0 0 cm\n0 0 m 100 0 l S"),
+    ]) {
+      await expect(extractVectorPage(bytes, 1)).rejects.toMatchObject({ name: "VectorExtractionError", reason: "failed" });
+    }
   });
 });

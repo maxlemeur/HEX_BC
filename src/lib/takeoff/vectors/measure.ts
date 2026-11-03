@@ -22,9 +22,8 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // times its length. The measure takes the centreline:
 // - the segments of each network's groups (networks apart) are put in angle classes (consecutive
 //   orientations within 0.5°, a class spanning at most 3°, 0 and π being one
-//   orientation), then in offset
-//   clusters (consecutive offsets across the direction within BAND_GAP_PT, a
-//   cluster at most BAND_MAX_PT wide), then in runs (intervals along the
+//   orientation), then in local offset clusters (strokes within BAND_GAP_PT
+//   across that overlap along, a cluster at most BAND_MAX_PT wide), then in runs (intervals along the
 //   direction merged across gaps up to RUN_GAP_PT): a run's length is the
 //   union of its intervals, so overlapping or duplicated strokes count once;
 // - a run no longer than 2 × BAND_MAX_PT lying across a longer run (centre
@@ -132,7 +131,8 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
     const mid = { x: (segment.x0 + segment.x1) / 2, y: (segment.y0 + segment.y1) / 2 };
     const length = segmentLength(segment);
     frames.forEach((frame, index) => {
-      if (!boxContains(frame, mid)) return;
+      // Strictly inside: the frame's own edges (black is grey) are not the background it holds.
+      if (!boxContains({ x0: frame.x0 + 1, y0: frame.y0 + 1, x1: frame.x1 - 1, y1: frame.y1 - 1 }, mid)) return;
       if (isNetwork) network[index] += length;
       else background[index] += length;
     });
@@ -161,6 +161,59 @@ function circularOrder<T extends { theta: number }>(items: T[]): T[] {
   return [...sorted.slice(start), ...sorted.slice(0, start).map((item) => ({ ...item, theta: item.theta + Math.PI }))];
 }
 
+type Projected = { lo: number; hi: number; offset: number; member: RawSegment };
+
+/**
+ * Bands of one angle class, found locally: two strokes belong together when
+ * they are within BAND_GAP_PT across and overlap (or touch within RUN_GAP_PT)
+ * along; a group wider than BAND_MAX_PT (pipes side by side) is then split by
+ * offset within itself only. An unrelated parallel stroke elsewhere on the
+ * sheet never moves where a band starts.
+ */
+function localClusters(projected: readonly Projected[]): Projected[][] {
+  const parent = projected.map((_, index) => index);
+  const find = (index: number): number => (parent[index] === index ? index : (parent[index] = find(parent[index])));
+  const bins = new Map<number, number[]>();
+  projected.forEach((entry, index) => {
+    const key = Math.floor(entry.offset / BAND_GAP_PT);
+    const list = bins.get(key);
+    if (list) list.push(index);
+    else bins.set(key, [index]);
+  });
+  for (const [key, list] of bins) {
+    const pool = [...list, ...(bins.get(key + 1) ?? [])].sort((left, right) => projected[left].lo - projected[right].lo);
+    let active: number[] = [];
+    for (const index of pool) {
+      const entry = projected[index];
+      active = active.filter((other) => projected[other].hi + RUN_GAP_PT >= entry.lo);
+      for (const other of active) {
+        if (Math.abs(projected[other].offset - entry.offset) <= BAND_GAP_PT) parent[find(index)] = find(other);
+      }
+      active.push(index);
+    }
+  }
+  const components = new Map<number, Projected[]>();
+  projected.forEach((entry, index) => {
+    const root = find(index);
+    const list = components.get(root);
+    if (list) list.push(entry);
+    else components.set(root, [entry]);
+  });
+  const clusters: Projected[][] = [];
+  for (const component of components.values()) {
+    const byOffset = [...component].sort((left, right) => left.offset - right.offset);
+    let start = 0;
+    while (start < byOffset.length) {
+      let end = start + 1;
+      while (end < byOffset.length && byOffset[end].offset - byOffset[end - 1].offset <= BAND_GAP_PT
+        && byOffset[end].offset - byOffset[start].offset <= BAND_MAX_PT) end += 1;
+      clusters.push(byOffset.slice(start, end));
+      start = end;
+    }
+  }
+  return clusters;
+}
+
 export function bundle(raw: readonly RawSegment[]): Run[] {
   const items = circularOrder(raw.map((entry) => ({ ...entry, theta: orientation(entry.segment) })));
   const runs: Run[] = [];
@@ -179,17 +232,13 @@ export function bundle(raw: readonly RawSegment[]): Run[] {
     }
     const theta = weight > 0 ? Math.atan2(sy, sx) / 2 : members[0].theta;
     const u = { x: Math.cos(theta), y: Math.sin(theta) }, n = { x: -Math.sin(theta), y: Math.cos(theta) };
-    const projected = members.map((member) => {
+    const projected: Projected[] = members.map((member) => {
       const { x0, y0, x1, y1 } = member.segment;
       const a = x0 * u.x + y0 * u.y, b = x1 * u.x + y1 * u.y;
       return { lo: Math.min(a, b), hi: Math.max(a, b), offset: ((x0 + x1) / 2) * n.x + ((y0 + y1) / 2) * n.y, member };
-    }).sort((left, right) => left.offset - right.offset);
-    let clusterStart = 0;
-    while (clusterStart < projected.length) {
-      let clusterEnd = clusterStart + 1;
-      while (clusterEnd < projected.length && projected[clusterEnd].offset - projected[clusterEnd - 1].offset <= BAND_GAP_PT
-        && projected[clusterEnd].offset - projected[clusterStart].offset <= BAND_MAX_PT) clusterEnd += 1;
-      const cluster = projected.slice(clusterStart, clusterEnd).sort((left, right) => left.lo - right.lo);
+    });
+    for (const local of localClusters(projected)) {
+      const cluster = [...local].sort((left, right) => left.lo - right.lo);
       let current: (Run & { weight: number; lowOffset: number; highOffset: number }) | null = null;
       const pending: Array<Run & { weight: number; lowOffset: number; highOffset: number }> = [];
       for (const entry of cluster) {
@@ -211,7 +260,6 @@ export function bundle(raw: readonly RawSegment[]): Run[] {
         runs.push({ a: run.a, b: run.b, offset: run.weight > 0 ? run.offset / run.weight : run.lowOffset, width: run.highOffset - run.lowOffset,
           u: run.u, n: run.n, network: run.network, candidates: run.candidates });
       }
-      clusterStart = clusterEnd;
     }
     start = end;
   }
@@ -344,6 +392,8 @@ export function measureNetworks(input: {
   model.segments.forEach((segment, id) => {
     const entry = classes[model.segmentGroup[id]];
     if (!isNetworkClass(entry.class) && entry.candidates.length === 0) return;
+    // A near-white stroke of a network layer is background drawn in that layer, never pipe.
+    if (model.segmentNearWhite[id]) return;
     const mid = { x: (segment.x0 + segment.x1) / 2, y: (segment.y0 + segment.y1) / 2 };
     if (excludedBoxes.some((box) => boxContains(box, mid))) {
       excluded += 1;
@@ -420,7 +470,10 @@ export function measureNetworks(input: {
     component[id] = components;
     while (queue.length) {
       const current = queue.shift() as number;
-      for (const next of neighbours[current]) if (component[next] < 0 && fits(result[next], result[current].network)) {
+      // A component joins runs of one network, or shared-colour runs of the same candidates: never across networks.
+      const same = (other: NetworkRun) => (result[current].network !== null ? other.network === result[current].network
+        : other.network === null && other.candidates.join() === result[current].candidates.join());
+      for (const next of neighbours[current]) if (component[next] < 0 && same(result[next])) {
         component[next] = components;
         queue.push(next);
       }
@@ -435,7 +488,8 @@ export function measureNetworks(input: {
     componentNetwork.set(component[id], known === undefined || known === block.label.network ? block.label.network : null);
   }
   result.forEach((run, id) => {
-    if (run.network === null && run.candidates.length > 0) run.network = componentNetwork.get(component[id]) ?? null;
+    const decided = componentNetwork.get(component[id]) ?? null;
+    if (run.network === null && decided !== null && run.candidates.includes(decided)) run.network = decided;
   });
   // DN and material: from labelled runs to connected runs of the same network, nearest first (breadth first).
   const queue: number[] = [];

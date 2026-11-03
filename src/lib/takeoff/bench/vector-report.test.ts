@@ -215,6 +215,21 @@ describe("takeoff bench vector comparison", () => {
     });
   });
 
+  it("leaves out of the totals a scope the baseline lost, and lists it", () => {
+    // Review of 3/11/2026: a scope the baseline lost to a timeout counted on the vector side only.
+    const vector = report([[
+      scope("a-plan-01", keys("length", [["ok", 0.01]])),
+      scope("a-plan-02", keys("length", [["missed"], ["missed"]])),
+    ]], "vector");
+    const baseline = report([[
+      scope("a-plan-01", keys("length", [["ok", 0.05]])),
+      scope("a-plan-02", [], { status: "read_failed", unread_pages: [{ document: "a-plan-02", start_page: 1, end_page: 1, status: "timeout" }] }),
+    ]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    expect(comparison.left_out_of_totals).toEqual([comparison.scopes.find((entry) => entry.documents[0] === "a-plan-02")?.scope]);
+    expect(comparison.totals.all).toMatchObject({ vector: { lengths: metrics(1, 1, 1, 0.01) }, baseline: { lengths: metrics(1, 1, 1, 0.05) } });
+  });
+
   it("prints shares and errors in report.md, never a quantity nor a room label", async () => {
     // A measured page: a pipe of 720 pt set to EF and calibrated at 1/100 (25.4 m), and a room « Fictional hall »
     // printed 12.34 m² inside a closed square.

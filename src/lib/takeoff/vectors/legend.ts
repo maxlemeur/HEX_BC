@@ -7,7 +7,8 @@ import { networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 // Legend of a page without layers (TI-662 step 3, keywords): an entry is a
 // horizontal text that is a network code alone (« ECS », « EU/EV », « EG VC »),
 // with the strokes drawn on its row to its right (centre within 0.6 text height
-// of the text's, starting after the text and within 40 heights, no taller than
+// of the text's, after the text, within 40 heights and before the next text on
+// the row, no taller than
 // 1.5 heights), the whole sample no longer than 25 heights (a longer run is a
 // pipe tagged inline on the plan): their colours are the network's. Black, grey and near-white
 // strokes are never a network colour (table lines, frames, background).
@@ -52,6 +53,10 @@ export function readLegend(model: PageModel): PageLegend {
     return [{ text, network, cy: text.y - text.height / 2, right: text.x + text.width, h: text.height }];
   });
   if (codes.length === 0) return { version: LEGEND_RULE_VERSION, entries, colors: [], boxes: [] };
+  // A row's samples end before the next text on that row (a multi-column legend puts the next code there).
+  const windowEnd = codes.map((code) => Math.min(code.right + 40 * code.h, ...extraction.texts
+    .filter((text) => text !== code.text && text.x > code.right && Math.abs(text.y - code.h / 2 - code.cy) <= 0.6 * code.h)
+    .map((text) => text.x)));
   const samples = codes.map(() => ({ colors: new Set<string>(), box: emptyBox(), x0: Infinity, x1: -Infinity }));
   segments.forEach((segment, id) => {
     const top = Math.min(segment.y0, segment.y1), bottom = Math.max(segment.y0, segment.y1);
@@ -59,7 +64,7 @@ export function readLegend(model: PageModel): PageLegend {
     const right = Math.max(segment.x0, segment.x1);
     for (const [index, code] of codes.entries()) {
       if (bottom - top > 1.5 * code.h || Math.abs((top + bottom) / 2 - code.cy) > 0.6 * code.h) continue;
-      if (left < code.right || left > code.right + 40 * code.h) continue;
+      if (left < code.right || left > windowEnd[index] || right > windowEnd[index] + code.h) continue;
       const group = groups[segmentGroup[id]];
       for (const color of group.colors) {
         if (isNearWhite(color) || isGrey(color)) continue;

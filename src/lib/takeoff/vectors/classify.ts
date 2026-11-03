@@ -44,6 +44,7 @@ export function isClassified(entry: GroupClass) {
 export function classifyByKeywords(model: PageModel, legend: PageLegend): GroupClass[] {
   return model.groups.map((group) => {
     const none: GroupClass = { class: null, source: null, confidence: null, candidates: [] };
+    if (group.hidden) return none;
     if (group.layer !== null) {
       const found = group.layerName ? classOfLayerName(group.layerName) : null;
       if (found === null || (isNetworkClass(found) && group.grey)) return none;
@@ -63,7 +64,7 @@ export function applyCorrespondences(model: PageModel, classes: readonly GroupCl
   return classes.map((entry, index) => {
     const chosen = correspondences.get(model.groups[index].id);
     if (chosen === undefined) return entry;
-    if (isNetworkClass(chosen) && model.groups[index].nearWhite) return entry;
+    if (isNetworkClass(chosen) && (model.groups[index].nearWhite || model.groups[index].hidden)) return entry;
     return { class: chosen, source, confidence: null, candidates: [] };
   });
 }
@@ -73,7 +74,7 @@ export function detectionShare(model: PageModel, classes: readonly GroupClass[])
   if (model.visibleLength_pt <= 0) return null;
   let classified = 0;
   model.groups.forEach((group, index) => {
-    if (!group.nearWhite && isClassified(classes[index])) classified += group.length_pt;
+    if (!group.hidden && isClassified(classes[index])) classified += group.visibleLength_pt;
   });
   return classified / model.visibleLength_pt;
 }

@@ -18,7 +18,8 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // scored; any other error is the bench's own and stops the run. A
 // raster page (images over 90 % of it) gives no vector item: the level C
 // reading of the baseline stands for it when the run is given one (pipeline
-// step 5), otherwise it has none.
+// step 5) — a raster page the baseline did not read fails, it is never scored
+// as read with no item — otherwise it has none.
 
 export const VECTOR_PIPELINE_LABEL = "vector";
 
@@ -73,8 +74,11 @@ export async function runVectorBench(input: {
   documents: readonly VectorBenchDocument[];
   groups: ReadonlyMap<string, GroupTruthFile>;
   repeat: number;
-  /** Level C items of a raster document for this pass, from the baseline report. */
-  rasterFallback?: (document: string, pass: number) => TakeoffItem[] | null;
+  /**
+   * Level C items of a raster page for this pass, from the baseline report; « unread » when the baseline did not
+   * read that page (no such document, or a failed call covering it): the page then fails, its scope is not scored.
+   */
+  rasterFallback?: (document: string, pass: number, page: number) => TakeoffItem[] | "unread";
   extract?: (bytes: Uint8Array, page: number) => Promise<VectorPageExtraction>;
   clock?: () => number;
   log?: (line: string) => void;
@@ -113,7 +117,11 @@ export async function runVectorBench(input: {
           let items = reading.mode === "raster" ? [] : vectorItems(reading, document.id);
           let fallback: number | null = null;
           if (reading.mode === "raster" && input.rasterFallback) {
-            items = (input.rasterFallback(document.id, pass) ?? []).filter((item) => (item.source_page ?? page) === page);
+            const baseline = input.rasterFallback(document.id, pass, page);
+            if (baseline === "unread") {
+              throw new VectorExtractionError("failed", `La baseline niveau C n’a pas lu la page raster ${page} de ${document.id}.`);
+            }
+            items = baseline.filter((item) => (item.source_page ?? page) === page);
             fallback = items.length;
           }
           const duration = Math.max(0, clock() - startedAt);
