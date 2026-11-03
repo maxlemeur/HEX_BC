@@ -41,7 +41,8 @@ import type { TakeoffExchange } from "@/lib/takeoff/types";
 // limit stops the essai at once, without retry, as do authorisation and account
 // errors; a timeout or a rejected request fails its configuration only.
 // Decisions runs within TAKEOFF_LAB_DECISIONS_MAX_TOKENS, counted from the
-// stored runs; a failed call stops the essai. The run is written atomically,
+// stored runs once the single-essai lock is taken (no other essai can still
+// write its usage); a failed call stops the essai. The run is written atomically,
 // stopped or not, before it is returned.
 // « Classe de calque » (vectors.ts) is one Decisions configuration on a whole
 // page: no browser image, no zone, its fixed questions; its calls stop at the
@@ -152,7 +153,21 @@ export function summarizeLabRun(run: LabRun): LabRunSummary {
   };
 }
 
-/** Total tokens of every Decisions call stored in the output run; calls without usage counted apart. */
+const VectorCallLogSchema = z.looseObject({ calls: z.array(z.looseObject({ usage: z.unknown() })) });
+
+/** Calls of a « classe de calque » configuration sent without usage, from its call log; null when the log is unreadable. */
+function vectorCallsWithoutUsage(raw: string | null) {
+  if (!raw) return null;
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { return null; }
+  const parsed = VectorCallLogSchema.safeParse(value);
+  return parsed.success ? parsed.data.calls.filter((call) => call.usage === null || call.usage === undefined).length : null;
+}
+
+/**
+ * Total tokens of every Decisions call stored in the output run; calls without usage counted apart: one per
+ * configuration (one call each), or, for « classe de calque » (none to many calls), those of its call log.
+ */
 export function decisionsBudget(runs: readonly LabRun[], cap: number | null): LabDecisionsBudget {
   let used = 0;
   let withoutUsage = 0;
@@ -160,7 +175,9 @@ export function decisionsBudget(runs: readonly LabRun[], cap: number | null): La
     for (const config of run.configs) {
       if (config.provider !== "decisions" || config.status === "not_run") continue;
       if (config.usage) used += config.usage.total;
-      else withoutUsage += 1;
+      const logged = run.task.id === LAB_VECTOR_TASK_ID ? vectorCallsWithoutUsage(config.raw) : null;
+      if (logged !== null) withoutUsage += logged;
+      else if (!config.usage) withoutUsage += 1;
     }
   }
   return { cap, used, remaining: cap === null ? null : Math.max(0, cap - used), calls_without_usage: withoutUsage };
@@ -277,11 +294,12 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
     if (crop?.box) throw badRequest("La classe de calque se lit sur une page entière : effacez la zone.");
     if (request.prompt !== task.defaultPrompt) throw badRequest("Les questions de la classe de calque sont fixées par la lecture vectorielle : le prompt ne se modifie pas.");
   }
-  const chatGptPreflight = await preflightChatGpt(access.owner, chatgpt);
-  const decisionsRemaining = decisions ? await preflightDecisions(paths, request, task) : null;
+  // The lock comes before the pre-flights: the Decisions remainder is read once no other essai can still write its usage.
   if (running) throw conflict("Un essai est déjà en cours : attendez sa fin.", undefined, "TAKEOFF_LAB_BUSY");
   running = true;
   try {
+    const chatGptPreflight = await preflightChatGpt(access.owner, chatgpt);
+    const decisionsRemaining = decisions ? await preflightDecisions(paths, request, task) : null;
     return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, decisionsRemaining, clock);
   } finally {
     running = false;
