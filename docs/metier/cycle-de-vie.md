@@ -23,10 +23,14 @@ l'affaire, un statut éditable et les contrôles de concurrence. Le verrou de
 brouillon appartient à une **session de page**, pas seulement à un utilisateur :
 deux onglets du même compte ne possèdent pas implicitement le même verrou.
 Chaque document a sa propre identité de page ; seul un rechargement la conserve.
-Si un bail est encore tenu par une identité antérieure du même onglet dont aucun
-document n'existe plus (départ pendant le chargement, TI-665), le document suivant
-de l'onglet libère ce bail puis le demande sous sa propre identité. Une copie
-d'onglet dont la source est vivante reste en lecture seule.
+Un document qui quitte la page pendant son chargement peut encore obtenir un bail
+(TI-665) : il le libère à sa disparition (`pagehide`) et un rechargement ne reprend
+plus cette identité. Cette libération peut précéder une demande encore en cours ou
+se perdre ; le bail bloque alors les autres onglets et utilisateurs jusqu'à son
+expiration. Dans le même onglet, l'éditeur suivant libère un bail tenu par une
+identité antérieure de l'onglet dont aucun document n'existe plus, puis le demande
+sous sa propre identité. Une copie d'onglet (popup, onglet dupliqué) hérite de cet
+historique, mais reste en lecture seule tant que sa source est vivante.
 Les écrivains vérifient aussi la révision attendue ; un conflit doit être résolu
 en rechargeant l'état courant, sans écraser une modification concurrente.
 

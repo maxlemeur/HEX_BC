@@ -40,7 +40,11 @@ import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
-import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
+import {
+  getEstimateDraftLockSessionId,
+  holdEstimateDraftLockSessionLiveness,
+  retireEstimateDraftLockSessionId,
+} from "@/lib/estimates/draft-lock-session-client";
 import type { Database } from "@/types/database";
 import {
   isEstimateApprovalDecisionFilter,
@@ -4591,7 +4595,75 @@ export async function fetchEstimatePurchaseOrderDraftReceipt(
   return parsed;
 }
 
-export async function acquireEstimateDraftLock(
+// TI-665 : un document qui part pendant son chargement peut encore obtenir un
+// bail : sa demande part après son beforeunload (son écouteur de libération
+// n'existait pas encore) et le serveur la conserve alors qu'aucun script ne la
+// libérera. Le document libère donc à sa disparition (pagehide) le bail obtenu
+// après le début de son départ, ou dont la demande est encore en cours, sauf si
+// une libération de sa propre identité a suivi. C'est un effort : la
+// libération peut précéder l'insertion d'une demande en cours, et seul le
+// document suivant du même onglet sait libérer ce reste (useDraftLock).
+// Un bail obtenu avant le départ suit le cycle ordinaire (beforeunload,
+// démontage) : rien de plus n'est envoyé, en particulier au document rechargé
+// qui reprend la même identité, ni avant la sauvegarde finale de l'éditeur.
+const draftLeaseRequestsInFlight = new Map<string, number>();
+const draftLeasesGrantedWhileLeaving = new Set<string>();
+let hasDocumentStartedLeaving = false;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    hasDocumentStartedLeaving = true;
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) hasDocumentStartedLeaving = false;
+  });
+  window.addEventListener("pagehide", () => {
+    const granted = [...draftLeasesGrantedWhileLeaving];
+    for (const versionId of new Set([...granted, ...draftLeaseRequestsInFlight.keys()])) {
+      void releaseEstimateDraftLock(versionId, { keepalive: true }).catch(() => undefined);
+    }
+    // After the release is sent, so that a reload cannot reuse this identity.
+    granted.forEach(retireEstimateDraftLockSessionId);
+  });
+}
+
+async function requestDraftLease<T extends { acquired: boolean }>(
+  versionId: string,
+  request: () => Promise<T>
+) {
+  holdEstimateDraftLockSessionLiveness(getEstimateDraftLockSessionId(versionId));
+  draftLeaseRequestsInFlight.set(versionId, (draftLeaseRequestsInFlight.get(versionId) ?? 0) + 1);
+  // null: unknown outcome (lost reply, server error), counted as granted.
+  let granted: boolean | null = null;
+  try {
+    const result = await request();
+    granted = result.acquired;
+    return result;
+  } catch (error) {
+    if (isEstimateApiError(error) && error.status < 500) granted = false;
+    throw error;
+  } finally {
+    const remaining = (draftLeaseRequestsInFlight.get(versionId) ?? 1) - 1;
+    if (remaining > 0) draftLeaseRequestsInFlight.set(versionId, remaining);
+    else draftLeaseRequestsInFlight.delete(versionId);
+    if (granted === false) draftLeasesGrantedWhileLeaving.delete(versionId);
+    else if (hasDocumentStartedLeaving) draftLeasesGrantedWhileLeaving.add(versionId);
+  }
+}
+
+export function acquireEstimateDraftLock(
+  versionId: string
+): Promise<AcquireEstimateDraftLockResult> {
+  return requestDraftLease(versionId, () => requestEstimateDraftLockAcquisition(versionId));
+}
+
+export function takeoverEstimateDraftLock(
+  versionId: string
+): Promise<AcquireEstimateDraftLockResult> {
+  return requestDraftLease(versionId, () => requestEstimateDraftLockTakeover(versionId));
+}
+
+async function requestEstimateDraftLockAcquisition(
   versionId: string
 ): Promise<AcquireEstimateDraftLockResult> {
   try {
@@ -4657,7 +4729,7 @@ export async function renewEstimateDraftLock(
   }
 }
 
-export async function takeoverEstimateDraftLock(
+async function requestEstimateDraftLockTakeover(
   versionId: string
 ): Promise<AcquireEstimateDraftLockResult> {
   const payload = await requestJson<unknown>(
@@ -4679,6 +4751,7 @@ export async function releaseEstimateDraftLock(
   versionId: string,
   options: ReleaseEstimateDraftLockOptions = {}
 ): Promise<ReleaseEstimateDraftLockResult> {
+  if (!options.sessionId) draftLeasesGrantedWhileLeaving.delete(versionId);
   try {
     const payload = await requestJson<unknown>(
       buildEstimateDraftLockPath(versionId, { force: options.force }),
