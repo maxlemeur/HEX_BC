@@ -1,3 +1,4 @@
+import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import type { BenchPass, BenchRunResult, ChunkCall, DocumentRun } from "@/lib/takeoff/bench/run";
 import { describeError } from "@/lib/takeoff/bench/run";
 import type { GroupTruthFile } from "@/lib/takeoff/bench/schemas";
@@ -74,13 +75,37 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
   };
 }
 
+/**
+ * The raster fallback of a vector run (pipeline step 5): the level C items of a baseline page for a pass (pass n of
+ * the run takes pass ((n - 1) mod passes) + 1 of the baseline), or « unread » when the baseline did not read that
+ * page. A page is read when a successful call of its document's complete run covers it and no failed call does.
+ * A baseline run on a subset (--pages, --pages-from) also lists the pages it read: one left out is unread, even
+ * inside a call's range (pages 1 and 3 read in one chunk are put back as « pages 1-3 »). Ranges only hold for pages
+ * in order: a selection whose pages do not rise strictly reads none.
+ */
+export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "documents">>, selection?: BenchPageSelection | null) {
+  return (document: string, pass: number, page: number): TakeoffItem[] | "unread" => {
+    if (passes.length === 0) return "unread";
+    const run = passes[(pass - 1) % passes.length].documents.find((entry) => entry.id === document && entry.complete);
+    if (!run) return "unread";
+    if (selection && selection.mode !== "all") {
+      const read = selection.documents.find((entry) => entry.id === document);
+      if (!read || read.excluded || !read.pages_read.includes(page)) return "unread";
+      if (read.pages_read.some((value, index, list) => index > 0 && value <= list[index - 1])) return "unread";
+    }
+    const covering = run.calls.filter((call) => call.start_page <= page && page <= call.end_page);
+    if (!covering.some((call) => call.status === "ok") || covering.some((call) => call.status !== "ok")) return "unread";
+    return run.items;
+  };
+}
+
 export async function runVectorBench(input: {
   documents: readonly VectorBenchDocument[];
   groups: ReadonlyMap<string, GroupTruthFile>;
   repeat: number;
   /**
-   * Level C items of a raster page for this pass, from the baseline report; « unread » when the baseline did not
-   * read that page (no such document, or a failed call covering it): the page then fails, its scope is not scored.
+   * Level C items of a raster page for this pass, from the baseline report (baselineRasterFallback); « unread »
+   * when the baseline did not read that page: the page then fails, its scope is not scored.
    */
   rasterFallback?: (document: string, pass: number, page: number) => TakeoffItem[] | "unread";
   extract?: (bytes: Uint8Array, page: number) => Promise<VectorPageExtraction>;

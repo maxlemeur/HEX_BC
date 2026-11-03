@@ -21,8 +21,12 @@ est une constante nommée et versionnée dans le code.
        leur calque ;
      - les textes, avec leur position.
    - Les surfaces seulement remplies et les tracés de détourage ne sont pas mesurés.
+   - Seule la page visible (sa CropBox) est lue. Ce que le dessin porte au-delà n'est pas
+     imprimé : un trait qui passe le bord est coupé au bord, un trait ou un texte tout
+     entier au-delà (un cartouche rogné) n'est pas lu.
    - Une erreur de contenu (opérateur invalide, objet manquant) ou une coordonnée hors
-     plage fait échouer la page : pdfjs ne rend jamais une page lue en partie.
+     plage d'un trait imprimé, même au-delà du bord, fait échouer la page : pdfjs ne
+     rend jamais une page lue en partie.
    - Un détourage (W n, ou le cadre BBox d'une forme) coupe les tracés qui le suivent :
      seul ce qu'il montre est mesuré. Un détourage rectangulaire est exact ; une autre
      forme est prise par son rectangle englobant.
@@ -108,7 +112,8 @@ est une constante nommée et versionnée dans le code.
      mais presque pas de fond de plan (ses propres bords ne comptent pas). Un mur ouvert
      en U n'est pas un cadre.
    - Le DN, le matériau et le calorifuge viennent du libellé :
-     - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe ;
+     - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
+       du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
      - sinon par sa position : le tuyau parallèle le plus proche.
    - Deux tronçons bout à bout dont les libellés diffèrent (DN, matériau ou calorifuge,
      à une réduction) sont coupés là où un de leurs traits finit, s'il y a exactement un
@@ -117,6 +122,8 @@ est une constante nommée et versionnée dans le code.
    - Ces valeurs passent aux tronçons raccordés du même réseau, du plus proche au plus
      loin, jamais à un autre réseau. Un tronçon qui n'est rattaché à aucun libellé
      garde un DN vide (« à revoir »).
+   - Les recherches de voisinage (libellés, raccords, embouts) trouvent tout tracé, même
+     un long tuyau en diagonale d'une feuille A0.
    - Longueur réelle = longueur sur la feuille (mm) × dénominateur de l'échelle.
 6. **Surfaces** ([`surfaces.ts`](../../src/lib/takeoff/vectors/surfaces.ts)).
    - La mesure est l'aire du plus petit polygone fermé autour de la surface imprimée
@@ -158,4 +165,10 @@ inconnu ou deux DN le laissent illisible, comme tout item.
 
 La comparaison avec la baseline niveau C ne totalise que les périmètres notés par les
 deux runs à chaque passe. Une page raster que la baseline n'a pas lue fait échouer la
-page : son périmètre n'est pas noté.
+page : son périmètre n'est pas noté. La baseline a lu une page quand un de ses appels
+réussis la couvre et qu'aucun appel en échec ne la couvre. Une baseline lancée sur une
+partie des pages (`--pages`, `--pages-from`) doit en plus compter la page parmi ses
+pages lues : lues dans un même appel, les pages 1 et 3 ne disent rien de la page 2. Un
+rapport de tri dont les pages gardées ne montent pas strictement (désordre, doublon, page
+au-delà du document) est refusé : un appel n'est rendu que par sa première et sa dernière
+page.

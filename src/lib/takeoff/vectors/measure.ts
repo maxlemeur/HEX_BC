@@ -36,7 +36,8 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 //   are not measured: samples, details and schematics are not at scale (a
 //   frame is never a network stroke and is at least 10 band widths on each side);
 // - labels (labels.ts) attach to a run of their network: by a leader (a dark
-//   stroke passing under the label or starting at its box, followed over up to
+//   stroke starting at the label's box, along it as an underline or away from
+//   it, never a wall that only passes under the label, followed over up to
 //   5 joined strokes, whose far end lies within LEADER_REACH of the run), else
 //   inline (the nearest run parallel to the label within 10°, 2.5 label heights away);
 //   a label without network attaches to none (« à revoir »), a label without
@@ -52,7 +53,7 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
 
-export const MEASURE_RULE_VERSION = 3;
+export const MEASURE_RULE_VERSION = 4;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -332,8 +333,10 @@ export function leaderTips(block: LabelBlock, leaders: SegmentIndex): Point[] {
   for (const id of leaders.near(block.centre, radius)) {
     const segment = leaders.segments[id];
     const ends = [{ x: segment.x0, y: segment.y0 }, { x: segment.x1, y: segment.y1 }];
-    const under = distanceToSegment(block.centre, segment) <= 1.2 * h && orientationGap(orientation(segment), ((block.angle % Math.PI) + Math.PI) % Math.PI) <= (5 * Math.PI) / 180;
     const inBox = ends.map((end) => boxContains(box, end));
+    // An underline starts or ends at its label: a wall that only passes under it is not one.
+    const under = inBox.some(Boolean) && distanceToSegment(block.centre, segment) <= 1.2 * h
+      && orientationGap(orientation(segment), ((block.angle % Math.PI) + Math.PI) % Math.PI) <= (5 * Math.PI) / 180;
     if (!under && !inBox.some(Boolean)) continue;
     for (const [endIndex, end] of ends.entries()) {
       if (!under && inBox[endIndex]) continue;

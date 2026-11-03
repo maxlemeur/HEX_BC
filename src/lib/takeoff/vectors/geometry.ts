@@ -91,29 +91,49 @@ export function boxArea(box: Box) {
 }
 
 /**
- * Uniform grid over segments for proximity queries (cotes, labels, legend):
- * a segment is listed in every cell its box touches.
+ * Uniform grid over segments for proximity queries (cotes, labels, legend, network runs): a segment is listed in
+ * every cell its box touches. A long oblique segment, whose box would hold more than SEGMENT_INDEX_BOX_CELLS cells
+ * (a pipe on the diagonal of an A0 sheet), is listed in the cells it crosses instead; one crossing more than
+ * SEGMENT_INDEX_CROSSED_CELLS (far off any sheet) is returned by every query. No finite segment is left out.
  */
+export const SEGMENT_INDEX_BOX_CELLS = 4096;
+export const SEGMENT_INDEX_CROSSED_CELLS = 65_536;
+
 export class SegmentIndex {
   readonly cell: number;
   private readonly cells = new Map<number, number[]>();
+  private readonly everywhere: number[] = [];
 
   // `width` is kept for callers; cells are keyed on a fixed grid that also holds coordinates off the page.
   constructor(readonly segments: readonly Segment[], width: number, cell = 24) {
     void width;
     this.cell = cell;
+    const add = (cx: number, cy: number, id: number) => {
+      const key = SegmentIndex.key(cx, cy);
+      const list = this.cells.get(key);
+      if (list) list.push(id);
+      else this.cells.set(key, [id]);
+    };
     segments.forEach((segment, id) => {
-      if (![segment.x0, segment.y0, segment.x1, segment.y1].every(Number.isFinite)) return;
-      const [cx0, cx1] = [Math.floor(Math.min(segment.x0, segment.x1) / cell), Math.floor(Math.max(segment.x0, segment.x1) / cell)];
-      const [cy0, cy1] = [Math.floor(Math.min(segment.y0, segment.y1) / cell), Math.floor(Math.max(segment.y0, segment.y1) / cell)];
-      if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 4096) return; // a page-long stroke is never a cote, tick or label leader
+      const { x0, y0, x1, y1 } = segment;
+      if (![x0, y0, x1, y1].every(Number.isFinite)) return;
+      const [cx0, cx1] = [Math.floor(Math.min(x0, x1) / cell), Math.floor(Math.max(x0, x1) / cell)];
+      const [cy0, cy1] = [Math.floor(Math.min(y0, y1) / cell), Math.floor(Math.max(y0, y1) / cell)];
+      if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) <= SEGMENT_INDEX_BOX_CELLS) {
+        for (let cx = cx0; cx <= cx1; cx += 1) for (let cy = cy0; cy <= cy1; cy += 1) add(cx, cy, id);
+        return;
+      }
+      if (cx1 - cx0 + cy1 - cy0 + 2 > SEGMENT_INDEX_CROSSED_CELLS) {
+        this.everywhere.push(id);
+        return;
+      }
+      // The cells it crosses: in each column, the rows between the segment's heights at the column's edges.
+      const dx = x1 - x0;
       for (let cx = cx0; cx <= cx1; cx += 1) {
-        for (let cy = cy0; cy <= cy1; cy += 1) {
-          const key = SegmentIndex.key(cx, cy);
-          const list = this.cells.get(key);
-          if (list) list.push(id);
-          else this.cells.set(key, [id]);
-        }
+        const left = Math.max(Math.min(x0, x1), cx * cell), right = Math.min(Math.max(x0, x1), (cx + 1) * cell);
+        const ya = dx === 0 ? y0 : y0 + ((left - x0) / dx) * (y1 - y0);
+        const yb = dx === 0 ? y1 : y0 + ((right - x0) / dx) * (y1 - y0);
+        for (let cy = Math.floor(Math.min(ya, yb) / cell); cy <= Math.floor(Math.max(ya, yb) / cell); cy += 1) add(cx, cy, id);
       }
     });
   }
@@ -125,7 +145,7 @@ export class SegmentIndex {
 
   /** Ids of the segments whose cells meet the box around point within radius (each once). */
   near(point: Point, radius: number): number[] {
-    const found = new Set<number>();
+    const found = new Set<number>(this.everywhere);
     for (let cx = Math.floor((point.x - radius) / this.cell); cx <= Math.floor((point.x + radius) / this.cell); cx += 1) {
       for (let cy = Math.floor((point.y - radius) / this.cell); cy <= Math.floor((point.y + radius) / this.cell); cy += 1) {
         for (const id of this.cells.get(SegmentIndex.key(cx, cy)) ?? []) found.add(id);

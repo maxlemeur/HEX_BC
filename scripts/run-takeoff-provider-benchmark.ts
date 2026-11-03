@@ -31,7 +31,7 @@ import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
 import { compareVectorWithBaseline, renderVectorSections, vectorTimings } from "@/lib/takeoff/bench/vector-report";
-import { runVectorBench } from "@/lib/takeoff/bench/vector-run";
+import { baselineRasterFallback, runVectorBench } from "@/lib/takeoff/bench/vector-run";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
 import {
   runTakeoffPageTriage,
@@ -42,7 +42,6 @@ import {
   TAKEOFF_PAGE_TRIAGE_THUMBNAIL,
   takeoffPageTriageRenderLimits,
 } from "@/lib/takeoff/page-triage-server";
-import type { TakeoffItem } from "@/lib/takeoff/types";
 import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
 import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
@@ -297,15 +296,7 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
       throw new BenchRefusal(`--baseline read other revisions of ${changed.map(({ document }) => document.id).join(", ")} (SHA-256 differs from the manifest).`);
     }
   }
-  const baselinePasses = baseline?.run.couples[0]?.passes ?? [];
-  const rasterFallback = baseline ? (document: string, pass: number, page: number): TakeoffItem[] | "unread" => {
-    if (baselinePasses.length === 0) return "unread";
-    const source = baselinePasses[(pass - 1) % baselinePasses.length];
-    const run = source.documents.find((entry) => entry.id === document && entry.complete);
-    // A chunk that failed on this page is a page the baseline never read.
-    if (!run || run.calls.some((call) => call.status !== "ok" && call.start_page <= page && page <= call.end_page)) return "unread";
-    return run.items;
-  } : undefined;
+  const rasterFallback = baseline ? baselineRasterFallback(baseline.run.couples[0]?.passes ?? [], baseline.metadata.page_selection) : undefined;
   const documents = [];
   for (const { document, bytes } of dataset.selected) {
     const copy = new Uint8Array(bytes);
