@@ -14,7 +14,7 @@ import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
 import { classifyCallError, describeError } from "@/lib/takeoff/bench/run";
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
 import {
-  LAB_CONFIG_IDS, type LabAnswer, type LabConfigInput, type LabConfigResult, type LabDecisionsBudget, type LabElement,
+  LAB_CONFIG_IDS, LAB_VECTOR_TASK_ID, type LabAnswer, type LabConfigInput, type LabConfigResult, type LabDecisionsBudget, type LabElement,
   type LabRun, type LabRunRequest, type LabRunSummary, type LabStopReason, type LabUsage,
 } from "@/lib/takeoff/lab/contracts";
 import { cropLabPdf } from "@/lib/takeoff/lab/crop";
@@ -25,7 +25,9 @@ import {
   canonicalJson, elementIdOf, listJsonFiles, outputSubdirectory, readDecisionsTokenCap, readLabJson, requireLabPaths, runFile,
   sha256Hex, writeLabJson, type LabPaths,
 } from "@/lib/takeoff/lab/storage";
-import { findLabTask, type LabTask } from "@/lib/takeoff/lab/tasks";
+import { findLabTask, vectorGroupsQuestionTemplate, type LabTask } from "@/lib/takeoff/lab/tasks";
+import { runVectorGroupsConfig } from "@/lib/takeoff/lab/vectors";
+import { isDecisionsRunStop } from "@/lib/takeoff/vectors/group-decisions-server";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
@@ -41,6 +43,9 @@ import type { TakeoffExchange } from "@/lib/takeoff/types";
 // Decisions runs within TAKEOFF_LAB_DECISIONS_MAX_TOKENS, counted from the
 // stored runs; a failed call stops the essai. The run is written atomically,
 // stopped or not, before it is returned.
+// « Classe de calque » (vectors.ts) is one Decisions configuration on a whole
+// page: no browser image, no zone, its fixed questions; its calls stop at the
+// first failure or at the cap's remainder, and its usage is their sum.
 
 export type LabAccess = { owner: ChatGptOwner; email: string | null };
 
@@ -216,7 +221,8 @@ async function preflightChatGpt(owner: ChatGptOwner, configs: readonly Extract<L
   return { overrides: checked, selection: { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null } };
 }
 
-async function preflightDecisions(paths: LabPaths, request: LabRunRequest) {
+/** Refuses a Decisions essai that cannot run; returns the tokens the cap still allows. */
+async function preflightDecisions(paths: LabPaths, request: LabRunRequest, task: LabTask) {
   const capability = getOpenAiDecisionsCapability();
   if (capability.status !== "available") throw conflict(capability.message, undefined, "TAKEOFF_LAB_DECISIONS");
   const cap = readDecisionsTokenCap();
@@ -225,7 +231,9 @@ async function preflightDecisions(paths: LabPaths, request: LabRunRequest) {
   if (budget.used >= cap) {
     throw conflict(`Plafond Decisions atteint : ${budget.used} jetons sur ${cap}. Thanh peut relever TAKEOFF_LAB_DECISIONS_MAX_TOKENS.`, undefined, "TAKEOFF_LAB_DECISIONS_CAP");
   }
-  if (!request.image) throw badRequest("Decisions a besoin de l’image de la page ou de la zone : rechargez le document.");
+  // « Classe de calque » draws its own images on the server (group-sheet-server.ts): no browser image.
+  if (task.id !== LAB_VECTOR_TASK_ID && !request.image) throw badRequest("Decisions a besoin de l’image de la page ou de la zone : rechargez le document.");
+  return cap - budget.used;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,12 +273,16 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
   if (decisions && document.summary.pages > 1 && !crop) {
     throw badRequest("Decisions lit une seule page : cochez « Seulement la page » ou tracez une zone.");
   }
+  if (task.id === LAB_VECTOR_TASK_ID) {
+    if (crop?.box) throw badRequest("La classe de calque se lit sur une page entière : effacez la zone.");
+    if (request.prompt !== task.defaultPrompt) throw badRequest("Les questions de la classe de calque sont fixées par la lecture vectorielle : le prompt ne se modifie pas.");
+  }
   const chatGptPreflight = await preflightChatGpt(access.owner, chatgpt);
-  if (decisions) await preflightDecisions(paths, request);
+  const decisionsRemaining = decisions ? await preflightDecisions(paths, request, task) : null;
   if (running) throw conflict("Un essai est déjà en cours : attendez sa fin.", undefined, "TAKEOFF_LAB_BUSY");
   running = true;
   try {
-    return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, clock);
+    return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, decisionsRemaining, clock);
   } finally {
     running = false;
   }
@@ -278,13 +290,16 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
 
 async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunRequest, task: LabTask,
   document: Awaited<ReturnType<typeof readLabDocument>>, crop: LabRunRequest["crop"],
-  { overrides, selection }: LabChatGptPreflight, clock: () => number): Promise<LabRun> {
+  { overrides, selection }: LabChatGptPreflight, decisionsRemaining: number | null, clock: () => number): Promise<LabRun> {
   const now = new Date();
   const runId = newRunId(now);
-  const pdf = crop ? await cropLabPdf(document.bytes, crop) : document.bytes;
-  const pdfBase64 = Buffer.from(pdf).toString("base64");
-  const question = task.kind === "choice" ? choiceQuestion(task, request.prompt) : null;
-  const promptSha = question ? sha256Hex(canonicalJson([question])) : sha256Hex(request.prompt);
+  const vectors = task.id === LAB_VECTOR_TASK_ID;
+  // The vector task reads the page itself (extraction, server-rendered images): no cropped PDF.
+  const pdfBase64 = vectors ? "" : Buffer.from(crop ? await cropLabPdf(document.bytes, crop) : document.bytes).toString("base64");
+  const question = task.kind === "choice" && !vectors ? choiceQuestion(task, request.prompt) : null;
+  // Its questions are group-decisions.ts's: the version hashes their template, never one page's group names.
+  const promptSha = vectors ? sha256Hex(canonicalJson(vectorGroupsQuestionTemplate()))
+    : question ? sha256Hex(canonicalJson([question])) : sha256Hex(request.prompt);
   const promptVersion = task.promptBase ? `${task.promptBase}+${promptSha}` : promptSha;
   const truth = task.kind === "extraction" && !crop && document.summary.source === "dataset"
     ? await readLabTruth(paths.datasetDir, document.summary.id) : null;
@@ -306,6 +321,15 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
     };
     if (run.stop) {
       run.configs.push({ ...base, message: `Non lancée : ${run.stop.message}` });
+      continue;
+    }
+    if (input.provider === "decisions" && vectors) {
+      const { stop, ...result } = await runVectorGroupsConfig({ access, runId, configId: id, task, document, page: crop?.page ?? 1, promptVersion,
+        remainingTokens: decisionsRemaining ?? 0 });
+      run.configs.push({ ...base, ...result });
+      if (stop && isDecisionsRunStop(stop.reason)) {
+        run.stop = { reason: "decisions_failed", message: stop.reason === "budget_reached" ? stop.message : STOP_MESSAGES.decisions_failed };
+      }
       continue;
     }
     if (input.provider === "decisions") {

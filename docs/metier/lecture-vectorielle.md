@@ -221,6 +221,31 @@ plafond de jetons pour tout le run :
   latences p50 / p95 des appels et des rendus, le plafond et l'arrêt ; `report.json`
   garde la réponse de chaque groupe (alias, groupe, classe, confiance, statut, appel).
 
+## Labo : écran Vecteurs et « classe de calque »
+
+Le labo métré (`/dashboard/admin/takeoff/lab/vectors`, [guide](../testing/takeoff-lab.md))
+montre la lecture d'une page d'un document du labo, sans rien écrire dans la base ni dans
+le dataset :
+
+- la page est extraite et lue par mots-clés, comme au banc. Chaque groupe de tracés (un
+  calque, sinon une couleur) a sa classe, sa source (mots-clés, légende, libellés,
+  Decisions…), sa confiance, la devinette des mots-clés seuls, sa longueur et ses
+  segments. Le plan montre les groupes cochés ; Alt-clic sur une case n'affiche que ce
+  groupe. Au plus 20 000 segments par page sont dessinés, les plus longs groupes d'abord ;
+  un groupe coupé le dit ;
+- « Classer avec Decisions » lance la tâche « classe de calque » : un appel
+  `classifyVectorGroups` sur la page, sous le plafond `TAKEOFF_LAB_DECISIONS_MAX_TOKENS`
+  demandé avant chaque appel. Les images sont rendues par le serveur. Le premier appel en
+  échec arrête l'essai, sans relance. L'essai enregistre la somme des jetons, chaque
+  réponse normalisée et un élément par groupe interrogé, jugé dans les verdicts comme toute
+  réponse ;
+- la page est relue avec les réponses de cet essai : un réseau Decisions n'est mesuré qu'à
+  0,8 ou plus ;
+- la version du prompt est `takeoff-vector-groups-v1+<sha256>` du modèle des questions
+  (instructions et choix, alias « groupe_NN ») : deux documents gardent la même version ;
+- « Copier la sélection » donne le JSON `truth/groups` des groupes cochés (`{ page, group,
+  class }`) : une personne écrit la vérité hors du labo.
+
 ## Score au banc
 
 Le banc note les items vectoriels avec le scoreur du niveau C (TI-660).

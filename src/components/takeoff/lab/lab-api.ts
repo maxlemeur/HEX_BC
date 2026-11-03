@@ -1,7 +1,7 @@
 "use client";
 
 import type {
-  LabBenchReportSummary, LabCampaign, LabRun, LabRunRequest, LabRunSummary, LabState, LabStats, LabStoredVerdict, LabVerdict,
+  LabBenchReportSummary, LabCampaign, LabRun, LabRunRequest, LabRunSummary, LabState, LabStats, LabStoredVerdict, LabVectorPage, LabVerdict,
 } from "@/lib/takeoff/lab/contracts";
 import type { ChatGptAvailableModel, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
@@ -41,6 +41,9 @@ export const labApi = {
     const query = search.toString();
     return request<LabStats>(`/stats${query ? `?${query}` : ""}`);
   },
+  /** The vector reading of a page; with `runId`, the answers of that « classe de calque » essai applied. */
+  vectors: (documentId: string, page: number, runId?: string | null) => request<LabVectorPage>(
+    `/vectors/${encodeURIComponent(documentId)}?page=${page}${runId ? `&run=${encodeURIComponent(runId)}` : ""}`),
   benchReports: () => request<LabBenchReportSummary[]>("/bench-reports"),
   benchReport: async (name: string) => {
     const response = await fetch(`${ROOT}/bench-reports/${encodeURIComponent(name)}`, { cache: "no-store" });
