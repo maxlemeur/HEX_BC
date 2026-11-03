@@ -1,3 +1,4 @@
+import { findDiameterEntries } from "@/lib/takeoff/bench/diameters";
 import { readItemKey } from "@/lib/takeoff/bench/item-keys";
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
@@ -19,11 +20,11 @@ import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/
 //   « compris », a comma, a semicolon, a parenthesis or a plus, and after a
 //   « fourniture et pose de ») opens on one of these words is a quantity to be
 //   entered, never one the model may propose. A word further in qualifies the
-//   line (« Tube cuivre … y compris supports », « Robinet d'essai »): the line
-//   stays what its head names. A count whose organ the reader names (a valve, a
-//   pump, a WC) is that organ, drawn on the plan, whatever word follows it; a
-//   vertical word only makes a length non-observable. The vocabulary is
-//   generic trade words only.
+//   line (« Tube cuivre … y compris supports », « Robinet d'essai », « Vanne
+//   avec support »): the line stays what its head names, and an activity the
+//   head opens on stays to be entered whatever organ it names after (« Pose
+//   seule de vanne », « Transport de pompe »). A vertical word only makes a
+//   length non-observable. The vocabulary is generic trade words only.
 // - An m2 line read as a network is an insulation surface (keys.ts), never a
 //   pipe: the DN rule does not read it.
 
@@ -61,11 +62,8 @@ export function nonObservableCause(designation: string): NonObservableCause | nu
 
 export type DesignationLine = { designation: string; category?: string | null; evidence?: string | null; unit: string; quantity: number };
 
-/** Organs a weld, tap or support line counts: any other organ read is the line's object, drawn on the plan. */
-const COUNTED_WORKS = new Set(["soudure", "piquage", "support"]);
-
-/** A size printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" »), as printed. */
-const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*mm\b|\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|\b\d\/\d\s*(?:"|”|pouces?)/i;
+/** Sizes printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" »), as printed. */
+const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*mm\b|\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|\b\d\/\d\s*(?:"|”|pouces?)/gi;
 
 /**
  * Inputs of a line the model proposed (levels B and C): read in its text, never in its quantity.
@@ -79,8 +77,6 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   const reading = readItemKey(line, { rooms: [] });
   if (reading.status === "out_of_score") return cause === "vertical" ? { ...base, non_observable: null } : base;
   const key = reading.key;
-  // A count of an organ the plan draws is that organ, whatever word qualifies it.
-  if (key.kind === "count" && key.organ !== null && !COUNTED_WORKS.has(key.organ)) base.non_observable = null;
   if (cause === "vertical" && key.kind !== "network") base.non_observable = null;
   if (key.kind === "count") return { ...base, kind: "count" };
   if (key.kind === "surface") return { ...base, kind: "surface" };
@@ -90,14 +86,20 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   const wrapped = material === "calorifuge" || material === "cordon-chauffant" || key.unit === "m2";
   const reason = reading.status === "unreadable" ? reading.reason : null;
   const network = reason === "network_missing" || reason === "network_ambiguous" ? null : key.network;
-  // A size no series has is kept as printed, whether the reader calls it unknown or reads none from it (« Ø 23 »).
-  const dn = reason === "dn_ambiguous" ? null : key.dn?.printed ?? printedSize(line.designation);
+  // A size no series has is kept as printed, whether the reader calls it unknown or reads none from it (« Ø 23 »):
+  // the first printed size the material's series lacks, never a known one printed beside it (« DN 22 / DN 23 »).
+  const dn = reason === "dn_ambiguous" ? null : reason === "dn_unknown" ? unknownSize(line.designation, material)
+    : key.dn?.printed ?? unknownSize(line.designation, material) ?? printedSizes(line.designation)[0] ?? null;
   return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn };
 }
 
-/** The size of a designation whose size no series has (the reader keeps none), as printed: the DN rule fails it. */
-function printedSize(designation: string) {
-  return PRINTED_SIZE.exec(designation)?.[0].replace(/\s+/g, " ").trim() ?? null;
+function printedSizes(designation: string) {
+  return [...designation.matchAll(PRINTED_SIZE)].map((match) => match[0].replace(/\s+/g, " ").trim());
+}
+
+/** The first size a designation prints that the material's series lacks (null: every printed size is known). */
+function unknownSize(designation: string, material: MaterialCode | null) {
+  return printedSizes(designation).find((size) => findDiameterEntries(size, material).length === 0) ?? null;
 }
 
 export type VectorLine = {

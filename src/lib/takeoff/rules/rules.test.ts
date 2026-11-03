@@ -7,7 +7,7 @@ import { NETWORK_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/net
 import { REGISTRATION, registerPages, type PageAnchors } from "@/lib/takeoff/rules/registration";
 import { polygonPoints, roomsOverlap, sharedArea } from "@/lib/takeoff/rules/rooms";
 import type { TakeoffRuleInputs, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
-import { ZONE_OVERLAP, commonLength, minCommonLength, settlePairs } from "@/lib/takeoff/rules/zone-overlap";
+import { ZONE_OVERLAP, commonLength, minCommonLength, settleDuplicates } from "@/lib/takeoff/rules/zone-overlap";
 import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 
 // Ways the fixed quantity rules of TI-664 could let a wrong quantity through,
@@ -76,6 +76,14 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 //   were refused; a vector « Ø 110 » cast iron failed; a size printed « Ø 23 »
 //   failed as a missing DN; an m2 network line was read as a pipe;
 // - a surface the model proposed got a closed-box pass it never checked.
+// Codex review of PR #153, written before their fix:
+// - « Pose seule de vanne », « Transport de pompe », « Mise en service de pompe »
+//   became observable because an organ followed the activity the head names;
+// - « EF cuivre DN 22 / DN 23 » passed the DN rule on its first, known size;
+// - three copies of one run demanded a reduction per pair (15 m for 10 m counted
+//   twice), so a correct correction never settled them;
+// - « DN 100 » and « Ø 110 » of one cast-iron pipe on two zone plans were never
+//   compared.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -218,6 +226,20 @@ describe("inputs read in a designation", () => {
     expect(ruleInputsFromDesignation({ designation: "Mise en service", unit: "ens", quantity: 1 }).non_observable).toBe("service");
   });
 
+  it("keeps the activity a head names to be entered, whatever organ follows it", () => {
+    for (const designation of ["Pose seule de vanne DN 20", "Transport de pompe", "Mise en service de pompe"]) {
+      expect(ruleInputsFromDesignation({ designation, unit: "u", quantity: 2 }).non_observable, designation).not.toBeNull();
+    }
+  });
+
+  it("fails a line printing a size its series lacks, whatever the order of its sizes", () => {
+    for (const designation of ["EF cuivre DN 22 / DN 23", "EF cuivre DN 23 / DN 22"]) {
+      const { results } = evaluateTakeoffRules({ pages: [], lines: [line("x", { designation,
+        inputs: ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 }) })] });
+      expect(rule(results, "x", "dn_network")?.status, designation).toBe("fail");
+    }
+  });
+
   it("enters a quantity the user typed even when it equals the model's (1 ens of a service)", () => {
     const service = (entered: boolean) => line("service", { designation: "Mise en service", unit: "ens", quantity: 1, quantity_entered: entered,
       inputs: ruleInputsFromDesignation({ designation: "Mise en service", unit: "ens", quantity: 1 }) });
@@ -309,37 +331,29 @@ describe("duplicate runs between zones", () => {
     expect(commonLength(run, identity, { id: "b", segments: [[4.9, 0, 8, 0]] }, identity)).toBeLessThan(ZONE_OVERLAP.minLength_m);
   });
 
-  it("settles a pair with one reduction, once, and never asks a frozen line to change", () => {
-    const lines = new Map([
-      ["a", { id: "a", measured_m: 5, quantity: 4, frozen: false }],
-      ["b", { id: "b", measured_m: 3, quantity: 3, frozen: false }],
-      ["c", { id: "c", measured_m: 3, quantity: 3, frozen: false }],
-    ]);
-    const ab = { left: "a", right: "b", overlap_m: 1 };
-    const ac = { left: "a", right: "c", overlap_m: 1 };
-    expect([...settlePairs([ab, ac], lines)]).toHaveLength(1);
-    const frozen = new Map([["a", { id: "a", measured_m: 5, quantity: 5, frozen: true }], ["b", { id: "b", measured_m: 3, quantity: 2, frozen: false }]]);
-    expect(settlePairs([ab], frozen).has(ab)).toBe(true);
+  /** A line of a group of duplicates: its reduction, what other lines cover of it, what lines before it cover. */
+  const member = (id: string, reduction_m: number, covered_m: number, duplicated_m: number, frozen = false) =>
+    ({ id, frozen, reduction_m, covered_m, duplicated_m });
+
+  it("settles a pair with one reduction, counts a reduction once, and never asks a frozen line to change", () => {
+    // A shares 1 m with B: either reduction of 1 m settles it.
+    expect(settleDuplicates([member("a", 1, 1, 0), member("b", 0, 1, 1)])).toEqual({ settled: true, deficit_m: 0 });
+    expect(settleDuplicates([member("a", 0, 1, 0), member("b", 0, 1, 1)])).toEqual({ settled: false, deficit_m: 1 });
+    // A shares 1 m with B and another 1 m with C: A reduced by 1 m leaves 1 m counted twice.
+    expect(settleDuplicates([member("a", 1, 2, 0), member("b", 0, 1, 1), member("c", 0, 1, 1)])).toMatchObject({ settled: false, deficit_m: 1 });
+    // A reduction never counts beyond what others cover of the line.
+    expect(settleDuplicates([member("a", 3, 1, 0), member("b", 0, 1, 1), member("c", 0, 1, 1)])).toMatchObject({ settled: false });
+    // A frozen line reduced by its whole share settles the current one.
+    expect(settleDuplicates([member("f", 1, 1, 0, true), member("n", 0, 1, 1)])).toMatchObject({ settled: true });
   });
 
   it("spends a frozen reduction on the applied pair it was made for, and shares reductions that cover every pair", () => {
     // F (applied) was reduced by 1 m for its duplicate with Z (applied); N (current) also shares 1 m with F: N must reduce.
-    const frozen = new Map([
-      ["f", { id: "f", measured_m: 10, quantity: 9, frozen: true }], ["z", { id: "z", measured_m: 3, quantity: 3, frozen: true }],
-      ["n", { id: "n", measured_m: 3, quantity: 3, frozen: false }],
-    ]);
-    const fn = { left: "f", right: "n", overlap_m: 1 };
-    const fz = { left: "f", right: "z", overlap_m: 1 };
-    const settled = settlePairs([fn, fz], frozen);
-    expect([settled.has(fz), settled.has(fn)]).toEqual([true, false]);
-    // A shares 1 m with B and 1 m with C; B and A were each reduced by 1 m: both pairs are settled, whatever the order.
-    const shared = new Map([
-      ["a", { id: "a", measured_m: 5, quantity: 4, frozen: false }], ["b", { id: "b", measured_m: 3, quantity: 2, frozen: false }],
-      ["c", { id: "c", measured_m: 3, quantity: 3, frozen: false }],
-    ]);
-    const ab = { left: "a", right: "b", overlap_m: 1 };
-    const ac = { left: "a", right: "c", overlap_m: 1 };
-    expect([...settlePairs([ab, ac], shared)]).toHaveLength(2);
+    expect(settleDuplicates([member("f", 1, 2, 0, true), member("z", 0, 1, 1, true), member("n", 0, 1, 1)]))
+      .toEqual({ settled: false, deficit_m: 1 });
+    expect(settleDuplicates([member("f", 1, 2, 0, true), member("z", 0, 1, 1, true), member("n", 1, 1, 1)]).settled).toBe(true);
+    // A shares 1 m with B and 1 m with C; B and A were each reduced by 1 m: both are settled, whatever the order.
+    expect(settleDuplicates([member("a", 1, 2, 0), member("b", 1, 1, 1), member("c", 0, 1, 1)]).settled).toBe(true);
   });
 
   it("measures a long diagonal run once along its length", () => {
