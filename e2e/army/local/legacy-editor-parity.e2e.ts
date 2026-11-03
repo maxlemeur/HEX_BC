@@ -1023,3 +1023,190 @@ armyTest("LEP07 a reload during the learning read cancels it without reporting a
       await browser.evaluate((key) => { sessionStorage.removeItem(key); return null; }, auditKey);
     }
   });
+
+// TI-668 (keyboard and menu focus, seen on CI only): the grid's roving-focus
+// pass must not take focus back from where the user has put it since.
+// - LEP08: a deferred editor render (useDeferredValue, quality flags) commits
+//   in a Scheduler task; its effects wait for a later task. A focus event in
+//   between first flushes that older pass, whose active cell is stale. LEP01
+//   lost its synthetic focus to it.
+// - LEP09: when the draft lease lands, navigation activates its first cell.
+//   A line menu opened meanwhile lost its focus to that cell and closed
+//   (estimate-integrity's catalogue association).
+// - LEP10: while a title is edited, a click on another line's title blurs the
+//   first; that blur's pass saw the body as lost focus, refocused the clicked
+//   cell and cancelled the click's own focus, so typing replaced the title.
+// LEP08 and LEP09 force their ordering instead of waiting for CI load to hit it.
+armyTest("LEP08 a cell focused while a deferred editor render is pending keeps the focus and the tab stop", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    type CommitProbe = { armed?: { source: string; target: string }; fired: Array<string | null>; skipped: number };
+    // Production React reports each commit to this hook before it runs that
+    // commit's passive effects. A commit inside a Scheduler (MessageChannel)
+    // task is a non-sync one: focusing there gives the late-flush order. Only
+    // a commit seen while focus is on the source cell counts, so an earlier
+    // one (the catalogue debounce, a late load read) cannot spend the probe.
+    await browser.addInitScript(() => {
+      if (!/^https?:$/.test(location.protocol)) return;
+      const probe: CommitProbe = { fired: [], skipped: 0 };
+      (window as unknown as { __armyCommitProbe: CommitProbe }).__armyCommitProbe = probe;
+      (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+        supportsFiber: true, isDisabled: false, renderers: new Map(), inject: () => 1, checkDCE: () => undefined,
+        onCommitFiberUnmount: () => undefined, onPostCommitFiberRoot: () => undefined,
+        onCommitFiberRoot: () => {
+          if (!probe.armed || window.event?.type !== "message") return;
+          const focusedCell = document.activeElement?.closest("[data-cell-id]")?.getAttribute("data-cell-id") ?? null;
+          if (focusedCell !== probe.armed.source) {
+            probe.skipped++;
+            return;
+          }
+          const { target } = probe.armed;
+          probe.armed = undefined;
+          probe.fired.push(focusedCell);
+          document.querySelector<HTMLElement>(`[data-cell-id="${target}"]`)?.focus();
+        },
+      };
+    });
+    const { ids, lines } = await prepare(ui, army, "LEP08", 2);
+    await openSeededEditor(ui, ids);
+    const sectionTitle = row(ui, lines[0].parent_id!).getByTestId("estimate-section-title-input");
+    const firstTitle = row(ui, lines[0].id).getByTestId("estimate-line-title-input");
+    await sectionTitle.focus();
+    await sectionTitle.press("Tab");
+    await expect.poll(() => activeCellId(ui)).toBe(`${lines[0].id}::title`);
+    await firstTitle.click();
+    const source = `${lines[0].id}::quantity`;
+    const target = `${lines[1].id}::quantity`;
+    await browser.evaluate((armed) => {
+      (window as unknown as { __armyCommitProbe: CommitProbe }).__armyCommitProbe.armed = armed;
+      return null;
+    }, { source, target });
+    // Tab leaves the title editor: its blur patches the line, so a sync render
+    // moves to the quantity cell and the deferred render follows in a task.
+    await firstTitle.press("Tab");
+    const probe = () => browser.evaluate(() => {
+      const { fired, skipped } = (window as unknown as { __armyCommitProbe: CommitProbe }).__armyCommitProbe;
+      return { fired, skipped };
+    });
+    await expect.poll(async () => (await probe()).fired, { message: "The deferred render must commit with the quantity cell active" })
+      .toEqual([source]);
+    const focusState = (id: string) => browser.evaluate((cellId) => {
+      const element = document.querySelector<HTMLElement>(`[data-cell-id="${cellId}"]`);
+      return {
+        focused: element === document.activeElement, tabStop: element?.tabIndex === 0,
+        focusedCell: document.activeElement?.closest("[data-cell-id]")?.getAttribute("data-cell-id") ?? null,
+      };
+    }, id);
+    try {
+      await expect.poll(() => focusState(target)).toEqual({ focused: true, tabStop: true, focusedCell: target });
+      // Keyboard navigation still starts from the cell that kept the focus.
+      await browser.keyboard.press("ArrowUp");
+      await expect.poll(() => focusState(source)).toEqual({ focused: true, tabStop: true, focusedCell: source });
+    } finally {
+      await recordEvidence(army, "lep08-deferred-render-focus", {
+        ...ids, source, target, probe: await probe(), final: await focusState(target),
+      });
+    }
+  });
+
+// Holds the page's next request matching the pattern and method until released;
+// later requests pass at once. fallback() keeps the campaign's own route
+// (restrictCriticalBrowser), as in bulk-edit-sync-sources.
+async function holdNextRequest(ui: Ui, method: string, pattern: string) {
+  let markHeld!: () => void;
+  const held = new Promise<void>((resolve) => { markHeld = resolve; });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  let markForwarded!: () => void;
+  const forwarded = new Promise<void>((resolve) => { markForwarded = resolve; });
+  let armed = true;
+  await ui.browser.route(pattern, async (route) => {
+    if (!armed || route.request.method !== method) return route.fallback();
+    armed = false;
+    markHeld();
+    await released;
+    await route.fallback();
+    markForwarded();
+  });
+  return {
+    held,
+    release: async () => {
+      release();
+      await forwarded;
+    },
+    // Always safe in a finally: frees a held request, then removes the route.
+    dispose: async () => {
+      release();
+      await ui.browser.unroute(pattern);
+    },
+  };
+}
+
+armyTest("LEP09 a line menu opened while the draft lease is pending keeps its focus and opens its action when the lease lands", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { ids, lines } = await prepare(ui, army, "LEP09", 1);
+    const line = lines[0];
+    const unlock = await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+    expect(unlock.status).toBe(200);
+    const lease = await holdNextRequest(ui, "POST", `**/api/estimates/${ids.versionId}/lock*`);
+    const focusInMenu = () => browser.evaluate(() => ({
+      inMenu: Boolean(document.activeElement?.closest('[role="menu"]')),
+      focusedCell: document.activeElement?.closest("[data-cell-id]")?.getAttribute("data-cell-id") ?? null,
+    }));
+    const status = screen.getByTestId("estimate-page-toolbar-autosave-status");
+    let afterLease: unknown = null;
+    try {
+      await browser.reload();
+      await expect(grid(ui)).toBeVisible();
+      await lease.held;
+      await expect(status).toHaveText("Connexion…");
+      await screen.getByRole("button", `Plus d'actions pour ${line.title}`, { exact: true }).tap();
+      const associate = screen.getByRole("menuitem", "Associer ou remplacer l’article", { exact: true });
+      await expect(associate).toBeDisabled();
+      await expect.poll(focusInMenu).toEqual({ inMenu: true, focusedCell: null });
+      await lease.release();
+      await expect(status).toHaveText(/^(À jour|Sauvegardé)$/, { timeout: 30_000 });
+      await expect(associate).toBeEnabled();
+      // Navigation is enabled once its first cell holds the grid's tab stop.
+      // ArrowDown in the menu is a discrete update: React first flushes any
+      // effect still pending from that activation.
+      await expect(browser.locator('[data-cell-id][tabindex="0"]')).toBeAttached();
+      await browser.keyboard.press("ArrowDown");
+      afterLease = await focusInMenu();
+      expect(afterLease, "The lease must not move focus out of the open line menu").toEqual({ inMenu: true, focusedCell: null });
+      await associate.tap();
+      await expect(screen.getByLabel("Rechercher dans le catalogue", { exact: true })).toBeVisible();
+    } finally {
+      await lease.dispose();
+      await recordEvidence(army, "lep09-menu-during-lease", { ...ids, lineId: line.id, afterLease, status: await status.textContent() });
+    }
+  });
+
+armyTest("LEP10 a click on another line's title while a title is edited puts the caret there and typing inserts text", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { ids, lines } = await prepare(ui, army, "LEP10", 2);
+    await openSeededEditor(ui, ids);
+    const firstTitle = row(ui, lines[0].id).getByTestId("estimate-line-title-input");
+    const secondTitle = row(ui, lines[1].id).getByTestId("estimate-line-title-input");
+    // Native clicks only: a scripted focus() or fill() never opens the blur window.
+    await firstTitle.click();
+    await expect(firstTitle).toBeFocused();
+    await secondTitle.click();
+    const focusAfterClick = await browser.evaluate(() => ({
+      testId: document.activeElement?.getAttribute("data-testid") ?? null,
+      cell: document.activeElement?.closest("[data-cell-id]")?.getAttribute("data-cell-id") ?? null,
+    }));
+    try {
+      expect(focusAfterClick, "The click must focus the second title's input, not its cell").toEqual({
+        testId: "estimate-line-title-input", cell: `${lines[1].id}::title`,
+      });
+      await browser.keyboard.press("End");
+      await browser.keyboard.type("Z");
+      await expect(secondTitle).toHaveValue(`${lines[1].title}Z`);
+      await expect(firstTitle).toHaveValue(lines[0].title);
+    } finally {
+      await recordEvidence(army, "lep10-click-title-while-editing", { ...ids, focusAfterClick });
+    }
+  });
