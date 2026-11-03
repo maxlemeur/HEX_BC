@@ -30,8 +30,8 @@ import {
 import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
-import { compareVectorWithBaseline, renderVectorSections, vectorTimings } from "@/lib/takeoff/bench/vector-report";
-import { baselineRasterFallback, runVectorBench } from "@/lib/takeoff/bench/vector-run";
+import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
+import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
 import {
   runTakeoffPageTriage,
@@ -43,7 +43,18 @@ import {
   takeoffPageTriageRenderLimits,
 } from "@/lib/takeoff/page-triage-server";
 import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
+import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
 import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
+import {
+  GROUP_DECISIONS_EVIDENCE_MAX_BYTES,
+  GROUP_DECISIONS_LABELS,
+  GROUP_DECISIONS_LIMITS,
+  GROUP_DECISIONS_PROMPT_VERSION,
+  GROUP_DECISIONS_VERSION,
+} from "@/lib/takeoff/vectors/group-decisions";
+import { classifyVectorGroups, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK } from "@/lib/takeoff/vectors/group-decisions-server";
+import { GROUP_SHEET } from "@/lib/takeoff/vectors/group-sheet";
+import { GROUP_LEGEND_RENDER, GROUP_SHEET_RENDER } from "@/lib/takeoff/vectors/group-sheet-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
 import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
 import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
@@ -77,7 +88,12 @@ import { SURFACE_RULE_VERSION } from "@/lib/takeoff/vectors/surfaces";
 // `--pipeline vector` (TI-662): the vector reading of the same plans, no model
 // and no owner; `--baseline <report.json>` re-scores a level C report with the
 // current scorer, compares both (report.json `comparison`), and stands for the
-// raster pages (pipeline step 5). Exit 0 or 1 only.
+// raster pages (pipeline step 5). With --max-decisions-tokens (TI-662 L3c) the
+// groups the keywords leave are asked to Decisions under that ceiling, as the
+// triage mode is: TAKEOFF_BENCH_CHATGPT_OWNER and, injected alone,
+// OPENAI_DECISIONS_API_KEY with MERGEONE_OPENAI_DECISIONS=1 (the key is never
+// recorded). Exit 0 or 1, and 2 when Decisions is unavailable (no page read),
+// at the first failed call or when the ceiling refuses one, with a partial report.
 
 const SCRIPT_ROOT = path.resolve(import.meta.dirname, "..");
 const REPORT_FILES = ["report.json", "report.md"] as const;
@@ -255,6 +271,12 @@ function vectorRules() {
       leader_reach_pt: LEADER_REACH_PT },
     surfaces: { version: SURFACE_RULE_VERSION, ring_closure_pt: RING_CLOSURE_PT },
     items: { version: VECTOR_ITEMS_VERSION },
+    decisions: {
+      version: GROUP_DECISIONS_VERSION, prompt_version: GROUP_DECISIONS_PROMPT_VERSION, limits_per_page: GROUP_DECISIONS_LIMITS,
+      classified_confidence: CLASSIFIED_DECISIONS_CONFIDENCE, evidence_max_bytes: GROUP_DECISIONS_EVIDENCE_MAX_BYTES, labels: GROUP_DECISIONS_LABELS,
+      call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, dedicated_render_chunk: GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+      sheet: GROUP_SHEET, sheet_render: GROUP_SHEET_RENDER, legend_render: GROUP_LEGEND_RENDER, retries: 0,
+    },
   };
 }
 
@@ -281,9 +303,12 @@ async function readBaseline(file: string) {
 }
 
 async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
+  // Decisions needs the owner whose tenant the calls are made for; keywords alone need none.
+  const owner = args.maxDecisionsTokens === null ? null : parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
   assertOwnCode();
   await assertOutput(args.out);
   const startedAt = new Date().toISOString();
+  const loadBefore = os.loadavg();
   // A load file without truth (TI-662 load criterion) runs unscored.
   const dataset: BenchDataset = await loadBenchDataset(args.dataset, args.docs, { unscored: true });
   const scopes: ScoreScope[] = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
@@ -303,12 +328,26 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     documents.push({ id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
       bytes: copy, sha256: document.sha256 as string, pages: await getPdfPageCount(copy.slice().buffer) });
   }
-  const result = await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, log: (line) => console.error(line) });
+  const budget = args.maxDecisionsTokens === null ? null : createDecisionsTokenBudget(args.maxDecisionsTokens, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS);
+  const capability = owner ? getOpenAiDecisionsCapability() : null;
+  const log = (line: string) => console.error(line);
+  const hook: VectorDecisionsHook | undefined = owner && budget ? {
+    promptVersion: GROUP_DECISIONS_PROMPT_VERSION,
+    classify: (document, _page, extraction, reading) => classifyVectorGroups({
+      bytes: document.bytes, extraction, reading, owner, budget, log,
+      context: { tenantId: owner.tenantId, projectId: `bench:${document.id}`,
+        preparationFingerprint: createHash("sha256").update(`${document.sha256}:${GROUP_DECISIONS_PROMPT_VERSION}`).digest("hex") },
+    }),
+  } : undefined;
+  // Unavailable Decisions: no page is read, the run stops before its first page.
+  const result = capability && capability.status !== "available"
+    ? stoppedVectorBench(documents, args.repeat, GROUP_DECISIONS_PROMPT_VERSION, { reason: "decisions_unavailable", message: capability.message })
+    : await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, decisions: hook, log });
   const status = git(["status", "--porcelain"]);
   const metadata: BenchReportMetadata = {
     started_at: startedAt, finished_at: new Date().toISOString(),
     command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)], cwd: process.cwd(),
-    env: Object.fromEntries(RUN_ENV.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]]))),
+    env: recordedEnv(owner ? TRIAGE_RUN_ENV : RUN_ENV),
     node: process.version, commit: git(["rev-parse", "HEAD"]), dirty: status === null ? null : status.length > 0,
     dataset: {
       sha256: dataset.sha256,
@@ -318,18 +357,30 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
       skipped: dataset.skipped,
     },
     profile: { model: null, reasoning_effort: null, unchanged: null },
+    ...(owner ? { host: host(loadBefore) } : {}),
   };
   const report = buildBenchReport({ metadata, run: result.run, scopes, noise: dataset.noise, pipeline: "vector", vectorRules: vectorRules() });
   const baselineReport = baseline ? buildBenchReport({ metadata: baseline.metadata, run: baseline.run, scopes, noise: dataset.noise }) : null;
   const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport) : null;
+  const decisions = budget && capability ? {
+    capability: { status: capability.status, model: capability.model }, budget: budget.snapshot(),
+    stop: result.run.stop?.error.name === "DecisionsStop" ? { reason: result.run.stop.error.code, message: result.run.stop.error.message, at: result.run.stop.at } : null,
+    run: vectorDecisionsTotal(result.vector.passes),
+    documents: vectorDecisionsSummary(result.vector.passes),
+  } : null;
   const full = {
-    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes) }, comparison,
+    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison,
     baseline: baseline ? { file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256 } : null,
   };
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
-  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison).join("\n")}\n`;
+  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`;
   await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
   console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
+  if (budget) console.log(`Decisions: ${budget.snapshot().calls} calls, ${budget.snapshot().spent_tokens} tokens.`);
+  if (result.run.stop) {
+    console.error(`Stopped: ${result.run.stop.error.code ?? result.run.stop.reason}: ${result.run.stop.error.message}`);
+    process.exitCode = 2;
+  }
 }
 
 async function main() {

@@ -1,5 +1,5 @@
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
-import { isNetworkClass, type GroupClass } from "@/lib/takeoff/vectors/classify";
+import { isMeasuredNetwork, type GroupClass } from "@/lib/takeoff/vectors/classify";
 import { lightnessSaturation, parseHexColor } from "@/lib/takeoff/vectors/colors";
 import {
   SegmentIndex,
@@ -50,10 +50,13 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 //   JOIN_PT of another run), nearest label first; a run reached by none keeps
 //   DN null (« à revoir »). A run of a shared legend colour takes the network
 //   of its component's labels among its candidates, else stays « à revoir ».
+// Network strokes are those of a measured network (classify.ts
+// isMeasuredNetwork): a Decisions network under 0.8 is a proposal, neither
+// measured, nor a network for the frames and leaders.
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
 
-export const MEASURE_RULE_VERSION = 5;
+export const MEASURE_RULE_VERSION = 6;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -116,7 +119,7 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
     if (!shut) continue;
     const group = groups[groupOf[path.group]];
     // A network stroke is the pipe itself (a band drawn as a closed outline), never the frame of a detail; a hidden layer is not printed.
-    if (group.hidden || !group.colors.some(isDark) || isNetworkClass(classes[groupOf[path.group]].class)) continue;
+    if (group.hidden || !group.colors.some(isDark) || isMeasuredNetwork(classes[groupOf[path.group]])) continue;
     const xs: number[] = [], ys: number[] = [];
     for (let index = path.start; index < path.start + path.count; index += 1) {
       xs.push(extraction.points[2 * index]);
@@ -142,7 +145,7 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
   model.segments.forEach((segment, id) => {
     const groupIndex = model.segmentGroup[id];
     const group = groups[groupIndex];
-    const isNetwork = isNetworkClass(classes[groupIndex].class) || classes[groupIndex].candidates.length > 0;
+    const isNetwork = isMeasuredNetwork(classes[groupIndex]) || classes[groupIndex].candidates.length > 0;
     if (!isNetwork && !group.grey) return;
     const mid = { x: (segment.x0 + segment.x1) / 2, y: (segment.y0 + segment.y1) / 2 };
     const length = segmentLength(segment);
@@ -318,7 +321,7 @@ function darkLeaderSegments(model: PageModel, classes: readonly GroupClass[]) {
   const leaders: Segment[] = [];
   model.segments.forEach((segment, id) => {
     const groupIndex = model.segmentGroup[id];
-    if (isNetworkClass(classes[groupIndex].class) || classes[groupIndex].candidates.length > 0) return;
+    if (isMeasuredNetwork(classes[groupIndex]) || classes[groupIndex].candidates.length > 0) return;
     if (!model.groups[groupIndex].colors.some(isDark)) return;
     leaders.push(segment);
   });
@@ -506,7 +509,7 @@ export function measureNetworks(input: {
   let excluded = 0;
   model.segments.forEach((segment, id) => {
     const entry = classes[model.segmentGroup[id]];
-    if (!isNetworkClass(entry.class) && entry.candidates.length === 0) return;
+    if (!isMeasuredNetwork(entry) && entry.candidates.length === 0) return;
     // A near-white stroke of a network layer is background drawn in that layer, never pipe.
     if (model.segmentNearWhite[id]) return;
     const mid = { x: (segment.x0 + segment.x1) / 2, y: (segment.y0 + segment.y1) / 2 };
@@ -515,7 +518,7 @@ export function measureNetworks(input: {
       return;
     }
     if (segmentLength(segment) <= 1e-6) return;
-    raw.push({ segment, network: isNetworkClass(entry.class) ? entry.class : null, candidates: entry.candidates });
+    raw.push({ segment, network: isMeasuredNetwork(entry) ? entry.class : null, candidates: entry.candidates });
   });
   // Networks are bundled apart: two pipes of different networks side by side never make one run.
   const byNetwork = new Map<string, RawSegment[]>();

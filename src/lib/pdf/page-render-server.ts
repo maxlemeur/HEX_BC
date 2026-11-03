@@ -8,7 +8,8 @@ import { pathToFileURL } from "node:url";
  * thumbnail per page, rendered with PDF.js and the optional `@napi-rs/canvas`.
  *
  * Callers: intake classification (first pages), takeoff page triage (every
- * page), the takeoff bench. Parsing and rasterization run in a separate Node
+ * page), the takeoff bench, and the legend extract of the vector groups'
+ * Decisions calls (a page-space `crop`, enlarged up to `maxScale`). Parsing and rasterization run in a separate Node
  * process that is killed at the deadline, even during native decoding. The V8
  * heap limit does not bound native buffers; input size, page count, text,
  * bitmap size and stdout have their own bounds. No file is written to disk and
@@ -65,6 +66,13 @@ export type PdfRenderImageOptions =
       /** Tried in order until the JPEG fits `maxBytes`; otherwise `too_large`. */
       jpegQualities?: number[];
       maxBytes?: number;
+      /**
+       * Render only this box, in page space (the viewport at scale 1: points after /Rotate and UserUnit, origin
+       * top left, y down, as the vector extraction reads it), clamped to the page.
+       */
+      crop?: { x0: number; y0: number; x1: number; y1: number } | null;
+      /** Largest scale of a crop (a small box is enlarged up to it, within maxEdgePx); a whole page is never enlarged. */
+      maxScale?: number;
     }
   | {
       /** After the text pass, render `page` only if the trimmed text is shorter. */
@@ -125,8 +133,23 @@ async function renderImage(graphics, page, options) {
   if (!graphics) return { issue: "canvas_unavailable" };
   try {
     const original = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: Math.min(1, options.maxEdgePx / Math.max(original.width, original.height)) });
-    const canvas = graphics.createCanvas(Math.max(1, Math.ceil(viewport.width)), Math.max(1, Math.ceil(viewport.height)));
+    let viewport, width, height;
+    const crop = options.crop ? {
+      x0: Math.max(0, Math.min(original.width, options.crop.x0)), y0: Math.max(0, Math.min(original.height, options.crop.y0)),
+      x1: Math.max(0, Math.min(original.width, options.crop.x1)), y1: Math.max(0, Math.min(original.height, options.crop.y1)),
+    } : null;
+    if (crop && crop.x1 - crop.x0 > 0 && crop.y1 - crop.y0 > 0) {
+      // The viewport's offset moves the crop's top left corner (page space, after /Rotate) to the canvas origin.
+      const scale = Math.min(options.maxScale || 1, options.maxEdgePx / Math.max(crop.x1 - crop.x0, crop.y1 - crop.y0));
+      viewport = page.getViewport({ scale, offsetX: -crop.x0 * scale, offsetY: -crop.y0 * scale });
+      width = Math.round((crop.x1 - crop.x0) * scale);
+      height = Math.round((crop.y1 - crop.y0) * scale);
+    } else {
+      viewport = page.getViewport({ scale: Math.min(1, options.maxEdgePx / Math.max(original.width, original.height)) });
+      width = Math.ceil(viewport.width);
+      height = Math.ceil(viewport.height);
+    }
+    const canvas = graphics.createCanvas(Math.max(1, width), Math.max(1, height));
     const context = canvas.getContext("2d");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
     // A skipped oversized embedded image leaves an empty white sheet: flag it.

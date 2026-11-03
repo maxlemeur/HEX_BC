@@ -2,7 +2,7 @@ import { degrees, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import type { NetworkCode } from "@/lib/takeoff/bench/keys";
-import { applyCorrespondences, classifyByKeywords } from "@/lib/takeoff/vectors/classify";
+import { applyCorrespondences, applyDecisions, classifyByKeywords } from "@/lib/takeoff/vectors/classify";
 import { isGrey, isNearWhite } from "@/lib/takeoff/vectors/colors";
 import { extractVectorPage, type VectorGroupKey, type VectorPageExtraction, type VectorPath, type VectorText } from "@/lib/takeoff/vectors/extraction";
 import { pointsToMetres } from "@/lib/takeoff/vectors/geometry";
@@ -137,6 +137,19 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
+// Decisions classes (TI-662 L3c, classify.ts applyDecisions, written before the code):
+// - a Decisions answer replaces a keyword, legend or label class, or decides a
+//   shared legend colour that the labels decide per run;
+// - a Decisions network lands on a near-white, grey or hidden group;
+// - a document (or user) correspondence does not win over a Decisions answer;
+// - a Decisions network under 0.8 is measured (or counted in the detection
+//   badge) as if it were sure, instead of a proposal with its confidence; one
+//   at 0.8 or more is not measured;
+// - a dark closed rectangle that Decisions proposes as a network at 0.62 is
+//   still not taken for a diagram frame (so the schematic inside it is
+//   measured at plan scale), or one it decides at 0.9 still is;
+// - a dark leader that Decisions proposes as a network at 0.62 is no longer a
+//   leader, so its label's DN is lost.
 
 const A3 = { width: 1190.55, height: 841.89 };
 /** Sheet points that are 5 m (and 3 m) on site at 1/50. */
@@ -863,5 +876,93 @@ describe("post-merge Codex review of PR #145", () => {
     const upright = { ...text("EF - PVC", 100, 100, 2.5), width: 40, angle: 0.021 };
     const after = { ...text("DN 40", 100 + 41.5 * Math.cos(0.021), 100 + 41.5 * Math.sin(0.021), 2.5), width: 25, angle: 0.019 };
     expect(mergeTextLines([upright, after]).map((entry) => entry.str)).toEqual(["EF - PVC DN 40"]);
+  });
+});
+
+describe("Decisions classes (classify.ts applyDecisions)", () => {
+  const decisionsRead = (extraction: VectorPageExtraction, decisions: ReadonlyMap<string, { class: VectorClass; confidence: number }>,
+    correspondences?: ReadonlyMap<string, VectorClass>) => readVectorPage(extraction, { calibration: CALIBRATION, decisions, correspondences, clock: () => 0 });
+  const idOf = (extraction: VectorPageExtraction, color: string) => buildPageModel(extraction).groups.find((group) => group.key.color === color)?.id ?? "";
+
+  it("measures a Decisions network only at confidence 0.8 or more; under it, a proposal shown with its confidence", () => {
+    const extraction = page([...LEGEND, { strokes: [line(BLUE, 100, 300, 100 + FIVE_M, 300), line(MAGENTA, 100, 500, 100 + FIVE_M, 500)] }]);
+    const magenta = idOf(extraction, MAGENTA);
+    const unsure = decisionsRead(extraction, new Map([[magenta, { class: "EU" as const, confidence: 0.62 }]]));
+    expect(classOf(unsure, MAGENTA)).toEqual({ class: "EU", source: "decisions", candidates: [] });
+    expect(unsure.groups.find((group) => group.id === magenta)?.confidence).toBe(0.62);
+    expect(metres(unsure, "EU")).toBe(0);
+    expect(metres(unsure, "EF")).toBeCloseTo(5, 2);
+    const keywordsOnly = read(extraction);
+    expect(unsure.detection).toBeCloseTo(keywordsOnly.detection ?? NaN, 6);
+    const sure = decisionsRead(extraction, new Map([[magenta, { class: "EU" as const, confidence: 0.8 }]]));
+    expect(metres(sure, "EU")).toBeCloseTo(5, 2);
+    expect(sure.detection).toBeGreaterThan((keywordsOnly.detection ?? 0) + 0.3);
+  });
+
+  it("fills only groups left without class nor candidates, never a network on a near-white, grey or hidden group", () => {
+    const extraction = page([...LEGEND, legendRow("ECS", 2, [RED]), legendRow("CS", 3, [RED]), {
+      strokes: [
+        line(BLUE, 100, 300, 400, 300), line(RED, 100, 320, 400, 320), line(GREY, 100, 340, 400, 340), line(GREY, 100, 360, 400, 360, { width: 1 }),
+        line(NEAR_WHITE, 100, 380, 400, 380), line(MAGENTA, 100, 400, 400, 400),
+      ],
+    }]);
+    const model = buildPageModel(extraction);
+    const index = (color: string, width = 0.5) => model.groups.findIndex((group) => group.key.color === color && group.key.width === width);
+    const sure = (value: VectorClass) => ({ class: value, confidence: 0.95 });
+    const decisions = new Map([
+      [model.groups[index(BLUE)].id, sure("EU")], [model.groups[index(RED)].id, sure("ECS")], [model.groups[index(GREY)].id, sure("EU")],
+      [model.groups[index(GREY, 1)].id, sure("mur")], [model.groups[index(NEAR_WHITE)].id, sure("EF")], [model.groups[index(MAGENTA)].id, sure("EP")],
+    ]);
+    const classes = applyDecisions(model, classifyByKeywords(model, readLegend(model)), decisions);
+    expect(classes[index(BLUE)]).toMatchObject({ class: "EF", source: "legend" });
+    expect(classes[index(RED)]).toEqual({ class: null, source: null, confidence: null, candidates: ["CS", "ECS"] });
+    expect(classes[index(GREY)]).toMatchObject({ class: null, source: null });
+    expect(classes[index(GREY, 1)]).toEqual({ class: "mur", source: "decisions", confidence: 0.95, candidates: [] });
+    expect(classes[index(NEAR_WHITE)]).toMatchObject({ class: null, source: null });
+    expect(classes[index(MAGENTA)]).toEqual({ class: "EP", source: "decisions", confidence: 0.95, candidates: [] });
+    // A layer hidden by the default configuration is never a Decisions network.
+    const layered = page([{ strokes: [line(MAGENTA, 100, 100, 100 + FIVE_M, 100, { layer: "9R" })] }], [{ id: "9R", name: "FICTIF_XYZ" }]);
+    layered.layers = layered.layers.map((layer) => ({ ...layer, visible: false }));
+    const hidden = decisionsRead(layered, new Map([["oc:9R", sure("EF")]]));
+    expect(hidden.groups[0]).toMatchObject({ class: null, source: null });
+  });
+
+  it("lets a document correspondence win over a Decisions answer", () => {
+    const extraction = page([...LEGEND, { strokes: [line(MAGENTA, 100, 400, 100 + FIVE_M, 400)] }]);
+    const magenta = idOf(extraction, MAGENTA);
+    const reading = decisionsRead(extraction, new Map([[magenta, { class: "EU" as const, confidence: 0.95 }]]), new Map([[magenta, "EF"]]));
+    expect(classOf(reading, MAGENTA)).toEqual({ class: "EF", source: "document", candidates: [] });
+    expect(metres(reading, "EF")).toBeCloseTo(5, 2);
+    expect(metres(reading, "EU")).toBe(0);
+  });
+
+  it("takes a dark rectangle Decisions proposes as a network at 0.62 for a diagram frame, never one it decides at 0.9", () => {
+    // Dark green: dark, not grey (black is grey: never a Decisions network), no shade of a legend colour.
+    const green = "#006600";
+    const frame: Stroke = { color: green, points: [700, 400, 1100, 400, 1100, 700, 700, 700, 700, 400], closed: true };
+    const extraction = page([...LEGEND, { strokes: [line(BLUE, 100, 300, 100 + FIVE_M, 300)] }, { strokes: [frame, line(BLUE, 750, 550, 750 + FIVE_M, 550)] }]);
+    const frameGroup = idOf(extraction, green);
+    const unsure = decisionsRead(extraction, new Map([[frameGroup, { class: "EU" as const, confidence: 0.62 }]]));
+    expect(unsure.networks?.excluded.diagram_frames).toHaveLength(1);
+    expect(metres(unsure, "EF")).toBeCloseTo(5, 2);
+    const sure = decisionsRead(extraction, new Map([[frameGroup, { class: "EU" as const, confidence: 0.9 }]]));
+    expect(sure.networks?.excluded.diagram_frames).toHaveLength(0);
+    expect(metres(sure, "EF")).toBeCloseTo(10, 2);
+  });
+
+  it("keeps a dark leader Decisions proposes as a network at 0.62 a leader, never one it decides at 0.9", () => {
+    // The label sits 60 pt above the EF pipe: only its dark green leader, ending on the pipe, attaches it.
+    const green = "#006600";
+    const label = text("EF cuivre DN 22", 200, 240);
+    const extraction = page([...LEGEND, {
+      texts: [label],
+      strokes: [line(BLUE, 100, 300, 100 + FIVE_M, 300), line(green, 198, 241, 200 + label.width + 2, 241, { width: 0.25 }),
+        line(green, 198, 241, 180, 300, { width: 0.25 })],
+    }]);
+    const leader = idOf(extraction, green);
+    const dn = (reading: VectorPageReading) => totals(reading).filter((total) => total.network === "EF").map((total) => total.dn);
+    expect(dn(read(extraction))).toEqual([22]);
+    expect(dn(decisionsRead(extraction, new Map([[leader, { class: "EU" as const, confidence: 0.62 }]])))).toEqual([22]);
+    expect(dn(decisionsRead(extraction, new Map([[leader, { class: "EU" as const, confidence: 0.9 }]])))).toEqual([null]);
   });
 });
