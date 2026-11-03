@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
@@ -21,6 +21,10 @@ import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServ
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { verifyPriceReuseArbitration } from "./engine-v3-price-reuse-support";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
+import { LAB_DATASET_LAYOUT } from "@/lib/takeoff/lab/contracts";
+import { querySql } from "./calculation-gate-support";
+import { buildLabVectorPlanPdf, LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
+import { labSessionCookies, rawLabRequest } from "./takeoff-lab-support";
 
 let localServer: ChildProcess;
 let localOrigin: string;
@@ -35,6 +39,9 @@ const businessProbePath = path.resolve(".private/chatgpt-local-business-probe.js
 let transportLog: string;
 let decisionsControl: string;
 let fixtureEmail: string;
+let labDatasetDir: string;
+let labOutputDir: string;
+const LAB_VECTOR_DOCUMENT = "fictif-plan-calques";
 let serverWorkspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
 /** The fixture also logs a client that left a proxied request; the server absorbs it and keeps serving (TI-667). */
 const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.provider === "process-diagnostic"
@@ -79,10 +86,23 @@ beforeAll(async () => {
   await mkdir(path.dirname(transportLog), { recursive: true });
   await writeFile(transportLog, "");
   await setDecisionsControl({});
+  // The takeoff lab of VEC01: a fictional dataset of one layered plan, and an empty output, under this run's artifacts.
+  labDatasetDir = path.join(artifacts, "lab-dataset");
+  labOutputDir = path.join(artifacts, "lab-output");
+  const labPdf = path.join(labDatasetDir, LAB_DATASET_LAYOUT.raw(LAB_VECTOR_DOCUMENT));
+  await mkdir(path.dirname(labPdf), { recursive: true });
+  await mkdir(labOutputDir, { recursive: true, mode: 0o700 });
+  const labBytes = await buildLabVectorPlanPdf();
+  await writeFile(labPdf, labBytes);
+  await writeFile(path.join(labDatasetDir, LAB_DATASET_LAYOUT.manifest), JSON.stringify({ schema_version: 1, documents: [{
+    id: LAB_VECTOR_DOCUMENT, file_type: "pdf", raw_status: "binary", raw_path: LAB_DATASET_LAYOUT.raw(LAB_VECTOR_DOCUMENT), file_size: labBytes.length,
+    sha256: createHash("sha256").update(labBytes).digest("hex"), pages: 1, kind: "plan", role: "truth",
+  }] }));
   localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port), "--webpack"], {
     cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...serverWorkspace.environment,
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
       ARMY_CHATGPT_TRANSPORT_LOG: transportLog, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
+      TAKEOFF_LAB_DATASET_DIR: labDatasetDir, TAKEOFF_LAB_OUTPUT_DIR: labOutputDir,
       ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -649,6 +669,164 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   await recordEvidence(army, "page-triage", { estimate, planSetId: planSet.id, planFileId: planFile.id,
     proposed: proposed.source.page_triage, acceptedPages: accepted.source.pages, correctedPages: corrected.source.pages,
     decisionsCalls: callsBeforeReload, externalApiCalled: false, screenshot: await app.screenshot("page-triage") });
+});
+
+// TI-662 acceptance: the takeoff lab's vectors page on a fictional layered plan (lab-vector-plan-fixture.ts), its
+// « classe de calque » task on the Decisions fixture (every group EU at 0.8), never the paid API.
+if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers by keywords, classes the rest with Decisions and measures them", {
+  tags: ["critical", "local", "chatgpt", "takeoff-lab"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  const transportStart = (await readTransport()).length;
+  const port = Number(new URL(localOrigin).port);
+  const lab = "/dashboard/admin/takeoff/lab";
+  const vectorsApi = `/api/admin/takeoff/lab/vectors/${LAB_VECTOR_DOCUMENT}?page=1`;
+  const { cote, keyword, decisions } = LAB_VECTOR_PLAN;
+  type Reading = { scale: { status: string; denominator: number | null; cotes: number; consistent_cotes: number }; detection: number;
+    groups: Array<{ id: string; name: string; class: string | null; source: string | null; confidence: number | null; keyword: { class: string | null };
+      length_m: number | null; segments: number; geometry: number[] }>;
+    networks: Array<{ network: string; length_m: number | null }>; run: { id: string; answers: number; applied: number } | null };
+  const byName = (reading: Reading) => Object.fromEntries(reading.groups.map((group) => [group.name, group]));
+  // Compile the lab's vectors page and routes before the browser asserts on them, in one batch (as takeoff-lab.e2e.ts does).
+  const admin = await labSessionCookies(fixtureEmail);
+  const warm = await Promise.all([`${lab}/vectors`, `${lab}/verdicts`, "/api/admin/takeoff/lab", "/api/admin/takeoff/lab/runs", vectorsApi,
+    `/api/admin/takeoff/lab/documents/${LAB_VECTOR_DOCUMENT}`]
+    .map((pathname) => fetch(new URL(pathname, localOrigin), { headers: { cookie: admin.header }, redirect: "manual", signal: AbortSignal.timeout(120_000) })
+      .then(async (response) => { await response.arrayBuffer(); return [pathname, response.status] as const; })));
+  expect(warm.filter(([, status]) => status !== 200)).toEqual([]);
+
+  const account = { ...credentials.user("army"), username: fixtureEmail };
+  await browser.setViewport({ width: 1440, height: 900 });
+  await app.open(`${localOrigin}/login`);
+  await screen.getByLabel("Email", { exact: true }).fill(account.username);
+  await screen.getByLabel(/Mot de passe/).fill(account.password);
+  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/dashboard/);
+  const prefix = `ARMY-lab-vectors-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+
+  // Keywords alone: the cote verifies 1/50, FICTIF_EF is EF and measured, FICTIF_RESEAU_2 is left to Decisions.
+  const keywordReading = await apiRequest<{ data: Reading }>(browser, "GET", vectorsApi);
+  expect(keywordReading.status).toBe(200);
+  expect(keywordReading.body.data.scale).toMatchObject({ status: "verified", denominator: LAB_VECTOR_PLAN.denominator, cotes: 1, consistent_cotes: 1 });
+  const keywordGroups = byName(keywordReading.body.data);
+  expect(Object.keys(keywordGroups).sort()).toEqual([cote.layer, keyword.layer, decisions.layer].sort());
+  expect(keywordGroups[keyword.layer]).toMatchObject({ class: "EF", source: "keyword", keyword: { class: "EF" }, length_m: 5, segments: 1 });
+  expect(keywordGroups[cote.layer]).toMatchObject({ class: "cotation", source: "keyword" });
+  expect(keywordGroups[decisions.layer]).toMatchObject({ class: null, source: null, keyword: { class: null }, length_m: 3, segments: 1 });
+  expect(keywordGroups[decisions.layer].geometry).toHaveLength(4);
+  expect(keywordReading.body.data.networks.map((entry) => [entry.network, entry.length_m])).toEqual([["EF", 5]]);
+  expect(keywordReading.body.data.run).toBeNull();
+
+  await app.open(`${localOrigin}${lab}/vectors`);
+  await expect(screen.getByRole("link", "Vecteurs", { exact: true })).toHaveAttribute("aria-current", "page");
+  await screen.getByLabel("Document", { exact: true }).selectOption({ value: LAB_VECTOR_DOCUMENT });
+  const rows = screen.getByRole("list", "Groupes de tracés", { exact: true }).getByRole("listitem");
+  const row = (layer: string) => rows.filter({ hasText: layer });
+  const shown = screen.getByText(/éléments affichés$/);
+  const lengths = screen.getByRole("list", "Longueurs mesurées", { exact: true });
+  const drawn = browser.locator("svg[aria-label='Groupes de tracés affichés'] path");
+  await expect(screen.getByText("Échelle 1/50 vérifiée par une cote", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Détection 78 %", { exact: true })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await expect(row(keyword.layer)).toContainText("EF · mots-clés");
+  await expect(row(cote.layer)).toContainText("cotation · mots-clés");
+  await expect(row(decisions.layer)).toContainText("à revoir");
+  await expect(lengths.getByRole("listitem")).toHaveCount(1);
+  await expect(lengths).toContainText("EF 5,00 m");
+  await expect(shown).toHaveText("3 / 3 éléments affichés");
+  await expect(drawn).toHaveCount(3);
+  await expect.poll(() => browser.evaluate(() => [document.scrollingElement!.scrollHeight, window.innerHeight])
+    .then(([scrollHeight, innerHeight]) => scrollHeight <= innerHeight)).toBe(true);
+
+  // « Classer avec Decisions »: one batch call for the one group the keywords leave, its images drawn by the server.
+  const launch = screen.getByRole("button", "Classer avec Decisions", { exact: true });
+  await expect(launch).toBeEnabled();
+  const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }), launch.click()]);
+  expect(launched.status).toBe(201);
+  await expect(row(decisions.layer)).toContainText(/EU\s80\s%\s·\sDecisions/);
+  await expect(row(keyword.layer)).toContainText("EF · mots-clés");
+  await expect(lengths.getByRole("listitem")).toHaveCount(2);
+  await expect(lengths).toContainText("EF 5,00 m");
+  await expect(lengths).toContainText("EU 3,00 m");
+  await expect(screen.getByText("Détection 100 %", { exact: true })).toBeVisible();
+  const panel = screen.getByRole("region", "Classement Decisions", { exact: true });
+  await expect(panel).toContainText("Terminé");
+  const bars = panel.getByRole("list", `Probabilités · ${decisions.layer}`, { exact: true });
+  await expect(bars.getByRole("listitem").first()).toContainText(/EU.*80\s%/);
+  const sent = (await readTransport()).slice(transportStart);
+  expect(sent.filter((entry) => entry.provider === "decisions-fixture")).toEqual([
+    { provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2 },
+  ]);
+  expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+
+  // The stored run: one Decisions configuration, its usage the call's, one question element for the group asked.
+  const runFiles = (await readdir(path.join(labOutputDir, "runs"))).filter((name) => name.endsWith(".json"));
+  expect(runFiles).toHaveLength(1);
+  const run = JSON.parse(await readFile(path.join(labOutputDir, "runs", runFiles[0]), "utf8"));
+  const reseau = keywordGroups[decisions.layer];
+  expect(run).toMatchObject({ status: "complete", stop: null, crop: null, task: { id: "classe-de-calque", kind: "choice" },
+    document: { id: LAB_VECTOR_DOCUMENT, source: "dataset", pages: 1 }, prompt: { base: "takeoff-vector-groups-v1" } });
+  expect(run.prompt.version).toMatch(/^takeoff-vector-groups-v1\+[0-9a-f]{64}$/);
+  expect(run.configs).toHaveLength(1);
+  expect(run.configs[0]).toMatchObject({ provider: "decisions", model: "gpt-6-luna", status: "ok", usage: { total: 1 } });
+  expect(run.configs[0].elements.map((element: { kind: string; key: string; label: string; detail: string; json: { answer: unknown } }) =>
+    [element.kind, element.key, element.label, element.detail, element.json.answer])).toEqual([
+    ["question", reseau.id, decisions.layer, "EU", { class: "EU", confidence: 0.8, status: "answered", via: "batch" }],
+  ]);
+  expect(JSON.parse(run.configs[0].raw).results).toHaveLength(1);
+  const applied = await apiRequest<{ data: Reading }>(browser, "GET", `${vectorsApi}&run=${run.id}`);
+  expect(applied.status).toBe(200);
+  expect(byName(applied.body.data)[decisions.layer]).toMatchObject({ class: "EU", source: "decisions", confidence: 0.8, keyword: { class: null } });
+  expect(applied.body.data.networks.map((entry) => [entry.network, entry.length_m])).toEqual([["EF", 5], ["EU", 3]]);
+  expect(applied.body.data.run).toMatchObject({ id: run.id, answers: 1, applied: 1 });
+
+  // Alt-click on a layer's box shows that layer alone.
+  await screen.getByRole("checkbox", `Afficher ${keyword.layer}`, { exact: true }).click({ modifiers: ["Alt"] });
+  await expect(shown).toHaveText("1 / 3 éléments affichés");
+  await expect(drawn).toHaveCount(1);
+  await expect(screen.getByRole("checkbox", `Afficher ${decisions.layer}`, { exact: true })).not.toBeChecked();
+  await screen.getByRole("button", "Tout afficher", { exact: true }).click();
+  await expect(shown).toHaveText("3 / 3 éléments affichés");
+  await expect(screen.getByRole("status", "Chargement du plan")).toBeHidden();
+  const screenshot1440 = await app.screenshot("lab-vectors-1440");
+  await browser.setViewport({ width: 1920, height: 1080 });
+  await expect.poll(() => browser.evaluate(() => [document.scrollingElement!.scrollHeight, window.innerHeight])
+    .then(([scrollHeight, innerHeight]) => scrollHeight <= innerHeight)).toBe(true);
+  await expect(screen.getByRole("status", "Chargement du plan")).toBeHidden();
+  const screenshot1920 = await app.screenshot("lab-vectors-1920");
+
+  // The run's element is judged like any lab answer.
+  await screen.getByRole("link", "Verdicts", { exact: true }).click();
+  await expect(browser).toHaveURL(/\/dashboard\/admin\/takeoff\/lab\/verdicts$/);
+  await screen.getByLabel("Campagne", { exact: true }).selectOption({ value: run.campaign });
+  await expect(screen.getByLabel("Tâche", { exact: true })).toContainText("Classe de calque (groupes de tracés)");
+  await expect(screen.getByRole("article", "Élément à juger")).toContainText(decisions.layer);
+
+  // The vectors page and its API refuse another host than 127.0.0.1, a non-admin member and an anonymous request.
+  const otherHost = await rawLabRequest(port, { method: "GET", path: vectorsApi, host: `localhost:${port}`, cookie: admin.header });
+  expect([otherHost.status, JSON.parse(otherHost.body).error?.code]).toEqual([403, "TAKEOFF_LAB_LOCAL_ONLY"]);
+  const otherHostPage = await rawLabRequest(port, { method: "GET", path: `${lab}/vectors`, host: `localhost:${port}`, cookie: admin.header });
+  expect(otherHostPage.body).toContain("Labo métré indisponible");
+  expect(otherHostPage.body).not.toContain("Classer avec Decisions");
+  const member = await createLocalChatGptOwner();
+  await querySql(`update public.tenant_memberships set role='engineer' where user_id='${member.userId}';`);
+  const engineer = await labSessionCookies(member.email);
+  const memberApi = await rawLabRequest(port, { method: "GET", path: vectorsApi, host: `127.0.0.1:${port}`, cookie: engineer.header });
+  expect([memberApi.status, JSON.parse(memberApi.body).error?.code]).toEqual([403, "TAKEOFF_LAB_ADMIN_ONLY"]);
+  const memberPage = await rawLabRequest(port, { method: "GET", path: `${lab}/vectors`, host: `127.0.0.1:${port}`, cookie: engineer.header });
+  expect(memberPage.body).toContain("réservé aux administrateurs");
+  expect(memberPage.body).not.toContain("Classer avec Decisions");
+  const anonymous = await rawLabRequest(port, { method: "GET", path: vectorsApi, host: `127.0.0.1:${port}` });
+  expect(anonymous.status).toBe(403);
+  expect((await readdir(path.join(labOutputDir, "runs"))).filter((name) => name.endsWith(".json"))).toHaveLength(1);
+  await recordEvidence(army, "lab-vectors-classification", { document: LAB_VECTOR_DOCUMENT, runId: run.id, promptVersion: run.prompt.version,
+    keywordReading: { scale: keywordReading.body.data.scale, networks: keywordReading.body.data.networks },
+    classified: { group: reseau.id, class: "EU", confidence: 0.8, networks: applied.body.data.networks },
+    decisionsCalls: sent.filter((entry) => entry.provider === "decisions-fixture"), externalApiCalled: false,
+    refusals: { otherHost: otherHost.status, member: memberApi.status, anonymous: anonymous.status },
+    screenshots: { screenshot1440, screenshot1920 } });
 });
 
 test("ChatGPT local: profile starts PKCE authorization and recovers from declined consent", {

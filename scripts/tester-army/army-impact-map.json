@@ -931,9 +931,31 @@
         "src/app/dashboard/admin/takeoff/lab/**",
         "src/app/api/admin/takeoff/lab/**",
         "src/lib/navigation/dashboard-navigation-mode.ts",
-        "e2e/army/local/takeoff-lab.e2e.ts"
+        "e2e/army/local/takeoff-lab.e2e.ts",
+        "e2e/army/local/takeoff-lab-support.ts"
       ],
       "journeys": [
+        "e2e/army/local/takeoff-lab.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-lab-vectors",
+      "note": "Labo métré, écran Vecteurs et tâche « classe de calque » (TI-662) : lecture par mots-clés, classement Decisions des groupes de tracés en fixture et mesure, parcours VEC01 de chatgpt-local.e2e.ts ; refus d'accès dans LAB03.",
+      "paths": [
+        "src/app/dashboard/admin/takeoff/lab/vectors/**",
+        "src/app/api/admin/takeoff/lab/vectors/**",
+        "src/components/takeoff/lab/LabVectorsScreen.tsx",
+        "src/components/takeoff/lab/LabPdfCanvas.tsx",
+        "src/components/takeoff/lab/LabResultColumn.tsx",
+        "src/lib/takeoff/lab/vectors.ts",
+        "src/lib/takeoff/lab/tasks.ts",
+        "src/lib/takeoff/lab/runs.ts",
+        "src/lib/takeoff/vectors/group-*.ts",
+        "e2e/army/local/lab-vector-plan-fixture.ts",
+        "e2e/army/local/takeoff-lab-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/local/chatgpt-local.e2e.ts",
         "e2e/army/local/takeoff-lab.e2e.ts"
       ]
     },
