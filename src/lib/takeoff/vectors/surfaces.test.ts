@@ -26,6 +26,10 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 //   as measure, or the area of some other ring;
 // - a scale not measurable (denominator null) still yields an area;
 // - the deviation is not (polygon − printed) / printed, or loses its sign.
+// Review of PR #145 (Codex, 3/11/2026, written before the fix):
+// - a room outline on a layer hidden by the document's default configuration
+//   (OFF, not printed) gives a visible room its area, or a smaller hidden
+//   outline replaces the visible one.
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -141,5 +145,21 @@ describe("readRoomSurfaces", () => {
     expect(larger.deviation).toBeGreaterThan(0);
     expect(smaller.deviation).toBeCloseTo((14 - 15) / 15, 4);
     expect(smaller.deviation).toBeLessThan(0);
+  });
+});
+
+describe("readRoomSurfaces, review of PR #145", () => {
+  it("never measures a room with an outline on a hidden layer", () => {
+    // Visible 14 m² room on layer 1R; on the hidden layer 2R, a smaller outline around the same label and a room of its own.
+    const extraction = page([line("Infirmerie 13.62m²", 150, 200), line("Archives 9.00m²", 650, 200)],
+      [ROOM_14, { x: 120, y: 150, width: sheet(2), height: sheet(1.5) }, { x: 600, y: 100, width: sheet(3), height: sheet(3) }]);
+    extraction.layers = [{ id: "1R", name: "FICTIF_MURS", visible: true }, { id: "2R", name: "FICTIF_MURS_ANCIEN", visible: false }];
+    extraction.groups = [{ layer: "1R", color: "#000000", width: 0.5, dash: null }, { layer: "2R", color: "#000000", width: 0.5, dash: null }];
+    extraction.paths = extraction.paths.map((path, index) => ({ ...path, group: index === 0 ? 0 : 1 }));
+    const surfaces = readRoomSurfaces(extraction, 50);
+    expect(surfaces.map(({ room, polygon_m2 }) => ({ room, polygon_m2 }))).toEqual([
+      { room: "Infirmerie", polygon_m2: 14 },
+      { room: "Archives", polygon_m2: null },
+    ]);
   });
 });

@@ -85,11 +85,16 @@ export function classOfLayerName(name: string): VectorClass | null {
   return OTHER_PRIORITY.find((candidate) => others.has(candidate)) ?? null;
 }
 
-/** The network a legend entry names: its code alone (« EU/EV », « EG VC »), spaces removed. */
+/**
+ * The network a legend entry names: its code alone (« EU/EV », « EG VC »), spaces removed, with its direction
+ * (« CHW-S », « EG-R »). Every part is a code or a direction: « EU - PVC » is a pipe label, not a legend code.
+ */
 export function networkOfLegendCode(text: string): NetworkCode | null {
   const compact = normalizeToken(text).replace(/\s+/g, "");
-  if (!/^[A-Z]{2,5}(?:\/[A-Z]{2,4})?$/.test(compact)) return null;
-  return networkOfSegments(compact.split("/"));
+  if (!/^[A-Z]{2,5}(?:[/-][A-Z]{1,6})?$/.test(compact)) return null;
+  const segments = compact.split(/[/-]/);
+  if (!segments.every((segment) => NETWORK_TOKENS[segment] !== undefined || SUPPLY.has(segment) || RETURN.has(segment))) return null;
+  return networkOfSegments(segments);
 }
 
 const MATERIAL_PATTERNS: Array<{ code: MaterialCode; label: string; pattern: RegExp }> = [

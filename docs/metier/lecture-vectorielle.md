@@ -53,9 +53,10 @@ est une constante nommée et versionnée dans le code.
    - **calque** : son nom est découpé sur « _ », les espaces, « - » et « / ». Les codes
      génériques (EF, ECS, EU, EV, EP, VP, CHW…) donnent le réseau. S, A, D ou R donnent
      le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes ;
-   - **légende** : un code seul, avec les tracés dessinés sur sa ligne avant le texte
-     suivant de cette ligne (échantillon de 25 hauteurs de texte au plus), donne la
-     couleur du réseau.
+   - **légende** : un code seul, éventuellement avec son sens (« CHW-S », « EG-R »), avec
+     les tracés dessinés sur sa ligne avant le texte suivant de cette ligne (échantillon
+     de 25 hauteurs de texte au plus), donne la couleur du réseau. Chaque partie du code
+     est un code réseau ou un sens : « EU - PVC » est un libellé, pas une légende.
      - Les teintes de cette couleur (mêlée de blanc à 10 – 85 %) et ses ombres (de noir
        à 10 – 60 %) suivent.
      - Une couleur partagée par EU et EU/EV donne EUV. Une couleur partagée par deux
@@ -77,14 +78,20 @@ est une constante nommée et versionnée dans le code.
        plus : un trait parallèle ailleurs sur la feuille ne coupe jamais une bande ;
      - intervalles fusionnés au-delà des trous de 1 pt au plus ;
      - un trait en double ne compte qu'une fois.
-   - Les embouts et les manchons posés en travers d'une bande ne comptent pas.
+   - Les embouts et les manchons posés en travers d'une bande de leur réseau ne comptent
+     pas. Le tuyau court d'un autre réseau qui la croise compte.
    - Ne sont pas mesurés : les échantillons de la légende et les cadres de détail. Un
-     cadre de détail est un rectangle sombre d'au moins 70 pt de côté, qui n'est pas
-     lui-même un tracé de réseau, et qui contient des réseaux mais presque pas de fond
-     de plan (ses propres bords ne comptent pas).
+     cadre de détail est un rectangle sombre fermé, ses quatre coins tracés, d'au moins
+     70 pt de côté, qui n'est pas lui-même un tracé de réseau, et qui contient des réseaux
+     mais presque pas de fond de plan (ses propres bords ne comptent pas). Un mur ouvert
+     en U n'est pas un cadre.
    - Le DN, le matériau et le calorifuge viennent du libellé :
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe ;
-     - sinon par sa position, parallèle au tuyau.
+     - sinon par sa position : le tuyau parallèle le plus proche.
+   - Deux tronçons bout à bout dont les libellés diffèrent (DN, matériau ou calorifuge,
+     à une réduction) sont coupés là où un de leurs traits finit, s'il y a exactement un
+     tel endroit entre les deux libellés. Sinon le tronçon garde un DN vide
+     (« à revoir ») et aucun DN ne lui est propagé.
    - Ces valeurs passent aux tronçons raccordés du même réseau, du plus proche au plus
      loin, jamais à un autre réseau. Un tronçon qui n'est rattaché à aucun libellé
      garde un DN vide (« à revoir »).
@@ -94,6 +101,7 @@ est une constante nommée et versionnée dans le code.
      d'une pièce, × échelle².
    - La surface imprimée sert de contrôle, jamais de repli : une pièce sans polygone
      fermé n'a pas d'aire mesurée. Elle est comptée au rapport.
+   - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
 7. **Page raster.** Quand des images couvrent au moins 90 % de la page, ses vecteurs
    ne mesurent pas ses réseaux. La lecture niveau C reste la source.
 

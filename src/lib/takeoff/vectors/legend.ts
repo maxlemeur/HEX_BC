@@ -20,7 +20,7 @@ import { networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 // - The legend box (entries and samples, plus 2 text heights) is excluded from
 //   the measure.
 
-export const LEGEND_RULE_VERSION = 1;
+export const LEGEND_RULE_VERSION = 2;
 /** Longest legend sample, in text heights: a longer run after a code is a pipe tagged inline, not a sample. */
 export const LEGEND_SAMPLE_MAX_HEIGHTS = 25;
 
