@@ -7,11 +7,15 @@ import { classOfLayerName, OTHER_CLASSES, type VectorClass } from "@/lib/takeoff
 // Class of each group (TI-662 step 3). Keywords first: the layer name
 // (vocabulary.ts), else the legend colour (legend.ts), else the labels whose
 // leaders end on the group (measure.ts classifyByLabels). A near-white or grey
-// group is never a network by keyword. Then, in this order of precedence, a
-// correspondence of the document (bench truth/groups, or the user's choice in
-// the product) replaces it; Decisions (later step) only fills groups still
-// without class. « Classé » (detection badge): a class other than « autre »
-// from keywords, the user, or Decisions with confidence ≥ 0.8.
+// group is never a network by keyword. Decisions (group-decisions-server.ts)
+// then fills only the groups still without class nor legend candidates (a
+// shared colour is decided per run by the labels), never with a network on a
+// near-white, grey or hidden group; a correspondence of the document (bench
+// truth/groups, or the user's choice in the product) replaces any of them.
+// « Classé » (detection badge): a class other than « autre » from keywords, the
+// document, the user, or Decisions with confidence ≥ 0.8. A Decisions network
+// under 0.8 is a proposal shown with its confidence: it is never measured
+// (isMeasuredNetwork), nor kept out of the leaders and diagram frames.
 
 export const CLASSIFIED_DECISIONS_CONFIDENCE = 0.8;
 
@@ -32,6 +36,12 @@ export function isNetworkClass(value: VectorClass | null): value is NetworkCode 
 
 export function isVectorClass(value: string): value is VectorClass {
   return NETWORKS.has(value) || (OTHER_CLASSES as readonly string[]).includes(value);
+}
+
+/** A network the measure takes: any network class, a Decisions one only at confidence ≥ CLASSIFIED_DECISIONS_CONFIDENCE. */
+export function isMeasuredNetwork(entry: GroupClass): entry is GroupClass & { class: NetworkCode } {
+  if (!isNetworkClass(entry.class)) return false;
+  return entry.source !== "decisions" || (entry.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE;
 }
 
 /** True when the class counts as « classé » in the detection badge. */
@@ -66,6 +76,25 @@ export function applyCorrespondences(model: PageModel, classes: readonly GroupCl
     if (chosen === undefined) return entry;
     if (isNetworkClass(chosen) && (model.groups[index].nearWhite || model.groups[index].hidden)) return entry;
     return { class: chosen, source, confidence: null, candidates: [] };
+  });
+}
+
+export type DecisionsAnswer = { class: VectorClass; confidence: number };
+
+/**
+ * Applies Decisions answers (group id → class and confidence) to the groups left without class nor candidates,
+ * after keywords and label votes, before the correspondences. A network answer on a near-white, grey or hidden
+ * group is dropped (TI-658: the background is never a network); so is an answer outside the classes or with a
+ * confidence outside [0, 1].
+ */
+export function applyDecisions(model: PageModel, classes: readonly GroupClass[], decisions: ReadonlyMap<string, DecisionsAnswer>): GroupClass[] {
+  return classes.map((entry, index) => {
+    const group = model.groups[index];
+    const answer = decisions.get(group.id);
+    if (!answer || entry.class !== null || entry.candidates.length > 0) return entry;
+    if (!isVectorClass(answer.class) || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) return entry;
+    if (isNetworkClass(answer.class) && (group.nearWhite || group.grey || group.hidden)) return entry;
+    return { class: answer.class, source: "decisions", confidence: answer.confidence, candidates: [] };
   });
 }
 
