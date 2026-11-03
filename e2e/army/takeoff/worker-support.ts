@@ -6,9 +6,10 @@ import path from "node:path";
 import { expect } from "e2e";
 
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
-import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/plans-support";
+import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import { localTakeoffWorkerClient } from "./fixtures";
 import { localClient } from "./native-ui";
+import { buildVectorPlanPdf } from "./vector-plan-fixture";
 
 export type WorkerUi = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 export type WorkerResult = {
@@ -19,16 +20,23 @@ export type WorkerResult = {
   results: Array<{ id: string; failed: boolean; errorCode: string | null; extractedJson: unknown; warningCodes: string[] }>;
   items: Array<{ id: string; designation: string; quantity: number; unit: string; source_file_name: string; source_page: number }>;
   providerCalls: number;
+  /** TI-662: the persisted vector reading, read by the worker's service role. */
+  vectorPages: Array<{ id: string; tenantId: string; resultId: string; planFileId: string | null; sourceFileName: string | null; sourcePage: number;
+    scale: { status: string; denominator: number | null }; detection: number | null; classes: Array<string | null> }>;
+  geometries: Array<{ itemId: string; tenantId: string; pageId: string; kind: string; network: string | null; lengthM: number | null; segments: number }>;
 };
 
-export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success") {
+export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
+  options: { vectors?: boolean } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
     throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
   }
   const names = ["PATH", "TMPDIR", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
     "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_BASE_URL",
     "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER"];
-  const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])) };
+  const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
+    // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
+    ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
     ids.projectId, ids.versionId, jobId, ui.army.runPrefix, mode], { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
   let resolveProvider!: (value: { event: string; jobId: string; status: string }) => void;
@@ -117,4 +125,45 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   expect(job).toMatchObject({ estimate_version_id: ids.versionId, status: "pending", level: "B", source_file_name: file.file_name });
   await recordEvidence(ui.army, "TKW04-real-plan-created", { ids, planSetId: plans.id, file, job });
   return { ids, jobId: job.id, fileName: file.file_name };
+}
+
+// TI-662: a level C job on a fictional vector plan (vector-plan-fixture.ts) uploaded through the plans UI.
+export async function launchWorkerVectorPlan(ui: WorkerUi) {
+  if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
+  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-TKW08`, title: "Plan vectoriel" }, ui.army);
+  expect((await readEstimate(ui.browser, ids.versionId)).version.calc_engine_version).toBe(2);
+  const plans = await createPlanSet(ui, ui.army, ids, `${ui.army.runPrefix} plans vectoriels`);
+  // « R+1 » is the name the user sees and the worker reads the level from; plan_files.file_name keeps the
+  // sanitized Storage basename (« R-1 », plan-file-display-name.ts), which must never be read as a level.
+  const fileName = "plan-vectoriel-R+1-Z2.pdf";
+  const storedName = "plan-vectoriel-R-1-Z2.pdf";
+  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", ui.army.runPrefix);
+  await mkdir(directory, { recursive: true });
+  const filePath = path.join(directory, fileName);
+  const bytes = await buildVectorPlanPdf();
+  await writeFile(filePath, bytes);
+  await ui.screen.getByRole("heading", plans.name, { exact: true }).click();
+  const [uploaded] = await Promise.all([
+    ui.browser.waitForResponse(`**/storage/v1/object/upload/sign/plan-files/${plans.tenant_id}/${plans.id}/**`, { timeout: 60_000 }),
+    ui.browser.locator("input[type='file'][accept*='pdf']").first().setInputFiles(filePath),
+  ]);
+  expect(uploaded.status).toBe(200);
+  await expect(ui.screen.getByRole("button", `Supprimer ${fileName}`, { exact: true })).toBeVisible();
+  const [file] = await readPlanFiles(ui.browser, plans.id);
+  expect(file).toMatchObject({ plan_set_id: plans.id, file_name: storedName, file_type: "application/pdf", file_size_bytes: bytes.length });
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const { userId } = await localClient();
+  const jobId = randomUUID();
+  const plan = await client.from("plan_files").select("file_path").eq("id", file.id).single();
+  expect(plan.error).toBeNull();
+  const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
+    plan_set_id: plans.id, created_by: userId, level: "C", status: "pending", source_file_name: fileName,
+    source_file_path: plan.data!.file_path, source_file_type: file.file_type, source_file_size_bytes: file.file_size_bytes,
+    execution_provider: "gemini" }).select("id").single();
+  expect(inserted.error).toBeNull();
+  const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
+  expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
+  await recordEvidence(ui.army, "TKW08-vector-plan-created", { ids, planSetId: plans.id, file, job, tenantId,
+    boundary: "Fictional vector PDF uploaded through the plans UI; the pending level C job is seeded on the owned stack." });
+  return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id };
 }
