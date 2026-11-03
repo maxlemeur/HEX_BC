@@ -337,11 +337,13 @@ describe("EST-374 — Command bar contextuelle du cockpit affaire", { session: "
     await expect(page.browser).toHaveURL(
       new RegExp(`/dashboard/affaires/${projectId}\\?intakeFilter=a_revoir`),
     );
-    await expect(
-      page.getByRole("dialog", { name: "Documents du dossier", exact: true }),
-    ).toContainText("piece-a-revoir.pdf");
-    await expect(page.getByRole("dialog", { name: "Documents du dossier", exact: true })
-      .getByText("piece-a-revoir.pdf", { exact: true })).toBeVisible();
+    const documents = page.getByRole("dialog", { name: "Documents du dossier", exact: true });
+    // The drawer opens on the pieces to review. The file name is both the row's button and the
+    // title of the side preview of the selected row, so the row is reached by its button.
+    await expect(documents.getByRole("button", { name: /^À vérifier/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(documents.getByRole("button", { name: "piece-a-revoir.pdf", exact: true })).toBeVisible();
+    await expect(documents.getByRole("complementary", { name: "Aperçu de la pièce sélectionnée", exact: true }))
+      .toContainText("piece-a-revoir.pdf");
   });
 
   test("propose le brief a confirmer puis ouvre le panneau brief apres validation du preview", async ({ ui: page }) => {
