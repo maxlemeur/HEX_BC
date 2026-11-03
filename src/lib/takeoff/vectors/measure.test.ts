@@ -101,6 +101,12 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   every text's own frame instead, a code written along a vertical pipe on a
 //   horizontal sheet (an inline tag) becomes a legend entry and its pipe piece
 //   is not measured.
+// Review of that round (written before the fixes):
+// - the sheet's axis taken from where most characters run drops the
+//   horizontal legend of an upright page dominated by vertical labels (riser
+//   labels), and reads a vertical inline tag as its legend instead;
+// - on a page turned by /Rotate 180, the two pieces of one label tilted by a
+//   fraction of a degree read at angles on both sides of ±π and are not merged.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -715,5 +721,38 @@ describe("third Codex round of PR #145 (3/11/2026)", () => {
     expect(readings).toEqual([
       { ...drawn, boxes: [[68, 12]] }, { ...drawn, boxes: [[12, 68]] }, { ...drawn, boxes: [[68, 12]] }, { ...drawn, boxes: [[12, 68]] },
     ]);
+  });
+});
+
+describe("review of the third Codex round of PR #145", () => {
+  it("keeps the horizontal legend of an upright page whose vertical labels outnumber it, never a vertical inline tag", { timeout: 60_000 }, async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const sheet = doc.addPage([1190.55, 841.89]);
+    sheet.node.set(PDFName.of("Resources"), doc.context.obj({ Font: doc.context.obj({ F1: font.ref }) }));
+    const content = [
+      "0.5 w", "BT /F1 8 Tf 40 780 Td (EF) Tj ET", "0 0 1 RG 60 783 m 100 783 l S",
+      "BT /F1 8 Tf 40 760 Td (EU) Tj ET", "1 0.5 0 RG 60 763 m 100 763 l S",
+      "BT /F1 8 Tf 900 40 Td (PLAN R+1 ECHELLE 1/50) Tj ET",
+      // A vertical inline tag beside a 40 pt orange piece.
+      "BT /F1 8 Tf 0 1 -1 0 996 440 Tm (EU) Tj ET", "1 0.5 0 RG 999 455 m 999 495 l S",
+    ];
+    // Twelve blue risers, each labelled vertically: 204 vertical characters against 25 horizontal ones.
+    for (let index = 0; index < 12; index += 1) {
+      const x = 200 + 50 * index;
+      content.push(`0 0 1 RG ${x} 100 m ${x} 600 l S`, `BT /F1 8 Tf 0 1 -1 0 ${x - 4} 300 Tm (COLONNE EF PER 16) Tj ET`);
+    }
+    sheet.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream(content.join("\n"))));
+    const model = buildPageModel(await extractVectorPage(await doc.save(), 1));
+    const legend = readLegend(model);
+    expect(legend.entries.map((entry) => [entry.text, entry.colors])).toEqual([["EF", [BLUE]], ["EU", ["#ff8000"]]]);
+    expect(classifyByKeywords(model, legend)[model.groups.findIndex((group) => group.key.color === BLUE)].class).toBe("EF");
+  });
+
+  it("merges the two pieces of a label on a page turned by /Rotate 180, tilted across ±π", () => {
+    // Read right to left: « EU - PVC » at angle π from x = 500, then « DN 40 » at −π + 0.005 after it.
+    const head = { ...text("EU - PVC", 500, 300), angle: Math.PI };
+    const tail = { ...text("DN 40", 500 - head.width - 1.5, 300), angle: -Math.PI + 0.005 };
+    expect(mergeTextLines([head, tail]).map((entry) => entry.str)).toEqual(["EU - PVC DN 40"]);
   });
 });

@@ -50,6 +50,10 @@
 //     inside it, counted as raster coverage, so the visible vector plan reads
 //     as a raster page; or a printed image (ON layer, after the OFF layer's
 //     EMC, under a BMC alone) no longer counted.
+// Review of that round (written before the fix):
+// 18. A stroke that is not printed because an outer level hides it (an ON
+//     layer nested in an OFF one, an OCMD of an OFF layer) read as a visible
+//     stroke of the ON layer or of its colour, and measured.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -566,6 +570,26 @@ describe("raster coverage", () => {
     expect(extractions.map((extraction) => readVectorPage(extraction, { clock: () => 0 }).mode)).toEqual([
       "layers", "layers", "layers", "layers", "layers", "layers", "raster", "raster", "raster",
     ]);
+  });
+
+  it("never measures a stroke an outer optional content hides (review of the third round of PR #145)", SPAWN, async () => {
+    const pipe = "0 0 1 RG 10 50 m 190 50 l S";
+    const bytes = await buildPdf((doc) => {
+      const off = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of("FICTIF_ANCIEN") }));
+      const on = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of("FICTIF_RES_EF") }));
+      doc.catalog.set(PDFName.of("OCProperties"), doc.context.obj({ OCGs: [off, on], D: { Order: [off, on], ON: [on], OFF: [off] } }));
+      const ocmd = doc.context.register(doc.context.obj({ Type: "OCMD", OCGs: [off], P: "AllOn" }));
+      const properties = doc.context.obj({ off, on, md: ocmd });
+      // Not printed: an ON layer nested in the OFF one, an OCMD of the OFF layer, the OFF layer itself. Printed: the ON layer.
+      for (const content of [`/OC /off BDC /OC /on BDC ${pipe} EMC EMC`, `/OC /md BDC ${pipe} EMC`, `/OC /off BDC ${pipe} EMC`, `/OC /on BDC ${pipe} EMC`]) {
+        addRawPage(doc, [200, 100], [content], { Properties: properties });
+      }
+    });
+
+    const models = await Promise.all([1, 2, 3, 4].map(async (page) => buildPageModel(await extractVectorPage(bytes, page))));
+
+    expect(models.map((model) => Math.round(model.visibleLength_pt))).toEqual([0, 0, 0, 180]);
+    expect(models.map((model) => model.segments.length)).toEqual([0, 0, 0, 1]);
   });
 });
 

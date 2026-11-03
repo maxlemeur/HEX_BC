@@ -38,6 +38,10 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 //   stroked without closePath (a complete ring, closed flag false) has no
 //   measured area; or, once accepted, an outline left open (a door gap, a
 //   missing side) is measured as if closed.
+// Review of that round (written before the fix): on a page turned by /Rotate
+// 180, a label and its area line tilted by a fraction of a degree read at
+// angles on both sides of ±π (3.1416 and −3.1364) and are not taken for one
+// direction, so the room loses its name.
 // Bench of the third round (written before the fix): once outlines drawn back
 // to their start count, a building envelope or a sheet frame drawn so (or
 // closed) is the smallest ring around every room without its own outline,
@@ -227,5 +231,18 @@ describe("readRoomSurfaces, one room per outline (bench of the third review of P
     }
     // Alone in the envelope, a room takes it: the envelope is then its outline.
     expect(readRoomSurfaces(page([texts[0]], [envelope]), 50).map(({ polygon_m2 }) => polygon_m2)).toEqual([600]);
+  });
+});
+
+describe("readRoomSurfaces, upside-down page (review of the third round of PR #145)", () => {
+  it("finds the name above a slightly tilted area line on a page turned by /Rotate 180", () => {
+    const room: Ring = { x: 100, y: 100, width: sheet(4), height: sheet(3.1) }; // 12.40 m²
+    const texts = [line("Bureau", 130, 197), { ...line("12.40 m²", 130, 200), angle: 0.005 }];
+    expect(readRoomSurfaces(page(texts, [room]), 50).map(({ room: name, polygon_m2 }) => ({ name, polygon_m2 }))).toEqual([{ name: "Bureau", polygon_m2: 12.4 }]);
+    // The same sheet viewed at /Rotate 180: page point (x, y) goes to (W − x, H − y), texts turn by π (3.1416 and −3.1364).
+    const W = 1190.55, H = 841.89;
+    const turned = page(texts.map((entry) => ({ ...entry, x: W - entry.x, y: H - entry.y, angle: Math.atan2(Math.sin(entry.angle + Math.PI), Math.cos(entry.angle + Math.PI)) })),
+      [{ x: W - (room.x + room.width), y: H - (room.y + room.height), width: room.width, height: room.height }]);
+    expect(readRoomSurfaces(turned, 50).map(({ room: name, polygon_m2 }) => ({ name, polygon_m2 }))).toEqual([{ name: "Bureau", polygon_m2: 12.4 }]);
   });
 });

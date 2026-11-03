@@ -141,6 +141,11 @@ export function orientation(segment: Segment) {
   return angle < 0 ? angle + Math.PI : angle >= Math.PI ? angle - Math.PI : angle;
 }
 
+/** Smallest difference between two directions (radians), across ±π: 3.1416 and −3.1364 are 0.0052 apart. */
+export function angleGap(left: number, right: number) {
+  return Math.abs(Math.atan2(Math.sin(left - right), Math.cos(left - right)));
+}
+
 /** Smallest difference between two orientations in [0, π). */
 export function orientationGap(left: number, right: number) {
   const gap = Math.abs(left - right) % Math.PI;

@@ -7,10 +7,13 @@ import { networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 
 // Legend of a page without layers (TI-662 step 3, keywords): an entry is a
 // text that is a network code alone (« ECS », « EU/EV », « EG VC »),
-// horizontal as the sheet reads (within 0.02 rad of the page axis most of the
-// page's characters run along, either way: a page turned by /Rotate 90, 180 or
-// 270, or drawn turned, reads as drawn; a code written across that axis is a
-// pipe's inline tag), with the strokes drawn on its row after it. The row is
+// horizontal as the sheet reads (within 0.02 rad of one page axis, either way:
+// a page turned by /Rotate 90, 180 or 270, or drawn turned, reads as drawn; a
+// code written across that axis is a pipe's inline tag), with the strokes
+// drawn on its row after it. The legend is read along both page axes and the
+// one giving more entries is kept (on a tie, the axis most of the page's
+// characters run along): vertical labels outnumbering an upright legend do not
+// turn the sheet. The row is
 // read in the code's own frame (along its baseline, and across it towards the
 // top of its glyphs): the strokes' centre within 0.6 text height of the
 // text's, after the text, within 40 heights and before the next text on the
@@ -53,7 +56,7 @@ function quarterOf(angle: number): number | null {
   return ((quarter % 4) + 4) % 4;
 }
 
-/** The sheet's horizontal: 0 along page x, 1 along page y, whichever most of the page's characters run along (x on a tie). */
+/** The axis most of the page's characters run along: 0 along page x, 1 along page y (x on a tie). */
 function readingAxis(texts: readonly VectorText[]) {
   const characters = [0, 0];
   for (const text of texts) {
@@ -68,10 +71,18 @@ export type LegendColor = { color: string; network: NetworkCode | null; candidat
 export type PageLegend = { version: number; entries: LegendEntry[]; colors: LegendColor[]; boxes: Box[] };
 
 export function readLegend(model: PageModel): PageLegend {
+  // The legend along each page axis; the one with more entries is the sheet's (the characters' axis on a tie).
+  const preferred = readingAxis(model.extraction.texts);
+  const first = readLegendAlong(model, preferred);
+  const other = readLegendAlong(model, 1 - preferred);
+  return other.entries.length > first.entries.length ? other : first;
+}
+
+/** The legend read with the sheet's horizontal along page x (axis 0) or page y (axis 1). */
+function readLegendAlong(model: PageModel, axis: number): PageLegend {
   const { extraction, segments, segmentGroup, groups } = model;
   const entries: LegendEntry[] = [];
   // Rows are read in the sheet's frame (along its horizontal, up across it), reversed for a code that reads the other way.
-  const axis = readingAxis(extraction.texts);
   const sheet = textFrame((axis * Math.PI) / 2);
   const codes = extraction.texts.flatMap((text) => {
     const network = networkOfLegendCode(text.str);

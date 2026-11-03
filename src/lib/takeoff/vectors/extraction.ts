@@ -36,6 +36,9 @@ import { z } from "zod";
 //   getOptionalContentConfig(). Every beginMarkedContent* pushes (OC or not),
 //   endMarkedContent pops; a path belongs to the innermost OC with an id; an
 //   image XObject's or a form's /OC arrives as such a marked content around it;
+//   a stroke an outer level hides (an ON layer nested in an OFF one, an OCMD of
+//   an OFF layer) is not printed and not extracted; a stroke of a layer that is
+//   itself OFF is kept in that layer's group, which the page model never measures;
 // - getOperatorList({ annotationMode: AnnotationMode.DISABLE }); no
 //   disableWorker (removed in 6.x): the legacy build runs its fake worker in
 //   the process.
@@ -75,6 +78,7 @@ async function main() {
     const config = await pdf.getOptionalContentConfig();
     const layers = [];
     for (const [id, group] of config) layers.push({ id: String(id), name: String(group.name ?? ""), visible: group.visible !== false });
+    const offLayers = new Set(layers.filter((entry) => !entry.visible).map((entry) => entry.id));
     const t0 = performance.now();
     const ops = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
     const t1 = performance.now();
@@ -217,6 +221,11 @@ async function main() {
             const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
             let layer = null;
             for (let k = marked.length - 1; k >= 0; k--) if (marked[k] !== undefined) { layer = marked[k]; if (layer !== null) break; }
+            // Hidden by an outer level (pdfjs's canvas paints only when every open level is shown), and not as an OFF layer's own stroke.
+            if (shown.includes(false) && (layer === null || !offLayers.has(layer))) {
+              if (clipping) { const all = subpaths.flatMap((sub) => sub.coords); if (all.length >= 2) state.clip = intersect(state.clip, boxOf(all)); }
+              break;
+            }
             const width = Math.round(state.width * scale * 100) / 100;
             const color = state.pattern ? "pattern" : state.color;
             const key = JSON.stringify([layer, color, width, state.dash]);

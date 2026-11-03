@@ -1,5 +1,5 @@
 import type { VectorPageExtraction, VectorText } from "@/lib/takeoff/vectors/extraction";
-import { pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
+import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 
 // Room surfaces of a page (TI-662 step 4). The area of the smallest closed
@@ -51,7 +51,7 @@ function roomLabel(text: VectorText, before: string, texts: readonly VectorText[
   // Offsets from the area's baseline start: along its baseline, and up (towards the top of its glyphs, y down).
   const along = (other: VectorText) => (other.x - text.x) * c + (other.y - text.y) * s;
   const up = (other: VectorText) => (other.x - text.x) * s - (other.y - text.y) * c;
-  const above = texts.filter((other) => other !== text && Math.abs(other.angle - text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
+  const above = texts.filter((other) => other !== text && angleGap(other.angle, text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
     && up(other) > 0.5 * h && up(other) < 3.4 * h
     && along(other) < text.width + h && along(other) + other.width > -h).sort((left, right) => up(right) - up(left));
   // Keep the lines stacked right above the surface (each within 1.7 heights of the next).

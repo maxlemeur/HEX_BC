@@ -39,7 +39,9 @@ est une constante nommée et versionnée dans le code.
    - Un groupe quasi blanc ou gris n'est jamais classé réseau par mot-clé.
    - Un trait quasi blanc n'est jamais mesuré, même dans un calque réseau.
    - Un calque masqué par la configuration par défaut du PDF (OFF) n'est pas lu : ni
-     cote, ni légende, ni ligne de rappel, ni mesure, ni contour de pièce.
+     cote, ni légende, ni ligne de rappel, ni mesure, ni contour de pièce. Un tracé
+     masqué par un niveau englobant (un calque ON dans un calque OFF, un OCMD d'un
+     calque OFF) n'est pas imprimé : il n'est pas lu non plus.
 3. **Échelle** ([`scale.ts`](../../src/lib/takeoff/vectors/scale.ts)), page par page.
    - On lit l'échelle du cartouche (« Échelle 1/50 »).
    - Une valeur séparée de son libellé (« Échelle » puis « 1/50 », « Format » puis « A3 »)
@@ -68,10 +70,12 @@ est une constante nommée et versionnée dans le code.
      les tracés dessinés sur sa ligne avant le texte suivant de cette ligne (échantillon
      de 25 hauteurs de texte au plus), donne la couleur du réseau. Chaque partie du code
      est un code réseau ou un sens : « EU - PVC » est un libellé, pas une légende.
-     - La légende se lit dans le sens de la feuille : celui de la plupart de ses textes.
-       Une page tournée (/Rotate 90, 180 ou 270), ou dessinée tournée, se lit comme
-       dessinée. Un code écrit en travers de ce sens, le long d'un tuyau, est une
-       étiquette du plan, pas une légende.
+     - La légende se lit dans le sens de la feuille. Elle est lue le long des deux axes
+       de la page, et l'axe qui donne le plus d'entrées est retenu (à égalité, celui de
+       la plupart des textes). Une page tournée (/Rotate 90, 180 ou 270), ou dessinée
+       tournée, se lit comme dessinée, et des libellés verticaux plus nombreux ne
+       tournent pas une feuille droite. Un code écrit en travers de ce sens, le long
+       d'un tuyau, est une étiquette du plan, pas une légende.
      - Les teintes de cette couleur (mêlée de blanc à 10 – 85 %) et ses ombres (de noir
        à 10 – 60 %) suivent.
      - Une couleur partagée par EU et EU/EV donne EUV. Une couleur partagée par deux
