@@ -42,7 +42,8 @@ est une constante nommée et versionnée dans le code.
    - Un groupe de transparence (forme `/Group /S /Transparency`) est lu comme pdfjs
      l'imprime : son cadre BBox le détoure ; peint à opacité 1 sans isolement, il garde
      l'opacité en cours ; sinon son contenu repart à l'opacité 1 et le groupe est peint
-     à l'opacité de remplissage extérieure (rien n'est imprimé à `/ca 0`).
+     à l'opacité de remplissage extérieure (rien n'est imprimé à `/ca 0`). La forme d'un
+     masque de transparence (`/SMask`) n'est jamais imprimée : elle n'est pas lue.
 2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
    - Un groupe est un calque quand la page en a, sinon une couleur avec son
      épaisseur et son tiret.

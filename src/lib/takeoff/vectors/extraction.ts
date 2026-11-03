@@ -44,6 +44,7 @@ import { z } from "zod";
 //   as pdfjs's canvas does, a group painted at ca 1 that needs no isolation
 //   keeps the alpha in force, while any other group resets CA and ca to 1
 //   for its content and is painted at the outer ca (nothing printed at 0);
+//   the group form of a soft mask is never painted;
 // - layers: beginMarkedContentProps is ["OC", { type, id }], ["OC", { type:
 //   "OCMD" }] without id or ["OC", null]; the id is a key of
 //   getOptionalContentConfig(). Every beginMarkedContent* pushes (OC or not),
@@ -181,6 +182,8 @@ async function main() {
             for (const [x, y] of [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]]) corners.push(f[0] * x + f[2] * y + f[4], f[1] * x + f[3] * y + f[5]);
             state.clip = intersect(state.clip, boxOf(corners));
           }
+          // A soft mask's group form (/SMask /G) is only ever used as a mask: pdfjs's canvas never paints it.
+          if (group.smask) state.clear = true;
           const simple = (!group.needsIsolation || (!group.isolated && !group.hasSoftMask)) && !group.knockout && !group.isGray && state.fillAlpha === 1;
           if (!simple) {
             if (!(state.fillAlpha > 0)) state.clear = true;

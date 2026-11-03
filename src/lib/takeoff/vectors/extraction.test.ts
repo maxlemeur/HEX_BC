@@ -74,7 +74,9 @@
 //     isolates (any group painted at ca < 1): its pipe under an outer /CA 0
 //     /ca 0.5 dropped although printed, or a group painted at /ca 0 measured;
 //     a group at ca 1 (pdfjs's simple path) no longer inheriting the outer
-//     /CA 0; the group's BBox not clipping its content.
+//     /CA 0; the group's BBox not clipping its content; the group form of a
+//     soft mask (/SMask /G), which pdfjs's canvas never paints, read as
+//     printed strokes.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -683,10 +685,14 @@ describe("raster coverage", () => {
       for (const content of ["q /Isolating gs /Fm1 Do Q", "q /Clear gs /Fm1 Do Q", "q /NoStroke gs /Fm1 Do Q", "/Fm2 Do"]) {
         addRawPage(doc, [200, 100], [content], { ExtGState: states, XObject: doc.context.obj({ Fm1: whole, Fm2: half }) });
       }
+      // 5: a soft mask whose group form draws the red pipe; only the blue stroke it masks is printed.
+      const mask = doc.context.obj({ Type: "ExtGState", SMask: doc.context.obj({ Type: "Mask", S: "Luminosity", G: whole }) });
+      addRawPage(doc, [200, 100], ["q /SM gs 0 0 1 RG 4 w 10 80 m 190 80 l S Q"], { ExtGState: doc.context.obj({ SM: mask }) });
     });
 
-    const models = await Promise.all([1, 2, 3, 4].map(async (page) => buildPageModel(await extractVectorPage(bytes, page))));
-    expect(models.map((model) => Math.round(model.visibleLength_pt))).toEqual([180, 0, 0, 90]);
+    const models = await Promise.all([1, 2, 3, 4, 5].map(async (page) => buildPageModel(await extractVectorPage(bytes, page))));
+    expect(models.map((model) => Math.round(model.visibleLength_pt))).toEqual([180, 0, 0, 90, 180]);
+    expect(models[4].groups.map((group) => group.colors)).toEqual([["#0000ff"]]);
   });
 
   it("never measures a stroke an outer optional content hides (review of the third round of PR #145)", SPAWN, async () => {
