@@ -1,3 +1,12 @@
+// Failure cases written before the TI-674 fix (two tests failed together under CI load):
+// 1. The opening step was chosen by a passive effect after the first render of the
+//    loaded preparation, which shows « Mes documents » first. A step the user picks
+//    right after that render is replaced by the opening step once the effect runs.
+// 2. That first render mounts the documents step (and its page triage) only to
+//    leave it at once.
+// 3. A `*Once` mock left unused by a test that failed early answered the next
+//    test's first call: `clearAllMocks` keeps the once-queue, so one failure
+//    became two (the leaked save refusal kept the next test's level change unsaved).
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -9,6 +18,7 @@ import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelec
 import type { PreparationAdvancedControlsContext } from "@/components/takeoff/TakeoffPreparationPanel";
 import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
+import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 
 const loadChatGptConnectionMock = vi.hoisted(() => vi.fn());
 vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
@@ -46,7 +56,8 @@ function state() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Reset rather than clear: a `*Once` queue left by a test that failed early must not answer this one.
+  for (const mock of [loadChatGptConnectionMock, ...Object.values(actions)]) mock.mockReset();
   stored = completePreparation();
   storedRevision = 5;
   storedConfirmedAt = null;
@@ -105,8 +116,12 @@ describe("TakeoffPreparationPanel", () => {
 
   it("keeps edits made while recovering a preparation and does not silently replace them", async () => {
     actions.save.mockRejectedValueOnce(new Error("Save failed"));
+    const scopeStep = () => screen.queryByRole("button", { name: /Ce que je veux mesurer/ });
+    const stepChosen = beforePassiveEffectsOf(() => scopeStep() !== null, () => fireEvent.click(scopeStep()!));
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Ce que je veux mesurer/ }));
+    await stepChosen.done();
+    // The panel opened on its last step: the documents step and its page triage never mounted.
+    expect(actions.triageAvailability).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Exclusions"), { target: { value: "RDC, Zone 2" } });
     fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     await screen.findByText(/L.enregistrement a échoué/);
