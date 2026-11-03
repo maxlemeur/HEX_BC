@@ -26,6 +26,7 @@ import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-compari
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard } from "@/lib/takeoff/guards";
+import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
@@ -121,18 +122,23 @@ export async function applyTakeoffJob(
       request: payload,
     });
 
-    // Guard: Level C requires low-confidence items to be verified
-    if (jobRow.level === "C") {
+    // Guard, on every level (TI-664): the fixed rules' results, computed again first so that a line edited without
+    // the review holds its current results; on level C also low confidence, proof and page. The lines the mapping
+    // plan skips or folds into an assembly are excluded by the RPC before the trigger counts: here too.
+    await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "apply" });
+    {
       const lowConfidenceThreshold = await getTakeoffLowConfidenceThresholdForTenant(
         tenantId,
         { supabase }
       );
-      const guardItems = await listTakeoffApplyGuardItems({
+      const plannedExclusions = new Set(mappingPreview.items
+        .filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
+      const guardItems = (await listTakeoffApplyGuardItems({
         supabase,
         tenantId,
         jobId: normalizedJobId,
-      });
-      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold);
+      })).map((item) => (plannedExclusions.has(item.id) ? { ...item, is_excluded: true } : item));
+      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold, { level: jobRow.level });
 
       if (!guardResult.passed) {
         if (payload.override === true) {

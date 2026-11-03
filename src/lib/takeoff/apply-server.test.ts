@@ -19,6 +19,7 @@ vi.mock("@/lib/takeoff/dpgf-comparison-repository", () => ({ hasTakeoffDpgfTarge
 vi.mock("@/lib/takeoff/dpgf-comparison-context-server", () => ({ loadTakeoffDpgfComparisonContext: vi.fn() }));
 vi.mock("@/lib/takeoff/dpgf-comparison-server", () => ({ fetchDpgfTakeoffComparisonForContext: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({ getTakeoffLowConfidenceThresholdForTenant: vi.fn() }));
+vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn() }));
 vi.mock("@/lib/takeoff/audit", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/audit")>(),
   logTakeoffAuditEvent: vi.fn(),
@@ -65,6 +66,8 @@ beforeEach(() => {
     items: [],
   } as never);
   vi.mocked(hasTakeoffDpgfTargetLines).mockResolvedValue(true);
+  // The guard runs on every level (TI-664): no line blocks here.
+  vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([]);
   vi.mocked(repository.loadTakeoffApplyConcurrencyToken).mockResolvedValue(TOKEN);
   vi.mocked(loadTakeoffDpgfComparisonContext).mockResolvedValue({ jobId: JOB_ID } as never);
   vi.mocked(fetchDpgfTakeoffComparisonForContext).mockResolvedValue({ summary } as never);

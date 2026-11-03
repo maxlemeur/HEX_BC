@@ -80,6 +80,8 @@ import {
   type TakeoffSourceDocumentRef,
 } from "@/lib/takeoff/source-loader";
 import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
+import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
+import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { isTakeoffVectorReadingEnabled, readTakeoffVectorPages, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
@@ -1041,6 +1043,12 @@ async function updateJobAsCompleted(input: {
   }
 
   if (data) {
+    // TI-664: the fixed rules of the version, now that this job's lines join it; never fails the job (its lines with
+    // rule inputs were written stale, they block until a later computation: an edit, or the application).
+    if (input.level !== TAKEOFF_LEVEL_A) {
+      await recomputeTakeoffRulesQuietly({ tenantId: input.job.tenant_id, estimateVersionId: input.job.estimate_version_id,
+        context: "worker", supabase: input.supabase });
+    }
     return;
   }
 
@@ -1610,6 +1618,9 @@ async function persistTakeoffResultAndItems(input: {
     resultId = parsedResult.id;
 
     if (input.itemsForInsert.length > 0) {
+      // TI-664 (MERGEONE_TAKEOFF_RULES=1, levels B and C): each line's rule inputs, read once in its designation, and
+      // results to compute (stale: blocked until the version's rules run, once the job completes).
+      const withRules = isTakeoffRulesEnabled() && input.level !== TAKEOFF_LEVEL_A;
       const { error: insertItemsError } = await input.supabase
         .from("takeoff_items" as never)
         .insert(
@@ -1624,7 +1635,14 @@ async function persistTakeoffResultAndItems(input: {
             evidence: item.evidence,
             source_file_name: item.source_file_name,
             source_page: item.source_page,
-            metadata: item.metadata,
+            metadata: withRules ? {
+              ...item.metadata,
+              rule_inputs: ruleInputsFromDesignation({
+                designation: item.designation, unit: item.unit, quantity: item.quantity, evidence: item.evidence,
+                category: typeof item.metadata.category === "string" ? item.metadata.category : null,
+              }),
+            } : item.metadata,
+            ...(withRules ? { rules_stale: true } : {}),
           })) as never
         );
 

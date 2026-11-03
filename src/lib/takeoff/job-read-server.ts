@@ -6,6 +6,8 @@ import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 
 import { z } from "zod";
 
+import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
+
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
 import { mapSupabaseError } from "@/lib/estimates/errors";
@@ -127,6 +129,11 @@ export const TAKEOFF_ITEMS_SELECT = [
   "verified_by",
   "created_at",
   "updated_at",
+  "rule_results",
+  "rules_evaluated_at",
+  "rules_stale",
+  "quantity_entered_at",
+  "quantity_entered_by",
 ].join(", ");
 
 export const jsonRecordSchema = z.record(z.string(), z.unknown());
@@ -277,7 +284,12 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
   verified_by: z.string().uuid().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
-});
+  rule_results: TakeoffRuleResultsSchema.optional(),
+  rules_evaluated_at: z.string().nullable().optional(),
+  rules_stale: z.boolean().optional(),
+  quantity_entered_at: z.string().nullable().optional(),
+  quantity_entered_by: z.string().uuid().nullable().optional(),
+}) as z.ZodType<TakeoffJobItem>;
 
 export type TakeoffJobDetailRow = {
   id: string;
@@ -348,6 +360,11 @@ export type TakeoffItemRow = {
   verified_by: string | null;
   created_at: string;
   updated_at: string;
+  rule_results?: unknown;
+  rules_evaluated_at?: string | null;
+  rules_stale?: boolean;
+  quantity_entered_at?: string | null;
+  quantity_entered_by?: string | null;
 };
 
 export type AuthenticatedTakeoffContext = Awaited<

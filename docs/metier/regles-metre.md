@@ -195,7 +195,7 @@ mise en service, DOE…).
 - Une telle ligne échoue tant que l'utilisateur n'a pas saisi sa quantité : une saisie attestée, même égale à la quantité du modèle (1 ens de mise en service), ou une quantité modifiée.
 - La vérifier ne la règle jamais : `acceptable: false`.
 
-## Blocage
+## Blocage et branchement (L5b)
 
 Une ligne incluse est bloquée par ses règles quand l'une de ces conditions est vraie :
 
@@ -203,8 +203,58 @@ Une ligne incluse est bloquée par ses règles quand l'une de ces conditions est
 - une règle échoue et la ligne n'est pas vérifiée ;
 - une règle échoue sans être acceptable.
 
-C'est le prédicat de [`blocking.ts`](../../src/lib/takeoff/rules/blocking.ts). Le garde
-d'application et le trigger SQL le partageront (TI-664, étape 2).
+C'est le prédicat de [`blocking.ts`](../../src/lib/takeoff/rules/blocking.ts). Le trigger
+SQL l'applique par `takeoff_item_rule_blocked`, `checkApplyGuard` par `blockingRules` :
+les deux bloquent les mêmes lignes (option A, migration
+`20261103213336_takeoff_quantity_rules.sql`).
+
+**Stockage**, sur `takeoff_items`, écrit par le worker ou le serveur avec le service,
+jamais par un client :
+
+- `rule_results` : un résultat par règle qui lit la ligne ;
+- `rules_evaluated_at` : quand les règles ont tourné ;
+- `rules_stale` : la ligne a changé depuis.
+
+Ces colonnes sont hors de la liste blanche de `enforce_authenticated_takeoff_item_fields`.
+L'écrivain `write_takeoff_rule_results`, réservé au service :
+
+- n'écrit jamais une ligne modifiée depuis sa lecture, ni une ligne d'un job appliqué ;
+- ne déplace jamais `updated_at`.
+
+**Niveaux** : les raisons des règles s'appliquent à toute ligne qui porte des entrées de
+règles, en B comme en C ; les raisons existantes (confiance faible, preuve, page)
+restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
+
+- Les items mesurés par L3 sont créés dans le job de niveau C qui a lu le plan.
+- Les lignes que le plan de mapping exclut (`skip`, ouvrage) ne comptent pas, des deux côtés.
+
+**Override admin : gardé.**
+
+- L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
+- Le trigger refuse un audit qui en oublie une.
+- Il consomme l'audit une seule fois.
+
+**Recalcul** (`recompute-server.ts`), pour toute la version :
+
+- quand un job s'achève (worker) ;
+- après chaque correction ou exclusion (PATCH des lignes) ;
+- avant chaque application.
+
+Un client qui modifie la quantité, son attestation de saisie, l'unité ou l'exclusion
+d'une ligne évaluée périme ses résultats (trigger) : la ligne bloque jusqu'au recalcul
+serveur.
+
+**Saisie d'une quantité à saisir** : `quantity_entered_by` et `quantity_entered_at`.
+
+- Ils sont attestés par leur auteur, comme `is_verified`.
+- Ils sont effacés quand la quantité change sans nouvelle attestation.
+- Le PATCH les pose avec `quantity_entered: true`.
+
+**Activation** : le worker n'écrit les entrées de règles (et les ancres de recalage des
+pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
+
+- Sans elles, aucune règle ne lit la ligne : rien ne change pour un job sans entrées.
+- Le recalcul tourne dès qu'une version a des lignes qui en portent.
 
 ## Banc
 

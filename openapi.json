@@ -63077,6 +63077,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -64540,6 +64671,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -64680,6 +64942,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -64816,6 +65209,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -64934,6 +65458,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -65142,6 +65797,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -65260,6 +66046,137 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "rule_results": {
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rule": {
+                                "type": "string",
+                                "enum": [
+                                  "dn_network",
+                                  "zone_overlap",
+                                  "scale_dimension",
+                                  "area_printed",
+                                  "room_overlap",
+                                  "closed_box",
+                                  "non_observable"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pass",
+                                  "fail"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "acceptable": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 1000
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "partners": {
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "item_id": {
+                                          "type": "string"
+                                        },
+                                        "job_id": {
+                                          "type": "string"
+                                        },
+                                        "zone": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 16
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "designation": {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        "overlap_m": {
+                                          "type": "number"
+                                        },
+                                        "resolved": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "item_id",
+                                        "job_id",
+                                        "zone",
+                                        "designation",
+                                        "overlap_m",
+                                        "resolved"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": {}
+                              }
+                            },
+                            "required": [
+                              "rule",
+                              "status",
+                              "code",
+                              "version",
+                              "acceptable",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rules_evaluated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules_stale": {
+                          "type": "boolean"
+                        },
+                        "quantity_entered_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -66378,6 +67295,10 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "quantity_entered": {
+                      "type": "boolean",
+                      "const": true
                     }
                   },
                   "additionalProperties": false
@@ -66520,6 +67441,137 @@
                             },
                             "updated_at": {
                               "type": "string"
+                            },
+                            "rule_results": {
+                              "maxItems": 16,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "rule": {
+                                    "type": "string",
+                                    "enum": [
+                                      "dn_network",
+                                      "zone_overlap",
+                                      "scale_dimension",
+                                      "area_printed",
+                                      "room_overlap",
+                                      "closed_box",
+                                      "non_observable"
+                                    ]
+                                  },
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "pass",
+                                      "fail"
+                                    ]
+                                  },
+                                  "code": {
+                                    "type": "string",
+                                    "maxLength": 64
+                                  },
+                                  "version": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "acceptable": {
+                                    "type": "boolean"
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  "details": {
+                                    "type": "object",
+                                    "properties": {
+                                      "partners": {
+                                        "maxItems": 50,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "item_id": {
+                                              "type": "string"
+                                            },
+                                            "job_id": {
+                                              "type": "string"
+                                            },
+                                            "zone": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "maxLength": 16
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ]
+                                            },
+                                            "designation": {
+                                              "type": "string",
+                                              "maxLength": 500
+                                            },
+                                            "overlap_m": {
+                                              "type": "number"
+                                            },
+                                            "resolved": {
+                                              "type": "boolean"
+                                            }
+                                          },
+                                          "required": [
+                                            "item_id",
+                                            "job_id",
+                                            "zone",
+                                            "designation",
+                                            "overlap_m",
+                                            "resolved"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "rule",
+                                  "status",
+                                  "code",
+                                  "version",
+                                  "acceptable",
+                                  "reason"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "rules_evaluated_at": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "rules_stale": {
+                              "type": "boolean"
+                            },
+                            "quantity_entered_at": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "quantity_entered_by": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [

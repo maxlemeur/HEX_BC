@@ -9,7 +9,9 @@ import {
   getAuthenticatedTakeoffContext,
   getTakeoffJobDetailByIdOrThrow,
   normalizeTakeoffItemRow,
+  TAKEOFF_ITEMS_SELECT,
 } from "@/lib/takeoff/job-read-server";
+import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import {
   prepareTakeoffItemPatch,
   takeoffItemBatchPatchSchema,
@@ -29,6 +31,19 @@ import type {
 } from "@/lib/takeoff/types";
 
 export { takeoffItemBatchPatchSchema } from "@/lib/takeoff/item-patch-preparation";
+
+/** The saved lines as they stand after the rules ran; a line that cannot be read back keeps its saved answer. */
+async function readTakeoffItemsAfterRules(input: {
+  supabase: Awaited<ReturnType<typeof getAuthenticatedTakeoffContext>>["supabase"];
+  tenantId: string;
+  jobId: string;
+  itemIds: readonly string[];
+}) {
+  const { data, error } = await input.supabase.from("takeoff_items" as never).select(TAKEOFF_ITEMS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never).eq("job_id" as never, input.jobId as never).in("id" as never, input.itemIds as never);
+  if (error) return new Map<string, unknown>();
+  return new Map(((data ?? []) as Array<{ id: string }>).map((row) => [row.id, row as unknown]));
+}
 
 export async function batchUpdateTakeoffItems(
   jobId: string,
@@ -142,6 +157,20 @@ export async function batchUpdateTakeoffItems(
         success: false,
         error: "Erreur interne lors de la mise à jour de l'item.",
       });
+    }
+  }
+
+  // The fixed rules read the quantity, its entry and the exclusion (TI-664): computed again for the version, then
+  // the saved lines read back with their results (writing them never moves updated_at).
+  const saved = results.flatMap((result) => (result.success ? [result.item_id] : []));
+  if (saved.length > 0) {
+    const outcome = await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "item_patch" });
+    if (outcome && outcome.lines > 0) {
+      const fresh = await readTakeoffItemsAfterRules({ supabase, tenantId, jobId: normalizedJobId, itemIds: saved });
+      for (const [index, result] of results.entries()) {
+        const item = result.success ? fresh.get(result.item_id) : undefined;
+        if (item) results[index] = { item_id: result.item_id, success: true, item: normalizeTakeoffItemRow(item) };
+      }
     }
   }
 

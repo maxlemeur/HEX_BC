@@ -122,14 +122,15 @@ export function TakeoffApplyWizard({
     }
   }, [open, step]);
 
+  // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C.
   useEffect(() => {
-    if (!isLevelC || !hasGuardItems || step !== 4) {
+    if (!jobLevel || !hasGuardItems || step !== 4) {
       setGuardResult(null);
       return;
     }
-    const result = checkApplyGuard(externalItems!, threshold);
+    const result = checkApplyGuard(externalItems!, threshold, { level: jobLevel });
     setGuardResult(result);
-  }, [externalItems, hasGuardItems, isLevelC, step, threshold]);
+  }, [externalItems, hasGuardItems, jobLevel, step, threshold]);
 
   const {
     previewData,
@@ -222,8 +223,7 @@ export function TakeoffApplyWizard({
     previewOverridesSignature === currentOverridesSignature;
   const isPreviewStale =
     previewData !== null && previewOverridesSignature !== currentOverridesSignature;
-  const guardBlocking =
-    isLevelC && guardResult !== null && !guardResult.passed;
+  const guardBlocking = guardResult !== null && !guardResult.passed;
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
   const canGoBack = isPreset ? step === 4 : step > 1;
   const canConfirm =

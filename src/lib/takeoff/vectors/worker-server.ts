@@ -17,6 +17,8 @@ import {
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 import { TAKEOFF_VECTOR_READ_LIMITS } from "@/lib/takeoff/vectors/read-contracts";
 import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
+import { pageAnchors, type PageAnchors } from "@/lib/takeoff/rules/registration";
+import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 
 // The vector reading in the takeoff worker (TI-662), opt-in with
 // MERGEONE_TAKEOFF_VECTORS=1 and level C only: each retained page of each
@@ -46,6 +48,8 @@ export type VectorPageOutcome = {
   record: VectorPageRecord | null;
   items: VectorItemRecord[];
   error: string | null;
+  /** Registration anchors of a measurable page (TI-664), kept only when the fixed rules run. */
+  anchors?: PageAnchors | null;
 };
 
 /**
@@ -89,8 +93,10 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
       try {
         const extraction = await extractVectorPage(bytes, page);
         const reading = readVectorPage(extraction, { calibration: preparationCalibration(source.preparationSnapshot, documentId, page) });
+        const anchors = isTakeoffRulesEnabled() && reading.scale.denominator !== null && reading.mode !== "raster"
+          ? pageAnchors(extraction, reading.scale.denominator, new Map(reading.groups.map((group) => [group.id, group.class]))) : null;
         outcomes.push({ document: original.document, fileName: original.fileName, page, record: vectorPageRecord(reading, location),
-          items: vectorItemRecords(reading, location), error: null });
+          items: vectorItemRecords(reading, location), error: null, anchors });
       } catch (error) {
         const reason = error instanceof VectorExtractionError ? error.reason : "reading_failed";
         const message = error instanceof Error ? error.message : String(error);

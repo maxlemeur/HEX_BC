@@ -19,6 +19,7 @@ const takeoffItemPatchFieldSchema = z
     exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
     is_verified: z.boolean().optional(),
     evidence: z.string().trim().min(1).max(2000).nullable().optional(),
+    quantity_entered: z.literal(true).optional(),
   })
   .strict()
   .refine(
@@ -50,17 +51,19 @@ export const TAKEOFF_ITEM_CONCURRENCY_ERROR =
 
 type TakeoffItemPatchCurrent = Pick<
   TakeoffJobItem,
-  keyof TakeoffItemPatchField | "updated_at"
+  Exclude<keyof TakeoffItemPatchField, "quantity_entered"> | "updated_at"
 >;
 
-export type TakeoffItemPatchUpdate = TakeoffItemPatchField & {
+export type TakeoffItemPatchUpdate = Omit<TakeoffItemPatchField, "quantity_entered"> & {
   updated_at: string;
   verified_at?: string | null;
   verified_by?: string | null;
+  quantity_entered_at?: string;
+  quantity_entered_by?: string;
 };
 
 export type TakeoffItemPatchAuditField = {
-  field: keyof TakeoffItemPatchField;
+  field: Exclude<keyof TakeoffItemPatchField, "quantity_entered">;
   previous: string | number | boolean | null;
   next: string | number | boolean | null;
 };
@@ -135,6 +138,12 @@ export function prepareTakeoffItemPatch(input: {
     updatePayload.is_verified = fields.is_verified;
     updatePayload.verified_at = fields.is_verified ? input.updatedAt : null;
     updatePayload.verified_by = fields.is_verified ? input.userId : null;
+  }
+
+  // A typed quantity is attested by its author, now (the database checks both): a quantity to enter is entered.
+  if (fields.quantity_entered === true) {
+    updatePayload.quantity_entered_by = input.userId;
+    updatePayload.quantity_entered_at = input.updatedAt;
   }
 
   if (fields.evidence !== undefined) {

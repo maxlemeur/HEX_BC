@@ -138,3 +138,21 @@ describe("takeoff item patch request boundary", () => {
     expect(takeoffItemBatchPatchSchema.safeParse({ items: [{ ...entry, fields }] }).success).toBe(false);
   });
 });
+
+// TI-664: a typed quantity is attested by its author, at the save's time (the database refuses any other name or a
+// missing time); a client cannot attest anything else than `true`.
+describe("quantity entry", () => {
+  it("attests the quantity the user typed, even unchanged, by the caller now", () => {
+    const plan = patch({ quantity: 12, quantity_entered: true });
+    expect(plan).toMatchObject({ success: true, updatePayload: { quantity: 12, quantity_entered_by: USER_ID, quantity_entered_at: UPDATED_TIMESTAMP } });
+    const edit = patch({ quantity: 10 });
+    expect(edit.success && "quantity_entered_by" in edit.updatePayload).toBe(false);
+  });
+
+  it("accepts only true as an entry attestation", () => {
+    const body = (fields: Record<string, unknown>) => takeoffItemBatchPatchSchema.safeParse({ items: [{ item_id: ITEM_ID, updated_at: PREVIOUS_TIMESTAMP, fields }] });
+    expect(body({ quantity: 12, quantity_entered: true }).success).toBe(true);
+    expect(body({ quantity: 12, quantity_entered: false }).success).toBe(false);
+    expect(body({ quantity_entered_by: USER_ID }).success).toBe(false);
+  });
+});
