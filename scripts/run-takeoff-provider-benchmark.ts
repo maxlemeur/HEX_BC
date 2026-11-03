@@ -302,7 +302,7 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     const copy = new Uint8Array(bytes);
     documents.push({ id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
       bytes: copy, sha256: document.sha256 as string, pages: await getPdfPageCount(copy.slice().buffer), level: document.level ?? null,
-      zone: document.zone ?? null });
+      zone: document.zone ?? null, page_ranges: document.page_ranges ?? [] });
   }
   const result = await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, log: (line) => console.error(line) });
   const status = git(["status", "--porcelain"]);

@@ -25,6 +25,10 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   translation is then refined on its matched ends, and its residual (RMS of
 //   the ends' distances) must stay under REGISTRATION.maxResidual_m. Anything
 //   else is « non recalé »: the rule never guesses a frame.
+// - A translation needs REGISTRATION.minTexts of its texts on the building it
+//   lands (inside the box of its landed lines, within buildingMargin_m): the
+//   title block, away from the drawing, never proposes the frame alone, even
+//   when two identical wings are plotted at one sheet place.
 // - Only translations: a plan drawn rotated or at another scale than its
 //   page's (a view turned on its sheet) is not registered.
 
@@ -39,8 +43,10 @@ export const REGISTRATION = {
   minLineLength_m: 0.5,
   /** Offsets of two texts within this distance propose one translation. */
   textCluster_m: 0.1,
-  /** A candidate translation needs this many texts. */
+  /** A candidate translation needs this many texts, printed on the building it lands. */
   minTexts: 2,
+  /** A text within this distance of the box of the building lines a translation lands is printed on the building. */
+  buildingMargin_m: 1,
   /** A line lands on another when both its ends are within this distance. */
   lineTolerance_m: 0.05,
   /** Lines that must land for a translation to be kept. */
@@ -132,7 +138,7 @@ export function pageAnchors(extraction: Pick<VectorPageExtraction, "texts" | "pa
 
 export type Registration =
   | { status: "registered"; dx: number; dy: number; residual_m: number; texts: number; lines: number; runner_up_lines: number }
-  | { status: "unregistered"; reason: "no_anchor" | "no_candidate" | "too_few_lines" | "ambiguous" | "residual"; residual_m?: number;
+  | { status: "unregistered"; reason: "no_anchor" | "no_candidate" | "no_building_text" | "too_few_lines" | "ambiguous" | "residual"; residual_m?: number;
     lines?: number; runner_up_lines?: number };
 
 class EndIndex {
@@ -160,40 +166,44 @@ class EndIndex {
   }
 }
 
-type Candidate = { dx: number; dy: number; texts: number };
+/** A proposed translation and the texts that propose it (their place on the reference page). */
+type Candidate = { dx: number; dy: number; texts: number; at: Array<[number, number]> };
 
 /** Offsets (reference minus other) of the texts printed once on both pages, clustered; largest clusters first. */
 function candidates(reference: PageAnchors, other: PageAnchors): Candidate[] {
   const positions = new Map(other.texts.map(([text, x, y]) => [text, [x, y] as const]));
-  const offsets: Array<[number, number]> = [];
+  const offsets: Array<{ offset: [number, number]; at: [number, number] }> = [];
   for (const [text, x, y] of reference.texts) {
     const position = positions.get(text);
-    if (position) offsets.push([x - position[0], y - position[1]]);
+    if (position) offsets.push({ offset: [x - position[0], y - position[1]], at: [x, y] });
   }
-  const clusters: Array<{ members: Array<[number, number]> }> = [];
-  offsets.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
-  for (const offset of offsets) {
-    const cluster = clusters.find(({ members }) => Math.hypot(members[0][0] - offset[0], members[0][1] - offset[1]) <= REGISTRATION.textCluster_m);
-    if (cluster) cluster.members.push(offset);
-    else clusters.push({ members: [offset] });
+  const clusters: Array<{ members: typeof offsets }> = [];
+  offsets.sort((left, right) => left.offset[0] - right.offset[0] || left.offset[1] - right.offset[1]);
+  for (const entry of offsets) {
+    const cluster = clusters.find(({ members }) =>
+      Math.hypot(members[0].offset[0] - entry.offset[0], members[0].offset[1] - entry.offset[1]) <= REGISTRATION.textCluster_m);
+    if (cluster) cluster.members.push(entry);
+    else clusters.push({ members: [entry] });
   }
   return clusters
     .filter(({ members }) => members.length >= REGISTRATION.minTexts)
     .map(({ members }) => ({
-      dx: members.reduce((sum, [dx]) => sum + dx, 0) / members.length,
-      dy: members.reduce((sum, [, dy]) => sum + dy, 0) / members.length,
+      dx: members.reduce((sum, { offset }) => sum + offset[0], 0) / members.length,
+      dy: members.reduce((sum, { offset }) => sum + offset[1], 0) / members.length,
       texts: members.length,
+      at: members.map(({ at }) => at),
     }))
     .sort((left, right) => right.texts - left.texts || left.dx - right.dx || left.dy - right.dy);
 }
 
-type Landing = { lines: number; offsets: Array<[number, number]> };
+type Landing = { lines: number; offsets: Array<[number, number]>; box: [number, number, number, number] | null };
 
 /** Lines of `other`, moved by (dx, dy), that land on a line of `reference`, both ends within the tolerance. */
 function land(reference: PageAnchors, other: PageAnchors, index: EndIndex, dx: number, dy: number): Landing {
   const tolerance = REGISTRATION.lineTolerance_m;
   const offsets: Array<[number, number]> = [];
   let lines = 0;
+  let box: [number, number, number, number] | null = null;
   for (const [x0, y0, x1, y1] of other.lines) {
     const ax = x0 + dx, ay = y0 + dy, bx = x1 + dx, by = y1 + dy;
     let best: [number, number, number, number] | null = null;
@@ -213,8 +223,18 @@ function land(reference: PageAnchors, other: PageAnchors, index: EndIndex, dx: n
     if (!best) continue;
     lines += 1;
     offsets.push([best[0] - x0, best[1] - y0], [best[2] - x1, best[3] - y1]);
+    box = [Math.min(box?.[0] ?? Infinity, best[0], best[2]), Math.min(box?.[1] ?? Infinity, best[1], best[3]),
+      Math.max(box?.[2] ?? -Infinity, best[0], best[2]), Math.max(box?.[3] ?? -Infinity, best[1], best[3])];
   }
-  return { lines, offsets };
+  return { lines, offsets, box };
+}
+
+/** Texts of a candidate printed on the building it lands (within the box of its landed lines, plus a margin). */
+function textsOnBuilding(candidate: Candidate, landing: Landing) {
+  const box = landing.box;
+  if (!box) return 0;
+  const margin = REGISTRATION.buildingMargin_m;
+  return candidate.at.filter(([x, y]) => x >= box[0] - margin && x <= box[2] + margin && y >= box[1] - margin && y <= box[3] + margin).length;
 }
 
 /**
@@ -229,9 +249,12 @@ export function registerPages(reference: PageAnchors, other: PageAnchors): Regis
   if (proposals.length === 0) return { status: "unregistered", reason: "no_candidate" };
   const ends = reference.lines.flatMap(([x0, y0, x1, y1]) => [[x0, y0], [x1, y1]] as Array<readonly [number, number]>);
   const index = new EndIndex(ends, Math.max(REGISTRATION.lineTolerance_m * 4, 0.2));
+  // A translation only the title block proposes (its texts away from the building lines it lands) is no candidate.
   const scored = proposals
     .map((proposal) => ({ proposal, landing: land(reference, other, index, proposal.dx, proposal.dy) }))
+    .filter(({ proposal, landing }) => textsOnBuilding(proposal, landing) >= REGISTRATION.minTexts)
     .sort((left, right) => right.landing.lines - left.landing.lines || right.proposal.texts - left.proposal.texts);
+  if (scored.length === 0) return { status: "unregistered", reason: "no_building_text" };
   const [best, next] = scored;
   const runnerUp = next?.landing.lines ?? 0;
   if (best.landing.lines < REGISTRATION.minLines) {

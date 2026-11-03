@@ -651,7 +651,7 @@ function tierCells(counts: TierCounts) {
 /** The rules of a pass: lines per document before and after them, failed codes, keys at high confidence in error. */
 export function rulesSection(rules: PassRules): string[] {
   const confidenceRow = (label: string, before: ConfidenceSummary, after: ConfidenceSummary) => [
-    label, `${before.keys_high_confidence_error} / ${before.keys_high_confidence}`, `${after.keys_high_confidence_error} / ${after.keys_high_confidence}`,
+    label, after.scopes, `${before.keys_high_confidence_error} / ${before.keys_high_confidence}`, `${after.keys_high_confidence_error} / ${after.keys_high_confidence}`,
     after.high_confidence_errors.map((entry) => `${entry.kind === "invented" ? "inventée" : "hors tolérance"} (${entry.cause ?? "–"}`
       + `${entry.reason ? `, ${entry.reason}` : ""})`).join(", ") || "–",
   ];
@@ -665,9 +665,10 @@ export function rulesSection(rules: PassRules): string[] {
       Object.entries(entry.failed).map(([code, count]) => `${code} ${count}`).join(", ") || "–",
     ])),
     "",
-    "Clés à haute confiance en erreur / clés à haute confiance.",
+    "Clés à haute confiance en erreur / clés à haute confiance, sur les périmètres notés de cette lecture (chaque ligne illisible "
+      + "compte comme une clé). Deux lectures ne se comparent que sur les mêmes périmètres.",
     "",
-    table(["Rôle", "Avant", "Après", "Erreurs restantes"], [
+    table(["Rôle", "Périmètres notés", "Avant", "Après", "Erreurs restantes"], [
       confidenceRow("hors réserve", rules.confidence.main.before, rules.confidence.main.after),
       confidenceRow("réserve", rules.confidence.reserve.before, rules.confidence.reserve.after),
     ]),

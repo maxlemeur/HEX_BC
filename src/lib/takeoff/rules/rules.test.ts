@@ -5,9 +5,9 @@ import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeof
 import { nonObservableCause, ruleInputsFromDesignation, ruleInputsFromVector } from "@/lib/takeoff/rules/inputs";
 import { NETWORK_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
 import { REGISTRATION, registerPages, type PageAnchors } from "@/lib/takeoff/rules/registration";
-import { sharedArea } from "@/lib/takeoff/rules/rooms";
+import { polygonPoints, roomsOverlap, sharedArea } from "@/lib/takeoff/rules/rooms";
 import type { TakeoffRuleInputs, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
-import { ZONE_OVERLAP, commonLength, settlePairs } from "@/lib/takeoff/rules/zone-overlap";
+import { ZONE_OVERLAP, commonLength, minCommonLength, settlePairs } from "@/lib/takeoff/rules/zone-overlap";
 import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 
 // Ways the fixed quantity rules of TI-664 could let a wrong quantity through,
@@ -56,6 +56,26 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // Blocking:
 // - a failed acceptable rule blocks a verified line; a non-acceptable one does
 //   not block it; stale results do not block.
+// Found by the independent review of the first version, written before their fix:
+// - « Tube cuivre … y compris supports / essais » or « Pompe … y compris mise en
+//   service » became a quantity to enter (a word that only qualifies the line);
+//   a user confirming the model's value (1 ens of « Mise en service ») could never
+//   enter it;
+// - a frozen line's reduction already spent on a pair of two applied jobs settled
+//   the current job's pair too; a reduction pair by pair left a pair open when the
+//   reductions covered every duplicate;
+// - two zones were « non recalées » when the first page of the level could not
+//   register; a translation only the title block proposed was accepted when two
+//   identical wings sat at one sheet place;
+// - the minimum common length ignored the scale (runs abutting at the zone limit
+//   at 1/200 overlap by a 49 cm band);
+// - a box drawn back to its start then closed counted 3 corners; a sliver of a
+//   few centimetres between rooms was sampled at 5 cm;
+// - PVC drainage took pressure sizes (DN 20) and the reverse; standard sizes were
+//   missing (cast iron DN 80, copper 8 mm); stainless drainage and copper glycol
+//   were refused; a vector « Ø 110 » cast iron failed; a size printed « Ø 23 »
+//   failed as a missing DN; an m2 network line was read as a pipe;
+// - a surface the model proposed got a closed-box pass it never checked.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -126,6 +146,27 @@ describe("DN × network reference", () => {
     expect(checkNetworkDiameter("EUG", "fonte", "DN 125").status).toBe("compatible");
   });
 
+  it("tells PVC drainage from PVC pressure sizes, and knows the standard sizes and materials the first table missed", () => {
+    expect(checkNetworkDiameter("EU", "pvc", "DN 20").status).toBe("dn_not_in_series");
+    expect(checkNetworkDiameter("EF", "pvc-pression", "DN 100").status).toBe("dn_not_in_series");
+    expect(checkNetworkDiameter("EF", "pvc-pression", "DN 20").status).toBe("compatible");
+    expect(checkNetworkDiameter("EU", "fonte", "DN 80").status).toBe("compatible");
+    expect(checkNetworkDiameter("GAZ", "cuivre", "DN 8").status).toBe("compatible");
+    expect(checkNetworkDiameter("EUG", "inox", "DN 100").status).toBe("compatible");
+    expect(checkNetworkDiameter("GLY", "cuivre", "DN 28").status).toBe("compatible");
+  });
+
+  it("reads a vector size either way, and keeps a printed size the series lacks", () => {
+    const { results } = evaluateTakeoffRules({ pages: [], lines: [
+      line("cast", { inputs: ruleInputsFromVector({ kind: "network", network: "EU", material: "fonte", dn: 110, quantity: 4 }) }),
+      line("od", { inputs: ruleInputsFromDesignation({ designation: "EF cuivre Ø 23", unit: "ml", quantity: 4 }) }),
+      line("calo", { unit: "m2", inputs: ruleInputsFromDesignation({ designation: "Calorifugeage tube cuivre EF DN 22", unit: "m2", quantity: 4 }) }),
+    ] });
+    expect(rule(results, "cast", "dn_network")).toMatchObject({ code: "DN_NETWORK_COMPATIBLE" });
+    expect(rule(results, "od", "dn_network")).toMatchObject({ code: "DN_NETWORK_DN_NOT_IN_SERIES" });
+    expect(rule(results, "calo", "dn_network")).toBeUndefined();
+  });
+
   it("gives the DN rule's codes on lines, never on an insulation or a count", () => {
     const { results } = evaluateTakeoffRules({ pages: [], lines: [
       line("ok"),
@@ -163,6 +204,27 @@ describe("inputs read in a designation", () => {
     expect(failed("Réseau EF et ECS cuivre DN 22")).toBe("DN_NETWORK_NETWORK_MISSING");
     expect(failed("EF cuivre DN 22 / DN 54")).toBe("DN_NETWORK_DN_MISSING");
     expect(failed("Calorifuge EF DN 22")).toBeUndefined();
+  });
+
+  it("reads the cause in the line's head only: a qualifier or a drawn organ keeps the line observable", () => {
+    for (const [designation, unit] of [
+      ["Tube cuivre EF DN 22 y compris supports et colliers", "ml"], ["Tube cuivre EF 20/22 y compris essais et désinfection", "ml"],
+      ["Tube acier noir CHW DN 50 assemblage par soudure", "ml"], ["Pompe de relevage y compris mise en service", "u"],
+      ["Ballon ECS 300 L y compris manutention", "u"], ["Robinet d'essai DN 25 SPK", "u"], ["WC suspendu pose seule", "u"],
+    ]) {
+      expect(ruleInputsFromDesignation({ designation, unit, quantity: 3 }).non_observable, designation).toBeNull();
+    }
+    expect(ruleInputsFromDesignation({ designation: "Fourniture et pose de supports", unit: "u", quantity: 3 }).non_observable).toBe("support");
+    expect(ruleInputsFromDesignation({ designation: "Mise en service", unit: "ens", quantity: 1 }).non_observable).toBe("service");
+  });
+
+  it("enters a quantity the user typed even when it equals the model's (1 ens of a service)", () => {
+    const service = (entered: boolean) => line("service", { designation: "Mise en service", unit: "ens", quantity: 1, quantity_entered: entered,
+      inputs: ruleInputsFromDesignation({ designation: "Mise en service", unit: "ens", quantity: 1 }) });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [service(false)] }).results, "service", "non_observable")).toMatchObject({ status: "fail" });
+    const entered = rule(evaluateTakeoffRules({ pages: [], lines: [service(true)] }).results, "service", "non_observable");
+    expect(entered).toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED", acceptable: false });
+    expect(isRuleBlocked([entered as TakeoffRuleResult], false, false)).toBe(false);
   });
 
   it("keeps an unknown DN as printed, so that the DN rule fails it", () => {
@@ -205,6 +267,15 @@ describe("registration of two plans of one level", () => {
     const turned: PageAnchors = { version: 1, texts: rotated.texts.map(([text, x, y]) => [text, -y, x]),
       lines: rotated.lines.map(([x0, y0, x1, y1]) => [-y0, x0, -y1, x1]) };
     expect(registerPages(rotated, turned).status).toBe("unregistered");
+  });
+
+  it("never takes the frame from the title block alone, even when two identical wings sit at one sheet place", () => {
+    const wing = (prefix: string): PageAnchors => ({
+      version: 1, lines: sheet(0, 0).lines,
+      texts: [...TEXTS.map(([text, index]): [string, number, number] => [`${prefix} ${text}`, 12 + index * 1.3, 4 + index * 0.9]),
+        ...Array.from({ length: 10 }, (_, index): [string, number, number] => [`Cartouche ${index}`, 60, 30 + index * 0.4])],
+    });
+    expect(registerPages(wing("A"), wing("B"))).toMatchObject({ status: "unregistered", reason: "no_building_text" });
   });
 
   it("refuses two translations the building lines support alike", () => {
@@ -251,14 +322,46 @@ describe("duplicate runs between zones", () => {
     expect(settlePairs([ab], frozen).has(ab)).toBe(true);
   });
 
+  it("spends a frozen reduction on the applied pair it was made for, and shares reductions that cover every pair", () => {
+    // F (applied) was reduced by 1 m for its duplicate with Z (applied); N (current) also shares 1 m with F: N must reduce.
+    const frozen = new Map([
+      ["f", { id: "f", measured_m: 10, quantity: 9, frozen: true }], ["z", { id: "z", measured_m: 3, quantity: 3, frozen: true }],
+      ["n", { id: "n", measured_m: 3, quantity: 3, frozen: false }],
+    ]);
+    const fn = { left: "f", right: "n", overlap_m: 1 };
+    const fz = { left: "f", right: "z", overlap_m: 1 };
+    const settled = settlePairs([fn, fz], frozen);
+    expect([settled.has(fz), settled.has(fn)]).toEqual([true, false]);
+    // A shares 1 m with B and 1 m with C; B and A were each reduced by 1 m: both pairs are settled, whatever the order.
+    const shared = new Map([
+      ["a", { id: "a", measured_m: 5, quantity: 4, frozen: false }], ["b", { id: "b", measured_m: 3, quantity: 2, frozen: false }],
+      ["c", { id: "c", measured_m: 3, quantity: 3, frozen: false }],
+    ]);
+    const ab = { left: "a", right: "b", overlap_m: 1 };
+    const ac = { left: "a", right: "c", overlap_m: 1 };
+    expect([...settlePairs([ab, ac], shared)]).toHaveLength(2);
+  });
+
+  it("measures a long diagonal run once along its length", () => {
+    const run = { id: "a", segments: [[0, 0, 1000, 700]] as Array<[number, number, number, number]> };
+    expect(commonLength(run, identity, { id: "b", segments: [[0, 0, 1000, 700]] }, identity)).toBeCloseTo(Math.hypot(1000, 700), 0);
+  });
+
+  it("takes a band of the coarser drawing as the smallest duplicate (49 cm at 1/200)", () => {
+    expect(minCommonLength([50, 50])).toBe(ZONE_OVERLAP.minLength_m);
+    expect(minCommonLength([50, 200])).toBeGreaterThan(0.49);
+  });
+
   /** Two zone plans of one level, Z2's sheet showing the building 40 m further: Z1's run 0–5 m and Z2's 4–7 m share 1 m. */
-  function zones(overrides: { z1?: Partial<RuleLine>; z2?: Partial<RuleLine>; z2Anchors?: PageAnchors | null; z2Level?: string } = {}) {
+  function zones(overrides: { z1?: Partial<RuleLine>; z2?: Partial<RuleLine>; z2Anchors?: PageAnchors | null; z2Level?: string;
+    pages?: RulePage[]; lines?: RuleLine[]; denominator?: number } = {}) {
     const pages = [
-      page("job-z1#1", { order: 0, zone: "Z1", anchors: sheet(0, 0, { titleBlock: 10 }) }),
-      page("job-z2#1", { order: 10_000, zone: "Z2", level: overrides.z2Level ?? "R+1",
+      page("job-z1#1", { order: 0, zone: "Z1", anchors: sheet(0, 0, { titleBlock: 10 }), denominator: overrides.denominator ?? 50 }),
+      page("job-z2#1", { order: 10_000, zone: "Z2", level: overrides.z2Level ?? "R+1", denominator: overrides.denominator ?? 50,
         anchors: overrides.z2Anchors === undefined ? sheet(-40, 0, { titleBlock: 10 }) : overrides.z2Anchors }),
+      ...(overrides.pages ?? []),
     ];
-    const lines = [
+    const lines = [...(overrides.lines ?? []),
       line("z1", { geometry: { segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null }, ...overrides.z1 }),
       line("z2", { job_id: "job-z2", page_key: "job-z2#1", designation: "EF Inox 316L DN 22", quantity: 3,
         geometry: { segments_m: [[-36, 1, -33, 1]], polygon_m: null, length_m: 3, area_m2: null }, inputs: inputs({ model_quantity: 3 }), ...overrides.z2 }),
@@ -276,6 +379,41 @@ describe("duplicate runs between zones", () => {
     expect(rule(corrected.results, "z1", "zone_overlap")).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_RESOLVED" });
     expect(rule(corrected.results, "z2", "zone_overlap")).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_RESOLVED" });
     expect(rule(zones({ z1: { quantity: 4.5 } }).results, "z2", "zone_overlap")).toMatchObject({ status: "fail" });
+  });
+
+  it("applies the minimum common length through the rule, at the pages' scale", () => {
+    // Z2's run 4.9–7 m abuts Z1's 0–5 m: 10 cm in common, a touch at the zone limit.
+    const touch = { z2: { geometry: { segments_m: [[-35.1, 1, -33, 1]] as Array<[number, number, number, number]>, polygon_m: null, length_m: 2.1, area_m2: null } } };
+    expect(rule(zones(touch).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    // 40 cm in common: a duplicate at 1/50, the band of a 1/200 drawing at 1/200.
+    const forty = { z2: { geometry: { segments_m: [[-35.4, 1, -33, 1]] as Array<[number, number, number, number]>, polygon_m: null, length_m: 2.4, area_m2: null } } };
+    expect(rule(zones(forty).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(rule(zones({ ...forty, denominator: 200 }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
+  it("compares two zones that register with each other although the level's first page does not", () => {
+    const detail = page("job-detail#1", { order: -1, zone: null, anchors: { version: 1, texts: [], lines: [] } });
+    const detailLine = line("detail", { job_id: "job-detail", page_key: "job-detail#1", inputs: inputs({ network: "ECS" }),
+      geometry: { segments_m: [[0, 0, 1, 0]], polygon_m: null, length_m: 1, area_m2: null } });
+    const result = zones({ pages: [detail], lines: [detailLine] });
+    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(result.transforms.get("job-detail#1")).toBeNull();
+  });
+
+  it("never compares two lines of one page, even beside another registered page", () => {
+    const twin = line("z1b", { geometry: { segments_m: [[4, 1, 7, 1]], polygon_m: null, length_m: 3, area_m2: null } });
+    const result = zones({ lines: [twin], z2: { inputs: inputs({ dn: "DN 28" }) } });
+    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
+  it("spends no reduction on an excluded partner", () => {
+    // z1 reduced by 1 m shares 1 m with z2 (excluded) and 1 m with z3 (included): its reduction settles z3.
+    const z3 = line("z3", { job_id: "job-z3", page_key: "job-z3#1", geometry: { segments_m: [[-76, 1, -73, 1]], polygon_m: null, length_m: 3, area_m2: null },
+      inputs: inputs({ model_quantity: 3 }), quantity: 3 });
+    const result = zones({ z1: { quantity: 4, geometry: { segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null } },
+      z2: { is_excluded: true }, lines: [z3], pages: [page("job-z3#1", { order: 20_000, zone: "Z3", anchors: sheet(-80, 0, { titleBlock: 10 }), denominator: 50 })] });
+    expect(rule(result.results, "z3", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_RESOLVED" });
+    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_RESOLVED" });
   });
 
   it("ignores an excluded partner, another DN or network, lines of one page and pages of two levels", () => {
@@ -302,10 +440,14 @@ describe("scale, rooms and boxes", () => {
     const pages = [page("job-z1#1", { scale: { status: "unverified", reason: "dimension_mismatch" } })];
     const { results } = evaluateTakeoffRules({ pages, lines: [
       line("ml", { inputs: ruleInputsFromDesignation({ designation: "EF cuivre DN 22", unit: "ml", quantity: 5 }) }),
+      line("m2", { unit: "m2", inputs: ruleInputsFromDesignation({ designation: "Surface Bureau 101", unit: "m2", quantity: 12 }) }),
       line("u", { unit: "u", inputs: ruleInputsFromDesignation({ designation: "Vanne DN 22", unit: "u", quantity: 2 }) }),
     ] });
     expect(rule(results, "ml", "scale_dimension")).toMatchObject({ status: "fail", code: "SCALE_DIMENSION_MISMATCH" });
+    expect(rule(results, "m2", "scale_dimension")).toMatchObject({ status: "fail", code: "SCALE_DIMENSION_MISMATCH" });
     expect(rule(results, "u", "scale_dimension")).toBeUndefined();
+    // A surface the model proposed has no label nor contour: the closed-box rule has nothing to read.
+    expect(rule(results, "m2", "closed_box")).toBeUndefined();
   });
 
   function room(id: string, polygon: number[], area: number, printed: number, label = "Bureau", quantity = area): RuleLine {
@@ -333,6 +475,21 @@ describe("scale, rooms and boxes", () => {
     expect(rule(results, "c", "room_overlap")).toMatchObject({ status: "fail", details: { overlapping_item_ids: ["b"] } });
     const apart = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [room("a", square(0, 0, 4), 16, 16), room("c", square(4, 0, 4), 16, 16)] });
     expect(rule(apart.results, "a", "room_overlap")).toMatchObject({ status: "pass" });
+    const excluded = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [room("a", square(0, 0, 4), 16, 16),
+      { ...room("b", square(3, 0, 4), 16, 16), is_excluded: true }] });
+    expect(rule(excluded.results, "a", "room_overlap")).toMatchObject({ status: "pass" });
+  });
+
+  it("measures a sliver of a few centimetres between two rooms", () => {
+    const rect = (x0: number, y0: number, x1: number, y1: number): Array<[number, number]> => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    // 10 × 1.5 m rooms overlapping by 3 cm: 0.30 m², at the threshold of max(2 % of 15 m², 0.1 m²), no overlap.
+    const sliver = sharedArea(rect(0, 0, 10, 1.5), rect(0, 1.47, 10, 2.97));
+    expect(sliver).toBeCloseTo(0.3, 2);
+    expect(roomsOverlap(sliver, 15, 15)).toBe(false);
+    // 2.4 cm along a 30 × 1 m corridor: 0.72 m², over its 0.6 m² threshold.
+    const corridor = sharedArea(rect(0, 0, 30, 1), rect(0, 0.976, 30, 3));
+    expect(corridor).toBeCloseTo(0.72, 1);
+    expect(roomsOverlap(corridor, 30, 60)).toBe(true);
   });
 
   it("fails a bathtub, cupboard or shaft label and a four-sided box far smaller than its printed surface", () => {
@@ -344,6 +501,14 @@ describe("scale, rooms and boxes", () => {
     expect(rule(results, "shaft", "closed_box")).toMatchObject({ status: "fail", code: "CLOSED_BOX_LABEL" });
     expect(rule(results, "box", "closed_box")).toMatchObject({ status: "fail", code: "CLOSED_BOX_SHAPE" });
     expect(rule(results, "room", "closed_box")).toMatchObject({ status: "pass" });
+  });
+
+  it("counts the corners of a box drawn back to its start then closed", () => {
+    // m A l B l C l D l A h: the extraction repeats A twice at the end.
+    const drawn = [10, 0, 12, 0, 12, 2, 10, 2, 10, 0, 10, 0];
+    expect(polygonPoints(drawn)).toHaveLength(4);
+    const { results } = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [room("box", drawn, 4, 13.6, "Infirmerie")] });
+    expect(rule(results, "box", "closed_box")).toMatchObject({ status: "fail", code: "CLOSED_BOX_SHAPE" });
   });
 });
 
@@ -359,5 +524,7 @@ describe("blocking", () => {
     expect(isRuleBlocked([], true, true)).toBe(true);
     expect(isRuleBlocked(null, false, false)).toBe(false);
     expect(blockingRules([fail(true), fail(false)], true)).toHaveLength(1);
+    const pass: TakeoffRuleResult = { rule: "non_observable", status: "pass", code: "NON_OBSERVABLE_ENTERED", version: 1, acceptable: false, reason: "Fictional" };
+    expect(isRuleBlocked([pass], false, false)).toBe(false);
   });
 });

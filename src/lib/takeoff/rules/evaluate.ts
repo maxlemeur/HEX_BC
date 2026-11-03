@@ -21,7 +21,15 @@ import type {
   TakeoffRuleResult,
   ZoneOverlapPartner,
 } from "@/lib/takeoff/rules/types";
-import { ZONE_OVERLAP, ZONE_OVERLAP_VERSION, commonLength, settlePairs, type Centreline, type DuplicatePair } from "@/lib/takeoff/rules/zone-overlap";
+import {
+  ZONE_OVERLAP,
+  ZONE_OVERLAP_VERSION,
+  commonLength,
+  minCommonLength,
+  settlePairs,
+  type Centreline,
+  type DuplicatePair,
+} from "@/lib/takeoff/rules/zone-overlap";
 
 // Runs the fixed rules on the lines of one estimate version (TI-664): every
 // job of the version, applied or not, so that a duplicate between two zones
@@ -51,6 +59,8 @@ export type RulePage = {
   zone: string | null;
   /** The page's vector scale (TI-662), or null when no vector reading of the page exists. */
   scale: { status: "verified" | "format" | "calibrated" | "unverified"; reason: string | null } | null;
+  /** Its scale denominator, when measurable: the band of its drawing sets the smallest duplicate (minCommonLength). */
+  denominator?: number | null;
   anchors: PageAnchors | null;
 };
 
@@ -64,6 +74,8 @@ export type RuleLine = {
   is_excluded: boolean;
   /** A line of an applied job: compared, never written. */
   frozen: boolean;
+  /** A user typed the line's current quantity (attested entry): a quantity to enter is entered. */
+  quantity_entered?: boolean;
   inputs: TakeoffRuleInputs | null;
   /** Vector geometry in page metres (TI-662). */
   geometry: { segments_m: readonly Centreline[]; polygon_m: readonly number[] | null; length_m: number | null; area_m2: number | null } | null;
@@ -121,7 +133,12 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
   }
   const network = inputs.network;
   const details = { network, material: inputs.material, dn: inputs.dn };
-  const check = checkNetworkDiameter(network, inputs.material, inputs.dn);
+  let check = checkNetworkDiameter(network, inputs.material, inputs.dn);
+  // A vector label keeps the size, not its notation (« DN 100 » or « Ø 110 » both give a number): read it either way.
+  if (check.status === "dn_not_in_series" && inputs.source === "vector" && inputs.dn?.startsWith("DN ")) {
+    const outer = checkNetworkDiameter(network, inputs.material, `Ø ${inputs.dn.slice(3)}`);
+    if (outer.status === "compatible") check = outer;
+  }
   const name = `${networkLabel(network)} (${NETWORKS[network].label.toLowerCase()})`;
   switch (check.status) {
     case "compatible":
@@ -153,8 +170,8 @@ function nonObservable(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleRe
   if (inputs.non_observable === null) return null;
   const cause = inputs.non_observable;
   const details = { cause, model_quantity: inputs.model_quantity };
-  // A quantity the user typed is no longer the model's: entered. Verifying never settles it (acceptable: false).
-  if (Math.abs(line.quantity - inputs.model_quantity) > 1e-9) {
+  // A quantity a user typed (attested, even equal to the model's) or changed is entered. Verifying never settles it.
+  if (line.quantity_entered === true || Math.abs(line.quantity - inputs.model_quantity) > 1e-9) {
     return result("non_observable", "pass", "NON_OBSERVABLE_ENTERED", `Quantité saisie (${CAUSE_LABELS[cause]}).`, details, false);
   }
   return result("non_observable", "fail", "NON_OBSERVABLE_TO_ENTER",
@@ -191,6 +208,8 @@ function areaPrinted(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleResu
 
 function closedBox(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
   if (inputs.kind !== "surface") return null;
+  // Nothing to read: no printed label and no contour (a surface the model proposed).
+  if (!inputs.room && !line.geometry?.polygon_m) return null;
   if (inputs.room && isBoxLabel(inputs.room)) {
     return result("closed_box", "fail", "CLOSED_BOX_LABEL", `${roomLabel(inputs)} est une baignoire, un placard ou une gaine : pas une pièce.`);
   }
@@ -246,36 +265,58 @@ function byText(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Registers the pages of one level into the frame of its first page, through any registered page. */
+/**
+ * Registers the pages of one level: every two pages are registered when they can be, and pages joined by
+ * registrations form a component, in the frame of its first page (job order). Two pages of two components have no
+ * common frame. A component of one page is its own frame.
+ */
 function registerLevel(level: string, pages: readonly RulePage[]) {
   const ordered = [...pages].sort((left, right) => left.order - right.order || byText(left.key, right.key));
-  const [reference] = ordered;
-  const transforms = new Map<string, TakeoffFrameTransform | null>([[reference.key, translation(0, 0)]]);
-  const registrations: LevelRegistration[] = [{ level, reference: reference.key, page: reference.key, registration: { status: "reference" } }];
-  const last = new Map<string, Registration>();
-  let progress = true;
-  while (progress) {
-    progress = false;
-    for (const page of ordered) {
-      if (transforms.has(page.key)) continue;
-      for (const registered of ordered.filter((candidate) => transforms.get(candidate.key))) {
-        const anchors = [registered.anchors, page.anchors];
-        const outcome: Registration = anchors[0] && anchors[1] ? registerPages(anchors[0], anchors[1]) : { status: "unregistered", reason: "no_anchor" };
-        last.set(page.key, outcome);
-        if (outcome.status !== "registered") continue;
-        transforms.set(page.key, composeTranslations(translation(outcome.dx, outcome.dy), transforms.get(registered.key) as TakeoffFrameTransform));
-        registrations.push({ level, reference: registered.key, page: page.key, registration: outcome });
-        progress = true;
-        break;
+  const links = new Map<string, Array<{ page: string; dx: number; dy: number }>>(ordered.map((page) => [page.key, []]));
+  const outcomes = new Map<string, Registration>();
+  for (const [index, reference] of ordered.entries()) {
+    for (const page of ordered.slice(index + 1)) {
+      const outcome: Registration = reference.anchors && page.anchors
+        ? registerPages(reference.anchors, page.anchors) : { status: "unregistered", reason: "no_anchor" };
+      outcomes.set(`${reference.key}|${page.key}`, outcome);
+      if (outcome.status !== "registered") continue;
+      // A link from A to B carries what brings B's metres into A's frame: page + (dx, dy) is in the reference's
+      // frame, the reference minus (dx, dy) in the page's.
+      links.get(reference.key)?.push({ page: page.key, dx: outcome.dx, dy: outcome.dy });
+      links.get(page.key)?.push({ page: reference.key, dx: -outcome.dx, dy: -outcome.dy });
+    }
+  }
+  const transforms = new Map<string, TakeoffFrameTransform | null>();
+  const component = new Map<string, string>();
+  const registrations: LevelRegistration[] = [];
+  for (const root of ordered) {
+    if (component.has(root.key)) continue;
+    component.set(root.key, root.key);
+    transforms.set(root.key, translation(0, 0));
+    if ((links.get(root.key) ?? []).length === 0) {
+      // A page registered with no other page of its level: why, with the first page it was tried against.
+      const reason = ordered.filter((page) => page.key !== root.key).map((page) =>
+        outcomes.get(`${root.key}|${page.key}`) ?? outcomes.get(`${page.key}|${root.key}`)).find((entry) => entry !== undefined);
+      registrations.push({ level, reference: root.key, page: root.key, registration: reason ?? { status: "unregistered", reason: "no_anchor" } });
+      continue;
+    }
+    registrations.push({ level, reference: root.key, page: root.key, registration: { status: "reference" } });
+    // Breadth first from the component's first page: each page in the frame of the page it was reached from.
+    const queue = [root.key];
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const from = queue[cursor];
+      for (const link of links.get(from) ?? []) {
+        if (component.has(link.page)) continue;
+        component.set(link.page, root.key);
+        transforms.set(link.page, composeTranslations(translation(link.dx, link.dy), transforms.get(from) as TakeoffFrameTransform));
+        const [first, second] = [from, link.page].sort((left, right) => ordered.findIndex((page) => page.key === left)
+          - ordered.findIndex((page) => page.key === right));
+        registrations.push({ level, reference: from, page: link.page, registration: outcomes.get(`${first}|${second}`) as Registration });
+        queue.push(link.page);
       }
     }
   }
-  for (const page of ordered) {
-    if (transforms.has(page.key)) continue;
-    transforms.set(page.key, null);
-    registrations.push({ level, reference: reference.key, page: page.key, registration: last.get(page.key) ?? { status: "unregistered", reason: "no_anchor" } });
-  }
-  return { transforms, registrations };
+  return { transforms, component, registrations };
 }
 
 function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, RulePage>, results: Map<string, TakeoffRuleResult[]>) {
@@ -299,8 +340,12 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       continue;
     }
     const registered = registerLevel(level, levelPages);
-    registered.transforms.forEach((value, key) => transforms.set(key, value));
     registrations.push(...registered.registrations);
+    // A page sharing no common frame with another page of its level has none to write.
+    for (const page of levelPages) {
+      const alone = !levelPages.some((other) => other.key !== page.key && registered.component.get(other.key) === registered.component.get(page.key));
+      transforms.set(page.key, alone ? null : registered.transforms.get(page.key) ?? null);
+    }
 
     // Pairs of lines of the same key on two pages, included partners only.
     const pairs: DuplicatePair[] = [];
@@ -310,7 +355,8 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         if (left.page_key === right.page_key || zoneKey(left) !== zoneKey(right)) continue;
         if (left.is_excluded && right.is_excluded) continue;
         const [leftTransform, rightTransform] = [registered.transforms.get(left.page_key), registered.transforms.get(right.page_key)];
-        if (!leftTransform || !rightTransform) {
+        const together = registered.component.get(left.page_key) === registered.component.get(right.page_key);
+        if (!leftTransform || !rightTransform || !together) {
           // Two lines that could be one run, on pages with no common frame: « zones non recalées ».
           if (!right.is_excluded) unregistered.add(left.id);
           if (!left.is_excluded) unregistered.add(right.id);
@@ -318,7 +364,8 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         }
         const overlap = commonLength({ id: left.id, segments: left.geometry.segments_m }, leftTransform,
           { id: right.id, segments: right.geometry.segments_m }, rightTransform);
-        if (overlap >= ZONE_OVERLAP.minLength_m) pairs.push({ left: left.id, right: right.id, overlap_m: overlap });
+        const minimum = minCommonLength([pages.get(left.page_key)?.denominator, pages.get(right.page_key)?.denominator]);
+        if (overlap >= minimum) pairs.push({ left: left.id, right: right.id, overlap_m: overlap });
       }
     }
     const byId = new Map(levelLines.map((line) => [line.id, line]));

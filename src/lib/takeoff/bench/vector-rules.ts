@@ -59,6 +59,22 @@ export function vectorItemRuleData(reading: VectorPageReading): BenchRuleData[] 
   return data;
 }
 
+/**
+ * Each rule datum describes its item: same count, and item for item the same unit and network code (a surface is
+ * in m2, a length in ml and names its network first). A drift would put a rule result on another line.
+ */
+export function assertRuleDataAligned(items: readonly TakeoffItem[], data: readonly BenchRuleData[], where: string) {
+  if (data.length !== items.length) throw new Error(`vectorItemRuleData gave ${data.length} entries for ${items.length} items (${where}).`);
+  data.forEach((entry, index) => {
+    const item = items[index];
+    const surface = entry.inputs.kind === "surface";
+    const code = entry.inputs.network === "EUV" ? "EU/EV" : entry.inputs.network;
+    if ((item.unit === "m2") !== surface || (!surface && !item.designation.startsWith(`${code} `))) {
+      throw new Error(`vectorItemRuleData entry ${index} (${entry.inputs.kind} ${code ?? "-"}) does not describe item « ${item.designation} » (${where}).`);
+    }
+  });
+}
+
 /** Registration anchors of a page whose scale is measurable; null otherwise (no length, nothing to compare). */
 export function benchPageAnchors(extraction: VectorPageExtraction, reading: VectorPageReading): PageAnchors | null {
   if (reading.scale.denominator === null || reading.mode === "raster") return null;
@@ -72,6 +88,7 @@ export type BenchRulePage = {
   level: string | null;
   zone: string | null;
   scale: RulePage["scale"];
+  denominator: number | null;
   anchors: PageAnchors | null;
 };
 
@@ -93,7 +110,7 @@ export function benchRulePass(documents: readonly BenchRuleDocument[], pages: re
     const lotDocuments = documents.filter((document) => document.lot === lot);
     const rulePages: RulePage[] = pages.filter((page) => page.lot === lot).map((page) => ({
       key: `${page.document}#${page.page}`, job_id: page.document, order: (order.get(page.document) ?? 0) * 10_000 + page.page,
-      level: page.level, zone: page.zone, scale: page.scale, anchors: page.anchors,
+      level: page.level, zone: page.zone, scale: page.scale, denominator: page.denominator, anchors: page.anchors,
     }));
     const lines: RuleLine[] = lotDocuments.flatMap((document) => document.items.map((item, index) => {
       const data = document.data[index] ?? null;

@@ -1,4 +1,6 @@
 import { applyTransform } from "@/lib/takeoff/rules/registration";
+import { MM_PER_POINT } from "@/lib/takeoff/vectors/geometry";
+import { BAND_MAX_PT } from "@/lib/takeoff/vectors/measure";
 import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 
 // Duplicate runs between plans of one level (TI-664 step 1, Z1/Z2): two
@@ -15,6 +17,9 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   smaller of both directions.
 // - Lines of one page are never compared with each other (the reading already
 //   merges a run drawn twice on a page); pages of different levels never.
+// - Two runs abutting at the zone limit overlap by at most one band of the
+//   drawing (BAND_MAX_PT on the sheet): the minimum common length is the larger
+//   of ZONE_OVERLAP.minLength_m and that band at the coarser page scale.
 
 export const ZONE_OVERLAP_VERSION = 1;
 
@@ -28,6 +33,7 @@ export const ZONE_OVERLAP = {
   /**
    * A common length under this is a crossing or two runs abutting at the zone limit (they overlap by at most a
    * band, 7 pt: 12 cm at 1/50, 25 cm at 1/100), never a duplicate; the smallest duplicate measured was 42 cm.
+   * At a coarser scale the band itself is the floor (minCommonLength).
    */
   minLength_m: 0.3,
   /** Two centrelines more than this angle apart are not one run. */
@@ -37,6 +43,16 @@ export const ZONE_OVERLAP = {
 } as const;
 
 export type Centreline = [number, number, number, number];
+
+/**
+ * The common length two pages must share for a duplicate: ZONE_OVERLAP.minLength_m, or more than one band of the
+ * drawing at the coarser of their scales (49 cm at 1/200), since runs abutting at the zone limit overlap by a band.
+ */
+export function minCommonLength(denominators: ReadonlyArray<number | null | undefined>) {
+  const coarser = Math.max(0, ...denominators.filter((value): value is number => typeof value === "number" && value > 0));
+  const band = (BAND_MAX_PT * MM_PER_POINT * coarser) / 1000;
+  return Math.max(ZONE_OVERLAP.minLength_m, band + ZONE_OVERLAP.settle_m);
+}
 
 export type OverlapLine = {
   id: string;
@@ -52,34 +68,48 @@ function transformed(segments: readonly Centreline[], transform: TakeoffFrameTra
   });
 }
 
+/**
+ * Centrelines indexed by pieces of at most one cell, each listed in the cells of its own box: a long diagonal run
+ * costs its length in cells, never the area of its box (a levelled site plan holds runs of hundreds of metres).
+ */
 class SegmentGrid {
   private readonly cells = new Map<string, number[]>();
   constructor(readonly segments: readonly Centreline[], private readonly cell: number) {
-    segments.forEach(([x0, y0, x1, y1], id) => {
-      const [cx0, cx1] = [Math.floor(Math.min(x0, x1) / cell), Math.floor(Math.max(x0, x1) / cell)];
-      const [cy0, cy1] = [Math.floor(Math.min(y0, y1) / cell), Math.floor(Math.max(y0, y1) / cell)];
-      // A long run is listed in every cell of its box: centrelines of a floor are at most tens of metres.
-      for (let cx = cx0; cx <= cx1; cx += 1) {
-        for (let cy = cy0; cy <= cy1; cy += 1) {
-          const key = `${cx},${cy}`;
-          const list = this.cells.get(key);
-          if (list) list.push(id);
-          else this.cells.set(key, [id]);
+    segments.forEach((segment, id) => {
+      for (const [x0, y0, x1, y1] of pieces(segment, cell)) {
+        for (let cx = Math.floor(Math.min(x0, x1) / cell); cx <= Math.floor(Math.max(x0, x1) / cell); cx += 1) {
+          for (let cy = Math.floor(Math.min(y0, y1) / cell); cy <= Math.floor(Math.max(y0, y1) / cell); cy += 1) {
+            const key = `${cx},${cy}`;
+            const list = this.cells.get(key);
+            if (!list) this.cells.set(key, [id]);
+            else if (list[list.length - 1] !== id) list.push(id);
+          }
         }
       }
     });
   }
 
   near(segment: Centreline, margin: number): number[] {
-    const [x0, y0, x1, y1] = segment;
     const found = new Set<number>();
-    for (let cx = Math.floor((Math.min(x0, x1) - margin) / this.cell); cx <= Math.floor((Math.max(x0, x1) + margin) / this.cell); cx += 1) {
-      for (let cy = Math.floor((Math.min(y0, y1) - margin) / this.cell); cy <= Math.floor((Math.max(y0, y1) + margin) / this.cell); cy += 1) {
-        for (const id of this.cells.get(`${cx},${cy}`) ?? []) found.add(id);
+    for (const [x0, y0, x1, y1] of pieces(segment, this.cell)) {
+      for (let cx = Math.floor((Math.min(x0, x1) - margin) / this.cell); cx <= Math.floor((Math.max(x0, x1) + margin) / this.cell); cx += 1) {
+        for (let cy = Math.floor((Math.min(y0, y1) - margin) / this.cell); cy <= Math.floor((Math.max(y0, y1) + margin) / this.cell); cy += 1) {
+          for (const id of this.cells.get(`${cx},${cy}`) ?? []) found.add(id);
+        }
       }
     }
     return [...found];
   }
+}
+
+/** A centreline cut into pieces of at most `size` (finite coordinates only). */
+function pieces([x0, y0, x1, y1]: Centreline, size: number): Centreline[] {
+  if (![x0, y0, x1, y1].every(Number.isFinite)) return [];
+  const count = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / size));
+  return Array.from({ length: count }, (_, index): Centreline => [
+    x0 + ((x1 - x0) * index) / count, y0 + ((y1 - y0) * index) / count,
+    x0 + ((x1 - x0) * (index + 1)) / count, y0 + ((y1 - y0) * (index + 1)) / count,
+  ]);
 }
 
 /** Length of the union of [start, end] intervals. */
@@ -155,25 +185,80 @@ export type DuplicateLine = {
 
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
 
+const FLOW_EPSILON = 1e-9;
+
+/** Max flow from pairs (capacity: their common length) through either line to the lines' reductions (Dinic). */
+function settleFlow(pairs: readonly DuplicatePair[], budget: Map<string, number>): Map<DuplicatePair, number> {
+  const lineIds = [...new Set(pairs.flatMap((pair) => [pair.left, pair.right]))].sort();
+  const source = 0, sink = 1 + pairs.length + lineIds.length;
+  const lineNode = new Map(lineIds.map((id, index) => [id, 1 + pairs.length + index]));
+  const to: number[] = [], cap: number[] = [], head = new Array<number>(sink + 1).fill(-1), next: number[] = [];
+  const edge = (from: number, target: number, capacity: number) => {
+    for (const [a, b, c] of [[from, target, capacity], [target, from, 0]] as const) {
+      to.push(b); cap.push(c); next.push(head[a]); head[a] = to.length - 1;
+    }
+    return to.length - 2;
+  };
+  const sourceEdges = pairs.map((pair, index) => {
+    const id = edge(source, 1 + index, pair.overlap_m);
+    edge(1 + index, lineNode.get(pair.left) as number, pair.overlap_m);
+    edge(1 + index, lineNode.get(pair.right) as number, pair.overlap_m);
+    return id;
+  });
+  const sinkEdges = new Map(lineIds.map((id) => [id, edge(lineNode.get(id) as number, sink, Math.max(0, budget.get(id) ?? 0))]));
+  const level = new Array<number>(sink + 1);
+  const cursor = new Array<number>(sink + 1);
+  const push = (node: number, limit: number): number => {
+    if (node === sink) return limit;
+    for (; cursor[node] !== -1; cursor[node] = next[cursor[node]]) {
+      const id = cursor[node];
+      if (cap[id] <= FLOW_EPSILON || level[to[id]] !== level[node] + 1) continue;
+      const sent = push(to[id], Math.min(limit, cap[id]));
+      if (sent > FLOW_EPSILON) {
+        cap[id] -= sent;
+        cap[id ^ 1] += sent;
+        return sent;
+      }
+    }
+    return 0;
+  };
+  for (;;) {
+    level.fill(-1);
+    level[source] = 0;
+    const queue = [source];
+    for (let index = 0; index < queue.length; index += 1) {
+      for (let id = head[queue[index]]; id !== -1; id = next[id]) {
+        if (cap[id] > FLOW_EPSILON && level[to[id]] === -1) {
+          level[to[id]] = level[queue[index]] + 1;
+          queue.push(to[id]);
+        }
+      }
+    }
+    if (level[sink] === -1) break;
+    for (let node = 0; node <= sink; node += 1) cursor[node] = head[node];
+    while (push(source, Infinity) > FLOW_EPSILON) { /* blocking flow */ }
+  }
+  for (const [id, edgeId] of sinkEdges) budget.set(id, Math.max(0, budget.get(id) ?? 0) - cap[edgeId ^ 1]);
+  return new Map(pairs.map((pair, index) => [pair, cap[sourceEdges[index] ^ 1]]));
+}
+
 /**
- * Which pairs are settled: each line's reduction (measured − quantity) pays for the common lengths of its pairs,
- * largest pairs first; a frozen line (applied job) pays first when its reduction covers the pair, since it can no
- * longer change, then the other. A reduction pays once: a line reduced by 1 m against two partners of 1 m settles
- * one pair.
+ * Which pairs are settled by the reductions (measured − quantity) of their lines: each pair needs its common
+ * length removed from either line, a metre of reduction paying once. Solved as a flow, so that the reductions are
+ * shared the way that settles the most length whatever the order of the lines. Pairs of two frozen lines (both
+ * jobs applied) take the frozen reductions first: only they could pay them; the rest pays the other pairs.
  */
 export function settlePairs(pairs: readonly DuplicatePair[], lines: ReadonlyMap<string, DuplicateLine>): Set<DuplicatePair> {
-  const remaining = new Map([...lines.values()].map((line) => [line.id, Math.max(0, line.measured_m - line.quantity)]));
+  const budget = new Map([...lines.values()].map((line) => [line.id, Math.max(0, line.measured_m - line.quantity)]));
+  const frozen = (id: string) => lines.get(id)?.frozen === true;
   const settled = new Set<DuplicatePair>();
-  const ordered = [...pairs].sort((left, right) => right.overlap_m - left.overlap_m
-    || (left.left < right.left ? -1 : left.left > right.left ? 1 : 0) || (left.right < right.right ? -1 : left.right > right.right ? 1 : 0));
-  for (const pair of ordered) {
-    const need = pair.overlap_m - ZONE_OVERLAP.settle_m;
-    // A frozen line already counted its quantity: its reduction is its own, spent before the other's.
-    const sides = [pair.left, pair.right].sort((a, b) => Number(lines.get(b)?.frozen ?? false) - Number(lines.get(a)?.frozen ?? false));
-    const payer = sides.find((id) => (remaining.get(id) ?? 0) >= need);
-    if (payer === undefined) continue;
-    remaining.set(payer, (remaining.get(payer) ?? 0) - pair.overlap_m);
-    settled.add(pair);
+  const phases = [pairs.filter((pair) => frozen(pair.left) && frozen(pair.right)),
+    pairs.filter((pair) => !(frozen(pair.left) && frozen(pair.right)))];
+  for (const phase of phases) {
+    if (phase.length === 0) continue;
+    for (const [pair, flow] of settleFlow(phase, budget)) {
+      if (flow >= pair.overlap_m - ZONE_OVERLAP.settle_m - FLOW_EPSILON) settled.add(pair);
+    }
   }
   return settled;
 }

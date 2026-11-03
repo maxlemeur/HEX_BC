@@ -15,21 +15,30 @@ import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/
 //   the line).
 // - Non-observable quantities: a plan view never shows a weld, a tap, a
 //   support, a vertical run, a transport or a service (bench PLAN_CAUSES,
-//   keys.ts). A line naming one is a quantity to be entered, never one the
-//   model may propose; the vocabulary below is generic trade words only.
+//   keys.ts). A line whose head (its text before « y compris », « avec »,
+//   « compris », a comma, a semicolon, a parenthesis or a plus, and after a
+//   « fourniture et pose de ») opens on one of these words is a quantity to be
+//   entered, never one the model may propose. A word further in qualifies the
+//   line (« Tube cuivre … y compris supports », « Robinet d'essai »): the line
+//   stays what its head names. A count whose organ the reader names (a valve, a
+//   pump, a WC) is that organ, drawn on the plan, whatever word follows it; a
+//   vertical word only makes a length non-observable. The vocabulary is
+//   generic trade words only.
+// - An m2 line read as a network is an insulation surface (keys.ts), never a
+//   pipe: the DN rule does not read it.
 
 export const TAKEOFF_RULE_INPUTS_VERSION = 1;
 
 const NON_OBSERVABLE_PATTERNS: ReadonlyArray<{ cause: NonObservableCause; pattern: RegExp }> = [
-  { cause: "weld", pattern: /\bsoudures?\b|\bbrasures?\b/i },
-  { cause: "tap", pattern: /\bpiquages?\b/i },
-  { cause: "support", pattern: /\bsupports?\b|\bsupportages?\b|\bcolliers?\b|\bsuspentes?\b|\bconsoles?\b/i },
-  { cause: "vertical", pattern: /\bchutes?\b|\bcolonnes?\s+montantes?\b|\bremont[ée]es?\b|\bverticale?s?\b|\bdescentes?\b/i },
-  { cause: "transport", pattern: /\btransports?\b|\bmanutentions?\b|\blevages?\b|\bacheminements?\b/i },
-  { cause: "install_only", pattern: /\bpose\s+seule\b|\bfourniture\s+seule\b|\bmain[- ]d['’]?\s*[œo]e?uvre\b/i },
+  { cause: "weld", pattern: /^(?:soudures?|brasures?)\b/i },
+  { cause: "tap", pattern: /^piquages?\b/i },
+  { cause: "support", pattern: /^(?:supports?|supportages?|colliers?|suspentes?|consoles?)\b/i },
+  { cause: "vertical", pattern: /^(?:chutes?|colonnes?\s+montantes?|remontees?|descentes?)\b|^(?:tron[cç]ons?\s+)?verticale?s?\b/i },
+  { cause: "transport", pattern: /^(?:transports?|manutentions?|levages?|acheminements?)\b/i },
+  { cause: "install_only", pattern: /^(?:pose\s+seule|fourniture\s+seule|main[- ]d['’]?\s*[œo]e?uvre)\b/i },
   {
     cause: "service",
-    pattern: /\bmises?\s+en\s+service\b|\bessais?\b|\brin[cç]ages?\b|\bd[ée]sinfections?\b|\b[ée]preuves?\b|\bDOE\b|\b[ée]tiquetages?\b|\brep[ée]rages?\b|\bnettoyages?\b|\b[ée]tudes?\b|\bplans?\s+d['’]ex[ée]cution\b/i,
+    pattern: /^(?:mises?\s+en\s+service|essais?|rincages?|desinfections?|epreuves?|DOE|etiquetages?|reperages?|nettoyages?|etudes?|plans?\s+d['’]execution)\b/i,
   },
 ];
 
@@ -37,25 +46,29 @@ function stripAccents(text: string) {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-/** The cause a designation names, in pattern order (a weld before a support), or null. */
+/** The head of a designation: before its qualifiers, after « fourniture et pose de » and its variants. */
+export function designationHead(designation: string) {
+  const plain = stripAccents(designation).replace(/\s+/g, " ").trim();
+  const head = plain.split(/\s+(?:y\s+compris|compris|avec|incluant|inclus)\b|[,;(+]/i)[0] ?? plain;
+  return head.replace(/^(?:(?:fourniture|f)\s*(?:et|&)\s*pose|pose(?!\s+seule)|realisation|mise\s+en\s+(?:oeuvre|œuvre))\s+(?:de\s+la\s+|de\s+l['’]\s*|des\s+|du\s+|de\s+|d['’]\s*)?/i, "").trim();
+}
+
+/** The cause the head of a designation opens on, in pattern order, or null. */
 export function nonObservableCause(designation: string): NonObservableCause | null {
-  const text = designation.replace(/\s+/g, " ");
-  const plain = stripAccents(text);
-  for (const { cause, pattern } of NON_OBSERVABLE_PATTERNS) {
-    if (pattern.test(text) || pattern.test(plain)) return cause;
-  }
-  return null;
+  const head = designationHead(designation);
+  return NON_OBSERVABLE_PATTERNS.find(({ pattern }) => pattern.test(head))?.cause ?? null;
 }
 
 export type DesignationLine = { designation: string; category?: string | null; evidence?: string | null; unit: string; quantity: number };
 
-/** Organs a weld, tap or support cause may name: any other organ read is the line's object, drawn on the plan. */
+/** Organs a weld, tap or support line counts: any other organ read is the line's object, drawn on the plan. */
 const COUNTED_WORKS = new Set(["soudure", "piquage", "support"]);
 
+/** A size printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" »), as printed. */
+const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*mm\b|\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|\b\d\/\d\s*(?:"|”|pouces?)/i;
+
 /**
- * Inputs of a line the model proposed (levels B and C): read in its text, never in its quantity. A weld, tap or
- * support word makes a line non-observable only when no other organ is its object (« Vanne avec support » is a
- * valve); a vertical word only a length (« Vanne de colonne montante » is a valve).
+ * Inputs of a line the model proposed (levels B and C): read in its text, never in its quantity.
  */
 export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInputs {
   const cause = nonObservableCause(line.designation);
@@ -66,27 +79,25 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   const reading = readItemKey(line, { rooms: [] });
   if (reading.status === "out_of_score") return cause === "vertical" ? { ...base, non_observable: null } : base;
   const key = reading.key;
-  const organ = key.kind === "count" ? key.organ : null;
-  if ((cause === "weld" || cause === "tap" || cause === "support") && organ !== null && !COUNTED_WORKS.has(organ)) {
-    base.non_observable = null;
-  }
+  // A count of an organ the plan draws is that organ, whatever word qualifies it.
+  if (key.kind === "count" && key.organ !== null && !COUNTED_WORKS.has(key.organ)) base.non_observable = null;
   if (cause === "vertical" && key.kind !== "network") base.non_observable = null;
   if (key.kind === "count") return { ...base, kind: "count" };
   if (key.kind === "surface") return { ...base, kind: "surface" };
   // A length (or an insulation surface priced in m2): its triplet as read, the DN as printed. A triplet the reader
-  // could not complete stays incomplete (« Triplet absent : échec »): no network or two, two DN, an unknown DN.
+  // could not complete stays incomplete (« Triplet absent : échec »): no network or two, two DN, an unknown size.
   const material = key.material;
-  const kind = material === "calorifuge" || material === "cordon-chauffant" ? "insulation" : "network";
+  const wrapped = material === "calorifuge" || material === "cordon-chauffant" || key.unit === "m2";
   const reason = reading.status === "unreadable" ? reading.reason : null;
   const network = reason === "network_missing" || reason === "network_ambiguous" ? null : key.network;
-  const dn = reason === "dn_unknown" ? unknownDnText(line.designation) : reason === "dn_ambiguous" ? null : key.dn?.printed ?? null;
-  return { ...base, kind, network, material, dn };
+  // A size no series has is kept as printed, whether the reader calls it unknown or reads none from it (« Ø 23 »).
+  const dn = reason === "dn_ambiguous" ? null : key.dn?.printed ?? printedSize(line.designation);
+  return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn };
 }
 
-/** The « DN n » of a designation whose size no series has (the reader keeps none): the DN rule fails it. */
-function unknownDnText(designation: string) {
-  const match = /\bDN\s*-?\s*(\d+(?:[.,]\d+)?)\b/i.exec(designation);
-  return match ? `DN ${match[1].replace(",", ".")}` : null;
+/** The size of a designation whose size no series has (the reader keeps none), as printed: the DN rule fails it. */
+function printedSize(designation: string) {
+  return PRINTED_SIZE.exec(designation)?.[0].replace(/\s+/g, " ").trim() ?? null;
 }
 
 export type VectorLine = {

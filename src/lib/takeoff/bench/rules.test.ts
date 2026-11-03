@@ -4,7 +4,7 @@ import { buildBenchReport, renderBenchReportMarkdown, type BenchReportMetadata }
 import { guardTiers } from "@/lib/takeoff/bench/rules";
 import { GroupTruthFileSchema, ManifestDocumentSchema, TruthFileSchema, type GroupTruthFile, type ManifestDocument } from "@/lib/takeoff/bench/schemas";
 import { buildScoreScopes, scoreScopes } from "@/lib/takeoff/bench/score";
-import { vectorItemRuleData } from "@/lib/takeoff/bench/vector-rules";
+import { assertRuleDataAligned, vectorItemRuleData } from "@/lib/takeoff/bench/vector-rules";
 import { runVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
@@ -25,6 +25,12 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // - two zone plans of one level and lot are not compared in a vector pass, or
 //   compared across lots;
 // - the report does not show the lines before and after the rules per plan.
+// Found by the independent review, written before their fix:
+// - the per-role counter before and after the rules was never checked (after
+//   showing before, or main showing the reserve);
+// - unreadable lines of one reason were one key: a rule rejecting one hid the
+//   others' errors;
+// - the alignment guard only compared counts.
 
 function item(designation: string, quantity: number, confidence: number | undefined, extra: Partial<TakeoffItem> = {}): TakeoffItem {
   return { designation, quantity, unit: "ml", source_page: 1, confidence, evidence: "Fictional evidence", ...extra };
@@ -82,6 +88,22 @@ describe("high-confidence keys in error", () => {
   it("no longer counts them once a line is uncertain or rejected", () => {
     expect(score(["uncertain", "high", "rejected"])).toMatchObject({ keys_high_confidence: 1, keys_high_confidence_error: 0 });
   });
+
+  it("counts a key at high confidence only when all its lines are", () => {
+    const lines = [item("EF cuivre DN 22", 7, 0.9), item("EF cuivre DN 22", 7, 0.9, { source_page: 2 })];
+    const twoLines = (tiers: Array<"rejected" | "uncertain" | "high">) =>
+      scoreScopes(scopes, new Map([["a-plan-01", lines]]), { tiers: new Map([["a-plan-01", tiers]]) })[0].confidence;
+    expect(twoLines(["high", "uncertain"])).toMatchObject({ keys_high_confidence: 0, keys_high_confidence_error: 0 });
+    expect(twoLines(["high", "high"])).toMatchObject({ keys_high_confidence: 1, keys_high_confidence_error: 1 });
+  });
+
+  it("counts each unreadable line as its own key, so that rejecting one hides no other", () => {
+    const unreadable = [item("Vanne DN 23", 2, 0.9, { unit: "u" }), item("Clapet DN 23", 3, 0.9, { unit: "u" })];
+    const both = (tiers: Array<"rejected" | "uncertain" | "high">) =>
+      scoreScopes(scopes, new Map([["a-plan-01", unreadable]]), { tiers: new Map([["a-plan-01", tiers]]) })[0].confidence;
+    expect(both(["high", "high"])).toMatchObject({ keys_high_confidence_error: 2 });
+    expect(both(["rejected", "high"])).toMatchObject({ keys_high_confidence_error: 1 });
+  });
 });
 
 /** An A3 sheet in points. */
@@ -127,6 +149,15 @@ function zonePlan(shift: number): VectorPageExtraction {
 }
 
 describe("rules in the vector pipeline", () => {
+  it("refuses rule data that do not describe the items, line for line", () => {
+    const items = [item("EF cuivre DN 22", 5, 0.9), item("Surface « Bureau »", 12, 0.9, { unit: "m2" })];
+    const network = { inputs: { version: 1, source: "vector" as const, kind: "network" as const, network: "EF" as const, material: "cuivre" as const,
+      dn: "DN 22", non_observable: null, model_quantity: 5 }, geometry: null };
+    const surface = { inputs: { ...network.inputs, kind: "surface" as const, network: null, material: null, dn: null }, geometry: null };
+    expect(() => assertRuleDataAligned(items, [network, surface], "fixture")).not.toThrow();
+    expect(() => assertRuleDataAligned(items, [surface, network], "fixture")).toThrow(/does not describe/);
+  });
+
   it("gives the rules exactly the items the bench scores, in their order", () => {
     const reading = readVectorPage(zonePlan(0), { correspondences: new Map([[RED_ID, "EF"]]), correspondenceSource: "document" });
     const items = vectorItems(reading, "a-plan-01");
@@ -165,6 +196,10 @@ describe("rules in the vector pipeline", () => {
     const rules = report.couples[0].passes[0].rules;
     expect(rules?.documents.map((entry) => [entry.id, entry.before.high, entry.after.high, entry.after.rejected]))
       .toEqual([["a-plan-01", 1, 0, 1], ["a-plan-02", 1, 0, 1]]);
+    // Both zones read 7.06 m for 10 m each: two keys out of tolerance at high confidence before the rules, none after.
+    expect(rules?.confidence.main.before).toMatchObject({ scopes: 1, keys_high_confidence: 2, keys_high_confidence_error: 2 });
+    expect(rules?.confidence.main.after).toMatchObject({ scopes: 1, keys_high_confidence: 0, keys_high_confidence_error: 0 });
+    expect(rules?.confidence.reserve.after).toMatchObject({ scopes: 0, keys_high_confidence_error: 0 });
     expect(renderBenchReportMarkdown(report)).toContain("### Règles fixes");
   });
 

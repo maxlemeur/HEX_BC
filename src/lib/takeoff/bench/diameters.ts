@@ -18,7 +18,9 @@ import type { MaterialCode } from "@/lib/takeoff/bench/keys";
 // - When one text matches entries with different outer diameters, the case is
 //   ambiguous and goes to the reviewer; this module never picks one.
 
-export const DIAMETER_TABLE_VERSION = 1;
+// v2 (TI-664): copper 6 and 8 mm, cast iron DN 80, PE-X 40 to 63 and PP 16, sizes of the same standards the DN
+// rule of the fixed rules reads (rules/network-diameters.ts).
+export const DIAMETER_TABLE_VERSION = 2;
 
 export const DN_KEY_PATTERN = /^DN \d+(?:\.\d+)?$/;
 
@@ -90,7 +92,7 @@ function outerDiameters(family: DiameterFamily, values: readonly number[]) {
 
 export const DIAMETER_TABLE: readonly DiameterEntry[] = [
   ...series("cuivre", [
-    [10, 1, null, "8/10"], [12, 1, 10, "10/12"], [14, 1, null, "12/14"], [15, 1, 12, "13/15"],
+    [6, 1, null, "4/6"], [8, 1, null, "6/8"], [10, 1, null, "8/10"], [12, 1, 10, "10/12"], [14, 1, null, "12/14"], [15, 1, 12, "13/15"],
     [16, 1, null, "14/16"], [18, 1, 15, "16/18"], [22, 1, 20, "20/22"], [28, 1, 25, "26/28"],
     [32, 1, null, "30/32"], [35, 1, 32, "33/35"], [42, 1, 40, "40/42"], [54, 1, 50, "52/54"],
     [64, 2, null], [76.1, 2, 65], [88.9, 2, 80], [108, 2.5, 100],
@@ -108,13 +110,14 @@ export const DIAMETER_TABLE: readonly DiameterEntry[] = [
     [14, 2, null], [16, 2, 12], [18, 2, null], [20, 2, 15], [26, 3, 20], [32, 3, 25],
     [40, 3.5, 32], [50, 4, 40], [63, 4.5, 50], [75, 5, 65],
   ]),
-  ...series("per", [[12, 1.1, null], [16, 1.5, null], [20, 1.9, null], [25, 2.3, null], [32, 2.9, null]]),
+  ...series("per", [[12, 1.1, null], [16, 1.5, null], [20, 1.9, null], [25, 2.3, null], [32, 2.9, null], [40, 3.7, null], [50, 4.6, null],
+    [63, 5.8, null]]),
   ...outerDiameters("pvc", [16, 20, 25, 32, 40, 50, 63, 75, 80, 90, 100, 110, 125, 140, 160, 200, 250, 315]),
   ...outerDiameters("pehd", [20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 140, 160, 200, 250, 315]),
-  ...outerDiameters("pp", [20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160]),
+  ...outerDiameters("pp", [16, 20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160]),
   // NF EN 877 designates the 78 mm pipe DN 70; French catalogues print it DN 75.
   ...series("fonte-smu", [
-    [48, null, 40], [58, null, 50], [78, null, 70], [78, null, 75], [110, null, 100], [135, null, 125],
+    [48, null, 40], [58, null, 50], [78, null, 70], [78, null, 75], [83, null, 80], [110, null, 100], [135, null, 125],
     [160, null, 150], [210, null, 200], [274, null, 250], [326, null, 300],
   ]),
   ...series("acier", [

@@ -19,7 +19,9 @@ import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeof
 // - Insulation and trace heating wrap a pipe: they have no series of their
 //   own, the rule does not read them.
 // - The series of a material is the whole series of its standard: a network
-//   restricts the materials, never the sizes. Cases left to Max
+//   restricts the materials, never the sizes. PVC drainage (NF EN 1329-1) and
+//   PVC pressure (NF EN 1452) share one family of the L0 table: their outer
+//   diameters are told apart here (PVC_SERIES). Cases left to Max
 //   (AMBIGUOUS_NETWORK_MATERIALS) stay as written here until he decides.
 
 export const NETWORK_DIAMETER_TABLE_VERSION = 1;
@@ -31,12 +33,12 @@ const STEEL: readonly MaterialCode[] = ["acier", "acier-noir"];
 const COLD_WATER: readonly MaterialCode[] = ["cuivre", ...STAINLESS, "multicouche", "per", "pp", "pvc-pression", "acier-galvanise", "pehd"];
 /** Sanitary hot water and its return loop: no PVC-U, galvanised steel nor PE (temperature). */
 const HOT_WATER: readonly MaterialCode[] = ["cuivre", ...STAINLESS, "multicouche", "per", "pp"];
-/** Gravity drainage: PVC, SMU cast iron, PP and PE drainage pipes. */
-const DRAINAGE: readonly MaterialCode[] = ["pvc", "fonte", "pp", "pehd"];
+/** Gravity drainage: PVC, SMU cast iron, PP and PE drainage pipes, stainless drainage (NF EN 1124, kitchens). */
+const DRAINAGE: readonly MaterialCode[] = ["pvc", "fonte", "pp", "pehd", ...STAINLESS];
 /** Closed hydronic loops (chilled, heating, heat recovery, condenser water). */
 const HYDRONIC: readonly MaterialCode[] = [...STEEL, ...STAINLESS, "cuivre", "multicouche", "pp"];
-/** Glycol: no zinc (galvanised steel), no copper alloys in long loops. */
-const GLYCOL: readonly MaterialCode[] = [...STEEL, ...STAINLESS, "pp", "pehd"];
+/** Glycol: no zinc (galvanised steel reacts with the inhibitors). */
+const GLYCOL: readonly MaterialCode[] = [...STEEL, ...STAINLESS, "cuivre", "pp", "pehd"];
 /** Fire networks: steel series only (NF S 61-750 dry risers, NF EN 671 hose reels, NF EN 12845 sprinklers). */
 const FIRE: readonly MaterialCode[] = ["acier-galvanise", ...STEEL];
 /** Gas: copper, steel and PE (buried). */
@@ -78,6 +80,8 @@ export const NETWORK_MATERIALS: Record<NetworkCode, readonly MaterialCode[]> = {
 /** Choices of this table a plumber may contest: listed for Max, unchanged until he decides. */
 export const AMBIGUOUS_NETWORK_MATERIALS: ReadonlyArray<{ network: NetworkCode; material: MaterialCode; note: string }> = [
   { network: "EUG", material: "pvc", note: "PVC admis pour les eaux grasses (effluents chauds) : à confirmer." },
+  { network: "EUG", material: "inox", note: "Inox d'évacuation (NF EN 1124) admis, sa série lue par celles de l'inox soudé et à sertir : à confirmer." },
+  { network: "GLY", material: "cuivre", note: "Cuivre admis pour l'eau glycolée (seul le zinc est exclu) : à confirmer." },
   { network: "EF", material: "pehd", note: "PEHD admis pour l'eau froide, souvent réservé à l'enterré : à confirmer à l'intérieur." },
   { network: "EF", material: "acier-galvanise", note: "Acier galvanisé admis pour l'eau froide, refusé pour l'ECS : à confirmer." },
   { network: "RECS", material: "per", note: "PER admis pour le bouclage ECS : à confirmer." },
@@ -90,6 +94,12 @@ export const AMBIGUOUS_NETWORK_MATERIALS: ReadonlyArray<{ network: NetworkCode; 
 
 /** Materials that wrap a pipe: no series of their own, not read by the DN rule. */
 export const WRAPPING_MATERIALS: readonly MaterialCode[] = ["calorifuge", "cordon-chauffant"];
+
+/** Outer diameters of each PVC standard (the L0 family holds both). */
+export const PVC_SERIES: Partial<Record<MaterialCode, readonly number[]>> = {
+  pvc: [32, 40, 50, 63, 75, 80, 90, 100, 110, 125, 140, 160, 200, 250, 315],
+  "pvc-pression": [16, 20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 140, 160, 200, 250, 315],
+};
 
 function familiesOf(material: MaterialCode): DiameterFamily[] {
   return (Object.keys(DIAMETER_FAMILIES) as DiameterFamily[]).filter((family) => DIAMETER_FAMILIES[family].materials.includes(material));
@@ -110,7 +120,9 @@ export function checkNetworkDiameter(network: NetworkCode, material: MaterialCod
   const families = familiesOf(material);
   // findDiameterEntries restricts to the material's series; a material without series would read every series.
   if (families.length === 0) return { status: "dn_not_in_series", families };
-  return findDiameterEntries(dn, material).length > 0 ? { status: "compatible" } : { status: "dn_not_in_series", families };
+  const restricted = PVC_SERIES[material];
+  const entries = findDiameterEntries(dn, material).filter((entry) => !restricted || restricted.includes(entry.od_mm));
+  return entries.length > 0 ? { status: "compatible" } : { status: "dn_not_in_series", families };
 }
 
 /** Every network of the vocabulary has a row: a code added to keys.ts without one fails the type check above. */

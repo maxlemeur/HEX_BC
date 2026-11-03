@@ -707,18 +707,15 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
     // An item paired with a missed key is one deviation with it, counted on the key; the others make one group.
     for (const entry of entries) {
       const miss = itemPairs.get(entry);
-      if (!miss) continue;
-      const group = unreadableGroup(reason, [entry], miss.key.label);
-      result.false_positives.push(group);
-      if (confidence && allHigh([entry])) confidence.keys_high_confidence += 1;
-      highError(null, "invented", [entry], group.cause, reason);
+      if (miss) result.false_positives.push(unreadableGroup(reason, [entry], miss.key.label));
     }
     const rest = entries.filter((entry) => !itemPairs.has(entry));
-    if (rest.length > 0) {
-      const group = unreadableGroup(reason, rest, null);
-      result.false_positives.push(group);
-      if (confidence && allHigh(rest)) confidence.keys_high_confidence += 1;
-      highError(null, "invented", rest, group.cause, reason);
+    if (rest.length > 0) result.false_positives.push(unreadableGroup(reason, rest, null));
+    // An unreadable line is a key of its own for the confidence counter: the lines of one reason share nothing
+    // but it, so a rule rejecting one of them never hides another's error.
+    for (const entry of entries) {
+      if (confidence && allHigh([entry])) confidence.keys_high_confidence += 1;
+      highError(null, "invented", [entry], { label: "indetermine:illisible", origin: "indetermine", reason }, reason);
     }
   }
 

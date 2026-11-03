@@ -23,7 +23,8 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   ([`item-keys.ts`](../../src/lib/takeoff/bench/item-keys.ts)).
   - Le DN passe par l'analyse de `price-reuse-matching.ts` et la table des diamètres de L0.
   - Un triplet incomplet le reste : pas de réseau, deux réseaux ou deux DN.
-  - Un DN inconnu est gardé tel qu'imprimé, pour que la règle l'échoue.
+  - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue.
+  - Une ligne de réseau en m² est une surface de calorifuge, jamais un tuyau.
 - **Quantité proposée** : la quantité du modèle ou de la lecture, avant toute
   correction.
 
@@ -56,7 +57,8 @@ Un triplet réseau × matériau × DN absent de la table échoue :
 
 La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 1) :
 
-- **Séries** : celles des normes produit de la table des diamètres de L0.
+- **Séries** : celles des normes produit de la table des diamètres de L0, version 2 (ajouts de TI-664 : cuivre 6 et 8 mm, fonte DN 80, PER 40 à 63, PP 16).
+  - Le PVC d'évacuation (NF EN 1329-1) et le PVC pression (NF EN 1452) partagent une famille de L0 : leurs diamètres sont séparés ici.
   - Cuivre NF EN 1057, inox à sertir NF EN 10312, inox soudé ISO 1127.
   - PVC NF EN 1329-1 et 1452, fonte SMU NF EN 877.
   - Acier NF EN 10255 et 10220, multicouche ISO 21003, PER ISO 15875, PE NF EN 12201, PP NF EN 1451.
@@ -66,19 +68,22 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
   |---|---|
   | EF, EFA | tous les matériaux d'eau potable, plus le PVC pression, l'acier galvanisé et le PEHD |
   | ECS, RECS | cuivre, inox, multicouche, PER, PP |
-  | EU, EV, EU/EV, EUG, EP, VP | PVC, fonte SMU, PP, PEHD |
+  | EU, EV, EU/EV, EUG, EP, VP | PVC, fonte SMU, PP, PEHD, inox (NF EN 1124) |
   | COND | PVC, PVC pression, PP, PEHD |
   | CS, RIA, SPK | acier galvanisé, acier |
   | GAZ | cuivre, acier, PEHD |
   | CHW, CW, HRC, HW (départs et retours) | acier, inox, cuivre, multicouche, PP ; plus le PEHD pour CHW et CW, et le PER pour HW |
-  | GLY | acier, inox, PP, PEHD (sans zinc ni cuivre) |
+  | GLY | acier, inox, cuivre, PP, PEHD (sans zinc) |
 
 - **Pas de DN minimal par réseau** : un réseau restreint les matériaux, jamais les tailles.
+- **Ligne vectorielle** : sa taille est un nombre, imprimé « DN n » ou « Ø n » sur le plan ; elle est lue des deux façons.
 
 **Cas à trancher par Max** (`AMBIGUOUS_NETWORK_MATERIALS`, inchangés tant qu'il ne
 décide pas) :
 
 - PVC pour les eaux grasses ;
+- inox d'évacuation (NF EN 1124) pour les eaux grasses, lu par les séries de l'inox soudé et à sertir ;
+- cuivre pour l'eau glycolée ;
 - PEHD pour l'eau froide à l'intérieur ;
 - acier galvanisé pour l'eau froide ;
 - PER pour le bouclage ECS ;
@@ -102,11 +107,13 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Repère commun** : la première page du niveau dans l'ordre des jobs.
 - **Méthode** :
   - Les textes imprimés une seule fois sur deux pages proposent des translations : leurs décalages, regroupés à 10 cm près.
-  - Les traits du bâtiment décident. Ce sont les traits gris ou quasi blancs du fond d'architecture, ou ceux d'un calque mur, cloison ou fond. Jamais un trait quasi noir : cadres et cartouches.
-  - Une translation est retenue si au moins 20 traits tombent sur ceux de l'autre page, extrémités à 5 cm près.
+  - Les traits du bâtiment décident. Ce sont les traits gris ou quasi blancs du fond d'architecture (jamais un trait quasi noir de couleur : cadres et cartouches), ou ceux d'un calque classé mur, cloison ou fond, quelle que soit leur couleur.
+  - Une translation n'est candidate que si au moins 2 de ses textes sont sur le bâtiment : dans le cadre des traits qu'elle fait coïncider, à 1 m près.
+  - Elle est retenue si au moins 20 traits tombent sur ceux de l'autre page, extrémités à 5 cm près.
   - Elle doit aussi réunir deux fois plus de traits que la suivante.
   - Elle est ensuite affinée sur ces extrémités. Son erreur résiduelle (RMS) doit rester sous 2 cm.
-- **Pourquoi jamais le cartouche** : il est au même endroit des deux feuilles. Il propose la translation nulle, que les traits du bâtiment refusent dès que le dessin a bougé.
+- **Pourquoi jamais le cartouche** : il est au même endroit des deux feuilles, loin du dessin. Il propose la translation nulle, que les traits du bâtiment refusent dès que le dessin a bougé ; et ses textes, hors du bâtiment, ne la rendent jamais candidate seuls, même quand deux ailes identiques sont tracées au même endroit de la feuille.
+- **Composantes** : les pages d'un niveau sont recalées deux à deux. Les pages reliées forment une composante, dans le repère de sa première page. Deux pages de deux composantes n'ont pas de repère commun.
 - **Translations seulement** : une vue tournée ou à une autre échelle n'est pas recalée.
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
 
@@ -114,14 +121,14 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 ([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 1) :
 
 - Même réseau, même DN et même genre (tuyau ou calorifuge).
-- Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**.
+- Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions.
 
 **Résolution**
 
 - Une paire est réglée quand une des deux lignes a été réduite de la longueur commune : quantité ≤ longueur mesurée − longueur commune, à 1 cm près.
-- Une réduction ne paie qu'une paire.
-- La ligne d'un job appliqué (figée) paie d'abord si sa réduction suffit. Sinon, la ligne du job courant doit être corrigée.
+- Un mètre de réduction ne paie qu'une fois. Les réductions sont réparties entre les paires par un flot, quel que soit l'ordre des lignes.
+- Les paires de deux jobs appliqués (figés) prennent d'abord les réductions figées : elles seules peuvent les régler. Le reste paie les autres paires : une ligne figée non réduite laisse la correction à la ligne du job courant.
 - Exclure une ligne entièrement en double règle aussi la paire.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement.
 
@@ -160,7 +167,8 @@ hors réserve).
 ### Pièces sans chevauchement
 
 L'aire commune de deux pièces d'une même page est échantillonnée sur une grille de
-5 cm. Elle échoue au-delà de max(2 % de la plus petite pièce ; 0,1 m²).
+5 cm, plus fine quand le recouvrement est étroit (un vingtième de son petit côté). Elle
+échoue au-delà de max(2 % de la plus petite pièce ; 0,1 m²).
 
 Deux pièces qui partagent un mur se touchent sans aire commune. Valeur provisoire,
 comme l'aire.
@@ -172,17 +180,19 @@ comme l'aire.
 - un libellé de baignoire, placard, gaine, gaine technique ou GT ;
 - ou un contour à 4 coins de moins de la moitié de la surface imprimée : une boîte dessinée autour du libellé, pas la pièce.
 
+Une surface proposée par le modèle, sans libellé ni contour, n'est pas lue.
+
 ### Quantités non observables
 
 Un plan ne montre ni soudure, ni piquage, ni support, ni tronçon vertical (chute,
 colonne montante, descente), ni transport, ni pose seule, ni prestation (essais,
 mise en service, DOE…).
 
-- Une telle ligne échoue tant que sa quantité est celle du modèle.
-- Elle passe dès que l'utilisateur en saisit une autre.
-- La vérifier ne la règle jamais : `acceptable: false`.
-- **Un organe dessiné reste observable** : « Vanne avec support » ou « Vanne de colonne montante » est une vanne.
+- **La tête de la désignation décide** : son texte avant « y compris », « avec », « compris », une virgule, un point-virgule, une parenthèse ou un « + », après « fourniture et pose de ». Elle doit s'ouvrir sur le mot. « Tube cuivre … y compris supports » reste un tube, « Robinet d'essai » un robinet.
+- **Un organe dessiné reste observable**, quel que soit le mot qui le suit : « Vanne avec support », « Pompe … y compris mise en service ».
 - **« Vertical » ne porte que sur les longueurs.**
+- Une telle ligne échoue tant que l'utilisateur n'a pas saisi sa quantité : une saisie attestée, même égale à la quantité du modèle (1 ens de mise en service), ou une quantité modifiée.
+- La vérifier ne la règle jamais : `acceptable: false`.
 
 ## Blocage
 
@@ -200,14 +210,14 @@ d'application et le trigger SQL le partageront (TI-664, étape 2).
 Chaque passe du pipeline vectoriel rend, par plan, les lignes rejetées, incertaines
 et à haute confiance, avant puis après les règles :
 
-- **Rejetée** : dans `blocked_items`.
+- **Rejetée** : dans `blocked_items` ; après les règles, aussi une ligne bloquée par une règle en échec.
 - **Incertaine** : dans `medium_items`.
 - **Haute confiance** : ni l'une ni l'autre, avec une confiance ≥ 0,8.
 
 Elle rend aussi, par rôle, les clés à haute confiance et celles en erreur :
 
 - **Clé à haute confiance** : toutes ses lignes le sont.
-- **Erreur** : clé hors tolérance, ou inventée (tout groupe de faux positifs).
+- **Erreur** : clé hors tolérance, ou inventée (tout groupe de faux positifs ; chaque ligne illisible compte comme sa propre clé).
 
 Avec `--baseline`, la lecture niveau C de la baseline est re-notée avec les règles
 lues dans les désignations.

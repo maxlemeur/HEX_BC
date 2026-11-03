@@ -10,6 +10,7 @@ import { readVectorPage, VECTOR_READING_VERSION, type VectorPageReading } from "
 import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 import {
+  assertRuleDataAligned,
   benchPageAnchors,
   benchRulePass,
   vectorItemRuleData,
@@ -43,7 +44,15 @@ export type VectorBenchDocument = {
   /** Level and zone of the manifest (TI-664 rules: plans of one level are compared for duplicates). */
   level?: string | null;
   zone?: string | null;
+  /** The manifest's page ranges, whose level and zone win over the document's (as the scorer reads them). */
+  page_ranges?: ReadonlyArray<{ from: number; to: number; level?: string | null; zone?: string | null }>;
 };
+
+/** Level and zone of a page: its range's, else the document's (score.ts locate). */
+function pageLocation(document: VectorBenchDocument, page: number) {
+  const range = document.page_ranges?.find((entry) => entry.from <= page && page <= entry.to);
+  return { level: range?.level ?? document.level ?? null, zone: range?.zone ?? document.zone ?? null };
+}
 
 export type VectorReadingSummary = Omit<VectorPageReading, "networks" | "groups" | "surfaces"> & {
   groups: Array<Pick<VectorPageReading["groups"][number], "id" | "layerName" | "colors" | "length_pt" | "nearWhite" | "grey" | "class" | "source" | "candidates">>;
@@ -173,9 +182,10 @@ export async function runVectorBench(input: {
           let items = reading.mode === "raster" ? [] : vectorItems(reading, document.id);
           const data = reading.mode === "raster" ? [] : vectorItemRuleData(reading);
           // vectorItemRuleData follows vectorItems item for item; a mismatch is the bench's own bug.
-          if (data.length !== items.length) throw new Error(`vectorItemRuleData gave ${data.length} entries for ${items.length} items (${document.id} p${page}).`);
-          rulePages.push({ document: document.id, lot: document.lot, page, level: document.level ?? null, zone: document.zone ?? null,
-            scale: { status: reading.scale.status, reason: reading.scale.reason }, anchors: benchPageAnchors(extraction, reading) });
+          assertRuleDataAligned(items, data, `${document.id} p${page}`);
+          rulePages.push({ document: document.id, lot: document.lot, page, ...pageLocation(document, page),
+            scale: { status: reading.scale.status, reason: reading.scale.reason }, denominator: reading.scale.denominator,
+            anchors: benchPageAnchors(extraction, reading) });
           let fallback: number | null = null;
           if (reading.mode === "raster" && input.rasterFallback) {
             const baseline = input.rasterFallback(document.id, pass, page);

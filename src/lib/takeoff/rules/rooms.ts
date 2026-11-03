@@ -4,10 +4,12 @@
 // - Area: |area − printed| ≤ max(AREA_PRINTED.relative × printed,
 //   AREA_PRINTED.absolute_m2). The line's quantity is read as it is now: a
 //   quantity the user corrected to the printed surface settles it.
-// - Overlap: the area two room polygons share, sampled on a grid of
-//   ROOM_OVERLAP.step_m (finer for small rooms), above max(ROOM_OVERLAP
-//   .relative × the smaller room, ROOM_OVERLAP.absolute_m2). Rooms sharing a
-//   wall only touch: no area.
+// - Overlap: the area two room polygons share, sampled on a grid over their
+//   common box: ROOM_OVERLAP.step_m, finer when that box is narrow (a twentieth
+//   of its smaller side, so that a sliver of a few centimetres is measured),
+//   coarser only when it would take more than ROOM_OVERLAP.maxSamples points;
+//   above max(ROOM_OVERLAP.relative × the smaller room, ROOM_OVERLAP
+//   .absolute_m2). Rooms sharing a wall only touch: no area.
 // - Closed box: a room labelled as a bathtub, cupboard or shaft, or a
 //   four-cornered polygon under CLOSED_BOX.maxShare of the printed surface
 //   (the outline around the label is a box drawn in the room, not the room).
@@ -42,14 +44,18 @@ export function areaAgrees(area: number, printed: number) {
   return Math.abs(area - printed) <= areaTolerance(printed) + 1e-9;
 }
 
-/** Points of a polygon given as x, y pairs; a closing point equal to the first is dropped. */
+/**
+ * Points of a polygon given as x, y pairs: a point repeating the one before it is dropped, and the closing points
+ * repeating the first (a box drawn back to its start then closed holds it twice).
+ */
 export function polygonPoints(flat: readonly number[]): Array<[number, number]> {
   const points: Array<[number, number]> = [];
-  for (let index = 0; index + 1 < flat.length; index += 2) points.push([flat[index], flat[index + 1]]);
-  if (points.length > 1) {
-    const [first, last] = [points[0], points[points.length - 1]];
-    if (first[0] === last[0] && first[1] === last[1]) points.pop();
+  for (let index = 0; index + 1 < flat.length; index += 2) {
+    const point: [number, number] = [flat[index], flat[index + 1]];
+    const last = points[points.length - 1];
+    if (!last || last[0] !== point[0] || last[1] !== point[1]) points.push(point);
   }
+  while (points.length > 1 && points[0][0] === points[points.length - 1][0] && points[0][1] === points[points.length - 1][1]) points.pop();
   return points;
 }
 
@@ -100,8 +106,8 @@ export function sharedArea(left: ReadonlyArray<[number, number]>, right: Readonl
   const box = { x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) };
   const width = box.x1 - box.x0, height = box.y1 - box.y0;
   if (width <= 0 || height <= 0) return 0;
-  // The step grows on a large common box, so that a sample never costs more than maxSamples point tests.
-  const step = Math.max(ROOM_OVERLAP.step_m, Math.sqrt((width * height) / ROOM_OVERLAP.maxSamples));
+  // Finer on a narrow common box (a sliver along a wall), coarser only past maxSamples point tests.
+  const step = Math.max(Math.min(ROOM_OVERLAP.step_m, Math.min(width, height) / 20), Math.sqrt((width * height) / ROOM_OVERLAP.maxSamples));
   let count = 0;
   for (let y = box.y0 + step / 2; y < box.y1; y += step) {
     for (let x = box.x0 + step / 2; x < box.x1; x += step) {
