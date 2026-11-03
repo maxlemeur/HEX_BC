@@ -70,7 +70,8 @@ function dedupeWarnings(warnings: TakeoffExchange["warnings"]) {
   return deduped;
 }
 
-function buildItemKey(item: TakeoffExchange["items"][number]) {
+/** The key mergeTakeoffChunkExchanges merges items on: designation, unit and page. */
+export function buildItemKey(item: TakeoffExchange["items"][number]) {
   const designation = normalizeTextToken(item.designation);
   const unit = toUnitToken(item.unit);
   const sourcePage = item.source_page ?? 0;
@@ -162,6 +163,35 @@ export async function createPdfChunkBytes(input: {
   const pages = await outputPdf.copyPages(sourcePdf, pageIndexes);
   pages.forEach((page) => outputPdf.addPage(page));
   return outputPdf.save();
+}
+
+export function createChunkPromptSourceHint(input: {
+  fileName: string;
+  chunk: TakeoffPdfChunk;
+  totalChunks: number;
+}) {
+  return `${input.fileName} | chunk ${input.chunk.index + 1}/${input.totalChunks} | pages ${
+    input.chunk.startPage
+  }-${input.chunk.endPage}`;
+}
+
+export function remapChunkLocalPagesToAbsolute(input: {
+  chunk: TakeoffPdfChunk;
+  exchange: TakeoffExchange;
+}): TakeoffExchange {
+  const pageOffset = input.chunk.startPage - 1;
+
+  return {
+    ...input.exchange,
+    items: input.exchange.items.map((item) => ({
+      ...item,
+      source_page: item.source_page === undefined ? undefined : item.source_page + pageOffset,
+    })),
+    tables: input.exchange.tables?.map((table) => ({
+      ...table,
+      page: table.page + pageOffset,
+    })),
+  };
 }
 
 export function mergeTakeoffChunkExchanges(

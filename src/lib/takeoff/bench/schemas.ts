@@ -10,6 +10,7 @@ import {
   NETWORK_CODES,
   ORGAN_CODES,
   PLAN_CAUSES,
+  REVIEWED_PLAN_CAUSES,
   TRUTH_LOTS,
   UNITS,
   UNITS_BY_KIND,
@@ -289,6 +290,12 @@ export const TruthLineSchema = z.strictObject({
   /** Further cells summed into this key when the devis spreads it over several rows. */
   additional_sources: z.array(TruthSourceSchema).optional(),
   observable_on_plan: z.boolean(),
+  /**
+   * Why the plan cannot give the quantity. On a line not observable on the plan:
+   * the reason of its exclusion, any of PLAN_CAUSES. On an observable line: one
+   * of REVIEWED_PLAN_CAUSES, entered by hand after the review of a key the bench
+   * missed (TI-660), which then counts as reviewed.
+   */
   plan_cause: z.enum(PLAN_CAUSES).optional(),
   // Lot C (repeated modules), rule 7 of TI-659.
   devis_quantity: z.number().nonnegative().optional(),
@@ -309,8 +316,10 @@ export const TruthLineSchema = z.strictObject({
   notes: Text.optional(),
 }).superRefine((line, ctx) => {
   checkKey(line, ctx);
-  if (line.plan_cause !== undefined && line.observable_on_plan) {
-    addIssue(ctx, ["plan_cause"], "plan_cause explains a line that is not observable on the plan");
+  if (line.observable_on_plan && line.plan_cause !== undefined
+    && !(REVIEWED_PLAN_CAUSES as readonly string[]).includes(line.plan_cause)) {
+    addIssue(ctx, ["plan_cause"], `an observable line takes the plan cause of a reviewed miss: ${REVIEWED_PLAN_CAUSES.slice(0, -1).join(", ")} `
+      + `or ${REVIEWED_PLAN_CAUSES[REVIEWED_PLAN_CAUSES.length - 1]}`);
   }
   if (line.ambiguous === true && line.ambiguity_reason === undefined) {
     addIssue(ctx, ["ambiguity_reason"], "an ambiguous line says why");

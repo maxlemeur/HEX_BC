@@ -1,0 +1,586 @@
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import {
+  DEFAULT_TAKEOFF_BENCHMARK_THRESHOLDS,
+  type TakeoffBenchmarkFailedCheck,
+  type TakeoffBenchmarkThresholds,
+} from "@/lib/takeoff/benchmark";
+import { DIAMETER_TABLE_VERSION } from "@/lib/takeoff/bench/diameters";
+import { ITEM_KEY_READER_VERSION, scoredUnit, type ScoredUnit } from "@/lib/takeoff/bench/item-keys";
+import {
+  BENCH_CHUNKING,
+  LOCAL_CHATGPT_TIMEOUT_CAP_MS,
+  type BenchRunResult,
+  type BenchStop,
+  type CallStatus,
+  type DocumentRun,
+  type TokenUsage,
+} from "@/lib/takeoff/bench/run";
+import type { NoiseFile } from "@/lib/takeoff/bench/schemas";
+import {
+  BENCH_TOLERANCES,
+  SCORE_VERSION,
+  scoreScopes,
+  type IndicativeCounts,
+  type KeyLabel,
+  type KeyScore,
+  type ScopeCounts,
+  type ScopeScore,
+  type ScoreScope,
+} from "@/lib/takeoff/bench/score";
+import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
+import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
+
+// Report of a takeoff bench run (TI-660): report.json keeps every call, item and
+// key; report.md publishes codes, counts, relative deviations, tokens and
+// latencies only, never a quantity, a tolerance (a share of a quantity), a
+// designation read on a plan or free text of the private dataset: a room is
+// printed as its index among the sorted rooms of its table (« pièce 3 »), its
+// label stays in report.json. Lots and scopes whose documents did not run are
+// left out; a scope whose reading lost a chunk is listed with its unread pages,
+// not scored; the reserve is reported apart from the lots it is held out from.
+// Causes count once per key or unpaired false-positive group: a group paired with
+// a missed key (one network, DN or unit apart), or an unreadable item that may be
+// that key, is one deviation with it, counted on the key. A couple stopped before the profile was read has no send mode
+// (override null). Latency: nearest-rank p50
+// / p95 of each call's duration divided by the pages of its chunk; a timeout
+// counts as max(its duration, 180 s), and a second distribution keeps the
+// completed calls only (answer received, schema failures included). The passed / failedChecks
+// of evaluateTakeoffBenchmark's thresholds are indicative: they are the
+// fictional fixture's.
+
+export const INDICATIVE_NOTE = "indicatif, seuils de la fixture fictive";
+
+export const PRODUCTION_GAPS = [
+  "Sans préparation du métré (cadrage, calibration).",
+  "Sans DPGF ni CCTP joints au prompt.",
+  "Sans flags tenant : découpage et timeout par défaut (15/10/2 pages, 300 s demandés, plafonnés à 180 s par callLocalChatGptStructured).",
+  "Un document à la fois, sans persistance.",
+] as const;
+
+export type BenchReportMetadata = {
+  started_at: string;
+  finished_at: string;
+  /** node, its flags, the script (relative to `cwd` when under it, absolute otherwise) and its arguments. */
+  command: string[];
+  /** The directory the command ran in: the one holding the ChatGPT store. */
+  cwd: string;
+  /** The variables the command needs, as set for the run (TAKEOFF_BENCH_CHATGPT_OWNER, TSX_TSCONFIG_PATH). */
+  env: Record<string, string>;
+  node: string;
+  commit: string | null;
+  dirty: boolean | null;
+  dataset: {
+    sha256: string;
+    documents: Array<{ id: string; lot: string; role: string; sha256: string; bytes: number; pages: number | null }>;
+    skipped: Array<{ id: string; reason: string }>;
+  };
+  profile: { model: string | null; reasoning_effort: ChatGptReasoningEffort | null; unchanged: boolean | null };
+};
+
+export type LatencySummary = { n: number; p50_ms: number | null; p95_ms: number | null };
+
+export type TimeoutEntry = {
+  document: string;
+  start_page: number;
+  end_page: number;
+  pages: number;
+  bytes: number;
+  model: string;
+  reasoning_effort: ChatGptReasoningEffort | null;
+  duration_ms: number;
+};
+
+export type LotScore = Omit<ScopeCounts, "attachment_rate"> & {
+  attachment_rate: number | null;
+  scopes: number;
+  scopes_not_run: number;
+  scopes_read_failed: number;
+};
+
+export type LotSummary = {
+  documents: number;
+  calls: number;
+  pages: number;
+  statuses: Record<CallStatus, number>;
+  tokens: TokenUsage;
+  latency_per_page: LatencySummary & { timeouts_counted_at_ms: number };
+  completed_latency_per_page: LatencySummary;
+  timeouts: TimeoutEntry[];
+  duplicate_items: number;
+  score: LotScore;
+};
+
+export type GroupSummary = { lots: Record<string, LotSummary>; all: LotSummary };
+
+export type IndicativeReport = {
+  note: typeof INDICATIVE_NOTE;
+  passed: boolean;
+  failedChecks: TakeoffBenchmarkFailedCheck[];
+  precision: number;
+  recall: number;
+  quantityAccuracy: number;
+  localizedProofCoverage: number;
+  highConfidenceErrorRate: number;
+  counts: IndicativeCounts;
+  thresholds: TakeoffBenchmarkThresholds;
+};
+
+export type PassReport = {
+  pass: number;
+  complete: boolean;
+  documents: DocumentRun[];
+  scopes: ScopeScore[];
+  summary: { main: GroupSummary; reserve: GroupSummary };
+  indicative: IndicativeReport;
+};
+
+export type NoiseReport = {
+  status: NoiseFile["status"];
+  reason: string | null;
+  plan_index_same: boolean | null;
+  keys: Array<{
+    key: KeyLabel;
+    unit: string;
+    relative_deviation: number | null;
+    tolerance_relative: number | null;
+    within: boolean | null;
+    note: string | null;
+  }>;
+};
+
+export type BenchReport = {
+  schema_version: 1;
+  status: BenchRunResult["status"];
+  stop: BenchStop | null;
+  calls_planned: number;
+  calls_done: number;
+  metadata: BenchReportMetadata;
+  production_gaps: readonly string[];
+  rules: Record<string, unknown>;
+  couples: Array<{
+    model: string;
+    reasoning_effort: ChatGptReasoningEffort | null;
+    override: boolean | null;
+    prompt_version: string | null;
+    passes_done: number;
+    passes: PassReport[];
+  }>;
+  noise: NoiseReport | null;
+};
+
+/** Nearest-rank percentile (no interpolation); null without values. */
+export function percentile(values: readonly number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
+}
+
+function round(value: number) {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+function latency(values: readonly number[]): LatencySummary {
+  return { n: values.length, p50_ms: percentile(values, 50), p95_ms: percentile(values, 95) };
+}
+
+const STATUSES: CallStatus[] = ["ok", "schema_failure", "timeout", "rejected", "provider_failed", "stopped"];
+
+function emptyScore(): LotScore {
+  return {
+    scopes: 0, scopes_not_run: 0, scopes_read_failed: 0, items: 0, attached: 0, unreadable: 0, out_of_score_items: 0, attachment_rate: null,
+    keys_scored: 0, keys_ok: 0, keys_out_of_tolerance: 0, keys_missed: 0, keys_out_of_score: 0, false_positive_groups: 0,
+    false_positive_items: 0, not_reviewed: 0, causes: {},
+  };
+}
+
+const SUMMED_COUNTS = [
+  "items", "attached", "unreadable", "out_of_score_items", "keys_scored", "keys_ok", "keys_out_of_tolerance", "keys_missed",
+  "keys_out_of_score", "false_positive_groups", "false_positive_items", "not_reviewed",
+] as const;
+
+function summarizeLot(documents: readonly DocumentRun[], scopes: readonly ScopeScore[]): LotSummary {
+  const calls = documents.flatMap((document) => document.calls.map((entry) => ({ document: document.id, call: entry })));
+  const statuses = Object.fromEntries(STATUSES.map((status) => [status, 0])) as Record<CallStatus, number>;
+  const tokens: TokenUsage = { input: 0, output: 0, reasoning: 0, total: 0 };
+  const perPage: number[] = [];
+  const completed: number[] = [];
+  const timeouts: TimeoutEntry[] = [];
+  for (const { document, call } of calls) {
+    statuses[call.status] += 1;
+    if (call.usage) {
+      tokens.input += call.usage.input;
+      tokens.output += call.usage.output;
+      tokens.reasoning += call.usage.reasoning;
+      tokens.total += call.usage.total;
+    }
+    if (call.status === "ok" || call.status === "schema_failure") {
+      perPage.push(call.duration_ms / call.pages);
+      completed.push(call.duration_ms / call.pages);
+    } else if (call.status === "timeout") {
+      perPage.push(Math.max(call.duration_ms, LOCAL_CHATGPT_TIMEOUT_CAP_MS) / call.pages);
+      timeouts.push({
+        document, start_page: call.start_page, end_page: call.end_page, pages: call.pages, bytes: call.bytes,
+        model: call.model, reasoning_effort: call.reasoning_effort, duration_ms: call.duration_ms,
+      });
+    }
+  }
+  const score = emptyScore();
+  for (const scope of scopes) {
+    score.scopes += 1;
+    if (scope.status === "not_run") {
+      score.scopes_not_run += 1;
+      continue;
+    }
+    if (scope.status === "read_failed") {
+      score.scopes_read_failed += 1;
+      continue;
+    }
+    for (const field of SUMMED_COUNTS) score[field] += scope.counts[field];
+    for (const [cause, count] of Object.entries(scope.counts.causes)) score.causes[cause] = (score.causes[cause] ?? 0) + count;
+  }
+  score.attachment_rate = score.items === 0 ? null : round(score.attached / score.items);
+  score.causes = Object.fromEntries(Object.entries(score.causes).sort(([left], [right]) => (left < right ? -1 : 1)));
+  return {
+    documents: documents.length,
+    calls: calls.length,
+    pages: calls.reduce((total, { call }) => total + call.pages, 0),
+    statuses,
+    tokens,
+    latency_per_page: { ...latency(perPage), timeouts_counted_at_ms: LOCAL_CHATGPT_TIMEOUT_CAP_MS },
+    completed_latency_per_page: latency(completed),
+    timeouts,
+    duplicate_items: documents.reduce((total, document) => total + document.duplicate_items, 0),
+    score,
+  };
+}
+
+function summarizeGroup(documents: readonly DocumentRun[], scopes: readonly ScopeScore[]): GroupSummary {
+  // A lot is reported once one of its documents ran: a truth whose plans did not run adds no row of zeros.
+  const lots = [...new Set([...documents.map((document) => document.lot),
+    ...scopes.filter((scope) => scope.status === "scored").map((scope) => scope.lot)])].sort();
+  return {
+    lots: Object.fromEntries(lots.map((lot) => [lot,
+      summarizeLot(documents.filter((document) => document.lot === lot), scopes.filter((scope) => scope.lot === lot))])),
+    all: summarizeLot(documents, scopes),
+  };
+}
+
+function ratio(numerator: number, denominator: number, empty: number) {
+  return round(denominator > 0 ? numerator / denominator : empty);
+}
+
+function indicative(scopes: readonly ScopeScore[]): IndicativeReport {
+  const counts: IndicativeCounts = {
+    expected_keys: 0, matched_keys: 0, ok_keys: 0, candidates: 0, items: 0, localized_items: 0, high_confidence_items: 0, high_confidence_errors: 0,
+  };
+  for (const scope of scopes) {
+    if (scope.status !== "scored") continue;
+    for (const field of Object.keys(counts) as Array<keyof IndicativeCounts>) counts[field] += scope.indicative[field];
+  }
+  const thresholds = DEFAULT_TAKEOFF_BENCHMARK_THRESHOLDS;
+  const none = counts.expected_keys === 0 ? 1 : 0;
+  const precision = ratio(counts.matched_keys, counts.candidates, none);
+  const recall = ratio(counts.matched_keys, counts.expected_keys, counts.candidates === 0 ? 1 : 0);
+  const quantityAccuracy = ratio(counts.ok_keys, counts.matched_keys, none);
+  const localizedProofCoverage = ratio(counts.localized_items, counts.items, none);
+  const highConfidenceErrorRate = ratio(counts.high_confidence_errors, counts.high_confidence_items, 0);
+  const failedChecks: TakeoffBenchmarkFailedCheck[] = [];
+  if (precision < thresholds.minPrecision) failedChecks.push("precision");
+  if (recall < thresholds.minRecall) failedChecks.push("recall");
+  if (quantityAccuracy < thresholds.minQuantityAccuracy) failedChecks.push("quantity_accuracy");
+  if (localizedProofCoverage < thresholds.minLocalizedProofCoverage) failedChecks.push("localized_proof_coverage");
+  if (highConfidenceErrorRate > thresholds.maxHighConfidenceErrorRate) failedChecks.push("high_confidence_error_rate");
+  return {
+    note: INDICATIVE_NOTE, passed: failedChecks.length === 0, failedChecks, precision, recall, quantityAccuracy,
+    localizedProofCoverage, highConfidenceErrorRate, counts, thresholds,
+  };
+}
+
+const NOISE_M2_UNDETERMINED = "indéterminé (part absolue 0,5 m² non évaluable sans quantité)";
+
+/**
+ * Within its unit's tolerance, from the relative deviation alone (a noise key holds no quantity): an m2 deviation
+ * above 2 % may still be under the 0.5 m² floor of max(2 %, 0.5 m²), so it is undetermined (null), never false.
+ */
+function noiseWithin(unit: ScoredUnit | null, relativeDeviation: number | null) {
+  if (unit === null || relativeDeviation === null) return null;
+  const within = Math.abs(relativeDeviation) <= BENCH_TOLERANCES[unit].relative + 1e-9;
+  return within || BENCH_TOLERANCES[unit].absolute === 0 ? within : null;
+}
+
+function noiseReport(noise: NoiseFile | null): NoiseReport | null {
+  if (noise === null) return null;
+  return {
+    status: noise.status, reason: noise.reason, plan_index_same: noise.plan_index_same,
+    keys: noise.keys.map((key) => {
+      const unit = scoredUnit(key.unit);
+      const tolerance = unit === null ? null : BENCH_TOLERANCES[unit].relative;
+      const label: KeyLabel = {
+        kind: key.kind, zone: key.zone, level: key.level, network: key.network, material: key.material, organ: key.organ,
+        dn: key.dn, room: key.room, unit: key.unit,
+      };
+      return {
+        key: label, unit: key.unit, relative_deviation: key.relative_deviation, tolerance_relative: tolerance,
+        within: noiseWithin(unit, key.relative_deviation),
+        note: unit === "m2" ? "the 0.5 m² absolute part needs a quantity: within is null above 2 %" : key.reason,
+      };
+    }),
+  };
+}
+
+export function buildBenchReport(input: {
+  metadata: BenchReportMetadata;
+  run: BenchRunResult;
+  scopes: readonly ScoreScope[];
+  noise: NoiseFile | null;
+}): BenchReport {
+  const promptVersion = getTakeoffPromptVersion("C");
+  return {
+    schema_version: 1,
+    status: input.run.status,
+    stop: input.run.stop,
+    calls_planned: input.run.calls_planned,
+    calls_done: input.run.calls_done,
+    metadata: input.metadata,
+    production_gaps: PRODUCTION_GAPS,
+    rules: {
+      prompt: { level: "C", version: promptVersion, schema_version: "v1", schema: "TakeoffExchangeSchema" },
+      chunking: BENCH_CHUNKING,
+      timeout_ms: { requested: TAKEOFF_C_TIMEOUT_MS_DEFAULT, cap: LOCAL_CHATGPT_TIMEOUT_CAP_MS },
+      tolerances: BENCH_TOLERANCES,
+      item_key_reader_version: ITEM_KEY_READER_VERSION,
+      score_version: SCORE_VERSION,
+      diameter_table_version: DIAMETER_TABLE_VERSION,
+      attachment: "items whose key is read / items",
+      causes: "one per key or unpaired false-positive group; pairs are one to one: a group paired with a missed key (one network, "
+        + "DN or unit apart) counts on that key; an unreadable item that may be a missed key makes it indetermine:illisible and counts "
+        + "on it; other unreadable items: one group per reason (indetermine:illisible)",
+      read_failures: "a scope whose document lost a chunk (timeout, rejection, provider or schema failure) is not scored",
+      latency: "nearest-rank p50 / p95 of call duration / chunk pages; a timeout counts max(duration, 180 s)",
+      indicative: INDICATIVE_NOTE,
+    },
+    couples: input.run.couples.map((couple) => ({
+      model: couple.model,
+      reasoning_effort: couple.reasoning_effort,
+      override: couple.override,
+      prompt_version: couple.prompt_version,
+      passes_done: couple.passes.filter((pass) => pass.complete).length,
+      passes: couple.passes.map((pass) => {
+        const read = pass.documents.filter((document) => document.complete);
+        const items = new Map(read.map((document) => [document.id, document.items]));
+        const failures = new Map(read.map((document) => [document.id, document.calls.filter((entry) => entry.status !== "ok")
+          .map((entry) => ({ start_page: entry.start_page, end_page: entry.end_page, status: entry.status }))]));
+        const chunks = new Map(read.map((document) => [document.id, document.item_chunks]));
+        const scores = scoreScopes(input.scopes, items, { failures, chunks });
+        const byRole = (role: "truth" | "reserve") => summarizeGroup(
+          pass.documents.filter((document) => document.role === role), scores.filter((scope) => scope.role === role));
+        return {
+          pass: pass.pass, complete: pass.complete, documents: pass.documents, scopes: scores,
+          summary: { main: byRole("truth"), reserve: byRole("reserve") },
+          indicative: indicative(scores.filter((scope) => scope.role === "truth")),
+        };
+      }),
+    })),
+    noise: noiseReport(input.noise),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// report.md
+
+function seconds(ms: number | null) {
+  return ms === null ? "–" : `${(ms / 1000).toFixed(1)}`;
+}
+
+function percent(value: number | null | undefined) {
+  if (value === null || value === undefined) return "–";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)} %`;
+}
+
+export type RoomIndex = ReadonlyMap<string, number>;
+
+/** Rooms of one table, numbered in label order: report.md prints the number, never the label (private plan text). */
+export function roomIndex(keys: ReadonlyArray<KeyLabel | null>): RoomIndex {
+  const rooms = [...new Set(keys.flatMap((key) => (key?.room ? [key.room] : [])))].sort();
+  return new Map(rooms.map((room, index) => [room, index + 1]));
+}
+
+export function formatKeyLabel(key: KeyLabel, rooms: RoomIndex) {
+  const place = `${key.zone ?? "-"} ${key.level ?? "-"}`;
+  if (key.kind === "surface") return `${place} pièce ${key.room === null ? "?" : rooms.get(key.room) ?? "?"} ${key.unit}`;
+  if (key.kind === "count") return `${place} ${key.organ ?? "?"} ${key.dn ?? "sans DN"} ${key.unit}`;
+  return `${place} ${key.network ?? "?"} ${key.material ?? "sans matériau"} ${key.dn ?? "sans DN"} ${key.unit}`;
+}
+
+const STATUS_LABELS: Record<KeyScore["status"], string> = {
+  ok: "dans la tolérance", out_of_tolerance: "hors tolérance", missed: "manquée", out_of_score: "hors score",
+};
+const OUT_OF_SCORE_LABELS: Record<NonNullable<KeyScore["reason"]>, string> = {
+  not_observable: "non observable", partly_observable: "partiellement observable", ambiguous: "ambiguë", unit: "unité",
+};
+
+function cell(value: string | number | null) {
+  return String(value ?? "–").replace(/\|/g, "\\|");
+}
+
+function table(headers: readonly string[], rows: ReadonlyArray<ReadonlyArray<string | number | null>>) {
+  if (rows.length === 0) return "_Aucune ligne._";
+  return [`| ${headers.join(" | ")} |`, `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.map(cell).join(" | ")} |`)].join("\n");
+}
+
+function lotLabel(lot: string) {
+  return lot === "all" ? "Tous" : lot.toUpperCase();
+}
+
+function lotRows(summary: GroupSummary) {
+  return [...Object.entries(summary.lots), ["all", summary.all] as const] as Array<readonly [string, LotSummary]>;
+}
+
+function groupSection(title: string, summary: GroupSummary) {
+  const rows = lotRows(summary);
+  return [
+    `### ${title} : score`,
+    table(["Lot", "Docs", "Clés notées", "Dans la tolérance", "Hors tolérance", "Manquées", "Hors score", "Faux positifs (groupes / items)",
+      "Illisibles (items)", "Rattachement", "Non relus", "Portées en échec de lecture"], rows.map(([lot, entry]) => [
+      lotLabel(lot), entry.documents, entry.score.keys_scored, entry.score.keys_ok, entry.score.keys_out_of_tolerance, entry.score.keys_missed,
+      entry.score.keys_out_of_score, `${entry.score.false_positive_groups} / ${entry.score.false_positive_items}`, entry.score.unreadable,
+      entry.score.attachment_rate === null ? null : `${(entry.score.attachment_rate * 100).toFixed(1)} %`, entry.score.not_reviewed,
+      entry.score.scopes_read_failed,
+    ])),
+    "",
+    `### ${title} : causes`,
+    table(["Lot", "Causes (une par clé ou groupe de faux positifs non apparié à une clé manquée)"], rows.map(([lot, entry]) => [lotLabel(lot),
+      Object.entries(entry.score.causes).map(([cause, count]) => `${cause} ${count}`).join(", ") || "–"])),
+    "",
+    `### ${title} : mesures`,
+    table(["Lot", "Appels", "Pages", "Jetons entrée", "Jetons sortie", "Jetons raisonnement", "p50 / p95 par page (s, timeouts ≥ 180 s)",
+      "p50 / p95 terminés (s)", "Timeouts", "Échecs de schéma", "Refus", "Échecs fournisseur", "Doublons fusionnés"],
+    rows.map(([lot, entry]) => [
+      lotLabel(lot), entry.calls, entry.pages, entry.tokens.input, entry.tokens.output, entry.tokens.reasoning,
+      `${seconds(entry.latency_per_page.p50_ms)} / ${seconds(entry.latency_per_page.p95_ms)} (n ${entry.latency_per_page.n})`,
+      `${seconds(entry.completed_latency_per_page.p50_ms)} / ${seconds(entry.completed_latency_per_page.p95_ms)} (n ${entry.completed_latency_per_page.n})`,
+      entry.statuses.timeout, entry.statuses.schema_failure, entry.statuses.rejected, entry.statuses.provider_failed, entry.duplicate_items,
+    ])),
+    "",
+    ...(summary.all.timeouts.length > 0 ? [
+      `### ${title} : timeouts`,
+      table(["Document", "Pages", "Taille (octets)", "Modèle", "Effort", "Durée (s)"], summary.all.timeouts.map((entry) => [
+        entry.document, `${entry.start_page}-${entry.end_page}`, entry.bytes, entry.model, entry.reasoning_effort ?? "auto", seconds(entry.duration_ms),
+      ])),
+      "",
+    ] : []),
+  ];
+}
+
+function scopeSection(scope: ScopeScore) {
+  const heading = `#### ${scope.documents.join(", ")} (lot ${scope.lot.toUpperCase()}${scope.role === "reserve" ? ", réserve" : ""})`;
+  const rooms = roomIndex([...scope.keys.map((key) => key.key), ...scope.false_positives.map((group) => group.key)]);
+  return [
+    heading,
+    ...scope.warnings.map((warning) => `- ${warning}`),
+    table(["Clé", "Statut", "Écart relatif", "Cause"], scope.keys.map((key) => [
+      formatKeyLabel(key.key, rooms),
+      key.status === "out_of_score" ? `${STATUS_LABELS[key.status]} (${OUT_OF_SCORE_LABELS[key.reason ?? "unit"]})` : STATUS_LABELS[key.status],
+      key.status === "out_of_tolerance" ? percent(key.relative_deviation) : null,
+      key.cause?.label ?? (key.plan_causes.length > 0 ? key.plan_causes.join(", ") : null),
+    ])),
+    "",
+    table(["Faux positif", "Items", "Cause"], scope.false_positives.map((group) => [
+      group.key ? formatKeyLabel(group.key, rooms) : `clé illisible (${group.reason})`, group.items,
+      group.paired_with ? `${group.cause.label} (apparié à ${formatKeyLabel(group.paired_with, rooms)})` : group.cause.label,
+    ])),
+    "",
+  ];
+}
+
+function stopLines(stop: BenchStop | null) {
+  if (stop === null) return [];
+  const at = stop.at
+    ? `, à ${stop.at.model}/${stop.at.reasoning_effort ?? "auto"} passe ${stop.at.pass}, ${stop.at.document}${stop.at.chunk === null ? "" : ` bloc ${stop.at.chunk}`}`
+    : ", avant le premier appel";
+  return [
+    "## Arrêt",
+    `- ${stop.kind === "bench" ? "Erreur du banc" : "Arrêt fournisseur"} : ${stop.reason} (${stop.error.name}${stop.error.code ? ` ${stop.error.code}` : ""} : `
+      + `${stop.error.message})${at}.`,
+    `- ${stop.calls_done} appel${stop.calls_done > 1 ? "s" : ""} fait${stop.calls_done > 1 ? "s" : ""}, `
+      + `${stop.calls_remaining} restant${stop.calls_remaining > 1 ? "s" : ""}.`,
+    "",
+  ];
+}
+
+function shellWord(word: string) {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`;
+}
+
+/** The command as it reruns: from its directory, with its variables. */
+export function commandLine(metadata: Pick<BenchReportMetadata, "command" | "cwd" | "env">) {
+  const env = Object.entries(metadata.env).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([name, value]) => `${name}=${shellWord(value)}`);
+  return [`cd ${shellWord(metadata.cwd)} &&`, ...env, ...metadata.command.map(shellWord)].join(" ");
+}
+
+export function renderBenchReportMarkdown(report: BenchReport) {
+  const { metadata } = report;
+  const lines = [
+    `# Banc métré niveau C (TI-660) : ${report.status === "complete" ? "run complet" : "run incomplet"}`,
+    "",
+    `- Date : ${metadata.started_at} → ${metadata.finished_at}`,
+    `- Commande : \`${commandLine(metadata)}\``,
+    `- Commit : ${metadata.commit ?? "inconnu"}${metadata.dirty === null ? "" : metadata.dirty ? " (modifications locales)" : " (propre)"}, Node ${metadata.node}`,
+    `- Dataset : SHA-256 ${metadata.dataset.sha256}, ${metadata.dataset.documents.length} document${metadata.dataset.documents.length > 1 ? "s" : ""} `
+      + `(${metadata.dataset.documents.map((document) => `${document.id}${document.role === "reserve" ? " réserve" : ""}`).join(", ") || "aucun"})`,
+    ...(metadata.dataset.skipped.length > 0
+      ? [`- Ignorés : ${metadata.dataset.skipped.map((entry) => `${entry.id} (${entry.reason})`).join(", ")}`] : []),
+    `- Prompt : ${getTakeoffPromptVersion("C")} (niveau C, schéma v1) ; lecteur de clés v${ITEM_KEY_READER_VERSION}, score v${SCORE_VERSION}, `
+      + `table des diamètres v${DIAMETER_TABLE_VERSION}`,
+    `- Profil ChatGPT : ${metadata.profile.model ?? "aucun modèle"} / ${metadata.profile.reasoning_effort ?? "auto"}, inchangé après le run : `
+      + `${metadata.profile.unchanged === null ? "non vérifié" : metadata.profile.unchanged ? "oui" : "NON"}`,
+    `- Appels : ${report.calls_done} faits sur ${report.calls_planned} prévus`,
+    "",
+    ...stopLines(report.stop),
+    "## Écarts avec la production",
+    ...report.production_gaps.map((gap) => `- ${gap}`),
+    "",
+    "Tolérances : u exact, ml ±10 %, m2 ±max(2 %, 0,5 m²). Rattachement : items dont la clé est lue ÷ items.",
+    "",
+  ];
+  for (const couple of report.couples) {
+    for (const pass of couple.passes) {
+      lines.push(
+        `## ${couple.model} / ${couple.reasoning_effort ?? "auto"}${couple.override === null ? "" : couple.override ? " (override)" : " (profil)"}, `
+          + `prompt ${couple.prompt_version ?? "–"} : passe ${pass.pass}${pass.complete ? "" : " (incomplète)"}`,
+        "",
+        ...groupSection("Lots hors réserve", pass.summary.main),
+        ...groupSection("Réserve", pass.summary.reserve),
+        `### Indicatif (${pass.indicative.note})`,
+        `- passed : ${pass.indicative.passed}, failedChecks : ${pass.indicative.failedChecks.join(", ") || "aucun"}`,
+        `- précision ${pass.indicative.precision}, rappel ${pass.indicative.recall}, quantités ${pass.indicative.quantityAccuracy}, `
+          + `preuves localisées ${pass.indicative.localizedProofCoverage}, erreurs à haute confiance ${pass.indicative.highConfidenceErrorRate}`,
+        "",
+        "### Clés",
+        "",
+        ...pass.scopes.filter((scope) => scope.status === "scored").flatMap(scopeSection),
+      );
+      const notRun = pass.scopes.filter((scope) => scope.status === "not_run").map((scope) => scope.documents.join("+"));
+      if (notRun.length > 0) lines.push(`Non notés (un de leurs documents n'a pas été lu dans cette passe) : ${notRun.join(", ")}`, "");
+      const unread = pass.scopes.filter((scope) => scope.status === "read_failed").flatMap((scope) => scope.unread_pages)
+        .map((entry) => `${entry.document} pages ${entry.start_page}-${entry.end_page} (${entry.status})`);
+      if (unread.length > 0) lines.push(`Non notés (lecture en échec, leurs clés ne sont pas imputées au modèle) : ${unread.join(", ")}`, "");
+    }
+    if (couple.passes.length === 0) lines.push(`## ${couple.model} / ${couple.reasoning_effort ?? "auto"} : aucune passe`, "");
+  }
+  if (report.noise) {
+    const rooms = roomIndex(report.noise.keys.map((key) => key.key));
+    lines.push("## Bruit de mesure (truth/noise.json) face aux tolérances", "",
+      // The reason is free text of the private dataset: report.json keeps it, report.md does not.
+      `Statut : ${report.noise.status}.`, "",
+      table(["Clé", "Écart relatif", "Tolérance relative", "Dans la tolérance"], report.noise.keys.map((key) => [
+        formatKeyLabel(key.key, rooms), percent(key.relative_deviation),
+        key.tolerance_relative === null ? "hors score" : `${(key.tolerance_relative * 100).toFixed(0)} %`,
+        key.within !== null ? (key.within ? "oui" : "non")
+          : scoredUnit(key.unit) === "m2" && key.relative_deviation !== null ? NOISE_M2_UNDETERMINED : "–",
+      ])), "");
+  }
+  return `${lines.join("\n")}\n`;
+}

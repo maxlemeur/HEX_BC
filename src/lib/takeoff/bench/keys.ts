@@ -52,6 +52,13 @@ export const PLAN_CAUSES = [
 ] as const;
 export type PlanCause = (typeof PLAN_CAUSES)[number];
 
+/**
+ * The plan causes a reviewer may give a key the bench missed on an observable
+ * line (TI-660 §5): vertical, non dessiné, hors plan, pas de séparation,
+ * prestation. A line not observable on the plan takes any of PLAN_CAUSES.
+ */
+export const REVIEWED_PLAN_CAUSES = ["vertical", "not_drawn", "off_plan", "no_separation", "service"] as const satisfies readonly PlanCause[];
+
 export const NETWORK_CODES = [
   "EF", "EFA", "ECS", "RECS", "EU", "EV", "EUV", "EUG", "EP", "CS", "COND", "VP", "GAZ", "RIA", "SPK",
   "CHW", "CHW-S", "CHW-R", "HW", "HW-S", "HW-R", "GLY", "GLY-S", "GLY-R",
