@@ -45,7 +45,7 @@ export async function signUpWorkerOwner(ui: WorkerUi, tag: string): Promise<Work
 }
 
 export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
-  options: { vectors?: boolean; owner?: WorkerOwner } = {}) {
+  options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
     throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
   }
@@ -55,6 +55,8 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
   const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
     // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
     ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
+    // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
+    ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
