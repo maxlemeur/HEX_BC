@@ -821,11 +821,40 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   const anonymous = await rawLabRequest(port, { method: "GET", path: vectorsApi, host: `127.0.0.1:${port}` });
   expect(anonymous.status).toBe(403);
   expect((await readdir(path.join(labOutputDir, "runs"))).filter((name) => name.endsWith(".json"))).toHaveLength(1);
+
+  // An essai answered after the document changed stays with its own page: the new selection is never read with it.
+  const otherDocument = "fixture-army-chatgpt-plan";
+  await app.open(`${localOrigin}${lab}/vectors`);
+  await screen.getByLabel("Document", { exact: true }).selectOption({ value: LAB_VECTOR_DOCUMENT });
+  await expect(rows).toHaveCount(3);
+  const heldStart = (await readTransport()).length;
+  await setDecisionsControl({ hold: true });
+  let relaunched: Awaited<ReturnType<typeof browser.waitForResponse>>;
+  try {
+    const answered = browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 });
+    await launch.click();
+    await expect.poll(async () => (await readTransport()).slice(heldStart).filter((entry) => entry.provider === "decisions-fixture").length).toBe(1);
+    await screen.getByLabel("Document", { exact: true }).selectOption({ value: otherDocument });
+    await setDecisionsControl({});
+    relaunched = await answered;
+  } finally {
+    await setDecisionsControl({});
+  }
+  expect(relaunched.status).toBe(201);
+  const staleRunId = ((await relaunched.json()) as { data: { id: string } }).data.id;
+  await expect(screen.getByText(/Ce classement porte sur une autre sélection/)).toBeVisible();
+  await expect(screen.getByLabel("Document", { exact: true })).toHaveValue(otherDocument);
+  await expect(panel).toContainText("« Classer avec Decisions » demande une classe");
+  await expect(screen.getByText("Cet essai porte sur une autre page ou un autre document.", { exact: true })).toHaveCount(0);
+  const staleRun = JSON.parse(await readFile(path.join(labOutputDir, "runs", `lab-${staleRunId}.json`), "utf8"));
+  expect(staleRun).toMatchObject({ status: "complete", document: { id: LAB_VECTOR_DOCUMENT }, configs: [{ status: "ok" }] });
+  expect((await readdir(path.join(labOutputDir, "runs"))).filter((name) => name.endsWith(".json"))).toHaveLength(2);
   await recordEvidence(army, "lab-vectors-classification", { document: LAB_VECTOR_DOCUMENT, runId: run.id, promptVersion: run.prompt.version,
     keywordReading: { scale: keywordReading.body.data.scale, networks: keywordReading.body.data.networks },
     classified: { group: reseau.id, class: "EU", confidence: 0.8, networks: applied.body.data.networks },
     decisionsCalls: sent.filter((entry) => entry.provider === "decisions-fixture"), externalApiCalled: false,
     refusals: { otherHost: otherHost.status, member: memberApi.status, anonymous: anonymous.status },
+    staleRun: { id: staleRunId, document: staleRun.document.id, shownOn: otherDocument, appliedToNewSelection: false },
     screenshots: { screenshot1440, screenshot1920 } });
 });
 

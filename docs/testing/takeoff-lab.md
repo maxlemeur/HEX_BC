@@ -123,8 +123,13 @@ Son dataset fictif et sa sortie vide sont sous
 
 L'écran Vecteurs est prouvé par VEC01 de `chatgpt-local.e2e.ts` : un plan fictif
 à calques (`lab-vector-plan-fixture.ts`) dans un dataset fictif sous les artefacts
-du run, la fixture Decisions qui répond EU à 0,8 pour chaque groupe. LAB03
-vérifie aussi les refus de sa route.
+du run, la fixture Decisions qui répond EU à 0,8 pour chaque groupe. Il retient
+aussi la réponse Decisions pendant un changement de document : l'essai enregistré
+ne s'applique pas à la nouvelle sélection. LAB03 vérifie aussi les refus de sa
+route. Les arrêts que le navigateur ne peut pas provoquer (rendu dédié ou appel
+dédié en échec après des réponses payées, course de deux essais sur le plafond,
+appels sans usage) sont vérifiés par `src/lib/takeoff/lab/vectors.test.ts` et
+`src/lib/takeoff/lab/runs.test.ts`.
 
 ```sh
 npm run e2e:army:local -- --grep 'LAB0|VEC01'

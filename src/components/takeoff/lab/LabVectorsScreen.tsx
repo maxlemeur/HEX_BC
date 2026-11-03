@@ -28,7 +28,9 @@ import { cn } from "@/lib/utils";
 // drawn over it, the scale and detection badges and the measured networks; on
 // the right the Decisions run (latency, tokens, probabilities, raw JSON). The
 // checked groups are the selection « Copier la sélection » gives as the
-// dataset's truth/groups JSON: the lab never writes the dataset.
+// dataset's truth/groups JSON: the lab never writes the dataset. An essai
+// that answers after the document or page changed is not applied to the new
+// selection: a notice points to its document's history.
 
 const RESULTS_MIN = 320;
 const PALETTE = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-3)", "var(--color-chart-4)", "var(--color-chart-5)"];
@@ -90,6 +92,7 @@ export function LabVectorsScreen() {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(null);
   const [copy, setCopy] = useState<{ status: "copied" | "refused"; json: string; count: number } | null>(null);
   const [history, setHistory] = useState<LabRunSummary[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -97,6 +100,9 @@ export function LabVectorsScreen() {
   const [rightOpen, setRightOpen] = useState(true);
   const [resultsWidth, setResultsWidth] = useState(420);
   const fieldId = useId();
+  // The selection now, read when an essai answers: one launched before a document or page change stays with its own page.
+  const selection = useRef({ documentId, page });
+  useEffect(() => { selection.current = { documentId, page }; }, [documentId, page]);
   const list = useRef<HTMLUListElement>(null);
   const workArea = useRef<HTMLDivElement>(null);
   const [workWidth, setWorkWidth] = useState(0);
@@ -231,14 +237,19 @@ export function LabVectorsScreen() {
     if (blocked || !task || !document) return;
     setLaunching(true);
     setLaunchError(null);
+    setLaunchNotice(null);
     try {
       const result = await labApi.launch({
         documentId: document.id, campaign, taskId: task.id, crop: document.pages > 1 ? { page, box: null } : null,
         prompt: task.defaultPrompt, configs: [{ provider: "decisions" }], image: null,
       });
-      setRun(result);
-      setRunId(result.id);
-      setRightOpen(true);
+      if (result.document.id === selection.current.documentId && (result.crop?.page ?? 1) === selection.current.page) {
+        setRun(result);
+        setRunId(result.id);
+        setRightOpen(true);
+      } else {
+        setLaunchNotice(`Ce classement porte sur une autre sélection (${result.document.id}, page ${result.crop?.page ?? 1}) : retrouvez-le dans l’historique de ce document.`);
+      }
       await Promise.all([refresh(), loadHistory()]);
     } catch (error) {
       setLaunchError(errorMessage(error));
@@ -348,6 +359,7 @@ export function LabVectorsScreen() {
           </div>
           <div className="shrink-0 space-y-1.5 border-t border-border bg-surface p-3">
             {launchError ? <Alert variant="danger" className="px-3 py-2 text-xs">{launchError}</Alert> : null}
+            {launchNotice ? <Alert variant="info" className="px-3 py-2 text-xs">{launchNotice}</Alert> : null}
             <Button className="w-full" size="lg" leftIcon={<Sparkles />} loading={launching} disabled={Boolean(blocked)} onClick={() => void launch()}>
               Classer avec Decisions
             </Button>
