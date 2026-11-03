@@ -51,23 +51,42 @@ export function LabVerdictsScreen() {
   const root = useRef<HTMLDivElement>(null);
   /** The campaign last asked for: a slower answer for another one is dropped. */
   const requested = useRef("");
+  /**
+   * The campaign whose elements are on screen. While another one loads, the previous elements are
+   * cleared and every verdict action waits: a verdict would otherwise pair the new campaign with
+   * an element of the old one, and « Annuler » would undo in a campaign not yet displayed.
+   */
+  const shown = useRef<string | null>(null);
+  const [loadedCampaign, setLoadedCampaign] = useState<string | null>(null);
 
   const load = useCallback(async (name: string) => {
     requested.current = name;
     if (!name) return;
+    if (shown.current !== name) {
+      shown.current = null;
+      setLoadedCampaign(null);
+      setElements([]);
+    }
     setLoading(true);
     setError(null);
     try {
       const campaignElements = (await labApi.campaign(name)).elements;
-      if (requested.current === name) setElements(campaignElements);
+      if (requested.current === name) {
+        setElements(campaignElements);
+        shown.current = name;
+        setLoadedCampaign(name);
+      }
     } catch (cause) {
       if (requested.current !== name) return;
       setError(errorMessage(cause));
       setElements([]);
+      shown.current = null;
+      setLoadedCampaign(null);
     } finally {
       if (requested.current === name) setLoading(false);
     }
   }, []);
+  const ready = loadedCampaign !== null && loadedCampaign === campaign;
   useEffect(() => { void load(campaign); }, [campaign, load]);
 
   const configKey = (element: LabCampaignElement) => configLabel(element);
@@ -91,7 +110,7 @@ export function LabVerdictsScreen() {
   }, [queue]);
 
   const judge = useCallback(async (verdict: LabVerdict) => {
-    if (!current || saving.current) return;
+    if (!ready || !current || saving.current) return;
     saving.current = true;
     setBusy(true);
     setError(null);
@@ -108,18 +127,18 @@ export function LabVerdictsScreen() {
       saving.current = false;
       setBusy(false);
     }
-  }, [campaign, current, next, stateFilter]);
+  }, [campaign, current, next, ready, stateFilter]);
 
   const skip = useCallback(() => {
-    if (!current || saving.current) return;
+    if (!ready || !current || saving.current) return;
     const following = next(current)?.id ?? null;
     setSkipped((set) => new Set(set).add(current.id));
     setCurrentId(following);
     setNotice("Passé : reste non évalué.");
-  }, [current, next]);
+  }, [current, next, ready]);
 
   const undo = useCallback(async () => {
-    if (!campaign || saving.current) return;
+    if (!ready || !campaign || saving.current) return;
     saving.current = true;
     setBusy(true);
     setError(null);
@@ -136,7 +155,7 @@ export function LabVerdictsScreen() {
       saving.current = false;
       setBusy(false);
     }
-  }, [campaign]);
+  }, [campaign, ready]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -256,16 +275,16 @@ export function LabVerdictsScreen() {
       )}
       <div className="flex shrink-0 flex-col items-center gap-1 border-t border-border bg-surface-subtle px-4 py-2">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="md" leftIcon={<Undo2 />} onClick={() => void undo()} disabled={busy || !campaign || !state.configured}>
+          <Button variant="ghost" size="md" leftIcon={<Undo2 />} onClick={() => void undo()} disabled={busy || !ready || !campaign || !state.configured}>
             Annuler<Kbd>Échap</Kbd>
           </Button>
-          <Button variant="danger" size="lg" leftIcon={<X />} onClick={() => void judge("bad")} disabled={busy || !current || !state.configured} className="min-w-36">
+          <Button variant="danger" size="lg" leftIcon={<X />} onClick={() => void judge("bad")} disabled={busy || !ready || !current || !state.configured} className="min-w-36">
             Pas bon<Kbd>B</Kbd>
           </Button>
-          <Button variant="outline" size="md" leftIcon={<SkipForward />} onClick={skip} disabled={busy || !current}>
+          <Button variant="outline" size="md" leftIcon={<SkipForward />} onClick={skip} disabled={busy || !ready || !current}>
             Passer<Kbd>S</Kbd>
           </Button>
-          <Button variant="primary" size="lg" leftIcon={<Check />} onClick={() => void judge("good")} disabled={busy || !current || !state.configured} className="min-w-36">
+          <Button variant="primary" size="lg" leftIcon={<Check />} onClick={() => void judge("good")} disabled={busy || !ready || !current || !state.configured} className="min-w-36">
             Bon<Kbd>G</Kbd>
           </Button>
         </div>
