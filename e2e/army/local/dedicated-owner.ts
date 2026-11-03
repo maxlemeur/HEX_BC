@@ -20,7 +20,8 @@ export type DedicatedOwner = {
  * journey signs up its own account (self sign-up without confirmation, anon key only), renames its
  * personal tenant `ARMY <tag> <run>`, sets its UI mode as the native owner when asked, and swaps this
  * browser context's Supabase session cookies for it; the other contexts keep the campaign account.
- * The password never leaves this process and the session lives only in this context's cookies.
+ * The password never leaves this process and the session lives only in this context's cookies, unless the
+ * journey supplies it (`password`) to sign its own worker child in as this owner (takeoff worker journeys, TI-662).
  *
  * Lot 2, sub-lot 2.10b (D-i, docs/testing/estimate-engine-v3-2.10.md): since M8 a tenant without a policy
  * row creates engine 3. A dedicated owner is a v1/v2 owner unless its journey says otherwise: its tenant gets
@@ -30,7 +31,7 @@ export type DedicatedOwner = {
  */
 export async function signUpDedicatedOwner(
   browser: Browser, appBaseUrl: string, runPrefix: string,
-  role: { tag: string; uiMode?: "expert"; calcPolicy?: "absent" },
+  role: { tag: string; uiMode?: "expert"; calcPolicy?: "absent"; password?: string },
 ): Promise<DedicatedOwner> {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -40,6 +41,7 @@ export async function signUpDedicatedOwner(
     !/^[A-Z0-9]{2,8}$/.test(role.tag)) {
     throw new Error("A dedicated owner requires the owned loopback stack and app (npm run e2e:army:local or e2e:army:ci).");
   }
+  if (role.password !== undefined && role.password.length < 16) throw new Error("A dedicated owner's own password needs 16 characters or more.");
   const current = await browser.cookies();
   const written: Array<{ name: string; value: string; remove: boolean }> = [];
   const client = createServerClient(backend.origin, anonKey, {
@@ -51,7 +53,7 @@ export async function signUpDedicatedOwner(
     },
   });
   const email = `${runPrefix.toLowerCase()}-${role.tag.toLowerCase()}-owner@example.test`;
-  const { data, error } = await client.auth.signUp({ email, password: `Army-${randomUUID()}-A1!` });
+  const { data, error } = await client.auth.signUp({ email, password: role.password ?? `Army-${randomUUID()}-A1!` });
   const userId = data.user?.id ?? "";
   if (error || !data.session || !UUID.test(userId)) throw new Error("The dedicated owner could not be signed up locally.");
   if (!written.some(cookie => !cookie.remove)) throw new Error("The dedicated owner session produced no cookie.");

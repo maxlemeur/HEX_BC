@@ -285,9 +285,13 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
 // TI-662 (L3): the vector reading of a level C plan is persisted beside its result, read back by the review
 // viewer under the user's session, and invisible to another tenant (API and RLS). Fictional plan, no model.
 // Review of PR #147: the room measured on its closed polygon is persisted and drawn with the networks.
+// CI of PR #147 (written before the fix): TKW08 and TKW09 seeded their pending jobs as the campaign account, whose
+// admission budget (10 per user and tenant in 24 h, never freed) the other takeoff journeys of the stack also spend:
+// after one earlier job in its CI shard, TKW09 was refused TAKEOFF_JOB_ADMISSION_LIMIT (it alone was the account's
+// 10th admission of the file). Each now runs as its own dedicated owner and spends none of the campaign's budget.
 armyTest("TKW08 a vector plan read at level C persists its measured networks and room, shows them in the review and stays invisible to another tenant", options, async (ui) => {
-  const { ids, jobId, fileName, tenantId, planFileId, seedJob } = await launchWorkerVectorPlan(ui);
-  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true }).done;
+  const { ids, jobId, fileName, tenantId, planFileId, seedJob, owner: jobOwner } = await launchWorkerVectorPlan(ui);
+  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner: jobOwner }).done;
   expect(completed.outcome.status).toBe("completed");
   expect(completed.job).toMatchObject({ status: "completed", level: "C" });
   expect(completed.providerCalls).toBe(1);
@@ -399,7 +403,7 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
 
   // Control: the same plan read without MERGEONE_TAKEOFF_VECTORS writes no vector row and no vector item.
   const controlJobId = await seedJob();
-  const control = await startOwnedWorker(ui, ids, controlJobId).done;
+  const control = await startOwnedWorker(ui, ids, controlJobId, "success", { owner: jobOwner }).done;
   expect(control.outcome.status).toBe("completed");
   expect(control.job).toMatchObject({ status: "completed", level: "C" });
   expect([control.vectorPages, control.geometries, control.items.map((item) => item.designation)])
@@ -410,6 +414,7 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
 
   // Another tenant: its owner sees neither the job nor its vector reading, through the API or the RLS.
   const owner = await ownedEstimateContext(ids.projectId);
+  expect(owner).toMatchObject({ tenantId, userId: jobOwner.userId });
   const foreign = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "VEC" });
   expect(foreign.tenantId).not.toBe(tenantId);
   const denied = await apiRequest<{ ok: boolean; data?: unknown; error?: { code: string } }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
@@ -436,8 +441,8 @@ ROLLBACK;\n`);
 // its preparation, which names it `upload:<SHA-256>`; its review draws the uploaded PDF itself, signed for the
 // user's session, and says so when that file is gone. The plan prints no scale. Fictional plan, no model.
 armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed calibration and its review draws the uploaded PDF", options, async (ui) => {
-  const { ids, jobId, fileName, tenantId, sourcePath, sha256, client } = await launchWorkerVectorUpload(ui);
-  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true }).done;
+  const { ids, jobId, fileName, tenantId, sourcePath, sha256, client, owner } = await launchWorkerVectorUpload(ui);
+  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner }).done;
   expect(completed.outcome.status).toBe("completed");
   expect(completed.job).toMatchObject({ status: "completed", level: "C" });
   const [resultId] = completed.resultIds;

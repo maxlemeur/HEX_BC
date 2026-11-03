@@ -9,6 +9,7 @@ import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from 
 
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
+import { signUpDedicatedOwner, type DedicatedOwner } from "../local/dedicated-owner";
 import { localTakeoffWorkerClient } from "./fixtures";
 import { localClient } from "./native-ui";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
@@ -29,8 +30,22 @@ export type WorkerResult = {
   geometries: Array<{ itemId: string; tenantId: string; pageId: string; kind: string; network: string | null; lengthM: number | null; segments: number }>;
 };
 
+/**
+ * A disposable owner for a takeoff worker journey (TI-662): its own account and tenant `ARMY <tag> <run>`, this browser
+ * context signed in as it. The admission rule (bound_takeoff_job_admission) admits 10 pending jobs per user and tenant in
+ * 24 h, a ledger that completing, cancelling or deleting a job never frees: on the campaign account, the jobs of every
+ * other takeoff journey of the stack count, so a journey that seeds its jobs as this owner depends on none of them.
+ * Its password goes only to this journey's own worker child, which signs in as the job's owner.
+ */
+export type WorkerOwner = DedicatedOwner & { password: string };
+
+export async function signUpWorkerOwner(ui: WorkerUi, tag: string): Promise<WorkerOwner> {
+  const password = `Army-${randomUUID()}-W1!`;
+  return { ...await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag, password }), password };
+}
+
 export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
-  options: { vectors?: boolean } = {}) {
+  options: { vectors?: boolean; owner?: WorkerOwner } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
     throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
   }
@@ -39,7 +54,9 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
     "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER"];
   const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
     // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
-    ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}) };
+    ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
+    // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
+    ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
     ids.projectId, ids.versionId, jobId, ui.army.runPrefix, mode], { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
   let resolveProvider!: (value: { event: string; jobId: string; status: string }) => void;
@@ -133,6 +150,7 @@ export async function launchWorkerPdf(ui: WorkerUi) {
 // TI-662: a level C job on a fictional vector plan (vector-plan-fixture.ts) uploaded through the plans UI.
 export async function launchWorkerVectorPlan(ui: WorkerUi) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
+  const owner = await signUpWorkerOwner(ui, "VPL");
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-TKW08`, title: "Plan vectoriel" }, ui.army);
   expect((await readEstimate(ui.browser, ids.versionId)).version.calc_engine_version).toBe(2);
   const plans = await createPlanSet(ui, ui.army, ids, `${ui.army.runPrefix} plans vectoriels`);
@@ -154,8 +172,9 @@ export async function launchWorkerVectorPlan(ui: WorkerUi) {
   await expect(ui.screen.getByRole("button", `Supprimer ${fileName}`, { exact: true })).toBeVisible();
   const [file] = await readPlanFiles(ui.browser, plans.id);
   expect(file).toMatchObject({ plan_set_id: plans.id, file_name: storedName, file_type: "application/pdf", file_size_bytes: bytes.length });
-  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
-  const { userId } = await localClient();
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
+  expect(tenantId).toBe(owner.tenantId);
+  const userId = owner.userId;
   const plan = await client.from("plan_files").select("file_path").eq("id", file.id).single();
   expect(plan.error).toBeNull();
   // A pending level C job on this plan file; the journey seeds a second one as its flag-off control.
@@ -171,9 +190,9 @@ export async function launchWorkerVectorPlan(ui: WorkerUi) {
   const jobId = await seedJob();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
-  await recordEvidence(ui.army, "TKW08-vector-plan-created", { ids, planSetId: plans.id, file, job, tenantId,
-    boundary: "Fictional vector PDF uploaded through the plans UI; the pending level C job is seeded on the owned stack." });
-  return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id, seedJob };
+  await recordEvidence(ui.army, "TKW08-vector-plan-created", { ids, planSetId: plans.id, file, job, tenantId, owner: owner.userId,
+    boundary: "Fictional vector PDF uploaded through the plans UI by the journey's dedicated owner; its pending level C jobs are seeded on the owned stack." });
+  return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id, seedJob, owner };
 }
 
 // TI-662 (review of PR #147): a level C job on the fictional vector plan uploaded directly (no plan set), its page
@@ -182,12 +201,14 @@ export async function launchWorkerVectorPlan(ui: WorkerUi) {
 // does; it is built by the product's own snapshot builder and seeded with the job on the owned stack.
 export async function launchWorkerVectorUpload(ui: WorkerUi) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
+  const owner = await signUpWorkerOwner(ui, "VUP");
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-TKW09`, title: "Plan vectoriel téléversé" }, ui.army);
   const fileName = "plan-vectoriel-R+1-Z2.pdf";
   const bytes = Buffer.from(await buildVectorPlanPdf({ printedScale: false }));
   const hash = createHash("sha256").update(bytes).digest("hex");
-  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
-  const { userId } = await localClient();
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
+  expect(tenantId).toBe(owner.tenantId);
+  const userId = owner.userId;
   const preparation = createEmptyTakeoffPreparation({ estimateVersionId: ids.versionId });
   preparation.objective = "measure_length";
   preparation.objective_confirmed = true;
@@ -217,9 +238,10 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
   expect(inserted.error).toBeNull();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
-  await recordEvidence(ui.army, "TKW09-vector-upload-created", { ids, jobId, tenantId, sha256: hash, calibration: preparation.conventions.calibration,
-    boundary: "Fictional vector PDF without printed scale stored as a direct upload; its confirmed preparation and pending level C job are seeded on the owned stack." });
-  return { ids, jobId, fileName, tenantId, sourcePath, sha256: hash, client };
+  await recordEvidence(ui.army, "TKW09-vector-upload-created", { ids, jobId, tenantId, owner: owner.userId, sha256: hash,
+    calibration: preparation.conventions.calibration,
+    boundary: "Fictional vector PDF without printed scale stored as a direct upload by the journey's dedicated owner; its confirmed preparation and pending level C job are seeded on the owned stack." });
+  return { ids, jobId, fileName, tenantId, sourcePath, sha256: hash, client, owner };
 }
 
 /** What the review viewer draws: the painted canvas (bluish pixels: the blue pipes), the centrelines and room polygons of its SVG. */
