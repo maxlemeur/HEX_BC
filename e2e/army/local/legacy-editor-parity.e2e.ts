@@ -1036,6 +1036,8 @@ armyTest("LEP07 a reload during the learning read cancels it without reporting a
 // - LEP10: while a title is edited, a click on another line's title blurs the
 //   first; that blur's pass saw the body as lost focus, refocused the clicked
 //   cell and cancelled the click's own focus, so typing replaced the title.
+// - LEP11: a modifier click on a line's text selects the line without moving
+//   native focus; the clicked cell must still receive it, as before.
 // LEP08 and LEP09 force their ordering instead of waiting for CI load to hit it.
 armyTest("LEP08 a cell focused while a deferred editor render is pending keeps the focus and the tab stop", options,
   async ({ app, screen, browser, army }) => {
@@ -1209,4 +1211,26 @@ armyTest("LEP10 a click on another line's title while a title is edited puts the
     } finally {
       await recordEvidence(army, "lep10-click-title-while-editing", { ...ids, focusAfterClick });
     }
+  });
+
+armyTest("LEP11 a modifier click on a line's total selects the line and moves focus to that cell", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { ids, lines } = await prepare(ui, army, "LEP11", 2);
+    await openSeededEditor(ui, ids);
+    const firstTotal = cell(ui, lines[0].id, "line_total_ht");
+    const secondTotal = cell(ui, lines[1].id, "line_total_ht");
+    await firstTotal.focus();
+    await expect.poll(() => activeCellId(ui)).toBe(`${lines[0].id}::line_total_ht`);
+    // The row handler cancels this mousedown (no text selection), so native
+    // focus does not move by itself.
+    await secondTotal.click({ modifiers: ["ControlOrMeta"] });
+    await expectSelection(ui, [lines[1].id]);
+    const state = () => browser.evaluate((id) => {
+      const element = document.querySelector<HTMLElement>(`[data-cell-id="${id}"]`);
+      return { focused: element === document.activeElement, tabStop: element?.tabIndex === 0 };
+    }, `${lines[1].id}::line_total_ht`);
+    await expect.poll(state).toEqual({ focused: true, tabStop: true });
+    await browser.keyboard.press("ArrowUp");
+    await expect.poll(() => activeCellId(ui)).toBe(`${lines[0].id}::line_total_ht`);
   });

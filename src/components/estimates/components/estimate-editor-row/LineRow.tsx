@@ -488,6 +488,9 @@ export function LineRow({
     }
 
     event.preventDefault();
+    // No text selection, so no native focus either: the clicked cell, made
+    // active by its mousedown, takes focus here (TI-668).
+    target.closest<HTMLElement>("[data-cell-id]")?.focus({ preventScroll: true });
     onLineSelectionInteraction({
       id: item.id,
       shiftKey: event.shiftKey,
