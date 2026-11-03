@@ -24,6 +24,7 @@ import type {
 import {
   ZONE_OVERLAP,
   ZONE_OVERLAP_VERSION,
+  CoverageCache,
   commonLength,
   coveredBy,
   minCommonLength,
@@ -376,6 +377,8 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
 
     // Pairs of lines that may be one run, on two pages: their common length.
     const pairs: DuplicatePair[] = [];
+    // One coverage per line, partner and minimum, read by the pairs and by the settlement of their groups.
+    const coverage = new CoverageCache();
     const unregistered = new Set<string>();
     const sizes = new Map(levelLines.map((line) => [line.id, sizesOf(line.inputs)]));
     for (const [index, left] of levelLines.entries()) {
@@ -392,7 +395,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         }
         const minimum = minCommonLength([pages.get(left.page_key)?.denominator, pages.get(right.page_key)?.denominator]);
         const overlap = commonLength({ id: left.id, segments: left.geometry.segments_m }, leftTransform,
-          { id: right.id, segments: right.geometry.segments_m }, rightTransform, minimum);
+          { id: right.id, segments: right.geometry.segments_m }, rightTransform, minimum, coverage);
         if (overlap > 0 && overlap >= minimum) pairs.push({ left: left.id, right: right.id, overlap_m: overlap });
       }
     }
@@ -428,7 +431,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       members.set(root, [...(members.get(root) ?? []), line]);
     }
     for (const [root, lines] of members) {
-      // Lines of applied jobs first, then in the level's page order: each shared stretch is taken once, on its first line.
+      // Lines of applied jobs first, then in the level's page order (the settlement itself depends on no order).
       const ordered = [...lines].sort((left, right) => Number(right.frozen) - Number(left.frozen)
         || (pages.get(left.page_key)?.order ?? 0) - (pages.get(right.page_key)?.order ?? 0) || byText(left.id, right.id));
       const minimumOf = (line: ZoneLine, other: ZoneLine) =>
@@ -436,7 +439,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       const stretches = sharedStretches(ordered.map((line) => ({
         ...overlapLine(line), id: line.id,
         partners: partnersOf(line.id, true).map((other) => ({ ...overlapLine(other), id: other.id, minimum: minimumOf(line, other) })),
-      })));
+      })), coverage);
       groupOutcome.set(root, settleDuplicates(ordered.map((line) => ({ id: line.id, frozen: line.frozen, reduction_m: reduction(line) })),
         stretches));
     }

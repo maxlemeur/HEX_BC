@@ -173,16 +173,20 @@ function continuous(covered: readonly Stretch[], minimum: number): Stretch[] {
     while (parent[index] !== index) index = parent[index] = parent[parent[index]];
     return index;
   };
-  const cell = 1;
-  const ends = new Map<string, number[]>();
-  const reach = Math.max(minimum, ZONE_OVERLAP.distance_m);
+  // Ends indexed in cells as wide as the reach: a candidate is an end within reach of one of the stretch's ends.
+  const reach = Math.max(minimum, ZONE_OVERLAP.distance_m) + EPSILON_M;
+  const cell = reach;
+  const ends = new Map<string, Array<[number, number, number]>>();
   stretches.forEach((stretch, index) => {
     const [x0, y0, x1, y1] = stretch;
     const near = new Set<number>();
     for (const [x, y] of [[x0, y0], [x1, y1]]) {
-      for (let cx = Math.floor((x - reach) / cell); cx <= Math.floor((x + reach) / cell); cx += 1) {
-        for (let cy = Math.floor((y - reach) / cell); cy <= Math.floor((y + reach) / cell); cy += 1) {
-          for (const other of ends.get(`${cx},${cy}`) ?? []) near.add(other);
+      const [cx, cy] = [Math.floor(x / cell), Math.floor(y / cell)];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (const [other, ox, oy] of ends.get(`${cx + dx},${cy + dy}`) ?? []) {
+            if (Math.abs(ox - x) <= reach && Math.abs(oy - y) <= reach && Math.hypot(ox - x, oy - y) <= reach) near.add(other);
+          }
         }
       }
     }
@@ -194,8 +198,8 @@ function continuous(covered: readonly Stretch[], minimum: number): Stretch[] {
     for (const [x, y] of [[x0, y0], [x1, y1]]) {
       const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
       const list = ends.get(key);
-      if (!list) ends.set(key, [index]);
-      else if (list[list.length - 1] !== index) list.push(index);
+      if (!list) ends.set(key, [[index, x, y]]);
+      else list.push([index, x, y]);
     }
   });
   const totals = new Map<number, number>();
@@ -251,15 +255,32 @@ function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Stre
  * stretches of at least `minimum` (minCommonLength), the smaller of both directions.
  */
 export function commonLength(left: OverlapLine, leftTransform: TakeoffFrameTransform, right: OverlapLine,
-  rightTransform: TakeoffFrameTransform, minimum = 0): number {
-  const a = transformed(left.segments, leftTransform);
-  const b = transformed(right.segments, rightTransform);
-  if (a.length === 0 || b.length === 0) return 0;
-  const cell = 1;
-  const forward = unionLength(continuous(coveredStretches(a, new SegmentGrid(b, cell)), minimum));
+  rightTransform: TakeoffFrameTransform, minimum = 0, cache?: CoverageCache): number {
+  const coverage = cache ?? new CoverageCache();
+  const forward = unionLength(coverage.of(left, leftTransform, right, rightTransform, minimum));
   if (forward === 0) return 0;
-  const backward = unionLength(continuous(coveredStretches(b, new SegmentGrid(a, cell)), minimum));
+  const backward = unionLength(coverage.of(right, rightTransform, left, leftTransform, minimum));
   return Math.round(Math.min(forward, backward) * 1000) / 1000;
+}
+
+/**
+ * What a partner covers of a line (its continuous stretches of at least the pair's minimum), computed once per line,
+ * partner and minimum within one evaluation (lines and their frames do not change during it): the pairs and the
+ * settlement of a group read the same coverage.
+ */
+export class CoverageCache {
+  private readonly entries = new Map<string, Stretch[]>();
+
+  of(line: OverlapLine, transform: TakeoffFrameTransform, other: OverlapLine, otherTransform: TakeoffFrameTransform, minimum: number) {
+    const key = `${line.id}|${other.id}|${minimum}`;
+    const cached = this.entries.get(key);
+    if (cached) return cached;
+    const own = transformed(line.segments, transform);
+    const segments = transformed(other.segments, otherTransform);
+    const kept = own.length === 0 || segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), minimum);
+    this.entries.set(key, kept);
+    return kept;
+  }
 }
 
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
@@ -283,10 +304,14 @@ export function coveredBy(line: OverlapLine, transform: TakeoffFrameTransform,
 /** A line of a group of duplicates (the lines joined by pairs) and its reduction (measured − quantity). */
 export type SettleLine = { id: string; frozen: boolean; reduction_m: number };
 
-/** A stretch of the group drawn by `lines` (k of them, each over its whole length): counted k − 1 times too many. */
-export type SharedStretch = { lines: string[]; length_m: number };
+/**
+ * Stretches of the group drawn by the same `lines` (each over its whole length), `pairs` the partners among them.
+ * Copies of lines that are not partners (a touch under the minimum common length, two pipes 10 cm apart) are not
+ * duplicates of each other.
+ */
+export type SharedStretch = { lines: string[]; length_m: number; pairs: Array<[string, string]> };
 
-/** A line of a group, in the group's order, with its partners and each pair's minimum common length. */
+/** A line of a group, with its partners and each pair's minimum common length. */
 export type GroupMember = {
   id: string;
   line: OverlapLine;
@@ -295,42 +320,76 @@ export type GroupMember = {
 };
 
 /**
- * The group's shared stretches: along each line, the pieces where the same partners cover it (each with its pair's
- * minimum, continuous stretches only), each piece taken once, on the first of its lines in the group's order. Pieces
- * drawn by the same lines are added up.
+ * The group's shared stretches, whatever its order. Along each line, from its own side, the pieces where the same
+ * partners cover it (each with its pair's minimum, continuous stretches only) are added up by the set of lines that
+ * draw them. A set's length is the smallest any of its hubs measures, a hub being a line that is a partner of all the
+ * others: for a pair, the smaller of both directions; a place a hub sees drawn by more lines counts in that larger
+ * set, never twice.
  */
-export function sharedStretches(members: readonly GroupMember[]): SharedStretch[] {
-  const order = new Map(members.map((member, index) => [member.id, index]));
-  const stretches = new Map<string, SharedStretch>();
-  for (const [index, member] of members.entries()) {
-    const own = transformed(member.line.segments, member.transform);
-    if (own.length === 0) continue;
-    // Intervals of each centreline of the line covered by each partner.
+export function sharedStretches(members: readonly GroupMember[], cache?: CoverageCache): SharedStretch[] {
+  const coverage = cache ?? new CoverageCache();
+  const partnersOf = new Map(members.map((member) => [member.id, new Set(member.partners.map((partner) => partner.id))]));
+  const isPair = (left: string, right: string) => Boolean(partnersOf.get(left)?.has(right) || partnersOf.get(right)?.has(left));
+  const seen = new Map<string, { lines: string[]; byViewpoint: Map<string, number> }>();
+  for (const member of members) {
+    // Intervals of each centreline of the line covered by each partner, by centreline.
     const covers = member.partners.map((partner) => {
-      const segments = transformed(partner.line.segments, partner.transform);
-      const kept = segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), partner.minimum);
-      return { id: partner.id, kept };
+      const kept = coverage.of(member.line, member.transform, partner.line, partner.transform, partner.minimum);
+      const bySegment = new Map<number, Array<[number, number]>>();
+      for (const entry of kept) bySegment.set(entry.segment, [...(bySegment.get(entry.segment) ?? []), [entry.lo, entry.hi]]);
+      return { id: partner.id, bySegment };
     });
-    for (const segment of own.keys()) {
-      const intervals = covers.map(({ id, kept }) => ({ id, spans: union(kept.filter((entry) => entry.segment === segment)
-        .map((entry): [number, number] => [entry.lo, entry.hi])) }));
+    const covered = [...new Set(covers.flatMap(({ bySegment }) => [...bySegment.keys()]))].sort((left, right) => left - right);
+    for (const segment of covered) {
+      const intervals = covers.map(({ id, bySegment }) => ({ id, spans: union([...(bySegment.get(segment) ?? [])]) }));
       const cuts = [...new Set(intervals.flatMap(({ spans }) => spans.flat()))].sort((left, right) => left - right);
       for (let cut = 0; cut + 1 < cuts.length; cut += 1) {
         const [lo, hi] = [cuts[cut], cuts[cut + 1]];
         if (hi - lo <= EPSILON_M) continue;
         const middle = (lo + hi) / 2;
-        const drawers = intervals.filter(({ spans }) => spans.some(([a, b]) => a <= middle && middle <= b)).map(({ id }) => id);
-        // Taken on the first line that draws it: a later line sees it again from its own side.
-        if (drawers.length === 0 || drawers.some((id) => (order.get(id) ?? Infinity) < index)) continue;
+        const drawers = intervals.filter(({ spans }) => spans.some(([start, end]) => start <= middle && middle <= end)).map(({ id }) => id);
+        if (drawers.length === 0) continue;
         const lines = [member.id, ...drawers].sort();
         const key = lines.join("|");
-        const entry = stretches.get(key);
-        if (entry) entry.length_m += hi - lo;
-        else stretches.set(key, { lines, length_m: hi - lo });
+        const entry = seen.get(key) ?? { lines, byViewpoint: new Map<string, number>() };
+        entry.byViewpoint.set(member.id, (entry.byViewpoint.get(member.id) ?? 0) + (hi - lo));
+        seen.set(key, entry);
       }
     }
   }
-  return [...stretches.values()];
+  return [...seen.values()].flatMap(({ lines, byViewpoint }) => {
+    const hubs = lines.filter((id) => lines.every((other) => other === id || isPair(id, other)));
+    const length = Math.min(...hubs.map((id) => byViewpoint.get(id) ?? 0));
+    const pairs = lines.flatMap((left, index) => lines.slice(index + 1).filter((right) => isPair(left, right))
+      .map((right): [string, string] => [left, right]));
+    return length > EPSILON_M ? [{ lines, length_m: length, pairs }] : [];
+  });
+}
+
+/** Lines past which the cover is assumed complete (every two of them partners): 2^12 subsets at most. */
+const COVER_LINES_MAX = 12;
+
+/**
+ * Copies of a stretch to remove, and the lines that may remove them: what is left must hold no two partners, so the
+ * copies to remove are its lines minus the largest set of lines no two of which are partners, and the lines that may
+ * remove one are those of a smallest such removal (a minimum vertex cover of the partners).
+ */
+function cover(lines: readonly string[], pairs: ReadonlyArray<[string, string]>) {
+  const present = pairs.filter(([left, right]) => lines.includes(left) && lines.includes(right));
+  if (lines.length <= 1 || present.length === 0) return { copies: 0, payers: new Set<string>() };
+  if (lines.length > COVER_LINES_MAX) return { copies: lines.length - 1, payers: new Set(lines) };
+  const bit = new Map(lines.map((id, position) => [id, 1 << position]));
+  const edges = present.map(([left, right]) => (bit.get(left) as number) | (bit.get(right) as number));
+  const size = (mask: number) => { let count = 0; for (let value = mask; value; value &= value - 1) count += 1; return count; };
+  let best = Infinity;
+  const covers: number[] = [];
+  for (let mask = 0; mask < 1 << lines.length; mask += 1) {
+    if (!edges.every((edge) => (edge & mask) !== 0)) continue;
+    const count = size(mask);
+    if (count < best) { best = count; covers.length = 0; }
+    if (count === best) covers.push(mask);
+  }
+  return { copies: best, payers: new Set(lines.filter((id) => covers.some((mask) => (mask & (bit.get(id) as number)) !== 0))) };
 }
 
 /** Adds to `flow` a maximum flow from `source` to `sink` within `capacity` (augmenting shortest paths). */
@@ -361,12 +420,14 @@ function augment(capacity: number[][], flow: number[][], source: number, sink: n
 }
 
 /**
- * Whether a group of duplicates is counted once. A stretch drawn by k lines is counted k − 1 times too many; a line's
- * reduction removes, of each stretch it draws, at most that stretch's length, and never anything of a stretch it does
- * not draw. Reductions are allocated to the stretches they can remove (a maximum flow): the lines of applied jobs
- * (frozen) first pay what they count twice among themselves, which only they could remove; then every reduction,
- * what is left of theirs included, pays the stretches a current line draws. Each reduced line may leave its
- * centimetre of rounding (ZONE_OVERLAP.settle_m). `deficit_m`: what the version still counts twice.
+ * Whether a group of duplicates is counted once. Of each shared stretch, what is left must hold no two partners
+ * (cover): drawn by k lines that are all partners, it is counted k − 1 times too many. A line's reduction removes, of
+ * each stretch it may remove, at most that stretch's length, and never anything of a stretch it does not draw. The
+ * copies the lines of applied jobs (frozen) count among themselves are theirs to remove, and only they could; the
+ * rest is what the version still asks for. Reductions are allocated to the stretches they can remove (a maximum
+ * flow): applied lines first pay their own copies; then every reduction, what is left of theirs included, pays the
+ * rest. Each reduced line may leave its centimetre of rounding (ZONE_OVERLAP.settle_m). `deficit_m`: what the version
+ * still counts twice.
  */
 export function settleDuplicates(lines: readonly SettleLine[], stretches: readonly SharedStretch[]): { settled: boolean; deficit_m: number } {
   const index = new Map(lines.map((line, position) => [line.id, position]));
@@ -375,18 +436,23 @@ export function settleDuplicates(lines: readonly SettleLine[], stretches: readon
   const source = 0, sink = lines.length + usable.length + 1;
   const capacity = Array.from({ length: sink + 1 }, () => new Array<number>(sink + 1).fill(0));
   const flow = Array.from({ length: sink + 1 }, () => new Array<number>(sink + 1).fill(0));
-  lines.forEach((line, position) => { capacity[source][position + 1] = Math.max(0, line.reduction_m); });
-  usable.forEach((stretch, position) => {
-    for (const id of stretch.lines) capacity[(index.get(id) as number) + 1][lines.length + 1 + position] = stretch.length_m;
+  const parts = usable.map((stretch, position) => {
+    const all = cover(stretch.lines, stretch.pairs);
+    const frozen = cover(stretch.lines.filter((id) => lines[index.get(id) as number].frozen), stretch.pairs);
+    for (const id of new Set([...all.payers, ...frozen.payers])) {
+      capacity[(index.get(id) as number) + 1][lines.length + 1 + position] = stretch.length_m;
+    }
+    return { frozen: frozen.copies * stretch.length_m, current: Math.max(0, all.copies - frozen.copies) * stretch.length_m };
   });
-  const debt = (stretch: SharedStretch) => (stretch.lines.length - 1) * stretch.length_m;
-  const frozenOnly = (stretch: SharedStretch) => stretch.lines.every((id) => lines[index.get(id) as number].frozen);
-  // Applied lines pay their own duplicates first; augmenting paths never take back what reached the sink.
-  usable.forEach((stretch, position) => { if (frozenOnly(stretch)) capacity[lines.length + 1 + position][sink] = debt(stretch); });
+  // Applied lines pay their own copies first, with their reductions only; augmenting paths never take back what
+  // reached the sink, and a stretch then takes no more than what they paid plus the rest.
+  lines.forEach((line, position) => { if (line.frozen) capacity[source][position + 1] = Math.max(0, line.reduction_m); });
+  parts.forEach((part, position) => { capacity[lines.length + 1 + position][sink] = part.frozen; });
   augment(capacity, flow, source, sink);
-  usable.forEach((stretch, position) => { if (!frozenOnly(stretch)) capacity[lines.length + 1 + position][sink] = debt(stretch); });
+  lines.forEach((line, position) => { if (!line.frozen) capacity[source][position + 1] = Math.max(0, line.reduction_m); });
+  parts.forEach((part, position) => { capacity[lines.length + 1 + position][sink] = flow[lines.length + 1 + position][sink] + part.current; });
   const paid = augment(capacity, flow, source, sink);
-  const owed = usable.filter((stretch) => !frozenOnly(stretch)).reduce((sum, stretch) => sum + debt(stretch), 0);
+  const owed = parts.reduce((sum, part) => sum + part.current, 0);
   const deficit = Math.max(0, Math.round((owed - paid) * 1000) / 1000);
   const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, lines.filter((line) => line.reduction_m > EPSILON_M).length);
   return { settled: deficit <= tolerance + EPSILON_M, deficit_m: deficit <= tolerance + EPSILON_M ? 0 : deficit };

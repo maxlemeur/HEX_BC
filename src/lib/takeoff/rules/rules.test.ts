@@ -99,6 +99,15 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // Fourth Codex round (written before their fix):
 // - a group's reductions were compared with its debt as sums, so clearing A = X
 //   and B = X + Y settled the duplicate Z of C and D, which they never draw.
+// Adversarial review of the settlement (written before their fix):
+// - a current line paid the copy two applied lines count between themselves;
+// - a piece taken once on the first line of the page order lost or added copies
+//   when the lines were not all partners there (a general plan over two zones
+//   touching at their limit, three lines 4.5 cm apart): results changed with the
+//   page order, a 4.5 m double count was reported settled in one order;
+// - a pair's debt was measured from its first page only, not as the smaller of
+//   both directions;
+// - a group of four lines of 4 000 dashes took over 2 s.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -358,7 +367,9 @@ describe("duplicate runs between zones", () => {
 
   /** A line of a group of duplicates and its reduction; a stretch drawn by some of the lines over its length. */
   const member = (id: string, reduction_m: number, frozen = false) => ({ id, frozen, reduction_m });
-  const shared = (length_m: number, ...lines: string[]) => ({ lines, length_m });
+  /** A stretch drawn by lines that are all partners of each other. */
+  const shared = (length_m: number, ...lines: string[]) => ({ lines, length_m,
+    pairs: lines.flatMap((left, index) => lines.slice(index + 1).map((right): [string, string] => [left, right])) });
 
   it("settles a pair with one reduction, counts a reduction once, and never asks a frozen line to change", () => {
     // A shares 1 m with B: either reduction of 1 m settles it.
@@ -385,6 +396,11 @@ describe("duplicate runs between zones", () => {
     expect(settleDuplicates([member("f", 1, true), member("z", 0, true), member("n", 1)], stretches).settled).toBe(true);
     // A shares 1 m with B and 1 m with C; B and A were each reduced by 1 m: both are settled, whatever the order.
     expect(settleDuplicates([member("a", 1), member("b", 1), member("c", 0)], [shared(1, "a", "b"), shared(1, "a", "c")]).settled).toBe(true);
+    // A stretch two applied lines already count twice, drawn again by N: N owes its own copy only, never theirs.
+    expect(settleDuplicates([member("f", 0, true), member("g", 0, true), member("n", 1)], [shared(1, "f", "g", "n")]))
+      .toEqual({ settled: true, deficit_m: 0 });
+    expect(settleDuplicates([member("f", 0, true), member("g", 0, true), member("n", 0)], [shared(1, "f", "g", "n")]))
+      .toEqual({ settled: false, deficit_m: 1 });
     // A reduction never pays a stretch its line does not draw: A = X, B = X + Y, C = Y + Z, D = Z, A and B cleared.
     expect(settleDuplicates([member("a", 5), member("b", 10), member("c", 0), member("d", 0)],
       [shared(5, "a", "b"), shared(5, "b", "c"), shared(5, "c", "d")])).toEqual({ settled: false, deficit_m: 5 });
@@ -445,6 +461,69 @@ describe("duplicate runs between zones", () => {
     // One copy of each stretch removed (A by X, B by Y, C by Z) settles the four.
     const right = four([0, 5, 5, 5]);
     for (const id of ["q0", "q1", "q2", "q3"]) expect(rule(right.results, id, "zone_overlap")?.code, id).toBe("ZONE_OVERLAP_RESOLVED");
+  });
+
+  /**
+   * Lines of a level on their own pages (one job each, every page shifted by -40 m per page with its drawing), in a
+   * given page order: index i of `orders` is the order of line i's page.
+   */
+  function onPages(specs: Array<{ id: string; segments: Array<[number, number, number, number]>; quantity: number; frozen?: boolean }>,
+    orders: number[], denominator = 50) {
+    return evaluateTakeoffRules({
+      pages: specs.map((_, index) => page(`job-${index}#1`, { order: orders[index] * 10_000, zone: `Z${index + 1}`,
+        anchors: sheet(-40 * index, 0, { titleBlock: 10 }), denominator })),
+      lines: specs.map((spec, index) => line(spec.id, { job_id: `job-${index}`, page_key: `job-${index}#1`, quantity: spec.quantity,
+        frozen: spec.frozen ?? false,
+        geometry: { segments_m: spec.segments.map(([x0, y0, x1, y1]) => [x0 - 40 * index, y0, x1 - 40 * index, y1] as [number, number, number, number]),
+          polygon_m: null, length_m: spec.segments.reduce((sum, [x0, y0, x1, y1]) => sum + Math.hypot(x1 - x0, y1 - y0), 0), area_m2: null } })),
+    });
+  }
+  const ORDERS = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+  const codes = (results: Map<string, TakeoffRuleResult[]>, ids: string[]) =>
+    ids.map((id) => { const entry = rule(results, id, "zone_overlap"); return `${id}:${entry?.code}:${(entry?.details as { overlap_m?: number } | undefined)?.overlap_m ?? "-"}`; });
+
+  it("settles a general plan over two zones that only touch at their limit the same way in every page order", () => {
+    // 1/100: Z1 draws 0–5.12 m, Z2 4.88–10 m (a 24 cm touch at the limit, no pair); the general plan G draws 0–10 m.
+    const run = (g: number, z1: number, z2: number) => [
+      { id: "G", segments: [[0, 1, 10, 1]] as Array<[number, number, number, number]>, quantity: g },
+      { id: "Z1", segments: [[0, 1, 5.12, 1]] as Array<[number, number, number, number]>, quantity: z1 },
+      { id: "Z2", segments: [[4.88, 1, 10, 1]] as Array<[number, number, number, number]>, quantity: z2 },
+    ];
+    for (const orders of ORDERS) {
+      // G cleared: Z1 and Z2 are left, touching under the minimum: settled.
+      expect(codes(onPages(run(0, 5.12, 5.12), orders, 100).results, ["G", "Z1", "Z2"]), String(orders))
+        .toEqual(["G:ZONE_OVERLAP_RESOLVED:-", "Z1:ZONE_OVERLAP_RESOLVED:-", "Z2:ZONE_OVERLAP_RESOLVED:-"]);
+      // Z1 cleared, Z2 keeps 0.45 m, all inside G: 0.45 m still counted twice.
+      expect(codes(onPages(run(10, 0, 0.45), orders, 100).results, ["G", "Z1", "Z2"]), String(orders))
+        .toEqual(["G:ZONE_OVERLAP_DUPLICATE:0.45", "Z1:ZONE_OVERLAP_DUPLICATE:0.45", "Z2:ZONE_OVERLAP_DUPLICATE:0.45"]);
+    }
+  });
+
+  it("asks the middle line of two distinct pipes 9 cm apart for one copy only, in every page order and when they are applied", () => {
+    // A at y = 1, B at 1.045, C at 1.09: B is within 5 cm of both, A and C (9 cm apart) are two pipes.
+    const run = (b: number, frozen = false) => [
+      { id: "A", segments: [[0, 1, 5, 1]] as Array<[number, number, number, number]>, quantity: 5, frozen },
+      { id: "B", segments: [[0, 1.045, 5, 1.045]] as Array<[number, number, number, number]>, quantity: b },
+      { id: "C", segments: [[0, 1.09, 5, 1.09]] as Array<[number, number, number, number]>, quantity: 5, frozen },
+    ];
+    for (const orders of ORDERS) {
+      expect(codes(onPages(run(5), orders).results, ["A", "B", "C"]), String(orders))
+        .toEqual(["A:ZONE_OVERLAP_DUPLICATE:5", "B:ZONE_OVERLAP_DUPLICATE:5", "C:ZONE_OVERLAP_DUPLICATE:5"]);
+      for (const frozen of [false, true]) {
+        expect(codes(onPages(run(0, frozen), orders).results, ["A", "B", "C"]), `${orders} ${frozen}`)
+          .toEqual(["A:ZONE_OVERLAP_RESOLVED:-", "B:ZONE_OVERLAP_RESOLVED:-", "C:ZONE_OVERLAP_RESOLVED:-"]);
+      }
+    }
+  });
+
+  it("settles a pair by its common length, the smaller of both directions, whichever page comes first", () => {
+    // X runs straight where Y jogs 4 cm either side (two 20 cm pieces, not continuous from Y's side): common length 5 m.
+    const X: Array<[number, number, number, number]> = [[0, 1, 0.4, 1], [10, 1, 15, 1]];
+    const Y: Array<[number, number, number, number]> = [[0, 1.04, 0.2, 1.04], [0.2, 1.04, 0.2, 0.96], [0.2, 0.96, 0.4, 0.96], [10, 1, 15, 1]];
+    for (const orders of [[0, 1], [1, 0]]) {
+      const settled = onPages([{ id: "X", segments: X, quantity: 0.4 }, { id: "Y", segments: Y, quantity: 5.48 }], orders);
+      expect(codes(settled.results, ["X", "Y"]), String(orders)).toEqual(["X:ZONE_OVERLAP_RESOLVED:-", "Y:ZONE_OVERLAP_RESOLVED:-"]);
+    }
   });
 
   it("compares one pipe labelled « DN 100 » on a plan and « Ø 110 » on the other", () => {

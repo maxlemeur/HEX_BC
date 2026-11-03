@@ -129,11 +129,16 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 
 **Résolution**
 
-- Les lignes reliées par des doublons forment un groupe. Un tronçon dessiné sur k pages y est compté k − 1 fois de trop : c'est la longueur à retirer du groupe.
-- La réduction d'une ligne (longueur mesurée − quantité) ne retire que les tronçons qu'elle dessine, chacun au plus sur sa longueur. Un doublon de C et D ne se règle jamais par une réduction de A ou de B. Les réductions sont réparties sur les tronçons qu'elles peuvent retirer (flot maximal). Un mètre de réduction ne compte qu'une fois.
-- Les tronçons communs se mesurent paire par paire, chacune avec son propre minimum : un partenaire au 1/200 ne relève pas le minimum d'une paire au 1/50.
+- Les lignes reliées par des doublons forment un groupe. Le règlement ne dépend jamais de l'ordre des pages.
+- **Tronçons communs** : chaque ligne, de son côté, découpe ce que ses partenaires recouvrent d'elle (chaque paire avec son propre minimum : un partenaire au 1/200 ne relève pas le minimum d'une paire au 1/50). Les morceaux dessinés par les mêmes lignes s'additionnent.
+  - La longueur d'un tronçon commun est la plus petite que mesurent ses lignes partenaires de toutes les autres : pour une paire, la plus petite des deux directions.
+  - Un endroit qu'une ligne voit dessiné par plus de lignes compte dans ce tronçon plus large, jamais deux fois.
+- **Copies à retirer** : il ne doit rester, sur un tronçon, aucune paire de partenaires. Dessiné par k lignes toutes partenaires, il est compté k − 1 fois de trop.
+  - Deux lignes qui ne sont pas partenaires ne sont pas des doublons l'une de l'autre : deux zones qui se touchent sous le minimum, deux tuyaux à 9 cm.
+  - Sous un plan d'ensemble qui recouvre ces deux zones, seul le plan d'ensemble doit retirer sa copie.
+- La réduction d'une ligne (longueur mesurée − quantité) ne retire que les tronçons qu'elle dessine, chacun au plus sur sa longueur, et seulement là où la retirer règle le tronçon. Un doublon de C et D ne se règle jamais par une réduction de A ou de B. Les réductions sont réparties sur les tronçons qu'elles peuvent retirer (flot maximal). Un mètre de réduction ne compte qu'une fois.
 - Le groupe est réglé quand les réductions couvrent la longueur comptée de trop, à 1 cm près par ligne réduite (les quantités sont arrondies au centimètre). Trois copies d'un tronçon de 5 m se règlent en retirant 10 m.
-- Les lignes de jobs appliqués (figées) paient d'abord ce qu'elles comptent deux fois entre elles : elles seules le peuvent. Ce que leurs réductions laissent, et les réductions des lignes du job courant, paient le reste. Une ligne figée non réduite laisse la correction à la ligne du job courant.
+- **Lignes figées** (jobs appliqués) : les copies qu'elles comptent entre elles sont à elles de les retirer, et elles seules le peuvent ; une ligne courante n'en paie jamais. Leurs réductions paient d'abord ces copies, ce qui en reste paie les autres. Une ligne figée non réduite laisse la correction à la ligne du job courant.
 - Exclure une ligne entièrement en double règle aussi la paire.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement.
 
