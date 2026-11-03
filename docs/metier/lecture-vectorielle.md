@@ -21,6 +21,8 @@ est une constante nommée et versionnée dans le code.
        leur calque ;
      - les textes, avec leur position.
    - Les surfaces seulement remplies et les tracés de détourage ne sont pas mesurés.
+   - Une erreur de contenu (opérateur invalide, objet manquant) ou une coordonnée hors
+     plage fait échouer la page : pdfjs ne rend jamais une page lue en partie.
 2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
    - Un groupe est un calque quand la page en a, sinon une couleur avec son
      épaisseur et son tiret.
@@ -28,6 +30,8 @@ est une constante nommée et versionnée dans le code.
      ≥ 0,93.
    - Couleur grise : saturation < 0,1.
    - Un groupe quasi blanc ou gris n'est jamais classé réseau par mot-clé.
+   - Un trait quasi blanc n'est jamais mesuré, même dans un calque réseau.
+   - Un calque masqué par la configuration par défaut du PDF (OFF) n'est pas lu.
 3. **Échelle** ([`scale.ts`](../../src/lib/takeoff/vectors/scale.ts)), page par page.
    - On lit l'échelle du cartouche (« Échelle 1/50 »).
    - On la contrôle par une cote : un nombre au-dessus d'une ligne dont les deux
@@ -49,8 +53,9 @@ est une constante nommée et versionnée dans le code.
    - **calque** : son nom est découpé sur « _ », les espaces, « - » et « / ». Les codes
      génériques (EF, ECS, EU, EV, EP, VP, CHW…) donnent le réseau. S, A, D ou R donnent
      le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes ;
-   - **légende** : un code seul, avec les tracés dessinés sur sa ligne, donne la couleur
-     du réseau.
+   - **légende** : un code seul, avec les tracés dessinés sur sa ligne avant le texte
+     suivant de cette ligne (échantillon de 25 hauteurs de texte au plus), donne la
+     couleur du réseau.
      - Les teintes de cette couleur (mêlée de blanc à 10 – 85 %) et ses ombres (de noir
        à 10 – 60 %) suivent.
      - Une couleur partagée par EU et EU/EV donne EUV. Une couleur partagée par deux
@@ -67,20 +72,22 @@ est une constante nommée et versionnée dans le code.
 5. **Mesure** ([`measure.ts`](../../src/lib/takeoff/vectors/measure.ts)).
    - Un tuyau est dessiné en bande : deux contours et des teintes. La mesure prend son
      axe :
-     - traits parallèles (à 0,5° près), regroupés tant qu'ils sont à moins de 2,5 pt
-       l'un de l'autre, dans une bande de 7 pt au plus ;
+     - traits parallèles (à 0,5° près) qui se chevauchent le long du tuyau, regroupés
+       tant qu'ils sont à moins de 2,5 pt l'un de l'autre, dans une bande de 7 pt au
+       plus : un trait parallèle ailleurs sur la feuille ne coupe jamais une bande ;
      - intervalles fusionnés au-delà des trous de 1 pt au plus ;
      - un trait en double ne compte qu'une fois.
    - Les embouts et les manchons posés en travers d'une bande ne comptent pas.
    - Ne sont pas mesurés : les échantillons de la légende et les cadres de détail. Un
-     cadre de détail est un rectangle sombre qui contient des réseaux mais presque pas
-     de fond de plan.
+     cadre de détail est un rectangle sombre d'au moins 70 pt de côté, qui n'est pas
+     lui-même un tracé de réseau, et qui contient des réseaux mais presque pas de fond
+     de plan (ses propres bords ne comptent pas).
    - Le DN, le matériau et le calorifuge viennent du libellé :
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe ;
      - sinon par sa position, parallèle au tuyau.
    - Ces valeurs passent aux tronçons raccordés du même réseau, du plus proche au plus
-     loin. Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à
-     revoir »).
+     loin, jamais à un autre réseau. Un tronçon qui n'est rattaché à aucun libellé
+     garde un DN vide (« à revoir »).
    - Longueur réelle = longueur sur la feuille (mm) × dénominateur de l'échelle.
 6. **Surfaces** ([`surfaces.ts`](../../src/lib/takeoff/vectors/surfaces.ts)).
    - La mesure est l'aire du plus petit polygone fermé autour de la surface imprimée
@@ -96,4 +103,10 @@ Le banc note les items vectoriels avec le scoreur du niveau C (TI-660).
 
 Depuis la version 3 du score, un item EU ou EV compte sur une clé EUV, et un départ ou
 un retour sur sa clé confondue (CHW, HW, GLY, HRC, CW). Cela ne vaut que si le
-périmètre chiffre le parent et jamais le membre. RECS ne compte jamais sur ECS.
+périmètre chiffre le parent et jamais le membre, dans ce matériau. Un item qui hésite
+entre deux membres d'un même parent se lit comme ce parent. RECS ne compte jamais
+sur ECS.
+
+La comparaison avec la baseline niveau C ne totalise que les périmètres notés par les
+deux runs à chaque passe. Une page raster que la baseline n'a pas lue fait échouer la
+page : son périmètre n'est pas noté.

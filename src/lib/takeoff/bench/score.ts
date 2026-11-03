@@ -19,8 +19,9 @@ import { toUnitToken } from "@/lib/takeoff/units";
 //   is reported, never guessed. A truth without zone (or level) adds the items
 //   of all its documents, whatever their zone (or level).
 // - Confounded networks (v3): an EU or EV item counts on an EUV key, a supply
-//   or return item on its CHW, HW, GLY, HRC or CW key, in a scope that prices
-//   the parent and never the member (CONFOUNDED_NETWORKS).
+//   or return item on its CHW, HW, GLY, HRC or CW key, when the scope prices
+//   the parent and never the member in that material (CONFOUNDED_NETWORKS); an
+//   item hesitating between members of one parent reads as that parent.
 // - DN: a key whose material has a series matches an item that shares one of
 //   its entries (diameters.ts); a key without series (a count, an insulation)
 //   matches only an item that names its size (sameSizeWithoutSeries), never
@@ -480,13 +481,15 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
   }
 
   const rooms = [...new Set(keys.filter((key) => key.label.room !== null).map((key) => key.label.room as string))];
-  const scopeNetworks = new Set(keys.map((key) => key.label.network).filter((network): network is NetworkCode => network !== null));
-  const rollUp = (network: NetworkCode | null) => {
+  // Decided per network and material: a devis may price supply and return pipes apart and their insulation together.
+  const priced = new Set(keys.filter((key) => key.label.network !== null).map((key) => `${key.label.network}|${key.label.material ?? ""}`));
+  const rollUp = (network: NetworkCode | null, material: MaterialCode | null) => {
     const parent = network === null ? undefined : CONFOUNDED_NETWORKS[network];
-    return parent && network !== null && !scopeNetworks.has(network) && scopeNetworks.has(parent) ? parent : network;
+    const shape = (code: NetworkCode) => `${code}|${material ?? ""}`;
+    return parent && network !== null && !priced.has(shape(network)) && priced.has(shape(parent)) ? parent : network;
   };
-  const rolledUp = <T extends { kind: LineKind; network: NetworkCode | null }>(key: T): T =>
-    (key.kind === "network" ? { ...key, network: rollUp(key.network) } : key);
+  const rolledUp = <T extends { kind: LineKind; network: NetworkCode | null; material: MaterialCode | null }>(key: T): T =>
+    (key.kind === "network" ? { ...key, network: rollUp(key.network, key.material) } : key);
   const attachedByKey = new Map<string, AttachedItem[]>(keys.map((key) => [key.id, []]));
   const unmatched: AttachedItem[] = [];
   const unreadable: UnreadableItem[] = [];
@@ -509,7 +512,13 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       counts.items += 1;
       indicative.items += 1;
       if (item.evidence?.trim() && typeof item.source_page === "number" && item.source_page >= 1) indicative.localized_items += 1;
-      const reading = readItemKey(item, { rooms });
+      let reading = readItemKey(item, { rooms });
+      if (reading.status === "unreadable" && reading.reason === "network_ambiguous") {
+        // « CHW-S / CHW-R » on a scope pricing CHW: one network once confounded, the item reads as it.
+        const material = reading.key.material;
+        const parents = [...new Set(reading.among.map((network) => rollUp(network as NetworkCode, material)))];
+        if (parents.length === 1 && parents[0] !== null) reading = { status: "read", key: { ...reading.key, network: parents[0] } };
+      }
       if (reading.status === "out_of_score") {
         result.out_of_score_items.push({ document: document.id, page: item.source_page ?? null, unit: item.unit, reason: "unit" });
         continue;
@@ -520,7 +529,7 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       const located = locate(document, item.source_page, zones, levels);
       if (reading.status === "unreadable") {
         const among = reading.reason === "network_missing" || reading.reason === "network_ambiguous"
-          ? [...new Set(reading.among.map((network) => rollUp(network as NetworkCode) as string))] : reading.among;
+          ? [...new Set(reading.among.map((network) => rollUp(network as NetworkCode, reading.key.material) as string))] : reading.among;
         addUnreadable(reading.reason, entry, located === null ? null : rolledUp({ ...reading.key, ...located }), among);
         continue;
       }

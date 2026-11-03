@@ -9,7 +9,7 @@ import { mergeTextLines, readLabelBlocks } from "@/lib/takeoff/vectors/labels";
 import { matchLegendColor, readLegend } from "@/lib/takeoff/vectors/legend";
 import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import { readVectorPage, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
-import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
+import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 
 // Ways the vector reading of network lengths (TI-662: measure.ts, legend.ts,
 // classify.ts, colors.ts and the label blocks of labels.ts) could misreport a
@@ -59,6 +59,21 @@ import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 // - label votes: an unclassified saturated colour group at the end of the
 //   leaders of 2 labels naming CHW-S does not take CHW-S (source « label »);
 //   one vote, or votes that disagree, classify it; a grey group is classified.
+// Review of 3/11/2026 (written before the fixes):
+// - a schematic inside a black detail frame is measured at plan scale (the
+//   frame's own black edges counted as the background it holds);
+// - a near-white stroke inside a network layer is measured as that network and
+//   counted in the detection badge;
+// - a layer hidden in the default configuration (OFF) is measured;
+// - a page whose scale is not verified still gives a length;
+// - an unrelated parallel stroke of the same network elsewhere on the sheet
+//   splits a band's outlines into two runs (offset clusters page-wide);
+// - the network of a shared colour spreads through a joined run of another
+//   network to runs of other candidates;
+// - in a multi-column legend, the next column's sample is given to the code
+//   before it;
+// - an upward label split by pdfjs is never merged; a level « R-1 » in a layer
+//   name reads as a return.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -459,5 +474,91 @@ describe("detection badge (classify.ts detectionShare)", () => {
       layers,
     ));
     expect(reading.detection).toBeCloseTo(150 / 300, 4);
+  });
+});
+
+describe("review of 3/11/2026", () => {
+  it("does not measure a schematic inside a black detail frame", () => {
+    const frame: Stroke = { color: BLACK, points: [700, 400, 1100, 400, 1100, 700, 700, 700, 700, 400], closed: true };
+    const reading = read(page([...LEGEND,
+      { strokes: [line(BLUE, 100, 300, 100 + FIVE_M, 300)] },
+      { strokes: [frame, line(BLUE, 750, 550, 750 + FIVE_M, 550)] },
+    ]));
+    expect(reading.networks?.excluded.diagram_frames).toHaveLength(1);
+    expect(metres(reading, "EF")).toBeCloseTo(5, 2);
+  });
+
+  it("never measures a near-white stroke of a network layer, nor counts it in the badge", () => {
+    const layers = [{ id: "1R", name: "FICTIF_EF" }];
+    const reading = read(page([
+      { strokes: [line(BLUE, 100, 100, 100 + FIVE_M, 100, { layer: "1R" }), line(NEAR_WHITE, 100, 400, 100 + FIVE_M, 400, { layer: "1R" })] },
+      { strokes: [line(GREY, 100, 600, 100 + FIVE_M, 600)] },
+    ], layers));
+    expect(reading.groups.find((group) => group.layer === "1R")?.class).toBe("EF");
+    expect(metres(reading, "EF")).toBeCloseTo(5, 2);
+    // Classified 5 m of the 10 m of non near-white strokes (the grey line is not classified).
+    expect(reading.detection).toBeCloseTo(0.5, 3);
+  });
+
+  it("does not read a layer hidden in the document's default configuration", () => {
+    const extraction = page([
+      { strokes: [line(BLUE, 100, 100, 100 + FIVE_M, 100, { layer: "1R" }), line(BLUE, 100, 300, 100 + FIVE_M, 300, { layer: "2R" })] },
+    ], [{ id: "1R", name: "FICTIF_EF" }, { id: "2R", name: "FICTIF_EF_VARIANTE" }]);
+    extraction.layers = extraction.layers.map((layer) => (layer.id === "2R" ? { ...layer, visible: false } : layer));
+    const reading = read(extraction);
+    expect(reading.groups.find((group) => group.layer === "2R")?.class).toBeNull();
+    expect(metres(reading, "EF")).toBeCloseTo(5, 2);
+  });
+
+  it("gives no length on a page whose scale is not verified, whatever its cartouche says", () => {
+    const extraction = page([...LEGEND,
+      { strokes: [line(BLUE, 100, 300, 100 + FIVE_M, 300)], texts: [text("Echelle", 900, 780), text("1/50", 940, 780)] },
+    ]);
+    const reading = readVectorPage(extraction, { clock: () => 0 });
+    expect(reading.scale).toMatchObject({ status: "unverified", denominator: null });
+    expect(reading.networks?.totals.map((total) => [total.network, total.length_m])).toEqual([["EF", null]]);
+  });
+
+  it("keeps a band whole when an unrelated parallel stroke of its network lies between its offsets elsewhere", () => {
+    // Band outlines at y 299 and 301 from x 100. Far to the right (x 900+), a 3 m band of three EF lines at y 293,
+    // 295.4 and 297.8. Clustered page-wide by offset from y 293, the 7 pt cap cut the first band between 299 and 301.
+    const reading = read(page([...LEGEND, { strokes: [
+      line(BLUE, 100, 299, 100 + FIVE_M, 299), line(BLUE, 100, 301, 100 + FIVE_M, 301),
+      line(BLUE, 900, 293, 900 + THREE_M, 293), line(BLUE, 900, 295.4, 900 + THREE_M, 295.4), line(BLUE, 900, 297.8, 900 + THREE_M, 297.8),
+    ] }]));
+    expect(metres(reading, "EF")).toBeCloseTo(8, 2);
+    expect(reading.networks?.runs.filter((run) => run.network === "EF").length).toBe(2);
+  });
+
+  it("never spreads the network of a shared colour through a joined run of another network", () => {
+    const reading = read(page([legendRow("ECS", 0, [RED]), legendRow("CS", 1, [RED]), legendRow("EF", 2, [BLUE]), {
+      strokes: [line(RED, 100, 300, 300, 300), line(BLUE, 300, 300, 300, 450), line(RED, 300, 450, 500, 450)],
+    }, leaderLabel("ECS - PER DN 16", 150, 262, { x: 148, y: 301 })]));
+    const runs = (reading.networks?.runs ?? []).filter((run) => run.candidates.length > 0).map((run) => [Math.round(run.segment.y0), run.network]);
+    expect(runs).toEqual(expect.arrayContaining([[300, "ECS"], [450, null]]));
+  });
+
+  it("gives each column of a legend row its own sample", () => {
+    const left = text("EF", 40, 60, 8), right = text("EU", 140, 60, 8);
+    const cy = left.y - left.height / 2;
+    const legend = readLegend(buildPageModel(page([{ texts: [left, right], strokes: [
+      line(BLUE, 60, cy, 100, cy), line(ORANGE, 160, cy, 200, cy),
+    ] }])));
+    expect(legend.colors.map((entry) => [entry.color, entry.network])).toEqual([[BLUE, "EF"], [ORANGE, "EU"]]);
+  });
+
+  it("merges an upward label split by pdfjs and reads a level in a layer name as no direction", () => {
+    // Reading bottom to top: the first piece is the lower one, the next one above it along the baseline.
+    const up = -Math.PI / 2;
+    const lines = mergeTextLines([
+      { str: "EU - PVC", x: 300, y: 400, width: 26.4, height: 6, angle: up },
+      { str: " DN 40", x: 300, y: 373.6, width: 19.8, height: 6, angle: up },
+    ]);
+    expect(lines.map((entry) => entry.str)).toEqual(["EU - PVC DN 40"]);
+    expect(readLabelBlocks(lines.length ? [{ str: "EU - PVC", x: 300, y: 400, width: 26.4, height: 6, angle: up },
+      { str: " DN 40", x: 300, y: 373.6, width: 19.8, height: 6, angle: up }] : []).map((block) => block.label))
+      .toEqual([{ network: "EU", material: "pvc", materialLabel: "PVC", dn: 40, insulated: false }]);
+    expect(classOfLayerName("XX_CHW_R-1")).toBe("CHW");
+    expect(classOfLayerName("XX_CHW L00-R")).toBe("CHW-R");
   });
 });

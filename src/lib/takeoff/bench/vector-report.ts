@@ -8,8 +8,9 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // ambiguous): the share within tolerance and the median relative error, a
 // missed key counting 100 %. Each is the median over the passes of its run.
 // Lengths gain when the share is strictly higher and the error strictly lower;
-// surfaces when neither regresses. The baseline is re-scored with the current
-// scorer, so both sides use the same rules. report.md prints shares and
+// surfaces when neither regresses. Totals use the scopes scored by both runs
+// in all their passes, the others are listed. The baseline is re-scored with
+// the current scorer, so both sides use the same rules. report.md prints shares and
 // errors, never a quantity.
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
@@ -28,6 +29,8 @@ export type VectorComparison = {
   passes: { vector: number; baseline: number };
   scopes: ScopeComparison[];
   totals: Record<"reserve" | "truth" | "all", { vector: SideMetrics; baseline: SideMetrics; lengths_gain: boolean | null; surfaces_no_regression: boolean | null }>;
+  /** Scopes scored by the vector run but not by both runs in every pass: shown per scope, left out of the totals. */
+  left_out_of_totals: string[];
 };
 
 function median(values: readonly number[]): number | null {
@@ -100,9 +103,13 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
     return { scope: id, documents: reference.documents, lot: reference.lot, role: reference.role, vector: vectorSide, baseline: baselineSide,
       ...verdicts(vectorSide, baselineSide) };
   });
+  // Totals compare the same keys: the scopes scored on both sides in every pass of each run (a scope one
+  // side lost to a timeout or never read would count on the other side only).
+  const scoredEverywhere = (passes: ScopeScore[][]) => new Set(ids.filter((id) => passes.length > 0 && passes.every((scopes) => scopes.some((scope) => scope.id === id))));
+  const vectorEverywhere = scoredEverywhere(vectorPasses), baselineEverywhere = scoredEverywhere(baselinePasses);
+  const common = ids.filter((id) => vectorEverywhere.has(id) && baselineEverywhere.has(id));
   const total = (role: "reserve" | "truth" | "all") => {
-    // Only the scopes the vector run scored: a baseline scope the run did not read is no comparison.
-    const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => ids.includes(scope.id) && (role === "all" || scope.role === role))
+    const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => common.includes(scope.id) && (role === "all" || scope.role === role))
       .flatMap((scope) => scope.keys));
     const vectorSide = side(pick(vectorPasses));
     const baselineSide = side(pick(baselinePasses));
@@ -111,6 +118,7 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
   return {
     passes: { vector: vectorPasses.length, baseline: baselinePasses.length },
     scopes, totals: { reserve: total("reserve"), truth: total("truth"), all: total("all") },
+    left_out_of_totals: ids.filter((id) => !common.includes(id)),
   };
 }
 
@@ -201,6 +209,9 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
         verdict(scope.surfaces_no_regression, "sans régression", "régression")]),
     ];
     lines.push(...table(["Périmètre", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline", "Surfaces"], rows), "");
+    if (comparison.left_out_of_totals.length > 0) {
+      lines.push(`Hors totaux (non notés par les deux runs à chaque passe) : ${comparison.left_out_of_totals.join(", ")}.`, "");
+    }
   }
   return lines;
 }

@@ -236,6 +236,19 @@ describe("takeoff bench vector pipeline", () => {
     expect(alone.vector.passes[0].documents[0].pages.map((entry) => entry.raster_items_from_baseline)).toEqual([null, null]);
   });
 
+  it("fails a raster page the baseline did not read, so that its scope is not scored", async () => {
+    // Review of 3/11/2026: a raster page whose level C chunk timed out was taken as read with no item, its keys blamed on the vector reading.
+    const extract = async (_bytes: Uint8Array, pageNumber: number) => plan(pageNumber, 1, 0.95);
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 1)], groups: new Map(), repeat: 1, extract, rasterFallback: () => "unread",
+    });
+    const document = result.run.couples[0].passes[0].documents[0];
+    expect(document.calls.map((call) => [call.status, call.error?.name])).toEqual([["provider_failed", "VectorExtractionError"]]);
+    const report = buildBenchReport({ metadata, run: result.run, scopes: buildScoreScopes([truthOf("a-plan-01", [{ quantity: 30 }])],
+      [manifestDocument("a-plan-01", 1)]), noise: null, pipeline: "vector" });
+    expect(report.couples[0].passes[0].scopes[0]).toMatchObject({ status: "read_failed", keys: [] });
+  });
+
   it("applies the correspondences and the calibration of truth/groups to their own page only", async () => {
     // Page 1: red is EF, calibrated at 1/100. Page 2: red is EF, no calibration (cartouche 1/50 on an A3 format);
     // blue is ECS on page 2 only, where no blue is drawn.

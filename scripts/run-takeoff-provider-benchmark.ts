@@ -171,9 +171,12 @@ type BaselineJson = Pick<BenchReport, "status" | "stop" | "calls_planned" | "cal
 /** The level C report a vector run compares with: its run, re-scored by the current scorer on the current scopes. */
 async function readBaseline(file: string) {
   const bytes = await readFile(file);
-  const json = JSON.parse(bytes.toString("utf8")) as BaselineJson;
+  const json = JSON.parse(bytes.toString("utf8")) as BaselineJson & { pipeline?: string };
   if (!Array.isArray(json.couples) || json.couples.length !== 1 || !Array.isArray(json.couples[0].passes)) {
     throw new BenchRefusal(`--baseline ${file}: a takeoff:bench report with one couple is expected.`);
+  }
+  if (json.pipeline !== undefined && json.pipeline !== "chatgpt") {
+    throw new BenchRefusal(`--baseline ${file}: a level C (chatgpt) report is expected, not a ${json.pipeline} run.`);
   }
   const run: BenchRunResult = {
     status: json.status, stop: json.stop, calls_planned: json.calls_planned, calls_done: json.calls_done,
@@ -193,11 +196,22 @@ async function mainVector(args: Extract<ReturnType<typeof parseBenchArgs>, { pip
   const dataset: BenchDataset = await loadBenchDataset(args.dataset, args.docs, { unscored: true });
   const scopes: ScoreScope[] = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
   const baseline = args.baseline ? await readBaseline(path.resolve(args.baseline)) : null;
+  if (baseline) {
+    // A baseline read another revision of a plan when its document's SHA-256 differs: its items would be scored against this truth.
+    const changed = dataset.selected.filter(({ document }) => baseline.run.couples[0].passes.some((pass) =>
+      pass.documents.some((entry) => entry.id === document.id && entry.sha256 !== document.sha256)));
+    if (changed.length > 0) {
+      throw new BenchRefusal(`--baseline read other revisions of ${changed.map(({ document }) => document.id).join(", ")} (SHA-256 differs from the manifest).`);
+    }
+  }
   const baselinePasses = baseline?.run.couples[0]?.passes ?? [];
-  const rasterFallback = baseline ? (document: string, pass: number): TakeoffItem[] | null => {
-    if (baselinePasses.length === 0) return null;
+  const rasterFallback = baseline ? (document: string, pass: number, page: number): TakeoffItem[] | "unread" => {
+    if (baselinePasses.length === 0) return "unread";
     const source = baselinePasses[(pass - 1) % baselinePasses.length];
-    return source.documents.find((entry) => entry.id === document && entry.complete)?.items ?? null;
+    const run = source.documents.find((entry) => entry.id === document && entry.complete);
+    // A chunk that failed on this page is a page the baseline never read.
+    if (!run || run.calls.some((call) => call.status !== "ok" && call.start_page <= page && page <= call.end_page)) return "unread";
+    return run.items;
   } : undefined;
   const documents = [];
   for (const { document, bytes } of dataset.selected) {

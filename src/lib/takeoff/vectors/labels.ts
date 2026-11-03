@@ -45,33 +45,51 @@ function overlap(left: Box, right: Box) {
  * Text items on one baseline (same angle and height within 30 %, baseline offset under 0.25 height, the next
  * starting within 1.5 heights after the previous end) form one line: pdfjs splits a label at font changes.
  */
+/** Texts of one direction (within 0.02 rad, a bucket of 0.04 rad and its neighbour), as the merges compare them. */
+function byDirection(items: readonly VectorText[]) {
+  const buckets = new Map<number, number[]>();
+  items.forEach((item, index) => {
+    const key = Math.round(item.angle / 0.04);
+    const list = buckets.get(key);
+    if (list) list.push(index);
+    else buckets.set(key, [index]);
+  });
+  return buckets;
+}
+
+const sameStyle = (left: VectorText, right: VectorText) =>
+  Math.abs(left.angle - right.angle) <= 0.02 && Math.abs(left.height - right.height) <= 0.3 * Math.max(left.height, right.height);
+
 export function mergeTextLines(texts: readonly VectorText[]): VectorText[] {
   const items = texts.filter((text) => text.height > 0 && text.str.trim().length > 0);
-  const used = new Set<number>();
-  const order = items.map((_, index) => index).sort((left, right) => items[left].x - items[right].x || items[left].y - items[right].y);
+  const used = new Uint8Array(items.length);
   const lines: VectorText[] = [];
-  for (const start of order) {
-    if (used.has(start)) continue;
-    used.add(start);
-    let line = { ...items[start], str: items[start].str };
-    let extended = true;
-    while (extended) {
-      extended = false;
-      const c = Math.cos(line.angle), s = Math.sin(line.angle);
-      for (const candidate of order) {
-        if (used.has(candidate)) continue;
-        const next = items[candidate];
-        if (Math.abs(next.angle - line.angle) > 0.02 || Math.abs(next.height - line.height) > 0.3 * Math.max(next.height, line.height)) continue;
-        const dx = next.x - line.x, dy = next.y - line.y;
-        const along = dx * c + dy * s, across = -dx * s + dy * c;
-        if (Math.abs(across) > 0.25 * line.height || along < line.width - 0.5 * line.height || along > line.width + 1.5 * line.height) continue;
-        line = { ...line, str: `${line.str}${along > line.width + 0.15 * line.height ? " " : ""}${next.str}`, width: along + next.width };
-        used.add(candidate);
-        extended = true;
-        break;
+  const buckets = byDirection(items);
+  for (const [key, own] of [...buckets.entries()].sort(([left], [right]) => left - right)) {
+    // Each piece is taken once, in the order of its own reading direction (an upward label starts at its bottom).
+    const mine = new Set(own);
+    const pool = [...own, ...(buckets.get(key + 1) ?? []), ...(buckets.get(key - 1) ?? [])];
+    const c = Math.cos(key * 0.04), s = Math.sin(key * 0.04);
+    const along = (index: number) => items[index].x * c + items[index].y * s;
+    pool.sort((left, right) => along(left) - along(right));
+    for (const [position, start] of pool.entries()) {
+      if (used[start] || !mine.has(start)) continue;
+      used[start] = 1;
+      let line = { ...items[start] };
+      const lc = Math.cos(line.angle), ls = Math.sin(line.angle);
+      for (let next = position + 1; next < pool.length; next += 1) {
+        const candidate = pool[next];
+        if (used[candidate] || !sameStyle(items[candidate], line)) continue;
+        const piece = items[candidate];
+        const dx = piece.x - line.x, dy = piece.y - line.y;
+        const forward = dx * lc + dy * ls, across = -dx * ls + dy * lc;
+        if (forward > line.width + 1.5 * line.height) break;
+        if (Math.abs(across) > 0.25 * line.height || forward < line.width - 0.5 * line.height) continue;
+        line = { ...line, str: `${line.str}${forward > line.width + 0.15 * line.height ? " " : ""}${piece.str}`, width: forward + piece.width };
+        used[candidate] = 1;
       }
+      lines.push(line);
     }
-    lines.push(line);
   }
   return lines;
 }
@@ -80,24 +98,32 @@ export function readLabelBlocks(texts: readonly VectorText[]): LabelBlock[] {
   const lines = mergeTextLines(texts);
   const parent = lines.map((_, index) => index);
   const find = (index: number): number => (parent[index] === index ? index : (parent[index] = find(parent[index])));
-  // Bucket by angle and rough position to keep the pairing local.
-  const order = lines.map((_, index) => index).sort((left, right) => lines[left].y - lines[right].y);
-  for (let a = 0; a < order.length; a += 1) {
-    const first = lines[order[a]];
-    for (let b = a + 1; b < order.length; b += 1) {
-      const second = lines[order[b]];
-      if (second.y - first.y > 4 * Math.max(first.height, second.height) + first.width) break;
-      if (Math.abs(first.angle - second.angle) > 0.02 || Math.abs(first.height - second.height) > 0.3 * Math.max(first.height, second.height)) continue;
-      const c = Math.cos(first.angle), s = Math.sin(first.angle);
-      const dx = second.x - first.x, dy = second.y - first.y;
-      const along = dx * c + dy * s;
-      const down = -dx * s + dy * c; // perpendicular, positive below the baseline in page space
+  // Lines of one direction, ordered across it (the next line of a label is 0.9 to 1.7 heights « below » its baseline).
+  const buckets = byDirection(lines);
+  for (const [key, own] of buckets) {
+    const mine = new Set(own);
+    const pool = [...own, ...(buckets.get(key + 1) ?? []), ...(buckets.get(key - 1) ?? [])];
+    const c = Math.cos(key * 0.04), s = Math.sin(key * 0.04);
+    const downOf = (index: number) => -lines[index].x * s + lines[index].y * c;
+    pool.sort((left, right) => downOf(left) - downOf(right));
+    for (let a = 0; a < pool.length; a += 1) {
+      if (!mine.has(pool[a])) continue;
+      const first = lines[pool[a]];
       const h = first.height;
-      if (down < 0.9 * h || down > 1.7 * h) continue;
-      if (along > first.width || along + second.width < 0) continue;
-      // A line that names its own network starts another label (two pipes labelled side by side).
-      if (parsePipeLabel(second.str).network !== null) continue;
-      parent[find(order[b])] = find(order[a]);
+      for (let b = a + 1; b < pool.length; b += 1) {
+        const second = lines[pool[b]];
+        if (downOf(pool[b]) - downOf(pool[a]) > 1.8 * Math.max(h, second.height)) break;
+        if (!sameStyle(first, second)) continue;
+        const fc = Math.cos(first.angle), fs = Math.sin(first.angle);
+        const dx = second.x - first.x, dy = second.y - first.y;
+        const along = dx * fc + dy * fs;
+        const down = -dx * fs + dy * fc; // perpendicular, positive below the baseline in page space
+        if (down < 0.9 * h || down > 1.7 * h) continue;
+        if (along > first.width || along + second.width < 0) continue;
+        // A line that names its own network starts another label (two pipes labelled side by side).
+        if (parsePipeLabel(second.str).network !== null) continue;
+        parent[find(pool[b])] = find(pool[a]);
+      }
     }
   }
   const groups = new Map<number, number[]>();

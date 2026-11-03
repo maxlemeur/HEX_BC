@@ -78,9 +78,11 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // - an EU item is rolled up into EUV although the scope prices EU apart: the EU
 //   key is missed and the EUV key over-counted;
 // - a RECS item (a return loop, priced apart) is taken for ECS;
-// - an unreadable item hesitating between CHW-S and CHW-R is never the missed
-//   CHW key (its networks are not rolled up), so the reader's miss is blamed
-//   on the model (« nous:manque »).
+// - an item hesitating between CHW-S and CHW-R is left unreadable on a scope
+//   pricing CHW (both are CHW there), so the key misses half its length;
+// - the rollup is decided for the whole scope rather than per material: a
+//   devis pricing supply and return pipes apart and their insulation together
+//   never sees the insulation items on its combined key.
 
 type Json = Record<string, unknown>;
 
@@ -561,15 +563,29 @@ describe("takeoff bench confounded networks (score v3)", () => {
     expect(scope.counts).toMatchObject({ keys_ok: 0, keys_missed: 1, false_positive_items: 1 });
   });
 
-  it("lets an unreadable item hesitating between CHW-S and CHW-R be the missed CHW key", () => {
+  it("reads an item hesitating between CHW-S and CHW-R as CHW where CHW is priced", () => {
     const scope = only(score([truth("truth/a-plan-01.json", ["a-plan-01"], [
-      line({ network: "CHW", material: "acier-noir", dn: "DN 50", quantity: 20 }),
-    ])], { "a-plan-01": [item("CHW-S / CHW-R acier noir DN 50", 20)] }, [Z1]));
-    expect(causeLabels(scope).keys).toEqual(["CHW DN 50: indetermine:illisible"]);
-    expect(scope.false_positives).toMatchObject([
-      { key: null, reason: "network_ambiguous", items: 1, quantity: 20, paired_with: { network: "CHW", dn: "DN 50" } },
-    ]);
-    expect(scope.counts).toMatchObject({ keys_missed: 1, unreadable: 1, not_reviewed: 1, causes: { "indetermine:illisible": 1 } });
+      line({ network: "CHW", material: "acier-noir", dn: "DN 50", quantity: 40 }),
+    ])], { "a-plan-01": [item("CHW-S acier noir DN 50", 20), item("CHW-S / CHW-R acier noir DN 50", 20)] }, [Z1]));
+    // Both candidates are CHW in this scope: the item is no hesitation, the key adds both items.
+    expect(scope.keys).toMatchObject([{ key: { network: "CHW", dn: "DN 50" }, status: "ok", actual: 40, items: 2 }]);
+    expect(scope.false_positives).toEqual([]);
+    expect(scope.counts).toMatchObject({ keys_ok: 1, unreadable: 0 });
+  });
+
+  it("rolls up supply and return insulation onto a combined insulation key while the pipes stay apart", () => {
+    const scope = only(score([truth("truth/a-plan-01.json", ["a-plan-01"], [
+      line({ network: "CHW-S", material: "acier-noir", dn: "DN 50", quantity: 20 }),
+      line({ network: "CHW-R", material: "acier-noir", dn: "DN 50", quantity: 20 }),
+      line({ network: "CHW", material: "calorifuge", dn: "DN 50", quantity: 40 }),
+    ])], { "a-plan-01": [
+      item("CHW-S acier noir DN 50", 20), item("CHW-R acier noir DN 50", 20),
+      item("CHW-S calorifuge DN 50", 20), item("CHW-R calorifuge DN 50", 20),
+    ] }, [Z1]));
+    expect(scope.keys.map((key) => [key.key.network, key.key.material, key.status, key.actual])).toEqual(expect.arrayContaining([
+      ["CHW-S", "acier-noir", "ok", 20], ["CHW-R", "acier-noir", "ok", 20], ["CHW", "calorifuge", "ok", 40],
+    ]));
+    expect(scope.false_positives).toEqual([]);
   });
 
   it("leaves an unreadable item hesitating between CHW-S and HW-S unpaired with an EF key", () => {
