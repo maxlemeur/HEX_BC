@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { Check, RefreshCw, SkipForward, Undo2, X } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -157,26 +157,31 @@ export function LabVerdictsScreen() {
     }
   }, [campaign, ready]);
 
+  // An Effect Event runs the handlers of the last committed render: React updates it during the commit,
+  // before any later event. A listener re-registered by a passive effect would keep the previous render's
+  // handlers until that effect runs, after the paint, and a key pressed meanwhile would be dropped (campaign
+  // still « loading ») or judge the element just judged instead of the one on screen.
+  const onShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const target = event.target as HTMLElement | null;
+    if (target && (TEXT_INPUTS.has(target.tagName) || target.isContentEditable)) return;
+    // Only for the verdict screen itself: never behind a dialog, a sheet or the menu drawer, and Escape
+    // never while it may be closing a tooltip.
+    const main = document.getElementById("dashboard-main-content");
+    if (main?.hasAttribute("inert") || document.querySelector("[role=dialog], [role=alertdialog]")) return;
+    if (target && target !== document.body && target !== main && !root.current?.contains(target)) return;
+    if (event.key === "Escape" && document.querySelector("[data-slot=tooltip-content]")) return;
+    const key = event.key.toLowerCase();
+    if (key === "g") { event.preventDefault(); void judge("good"); }
+    else if (key === "b") { event.preventDefault(); void judge("bad"); }
+    else if (key === "s") { event.preventDefault(); skip(); }
+    else if (event.key === "Escape") { event.preventDefault(); void undo(); }
+  });
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
-      const target = event.target as HTMLElement | null;
-      if (target && (TEXT_INPUTS.has(target.tagName) || target.isContentEditable)) return;
-      // Only for the verdict screen itself: never behind a dialog, a sheet or the menu drawer, and Escape
-      // never while it may be closing a tooltip.
-      const main = document.getElementById("dashboard-main-content");
-      if (main?.hasAttribute("inert") || document.querySelector("[role=dialog], [role=alertdialog]")) return;
-      if (target && target !== document.body && target !== main && !root.current?.contains(target)) return;
-      if (event.key === "Escape" && document.querySelector("[data-slot=tooltip-content]")) return;
-      const key = event.key.toLowerCase();
-      if (key === "g") { event.preventDefault(); void judge("good"); }
-      else if (key === "b") { event.preventDefault(); void judge("bad"); }
-      else if (key === "s") { event.preventDefault(); skip(); }
-      else if (event.key === "Escape") { event.preventDefault(); void undo(); }
-    }
+    const onKeyDown = (event: KeyboardEvent) => onShortcut(event);
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [judge, skip, undo]);
+  }, []);
 
   const judgedRatio = counts.total > 0 ? (counts.good + counts.bad) / counts.total : 0;
   const shownPage = current ? (current.crop ? current.crop.page : Math.min(Math.max(1, current.source_page ?? 1), current.document.pages)) : 1;

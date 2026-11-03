@@ -7,10 +7,22 @@
 // 3. The verdict buttons must stay disabled until the selected campaign's
 //    elements are displayed, then work on them.
 // The army journey cannot hold a campaign request open, so this check does.
+//
+// Failure cases written before the TI-674 fix (CI once dropped the G pressed on B):
+// 4. The document keydown listener is registered by a passive effect, so after a
+//    render it keeps the previous render's handlers until that effect runs. A key
+//    pressed right after campaign B appears still sees « loading » and the
+//    verdict is dropped without a message.
+// 5. A key pressed right after a verdict moved the screen to the next element is
+//    handled with the element just judged: the second verdict overwrites the
+//    first one and the element on screen stays unjudged.
+// The army journey cannot press a key between a commit and its effects either;
+// beforePassiveEffectsOf replays that ordering on every run.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LabCampaign, LabCampaignElement, LabState } from "@/lib/takeoff/lab/contracts";
+import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 
 const { campaignMock, judgeMock, undoMock } = vi.hoisted(() => ({ campaignMock: vi.fn(), judgeMock: vi.fn(), undoMock: vi.fn() }));
 
@@ -54,6 +66,7 @@ function deferred<T>() {
 }
 
 const ID_A = "a".repeat(64);
+const ID_A2 = "c".repeat(64);
 const ID_B = "b".repeat(64);
 
 beforeEach(() => {
@@ -86,9 +99,27 @@ describe("LabVerdictsScreen", () => {
     expect((screen.getByRole("button", { name: /^Bon/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: /^Annuler/ }) as HTMLButtonElement).disabled).toBe(true);
 
+    const pressed = beforePassiveEffectsOf(() => screen.queryAllByText(/Élément de B/).length > 0, () => fireEvent.keyDown(document.body, { key: "g" }));
     campaignB.resolve({ campaign: "campagne-b", elements: [element(ID_B, "Élément de B")] });
-    await screen.findAllByText(/Élément de B/);
-    fireEvent.keyDown(document.body, { key: "g" });
-    await waitFor(() => expect(judgeMock).toHaveBeenCalledWith("campagne-b", ID_B, "good"));
+    await pressed.done();
+    expect(judgeMock).toHaveBeenCalledTimes(1);
+    expect(judgeMock).toHaveBeenCalledWith("campagne-b", ID_B, "good");
+  });
+
+  it("applies a key pressed right after a verdict to the element now shown", async () => {
+    campaignMock.mockResolvedValue({ campaign: "campagne-a", elements: [element(ID_A, "Premier élément"), element(ID_A2, "Second élément")] });
+    const firstVerdict = deferred<unknown>();
+    judgeMock.mockReturnValueOnce(firstVerdict.promise);
+
+    render(<LabVerdictsScreen />);
+    await screen.findAllByText(/Premier élément/);
+    fireEvent.click(screen.getByRole("button", { name: /^Bon/ }));
+    expect(judgeMock).toHaveBeenLastCalledWith("campagne-a", ID_A, "good");
+
+    const pressed = beforePassiveEffectsOf(() => screen.queryAllByText(/Second élément/).length > 0, () => fireEvent.keyDown(document.body, { key: "b" }));
+    firstVerdict.resolve({});
+    await pressed.done();
+    expect(judgeMock).toHaveBeenCalledTimes(2);
+    expect(judgeMock).toHaveBeenLastCalledWith("campagne-a", ID_A2, "bad");
   });
 });
