@@ -60,7 +60,8 @@ export type BenchTriageTypeScore = { predicted: number; correct: number; truth: 
 export type BenchTriageGroupScore = {
   documents: number;
   pages: { total: number; answered: number; failed: number; ambiguous: number; not_run: number };
-  kept_recall: { kept_pages: number; wrongly_excluded: number; recall: number | null };
+  /** Over the pages that ran; kept pages never run are counted apart. */
+  kept_recall: { kept_pages: number; wrongly_excluded: number; recall: number | null; not_run_kept: number };
   false_exclusions: Array<{ document: string; page: number; truth_type: string; type: string | null; confidence: number | null }>;
   exclusions: { proposed: number; correct: number; excludable_pages: number };
   to_review: number;
@@ -68,8 +69,12 @@ export type BenchTriageGroupScore = {
   type_accuracy: { scored: number; correct: number };
   level: { scored: number; correct: number };
   zone: { scored: number; correct: number };
-  /** Lowest threshold >= 0.8 under which no kept page would have been excluded. */
-  required_threshold: number;
+  /**
+   * Lowest threshold >= 0.8 under which no kept page would have been excluded,
+   * from the pages the rule could exclude (complete call, readable thumbnail,
+   * answered excluded type); null when a kept page was answered at confidence 1.
+   */
+  required_threshold: number | null;
   tokens: { input: number; output: number; total: number; calls: number; calls_without_usage: number };
   latency_ms: { decisions_p50: number | null; decisions_p95: number | null; render_p50: number | null; render_p95: number | null };
 };
@@ -91,7 +96,7 @@ function scoreGroup(documents: readonly BenchTriageDocument[]): BenchTriageGroup
   const score: BenchTriageGroupScore = {
     documents: documents.length,
     pages: { total: 0, answered: 0, failed: 0, ambiguous: 0, not_run: 0 },
-    kept_recall: { kept_pages: 0, wrongly_excluded: 0, recall: null },
+    kept_recall: { kept_pages: 0, wrongly_excluded: 0, recall: null, not_run_kept: 0 },
     false_exclusions: [], exclusions: { proposed: 0, correct: 0, excludable_pages: 0 }, to_review: 0,
     per_type: emptyTypes(), type_accuracy: { scored: 0, correct: 0 }, level: { scored: 0, correct: 0 }, zone: { scored: 0, correct: 0 },
     required_threshold: TAKEOFF_PAGE_TRIAGE_CONFIDENCE_THRESHOLD,
@@ -107,8 +112,8 @@ function scoreGroup(documents: readonly BenchTriageDocument[]): BenchTriageGroup
       const call = entry.run?.calls.find((candidate) => candidate.page === truth.page);
       if (!call) {
         score.pages.not_run += 1;
-        if (truth.garder) score.kept_recall.kept_pages += 1;
-        if (!truth.garder) score.exclusions.excludable_pages += 1;
+        if (truth.garder) score.kept_recall.not_run_kept += 1;
+        else score.exclusions.excludable_pages += 1;
         continue;
       }
       if (call.status !== "cached" && call.status !== "skipped") {
@@ -143,7 +148,8 @@ function scoreGroup(documents: readonly BenchTriageDocument[]): BenchTriageGroup
       score.pages.answered += 1;
       const type = String(call.answers.type?.value);
       const confidence = call.answers.type?.confidence ?? null;
-      if (truth.garder && TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES.includes(type as TakeoffPageType) && confidence !== null) riskiest = Math.max(riskiest, confidence);
+      const excludable = call.status === "available" && call.thumbnail !== null && !call.thumbnail.blank;
+      if (truth.garder && excludable && TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES.includes(type as TakeoffPageType) && confidence !== null) riskiest = Math.max(riskiest, confidence);
       if (truth.statut === "ambigu") continue;
       score.type_accuracy.scored += 1;
       if (type === truth.type) score.type_accuracy.correct += 1;
@@ -169,7 +175,7 @@ function scoreGroup(documents: readonly BenchTriageDocument[]): BenchTriageGroup
   const kept = score.kept_recall;
   kept.recall = kept.kept_pages ? (kept.kept_pages - kept.wrongly_excluded) / kept.kept_pages : null;
   score.required_threshold = riskiest < TAKEOFF_PAGE_TRIAGE_CONFIDENCE_THRESHOLD ? TAKEOFF_PAGE_TRIAGE_CONFIDENCE_THRESHOLD
-    : Math.min(1, Math.round((Math.floor(riskiest * 100) / 100 + 0.01) * 100) / 100);
+    : riskiest >= 1 ? null : Math.min(1, Math.round((Math.floor(riskiest * 100) / 100 + 0.01) * 100) / 100);
   score.latency_ms = {
     decisions_p50: percentile(decisions, 50), decisions_p95: percentile(decisions, 95),
     render_p50: percentile(renders, 50), render_p95: percentile(renders, 95),

@@ -7,7 +7,13 @@
 // - a Decisions limit exception escaping instead of a page to review (C4);
 // - more calls in flight than the concurrency bound;
 // - an unreadable PDF or a document above the page limit producing a partial triage (F5).
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+// Found in review, written before their fix:
+// - a corrected page asked again (scope changed, or a failed page) loses « Corrigée »,
+//   so the next acceptance overwrites the user's choice;
+// - the triage usage restarts at the tokens of the last run instead of accumulating;
+// - a page count that differs from the stored one is paid for, then dropped;
+// - one unreadable page stops the reading of every later page.
+import { PDFDocument, PDFName, StandardFonts, rgb } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import type { OpenAiDecisionsResult } from "@/lib/ai/decisions";
@@ -79,7 +85,8 @@ describe("page triage run", () => {
     const cached = await base(bytes, decide, { previous: corrected });
     expect(calls).toBe(0);
     expect(cached.calls.map((call) => call.status)).toEqual(["cached", "cached"]);
-    expect(cached.triage).toMatchObject({ accepted: true, usage: { total_tokens: 0 } });
+    // Cumulative usage of the triage: the tokens that produced it, none added by the cache.
+    expect(cached.triage).toMatchObject({ accepted: true, usage: { total_tokens: 10 } });
     expect(cached.triage?.pages[0].status).toBe("corrected");
     const failedBefore = { ...first.triage!, pages: first.triage!.pages.map((page) => page.page === 2 ? { ...page, proposal: "review" as const, status: "to_review" as const, reason: "call_failed" as const } : page) };
     calls = 0;
@@ -87,6 +94,38 @@ describe("page triage run", () => {
     expect(calls).toBe(1);
     expect(retried.triage?.pages[1]).toMatchObject({ proposal: "keep", reason: null });
     expect(retried.triage?.accepted).toBe(false);
+  });
+
+  it("keeps a correction on a page that is asked again", async () => {
+    const bytes = await fictionalPdf(["FACADE NORD", "PLAN R+1 Zone 1"]);
+    const decide: TakeoffPageTriageDecide = async (input) => answer(input);
+    const first = await base(bytes, decide);
+    const corrected = { ...first.triage!, accepted: true, pages: first.triage!.pages.map((page) => page.page === 1 ? { ...page, status: "corrected" as const } : page) };
+    const rerun = await base(bytes, decide, { previous: corrected, scope: { levels: ["R+2"], zones: [] } });
+    expect(rerun.calls.map((call) => call.status)).toEqual(["available", "available"]);
+    expect(rerun.triage?.pages.map((page) => [page.proposal, page.status])).toEqual([["exclude", "corrected"], ["keep", "proposed"]]);
+    expect(rerun.triage?.usage.total_tokens).toBe(20);
+  });
+
+  it("refuses a page count different from the stored one before any call", async () => {
+    let calls = 0;
+    const run = await base(await fictionalPdf(["A", "B"]), async (input) => { calls += 1; return answer(input); }, { expectedPageCount: 3 });
+    expect(run).toMatchObject({ triage: null, stop: { reason: "page_count_mismatch" } });
+    expect(calls).toBe(0);
+  });
+
+  it("reads the pages after an unreadable one and leaves only that page to review", async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const broken = pdf.addPage([400, 300]);
+    broken.node.set(PDFName.of("Contents"), pdf.context.register(pdf.context.stream("BT /F9 12 Tf 20 20 Td (broken) Tj ET /Im9 Do")));
+    const plan = pdf.addPage([400, 300]);
+    plan.drawText("PLAN R+1", { x: 20, y: 250, size: 14, font });
+    plan.drawLine({ start: { x: 0, y: 0 }, end: { x: 400, y: 300 }, thickness: 3, color: rgb(1, 0, 0) });
+    let calls = 0;
+    const run = await base(new Uint8Array(await pdf.save()), async (input) => { calls += 1; return answer(input); });
+    expect(calls).toBe(1);
+    expect(run.triage?.pages.map((page) => [page.page, page.proposal, page.reason])).toEqual([[1, "review", "render_failed"], [2, "keep", null]]);
   });
 
   it("stops at the first failed call and leaves the remaining pages to review", async () => {

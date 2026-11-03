@@ -71,12 +71,14 @@ export type TakeoffPageTriageCall = {
 };
 
 export type TakeoffPageTriageStop = {
-  reason: "call_failed" | "budget_reached" | "time_limit" | "render_failed" | "page_limit";
+  reason: "call_failed" | "budget_reached" | "time_limit" | "render_failed" | "page_limit" | "page_count_mismatch";
   message: string;
 };
 
 export type TakeoffPageTriageRun = {
+  /** `usage` accumulates the tokens of the previous triage it continues; `run_usage` is this run's. */
   triage: TakeoffPageTriage | null;
+  run_usage: { input_tokens: number; output_tokens: number; total_tokens: number };
   calls: TakeoffPageTriageCall[];
   render: { status: "complete" | "partial" | "failed"; page_count: number | null; duration_ms: number; timed_out: boolean; canvas_available: boolean };
   stop: TakeoffPageTriageStop | null;
@@ -112,6 +114,8 @@ export async function runTakeoffPageTriage(input: {
   stopOnFailure?: boolean;
   maxPages?: number;
   pageCountHint?: number | null;
+  /** Page count the preparation already stores: a different read is refused before any call. */
+  expectedPageCount?: number | null;
   /** Wall-clock limit from the start; the bench passes Infinity. */
   deadlineMs?: number;
   onProgress?: (event: { done: number; total: number; page: number; status: TakeoffPageTriageCall["status"] }) => void;
@@ -134,11 +138,16 @@ export async function runTakeoffPageTriage(input: {
     status: rendered.status, page_count: rendered.pageCount, duration_ms: rendered.durationMs,
     timed_out: rendered.timedOut, canvas_available: rendered.canvasAvailable,
   };
+  const noRun = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
   if (rendered.pageCount !== null && rendered.pageCount > maxPages) {
-    return { triage: null, calls: [], render, stop: { reason: "page_limit", message: `Ce document compte ${rendered.pageCount} pages : le tri automatique est limité à ${maxPages} pages. Sélectionnez les pages manuellement.` } };
+    return { triage: null, run_usage: noRun, calls: [], render, stop: { reason: "page_limit", message: `Ce document compte ${rendered.pageCount} pages : le tri automatique est limité à ${maxPages} pages. Sélectionnez les pages manuellement.` } };
   }
   if (rendered.pageCount === null || !rendered.pages.length) {
-    return { triage: null, calls: [], render, stop: { reason: "render_failed", message: "Le PDF n’a pas pu être lu pour le tri. La sélection manuelle des pages reste disponible." } };
+    return { triage: null, run_usage: noRun, calls: [], render, stop: { reason: "render_failed", message: "Le PDF n’a pas pu être lu pour le tri. La sélection manuelle des pages reste disponible." } };
+  }
+  if (input.expectedPageCount != null && rendered.pageCount !== input.expectedPageCount) {
+    return { triage: null, run_usage: noRun, calls: [], render, stop: { reason: "page_count_mismatch",
+      message: `Le PDF lu compte ${rendered.pageCount} pages, le dossier en indique ${input.expectedPageCount} : vérifiez le fichier. La sélection manuelle des pages reste disponible.` } };
   }
   const pageCount = rendered.pageCount;
   const scope = { levels: input.scope.levels.slice(0, 200), zones: input.scope.zones.slice(0, 200) };
@@ -158,9 +167,11 @@ export async function runTakeoffPageTriage(input: {
     input.onProgress?.({ done, total: pageCount, page, status });
   };
   const empty = { type: null, level: null, zone: null };
+  // A correction stays « Corrigée » even when its page is asked again: a later acceptance keeps the user's choice.
+  const corrected = new Set(previous?.pages.filter((entry) => entry.status === "corrected").map((entry) => entry.page) ?? []);
   const settle = (page: number, call: Omit<TakeoffPageTriageCall, "page">, entry: Omit<TakeoffPageTriagePage, "page" | "status"> & { status?: TakeoffPageTriagePage["status"] }) => {
     calls.set(page, { page, ...call });
-    entries.set(page, { page, ...entry, status: entry.status ?? (entry.proposal === "review" ? "to_review" : "proposed") });
+    entries.set(page, { page, ...entry, status: entry.status ?? (corrected.has(page) ? "corrected" : entry.proposal === "review" ? "to_review" : "proposed") });
     progress(page, call.status);
   };
   const review = (reason: TakeoffPageTriageReviewReason) => ({ request_fingerprint: null, type: null, level: null, zone: null, confidence: null, proposal: "review" as const, reason });
@@ -168,8 +179,8 @@ export async function runTakeoffPageTriage(input: {
   const queue: Array<{ page: number; rendered: PdfRenderedPage; fingerprint: string }> = [];
   for (let page = 1; page <= pageCount; page += 1) {
     const current = byPage.get(page);
-    if (!current) {
-      settle(page, { status: "skipped", duration_ms: null, render_ms: null, usage: null, request_fingerprint: null, answers: empty, proposal: "review", reason: "render_failed", thumbnail: null, text_chars: 0, message: rendered.timedOut ? "Lecture de la page limitée dans le temps." : "Page illisible." }, review("render_failed"));
+    if (!current || current.failed) {
+      settle(page, { status: "skipped", duration_ms: null, render_ms: current?.renderMs ?? null, usage: null, request_fingerprint: null, answers: empty, proposal: "review", reason: "render_failed", thumbnail: null, text_chars: 0, message: !current && rendered.timedOut ? "Lecture de la page limitée dans le temps." : "Page illisible." }, review("render_failed"));
       continue;
     }
     const image = current.image && !current.image.blank ? current.image : null;
@@ -265,12 +276,18 @@ export async function runTakeoffPageTriage(input: {
 
   const pages = Array.from({ length: pageCount }, (_, index) => entries.get(index + 1)!);
   const allCached = [...calls.values()].every((call) => call.status === "cached");
+  const cumulative = previous ? {
+    input_tokens: previous.usage.input_tokens + usage.input_tokens,
+    output_tokens: previous.usage.output_tokens + usage.output_tokens,
+    total_tokens: previous.usage.total_tokens + usage.total_tokens,
+  } : usage;
   return {
     triage: {
       source_version: input.sourceVersion, page_count: pageCount, questions_fingerprint: questionsFingerprint,
-      model: OPENAI_DECISIONS_MODEL, prompt_version: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, usage,
+      model: OPENAI_DECISIONS_MODEL, prompt_version: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, usage: cumulative,
       generated_at: new Date().toISOString(), accepted: Boolean(previous?.accepted && allCached), pages,
     },
+    run_usage: usage,
     calls: Array.from({ length: pageCount }, (_, index) => calls.get(index + 1)!),
     render,
     stop,

@@ -338,6 +338,8 @@ export function buildBenchReport(input: {
   run: BenchRunResult;
   scopes: readonly ScoreScope[];
   noise: NoiseFile | null;
+  /** Documents a page triage fully excluded (`--pages-from`): scored as read with no item, their keys missed. */
+  excludedDocuments?: readonly string[];
 }): BenchReport {
   const promptVersion = getTakeoffPromptVersion("C");
   return {
@@ -373,6 +375,7 @@ export function buildBenchReport(input: {
       passes: couple.passes.map((pass) => {
         const read = pass.documents.filter((document) => document.complete);
         const items = new Map(read.map((document) => [document.id, document.items]));
+        for (const id of input.excludedDocuments ?? []) if (!items.has(id)) items.set(id, []);
         const failures = new Map(read.map((document) => [document.id, document.calls.filter((entry) => entry.status !== "ok")
           .map((entry) => ({ start_page: entry.start_page, end_page: entry.end_page, status: entry.status }))]));
         const chunks = new Map(read.map((document) => [document.id, document.item_chunks]));

@@ -4,10 +4,13 @@
 // - a page beyond the document is silently dropped instead of refused;
 // - a triage report of another document version (SHA) or without the document is used;
 // - a document whose pages are all excluded is still read (or read in full).
+// Found in review, written before its fix: pages of a subset are reported (and
+// scored against page_ranges) in subset numbers instead of the original ones.
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
-import { selectBenchPages, subsetPdfPages } from "@/lib/takeoff/bench/pages";
+import { remapBenchRunPages, selectBenchPages, subsetPdfPages } from "@/lib/takeoff/bench/pages";
+import type { BenchRunResult } from "@/lib/takeoff/bench/run";
 import type { ManifestDocument } from "@/lib/takeoff/bench/schemas";
 
 async function labelledPdf(count: number) {
@@ -52,5 +55,18 @@ describe("bench page selection", () => {
     ]);
     await expect(selectBenchPages([{ document: doc("e-plan-02", 1), bytes: await labelledPdf(1) }], { pages: null, triage })).rejects.toThrow(/e-plan-02 is not in the triage report/);
     await expect(selectBenchPages([{ document: doc("e-plan-01", 2, "c".repeat(64)), bytes: await labelledPdf(2) }], { pages: null, triage })).rejects.toThrow(/another version/);
+  });
+
+  it("puts back the original page numbers of a subset in calls and items", () => {
+    const result = {
+      status: "complete", stop: null, calls_planned: 1, calls_done: 1,
+      couples: [{ model: "m", reasoning_effort: null, override: false, prompt_version: "p", passes: [{ pass: 1, complete: true, documents: [{
+        id: "e-plan-01", calls: [{ start_page: 1, end_page: 2 }], items: [{ source_page: 1 }, { source_page: 2 }, { source_page: null }],
+      }] }] }],
+    } as unknown as BenchRunResult;
+    const remapped = remapBenchRunPages(result, new Map([["e-plan-01", [2, 4]]]));
+    const document = remapped.couples[0].passes[0].documents[0];
+    expect(document.calls.map((entry) => [entry.start_page, entry.end_page])).toEqual([[2, 4]]);
+    expect(document.items.map((entry) => entry.source_page)).toEqual([2, 4, null]);
   });
 });

@@ -1,5 +1,6 @@
 import { PDFDocument } from "pdf-lib";
 
+import type { BenchRunResult } from "@/lib/takeoff/bench/run";
 import type { ManifestDocument } from "@/lib/takeoff/bench/schemas";
 
 // Pages an extraction reads (TI-663 before/after). As the worker does for the
@@ -7,6 +8,7 @@ import type { ManifestDocument } from "@/lib/takeoff/bench/schemas";
 // are copied, in order, into one PDF; all pages keep the original bytes. A page
 // beyond a document is refused; a document whose triage kept no page is left
 // out and listed as excluded. A triage report must name the same document SHA.
+// Pages of a subset are put back in original numbers before scoring and report.
 
 export type BenchTriageRetained = { id: string; sha256: string | null; page_count: number; retained_pages: number[] };
 export type BenchPageSelection = {
@@ -25,13 +27,14 @@ export async function subsetPdfPages(bytes: Uint8Array, pages: readonly number[]
 export async function selectBenchPages<T extends { document: ManifestDocument; bytes: Buffer }>(selected: readonly T[], input: {
   pages: number[] | null;
   triage: { path: string; sha256: string; retained: BenchTriageRetained[] } | null;
-}): Promise<{ documents: T[]; selection: BenchPageSelection }> {
+}): Promise<{ documents: T[]; selection: BenchPageSelection; pageMaps: Map<string, number[]> }> {
   const selection: BenchPageSelection = {
     mode: input.triage ? "triage" : input.pages ? "list" : "all",
     triage_report: input.triage ? { path: input.triage.path, sha256: input.triage.sha256 } : null,
     documents: [],
   };
   const documents: T[] = [];
+  const pageMaps = new Map<string, number[]>();
   for (const entry of selected) {
     const total = entry.document.pages ?? (await PDFDocument.load(entry.bytes, { updateMetadata: false })).getPageCount();
     let pages = Array.from({ length: total }, (_, index) => index + 1);
@@ -49,7 +52,36 @@ export async function selectBenchPages<T extends { document: ManifestDocument; b
     }
     selection.documents.push({ id: entry.document.id, pages_total: total, pages_read: pages, excluded: pages.length === 0 });
     if (!pages.length) continue;
-    documents.push(pages.length === total ? entry : { ...entry, bytes: await subsetPdfPages(entry.bytes, pages) });
+    if (pages.length === total) {
+      documents.push(entry);
+      continue;
+    }
+    pageMaps.set(entry.document.id, [...pages]);
+    documents.push({ ...entry, bytes: await subsetPdfPages(entry.bytes, pages) });
   }
-  return { documents, selection };
+  return { documents, selection, pageMaps };
+}
+
+/** Subset page numbers of calls and items back to the original document, as the worker does. */
+export function remapBenchRunPages(run: BenchRunResult, pageMaps: ReadonlyMap<string, readonly number[]>): BenchRunResult {
+  if (!pageMaps.size) return run;
+  const original = (map: readonly number[], page: number | null | undefined) => (page == null ? page : map[page - 1] ?? page);
+  return {
+    ...run,
+    couples: run.couples.map((couple) => ({
+      ...couple,
+      passes: couple.passes.map((pass) => ({
+        ...pass,
+        documents: pass.documents.map((document) => {
+          const map = pageMaps.get(document.id);
+          if (!map) return document;
+          return {
+            ...document,
+            calls: document.calls.map((call) => ({ ...call, start_page: original(map, call.start_page) as number, end_page: original(map, call.end_page) as number })),
+            items: document.items.map((item) => ({ ...item, source_page: original(map, item.source_page) as typeof item.source_page })),
+          };
+        }),
+      })),
+    })),
+  };
 }

@@ -87,8 +87,9 @@ export async function generateTakeoffPreparationAssistance(input: {
   const knownIds = new Set(sources.map((source) => source.document_id));
   // Only source identity/content context is sent, never storage paths or credentials.
   const evidence = {
-    preparation: { ...preparation, sources: preparation.sources.map((source) => ({ ...source, file_path: null })) },
-    sources: sources.slice(0, 80).map((source) => ({ ...source, file_path: null })),
+    // The page triage (fingerprints, per-page answers) is not assistance context.
+    preparation: { ...preparation, sources: preparation.sources.map((source) => ({ ...source, file_path: null, page_triage: null })) },
+    sources: sources.slice(0, 80).map((source) => ({ ...source, file_path: null, page_triage: null })),
     brief: input.brief ?? null,
     user_request: instruction || null,
   };

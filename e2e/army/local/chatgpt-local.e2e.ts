@@ -642,6 +642,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   expect(reloaded.source.page_triage?.pages[0].status).toBe("corrected");
   expect((await triageCalls()).length).toBe(callsBeforeReload);
   expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+  await reloadedTable.scrollIntoView();
   await recordEvidence(army, "page-triage", { estimate, planSetId: planSet.id, planFileId: planFile.id,
     proposed: proposed.source.page_triage, acceptedPages: accepted.source.pages, correctedPages: corrected.source.pages,
     decisionsCalls: callsBeforeReload, externalApiCalled: false, screenshot: await app.screenshot("page-triage") });

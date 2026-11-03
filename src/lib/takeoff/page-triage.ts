@@ -88,7 +88,7 @@ export const takeoffPageTriageSchema = z.object({
   questions_fingerprint: sha256Schema,
   model: z.string().trim().min(1).max(120),
   prompt_version: z.string().trim().min(1).max(120),
-  /** Tokens of the calls made by this triage; cached pages cost nothing. */
+  /** Tokens of every call that produced this triage, cumulated over its runs; a cached page costs nothing more. */
   usage: usageSchema,
   generated_at: z.iso.datetime({ offset: true }),
   accepted: z.boolean(),

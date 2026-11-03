@@ -8,6 +8,9 @@
 // - an ambiguous page enters the per-type precision, or a failed call does;
 // - reserve pages mix with the others, or tune the threshold (H1): the threshold
 //   needed for a 100 % recall is computed outside the reserve, never below 0.8.
+// Found in review, written before their fix: a page the rule could not exclude
+// (partial call, blank thumbnail) raises the threshold; a confidence of 1 reports
+// a threshold of 1 that still excludes; pages never run count as kept.
 import { describe, expect, it } from "vitest";
 
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
@@ -36,7 +39,8 @@ function call(type: string | null, confidence: number | null, proposal: TakeoffP
 }
 
 function run(calls: TakeoffPageTriageCall[], stop: TakeoffPageTriageRun["stop"] = null): TakeoffPageTriageRun {
-  return { triage: null, calls, render: { status: "complete", page_count: calls.length, duration_ms: 300, timed_out: false, canvas_available: true }, stop };
+  return { triage: null, run_usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }, calls,
+    render: { status: "complete", page_count: calls.length, duration_ms: 300, timed_out: false, canvas_available: true }, stop };
 }
 
 const doc = (id: string, role: ManifestDocument["role"], page: PageTruthFile) => ({ document: manifestDocument(id, role), bytes: Buffer.from("%PDF"), truth: page });
@@ -84,7 +88,7 @@ describe("bench page triage score", () => {
   it("reports false exclusions, per-type precision without ambiguous or failed pages, and the reserve apart", () => {
     const score = scoreTakeoffBenchTriage(documents);
     expect(score.main.false_exclusions).toEqual([{ document: "d-plan-01", page: 1, truth_type: "architecture", type: "facade", confidence: 0.86 }]);
-    expect(score.main.kept_recall).toEqual({ kept_pages: 3, wrongly_excluded: 1, recall: 2 / 3 });
+    expect(score.main.kept_recall).toEqual({ kept_pages: 3, wrongly_excluded: 1, recall: 2 / 3, not_run_kept: 0 });
     expect(score.main.per_type.coupe).toEqual({ predicted: 1, correct: 1, truth: 1, precision: 1, recall: 1 });
     expect(score.main.per_type.facade).toEqual({ predicted: 1, correct: 0, truth: 0, precision: 0, recall: null });
     expect(score.main.per_type.reseau).toEqual({ predicted: 1, correct: 1, truth: 1, precision: 1, recall: 1 });
@@ -92,7 +96,24 @@ describe("bench page triage score", () => {
     expect(score.main.required_threshold).toBe(0.87);
     expect(score.reserve.false_exclusions).toHaveLength(1);
     expect(score.reserve.required_threshold).toBe(1);
+    expect(score.main.kept_recall).toMatchObject({ not_run_kept: 0 });
     expect(score.main.tokens).toEqual({ input: 360, output: 40, total: 400, calls: 5, calls_without_usage: 1 });
+  });
+
+  it("computes the threshold only from pages the rule could exclude, and none above a confidence of 1", () => {
+    const partial = { ...call("facade", 0.97, "review", "partial"), reason: "partial_answer" as const };
+    const blank = { ...call("coupe", 0.98, "review"), reason: "thumbnail_missing" as const, thumbnail: { width: 1200, height: 800, bytes: 4000, blank: true } };
+    const certain = call("coupe", 1, "exclude");
+    const score = (entry: ReturnType<typeof call>) => scoreTakeoffBenchTriage([{ ...doc("a-plan-01", "truth", truth("a-plan-01", "reseau", true)), status: "done", run: run([entry]) }]).main.required_threshold;
+    expect([score(partial), score(blank), score(certain)]).toEqual([0.8, 0.8, null]);
+  });
+
+  it("leaves pages never run out of the kept recall", () => {
+    const score = scoreTakeoffBenchTriage([
+      { ...doc("a-plan-01", "truth", truth("a-plan-01", "reseau", true)), status: "done", run: run([call("reseau", 0.97, "keep")]) },
+      { ...doc("e-plan-01", "no_truth", truth("e-plan-01", "reseau", true)), status: "not_run", run: null },
+    ]).main;
+    expect(score.kept_recall).toEqual({ kept_pages: 1, wrongly_excluded: 0, recall: 1, not_run_kept: 1 });
   });
 
   it("keeps the threshold at 0.8 when no kept page is excluded", () => {

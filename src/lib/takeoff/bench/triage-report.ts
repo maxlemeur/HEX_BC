@@ -64,7 +64,8 @@ function group(name: string, score: BenchTriageGroupScore) {
     `- Kept pages proposed for exclusion: ${score.kept_recall.wrongly_excluded} of ${score.kept_recall.kept_pages} (recall ${ratio(score.kept_recall.recall)}).`,
     `- Exclusions proposed ${score.exclusions.proposed}, correct ${score.exclusions.correct}, of ${score.exclusions.excludable_pages} excludable pages; to review ${score.to_review}.`,
     `- Type accuracy ${score.type_accuracy.correct}/${score.type_accuracy.scored}; level ${score.level.correct}/${score.level.scored}; zone ${score.zone.correct}/${score.zone.scored}.`,
-    `- Threshold that keeps every kept page: ${score.required_threshold}.`,
+    `- Threshold that keeps every kept page: ${score.required_threshold ?? "none (a kept page was answered at confidence 1)"}.`,
+    ...(score.kept_recall.not_run_kept ? [`- Kept pages not run (left out of the recall): ${score.kept_recall.not_run_kept}.`] : []),
     `- Decisions tokens: ${score.tokens.input} in, ${score.tokens.output} out, ${score.tokens.total} total, ${score.tokens.calls} calls (${score.tokens.calls_without_usage} without usage).`,
     `- Decisions call p50/p95 ${ms(score.latency_ms.decisions_p50)} / ${ms(score.latency_ms.decisions_p95)}; page render p50/p95 ${ms(score.latency_ms.render_p50)} / ${ms(score.latency_ms.render_p95)}.`,
   ];

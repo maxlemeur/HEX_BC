@@ -65,10 +65,12 @@ Le premier périmètre comprend :
   raison. Les pages sont lues côté serveur par le lecteur partagé
   `src/lib/pdf/page-render-server.ts` (texte borné à 12 000 caractères, vignette
   JPEG de 1 200 px au plus et 1,5 Mo, processus séparé à 768 Mo et 20 s + 10 s
-  par page, plafonné à 120 s). Quatre appels au plus en parallèle, plafond de
+  par page, plafonné à 120 s ; 60 pages au plus par plan, au-delà la sélection
+  reste manuelle). Quatre appels au plus en parallèle, plafond de
   200 000 jetons par tri (`TAKEOFF_PAGE_TRIAGE_MAX_TOKENS`), aucun nouvel appel
   après 200 s, arrêt au premier échec, sans relance ni autre fournisseur. Les
-  pages inchangées réutilisent leur réponse. Une page n’est proposée à l’écart
+  pages inchangées réutilisent leur réponse ; une page illisible reste « À
+  vérifier » sans appel et n'empêche pas la lecture des suivantes. Une page n’est proposée à l’écart
   que pour une réponse complète, avec vignette, d’un type exclu (coupe, façade,
   toiture, masse, pièce écrite) à une confiance d’au moins 0,8 ; toute autre page
   reste retenue « À vérifier ». Voir [Préparation du métré](../metier/preparation-metre.md).

@@ -13,7 +13,7 @@ import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner, type BenchArgs } from "@/lib/takeoff/bench/args";
 import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
-import { selectBenchPages } from "@/lib/takeoff/bench/pages";
+import { remapBenchRunPages, selectBenchPages } from "@/lib/takeoff/bench/pages";
 import { buildBenchReport, renderBenchReportMarkdown, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import {
   classifyCallError,
@@ -242,7 +242,7 @@ async function main() {
   const dataset = await loadBenchDataset(args.dataset, args.docs);
   const scopes = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
   const triage = args.pagesFrom ? await readTriageReport(args.pagesFrom) : null;
-  const { documents: read, selection } = await selectBenchPages(dataset.selected, { pages: args.pages, triage });
+  const { documents: read, selection, pageMaps } = await selectBenchPages(dataset.selected, { pages: args.pages, triage });
   const plans = await planBenchDocuments(read.map(({ document, bytes }) => ({
     id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
     bytes, sha256: document.sha256 as string,
@@ -282,7 +282,10 @@ async function main() {
       unchanged: checked.profile ? await profileUnchanged(owner, checked.profile) : null,
     },
   };
-  const report = buildBenchReport({ metadata, run, scopes, noise: dataset.noise });
+  const report = buildBenchReport({
+    metadata, run: remapBenchRunPages(run, pageMaps), scopes, noise: dataset.noise,
+    excludedDocuments: selection.documents.filter((entry) => entry.excluded).map((entry) => entry.id),
+  });
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   await writeFile(path.join(args.out, "report.md"), renderBenchReportMarkdown(report), { flag: "wx" });
   console.log(`Takeoff bench ${run.status}: ${run.calls_done}/${run.calls_planned} calls, reports in ${args.out}.`);

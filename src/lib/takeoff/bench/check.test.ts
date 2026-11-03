@@ -789,6 +789,12 @@ describe("takeoff bench dataset check", () => {
     });
     const result = await checkTakeoffBenchDataset(dataset.root);
     for (const field of ["niveau", "zone", "type", "statut", "labeled_by"]) expectIssue(result, "truth/pages/a-plan-02.json", `pages[0].${field}`, /./);
+    await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
+      Object.assign((truth.pages as Array<Record<string, unknown>>)[0], { niveau: "R+01", zone: "Z02", type: "reseau", statut: "à valider", labeled_by: "agent" });
+    });
+    const zeros = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(zeros, "truth/pages/a-plan-02.json", "pages[0].niveau", /./);
+    expectIssue(zeros, "truth/pages/a-plan-02.json", "pages[0].zone", /./);
   });
 
   it("keeps every kept type, cited page and ambiguous page, and only those", async () => {

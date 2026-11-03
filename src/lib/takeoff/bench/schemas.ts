@@ -484,8 +484,9 @@ export type NoiseFile = z.infer<typeof NoiseFileSchema>;
 // (path group classes, TI-662) stays minimal and open; its owner extends it.
 
 export const PAGE_TRUTH_STATUSES = ["à valider", "validé", "ambigu"] as const;
-export const PAGE_TRUTH_LEVEL_PATTERN = /^(RDC|R[+-]\d{1,2}|SS\d{1,2})$/;
-export const PAGE_TRUTH_ZONE_PATTERN = /^Z\d{1,2}$/;
+// Exactly the tokens the triage writes: no leading zero (R+1, never R+01).
+export const PAGE_TRUTH_LEVEL_PATTERN = /^(RDC|R[+-](?:0|[1-9]\d?)|SS(?:0|[1-9]\d?))$/;
+export const PAGE_TRUTH_ZONE_PATTERN = /^Z(?:0|[1-9]\d?)$/;
 
 export const PageTruthFileSchema = z.strictObject({
   schema_version: z.literal(1),

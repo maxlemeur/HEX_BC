@@ -226,7 +226,7 @@ export type TakeoffPageTriageOutcome = {
   calls: number;
   total_tokens: number;
   /** `call_failed`: Decisions refused or failed; the client stops before the next document. */
-  stop_reason: "call_failed" | "budget_reached" | "time_limit" | "render_failed" | "page_limit" | null;
+  stop_reason: "call_failed" | "budget_reached" | "time_limit" | "render_failed" | "page_limit" | "page_count_mismatch" | null;
 };
 
 /**
@@ -263,7 +263,7 @@ export async function proposeTakeoffPageTriage(input: { projectId: string; expec
     bytes: new Uint8Array(await data.arrayBuffer()), fileName: source.document_name, sourceVersion: source.source_version,
     scope: { levels: state.draft.scope.levels, zones: state.draft.scope.zones }, previous: source.page_triage,
     budget: createDecisionsTokenBudget(TAKEOFF_PAGE_TRIAGE_MAX_TOKENS, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS),
-    pageCountHint: source.page_count,
+    pageCountHint: source.page_count, expectedPageCount: source.page_count,
   });
   const counts = {
     pages: run.triage?.page_count ?? 0,
@@ -271,7 +271,7 @@ export async function proposeTakeoffPageTriage(input: { projectId: string; expec
     to_review: run.triage?.pages.filter((page) => page.proposal === "review").length ?? 0,
     cached: run.calls.filter((call) => call.status === "cached").length,
     calls: run.calls.filter((call) => !["cached", "skipped"].includes(call.status)).length,
-    total_tokens: run.triage?.usage.total_tokens ?? 0,
+    total_tokens: run.run_usage.total_tokens,
     stop_reason: run.stop?.reason ?? null,
   };
   if (!run.triage) {

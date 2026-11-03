@@ -240,9 +240,15 @@ redemandées ; une nouvelle version du fichier efface le tri sans toucher la
 sélection. Le worker de niveau C est inchangé : il ne copie que les pages
 confirmées.
 
-Le champ `page_triage` est validé strictement : un brouillon qui le contient ne
-peut pas être relu par une version antérieure de l'application. Ne pas revenir
-en arrière après avoir utilisé le tri.
+Un plan de plus de 60 pages n'est pas trié automatiquement : un message invite à
+sélectionner ses pages à la main. Un PDF dont le nombre de pages lu diffère de
+celui du dossier est refusé avant tout appel.
+
+Le schéma strict ajoute `page_triage` à chaque source, `null` compris, quel que
+soit `MERGEONE_TAKEOFF_DECISIONS`. Dès qu'une préparation est enregistrée ou
+confirmée avec cette version, son brouillon et son instantané (worker compris)
+ne peuvent plus être relus par une version antérieure : ne pas revenir en
+dessous de cette version après le déploiement.
 
 ## Base de données et validation
 

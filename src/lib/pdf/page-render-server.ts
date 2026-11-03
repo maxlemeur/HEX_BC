@@ -42,6 +42,8 @@ export type PdfRenderedPage = {
   image: PdfPageImage | null;
   imageIssue: PdfPageImageIssue | null;
   renderMs: number;
+  /** The page itself could not be read (`truncate` mode only; `fail` aborts the document). */
+  failed: boolean;
 };
 
 export type PdfRenderResult = {
@@ -159,23 +161,29 @@ async function run() {
       if (number > pdf.numPages) { send({ missing: number }); continue; }
       if (input.maxTotalTextChars !== null && total.length >= input.maxTotalTextChars) break;
       const started = Date.now();
-      const page = await pdf.getPage(number);
-      const limit = input.maxTotalTextChars === null ? input.maxTextCharsPerPage : Math.min(input.maxTextCharsPerPage, input.maxTotalTextChars - total.length);
-      const content = await page.getTextContent();
-      let truncated = false;
-      if (content.items.length > input.maxTextItemsPerPage) {
-        if (input.textItemOverflow === "fail") throw new Error("PDF item budget");
-        truncated = true;
-      }
-      let text = "";
-      for (const item of content.items.slice(0, input.maxTextItemsPerPage)) {
-        if (typeof item.str === "string") text += item.str.slice(0, 2000) + (item.hasEOL ? "\n" : " ");
-        if (text.length >= limit) { if (text.length > limit) truncated = true; text = text.slice(0, limit); break; }
-      }
-      total += text;
-      const rendered = input.image && input.image.mode === "each" ? await renderImage(graphics, page, input.image) : { issue: "not_requested" };
-      send({ page: { page: number, text, textTruncated: truncated, image: rendered.image || null, imageIssue: rendered.issue || null, renderMs: Date.now() - started } });
-      page.cleanup();
+      let page = null;
+      try {
+        page = await pdf.getPage(number);
+        const limit = input.maxTotalTextChars === null ? input.maxTextCharsPerPage : Math.min(input.maxTextCharsPerPage, input.maxTotalTextChars - total.length);
+        const content = await page.getTextContent();
+        let truncated = false;
+        if (content.items.length > input.maxTextItemsPerPage) {
+          if (input.textItemOverflow === "fail") throw new Error("PDF item budget");
+          truncated = true;
+        }
+        let text = "";
+        for (const item of content.items.slice(0, input.maxTextItemsPerPage)) {
+          if (typeof item.str === "string") text += item.str.slice(0, 2000) + (item.hasEOL ? "\n" : " ");
+          if (text.length >= limit) { if (text.length > limit) truncated = true; text = text.slice(0, limit); break; }
+        }
+        total += text;
+        const rendered = input.image && input.image.mode === "each" ? await renderImage(graphics, page, input.image) : { issue: "not_requested" };
+        send({ page: { page: number, text, textTruncated: truncated, image: rendered.image || null, imageIssue: rendered.issue || null, renderMs: Date.now() - started, failed: false } });
+      } catch (error) {
+        // Intake keeps its historical rule (the document stops); a triage reads the next pages.
+        if (input.textItemOverflow === "fail") throw error;
+        send({ page: { page: number, text: "", textTruncated: false, image: null, imageIssue: "render_failed", renderMs: Date.now() - started, failed: true } });
+      } finally { if (page) page.cleanup(); }
     }
     if (input.image && input.image.mode === "if_text_below" && total.trim().length < input.image.minTextChars && graphics && input.image.page <= pdf.numPages) {
       const page = await pdf.getPage(input.image.page);

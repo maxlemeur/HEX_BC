@@ -59,6 +59,8 @@ async function samplePdf(bytes: ArrayBuffer): Promise<IntakeDecisionEvidence> {
   if (rendered.status !== "complete") {
     return rendered.timedOut ? { ...result, issues: [timeoutIssue] } : result;
   }
+  // A thumbnail render that threw used to abort the sample: keep that partial result.
+  if (rendered.pages.some((page) => page.imageIssue === "render_failed")) return result;
   if ((rendered.pageCount ?? 0) > result.sampledPages.length)
     result.issues.push("Decisions consulte un échantillon des premières pages : catégorie à confirmer.");
   if (!result.text.trim() && !result.images.length)
