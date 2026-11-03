@@ -1,9 +1,10 @@
+import { degrees, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import type { NetworkCode } from "@/lib/takeoff/bench/keys";
 import { applyCorrespondences, classifyByKeywords } from "@/lib/takeoff/vectors/classify";
 import { isGrey, isNearWhite } from "@/lib/takeoff/vectors/colors";
-import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
+import { extractVectorPage, type VectorGroupKey, type VectorPageExtraction, type VectorPath, type VectorText } from "@/lib/takeoff/vectors/extraction";
 import { pointsToMetres } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines, readLabelBlocks } from "@/lib/takeoff/vectors/labels";
 import { matchLegendColor, readLegend } from "@/lib/takeoff/vectors/legend";
@@ -92,6 +93,14 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   from a dimension that is not printed);
 // - a shared colour run labelled « ECS PVC DN 20 » and « CS PVC DN 20 » takes
 //   the first label's network instead of staying « à revoir ».
+// Third Codex round (written before the fixes):
+// - a legend read in page space: under /Rotate 90 or 270 its codes run down or
+//   up the page and are never read (a code written along a pipe, now
+//   horizontal, is read instead), under /Rotate 180 its samples are sought on
+//   the wrong side, so the pipes of its colours stay unclassified; read in
+//   every text's own frame instead, a code written along a vertical pipe on a
+//   horizontal sheet (an inline tag) becomes a legend entry and its pipe piece
+//   is not measured.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -663,5 +672,48 @@ describe("review of PR #145, second Codex round", () => {
     const run = (reading.networks?.runs ?? []).find((entry) => Math.abs(entry.segment.y0 - 300) < 0.5);
     expect(run).toMatchObject({ network: null, candidates: ["CS", "ECS"] });
     expect(totals(reading).filter((total) => total.network === "ECS" || total.network === "CS")).toEqual([]);
+  });
+});
+
+describe("third Codex round of PR #145 (3/11/2026)", () => {
+  /**
+   * One 400 x 300 pt page per rotation, drawn the same: « EF » (8 pt) with its 40 pt blue sample on its row, a
+   * cartouche line, a 300 pt blue pipe, and « EF » written upward along a 35 pt blue pipe piece (an inline tag).
+   */
+  async function turnedLegendPdf(rotations: readonly number[]) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (const rotation of rotations) {
+      const sheet = doc.addPage([400, 300]);
+      sheet.node.set(PDFName.of("Resources"), doc.context.obj({ Font: doc.context.obj({ F1: font.ref }) }));
+      sheet.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream([
+        "0 0 1 RG 0.5 w",
+        "BT /F1 8 Tf 40 250 Td (EF) Tj ET", "60 254 m 100 254 l S",
+        "BT /F1 8 Tf 200 40 Td (PLAN DE NIVEAU R+1 ECHELLE 1/50) Tj ET",
+        "40 100 m 340 100 l S",
+        "BT /F1 8 Tf 0 1 -1 0 300 150 Tm (EF) Tj ET", "296 165 m 296 200 l S",
+      ].join("\n"))));
+      sheet.setRotation(degrees(rotation));
+    }
+    return doc.save();
+  }
+
+  it("reads a legend as drawn under /Rotate 90, 180 and 270, never an inline tag across the sheet", { timeout: 60_000 }, async () => {
+    const bytes = await turnedLegendPdf([0, 90, 180, 270]);
+    const readings = [];
+    for (const pageNumber of [1, 2, 3, 4]) {
+      const model = buildPageModel(await extractVectorPage(bytes, pageNumber));
+      const legend = readLegend(model);
+      readings.push({
+        entries: legend.entries.map((entry) => ({ text: entry.text, colors: entry.colors, sample: Math.round(entry.sampleLength_pt) })),
+        blue: classifyByKeywords(model, legend)[model.groups.findIndex((group) => group.key.color === BLUE)].class,
+        boxes: legend.boxes.map((box) => [box.x1 - box.x0, box.y1 - box.y0].map(Math.round)),
+      });
+    }
+    // The same legend on every rotation, its box turned with the page (68 x 12 pt, or 12 x 68 pt a quarter turn away).
+    const drawn = { entries: [{ text: "EF", colors: [BLUE], sample: 40 }], blue: "EF" };
+    expect(readings).toEqual([
+      { ...drawn, boxes: [[68, 12]] }, { ...drawn, boxes: [[12, 68]] }, { ...drawn, boxes: [[68, 12]] }, { ...drawn, boxes: [[12, 68]] },
+    ]);
   });
 });

@@ -40,6 +40,13 @@ import { findCotes, parseCote, readPageScale, type PageCalibration } from "@/lib
 // - Calibration: {denominator} or {from, to, distance_m} not lifting an
 //   ambiguous or absent cartouche, the distance read along one axis only, or an
 //   empty calibration (from = to) giving an infinite denominator.
+// Third Codex round of PR #145 (3/11/2026, written before the fix):
+// - on a page turned by /Rotate 90, 180 or 270 (texts at ±90° or 180°), a
+//   cartouche value in a separate text after its label (« Echelle : » 1/50,
+//   « Format » A0) or under its header is not attached to it (offsets read
+//   along page x and y): the scale falls to the unlabelled reading (ambiguous
+//   beside a view at 1 : 25) and the format to unknown; or a text of another
+//   cartouche row, right of the label once turned, is taken as its format.
 
 const PT_PER_MM = 72 / 25.4;
 const A0_LANDSCAPE = { width: 3370.39, height: 2383.94 }; // 1189 x 841 mm
@@ -420,5 +427,52 @@ describe("cote span and sheet numbers", () => {
     expect(read(page)).toMatchObject({ status: "unverified", reason: "no_scale", cartouche: null });
     text(page, "1/50", 200, 320);
     expect(read(page).cartouche).toEqual({ denominator: 50, text: "1/50", labelled: false });
+  });
+});
+
+describe("readPageScale, turned page (third review of PR #145)", () => {
+  /** The same sheet as pdfjs gives it at /Rotate 90, 180 or 270 (page space, y down): positions and baselines turn together. */
+  function turned(target: Sheet, rotate: 90 | 180 | 270): Sheet {
+    const { width, height } = target;
+    const move = ({ x, y }: Point): Point => (rotate === 90 ? { x: height - y, y: x } : rotate === 180 ? { x: width - x, y: height - y } : { x: y, y: width - x });
+    const turn = rotate === 270 ? -Math.PI / 2 : (rotate * Math.PI) / 180;
+    return {
+      ...(rotate === 180 ? { width, height } : { width: height, height: width }),
+      texts: target.texts.map((entry) => ({ ...entry, ...move(entry), angle: entry.angle + turn })),
+      segments: target.segments.map((segment) => {
+        const from = move({ x: segment.x0, y: segment.y0 }), to = move({ x: segment.x1, y: segment.y1 });
+        return { x0: from.x, y0: from.y, x1: to.x, y1: to.y };
+      }),
+    };
+  }
+
+  it.each([90, 180, 270] as const)("reads a cartouche of separate cells and its cote at /Rotate %s as drawn", (rotate) => {
+    // Values after their label (« Echelle : » 1/50, « Format » A0) or under their header (« ECHELLE » over 1/50), beside a view at 1 : 25.
+    const inline = sheet();
+    cartouche(inline, { scale: "1/50", format: "A0" });
+    const stacked = sheet();
+    text(stacked, "ECHELLE", 2900, 2300);
+    text(stacked, "1/50", 2900, 2314);
+    text(stacked, "FORMAT", 3050, 2300);
+    text(stacked, "A0", 3050, 2314);
+    for (const page of [inline, stacked]) {
+      after(page, text(page, "COUPE A-A", 600, 1500), "1 : 25");
+      horizontalCote(page, "5,00", 5, { x: 400, y: 600 });
+      const expected = { status: "verified", reason: null, denominator: 50, cartouche: { denominator: 50, text: "1/50", labelled: true },
+        candidates: [25, 50], format: { cartouche: "A0", matches: true }, cotes: [{ text: "5,00", measured_m: 5, consistent: true }] };
+      expect(read(page)).toMatchObject(expected);
+      expect(read(turned(page, rotate))).toMatchObject(expected);
+    }
+  });
+
+  it("names no format by a text of another cartouche row, or by a grid reference, on a turned page", () => {
+    const page = sheet();
+    cartouche(page, { scale: "1/50" });
+    text(page, "A0", 1200, 900); // a grid reference
+    const label = text(page, "Format", 2900, 2200);
+    text(page, "A1", 2900, 2200 - label.width - 4); // an index three rows above the label: right of it once turned by 90°
+    for (const target of [page, turned(page, 90), turned(page, 180), turned(page, 270)]) {
+      expect(read(target)).toMatchObject({ status: "unverified", reason: "no_dimension_format_unknown", denominator: null, format: { cartouche: null } });
+    }
   });
 });

@@ -1,17 +1,23 @@
 import type { NetworkCode } from "@/lib/takeoff/bench/keys";
 import { isGrey, isNearWhite, parseHexColor } from "@/lib/takeoff/vectors/colors";
-import { boxContains, emptyBox, extendBox, type Box } from "@/lib/takeoff/vectors/geometry";
+import type { VectorText } from "@/lib/takeoff/vectors/extraction";
+import { boxContains, emptyBox, extendBox, textFrame, type Box } from "@/lib/takeoff/vectors/geometry";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 import { networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 
 // Legend of a page without layers (TI-662 step 3, keywords): an entry is a
-// horizontal text that is a network code alone (« ECS », « EU/EV », « EG VC »),
-// with the strokes drawn on its row to its right (centre within 0.6 text height
-// of the text's, after the text, within 40 heights and before the next text on
-// the row, no taller than
-// 1.5 heights), the whole sample no longer than 25 heights (a longer run is a
-// pipe tagged inline on the plan): their colours are the network's. Black, grey and near-white
-// strokes are never a network colour (table lines, frames, background).
+// text that is a network code alone (« ECS », « EU/EV », « EG VC »),
+// horizontal as the sheet reads (within 0.02 rad of the page axis most of the
+// page's characters run along, either way: a page turned by /Rotate 90, 180 or
+// 270, or drawn turned, reads as drawn; a code written across that axis is a
+// pipe's inline tag), with the strokes drawn on its row after it. The row is
+// read in the code's own frame (along its baseline, and across it towards the
+// top of its glyphs): the strokes' centre within 0.6 text height of the
+// text's, after the text, within 40 heights and before the next text on the
+// row, no taller than 1.5 heights, the whole sample no longer than 25 heights
+// (a longer run is a pipe tagged inline on the plan): their colours are the
+// network's. Black, grey and near-white strokes are never a network colour
+// (table lines, frames, background).
 // - A colour drawn in the samples of one network is that network's. A colour
 //   drawn for two networks is shared: when one network contains the others
 //   (EUV contains EU and EV; CHW contains CHW-S and CHW-R…), the colour is that
@@ -20,7 +26,7 @@ import { networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 // - The legend box (entries and samples, plus 2 text heights) is excluded from
 //   the measure.
 
-export const LEGEND_RULE_VERSION = 2;
+export const LEGEND_RULE_VERSION = 3;
 /** Longest legend sample, in text heights: a longer run after a code is a pipe tagged inline, not a sample. */
 export const LEGEND_SAMPLE_MAX_HEIGHTS = 25;
 
@@ -40,6 +46,23 @@ export function commonNetwork(networks: readonly NetworkCode[]): NetworkCode | n
   return parents.size === 1 ? [...parents][0] : null;
 }
 
+/** Quarter turn (0 to 3) of a baseline within 0.02 rad of a page axis (by its sine), else null. */
+function quarterOf(angle: number): number | null {
+  const quarter = Math.round(angle / (Math.PI / 2));
+  if (Math.abs(Math.sin(angle - (quarter * Math.PI) / 2)) > 0.02) return null;
+  return ((quarter % 4) + 4) % 4;
+}
+
+/** The sheet's horizontal: 0 along page x, 1 along page y, whichever most of the page's characters run along (x on a tie). */
+function readingAxis(texts: readonly VectorText[]) {
+  const characters = [0, 0];
+  for (const text of texts) {
+    const quarter = quarterOf(text.angle);
+    if (quarter !== null) characters[quarter % 2] += text.str.trim().length;
+  }
+  return characters[1] > characters[0] ? 1 : 0;
+}
+
 export type LegendEntry = { text: string; network: NetworkCode; colors: string[]; box: Box; sampleLength_pt: number };
 export type LegendColor = { color: string; network: NetworkCode | null; candidates: NetworkCode[] };
 export type PageLegend = { version: number; entries: LegendEntry[]; colors: LegendColor[]; boxes: Box[] };
@@ -47,24 +70,38 @@ export type PageLegend = { version: number; entries: LegendEntry[]; colors: Lege
 export function readLegend(model: PageModel): PageLegend {
   const { extraction, segments, segmentGroup, groups } = model;
   const entries: LegendEntry[] = [];
+  // Rows are read in the sheet's frame (along its horizontal, up across it), reversed for a code that reads the other way.
+  const axis = readingAxis(extraction.texts);
+  const sheet = textFrame((axis * Math.PI) / 2);
   const codes = extraction.texts.flatMap((text) => {
     const network = networkOfLegendCode(text.str);
-    if (!network || Math.abs(Math.sin(text.angle)) > 0.02 || text.height <= 0) return [];
-    return [{ text, network, cy: text.y - text.height / 2, right: text.x + text.width, h: text.height }];
+    const quarter = quarterOf(text.angle);
+    if (!network || quarter === null || quarter % 2 !== axis || text.height <= 0) return [];
+    const sign = quarter === axis ? 1 : -1;
+    const start = sign * sheet.along(text.x, text.y);
+    // In the code's frame: its row's centre line half a height above its baseline, its end one width along it.
+    return [{ text, network, sign, cu: sign * sheet.up(text.x, text.y) + text.height / 2, end: start + text.width, h: text.height }];
   });
   if (codes.length === 0) return { version: LEGEND_RULE_VERSION, entries, colors: [], boxes: [] };
   // A row's samples end before the next text on that row (a multi-column legend puts the next code there).
-  const windowEnd = codes.map((code) => Math.min(code.right + 40 * code.h, ...extraction.texts
-    .filter((text) => text !== code.text && text.x > code.right && Math.abs(text.y - code.h / 2 - code.cy) <= 0.6 * code.h)
-    .map((text) => text.x)));
-  const samples = codes.map(() => ({ colors: new Set<string>(), box: emptyBox(), x0: Infinity, x1: -Infinity }));
+  const windowEnd = codes.map((code) => Math.min(code.end + 40 * code.h, ...extraction.texts
+    .filter((text) => text !== code.text && code.sign * sheet.along(text.x, text.y) > code.end
+      && Math.abs(code.sign * sheet.up(text.x, text.y) + code.h / 2 - code.cu) <= 0.6 * code.h)
+    .map((text) => code.sign * sheet.along(text.x, text.y))));
+  const samples = codes.map(() => ({ colors: new Set<string>(), box: emptyBox(), first: Infinity, last: -Infinity }));
   segments.forEach((segment, id) => {
     const top = Math.min(segment.y0, segment.y1), bottom = Math.max(segment.y0, segment.y1);
-    const left = Math.min(segment.x0, segment.x1);
-    const right = Math.max(segment.x0, segment.x1);
+    const left = Math.min(segment.x0, segment.x1), right = Math.max(segment.x0, segment.x1);
+    // The segment in the sheet's frame: its extent along the rows (a0..a1) and across them (u0..u1).
+    const along0 = sheet.along(segment.x0, segment.y0), along1 = sheet.along(segment.x1, segment.y1);
+    const up0 = sheet.up(segment.x0, segment.y0), up1 = sheet.up(segment.x1, segment.y1);
+    const a0 = Math.min(along0, along1), a1 = Math.max(along0, along1), u0 = Math.min(up0, up1), u1 = Math.max(up0, up1);
     for (const [index, code] of codes.entries()) {
-      if (bottom - top > 1.5 * code.h || Math.abs((top + bottom) / 2 - code.cy) > 0.6 * code.h) continue;
-      if (left < code.right || left > windowEnd[index] || right > windowEnd[index] + code.h) continue;
+      // In the code's own frame (reversed when it reads the other way).
+      const first = code.sign > 0 ? a0 : -a1, last = code.sign > 0 ? a1 : -a0;
+      const low = code.sign > 0 ? u0 : -u1, high = code.sign > 0 ? u1 : -u0;
+      if (high - low > 1.5 * code.h || Math.abs((low + high) / 2 - code.cu) > 0.6 * code.h) continue;
+      if (first < code.end || first > windowEnd[index] || last > windowEnd[index] + code.h) continue;
       const group = groups[segmentGroup[id]];
       for (const color of group.colors) {
         if (isNearWhite(color) || isGrey(color)) continue;
@@ -72,32 +109,33 @@ export function readLegend(model: PageModel): PageLegend {
         sample.colors.add(color);
         extendBox(sample.box, left, top);
         extendBox(sample.box, right, bottom);
-        sample.x0 = Math.min(sample.x0, left);
-        sample.x1 = Math.max(sample.x1, right);
+        sample.first = Math.min(sample.first, first);
+        sample.last = Math.max(sample.last, last);
       }
     }
   });
   const byColor = new Map<string, NetworkCode[]>();
   for (const [index, code] of codes.entries()) {
     const sample = samples[index];
-    if (sample.colors.size === 0 || sample.x1 - sample.x0 > LEGEND_SAMPLE_MAX_HEIGHTS * code.h) continue;
+    if (sample.colors.size === 0 || sample.last - sample.first > LEGEND_SAMPLE_MAX_HEIGHTS * code.h) continue;
     const box = { ...sample.box };
-    extendBox(box, code.text.x, code.text.y - code.h);
+    // The top of the code's glyphs at its start: they rise along (sin, −cos) of its frame.
+    extendBox(box, code.text.x + code.sign * sheet.sin * code.h, code.text.y - code.sign * sheet.cos * code.h);
     entries.push({ text: code.text.str.trim(), network: code.network, colors: [...sample.colors].sort(), box,
-      sampleLength_pt: Math.max(0, sample.x1 - sample.x0) });
+      sampleLength_pt: Math.max(0, sample.last - sample.first) });
     for (const color of sample.colors) byColor.set(color, [...(byColor.get(color) ?? []), code.network]);
   }
   const colors = [...byColor.entries()].map(([color, networks]) => ({
     color, network: commonNetwork(networks), candidates: [...new Set(networks)].sort(),
   })).sort((left, right) => (left.color < right.color ? -1 : 1));
-  return { version: LEGEND_RULE_VERSION, entries, colors, boxes: legendBoxes(entries) };
+  return { version: LEGEND_RULE_VERSION, entries, colors, boxes: legendBoxes(entries, axis) };
 }
 
-/** Entries close to each other form one legend box (2 text heights around). */
-function legendBoxes(entries: readonly LegendEntry[]): Box[] {
+/** Entries close to each other form one legend box (2 text heights around: a row's thickness, across the sheet's axis). */
+function legendBoxes(entries: readonly LegendEntry[], axis: number): Box[] {
   const boxes: Box[] = [];
   for (const entry of entries) {
-    const margin = Math.max(4, (entry.box.y1 - entry.box.y0));
+    const margin = Math.max(4, axis === 0 ? entry.box.y1 - entry.box.y0 : entry.box.x1 - entry.box.x0);
     const grown = { x0: entry.box.x0 - margin, y0: entry.box.y0 - margin, x1: entry.box.x1 + margin, y1: entry.box.y1 + margin };
     const touching = boxes.find((box) => box.x0 <= grown.x1 && grown.x0 <= box.x1 && box.y0 <= grown.y1 && grown.y0 <= box.y1);
     if (touching) {

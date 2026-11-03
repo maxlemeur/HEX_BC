@@ -33,6 +33,11 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 // Second Codex round (written before the fix):
 // - on a page rotated 90° (/Rotate 90, texts at +90°), a label printed above
 //   its area is not found (« above » read along page y), and the room is lost.
+// Third Codex round (written before the fix):
+// - a room outline drawn moveTo, four lineTo back to its first point and
+//   stroked without closePath (a complete ring, closed flag false) has no
+//   measured area; or, once accepted, an outline left open (a door gap, a
+//   missing side) is measured as if closed.
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -41,21 +46,25 @@ function sheet(metres: number, denominator = 50) {
   return ((metres * 1000) / denominator) * POINTS_PER_MM;
 }
 
-type Ring = { x: number; y: number; width: number; height: number; closed?: boolean };
+/** `closed: false`: stroked without closePath; `gap`: the last point stops that many points short of the first (an outline left open). */
+type Ring = { x: number; y: number; width: number; height: number; closed?: boolean; gap?: number };
 
 /** One text line, left to right, baseline at y (page space, y down). */
 function line(str: string, x: number, y: number, height = 2.5): VectorText {
   return { str, x, y, width: str.length * height * 0.55, height, angle: 0 };
 }
 
-/** A page whose stroked rectangles are drawn moveTo, three lineTo and closePath (the extraction pushes the closing point). */
+/**
+ * A page whose stroked rectangles are drawn moveTo, three lineTo and closePath (the extraction pushes the closing point),
+ * or with `closed: false` a fourth lineTo back to the first point (`gap` points short of it when set).
+ */
 function page(texts: VectorText[], rings: Ring[]): VectorPageExtraction {
   const coordinates: number[] = [];
   const paths: VectorPath[] = [];
   for (const ring of rings) {
     const start = coordinates.length / 2;
     const [x0, y0, x1, y1] = [ring.x, ring.y, ring.x + ring.width, ring.y + ring.height];
-    coordinates.push(x0, y0, x1, y0, x1, y1, x0, y1, x0, y0);
+    coordinates.push(x0, y0, x1, y0, x1, y1, x0, y1, x0, y0 + (ring.gap ?? 0));
     paths.push({ group: 0, start, count: 5, closed: ring.closed ?? true });
   }
   return {
@@ -131,9 +140,11 @@ describe("readRoomSurfaces", () => {
   });
 
   it("gives no measured area to a room without closed polygon, its printed surface kept as control only", () => {
-    const outline: Ring = { ...ROOM_14, closed: false };
-    const [surface] = readRoomSurfaces(page([line("Infirmerie 13.62m²", 150, 200)], [outline]), 50);
-    expect(surface).toMatchObject({ room: "Infirmerie", printed_m2: 13.62, polygon_m2: null, polygon_points: null, deviation: null });
+    // Left open: a door of 0.90 m at 1/50, or the fourth side not drawn.
+    for (const outline of [{ ...ROOM_14, closed: false, gap: sheet(0.9) }, { ...ROOM_14, closed: false, gap: ROOM_14.height }]) {
+      const [surface] = readRoomSurfaces(page([line("Infirmerie 13.62m²", 150, 200)], [outline]), 50);
+      expect(surface).toMatchObject({ room: "Infirmerie", printed_m2: 13.62, polygon_m2: null, polygon_points: null, deviation: null });
+    }
   });
 
   it("gives no measured area when the page scale is not measurable", () => {
@@ -178,5 +189,19 @@ describe("readRoomSurfaces, rotated page (review of PR #145)", () => {
     const rotated = page(texts.map((entry) => ({ ...entry, x: H - entry.y, y: entry.x, angle: Math.PI / 2 })),
       [{ x: H - (room.y + room.height), y: room.x, width: room.height, height: room.width }]);
     expect(readRoomSurfaces(rotated, 50).map(({ room: name, polygon_m2 }) => ({ name, polygon_m2 }))).toEqual([{ name: "Bureau", polygon_m2: 12.4 }]);
+  });
+});
+
+describe("readRoomSurfaces, outline stroked without closePath (third review of PR #145)", () => {
+  it("measures a room whose outline returns to its first point without closePath, never an outline left open", () => {
+    const texts = [line("Infirmerie 13.62m²", 150, 200)];
+    const read = (ring: Ring) => readRoomSurfaces(page(texts, [ring]), 50).map(({ room, polygon_m2, polygon_points }) => ({ room, polygon_m2, polygon_points }));
+    // m, four l back to the first point, S: the ring is complete, only closePath is missing.
+    expect(read({ ...ROOM_14, closed: false })).toEqual([{ room: "Infirmerie", polygon_m2: 14, polygon_points: 5 }]);
+    // A CAD export whose last point is rounded 0.2 pt off the first still closes the room.
+    expect(read({ ...ROOM_14, closed: false, gap: 0.2 })).toEqual([{ room: "Infirmerie", polygon_m2: 14, polygon_points: 5 }]);
+    // Left open: a door of 0.90 m at 1/50, or the fourth side not drawn.
+    expect(read({ ...ROOM_14, closed: false, gap: sheet(0.9) })).toEqual([{ room: "Infirmerie", polygon_m2: null, polygon_points: null }]);
+    expect(read({ ...ROOM_14, closed: false, gap: ROOM_14.height })).toEqual([{ room: "Infirmerie", polygon_m2: null, polygon_points: null }]);
   });
 });

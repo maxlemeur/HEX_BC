@@ -1,5 +1,5 @@
 import type { VectorPageExtraction, VectorText } from "@/lib/takeoff/vectors/extraction";
-import { pointInRing, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
+import { pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 
 // Room surfaces of a page (TI-662 step 4). The area of the smallest closed
@@ -12,8 +12,11 @@ import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 // times the text's box is its frame, not the room; a label prefix such as
 // « S = » or « Surface : » is not the room's name. An outline on a layer hidden
 // by the document's default configuration (OFF) is not printed: it bounds no room.
+// A polygon is closed by its path (h, s, re) or drawn back to its first point
+// and stroked without closePath (within RING_CLOSURE_PT, a CAD export may round
+// its last point); an outline left open (a door gap, a missing side) bounds no room.
 
-export const SURFACE_RULE_VERSION = 3;
+export const SURFACE_RULE_VERSION = 4;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
 
 export type RoomSurface = {
@@ -64,7 +67,9 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
   const surfaces: RoomSurface[] = [];
   // A layer hidden by the document's default configuration is not printed: its outlines bound no room.
   const hidden = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
-  const closed = extraction.paths.filter((path) => path.closed && path.count >= 4 && !hidden.has(extraction.groups[path.group]?.layer ?? ""));
+  // A ring: closed by its path, or drawn back to its first point and stroked without closePath (m, l… to the start, S).
+  const closed = extraction.paths.filter((path) => path.count >= 4 && (path.closed || returnsToStart(extraction.points, path.start, path.count))
+    && !hidden.has(extraction.groups[path.group]?.layer ?? ""));
   const lines = mergeTextLines(extraction.texts);
   for (const text of lines) {
     const match = AREA_PATTERN.exec(text.str);

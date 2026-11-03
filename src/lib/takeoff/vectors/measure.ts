@@ -8,6 +8,7 @@ import {
   orientation,
   orientationGap,
   pointsToMetres,
+  returnsToStart,
   segmentLength,
   type Box,
   type Point,
@@ -110,9 +111,7 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
   const frames: Box[] = [];
   for (const path of extraction.paths) {
     if (path.count < 4 || path.count > 6) continue;
-    const first = path.start, last = path.start + path.count - 1;
-    const shut = path.closed || Math.hypot(extraction.points[2 * first] - extraction.points[2 * last],
-      extraction.points[2 * first + 1] - extraction.points[2 * last + 1]) < 0.5;
+    const shut = path.closed || returnsToStart(extraction.points, path.start, path.count);
     if (!shut) continue;
     const group = groups[groupOf[path.group]];
     // A network stroke is the pipe itself (a band drawn as a closed outline), never the frame of a detail; a hidden layer is not printed.
