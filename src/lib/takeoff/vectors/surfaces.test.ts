@@ -95,6 +95,16 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 //   only, and the cell boundary lies half a cell inside the walls: the
 //   persisted polygon encloses less than the measured area (2.7 % with two
 //   window swings).
+// Second review of the L3c fill (written before the fixes):
+// - a pocket flooded from one joinery cell that reaches another room's printed
+//   area, or the hole limit, is dropped but leaves its cells visited: the next
+//   joinery cell floods what is left of that room, meets no printed area and
+//   adds it as a pocket (a glazed partition between two rooms counts most of
+//   the next room in both, +21.6 %);
+// - two complementary halves of one circle (0 to π, π to 2π) share their
+//   centre, radius and ends, so they are taken for two copies of one arc: half
+//   a turn, under a circle's, and a turning circle drawn so bounds the room
+//   (−11 %).
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -512,6 +522,27 @@ describe("readRoomSurfaces, fill between walls (TI-662 L3c)", () => {
       expect(surfaces.map(({ method }) => method)).toEqual(["fill", "fill"]);
       // Each room loses its half of the niche; the niche itself is in neither.
       for (const { polygon_m2 } of surfaces) expect(Math.abs((polygon_m2 ?? 0) - (ROOM_M2 - 0.3 * 1.2))).toBeLessThan(0.05);
+    });
+
+    it("never counts as a pocket what a glazed partition leaves of the next room", () => {
+      // Bureau (X0 to X1) and Couloir (X1 to XB, 1.19 m wide) inside one wall outline, separated by one joinery stroke at X1.
+      const XB = at(198);
+      const strokes = [...box(X0, Y0, XB, Y1), { layer: JOINERY, points: [X1, Y0, X1, Y1] }];
+      const surfaces = read(layered([line("Bureau 13.97 m²", X0 + 60, Y0 + 90), line("Couloir 4.17 m²", X1 + 5, Y0 + 30)], strokes)).surfaces;
+      const area = (room: string) => surfaces.find((surface) => surface.room === room)?.polygon_m2 ?? 0;
+      expect(surfaces.map(({ method, fill_rejected }) => [method, fill_rejected])).toEqual([["fill", null], ["fill", null]]);
+      expect(Math.abs(area("Bureau") - ROOM_M2)).toBeLessThan(0.05);
+      expect(Math.abs(area("Couloir") - squarePointsToSquareMetres((XB - X1) * (Y1 - Y0), 50))).toBeLessThan(0.05);
+    });
+
+    it("reads a turning circle drawn as two half circles as a circle, never a wall", () => {
+      // The turning circle of 1.50 m crossing the right wall, drawn as two subpaths (0 to π, π to 2π).
+      const [cx, cy, radius] = [X1 - sheet(0.5), Y0 + sheet(2), sheet(0.75)];
+      const half = (from: number) => ({ layer: WALLS,
+        points: Array.from({ length: 17 }, (_, index) => [cx + radius * Math.cos(from + (index * Math.PI) / 16), cy + radius * Math.sin(from + (index * Math.PI) / 16)]).flat() });
+      const [surface] = read(layered([line("Bureau 13.97 m²", X0 + 60, Y0 + 150)], [...box(X0, Y0, X1, Y1), half(0), half(Math.PI)])).surfaces;
+      expect(surface).toMatchObject({ method: "fill", fill_rejected: null });
+      expect(Math.abs((surface.polygon_m2 ?? 0) - ROOM_M2)).toBeLessThan(0.05);
     });
 
     it("keeps the outline consistent with the measured area, pockets behind joinery included", () => {

@@ -15,7 +15,8 @@ import { isOpeningLayerName } from "@/lib/takeoff/vectors/vocabulary";
 //   without wall or partition group is not filled.
 // - Door symbols: an arc of DOOR_ARC sweep and radius on site, its points
 //   equidistant from a centre (the hinge), alone around that centre (copies
-//   of one arc stroked twice are one arc), with a stroke ending at the hinge
+//   of one arc stroked twice are one arc: same ends and same point halfway,
+//   the two halves of a circle are two arcs), with a stroke ending at the hinge
 //   (the leaf, a jamb: within DOOR_HINGE of it), is the door's swing: it is no
 //   barrier, its two radii are (the leaf, and the opening line from the hinge
 //   along the wall to the arc's far end). The swing quarter-disc thus stays in
@@ -39,8 +40,11 @@ import { isOpeningLayerName } from "@/lib/takeoff/vectors/vocabulary";
 //   layer) up to FILL_HOLE_MAX_M2 each are floor; a larger one (a shaft, a
 //   core) or one holding a room's printed area is not. So are the closed
 //   pockets behind the joinery bordering the floor (a window's swing drawn
-//   into the room), up to FILL_HOLE_MAX_M2 each; a pocket the joinery of two
-//   rooms borders (a niche between them) is in neither.
+//   into the room), up to FILL_HOLE_MAX_M2 each, each taken whole: a pocket
+//   any part of which reaches a printed area, the raster's edge or that limit
+//   is none (never what is left of the next room behind a glazed partition).
+//   A pocket the joinery of two rooms borders (a niche between them), or one
+//   on another room's floor, is in neither.
 // - Area: the cells, plus half a cell along every edge between the floor and
 //   a stroke (a stroke crosses its cells anywhere: on average half a cell of
 //   floor lies beyond the cells reached).
@@ -90,8 +94,8 @@ export function fillCellPt(denominator: number, width: number, height: number) {
   return Math.max(site, Math.sqrt((width * height) / FILL_MAX_CELLS));
 }
 
-/** An arc; `leaf`: its subpath also draws a radius from its centre (a door drawn hinge, leaf, arc in one subpath). */
-type Arc = { centre: Point; radius: number; sweep: number; points: number; ends: [Point, Point]; leaf: boolean };
+/** An arc; `mid`: its point halfway along; `leaf`: its subpath also draws a radius from its centre (a door drawn hinge, leaf, arc in one subpath). */
+type Arc = { centre: Point; radius: number; sweep: number; points: number; ends: [Point, Point]; mid: Point; leaf: boolean };
 
 /** An arc: at least 3 points within tolerance of one circle, turning one way by chords of at most DOOR_ARC.maxChordDeg. */
 function arcOf(points: ArrayLike<number>, start: number, count: number): Arc | null {
@@ -106,7 +110,8 @@ function arcOf(points: ArrayLike<number>, start: number, count: number): Arc | n
   const radius = Math.hypot(a.x - centre.x, a.y - centre.y);
   const tolerance = Math.max(0.02 * radius, 0.15);
   const maxChord = (DOOR_ARC.maxChordDeg * Math.PI) / 180;
-  let sweep = 0, sign = 0, previous = Math.atan2(a.y - centre.y, a.x - centre.x);
+  const first = Math.atan2(a.y - centre.y, a.x - centre.x);
+  let sweep = 0, sign = 0, previous = first;
   for (let k = 1; k < count; k += 1) {
     const p = at(k);
     if (Math.abs(Math.hypot(p.x - centre.x, p.y - centre.y) - radius) > tolerance) return null;
@@ -118,7 +123,8 @@ function arcOf(points: ArrayLike<number>, start: number, count: number): Arc | n
     sign = Math.sign(delta);
     sweep += delta;
   }
-  return { centre, radius, sweep: (Math.abs(sweep) * 180) / Math.PI, points: count, ends: [a, at(count - 1)], leaf: false };
+  const mid = { x: centre.x + radius * Math.cos(first + sweep / 2), y: centre.y + radius * Math.sin(first + sweep / 2) };
+  return { centre, radius, sweep: (Math.abs(sweep) * 180) / Math.PI, points: count, ends: [a, at(count - 1)], mid, leaf: false };
 }
 
 const hingeTolerance = (arc: Pick<Arc, "radius">) => Math.max(DOOR_HINGE.minPt, DOOR_HINGE.radiusShare * arc.radius);
@@ -141,10 +147,13 @@ function arcOfPath(points: ArrayLike<number>, start: number, count: number): Arc
   return null;
 }
 
-/** Whether two arcs are copies of one (same centre, radius and ends within 1 pt, in either direction). */
+/**
+ * Whether two arcs are copies of one (same centre, radius, ends in either direction and point halfway within 1 pt): the
+ * two halves of one circle share their centre, radius and ends, never their point halfway.
+ */
 function sameArc(left: Arc, right: Arc) {
   const near = (p: Point, q: Point) => Math.hypot(p.x - q.x, p.y - q.y) < 1;
-  return near(left.centre, right.centre) && Math.abs(left.radius - right.radius) < 1
+  return near(left.centre, right.centre) && Math.abs(left.radius - right.radius) < 1 && near(left.mid, right.mid)
     && ((near(left.ends[0], right.ends[0]) && near(left.ends[1], right.ends[1])) || (near(left.ends[0], right.ends[1]) && near(left.ends[1], right.ends[0])));
 }
 
@@ -266,13 +275,14 @@ class Raster {
     }
   }
 
-  /** A fresh visit stamp (the marks are reset when the stamps run out). */
-  nextStamp() {
-    if (this.stamp === 65_535) {
+  /** The first of `count` fresh visit stamps (the marks are reset when the stamps run out). */
+  nextStamp(count = 1) {
+    if (this.stamp + count > 65_535) {
       this.mark.fill(0);
       this.stamp = 0;
     }
-    return ++this.stamp;
+    this.stamp += count;
+    return this.stamp - count + 1;
   }
 
   /** The nearest free cell to a cell within reach cells (the cell itself when free), or −1. */
@@ -297,11 +307,11 @@ class Raster {
   }
 
   /**
-   * 4-connected flood from seed over free cells: stops at the raster's edge, at another seed, or past limit cells.
-   * Cells marked with `stamp` (a flood before, of the same room) are not entered again; `joinery` lists the joinery
-   * cells next to the flooded ones.
+   * 4-connected flood from seed over free cells: stops at the raster's edge, at another seed, past limit cells, or at a
+   * cell marked `poison` (« rooms »: a pocket rejected before). Cells marked with `stamp` (a flood before, of the same
+   * room) are not entered again; every cell marked is in `cells`; `joinery` lists the joinery cells next to them.
    */
-  flood(seed: number, limit: number, stamp = this.nextStamp()): { status: "ok" | "border" | "rooms" | "ratio"; cells: Int32Array; joinery: number[] } {
+  flood(seed: number, limit: number, stamp = this.nextStamp(), poison = -1): { status: "ok" | "border" | "rooms" | "ratio"; cells: Int32Array; joinery: number[] } {
     const { cols, rows, grid, mark } = this;
     let queue = new Int32Array(Math.min(limit + 1, 1 << 16));
     let size = 1;
@@ -316,14 +326,15 @@ class Raster {
       for (const offset of neighbours) {
         const next = index + offset;
         if (mark[next] === stamp) continue;
+        if (mark[next] === poison) return { status: "rooms", cells: queue.subarray(0, size), joinery };
         const value = grid[next];
         if (value > SEED) {
           if (value === JOINERY) joinery.push(next);
           continue;
         }
         if (value === SEED) return { status: "rooms", cells: queue.subarray(0, size), joinery };
-        mark[next] = stamp;
         if (size >= limit) return { status: "ratio", cells: queue.subarray(0, size), joinery };
+        mark[next] = stamp;
         if (size === queue.length) {
           const grown = new Int32Array(Math.min(limit + 1, 2 * queue.length));
           grown.set(queue);
@@ -336,25 +347,23 @@ class Raster {
   }
 
   /**
-   * The closed pockets behind the joinery next to a floor (a window's or a door's swing drawn into the room), each of at
-   * most `limit` cells and holding no printed area: floor of that room.
+   * The closed pockets behind the joinery next to a floor flooded with `stamp` (a window's or a door's swing drawn into
+   * the room), each of at most `limit` cells and holding no printed area: floor of that room. A pocket rejected is
+   * rejected whole: its cells are marked `poison`, and a flood from another joinery cell that meets them is rejected too
+   * (never what is left of the next room once its printed area was met).
    */
-  pockets(floor: { cells: Int32Array; joinery: number[] }, limit: number, stamp: number) {
+  pockets(floor: { cells: Int32Array; joinery: number[] }, limit: number, stamp: number, poison: number) {
     const found: Int32Array[] = [];
     for (const cell of floor.joinery) {
       for (const offset of [-1, 1, -this.cols, this.cols]) {
         const next = cell + offset;
-        if (this.mark[next] === stamp || this.grid[next] !== FREE) continue;
-        const pocket = this.flood(next, limit, stamp);
+        if (this.mark[next] === stamp || this.mark[next] === poison || this.grid[next] !== FREE) continue;
+        const pocket = this.flood(next, limit, stamp, poison);
         if (pocket.status === "ok") found.push(pocket.cells);
+        else for (const index of pocket.cells) this.mark[index] = poison;
       }
     }
     return found;
-  }
-
-  /** The visit stamp of the last flood. */
-  get lastStamp() {
-    return this.stamp;
   }
 }
 
@@ -577,14 +586,17 @@ export function fillRooms(input: {
     if (seed < 0) return { rejected: "seed" };
     if (shared.has(seed)) return { rejected: "rooms" };
     const limit = Math.max(1, Math.ceil((FILL_SANITY_RATIO * room.printed_m2) / cellM2));
-    const flood = raster.flood(seed, limit);
+    // Two stamps: the floor and its pockets, the pockets rejected.
+    const stamp = raster.nextStamp(2);
+    const flood = raster.flood(seed, limit, stamp);
     if (flood.status !== "ok") return { rejected: flood.status };
-    return { flood, pockets: raster.pockets(flood, holeMax, raster.lastStamp) };
+    return { flood, pockets: raster.pockets(flood, holeMax, stamp, stamp + 1) };
   });
+  // Every floor and pocket claims its cells: a pocket on another room's floor, or another room's pocket, is in neither.
   const claims = new Uint8Array(raster.cols * raster.rows);
   for (const entry of floods) {
     if (entry === null || !("flood" in entry)) continue;
-    for (const pocket of entry.pockets) for (const index of pocket) if (claims[index] < 2) claims[index] += 1;
+    for (const cells of [entry.flood.cells, ...entry.pockets]) for (const index of cells) if (claims[index] < 2) claims[index] += 1;
   }
   return rooms.map((room, index): FillResult | null => {
     const entry = floods[index];
