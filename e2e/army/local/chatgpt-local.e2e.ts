@@ -34,6 +34,9 @@ let transportLog: string;
 let decisionsControl: string;
 let fixtureEmail: string;
 let serverWorkspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
+/** The fixture also logs a client that left a proxied request; the server absorbs it and keeps serving (TI-667). */
+const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.provider === "process-diagnostic"
+  && entry.kind === "uncaught" && entry.nodeCode === "ECONNRESET" && entry.messageKind === "aborted";
 async function localClient() {
   const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -652,11 +655,7 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   expect(detail.job.metrics.token_count).toBeGreaterThan(0);
   const transport = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
   expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
-  // Process diagnostics share this log. A client abort absorbed by the server
-  // (TI-667) leaves an "uncaught" entry; a fault the app reports does not pass.
-  const entries = transport.slice(transportStart);
-  expect(entries.filter(entry => entry.provider === "process-diagnostic" && entry.kind === "application-uncaught")).toEqual([]);
-  expect(entries.filter(entry => entry.provider !== "process-diagnostic")).toEqual([
+  expect(transport.slice(transportStart).filter(entry => !isAbsorbedClientAbort(entry))).toEqual([
     { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model, sourceMatched: true,
       ...(liveProbe ? { reasoningEffort: liveProbe.reasoningEffort ?? null } : {}) },
   ]);
@@ -929,7 +928,7 @@ if (!existsSync(liveProbePath)) test("PRX02 Decisions and the ChatGPT plan arbit
     const ui = { app: { ...app, baseUrl: localOrigin, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
     await restrictCriticalBrowser(browser, ui.app, army);
     const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+      .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
     await verifyPriceReuseArbitration(ui, army, { userId, tenantId: member.data!.tenant_id }, readTransport);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
   } finally {
