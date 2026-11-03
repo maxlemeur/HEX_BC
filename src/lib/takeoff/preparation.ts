@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { takeoffPageTriageSchema } from "@/lib/takeoff/page-triage";
 import { toUnitToken } from "@/lib/takeoff/units";
 
 export const TAKEOFF_PREPARATION_OBJECTIVES = {
@@ -37,6 +38,8 @@ export const takeoffPreparationSourceSchema = z.object({
   content_hash: z.string().regex(/^[a-f0-9]{64}$/i).nullable().default(null),
   source_updated_at: optionalTextSchema.default(null),
   mime_type: optionalTextSchema.default(null),
+  // Decisions page triage proposal (TI-663). Only an acceptance writes pages/active.
+  page_triage: takeoffPageTriageSchema.nullable().default(null),
 }).strict();
 
 const scopeSchema = z.object({

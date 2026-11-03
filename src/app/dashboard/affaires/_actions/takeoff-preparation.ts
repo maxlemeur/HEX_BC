@@ -2,6 +2,7 @@
 
 import {
   loadTakeoffPreparation, saveTakeoffPreparation, confirmTakeoffPreparation, assistTakeoffPreparation, getTakeoffPreparationSourcePreview,
+  getTakeoffPageTriageAvailability, proposeTakeoffPageTriage,
 } from "@/lib/takeoff/preparation-server";
 import type { TakeoffPreparation, TakeoffPreparationProfile } from "@/lib/takeoff/preparation";
 import { loadTakeoffPreparationProfiles, saveTakeoffPreparationProfile } from "@/lib/takeoff/preparation-profiles-server";
@@ -35,4 +36,12 @@ export async function saveTakeoffPreparationProfileAction(input: { profile: Take
 
 export async function getTakeoffPreparationSourcePreviewAction(input: { projectId: string; documentId: string; page?: number }) {
   return runSafeTakeoffAction(() => getTakeoffPreparationSourcePreview(input));
+}
+
+export async function loadTakeoffPageTriageAvailabilityAction(projectId: string) {
+  return runSafeTakeoffAction(() => getTakeoffPageTriageAvailability(projectId));
+}
+
+export async function proposeTakeoffPageTriageAction(input: { projectId: string; expectedRevision: number; documentId: string }) {
+  return runSafeTakeoffAction(() => proposeTakeoffPageTriage(input));
 }

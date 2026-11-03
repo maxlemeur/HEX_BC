@@ -223,9 +223,20 @@ armyTest("PRE04 unavailable writing AI and Decisions preserve the manually prepa
   expect(after.draft).toEqual(before.draft);
   expect(after.confirmed_snapshot).toBeNull();
   expect(await jobs.list()).toEqual([]);
+  // Page triage without MERGEONE_TAKEOFF_DECISIONS: disabled with its reason; manual pages still work.
+  await dialog.getByRole("button", /Mes documents$/).click();
+  const triage = dialog.getByRole("region", "Tri des pages", { exact: true });
+  await expect(triage.getByRole("button", "Proposer le tri des pages", { exact: true })).toBeDisabled();
+  await expect(triage.getByText(/Decisions n.est pas activé pour le métré\. La sélection manuelle des pages reste disponible\./)).toBeVisible();
+  await dialog.getByLabel(`Pages de ${file.file_name}`, { exact: true }).fill("1");
+  await saveTakeoffPreparation(ui);
+  const manual = await read();
+  expect(manual.draft.sources.filter((source) => source.active).map((source) => ({ pages: source.pages, page_triage: source.page_triage }))).toEqual([{ pages: [1], page_triage: null }]);
+  expect({ ...manual.draft, sources: manual.draft.sources.map((source) => ({ ...source, pages: [] as number[], confirmed: false })) })
+    .toEqual({ ...after.draft, sources: after.draft.sources.map((source) => ({ ...source, pages: [] as number[], confirmed: false })) });
   await ui.browser.reload();
   await openTakeoffPreparation(ui);
-  expect((await read()).draft).toEqual(before.draft);
-  await recordEvidence(ui.army, "PRE04-manual-fallback", { estimate, before, after,
+  expect((await read()).draft).toEqual(manual.draft);
+  await recordEvidence(ui.army, "PRE04-manual-fallback", { estimate, before, after, manualPages: [1], pageTriageDisabled: true,
     boundary: "External AI keys and ChatGPT are unavailable in the owned campaign. Real server capability handling preserves the manual answers; no AI response is simulated and no paid provider is called." });
 });

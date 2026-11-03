@@ -92,6 +92,14 @@ export type FixtureDataset = {
   cleanup(): Promise<void>;
 };
 
+/** A fictional truth/pages/<id>.json, labelled by the agent and waiting for validation. */
+export function pageTruth(document: string, pages: Array<{ page: number; type: string; niveau: string | null; zone: string | null; garder: boolean; statut?: string }>) {
+  return {
+    schema_version: 1, document, page_count: pages.length, labeled_at: "2026-11-03",
+    pages: pages.map((entry) => ({ statut: "à valider", labeled_by: "agent", ...entry })),
+  };
+}
+
 export async function createFixtureDataset(): Promise<FixtureDataset> {
   const root = await mkdtemp(path.join(os.tmpdir(), "takeoff-bench-fixture-"));
   await mkdir(path.join(root, "raw"));
@@ -227,10 +235,16 @@ export async function createFixtureDataset(): Promise<FixtureDataset> {
           organ: "vanne", room: null, unit: "u", relative_deviation: null, reason: "Fictional: key absent from the comparison." },
       ],
     },
-    "truth/pages/a-plan-01.json": {
-      schema_version: 1, document: "a-plan-01",
-      pages: [{ page: 1, type: "plan" }, { page: 2, type: "legend" }],
-    },
+    // Page truths (TI-663): one per binary PDF. Page 2 of a-plan-01 is a written page
+    // kept because a quantity truth covers the document; load-plan-01 is an excluded section.
+    "truth/pages/a-plan-01.json": pageTruth("a-plan-01", [
+      { page: 1, type: "reseau", niveau: "R+1", zone: "Z1", garder: true },
+      { page: 2, type: "piece_ecrite", niveau: null, zone: null, garder: true },
+    ]),
+    "truth/pages/a-plan-02.json": pageTruth("a-plan-02", [{ page: 1, type: "reseau", niveau: "R+1", zone: "Z2", garder: true }]),
+    "truth/pages/c-plan-01.json": pageTruth("c-plan-01", [{ page: 1, type: "reseau", niveau: "R+1", zone: null, garder: true }]),
+    "truth/pages/d-plan-01.json": pageTruth("d-plan-01", [{ page: 1, type: "architecture", niveau: "RDC", zone: null, garder: true }]),
+    "truth/pages/load-plan-01.json": pageTruth("load-plan-01", [{ page: 1, type: "coupe", niveau: null, zone: null, garder: false }]),
   };
 
   async function writeJson(relativePath: string, value: unknown) {

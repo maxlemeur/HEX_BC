@@ -44,6 +44,9 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // - two identical items read by two chunks on the page they overlap, which the
 //   merge keeps apart (one spelling has punctuation), are added up as an
 //   unexplained deviation: the double count of two blocks is never seen.
+// Found in the TI-663 review, written before its fix:
+// - a document the page triage fully excluded drops out of the score of the
+//   « après » run instead of counting its keys as missed.
 // Found in the third review, written before its fix:
 // - report.md says a surface noise above 2 % is out of tolerance (« non »),
 //   while the 0.5 m² floor of max(2 %, 0.5 m²) may accept it: without a
@@ -215,6 +218,13 @@ describe("takeoff bench report", () => {
     expect(markdown).toMatch(/lecture en échec[^\n]*a-plan-01 pages 1-1 \(timeout\)/);
     expect(markdown).not.toContain("nous:manque");
     expect(markdown).not.toMatch(/^#### a-plan-01/m);
+  });
+
+  it("scores a document the page triage excluded as read without items, its keys missed", () => {
+    const report = buildBenchReport({ metadata, run: run([]), scopes: buildScoreScopes(truthFiles, documents), noise: null, excludedDocuments: ["a-plan-01"] });
+    const pass = report.couples[0].passes[0];
+    expect(pass.scopes.find((entry) => entry.documents.includes("a-plan-01"))?.status).toBe("scored");
+    expect(pass.summary.main.lots.a.score).toMatchObject({ scopes: 1, keys_missed: 1 });
   });
 
   it("publishes the rooms of surface keys in report.md as an index, never their label", () => {
