@@ -160,9 +160,10 @@ export function LabVerdictsScreen() {
   // An Effect Event runs the handlers of the last committed render: React updates it during the commit,
   // before any later event. A listener re-registered by a passive effect would keep the previous render's
   // handlers until that effect runs, after the paint, and a key pressed meanwhile would be dropped (campaign
-  // still « loading ») or judge the element just judged instead of the one on screen.
+  // still « loading ») or judge the element just judged instead of the one on screen. Like the buttons, the
+  // shortcuts wait while busy: a verdict's answer releases `saving` before React renders the next element.
   const onShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    if (busy || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
     const target = event.target as HTMLElement | null;
     if (target && (TEXT_INPUTS.has(target.tagName) || target.isContentEditable)) return;
     // Only for the verdict screen itself: never behind a dialog, a sheet or the menu drawer, and Escape

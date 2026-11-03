@@ -16,6 +16,9 @@
 // 5. A key pressed right after a verdict moved the screen to the next element is
 //    handled with the element just judged: the second verdict overwrites the
 //    first one and the element on screen stays unjudged.
+// 6. Earlier still, between the verdict's answer and its render, the screen
+//    still shows the element just judged with its buttons disabled, but the
+//    shortcuts were not: a key there judged that element again.
 // The army journey cannot press a key between a commit and its effects either;
 // beforePassiveEffectsOf replays that ordering on every run.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -121,5 +124,32 @@ describe("LabVerdictsScreen", () => {
     await pressed.done();
     expect(judgeMock).toHaveBeenCalledTimes(2);
     expect(judgeMock).toHaveBeenLastCalledWith("campagne-a", ID_A2, "bad");
+  });
+
+  it("ignores a key pressed after a verdict's answer until the screen shows it, as its disabled buttons do", async () => {
+    campaignMock.mockResolvedValue({ campaign: "campagne-a", elements: [element(ID_A, "Premier élément"), element(ID_A2, "Second élément")] });
+    const firstVerdict = deferred<unknown>();
+    judgeMock.mockReturnValueOnce(firstVerdict.promise);
+
+    render(<LabVerdictsScreen />);
+    await screen.findAllByText(/Premier élément/);
+    fireEvent.click(screen.getByRole("button", { name: /^Bon/ }));
+    expect(judgeMock).toHaveBeenLastCalledWith("campagne-a", ID_A, "good");
+
+    // Runs right after the screen's own continuation of this answer, before React renders it.
+    let shownWhenPressed: { firstElement: boolean; buttonsDisabled: boolean } | null = null;
+    void firstVerdict.promise.then(() => {
+      shownWhenPressed = {
+        firstElement: screen.queryAllByText(/Premier élément/).length > 0,
+        buttonsDisabled: screen.getByRole("button", { name: /^Pas bon/ }).hasAttribute("disabled"),
+      };
+      fireEvent.keyDown(document.body, { key: "b" });
+    });
+    firstVerdict.resolve({});
+    await waitFor(() => expect(shownWhenPressed).toEqual({ firstElement: true, buttonsDisabled: true }));
+    expect(judgeMock).toHaveBeenCalledTimes(1);
+
+    await screen.findAllByText(/Second élément/);
+    expect(judgeMock).toHaveBeenCalledTimes(1);
   });
 });

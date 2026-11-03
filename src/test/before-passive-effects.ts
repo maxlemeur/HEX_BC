@@ -10,6 +10,9 @@ import { onTestFinished } from "vitest";
  *
  * Register it before the change that shows the element (not inside `act`, which flushes the
  * effects first), then await `done()`, which waits like `findBy*` and rethrows the action's error.
+ * The ordering holds for a non-discrete update, such as a promise resolved outside `act`: a
+ * discrete or `flushSync` update, or a layout effect setting state in that commit, runs the
+ * passive effects within the commit. Only a red run on the unfixed code proves the replay.
  */
 export function beforePassiveEffectsOf(isShown: () => boolean, action: () => void) {
   if (isShown()) throw new Error("Register beforePassiveEffectsOf before the change that shows the element.");
