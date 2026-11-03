@@ -249,6 +249,16 @@ export async function runVectorBench(input: {
     vectorPasses.push(vectorPass);
     const ruleDocuments: BenchRuleDocument[] = [];
     const rulePages: BenchRulePage[] = [];
+    // The rules of TI-664 per lot, with the geometry and the other documents of the lot read in this pass: at the end
+    // of the pass, or at a Decisions stop for the documents read in full before it (the one it cut stays unscored).
+    const finishRules = () => {
+      const rules = benchRulePass(ruleDocuments.filter((entry) => entry.items.length === entry.data.length), rulePages);
+      for (const run of benchPass.documents) {
+        const results = rules.results.get(run.id);
+        if (results) run.item_rules = results;
+      }
+      vectorPass.registrations = rules.registrations;
+    };
     for (const document of input.documents) {
       const run: DocumentRun = {
         id: document.id, lot: document.lot, role: document.role, sha256: document.sha256, bytes: document.bytes.byteLength,
@@ -305,6 +315,7 @@ export async function runVectorBench(input: {
             + (decided ? `, Decisions ${decided.calls.length} calls${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
           if (decided?.stop && isDecisionsRunStop(decided.stop.reason)) {
             stop = decisionsStop(decided.stop, done, planned, { model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, pass, document: document.id, chunk: page });
+            finishRules();
             break bench;
           }
         } catch (error) {
@@ -323,13 +334,7 @@ export async function runVectorBench(input: {
       run.complete = true;
       ruleDocuments.push({ id: document.id, lot: document.lot, order: ruleDocuments.length, items: run.items, data: ruleData });
     }
-    // The rules of TI-664 per lot, with the geometry and the other documents of the lot read in this pass.
-    const rules = benchRulePass(ruleDocuments.filter((entry) => entry.items.length === entry.data.length), rulePages);
-    for (const run of benchPass.documents) {
-      const results = rules.results.get(run.id);
-      if (results) run.item_rules = results;
-    }
-    vectorPass.registrations = rules.registrations;
+    finishRules();
     benchPass.complete = true;
   }
   return {

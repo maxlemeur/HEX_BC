@@ -92,6 +92,10 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 //   up past the minimum common length;
 // - a wall thickness (« ép. 20 mm ») became the DN of a line without one;
 // - « Tronçons verticaux » (the masculine plural) stayed observable.
+// Third Codex round (written before their fix):
+// - a group of pages at two scales settled with the coarsest minimum of all, so a
+//   0.4 m duplicate of two 1/50 pages was never paid by its own reduction;
+// - (bench) a Decisions stop left the documents read before it without rules.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -392,6 +396,24 @@ describe("duplicate runs between zones", () => {
     const corrected = three([6, 4, 2]);
     for (const id of ["r0", "r1", "r2"]) expect(rule(corrected.results, id, "zone_overlap")?.code, id).toBe("ZONE_OVERLAP_RESOLVED");
     expect(rule(three([6, 4, 3]).results, "r2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+  });
+
+  it("settles a group of pages at two scales with each pair's own minimum common length", () => {
+    // A (1/50) holds 0.4 m drawn again on B (1/50) and 5 m drawn again on C (1/200, minimum 49 cm): A counts 5.4 m too
+    // many; A reduced by 5.4 m settles the three, though 0.4 m is under C's minimum.
+    const segments: Array<Array<[number, number, number, number]>> = [[[0, 1, 0.4, 1], [2, 1, 7, 1]], [[0, 1, 0.4, 1]], [[2, 1, 7, 1]]];
+    const lengths = [5.4, 0.4, 5];
+    const scaled = (quantityA: number) => evaluateTakeoffRules({
+      pages: [0, 1, 2].map((index) => page(`job-${index}#1`, { order: index * 10_000, zone: `Z${index + 1}`,
+        anchors: sheet(-40 * index, 0, { titleBlock: 10 }), denominator: index === 2 ? 200 : 50 })),
+      lines: [0, 1, 2].map((index) => line(`s${index}`, { job_id: `job-${index}`, page_key: `job-${index}#1`,
+        quantity: index === 0 ? quantityA : lengths[index],
+        geometry: { segments_m: segments[index].map(([x0, y0, x1, y1]) => [x0 - 40 * index, y0, x1 - 40 * index, y1] as [number, number, number, number]),
+          polygon_m: null, length_m: lengths[index], area_m2: null } })),
+    });
+    expect(rule(scaled(5.4).results, "s0", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 5.4 } });
+    const settled = scaled(0.01);
+    for (const id of ["s0", "s1", "s2"]) expect(rule(settled.results, id, "zone_overlap")?.code, id).toBe("ZONE_OVERLAP_RESOLVED");
   });
 
   it("compares one pipe labelled « DN 100 » on a plan and « Ø 110 » on the other", () => {
