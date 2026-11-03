@@ -15,10 +15,12 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   stretches a centreline of the other line covers (parallel within
 //   ZONE_OVERLAP.angle_deg, within the distance at both ends of the stretch),
 //   so that two runs of the other line over one stretch count it once; the
-//   smaller of both directions. Covered stretches meeting end to end (within
-//   the distance) form one continuous stretch; one shorter than the minimum
-//   common length is a touch and counts nothing, however many touches a line
-//   has.
+//   smaller of both directions. Covered stretches that continue one another
+//   form one continuous stretch: ends within the distance (a corner of the
+//   run), or along the run (parallel, within the distance of its line) with a
+//   gap under the minimum common length (the dashes of a dashed run, 5 cm
+//   apart on B R+4). One shorter than the minimum common length is a touch and
+//   counts nothing, however many touches a line has.
 // - Lines of one page are never compared with each other (the reading already
 //   merges a run drawn twice on a page); pages of different levels never.
 // - Two runs abutting at the zone limit overlap by at most one band of the
@@ -131,10 +133,33 @@ function union(intervals: Array<[number, number]>) {
   return merged.filter(([a, b]) => b > a);
 }
 
+/** Tolerance on lengths compared with a threshold (coordinates are floating metres). */
+const EPSILON_M = 1e-9;
+
 /**
- * Total length of the continuous stretches at least `minimum` long: covered stretches meeting end to end (an end
- * within ZONE_OVERLAP.distance_m of another's) are one stretch, so a run drawn in short legs keeps its length and
- * touches at the zone limit never add up.
+ * Whether two covered stretches continue one another: an end of one within ZONE_OVERLAP.distance_m of an end of the
+ * other (a corner of the run), or, up to `gap` apart, along the run: parallel within ZONE_OVERLAP.angle_deg and both
+ * ends of the second within the distance of the first's line (the dashes of a dashed run). Two parallel pipes side
+ * by side never continue one another.
+ */
+function continues(a: Centreline, b: Centreline, gap: number) {
+  const { distance_m: distance, angle_deg: angle } = ZONE_OVERLAP;
+  const ends = [[a[0], a[1]], [a[2], a[3]]];
+  const nearest = Math.min(...ends.flatMap(([x, y]) => [Math.hypot(b[0] - x, b[1] - y), Math.hypot(b[2] - x, b[3] - y)]));
+  if (nearest <= distance + EPSILON_M) return true;
+  if (nearest > gap + EPSILON_M) return false;
+  const length = Math.hypot(a[2] - a[0], a[3] - a[1]), other = Math.hypot(b[2] - b[0], b[3] - b[1]);
+  if (length === 0 || other === 0) return false;
+  const ux = (a[2] - a[0]) / length, uy = (a[3] - a[1]) / length;
+  if (Math.abs(ux * (b[3] - b[1]) - uy * (b[2] - b[0])) / other > Math.sin((angle * Math.PI) / 180)) return false;
+  const lateral = (x: number, y: number) => Math.abs((x - a[0]) * uy - (y - a[1]) * ux);
+  return lateral(b[0], b[1]) <= distance + EPSILON_M && lateral(b[2], b[3]) <= distance + EPSILON_M;
+}
+
+/**
+ * Total length of the continuous stretches at least `minimum` long: covered stretches that continue one another
+ * (continues, with a gap under `minimum`) are one stretch, so a run drawn in short legs or dashes keeps its length
+ * and touches at the zone limit never add up.
  */
 function continuousLength(stretches: readonly Centreline[], minimum: number) {
   const lengths = stretches.map(([x0, y0, x1, y1]) => Math.hypot(x1 - x0, y1 - y0));
@@ -145,24 +170,33 @@ function continuousLength(stretches: readonly Centreline[], minimum: number) {
     return index;
   };
   const cell = 1;
-  const ends = new Map<string, Array<[number, number, number]>>();
-  const reach = ZONE_OVERLAP.distance_m;
-  stretches.forEach(([x0, y0, x1, y1], index) => {
+  const ends = new Map<string, number[]>();
+  const reach = Math.max(minimum, ZONE_OVERLAP.distance_m);
+  stretches.forEach((stretch, index) => {
+    const [x0, y0, x1, y1] = stretch;
+    const near = new Set<number>();
     for (const [x, y] of [[x0, y0], [x1, y1]]) {
       for (let cx = Math.floor((x - reach) / cell); cx <= Math.floor((x + reach) / cell); cx += 1) {
         for (let cy = Math.floor((y - reach) / cell); cy <= Math.floor((y + reach) / cell); cy += 1) {
-          for (const [other, ox, oy] of ends.get(`${cx},${cy}`) ?? []) {
-            if (Math.hypot(ox - x, oy - y) <= reach) parent[find(other)] = find(index);
-          }
+          for (const other of ends.get(`${cx},${cy}`) ?? []) near.add(other);
         }
       }
+    }
+    for (const other of near) {
+      if (find(other) !== find(index) && (continues(stretches[other], stretch, minimum) || continues(stretch, stretches[other], minimum))) {
+        parent[find(other)] = find(index);
+      }
+    }
+    for (const [x, y] of [[x0, y0], [x1, y1]]) {
       const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
-      ends.set(key, [...(ends.get(key) ?? []), [index, x, y]]);
+      const list = ends.get(key);
+      if (!list) ends.set(key, [index]);
+      else if (list[list.length - 1] !== index) list.push(index);
     }
   });
   const totals = new Map<number, number>();
   lengths.forEach((length, index) => totals.set(find(index), (totals.get(find(index)) ?? 0) + length));
-  return [...totals.values()].filter((length) => Math.round(length * 1000) / 1000 >= minimum).reduce((sum, length) => sum + length, 0);
+  return [...totals.values()].filter((length) => length + EPSILON_M >= minimum).reduce((sum, length) => sum + length, 0);
 }
 
 /** Stretches of `line` covered by `other` (one direction), both already in one frame. */
@@ -250,5 +284,5 @@ export function settleDuplicates(lines: readonly SettleLine[]): { settled: boole
   const paid = current.reduce((sum, line) => sum + useful(line), 0) + spare;
   const deficit = Math.max(0, Math.round((owed - paid) * 1000) / 1000);
   const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, lines.filter((line) => useful(line) > 0).length);
-  return { settled: deficit <= tolerance + 1e-9, deficit_m: deficit <= tolerance + 1e-9 ? 0 : deficit };
+  return { settled: deficit <= tolerance + EPSILON_M, deficit_m: deficit <= tolerance + EPSILON_M ? 0 : deficit };
 }

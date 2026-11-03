@@ -125,7 +125,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
 - Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions.
-- Le minimum vaut pour chaque tronçon continu : des tronçons couverts bout à bout (à D près) n'en font qu'un. Quatre contacts de 10 cm en limite de zone ne font pas un doublon de 40 cm.
+- Le minimum vaut pour chaque tronçon continu. Deux morceaux couverts se continuent quand leurs extrémités se touchent à D près (un coude), ou dans le prolongement l'un de l'autre (parallèles, à D de son axe) à moins du minimum : les tirets d'un réseau en pointillés (20 cm, espacés de 5 cm sur B R+4) font un seul tronçon. Quatre contacts de 10 cm en limite de zone, ou trois tuyaux parallèles qui la touchent chacun, ne font pas un doublon.
 
 **Résolution**
 
