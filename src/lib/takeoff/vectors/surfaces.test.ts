@@ -105,6 +105,9 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 //   centre, radius and ends, so they are taken for two copies of one arc: half
 //   a turn, under a circle's, and a turning circle drawn so bounds the room
 //   (−11 %).
+// Merge with the Decisions classification (#154), written before the fix:
+// - a joinery layer that Decisions classes (« autre », « texte »)
+//   stops being a barrier, so its doorways open and the rooms leak.
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -494,6 +497,18 @@ describe("readRoomSurfaces, fill between walls (TI-662 L3c)", () => {
 
     it("reads a door swing stroked twice as one door", () => {
       for (const area of areas([leaf, { layer: JOINERY, points: arc }, { layer: JOINERY, points: [...arc] }])) expect(Math.abs(area - ROOM_M2)).toBeLessThan(0.05);
+    });
+
+    it("keeps a joinery layer a barrier whatever class Decisions gives it, short of a wall (merge with #154)", () => {
+      // The joinery layer has no keyword class, so Decisions may class it; « autre » at 0.9 must not open the doorway.
+      const extraction = layered(texts, [...walls, leaf, { layer: JOINERY, points: arc }]);
+      // (A network answer never reaches this grey layer: applyDecisions drops it, the TI-658 guard.)
+      for (const answer of [{ class: "autre" as const, confidence: 0.9 }, { class: "texte" as const, confidence: 0.85 }]) {
+        const reading = readVectorPage(extraction, { calibration: { page: 1, denominator: 50, source: "test" }, clock: () => 0,
+          decisions: new Map([[`oc:${JOINERY}`, answer]]) });
+        expect(reading.groups.find((group) => group.layer === JOINERY)).toMatchObject({ class: answer.class, source: "decisions" });
+        for (const surface of reading.surfaces) expect(Math.abs((surface.polygon_m2 ?? 0) - ROOM_M2)).toBeLessThan(0.05);
+      }
     });
 
     it("reads a door drawn as one subpath (hinge, leaf, arc) as a door", () => {

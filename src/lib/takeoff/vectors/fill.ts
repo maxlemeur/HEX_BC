@@ -169,7 +169,10 @@ function barrierStrokes(extraction: VectorPageExtraction, model: PageModel, clas
     if (group.hidden) return FREE;
     const entry = classes[index];
     if (isClassified(entry) && (entry.class === "mur" || entry.class === "cloison")) return WALL;
-    return entry.class === null && group.layerName !== null && isOpeningLayerName(group.layerName) ? JOINERY : FREE;
+    // An opening layer stays joinery whatever Decisions proposes for it (short of a wall, above); a keyword, document or
+    // user class decides otherwise.
+    const undecided = entry.class === null || entry.source === "decisions";
+    return undecided && group.layerName !== null && isOpeningLayerName(group.layerName) ? JOINERY : FREE;
   });
   const walls = role.includes(WALL);
   const { points, paths } = extraction;

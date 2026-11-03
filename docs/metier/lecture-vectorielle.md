@@ -223,7 +223,8 @@ est une constante nommée et versionnée dans le code.
      - Barrières : les traits des groupes classés mur ou cloison (toute source que la
        lecture retient), et ceux des calques de menuiseries ou d'ouvertures (MENUISERIE,
        PORTE, DOOR, FENÊTRE, WINDOW, au singulier ou au pluriel) : leurs portes et
-       fenêtres ferment les baies des murs. Jamais un calque masqué ni un trait quasi
+       fenêtres ferment les baies des murs. Un tel calque le reste quelle que soit la
+       classe que Decisions lui propose (sauf mur ou cloison à 0,8 ou plus). Jamais un calque masqué ni un trait quasi
        blanc. Une page sans groupe mur ou cloison n'est pas remplie (une page lue par
        couleurs n'en a que par correspondance, ou par Decisions à 0,8 ou plus).
      - Portes : un arc de 60 à 120°, de 0,50 à 1,60 m de rayon, dont les points sont à
