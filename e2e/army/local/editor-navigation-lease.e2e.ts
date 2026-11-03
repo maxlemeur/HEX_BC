@@ -2,7 +2,7 @@ import { expect } from "e2e";
 
 import { apiRequest, armyTest, recordEvidence, type ArmyItem, type ArmyVersion } from "../critical/fixtures";
 import {
-  clonedPopupObservation, documentObservation, editorPath, leaseCheckpoint, leaseEditorReady,
+  clonedPopupObservation, departAfterLeaseRequest, documentObservation, editorPath, leaseCheckpoint, leaseEditorReady,
   leaseTotals, observeLeaseRequests, openClonedLeasePopup, prepareLeaseCase, reloadClonedLeasePopup,
   withLeaseEvidence, type LeasePrepared, type LeaseUi,
 } from "./editor-navigation-lease-support";
@@ -161,6 +161,63 @@ armyTest("NAV01 real reload then immediate requirements departure and return kee
     expect(persisted.financial).toEqual(saved.financial);
     await expect(ui.screen.getByLabel(`Quantité pour ${p.title}`, { exact: true })).toHaveValue("3");
     expect(persisted.forcedRequests).toBe(0);
+  });
+});
+
+// TI-665: NAV01 failed in CI when the departure page took long enough for the
+// reloaded document to send its lease request before leaving; the server kept a
+// lease that nothing released. NAV01b forces that order on any machine.
+armyTest("NAV01b real reload then departure answered after the reloaded document's lease request keeps the return usable", options, async (ui) => {
+  const p = await prepareLeaseCase(ui, "NAV01b");
+  const observer = await observeLeaseRequests(ui, p);
+  await withLeaseEvidence(ui, p, observer, "NAV01b", async () => {
+    await ui.app.open(editorPath(p));
+    await leaseEditorReady(ui, p);
+    const baseline = await leaseCheckpoint(ui, p, observer, "NAV01b-ready-baseline");
+    assertOrdinaryRls(baseline);
+    expect(leaseTotals(baseline.financial!.version)).toEqual([2000, 400, 2400]);
+    if ("failed" in baseline.rls) throw new Error("NAV01b ordinary lease baseline unavailable.");
+    // A real reload keeps the page identity: the reloaded document requests the
+    // lease under the same alias as the first one.
+    const reloadedSession = baseline.rls.leases[0].sessionAlias;
+
+    await ui.browser.reload({ timeout: 15_000 });
+    const reloaded = await documentObservation(ui.browser, p.title, p.versionId);
+    const departure = await departAfterLeaseRequest(ui, p, `/dashboard/estimates/${p.versionId}/source-review/requirements`);
+    const away = await documentObservation(ui.browser, p.title, p.versionId);
+    await ui.app.open(editorPath(p));
+    const returnedAt = Date.now();
+    const lateRequests = observer.requests.filter((entry) => entry.method === "POST" && entry.pathname.endsWith("/lock") &&
+      entry.sessionAlias === reloadedSession && entry.interceptedAt >= departure.startedAt && entry.interceptedAt <= departure.finishedAt);
+    const returned = await leaseCheckpoint(ui, p, observer, "NAV01b-immediate-return", {
+      reloaded, departure, away, returnFinishedAt: new Date(returnedAt).toISOString(), lateRequestCount: lateRequests.length,
+    });
+    // Proof that this run exercised the order: the reloaded document did send its
+    // lease request while it was leaving. Without it the case is missing proof.
+    expect(reloaded.navigationType).toBe("reload");
+    expect(departure.leaseRequestSeenAt).not.toBeNull();
+    expect(lateRequests.length > 0).toBe(true);
+    expect(away.pathname).toBe(`/dashboard/estimates/${p.versionId}/source-review/requirements`);
+    expect(away.h1).toContain("Exigences du CCTP");
+    expect(returned.financial).toEqual(baseline.financial);
+
+    await leaseEditorReady(ui, p);
+    const editableAfterMs = Date.now() - returnedAt;
+    const ready = await leaseCheckpoint(ui, p, observer, "NAV01b-return-ready", { editableAfterMs, maximumMs: 10_000 });
+    assertOrdinaryRls(ready);
+    expect(editableAfterMs <= 10_000).toBe(true);
+    if ("failed" in ready.rls) throw new Error("NAV01b ordinary return lease unavailable.");
+    // The returning document holds the lease under its own identity: nothing was
+    // shared with, or adopted from, the document that left.
+    expect(ready.rls.leases[0].sessionAlias).not.toBe(reloadedSession);
+    expect(ready.financial).toEqual(baseline.financial);
+    expect(ready.forcedRequests).toBe(0);
+
+    await saveThreeThroughUi(ui, p, "NAV01b");
+    const saved = await leaseCheckpoint(ui, p, observer, "NAV01b-saved-through-ui");
+    assertOrdinaryRls(saved);
+    expect(leaseTotals(saved.financial!.version)).toEqual([3000, 600, 3600]);
+    expect(saved.forcedRequests).toBe(0);
   });
 });
 

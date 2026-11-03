@@ -101,7 +101,7 @@ async function setupLease(browser: Browser, versionId: string, release = false) 
   }, { versionId, release });
 }
 
-export async function prepareLeaseCase(ui: LeaseUi, label: "NAV01" | "NAV05"): Promise<LeasePrepared> {
+export async function prepareLeaseCase(ui: LeaseUi, label: "NAV01" | "NAV01b" | "NAV05"): Promise<LeasePrepared> {
   const fixture = await loadOwner();
   await ui.app.open("/dashboard/estimates");
   const created = await apiRequest<Envelope<{ project: { id: string; tenant_id: string; user_id: string }; version: ArmyVersion }>>(
@@ -184,6 +184,39 @@ export async function observeLeaseRequests(ui: LeaseUi, p: LeasePrepared): Promi
     await route.fallback();
   });
   return { requests, alias, rowAlias, close: () => ui.browser.unroute(pattern) };
+}
+
+// TI-665: in CI the departure page renders in about 450 ms, long enough for the
+// document that is leaving to send its lease request. Its page is held here until
+// that request has been sent, plus 300 ms for the server to commit it (8 s at
+// most), so the same order runs on any machine. Nothing is changed or answered by
+// the harness: both requests reach the real server.
+export async function departAfterLeaseRequest(ui: LeaseUi, p: LeasePrepared, path: string) {
+  let leaseRequestSeenAt: string | null = null;
+  let markLeaseRequested = () => {};
+  const leaseRequested = new Promise<void>((resolve) => { markLeaseRequested = resolve; });
+  const lockPattern = new RegExp(`/api/estimates/${p.versionId}/lock$`);
+  const pagePattern = new RegExp(`${path.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}$`);
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  await ui.browser.route(lockPattern, async (route) => {
+    if (route.request.method === "POST" && !leaseRequestSeenAt) {
+      leaseRequestSeenAt = new Date().toISOString();
+      markLeaseRequested();
+    }
+    await route.fallback();
+  });
+  await ui.browser.route(pagePattern, async (route) => {
+    await Promise.race([leaseRequested.then(() => pause(300)), pause(8_000)]);
+    await route.fallback();
+  });
+  const startedAt = new Date().toISOString();
+  try {
+    await ui.app.open(path);
+  } finally {
+    await ui.browser.unroute(pagePattern);
+    await ui.browser.unroute(lockPattern);
+  }
+  return { startedAt, finishedAt: new Date().toISOString(), leaseRequestSeenAt: leaseRequestSeenAt as string | null };
 }
 
 export async function documentObservation(browser: Browser, title: string, versionId: string) {
