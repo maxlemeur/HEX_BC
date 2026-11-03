@@ -51,7 +51,7 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
 
-export const MEASURE_RULE_VERSION = 2;
+export const MEASURE_RULE_VERSION = 3;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -115,8 +115,8 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
       extraction.points[2 * first + 1] - extraction.points[2 * last + 1]) < 0.5;
     if (!shut) continue;
     const group = groups[groupOf[path.group]];
-    // A network stroke is the pipe itself (a band drawn as a closed outline), never the frame of a detail.
-    if (!group.colors.some(isDark) || isNetworkClass(classes[groupOf[path.group]].class)) continue;
+    // A network stroke is the pipe itself (a band drawn as a closed outline), never the frame of a detail; a hidden layer is not printed.
+    if (group.hidden || !group.colors.some(isDark) || isNetworkClass(classes[groupOf[path.group]].class)) continue;
     const xs: number[] = [], ys: number[] = [];
     for (let index = path.start; index < path.start + path.count; index += 1) {
       xs.push(extraction.points[2 * index]);
@@ -578,13 +578,16 @@ export function measureNetworks(input: {
     }
     components += 1;
   });
+  // Every label attached to the component counts: two candidates named on one run leave it « à revoir ».
   const componentNetwork = new Map<number, NetworkCode | null>();
-  for (const [id, block] of labelled) {
+  pieces.forEach((piece, id) => {
     const run = result[id];
-    if (run.network !== null || block.label.network === null || !run.candidates.includes(block.label.network)) continue;
-    const known = componentNetwork.get(component[id]);
-    componentNetwork.set(component[id], known === undefined || known === block.label.network ? block.label.network : null);
-  }
+    for (const { block } of piece.labels) {
+      if (run.network !== null || block.label.network === null || !run.candidates.includes(block.label.network)) continue;
+      const known = componentNetwork.get(component[id]);
+      componentNetwork.set(component[id], known === undefined || known === block.label.network ? block.label.network : null);
+    }
+  });
   result.forEach((run, id) => {
     const decided = componentNetwork.get(component[id]) ?? null;
     if (run.network === null && decided !== null && run.candidates.includes(decided)) run.network = decided;

@@ -83,6 +83,10 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // - the rollup is decided for the whole scope rather than per material: a
 //   devis pricing supply and return pipes apart and their insulation together
 //   never sees the insulation items on its combined key.
+// Review of PR #145 (Codex, 3/11/2026, written before the fix):
+// - an item hesitating between CHW-S and CHW-R with a DN no series knows
+//   (« DN 777 ») or two DN (« DN 50 DN 100 ») reads as a CHW key once its
+//   network is resolved, and is scored ok on a CHW key without DN.
 
 type Json = Record<string, unknown>;
 
@@ -586,6 +590,17 @@ describe("takeoff bench confounded networks (score v3)", () => {
       ["CHW-S", "acier-noir", "ok", 20], ["CHW-R", "acier-noir", "ok", 20], ["CHW", "calorifuge", "ok", 40],
     ]));
     expect(scope.false_positives).toEqual([]);
+  });
+
+  it("keeps the DN checks of an item whose CHW-S / CHW-R hesitation is resolved as CHW", () => {
+    for (const [designation, reason] of [["CHW-S / CHW-R acier noir DN 777", "dn_unknown"], ["CHW-S / CHW-R acier noir DN 50 DN 100", "dn_ambiguous"]] as const) {
+      const scope = only(score([truth("truth/a-plan-01.json", ["a-plan-01"], [
+        line({ network: "CHW", material: "acier-noir", dn: null, quantity: 20 }),
+      ])], { "a-plan-01": [item(designation, 20)] }, [Z1]));
+      expect(scope.keys).toMatchObject([{ key: { network: "CHW" }, status: "missed", items: 0 }]);
+      expect(scope.counts).toMatchObject({ keys_ok: 0, unreadable: 1 });
+      expect(scope.false_positives.map((entry) => entry.reason)).toEqual([reason]);
+    }
   });
 
   it("leaves an unreadable item hesitating between CHW-S and HW-S unpaired with an EF key", () => {

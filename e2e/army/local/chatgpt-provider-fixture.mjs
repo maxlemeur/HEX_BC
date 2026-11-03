@@ -161,7 +161,8 @@ globalThis.fetch = async (input, init) => {
   }
   const sourceMatched = () => pdf || preparation || (JSON.stringify(body.input).includes("ARMY copper pipe") && JSON.stringify(body.input).includes("12.5"));
   const transportEntry = (provider) => ({ provider, model: body.model, sourceMatched: true,
-    ...(liveProbe ? { reasoningEffort: body.reasoning?.effort ?? null } : {}),
+    // The fixture logs the effort only when one is sent: requests on the profile (no effort) keep their entries.
+    ...(liveProbe ? { reasoningEffort: body.reasoning?.effort ?? null } : body.reasoning ? { reasoningEffort: body.reasoning.effort } : {}),
     ...(pdf ? { inputKind: "pdf" } : preparation ? { inputKind: "preparation" } : {}) });
   if (liveProbe) {
     assert(new Headers(init?.headers).get("authorization") === `Bearer ${liveProbe.accessToken}`, "Unexpected live plan credential.");
@@ -180,7 +181,9 @@ globalThis.fetch = async (input, init) => {
     return response;
   }
   assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
-  if (url.pathname === "/v1/models") return Response.json({ models: [{ slug: "army-plan-model", display_name: "ARMY plan model", visibility: "list" }] });
+  // Two efforts let the takeoff lab (TI-661) compare one model at low and high.
+  if (url.pathname === "/v1/models") return Response.json({ models: [{ slug: "army-plan-model", display_name: "ARMY plan model", visibility: "list",
+    supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] }] });
   assert.equal(url.pathname, "/v1/responses");
   assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
   // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».

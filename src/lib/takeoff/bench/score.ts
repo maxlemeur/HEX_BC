@@ -56,7 +56,7 @@ import { toUnitToken } from "@/lib/takeoff/units";
 // - Causes count once per key and per unpaired false-positive group, unpaired
 //   unreadable items making one group per reason.
 
-export const SCORE_VERSION = 3;
+export const SCORE_VERSION = 4;
 
 /**
  * Networks a confounded truth key collects (score v3, TI-662): a devis that
@@ -488,6 +488,10 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
     const shape = (code: NetworkCode) => `${code}|${material ?? ""}`;
     return parent && network !== null && !priced.has(shape(network)) && priced.has(shape(parent)) ? parent : network;
   };
+  const resolveNetworks = (among: readonly NetworkCode[], material: MaterialCode | null) => {
+    const parents = [...new Set(among.map((network) => rollUp(network, material)))];
+    return parents.length === 1 ? parents[0] : null;
+  };
   const rolledUp = <T extends { kind: LineKind; network: NetworkCode | null; material: MaterialCode | null }>(key: T): T =>
     (key.kind === "network" ? { ...key, network: rollUp(key.network, key.material) } : key);
   const attachedByKey = new Map<string, AttachedItem[]>(keys.map((key) => [key.id, []]));
@@ -512,13 +516,8 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       counts.items += 1;
       indicative.items += 1;
       if (item.evidence?.trim() && typeof item.source_page === "number" && item.source_page >= 1) indicative.localized_items += 1;
-      let reading = readItemKey(item, { rooms });
-      if (reading.status === "unreadable" && reading.reason === "network_ambiguous") {
-        // « CHW-S / CHW-R » on a scope pricing CHW: one network once confounded, the item reads as it.
-        const material = reading.key.material;
-        const parents = [...new Set(reading.among.map((network) => rollUp(network as NetworkCode, material)))];
-        if (parents.length === 1 && parents[0] !== null) reading = { status: "read", key: { ...reading.key, network: parents[0] } };
-      }
+      // « CHW-S / CHW-R » on a scope pricing CHW: one network once confounded, the item reads as it, its DN checked as any.
+      const reading = readItemKey(item, { rooms, resolveNetworks });
       if (reading.status === "out_of_score") {
         result.out_of_score_items.push({ document: document.id, page: item.source_page ?? null, unit: item.unit, reason: "unit" });
         continue;

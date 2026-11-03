@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "note": "Partition des parcours TesterArmy en jobs parallèles (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-journeys.ts. seconds : durée mesurée de chaque fichier (somme de ses tests), moyenne des runs de measured qui l'ont exécuté (suite critical : 40024057450, 40021949125 et 40012687149, les fichiers absents de ces runs gardant leur valeur précédente ; parcours du métré : leur valeur précédente et 40024057450, à parts égales) ; elle ne sert qu'à équilibrer les shards, jamais à choisir les parcours. Un fichier absent compte defaultSeconds. Un fichier n'est jamais coupé entre deux shards. workers : celui de chaque shard, contrôlé par l'agrégation. takeoff : les parcours du métré qu'une PR atteint (job army-takeoff de e2e-army-critical.yml), exécutés par la suite full à 1 worker, où ils sont qualifiés.",
   "measured": [
+    "TI-661 local run (macOS, Node 26.12.1, 1 worker, 2026-11-03): takeoff-lab 11.2 s for LAB01 to LAB03 once its own development server was ready; the cold webpack server it starts, like chatgpt-local and profile-polish, is not in that sum. Planning estimate 120 s (profile-polish's order of magnitude) until a CI measurement, so the three cold development servers are not packed into one shard. Selection, workers and budgets are unchanged.",
     "40980133039 army-critical shard 2, bc4d78ae (Node 26.12.1, Linux x64, 2 workers): chatgpt-local 372.651 s summed across 11 attempts (10 passed, 1 failed at V3C08; observed planning estimate, not a successful-file qualification); profile-polish 115.150 s, PFL01 passed. Rounded up to 373/116 s; replaces the obsolete 13 s and default 20 s estimates so the two cold development servers are scheduled in different shards. Selection, workers and budgets are unchanged.",
     "40024057450, 40021949125 et 40012687149 army-critical (PR #90 à 5 shards, tête 405e9258 ; main 76107d0c et un commit antérieur à 4 shards ; 2 workers) : moyenne des trois, dont 24 fichiers ajoutés depuis le 18/10 qui comptaient les 20 s par défaut (legacy-editor-parity 298 s, legacy-catalogue-parity 144 s, article-association 136 s)",
     "40024057450 army-takeoff shards 1 et 2 (PR #90, tête 405e9258, 1 worker) : worker-lifecycle, import-format-completion et intake-dossier, absents jusque-là, prennent cette mesure",
@@ -108,6 +109,7 @@
     "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts": 24,
     "e2e/army/takeoff/team-b-user-stories.e2e.ts": 68,
     "e2e/army/takeoff/worker-lifecycle.e2e.ts": 52,
-    "e2e/army/local/profile-polish.e2e.ts": 116
+    "e2e/army/local/profile-polish.e2e.ts": 116,
+    "e2e/army/local/takeoff-lab.e2e.ts": 120
   }
 }

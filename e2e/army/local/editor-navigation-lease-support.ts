@@ -101,7 +101,7 @@ async function setupLease(browser: Browser, versionId: string, release = false) 
   }, { versionId, release });
 }
 
-export async function prepareLeaseCase(ui: LeaseUi, label: "NAV01" | "NAV05"): Promise<LeasePrepared> {
+export async function prepareLeaseCase(ui: LeaseUi, label: "NAV01" | "NAV01b" | "NAV01c" | "NAV01d" | "NAV05"): Promise<LeasePrepared> {
   const fixture = await loadOwner();
   await ui.app.open("/dashboard/estimates");
   const created = await apiRequest<Envelope<{ project: { id: string; tenant_id: string; user_id: string }; version: ArmyVersion }>>(
@@ -169,6 +169,8 @@ export async function observeLeaseRequests(ui: LeaseUi, p: LeasePrepared): Promi
     return rows.get(identity)!;
   };
   const requests: LeaseRequestObservation[] = [];
+  // Requests sent by a document while it is destroyed (pagehide, keepalive) are
+  // not routed: they reach the server unseen here (see waitForLeaseCount).
   const pattern = new RegExp(`/api/estimates/${p.versionId}(?:/|$)`);
   await ui.browser.route(pattern, async (route) => {
     const url = new URL(route.request.url);
@@ -184,6 +186,101 @@ export async function observeLeaseRequests(ui: LeaseUi, p: LeasePrepared): Promi
     await route.fallback();
   });
   return { requests, alias, rowAlias, close: () => ui.browser.unroute(pattern) };
+}
+
+// TI-665: in CI the departure page renders in about 450 ms, long enough for the
+// document that is leaving to obtain a lease. The next page (a departure or a
+// reload) is held here until that document has sent its lease request and the
+// server has committed the lease (ordinary RLS read), plus 300 ms for its reply
+// to reach the page; 8 s at most. Only a request sent after the next page's own
+// request counts: the browser sends that request once beforeunload has run.
+// Nothing is changed or answered by the harness: every request reaches the
+// real server.
+export async function leaveAfterLeaseRequest(ui: LeaseUi, p: LeasePrepared, pagePath: string, leave: () => Promise<unknown>) {
+  let navigationRequestedAt: string | null = null;
+  let leaseRequestSeenAt: string | null = null;
+  let leaseCommittedAt: string | null = null;
+  let markLeaseRequested = () => {};
+  const leaseRequested = new Promise<void>((resolve) => { markLeaseRequested = resolve; });
+  const lockPattern = new RegExp(`/api/estimates/${p.versionId}/lock$`);
+  const pagePattern = new RegExp(`${pagePath.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}$`);
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const leaseCommitted = async () => {
+    for (const deadline = Date.now() + 3_000; Date.now() < deadline; await pause(50)) {
+      const { data } = await p.client.from("draft_locks").select("id")
+        .eq("tenant_id", p.fixture.owner.tenantId).eq("version_id", p.versionId);
+      if (data?.length) { leaseCommittedAt = new Date().toISOString(); break; }
+    }
+    await pause(300);
+  };
+  await ui.browser.route(lockPattern, async (route) => {
+    if (route.request.method === "POST" && navigationRequestedAt && !leaseRequestSeenAt) {
+      leaseRequestSeenAt = new Date().toISOString();
+      markLeaseRequested();
+    }
+    await route.fallback();
+  });
+  await ui.browser.route(pagePattern, async (route) => {
+    navigationRequestedAt ??= new Date().toISOString();
+    await Promise.race([leaseRequested.then(leaseCommitted), pause(8_000)]);
+    await route.fallback();
+  });
+  const startedAt = new Date().toISOString();
+  try {
+    await leave();
+  } finally {
+    await ui.browser.unroute(pagePattern);
+    await ui.browser.unroute(lockPattern);
+  }
+  return {
+    startedAt, finishedAt: new Date().toISOString(),
+    navigationRequestedAt: navigationRequestedAt as string | null, leaseRequestSeenAt: leaseRequestSeenAt as string | null,
+    leaseCommittedAt: leaseCommittedAt as string | null,
+  };
+}
+
+export async function departAfterLeaseRequest(ui: LeaseUi, p: LeasePrepared, path: string) {
+  return leaveAfterLeaseRequest(ui, p, path, () => ui.app.open(path));
+}
+
+// Ordinary RLS reads until the version has `count` leases (2 s at most). The
+// release a page sends on pagehide is not seen by the request observer below
+// (requests of a document being destroyed are not routed), so its effect is
+// read here instead.
+export async function waitForLeaseCount(ui: LeaseUi, p: LeasePrepared, observer: LeaseObserver, label: string, count: number) {
+  const samples: Array<Awaited<ReturnType<typeof ordinaryRlsObservation>>> = [];
+  for (const deadline = Date.now() + 2_000; ;) {
+    const sample = await ordinaryRlsObservation(p, observer);
+    samples.push(sample);
+    if (sample.leases.length === count || Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await recordEvidence(ui.army, `${label}-lease-samples`, { expectedCount: count, samples });
+  return samples.at(-1)!;
+}
+
+// NAV01c: the release the leaving page sends never reaches the server (lost
+// keepalive, dropped connection), so its lease stays held by a page that no
+// longer exists. This abort is the only transport fault; it is counted and
+// limited to DELETE /lock sent while the page is alive (beforeunload).
+export async function departWithLostRelease(ui: LeaseUi, p: LeasePrepared, path: string) {
+  let abortedReleases = 0;
+  const lockPattern = new RegExp(`/api/estimates/${p.versionId}/lock$`);
+  await ui.browser.route(lockPattern, async (route) => {
+    if (route.request.method === "DELETE") {
+      abortedReleases += 1;
+      await route.abort();
+      return;
+    }
+    await route.fallback();
+  });
+  const startedAt = new Date().toISOString();
+  try {
+    await ui.app.open(path);
+  } finally {
+    await ui.browser.unroute(lockPattern);
+  }
+  return { startedAt, finishedAt: new Date().toISOString(), abortedReleases };
 }
 
 export async function documentObservation(browser: Browser, title: string, versionId: string) {

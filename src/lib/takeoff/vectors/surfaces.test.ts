@@ -30,6 +30,9 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 // - a room outline on a layer hidden by the document's default configuration
 //   (OFF, not printed) gives a visible room its area, or a smaller hidden
 //   outline replaces the visible one.
+// Second Codex round (written before the fix):
+// - on a page rotated 90° (/Rotate 90, texts at +90°), a label printed above
+//   its area is not found (« above » read along page y), and the room is lost.
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -161,5 +164,19 @@ describe("readRoomSurfaces, review of PR #145", () => {
       { room: "Infirmerie", polygon_m2: 14 },
       { room: "Archives", polygon_m2: null },
     ]);
+  });
+});
+
+describe("readRoomSurfaces, rotated page (review of PR #145)", () => {
+  it("finds a label printed above its area on a page rotated by 90°", () => {
+    const room: Ring = { x: 100, y: 100, width: sheet(4), height: sheet(3.1) }; // 12.40 m²
+    const texts = [line("Bureau", 130, 197), line("12.40 m²", 130, 200)];
+    const flat = readRoomSurfaces(page(texts, [room]), 50);
+    expect(flat.map(({ room: name, polygon_m2 }) => ({ name, polygon_m2 }))).toEqual([{ name: "Bureau", polygon_m2: 12.4 }]);
+    // The same sheet viewed at /Rotate 90: page point (x, y) goes to (H − y, x), texts turn to +90°.
+    const H = 841.89;
+    const rotated = page(texts.map((entry) => ({ ...entry, x: H - entry.y, y: entry.x, angle: Math.PI / 2 })),
+      [{ x: H - (room.y + room.height), y: room.x, width: room.height, height: room.width }]);
+    expect(readRoomSurfaces(rotated, 50).map(({ room: name, polygon_m2 }) => ({ name, polygon_m2 }))).toEqual([{ name: "Bureau", polygon_m2: 12.4 }]);
   });
 });
