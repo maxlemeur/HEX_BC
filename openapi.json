@@ -20597,6 +20597,108 @@
         }
       }
     },
+    "/api/takeoff/jobs/{jobId}/vector-pages": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Recuperer la lecture vectorielle d'un job Takeoff",
+        "description": "Retourne les pages lues dans les vecteurs du plan (echelle, groupes, detection, surfaces imprimees) et la geometrie de leurs items mesures, en metres.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lecture vectorielle du job takeoff retournee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffVectorReadingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/takeoff/mapping-rules": {
       "get": {
         "tags": [
@@ -70088,6 +70190,874 @@
               "project",
               "lots",
               "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffVectorReadingResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "pages": {
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "plan_file_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_file_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source_page": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "reading": {
+                      "type": "object",
+                      "properties": {
+                        "schema_version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "reading_version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "layers",
+                            "colours",
+                            "raster"
+                          ]
+                        },
+                        "size_pt": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2
+                        },
+                        "rotate": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "location": {
+                          "type": "object",
+                          "properties": {
+                            "zone": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 16
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "level": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 16
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "source": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "page_triage",
+                                    "file_name"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "zone",
+                            "level",
+                            "source"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "scale": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "verified",
+                                "format",
+                                "calibrated",
+                                "unverified"
+                              ]
+                            },
+                            "reason": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 64
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "denominator": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "cartouche": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "denominator": {
+                                      "type": "number",
+                                      "exclusiveMinimum": 0
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "maxLength": 120
+                                    },
+                                    "labelled": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "denominator",
+                                    "text",
+                                    "labelled"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "format": {
+                              "type": "object",
+                              "properties": {
+                                "cartouche": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 40
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "page_mm": {
+                                  "type": "array",
+                                  "prefixItems": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    }
+                                  ],
+                                  "items": false,
+                                  "minItems": 2,
+                                  "maxItems": 2
+                                },
+                                "matches": {
+                                  "type": [
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "cartouche",
+                                "page_mm",
+                                "matches"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "cotes": {
+                              "maxItems": 50,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "text": {
+                                    "type": "string",
+                                    "maxLength": 40
+                                  },
+                                  "value_m": {
+                                    "type": "number"
+                                  },
+                                  "measured_m": {
+                                    "type": "number"
+                                  },
+                                  "consistent": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "text",
+                                  "value_m",
+                                  "measured_m",
+                                  "consistent"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "calibration": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "denominator": {
+                                      "type": "number",
+                                      "exclusiveMinimum": 0
+                                    },
+                                    "source": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    }
+                                  },
+                                  "required": [
+                                    "denominator",
+                                    "source"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "reason",
+                            "denominator",
+                            "cartouche",
+                            "format",
+                            "cotes",
+                            "calibration"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "legend": {
+                          "maxItems": 40,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "EF",
+                              "EFA",
+                              "ECS",
+                              "RECS",
+                              "EU",
+                              "EV",
+                              "EUV",
+                              "EUG",
+                              "EP",
+                              "CS",
+                              "COND",
+                              "VP",
+                              "GAZ",
+                              "RIA",
+                              "SPK",
+                              "CHW",
+                              "CHW-S",
+                              "CHW-R",
+                              "HW",
+                              "HW-S",
+                              "HW-R",
+                              "GLY",
+                              "GLY-S",
+                              "GLY-R",
+                              "HRC",
+                              "HRC-S",
+                              "HRC-R",
+                              "CW",
+                              "CW-S",
+                              "CW-R"
+                            ]
+                          }
+                        },
+                        "detection": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "groups": {
+                          "maxItems": 400,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 120
+                              },
+                              "class": {
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "EF",
+                                          "EFA",
+                                          "ECS",
+                                          "RECS",
+                                          "EU",
+                                          "EV",
+                                          "EUV",
+                                          "EUG",
+                                          "EP",
+                                          "CS",
+                                          "COND",
+                                          "VP",
+                                          "GAZ",
+                                          "RIA",
+                                          "SPK",
+                                          "CHW",
+                                          "CHW-S",
+                                          "CHW-R",
+                                          "HW",
+                                          "HW-S",
+                                          "HW-R",
+                                          "GLY",
+                                          "GLY-S",
+                                          "GLY-R",
+                                          "HRC",
+                                          "HRC-S",
+                                          "HRC-R",
+                                          "CW",
+                                          "CW-S",
+                                          "CW-R"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "mur",
+                                          "cloison",
+                                          "fond",
+                                          "cotation",
+                                          "texte",
+                                          "autre"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "source": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 16
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "confidence": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "candidates": {
+                                "maxItems": 8,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "EF",
+                                    "EFA",
+                                    "ECS",
+                                    "RECS",
+                                    "EU",
+                                    "EV",
+                                    "EUV",
+                                    "EUG",
+                                    "EP",
+                                    "CS",
+                                    "COND",
+                                    "VP",
+                                    "GAZ",
+                                    "RIA",
+                                    "SPK",
+                                    "CHW",
+                                    "CHW-S",
+                                    "CHW-R",
+                                    "HW",
+                                    "HW-S",
+                                    "HW-R",
+                                    "GLY",
+                                    "GLY-S",
+                                    "GLY-R",
+                                    "HRC",
+                                    "HRC-S",
+                                    "HRC-R",
+                                    "CW",
+                                    "CW-S",
+                                    "CW-R"
+                                  ]
+                                }
+                              },
+                              "length_pt": {
+                                "type": "number"
+                              },
+                              "near_white": {
+                                "type": "boolean"
+                              },
+                              "colors": {
+                                "maxItems": 4,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 16
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "class",
+                              "source",
+                              "confidence",
+                              "candidates",
+                              "length_pt",
+                              "near_white",
+                              "colors"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "groups_total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "labels": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "blocks": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "attached": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "superposed": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "incomplete": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "blocks",
+                                "attached",
+                                "superposed",
+                                "incomplete"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "surfaces": {
+                          "maxItems": 300,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "room": {
+                                "type": "string",
+                                "maxLength": 120
+                              },
+                              "printed_m2": {
+                                "type": "number"
+                              },
+                              "polygon_m2": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "deviation": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "room",
+                              "printed_m2",
+                              "polygon_m2",
+                              "deviation"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "schema_version",
+                        "reading_version",
+                        "mode",
+                        "size_pt",
+                        "rotate",
+                        "location",
+                        "scale",
+                        "legend",
+                        "detection",
+                        "groups",
+                        "groups_total",
+                        "labels",
+                        "surfaces"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "takeoff_item_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "geometry": {
+                            "type": "object",
+                            "properties": {
+                              "schema_version": {
+                                "type": "number",
+                                "const": 1
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "network",
+                                  "insulation",
+                                  "surface"
+                                ]
+                              },
+                              "network": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "EF",
+                                      "EFA",
+                                      "ECS",
+                                      "RECS",
+                                      "EU",
+                                      "EV",
+                                      "EUV",
+                                      "EUG",
+                                      "EP",
+                                      "CS",
+                                      "COND",
+                                      "VP",
+                                      "GAZ",
+                                      "RIA",
+                                      "SPK",
+                                      "CHW",
+                                      "CHW-S",
+                                      "CHW-R",
+                                      "HW",
+                                      "HW-S",
+                                      "HW-R",
+                                      "GLY",
+                                      "GLY-S",
+                                      "GLY-R",
+                                      "HRC",
+                                      "HRC-S",
+                                      "HRC-R",
+                                      "CW",
+                                      "CW-S",
+                                      "CW-R"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "material": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "cuivre",
+                                      "inox",
+                                      "inox-304l",
+                                      "inox-316l",
+                                      "multicouche",
+                                      "per",
+                                      "pvc",
+                                      "pvc-pression",
+                                      "pehd",
+                                      "pp",
+                                      "fonte",
+                                      "acier",
+                                      "acier-noir",
+                                      "acier-galvanise",
+                                      "calorifuge",
+                                      "cordon-chauffant"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "dn": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "zone": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 16
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "level": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 16
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "groups": {
+                                "maxItems": 64,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 120
+                                }
+                              },
+                              "segments_m": {
+                                "maxItems": 4000,
+                                "type": "array",
+                                "items": {
+                                  "type": "array",
+                                  "prefixItems": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "number"
+                                    }
+                                  ],
+                                  "items": false,
+                                  "minItems": 4,
+                                  "maxItems": 4
+                                }
+                              },
+                              "polygon_m": {
+                                "anyOf": [
+                                  {
+                                    "maxItems": 4000,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "length_m": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "area_m2": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "transform": {
+                                "anyOf": [
+                                  {
+                                    "minItems": 6,
+                                    "maxItems": 6,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "schema_version",
+                              "kind",
+                              "network",
+                              "material",
+                              "dn",
+                              "zone",
+                              "level",
+                              "groups",
+                              "segments_m",
+                              "polygon_m",
+                              "length_m",
+                              "area_m2",
+                              "transform"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "takeoff_item_id",
+                          "geometry"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "plan_file_id",
+                    "source_file_name",
+                    "source_page",
+                    "reading",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "job_id",
+              "pages"
             ],
             "additionalProperties": false
           }

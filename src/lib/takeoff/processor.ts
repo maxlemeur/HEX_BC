@@ -79,6 +79,8 @@ import {
   type DownloadedTakeoffFile,
   type TakeoffSourceDocumentRef,
 } from "@/lib/takeoff/source-loader";
+import { persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
+import { isTakeoffVectorReadingEnabled, readTakeoffVectorPages, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
@@ -1523,6 +1525,8 @@ async function persistTakeoffResultAndItems(input: {
   rawResponse: unknown;
   providerMeta: Record<string, unknown>;
   level: ProcessableTakeoffLevel;
+  /** The vector reading of the job's pages (TI-662), persisted with the result. */
+  vector?: readonly VectorPageOutcome[];
 }): Promise<{
   resultId: string;
   itemsCount: number;
@@ -1635,6 +1639,9 @@ async function persistTakeoffResultAndItems(input: {
           }
         );
       }
+    }
+    if (input.vector?.length) {
+      await persistTakeoffVectorReading({ supabase: input.supabase, job: input.job, resultId, outcomes: input.vector });
     }
   } catch (error) {
     const mapped = toTakeoffError(error, {
@@ -3505,12 +3512,17 @@ async function processTakeoffLevel(
         providerMeta: levelCResult.providerMeta,
       });
 
+      // TI-662: the vector reading of the original pages, beside the level C reading (opt-in).
+      const vectorOutcomes = isTakeoffVectorReadingEnabled()
+        ? await readTakeoffVectorPages(sourceFile, { onPage: renewProcessingLease })
+        : [];
       await renewProcessingLease();
       const persisted = await persistTakeoffResultAndItems({
         supabase: context.supabase,
         job,
         exchange: levelCResult.normalizedExchange,
         itemsForInsert: levelCResult.itemsForInsert,
+        vector: vectorOutcomes,
         tokenCount: levelCResult.tokenCount,
         costCents: levelCResult.costCents,
         durationMs: levelCResult.durationMs,

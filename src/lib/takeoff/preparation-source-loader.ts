@@ -88,6 +88,9 @@ export async function loadPreparedPlanSource(input: {
     mimeType: "application/pdf", bytes: Uint8Array.from(bytes).buffer,
     sourceFileNamesByPage, sourceDocumentsByPage, sourcePageNumbersByPage,
     sourcePlanFilePageCounts: loaded.map(({ source, pdf }) => ({ filePath: source.file_path!, pageCount: pdf.getPageCount() })),
+    originalPdfSources: loaded.map(({ bytes: original, pages, source }) => ({
+      document: { kind: "plan_file" as const, plan_file_id: source.document_id }, fileName: source.document_name, bytes: original, pages,
+    })),
     preparationSnapshot: input.snapshot,
   };
 }
