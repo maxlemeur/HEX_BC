@@ -103,7 +103,8 @@ async function getTenantIdForVersion(versionId: string) {
 }
 
 async function openPlansSection(page: Page, projectId: string) {
-  await page.goto(`/dashboard/affaires/${projectId}`);
+  // The plans card is folded under « Détails du dossier et du devis » (f63d9cd6); its anchor unfolds it.
+  await page.goto(`/dashboard/affaires/${projectId}#plans`);
 
   const plansSection = page
     .locator("section")

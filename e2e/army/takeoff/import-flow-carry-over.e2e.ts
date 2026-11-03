@@ -89,7 +89,7 @@ async function uploadAndClassifyIntakeDpgf(page: Page, input: {
   }).eq("id", documentId).eq("project_id", input.projectId).select("id, document_kind, classification_status").single();
   if (reclassified.error) throw new Error(`Owned intake classification failed: ${reclassified.error.code}`);
   expect(reclassified.data).toMatchObject({ id: documentId, document_kind: "dpgf", classification_status: "classified" });
-
+  return documentId as string;
 }
 
 async function seedTakeoffJobsForCarryOver(page: Page, input: {
@@ -247,16 +247,21 @@ describe("VNEXT US-6.1 - import flow carry-over", { session: "army", tags: ["cri
       versionId: sourceVersionId,
       tenantId,
     });
-    await uploadAndClassifyIntakeDpgf(page, {
+    const documentId = await uploadAndClassifyIntakeDpgf(page, {
       projectId,
       fixturePath,
     });
 
+    // A hub with documents keeps them in the « Documents du dossier » drawer (f63d9cd6): the
+    // estimator opens it from Cadrage and imports the validated dossier DPGF from its preview.
     await page.goto(`/dashboard/affaires/${projectId}`);
-    await expect(
-      page.getByRole("button", { name: /Lancer l'import structur[ée]/i })
-    ).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: /Lancer l'import structur[ée]/i }).click();
+    await page.getByRole("button", { name: "Ouvrir les documents", exact: true }).click();
+    const documents = page.getByRole("dialog", { name: "Documents du dossier", exact: true });
+    await documents.getByRole("button", { name: /^Validés/ }).click();
+    await documents.getByRole("button", { name: path.basename(fixturePath), exact: true }).click();
+    await expect(page.locator(`[aria-label="Dossier de consultation"] tr[data-document-id="${documentId}"]`))
+      .toHaveAttribute("aria-selected", "true");
+    await documents.getByRole("button", { name: "Importer cette DPGF", exact: true }).click();
 
     const uploadStep = page.getByText("Glissez-déposez votre fichier DPGF ici");
     await expect(uploadStep).toBeVisible();
