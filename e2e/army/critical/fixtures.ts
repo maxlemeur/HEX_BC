@@ -232,7 +232,10 @@ export async function createEstimateViaWizard(
   await screen.getByLabel(/Titre de la version/).fill(title);
   await screen.getByRole("button", "Suivant", { exact: true }).tap();
   await expect(screen.getByLabel(/Date devis/)).toBeVisible();
-  await screen.getByLabel(/Date devis/).fill("2026-10-02");
+  // The run day in Paris civil time: emission refuses an offer whose validity
+  // (date_devis + validite_jours, Europe/Paris) has passed, so a fixed date expires.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  await screen.getByLabel(/Date devis/).fill(today);
   await screen.getByLabel(/Validité/).fill("30");
   await screen.getByRole("button", "Marge fixe", { exact: true }).tap();
   // A fixed margin of N % is stored as the multiplier 1 + N / 100.
