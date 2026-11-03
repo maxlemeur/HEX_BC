@@ -79,7 +79,9 @@ est une constante nommée et versionnée dans le code.
    [`legend.ts`](../../src/lib/takeoff/vectors/legend.ts)). Mots-clés d'abord :
    - **calque** : son nom est découpé sur « _ », les espaces, « - » et « / ». Les codes
      génériques (EF, ECS, EU, EV, EP, VP, CHW…) donnent le réseau. S, A, D ou R donnent
-     le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes ;
+     le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes.
+     MENUISERIE, PORTE ou FENÊTRE ne donnent pas de classe : ces calques ferment seulement
+     les pièces remplies entre les murs (étape 6) ;
    - **légende** : un code seul, éventuellement avec son sens (« CHW-S », « EG-R »), avec
      les tracés dessinés sur sa ligne avant le texte suivant de cette ligne (échantillon
      de 25 hauteurs de texte au plus), donne la couleur du réseau. Chaque partie du code
@@ -158,6 +160,39 @@ est une constante nommée et versionnée dans le code.
    - Une pièce par contour : un polygone qui contient aussi le libellé d'une autre pièce
      (l'enveloppe d'un bâtiment, le cadre de la feuille) n'est pas le contour de la pièce.
    - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
+   - Une pièce sans polygone fermé est remplie entre les murs
+     ([`fill.ts`](../../src/lib/takeoff/vectors/fill.ts)) : beaucoup de plans dessinent
+     les murs en traits séparés, sans contour fermé autour des pièces.
+     - Barrières : les traits des groupes classés mur ou cloison (toute source que la
+       lecture retient), et ceux des calques de menuiseries ou d'ouvertures (MENUISERIE,
+       PORTE, DOOR, FENÊTRE, WINDOW, au singulier ou au pluriel) : leurs portes et
+       fenêtres ferment les baies des murs. Jamais un calque masqué ni un trait quasi
+       blanc. Une page sans groupe mur ou cloison n'est pas remplie (une page lue par
+       couleurs n'en a que par correspondance).
+     - Portes : un arc de 60 à 120°, de 0,50 à 1,60 m de rayon, dont les points sont à
+       égale distance d'un centre (la paumelle), est le battant d'une porte. Il ne fait
+       pas barrière ; ses deux rayons, oui : le vantail et la ligne d'ouverture, de la
+       paumelle à l'autre bout de l'arc, le long du mur. Le quart de disque du battant
+       reste ainsi à la pièce où la porte s'ouvre. Un cercle d'au plus 1 m de rayon
+       (poteau, appareil, aire de rotation) ne fait pas barrière.
+     - Grille de cellules de 3,5 cm sur le terrain (au plus 8,4 millions par page, soit
+       une feuille A0 à 1 pt ; au-delà de 10 cm par cellule, la page n'est pas remplie).
+       Chaque pièce se remplit depuis le centre de sa surface imprimée, ou la cellule libre
+       la plus proche à moins de deux hauteurs de texte.
+     - Sont de la pièce : les formes fermées intérieures (mobilier, appareils dessinés
+       sur un calque de murs) jusqu'à 4 m² chacune, sauf si elles portent la surface
+       d'une autre pièce, et les poches fermées derrière une menuiserie qui la borde
+       (le battant d'une fenêtre dessiné vers l'intérieur), jusqu'à 4 m² chacune.
+     - Aire : les cellules, plus une demi-cellule le long de chaque bord entre la pièce et
+       un trait (un trait passe n'importe où dans ses cellules).
+     - Rejetés, comptés au rapport avec leur raison, jamais mesurés : un remplissage qui
+       sort des murs (bord de la grille), qui contient la surface imprimée d'une autre pièce
+       (une pièce par contour), qui couvre 90 % de la largeur ou de la hauteur de la feuille
+       (le long du cadre), ou dont l'aire dépasse 1,5 fois la surface imprimée ou en est
+       sous les deux tiers.
+     - La surface imprimée reste un contrôle : jamais la quantité, jamais un repli.
+     - Le contour du remplissage (au plus 2 000 points, en coordonnées de page) est la
+       géométrie de la pièce, comme un polygone ; l'item dit « remplissage entre murs ».
    - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
      page tournée (/Rotate 90) se lit comme dessinée.
    - Dans le métré, chaque pièce mesurée donne un item en m² (l'aire du polygone) et sa

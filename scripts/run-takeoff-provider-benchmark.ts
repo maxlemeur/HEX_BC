@@ -43,6 +43,7 @@ import {
   takeoffPageTriageRenderLimits,
 } from "@/lib/takeoff/page-triage-server";
 import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
+import { DOOR_ARC, FILL_CELL_M, FILL_FRAME_SHARE, FILL_HOLE_MAX_M2, FILL_MAX_CELL_M, FILL_MAX_CELLS, FILL_SANITY_RATIO, FILL_SEED_REACH_HEIGHTS, ISLAND_CIRCLE } from "@/lib/takeoff/vectors/fill";
 import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
 import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
@@ -253,7 +254,9 @@ function vectorRules() {
     legend: { version: LEGEND_RULE_VERSION, tint_tolerance: TINT_TOLERANCE },
     measure: { version: MEASURE_RULE_VERSION, band_gap_pt: BAND_GAP_PT, band_max_pt: BAND_MAX_PT, run_gap_pt: RUN_GAP_PT, join_pt: JOIN_PT,
       leader_reach_pt: LEADER_REACH_PT, label_cut_min_pt: LABEL_CUT_MIN_PT },
-    surfaces: { version: SURFACE_RULE_VERSION, ring_closure_pt: RING_CLOSURE_PT },
+    surfaces: { version: SURFACE_RULE_VERSION, ring_closure_pt: RING_CLOSURE_PT, fill: { cell_m: FILL_CELL_M, max_cells: FILL_MAX_CELLS,
+      max_cell_m: FILL_MAX_CELL_M, sanity_ratio: FILL_SANITY_RATIO, hole_max_m2: FILL_HOLE_MAX_M2, seed_reach_heights: FILL_SEED_REACH_HEIGHTS,
+      frame_share: FILL_FRAME_SHARE, door_arc: DOOR_ARC, island_circle: ISLAND_CIRCLE } },
     items: { version: VECTOR_ITEMS_VERSION },
   };
 }

@@ -11,7 +11,8 @@ import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 
 // The vector reading of one page (TI-662 steps 1 to 4, keywords only):
 // extraction → groups → scale → legend, keyword and label-vote classes (then
-// document or user correspondences) → network centrelines, labels, DN → room surfaces.
+// document or user correspondences) → network centrelines, labels, DN → room surfaces
+// (rings, else the floor filled between walls).
 // A page whose raster images cover ≥ 90 % of it is « raster »: its vectors are
 // read (texts, scale) but no network is measured from them; the level C
 // reading stays the source (TI-658 pipeline step 5).
@@ -70,7 +71,8 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   const networks = mode === "raster" ? null : measureNetworks({
     model, classes, legendBoxes: legend.boxes, labels, denominator: scale.denominator,
   });
-  const surfaces = readRoomSurfaces(extraction, scale.denominator);
+  // Raster pages give no wall to fill between.
+  const surfaces = readRoomSurfaces(extraction, scale.denominator, mode === "raster" ? undefined : { model, classes });
   const groups: VectorGroupReading[] = model.groups.map((group, position) => ({
     id: group.id, layer: group.layer, layerName: group.layerName, colors: group.colors, width: group.width, dash: group.dash,
     paths: group.paths, segments: group.segments, closed: group.closed, nearWhite: group.nearWhite, grey: group.grey,

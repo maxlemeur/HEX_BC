@@ -67,7 +67,7 @@ function total(network: NetworkCode, material: MaterialCode | null, dn: number |
 function surface(room: string, printed_m2: number, polygon_m2: number | null): RoomSurface {
   return { room, printed_m2, anchor: { x: 0, y: 0 }, polygon_m2, polygon_points: polygon_m2 === null ? null : 5,
     outline: polygon_m2 === null ? null : { group: "oc:oc2", points: [0, 0, 10, 0, 10, 10, 0, 10, 0, 0] },
-    deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2 };
+    deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2, method: polygon_m2 === null ? null : "ring", fill_rejected: null };
 }
 
 /** The bench key of an item, failing with the reading when it is not read. */

@@ -67,7 +67,7 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
     groups: groups.map((group) => ({ id: group.id, layerName: group.layerName, colors: group.colors, length_pt: group.length_pt,
       nearWhite: group.nearWhite, grey: group.grey, class: group.class, source: group.source, candidates: group.candidates })),
     surfaces: surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, anchor: surface.anchor, polygon_m2: surface.polygon_m2,
-      polygon_points: surface.polygon_points, deviation: surface.deviation })),
+      polygon_points: surface.polygon_points, deviation: surface.deviation, method: surface.method, fill_rejected: surface.fill_rejected })),
     groups_classified: groups.filter((group) => group.class !== null && group.class !== "autre").length,
     groups_network: groups.filter(isNetwork).length,
     near_white_network_groups: groups.filter((group) => group.nearWhite && isNetwork(group)).length,
