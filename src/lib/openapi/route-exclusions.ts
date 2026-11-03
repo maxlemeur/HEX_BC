@@ -1,5 +1,8 @@
 import type { OpenApiRouteExclusion } from "@/lib/openapi/route-coverage";
 
+const LOCAL_TAKEOFF_LAB =
+  "Outil local du labo metre (TI-661), servi seulement par MergeOne local sur 127.0.0.1 a un administrateur, hors contrat applicatif public.";
+
 /**
  * Seules les routes qui ne constituent pas un contrat applicatif public sont
  * exclues. Le validateur rejette toute exclusion obsolette, invalide,
@@ -47,5 +50,60 @@ export const openApiRouteExclusions = [
     methods: ["GET"],
     reason:
       "Sonde d'exploitation anonyme renvoyant { ok, version, db }, hors contrat metier.",
+  },
+  {
+    path: "/api/admin/takeoff/lab",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/models",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/documents/{documentId}",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/runs",
+    methods: ["GET", "POST"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/runs/{runId}",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/campaigns/{campaign}",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/campaigns/{campaign}/verdicts/{elementId}",
+    methods: ["PUT"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/campaigns/{campaign}/undo",
+    methods: ["POST"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/stats",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/bench-reports",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
+    path: "/api/admin/takeoff/lab/bench-reports/{report}",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
   },
 ] as const satisfies readonly OpenApiRouteExclusion[];

@@ -35,6 +35,11 @@ export type OpenAiDecisionAnswer = {
   status: "answered" | "refused" | "missing" | "invalid";
   value: string | boolean | number | null;
   confidence: number | null;
+  /**
+   * Validated probability of each option of an answered choice or score (TI-661).
+   * Choice: the option's value; score: the level index, its label in question.levels.
+   */
+  probabilities?: { value: string | boolean | number; probability: number }[];
 };
 export type OpenAiDecisionsResult = {
   status: "available" | "partial" | "unavailable" | "failed";
@@ -93,7 +98,8 @@ export function parseOpenAiDecisionAnswers(questions: OpenAiDecisionQuestion[], 
       const returned = result.data.probabilities.map((entry) => entry.value);
       if (!allowed.includes(result.data.choice) || returned.some((value) => !allowed.includes(value)) ||
           new Set(returned).size !== returned.length) return emptyAnswer(question, "invalid");
-      return { ...emptyAnswer(question, "answered"), value: result.data.choice, confidence: result.data.confidence };
+      return { ...emptyAnswer(question, "answered"), value: result.data.choice, confidence: result.data.confidence,
+        probabilities: result.data.probabilities.map(({ value, probability: share }) => ({ value, probability: share })) };
     }
     const result = z.object({ type: z.literal("score"), score: z.number().finite().min(0).max(question.levels.length - 1),
       confidence: probability, probabilities: z.array(z.object({ label: z.string(), value: z.number().int(), probability })).max(10),
@@ -102,7 +108,8 @@ export function parseOpenAiDecisionAnswers(questions: OpenAiDecisionQuestion[], 
         new Set(result.data.probabilities.map((entry) => entry.value)).size !== result.data.probabilities.length) {
       return emptyAnswer(question, "invalid");
     }
-    return { ...emptyAnswer(question, "answered"), value: result.data.score, confidence: result.data.confidence };
+    return { ...emptyAnswer(question, "answered"), value: result.data.score, confidence: result.data.confidence,
+      probabilities: result.data.probabilities.map(({ value, probability: share }) => ({ value, probability: share })) };
   });
 }
 
