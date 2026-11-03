@@ -19,7 +19,7 @@ import { z } from "zod";
 // - only the visible page is read: the viewport is the CropBox (pdfjs's
 //   page.view), and what the drawing holds outside it (a stroke crossing its
 //   edge, a cartouche cropped off the sheet) is not printed. Strokes are cut to
-//   it, a text wholly outside it is dropped;
+//   it; getTextContent already leaves out a text whose origin lies outside it;
 // - a clip is OPS.clip or OPS.eoClip right before the constructPath of its
 //   path; it applies after that path is painted, follows save / restore, and a
 //   form's BBox clips its content. Strokes are cut to the clip within the page
@@ -307,23 +307,17 @@ async function main() {
     const content = await page.getTextContent();
     const texts = [];
     const lin = [vt[0], vt[1], vt[2], vt[3]];
-    const pageScale = Math.sqrt(Math.abs(vt[0] * vt[3] - vt[1] * vt[2]));
     for (const item of content.items) {
       if (typeof item.str !== "string" || !item.str.trim()) continue;
+      if (texts.length >= input.maxTexts) throw new Error("text budget");
       const tr = item.transform;
       const x = vt[0] * tr[4] + vt[2] * tr[5] + vt[4], y = vt[1] * tr[4] + vt[3] * tr[5] + vt[5];
       const dx = lin[0] * tr[0] + lin[2] * tr[1], dy = lin[1] * tr[0] + lin[3] * tr[1];
       const ux = lin[0] * tr[2] + lin[2] * tr[3], uy = lin[1] * tr[2] + lin[3] * tr[3];
       const along = Math.hypot(dx, dy) || 1;
-      const width = item.width * pageScale;
-      // The text's box: its baseline along (dx, dy) over its width, its glyphs rising along (ux, uy). A text wholly
-      // outside the visible page is not printed.
-      const ex = (dx / along) * width, ey = (dy / along) * width;
-      const own = boxOf([x, y, x + ex, y + ey, x + ux, y + uy, x + ex + ux, y + ey + uy]);
-      if (own[2] < PAGE[0] || own[3] < PAGE[1] || own[0] > PAGE[2] || own[1] > PAGE[3]) continue;
-      if (texts.length >= input.maxTexts) throw new Error("text budget");
+      const pageScale = Math.sqrt(Math.abs(vt[0] * vt[3] - vt[1] * vt[2]));
       texts.push({ str: item.str.slice(0, 500), x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
-        width: Math.round(width * 100) / 100, height: Math.round(Math.hypot(ux, uy) * 100) / 100,
+        width: Math.round(item.width * pageScale * 100) / 100, height: Math.round(Math.hypot(ux, uy) * 100) / 100,
         angle: Math.round(Math.atan2(dy, dx) * 10000) / 10000 });
     }
     const t3 = performance.now();

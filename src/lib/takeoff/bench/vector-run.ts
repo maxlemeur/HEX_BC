@@ -76,7 +76,8 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
  * the run takes pass ((n - 1) mod passes) + 1 of the baseline), or « unread » when the baseline did not read that
  * page. A page is read when a successful call of its document's complete run covers it and no failed call does.
  * A baseline run on a subset (--pages, --pages-from) also lists the pages it read: one left out is unread, even
- * inside a call's range (pages 1 and 3 read in one chunk are put back as « pages 1-3 »).
+ * inside a call's range (pages 1 and 3 read in one chunk are put back as « pages 1-3 »). Ranges only hold for pages
+ * in order: a selection whose pages do not rise strictly reads none.
  */
 export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "documents">>, selection?: BenchPageSelection | null) {
   return (document: string, pass: number, page: number): TakeoffItem[] | "unread" => {
@@ -86,6 +87,7 @@ export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "do
     if (selection && selection.mode !== "all") {
       const read = selection.documents.find((entry) => entry.id === document);
       if (!read || read.excluded || !read.pages_read.includes(page)) return "unread";
+      if (read.pages_read.some((value, index, list) => index > 0 && value <= list[index - 1])) return "unread";
     }
     const covering = run.calls.filter((call) => call.start_page <= page && page <= call.end_page);
     if (!covering.some((call) => call.status === "ok") || covering.some((call) => call.status !== "ok")) return "unread";

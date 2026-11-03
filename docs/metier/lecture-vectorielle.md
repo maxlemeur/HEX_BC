@@ -110,7 +110,8 @@ est une constante nommée et versionnée dans le code.
      mais presque pas de fond de plan (ses propres bords ne comptent pas). Un mur ouvert
      en U n'est pas un cadre.
    - Le DN, le matériau et le calorifuge viennent du libellé :
-     - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe ;
+     - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
+       du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
      - sinon par sa position : le tuyau parallèle le plus proche.
    - Deux tronçons bout à bout dont les libellés diffèrent (DN, matériau ou calorifuge,
      à une réduction) sont coupés là où un de leurs traits finit, s'il y a exactement un
@@ -156,4 +157,7 @@ deux runs à chaque passe. Une page raster que la baseline n'a pas lue fait éch
 page : son périmètre n'est pas noté. La baseline a lu une page quand un de ses appels
 réussis la couvre et qu'aucun appel en échec ne la couvre. Une baseline lancée sur une
 partie des pages (`--pages`, `--pages-from`) doit en plus compter la page parmi ses
-pages lues : lues dans un même appel, les pages 1 et 3 ne disent rien de la page 2.
+pages lues : lues dans un même appel, les pages 1 et 3 ne disent rien de la page 2. Un
+rapport de tri dont les pages gardées ne montent pas strictement (désordre, doublon, page
+au-delà du document) est refusé : un appel n'est rendu que par sa première et sa dernière
+page.

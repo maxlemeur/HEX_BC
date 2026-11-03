@@ -7,7 +7,9 @@ import type { ManifestDocument } from "@/lib/takeoff/bench/schemas";
 // confirmed pages of a preparation (loadPreparedPlanSource), the selected pages
 // are copied, in order, into one PDF; all pages keep the original bytes. A page
 // beyond a document is refused; a document whose triage kept no page is left
-// out and listed as excluded. A triage report must name the same document SHA.
+// out and listed as excluded. A triage report must name the same document SHA,
+// and its kept pages must rise strictly within the document: a call is put back
+// by its first and last page, which only holds for pages in order.
 // Pages of a subset are put back in original numbers before scoring and report.
 
 export type BenchTriageRetained = { id: string; sha256: string | null; page_count: number; retained_pages: number[] };
@@ -43,6 +45,9 @@ export async function selectBenchPages<T extends { document: ManifestDocument; b
       if (!retained) throw new Error(`${entry.document.id} is not in the triage report ${input.triage.path}.`);
       if (retained.sha256 !== entry.document.sha256 || retained.page_count !== total) {
         throw new Error(`${entry.document.id}: the triage report read another version of the document.`);
+      }
+      if (retained.retained_pages.some((page, index, list) => page < 1 || page > total || (index > 0 && page <= list[index - 1]))) {
+        throw new Error(`${entry.document.id}: the triage report keeps pages out of order, twice or beyond its ${total} pages.`);
       }
       pages = retained.retained_pages;
     } else if (input.pages) {

@@ -112,6 +112,11 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   proximity index (its bounding box spans too many cells): its inline label
 //   is never attached, so it is measured without material or DN, and a
 //   labelled branch joined to its middle does not pass its DN on to it.
+// Review of that fix (written before its own fix):
+// - a long dark wall running beside a pipe, under its label, is read as the
+//   label's underline: its far ends become leader tips, and the label's DN goes
+//   to another pipe of its network near one of them instead of the pipe it is
+//   printed on (horizontal, or on the diagonal of an A0 sheet once indexed).
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -786,5 +791,21 @@ describe("fourth Codex round of PR #145", () => {
     expect(totals(reading)).toEqual([
       { network: "EF", material: "pvc", dn: 25, runs: 2, length_m: expect.closeTo(pointsToMetres(diagonalLength + 100, 50), 2) },
     ]);
+  });
+
+  it("never takes a long wall beside a pipe for its label's underline", () => {
+    // Horizontal (A3): an EF pipe labelled inline, a black wall 10 pt above it under the label, a second EF pipe 5 pt past the wall's end.
+    const flat = read(page([...LEGEND, {
+      strokes: [line(BLUE, 100, 300, 700, 300), line(BLACK, 100, 290, 700, 290, { width: 0.25 }), line(BLUE, 705, 290, 900, 290)],
+      texts: [text("EF - PVC DN 40", 380, 297)],
+    }]));
+    expect((flat.networks?.runs ?? []).map((run) => [Math.round(run.segment.x0), run.dn])).toEqual(expect.arrayContaining([[100, 40], [705, null]]));
+    // The same on the diagonal of an A0 sheet: the wall 10 pt from the pipe on the label's side.
+    const angle = Math.PI / 4;
+    const up = { x: Math.sin(angle), y: -Math.cos(angle) };
+    const label = { ...text("EF - PVC DN 40", 1200 + 2 * up.x, 1100 + 2 * up.y), angle };
+    const wall = line(BLACK, 300 + 10 * up.x, 200 + 10 * up.y, 2300 + 10 * up.x, 2200 + 10 * up.y, { width: 0.25 });
+    const tilted = onA0([...LEGEND, { strokes: [diagonal, wall, line(BLUE, 2310, 2195, 2700, 2195)], texts: [label] }]);
+    expect((tilted.networks?.runs ?? []).map((run) => [Math.round(run.segment.x0), run.dn])).toEqual(expect.arrayContaining([[300, 40], [2310, null]]));
   });
 });

@@ -43,6 +43,9 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 //   triage excluded is read;
 // - a page under a failed chunk is read, or a page under a successful one is not;
 // - pass 4 of a 3-pass baseline does not take pass 1.
+// Review of that fix (written before its own fix): a selection whose pages are
+// out of order (pages 1, 4, 3, 2 read in two chunks, put back as « 1-4 » and
+// « 3-2 ») passes the pages of a failed chunk as read.
 
 /** An A3 sheet in points (420 × 297 mm). */
 const SHEET = { width: 1190.55, height: 841.89 };
@@ -327,6 +330,13 @@ describe("the baseline's raster fallback (fourth Codex round of PR #145)", () =>
     // A document the triage kept no page of is not in the run.
     expect(baselineRasterFallback([passOf(1, [])], listed([], "triage"))("a-plan-01", 1, 1)).toBe("unread");
     expect(baselineRasterFallback([])("a-plan-01", 1, 1)).toBe("unread");
+  });
+
+  it("reads no page of a selection whose pages are out of order", () => {
+    // Pages 1, 4, 3, 2 in two chunks: [1, 4] put back as 1-4 (ok), [3, 2] as 3-2 (timed out).
+    const run = levelCRun("a-plan-01", [[1, 4, "ok"], [3, 2, "timeout"]], items);
+    const fallback = baselineRasterFallback([passOf(1, [run])], listed([1, 4, 3, 2], "triage"));
+    expect([1, 2, 3, 4].map((page) => fallback("a-plan-01", 1, page))).toEqual(["unread", "unread", "unread", "unread"]);
   });
 
   it("takes pass 1 of a 3-pass baseline for pass 4", () => {
