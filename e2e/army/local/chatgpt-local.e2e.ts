@@ -652,7 +652,11 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   expect(detail.job.metrics.token_count).toBeGreaterThan(0);
   const transport = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
   expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
-  expect(transport.slice(transportStart)).toEqual([
+  // Process diagnostics share this log. A client abort absorbed by the server
+  // (TI-667) leaves an "uncaught" entry; a fault the app reports does not pass.
+  const entries = transport.slice(transportStart);
+  expect(entries.filter(entry => entry.provider === "process-diagnostic" && entry.kind === "application-uncaught")).toEqual([]);
+  expect(entries.filter(entry => entry.provider !== "process-diagnostic")).toEqual([
     { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model, sourceMatched: true,
       ...(liveProbe ? { reasoningEffort: liveProbe.reasoningEffort ?? null } : {}) },
   ]);
