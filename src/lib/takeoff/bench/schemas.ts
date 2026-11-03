@@ -15,6 +15,7 @@ import {
   UNITS,
   UNITS_BY_KIND,
 } from "@/lib/takeoff/bench/keys";
+import { TAKEOFF_PAGE_TYPES } from "@/lib/takeoff/page-triage";
 
 // Schemas of the private takeoff bench dataset (TI-659). The dataset lives outside
 // Git (`outputs/takeoff-bench-dataset/`): `manifest.json`, `raw/<id>.<ext>`,
@@ -473,13 +474,35 @@ export const NoiseFileSchema = z.strictObject({
 export type NoiseFile = z.infer<typeof NoiseFileSchema>;
 
 // ---------------------------------------------------------------------------
-// truth/pages/<id>.json (page types, TI-663) and truth/groups/<id>.json (path
-// group classes, TI-662): minimal and open, their owners extend them.
+// truth/pages/<id>.json (page triage, TI-663): one file per binary PDF, every
+// page once, the product's page types, level and zone normalised as the
+// triage reads them (RDC, R+n, R-n, SSn; Zn) or null when none applies.
+// `garder` is true for a kept type, a page of a document a quantity truth
+// covers or cites, and an `ambigu` page (left out of the per-type precision).
+// The agent labels (`labeled_by: "agent"`, `à valider`); Max validates.
+// A document without PDF pages may have an empty file. truth/groups/<id>.json
+// (path group classes, TI-662) stays minimal and open; its owner extends it.
 
-export const PageTruthFileSchema = z.looseObject({
+export const PAGE_TRUTH_STATUSES = ["à valider", "validé", "ambigu"] as const;
+export const PAGE_TRUTH_LEVEL_PATTERN = /^(RDC|R[+-]\d{1,2}|SS\d{1,2})$/;
+export const PAGE_TRUTH_ZONE_PATTERN = /^Z\d{1,2}$/;
+
+export const PageTruthFileSchema = z.strictObject({
   schema_version: z.literal(1),
   document: DocumentIdSchema,
-  pages: z.array(z.looseObject({ page: z.number().int().min(1), type: Text })).min(1),
+  page_count: z.number().int().min(1).nullable(),
+  labeled_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  notes: Text.nullable().optional(),
+  pages: z.array(z.strictObject({
+    page: z.number().int().min(1),
+    type: z.enum(TAKEOFF_PAGE_TYPES),
+    niveau: z.string().regex(PAGE_TRUTH_LEVEL_PATTERN, "niveau is RDC, R+n, R-n, SSn or null").nullable(),
+    zone: z.string().regex(PAGE_TRUTH_ZONE_PATTERN, "zone is Zn or null").nullable(),
+    garder: z.boolean(),
+    statut: z.enum(PAGE_TRUTH_STATUSES),
+    labeled_by: Text,
+    notes: Text.nullable().optional(),
+  })),
 });
 
 export const GroupTruthFileSchema = z.looseObject({

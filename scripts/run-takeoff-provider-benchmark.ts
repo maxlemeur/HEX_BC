@@ -1,12 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+
+import { z } from "zod";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { assertLocalChatGptOverride, callLocalChatGptStructured, type LocalChatGptOverride } from "@/lib/ai/chatgpt-local-inference";
 import { readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "@/lib/takeoff/bench/args";
-import { BenchDatasetError, loadBenchDataset } from "@/lib/takeoff/bench/dataset";
+import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
+import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
+import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner, type BenchArgs } from "@/lib/takeoff/bench/args";
+import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
+import { selectBenchPages } from "@/lib/takeoff/bench/pages";
 import { buildBenchReport, renderBenchReportMarkdown, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import {
   classifyCallError,
@@ -21,6 +28,17 @@ import {
   type StopReason,
 } from "@/lib/takeoff/bench/run";
 import { buildScoreScopes } from "@/lib/takeoff/bench/score";
+import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
+import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
+import {
+  runTakeoffPageTriage,
+  TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS,
+  TAKEOFF_PAGE_TRIAGE_CONCURRENCY,
+  TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION,
+  TAKEOFF_PAGE_TRIAGE_TEXT,
+  TAKEOFF_PAGE_TRIAGE_THUMBNAIL,
+  takeoffPageTriageRenderLimits,
+} from "@/lib/takeoff/page-triage-server";
 
 // `npm run takeoff:bench -- --dataset <dir> --docs <ids|all> --models <...> --efforts <...> [--repeat <n>] --out <run_path>`
 // (TI-660): the production level C reading of the private bench plans through the
@@ -38,11 +56,85 @@ import { buildScoreScopes } from "@/lib/takeoff/bench/score";
 // Exit 0: complete run, whatever the score. 1: bench error (usage, dataset,
 // crash). 2: stopped by ChatGPT (quota, rate limit, authorisation, missing
 // account or model, changed profile), with a partial report.
+// `--mode triage` (TI-663): the product's Decisions page triage on every binary
+// PDF with a page truth, under --max-decisions-tokens, scored against
+// truth/pages (see bench/triage.ts). Inject only OPENAI_DECISIONS_API_KEY and
+// MERGEONE_OPENAI_DECISIONS=1 (never --env-file); the key is never recorded.
+// Exit 2 when Decisions is unavailable, at the first failed call, or when the
+// ceiling refuses a call, with a partial report. `--pages` / `--pages-from`
+// restrict an extraction to some pages (the « après » of the triage).
 
 const SCRIPT_ROOT = path.resolve(import.meta.dirname, "..");
 const REPORT_FILES = ["report.json", "report.md"] as const;
 /** The variables a run needs, recorded with its command so that it reruns as is. */
 const RUN_ENV = ["TAKEOFF_BENCH_CHATGPT_OWNER", "TSX_TSCONFIG_PATH"] as const;
+/** Recorded for a triage run; OPENAI_DECISIONS_API_KEY is deliberately absent. */
+const TRIAGE_RUN_ENV = [...RUN_ENV, "MERGEONE_OPENAI_DECISIONS"] as const;
+
+function host(before: number[]) {
+  return { platform: os.platform(), release: os.release(), cpus: os.cpus().length, loadavg_before: before, loadavg_after: os.loadavg() };
+}
+
+function recordedEnv(names: readonly string[]) {
+  return Object.fromEntries(names.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]])));
+}
+
+function datasetMetadata(dataset: BenchDataset) {
+  return {
+    sha256: dataset.sha256,
+    documents: dataset.selected.map(({ document }) => ({
+      id: document.id, lot: document.lot, role: document.role, sha256: document.sha256 as string,
+      bytes: document.file_size as number, pages: document.pages,
+    })),
+    skipped: dataset.skipped,
+  };
+}
+
+const triageReportSchema = z.object({
+  mode: z.literal("triage"),
+  retained: z.array(z.object({ id: z.string(), sha256: z.string().nullable(), page_count: z.number().int().positive(), retained_pages: z.array(z.number().int().positive()) })),
+});
+
+async function readTriageReport(file: string) {
+  const bytes = await readFile(file).catch(() => { throw new BenchRefusal(`--pages-from ${file} cannot be read.`); });
+  const parsed = triageReportSchema.safeParse(JSON.parse(bytes.toString("utf8")));
+  if (!parsed.success) throw new BenchRefusal(`--pages-from ${file} is not a triage report.`);
+  return { path: path.resolve(file), sha256: createHash("sha256").update(bytes).digest("hex"), retained: parsed.data.retained };
+}
+
+async function runTriage(args: BenchArgs, owner: ChatGptOwner, startedAt: string, loadBefore: number[]) {
+  const dataset = await loadBenchDataset(args.dataset, args.docs, { mode: "triage" });
+  const budget = createDecisionsTokenBudget(args.maxDecisionsTokens as number, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS);
+  const capability = getOpenAiDecisionsCapability();
+  const inputs = dataset.selected.map(({ document, bytes }) => ({ document, bytes, truth: dataset.pageTruths.get(document.id)! }));
+  const result = capability.status === "available"
+    ? await runTakeoffBenchTriage({ documents: inputs, owner, budget, triage: runTakeoffPageTriage, log: (line) => console.error(line) })
+    : { status: "incomplete" as const, stop: { reason: "decisions_unavailable" as const, message: capability.message, document: null },
+      documents: inputs.map((entry) => ({ ...entry, status: "not_run" as const, run: null })) };
+  const status = git(["status", "--porcelain"]);
+  const metadata: BenchTriageMetadata = {
+    started_at: startedAt, finished_at: new Date().toISOString(),
+    command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)], cwd: process.cwd(),
+    env: recordedEnv(TRIAGE_RUN_ENV), node: process.version, commit: git(["rev-parse", "HEAD"]),
+    dirty: status === null ? null : status.length > 0, dataset: datasetMetadata(dataset), host: host(loadBefore),
+    decisions: { status: capability.status, model: capability.model },
+  };
+  const report = buildBenchTriageReport({
+    metadata, status: result.status, stop: result.stop, documents: result.documents, budget: budget.snapshot(),
+    rules: {
+      prompt_version: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, model: capability.model, concurrency: TAKEOFF_PAGE_TRIAGE_CONCURRENCY,
+      thumbnail: TAKEOFF_PAGE_TRIAGE_THUMBNAIL, text: TAKEOFF_PAGE_TRIAGE_TEXT, render_limits_one_page: takeoffPageTriageRenderLimits(1),
+      call_estimate_tokens: TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS, retries: 0,
+    },
+  });
+  await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+  await writeFile(path.join(args.out, "report.md"), renderBenchTriageReportMarkdown(report), { flag: "wx" });
+  console.log(`Takeoff bench triage ${result.status}: ${budget.snapshot().calls} Decisions calls, ${budget.snapshot().spent_tokens} tokens, reports in ${args.out}.`);
+  if (result.stop) {
+    console.error(`Stopped: ${result.stop.reason}${result.stop.document ? ` at ${result.stop.document}` : ""}: ${result.stop.message}`);
+    process.exitCode = 2;
+  }
+}
 
 /** This script, relative to the working directory when under it (main's checkout), absolute otherwise (a worktree). */
 function scriptPath() {
@@ -145,9 +237,13 @@ async function main() {
   assertOwnCode();
   await assertOutput(args.out);
   const startedAt = new Date().toISOString();
+  const loadBefore = os.loadavg();
+  if (args.mode === "triage") return runTriage(args, owner, startedAt, loadBefore);
   const dataset = await loadBenchDataset(args.dataset, args.docs);
   const scopes = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
-  const plans = await planBenchDocuments(dataset.selected.map(({ document, bytes }) => ({
+  const triage = args.pagesFrom ? await readTriageReport(args.pagesFrom) : null;
+  const { documents: read, selection } = await selectBenchPages(dataset.selected, { pages: args.pages, triage });
+  const plans = await planBenchDocuments(read.map(({ document, bytes }) => ({
     id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
     bytes, sha256: document.sha256 as string,
   })));
@@ -173,18 +269,13 @@ async function main() {
     finished_at: new Date().toISOString(),
     command: ["node", ...process.execArgv, scriptPath(), ...process.argv.slice(2)],
     cwd: process.cwd(),
-    env: Object.fromEntries(RUN_ENV.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name] as string]]))),
+    env: recordedEnv(RUN_ENV),
     node: process.version,
     commit: git(["rev-parse", "HEAD"]),
     dirty: status === null ? null : status.length > 0,
-    dataset: {
-      sha256: dataset.sha256,
-      documents: dataset.selected.map(({ document }) => ({
-        id: document.id, lot: document.lot, role: document.role, sha256: document.sha256 as string,
-        bytes: document.file_size as number, pages: document.pages,
-      })),
-      skipped: dataset.skipped,
-    },
+    dataset: datasetMetadata(dataset),
+    host: host(loadBefore),
+    page_selection: selection,
     profile: {
       model: checked.profile?.model ?? null,
       reasoning_effort: checked.profile?.reasoningEffort ?? null,
