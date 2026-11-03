@@ -143,14 +143,15 @@ est une constante nommée et versionnée dans le code.
      tronçons suivants. Le tronçon reste coupé entre cet endroit et un libellé clair
      plus loin, qui garde sa section.
    - Ces valeurs passent aux tronçons raccordés, du plus proche au plus loin (en
-     raccords). Un DN porte le réseau que son libellé nomme : « EU - PVC DN 40 » sur un
-     tronçon EU/EV passe aux tronçons EU, jamais aux EV. De deux libellés aussi proches
-     d'un tronçon, celui de son propre réseau l'emporte :
+     nombre de raccords) :
      - du même réseau ;
      - d'un réseau parent à un de ses membres et inversement : EU/EV avec EU ou EV,
        CHW, HW, GLY, HRC et CW avec leur départ ou leur retour (les familles du score) ;
      - jamais entre deux membres (EU et EV, un départ et un retour sont deux tuyaux),
        même par un tronçon de leur parent, ni vers un autre réseau.
+   - Un DN porte le réseau que son libellé nomme : « EU - PVC DN 40 » sur un tronçon
+     EU/EV passe aux tronçons EU, jamais aux EV. De deux libellés aussi proches d'un
+     tronçon, celui de son propre réseau l'emporte.
    - Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à revoir »).
    - Les recherches de voisinage (libellés, raccords, embouts) trouvent tout tracé, même
      un long tuyau en diagonale d'une feuille A0.
