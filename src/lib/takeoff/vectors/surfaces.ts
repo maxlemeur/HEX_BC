@@ -15,6 +15,8 @@ import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 // A polygon is closed by its path (h, s, re) or drawn back to its first point
 // and stroked without closePath (within RING_CLOSURE_PT, a CAD export may round
 // its last point); an outline left open (a door gap, a missing side) bounds no room.
+// A ring that also holds the label of another room (a building envelope, a
+// sheet frame) is not this room's outline: one room per outline.
 
 export const SURFACE_RULE_VERSION = 4;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
@@ -71,20 +73,23 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
   const closed = extraction.paths.filter((path) => path.count >= 4 && (path.closed || returnsToStart(extraction.points, path.start, path.count))
     && !hidden.has(extraction.groups[path.group]?.layer ?? ""));
   const lines = mergeTextLines(extraction.texts);
-  for (const text of lines) {
+  const rooms = lines.flatMap((text) => {
     const match = AREA_PATTERN.exec(text.str);
-    if (!match) continue;
+    if (!match) return [];
     const printed = Number(match[1].replace(",", "."));
-    if (!Number.isFinite(printed) || printed <= 0) continue;
+    if (!Number.isFinite(printed) || printed <= 0) return [];
     const room = roomLabel(text, text.str.slice(0, match.index), lines);
-    if (!room) continue;
-    const anchor = lineCentre(text);
+    return room ? [{ text, room, printed, anchor: lineCentre(text) }] : [];
+  });
+  for (const { text, room, printed, anchor } of rooms) {
     let best: { area: number; points: number } | null = null;
     for (const path of closed) {
       if (!pointInRing(anchor, extraction.points, path.start, path.count)) continue;
       const area = ringArea(extraction.points, path.start, path.count);
-      if (area <= 4 * text.width * text.height) continue;
-      if (!best || area < best.area) best = { area, points: path.count };
+      if (area <= 4 * text.width * text.height || (best && area >= best.area)) continue;
+      // One room per outline: a ring around another room's label too is an envelope or a frame.
+      if (rooms.some((other) => other.text !== text && pointInRing(other.anchor, extraction.points, path.start, path.count))) continue;
+      best = { area, points: path.count };
     }
     const polygon = best && denominator !== null ? Math.round(squarePointsToSquareMetres(best.area, denominator) * 100) / 100 : null;
     surfaces.push({ room, printed_m2: printed, anchor, polygon_m2: polygon, polygon_points: best?.points ?? null,

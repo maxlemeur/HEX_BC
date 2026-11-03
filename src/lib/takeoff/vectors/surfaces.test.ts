@@ -38,6 +38,11 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 //   stroked without closePath (a complete ring, closed flag false) has no
 //   measured area; or, once accepted, an outline left open (a door gap, a
 //   missing side) is measured as if closed.
+// Bench of the third round (written before the fix): once outlines drawn back
+// to their start count, a building envelope or a sheet frame drawn so (or
+// closed) is the smallest ring around every room without its own outline,
+// which then takes the envelope's thousands of m²; a ring that holds the
+// label of another room is not this room's outline.
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -203,5 +208,24 @@ describe("readRoomSurfaces, outline stroked without closePath (third review of P
     // Left open: a door of 0.90 m at 1/50, or the fourth side not drawn.
     expect(read({ ...ROOM_14, closed: false, gap: sheet(0.9) })).toEqual([{ room: "Infirmerie", polygon_m2: null, polygon_points: null }]);
     expect(read({ ...ROOM_14, closed: false, gap: ROOM_14.height })).toEqual([{ room: "Infirmerie", polygon_m2: null, polygon_points: null }]);
+  });
+});
+
+describe("readRoomSurfaces, one room per outline (bench of the third review of PR #145)", () => {
+  it("never gives a room the area of a ring that also holds another room's label, and keeps a room's own ring inside it", () => {
+    // An envelope around three rooms (drawn back to its start, or closed): only the office has its own outline.
+    const envelope: Ring = { x: 50, y: 50, width: sheet(30), height: sheet(20) };
+    const office: Ring = { x: 400, y: 100, width: sheet(4), height: sheet(3.1) }; // 12.40 m²
+    const texts = [line("Infirmerie 13.62m²", 150, 200), line("Archives 9.10 m²", 250, 300), line("Bureau 12.40 m²", 420, 150)];
+    for (const outline of [{ ...envelope, closed: false }, envelope]) {
+      const surfaces = readRoomSurfaces(page(texts, [outline, office]), 50);
+      expect(surfaces.map(({ room, polygon_m2 }) => ({ room, polygon_m2 }))).toEqual([
+        { room: "Bureau", polygon_m2: 12.4 },
+        { room: "Infirmerie", polygon_m2: null },
+        { room: "Archives", polygon_m2: null },
+      ]);
+    }
+    // Alone in the envelope, a room takes it: the envelope is then its outline.
+    expect(readRoomSurfaces(page([texts[0]], [envelope]), 50).map(({ polygon_m2 }) => polygon_m2)).toEqual([600]);
   });
 });

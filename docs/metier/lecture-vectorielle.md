@@ -120,6 +120,8 @@ est une constante nommée et versionnée dans le code.
    - Un polygone est fermé par son tracé (h, s, re) ou revient à son premier point, à
      moins de 0,5 pt, sans fermeture explicite. Un contour laissé ouvert (une porte, un
      côté manquant) ne délimite aucune pièce.
+   - Une pièce par contour : un polygone qui contient aussi le libellé d'une autre pièce
+     (l'enveloppe d'un bâtiment, le cadre de la feuille) n'est pas le contour de la pièce.
    - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
    - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
      page tournée (/Rotate 90) se lit comme dessinée.
