@@ -337,8 +337,8 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks, sh
   await expect(viewer.getByText("Échelle 1/50 format conforme", { exact: true })).toBeVisible();
   await expect(viewer.getByText("Détection 100 %", { exact: true })).toBeVisible();
   const networks = viewer.getByRole("group", "Réseaux", { exact: true });
-  await expect(networks).toContainText("EF5.00 m");
-  await expect(networks).toContainText("EUV3.00 m");
+  await expect(networks).toContainText("EF 5.00 m");
+  await expect(networks).toContainText("EUV 3.00 m");
   const shown = viewer.getByText(/éléments affichés$/);
   await expect(shown).toHaveText("2 / 2 éléments affichés");
   // The plan itself is drawn under the geometry: a painted canvas, no rendering error, the EF centreline where the PDF draws it.
