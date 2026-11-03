@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FileText, RefreshCw } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -184,12 +184,19 @@ export function LabStatsScreen() {
   const [axis, setAxis] = useState<Axis>("tokens");
   const [stats, setStats] = useState<LabStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Only the latest request may update the screen: a response for a previous
+  // selection (or an earlier refresh) that arrives last is dropped.
+  const latestRequest = useRef(0);
   const load = useCallback(async () => {
     if (!state.configured) return;
+    const request = ++latestRequest.current;
     try {
-      setStats(await labApi.stats({ campaign: campaign || null, task: task || null }));
+      const next = await labApi.stats({ campaign: campaign || null, task: task || null });
+      if (request !== latestRequest.current) return;
+      setStats(next);
       setError(null);
     } catch (cause) {
+      if (request !== latestRequest.current) return;
       setError(errorMessage(cause));
     }
   }, [campaign, task, state.configured]);
