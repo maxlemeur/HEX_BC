@@ -87,14 +87,18 @@ export function mergeTextLines(texts: readonly VectorText[]): VectorText[] {
       used[start] = 1;
       let line = { ...items[start] };
       const lc = Math.cos(line.angle), ls = Math.sin(line.angle);
+      const origin = along(start);
       for (let next = position + 1; next < pool.length; next += 1) {
         const candidate = pool[next];
+        // The cut-off follows the pool's own order (along the bucket's direction, within 0.02 rad of the line's):
+        // a piece the line may still take lies at most its reach plus that tilt across a quarter height further.
+        // Measured along the line's own angle instead, a text far off its baseline could end the search early.
+        if (along(candidate) - origin > line.width + 1.5 * line.height + 0.25 * line.height * Math.sin(0.02)) break;
         if (used[candidate] || !sameStyle(items[candidate], line)) continue;
         const piece = items[candidate];
         const dx = piece.x - line.x, dy = piece.y - line.y;
         const forward = dx * lc + dy * ls, across = -dx * ls + dy * lc;
-        if (forward > line.width + 1.5 * line.height) break;
-        if (Math.abs(across) > 0.25 * line.height || forward < line.width - 0.5 * line.height) continue;
+        if (Math.abs(across) > 0.25 * line.height || forward > line.width + 1.5 * line.height || forward < line.width - 0.5 * line.height) continue;
         line = { ...line, str: `${line.str}${forward > line.width + 0.15 * line.height ? " " : ""}${piece.str}`, width: forward + piece.width };
         used[candidate] = 1;
       }

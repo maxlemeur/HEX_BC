@@ -117,6 +117,12 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   label's underline: its far ends become leader tips, and the label's DN goes
 //   to another pipe of its network near one of them instead of the pipe it is
 //   printed on (horizontal, or on the diagonal of an A0 sheet once indexed).
+// Post-merge Codex review of PR #145 (written before the fix):
+// - a label tilted by a fraction of a degree (pieces sorted along their
+//   direction bucket, the cut-off measured along the line's own angle) stops
+//   looking for its continuation at an unrelated text of the same style far off
+//   its baseline, so « EF PVC DN » and « 40 » are read without DN because
+//   another part of the sheet holds a note.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -807,5 +813,23 @@ describe("fourth Codex round of PR #145", () => {
     const wall = line(BLACK, 300 + 10 * up.x, 200 + 10 * up.y, 2300 + 10 * up.x, 2200 + 10 * up.y, { width: 0.25 });
     const tilted = onA0([...LEGEND, { strokes: [diagonal, wall, line(BLUE, 2310, 2195, 2700, 2195)], texts: [label] }]);
     expect((tilted.networks?.runs ?? []).map((run) => [Math.round(run.segment.x0), run.dn])).toEqual(expect.arrayContaining([[300, 40], [2310, null]]));
+  });
+});
+
+describe("post-merge Codex review of PR #145", () => {
+  it("never lets an unrelated text far off a tilted label's baseline end the search for its continuation", () => {
+    // « EF PVC DN » (50 pt wide) and « 40 » 55 pt after it on its baseline, tilted by 0.019 rad; « NOTE » 900 pt below.
+    const angle = 0.019;
+    const head = { ...text("EF PVC DN", 100, 100), width: 50, angle };
+    const tail = { ...text("40", 155, 101.05), angle };
+    const note = { ...text("NOTE", 150, 1000), angle };
+    expect(mergeTextLines([head, tail]).map((entry) => entry.str)).toEqual(["EF PVC DN 40"]);
+    expect(mergeTextLines([head, note, tail]).map((entry) => entry.str).sort()).toEqual(["EF PVC DN 40", "NOTE"]);
+    expect(readLabelBlocks([head, note, tail]).map((block) => block.label)).toEqual([
+      expect.objectContaining({ network: "EF", material: "pvc", dn: 40 }),
+    ]);
+    // The cut-off still holds: a piece of the same baseline past it starts its own line.
+    const far = { ...text("DN 63", 100 + 80 * Math.cos(angle), 100 + 80 * Math.sin(angle)), angle };
+    expect(mergeTextLines([head, note, far]).map((entry) => entry.str).sort()).toEqual(["DN 63", "EF PVC DN", "NOTE"]);
   });
 });
