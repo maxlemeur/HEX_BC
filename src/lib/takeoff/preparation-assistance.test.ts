@@ -6,7 +6,7 @@ import { applyTakeoffPreparationProposal, createTakeoffPreparationQuestion, orde
 function draft() {
   const preparation = createEmptyTakeoffPreparation();
   preparation.sources = [{ document_id: "plan-a", document_name: "Plan R+1.pdf", source_version: "hash-a", revision: "A",
-    kind: "plan", pages: [], active: true, confirmed: false, plan_set_id: null, file_path: null, page_count: 2, logical_document_id: null, content_hash: null, source_updated_at: null, mime_type: "application/pdf" }];
+    kind: "plan", pages: [], active: true, confirmed: false, plan_set_id: null, file_path: null, page_count: 2, logical_document_id: null, content_hash: null, source_updated_at: null, mime_type: "application/pdf", page_triage: null }];
   return preparation;
 }
 const proposal: TakeoffPreparationProposal = { id: "proposal:a", field: "scope.levels", values: ["R+1"],

@@ -125,5 +125,16 @@ export function useTakeoffPreparation(projectId: string) {
     return confirmed.revision;
   }, [projectId, save]);
 
-  return { record, draft, updateDraft, saveState, error, save, renew, reload, confirm };
+  /** Adopts a state returned by a server mutation (page triage) as the saved draft. */
+  const adopt = useCallback((state: PreparationRecord) => {
+    revision.current = state.revision;
+    savedJson.current = JSON.stringify(state.draft);
+    currentDraft.current = state.draft;
+    setDraft(state.draft);
+    setRecord((previous) => previous ? { ...previous, ...state } : state);
+    setSaveState("saved");
+    setError(null);
+  }, []);
+
+  return { record, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt };
 }
