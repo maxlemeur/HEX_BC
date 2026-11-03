@@ -72,6 +72,32 @@ describe("bench page triage run", () => {
     expect(result).toMatchObject({ status: "incomplete", stop: { reason: "budget_reached", document: "e-plan-01" } });
     expect(result.documents.map((entry) => entry.status)).toEqual(["done", "not_run"]);
   });
+
+  // Codex review of PR #144 (P2), written before the fix: a document the renderer refuses (over the
+  // page limit, unreadable) had no page classified, yet the run reported « complete » with no stop.
+  it("reports a run incomplete when the renderer refuses a document, and still triages the next ones", async () => {
+    const refused = (reason: "page_limit" | "render_failed") => ({ ...run([], { reason, message: `refused: ${reason}` }),
+      render: { status: "failed" as const, page_count: null, duration_ms: 10, timed_out: false, canvas_available: true } });
+    let calls = 0;
+    const result = await runTakeoffBenchTriage({
+      documents: [doc("e-plan-01", "no_truth", truth("e-plan-01", "reseau", true)), doc("e-plan-02", "no_truth", truth("e-plan-02", "reseau", true)), doc("e-plan-03", "no_truth", truth("e-plan-03", "reseau", true))],
+      owner, budget: createDecisionsTokenBudget(1000, 100),
+      triage: async () => {
+        calls += 1;
+        if (calls === 1) return refused("page_limit") as unknown as TakeoffPageTriageRun;
+        if (calls === 2) return refused("render_failed") as unknown as TakeoffPageTriageRun;
+        return run([call("reseau", 0.95, "keep")]);
+      },
+    });
+    expect(calls).toBe(3);
+    expect(result.status).toBe("incomplete");
+    expect(result.stop).toBeNull();
+    expect(result.failures).toEqual([
+      { reason: "page_limit", message: "refused: page_limit", document: "e-plan-01" },
+      { reason: "render_failed", message: "refused: render_failed", document: "e-plan-02" },
+    ]);
+    expect(result.documents.map((entry) => entry.status)).toEqual(["done", "done", "done"]);
+  });
 });
 
 describe("bench page triage score", () => {

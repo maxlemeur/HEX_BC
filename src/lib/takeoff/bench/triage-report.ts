@@ -24,6 +24,8 @@ export function buildBenchTriageReport(input: {
   metadata: BenchTriageMetadata;
   status: "complete" | "incomplete";
   stop: BenchTriageStop | { reason: "decisions_unavailable"; message: string; document: null } | null;
+  /** Documents the renderer refused: the run continued, but none of their pages was classified. */
+  failures: readonly BenchTriageStop[];
   documents: readonly BenchTriageDocument[];
   budget: DecisionsTokenBudgetSnapshot;
   rules: { prompt_version: string } & Record<string, unknown>;
@@ -33,6 +35,7 @@ export function buildBenchTriageReport(input: {
     mode: "triage" as const,
     status: input.status,
     stop: input.stop,
+    failures: input.failures,
     metadata: input.metadata,
     rules: {
       threshold: TAKEOFF_PAGE_TRIAGE_CONFIDENCE_THRESHOLD,
@@ -88,6 +91,9 @@ export function renderBenchTriageReportMarkdown(report: BenchTriageReport) {
     "# Takeoff bench — page triage (TI-663)",
     "",
     `- Status: ${report.status}${report.stop ? ` (stop: ${report.stop.reason}${report.stop.document ? ` at ${report.stop.document}` : ""})` : ""}.`,
+    ...(report.failures.length > 0
+      ? [`- Not classified, renderer refused: ${report.failures.map((failure) => `${failure.document} (${failure.reason})`).join(", ")}.`]
+      : []),
     `- Command: \`cd ${metadata.cwd} && ${env ? `${env} ` : ""}${metadata.command.join(" ")}\``,
     `- Commit ${metadata.commit ?? "unknown"}${metadata.dirty ? " (dirty)" : ""}, Node ${metadata.node}, dataset ${metadata.dataset.sha256}.`,
     `- Host: ${metadata.host ? `${metadata.host.platform}, ${metadata.host.cpus} CPUs, load ${metadata.host.loadavg_before.map((value) => value.toFixed(2)).join(" ")} → ${metadata.host.loadavg_after.map((value) => value.toFixed(2)).join(" ")}` : "unknown"}.`,

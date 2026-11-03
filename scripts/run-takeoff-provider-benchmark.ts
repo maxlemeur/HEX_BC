@@ -110,7 +110,7 @@ async function runTriage(args: BenchArgs, owner: ChatGptOwner, startedAt: string
   const result = capability.status === "available"
     ? await runTakeoffBenchTriage({ documents: inputs, owner, budget, triage: runTakeoffPageTriage, log: (line) => console.error(line) })
     : { status: "incomplete" as const, stop: { reason: "decisions_unavailable" as const, message: capability.message, document: null },
-      documents: inputs.map((entry) => ({ ...entry, status: "not_run" as const, run: null })) };
+      failures: [], documents: inputs.map((entry) => ({ ...entry, status: "not_run" as const, run: null })) };
   const status = git(["status", "--porcelain"]);
   const metadata: BenchTriageMetadata = {
     started_at: startedAt, finished_at: new Date().toISOString(),
@@ -120,7 +120,7 @@ async function runTriage(args: BenchArgs, owner: ChatGptOwner, startedAt: string
     decisions: { status: capability.status, model: capability.model },
   };
   const report = buildBenchTriageReport({
-    metadata, status: result.status, stop: result.stop, documents: result.documents, budget: budget.snapshot(),
+    metadata, status: result.status, stop: result.stop, failures: result.failures, documents: result.documents, budget: budget.snapshot(),
     rules: {
       prompt_version: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, model: capability.model, concurrency: TAKEOFF_PAGE_TRIAGE_CONCURRENCY,
       thumbnail: TAKEOFF_PAGE_TRIAGE_THUMBNAIL, text: TAKEOFF_PAGE_TRIAGE_TEXT, render_limits_one_page: takeoffPageTriageRenderLimits(1),
@@ -132,8 +132,9 @@ async function runTriage(args: BenchArgs, owner: ChatGptOwner, startedAt: string
   console.log(`Takeoff bench triage ${result.status}: ${budget.snapshot().calls} Decisions calls, ${budget.snapshot().spent_tokens} tokens, reports in ${args.out}.`);
   if (result.stop) {
     console.error(`Stopped: ${result.stop.reason}${result.stop.document ? ` at ${result.stop.document}` : ""}: ${result.stop.message}`);
-    process.exitCode = 2;
   }
+  for (const failure of result.failures) console.error(`Not classified: ${failure.document}: ${failure.reason}: ${failure.message}`);
+  if (result.status === "incomplete") process.exitCode = 2;
 }
 
 /** This script, relative to the working directory when under it (main's checkout), absolute otherwise (a worktree). */

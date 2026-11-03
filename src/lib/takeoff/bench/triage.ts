@@ -33,9 +33,12 @@ export async function runTakeoffBenchTriage(input: {
   budget: DecisionsTokenBudget;
   triage: TriageFunction;
   log?: (line: string) => void;
-}): Promise<{ status: "complete" | "incomplete"; stop: BenchTriageStop | null; documents: BenchTriageDocument[] }> {
+}): Promise<{ status: "complete" | "incomplete"; stop: BenchTriageStop | null; failures: BenchTriageStop[]; documents: BenchTriageDocument[] }> {
   const documents: BenchTriageDocument[] = [];
   let stop: BenchTriageStop | null = null;
+  // A document the renderer refuses (page limit, unreadable, page count, deadline) has no page
+  // classified: the run goes on with the next documents but can no longer be « complete ».
+  const failures: BenchTriageStop[] = [];
   for (const entry of input.documents) {
     if (stop) {
       documents.push({ ...entry, status: "not_run", run: null });
@@ -51,8 +54,9 @@ export async function runTakeoffBenchTriage(input: {
     const calls = run.calls.map((call) => `${call.page}:${call.status}${call.proposal === "exclude" ? ":exclude" : ""}`).join(" ");
     input.log?.(`${entry.document.id} ${run.render.status} ${calls}${run.stop ? ` stop=${run.stop.reason}` : ""}`);
     if (run.stop && (run.stop.reason === "call_failed" || run.stop.reason === "budget_reached")) stop = { ...run.stop, document: entry.document.id };
+    else if (run.stop) failures.push({ ...run.stop, document: entry.document.id });
   }
-  return { status: stop ? "incomplete" : "complete", stop, documents };
+  return { status: stop || failures.length > 0 ? "incomplete" : "complete", stop, failures, documents };
 }
 
 export type BenchTriageTypeScore = { predicted: number; correct: number; truth: number; precision: number | null; recall: number | null };
