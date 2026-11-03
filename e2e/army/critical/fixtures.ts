@@ -89,6 +89,11 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
       (army?.ownedPlanSets ?? []).some((set) =>
         army?.ownedEstimates.some((estimate) => estimate.projectId === set.projectId) &&
         url.pathname.startsWith(`/storage/v1/object/upload/sign/plan-files/${set.tenantId}/${set.planSetId}/`));
+    // The takeoff review's plan viewer (TI-662) reads an owned plan file through its signed URL (pdfjs may use range requests).
+    const ownedPlanRead = localBackend && readOnly &&
+      (army?.ownedPlanSets ?? []).some((set) =>
+        army?.ownedEstimates.some((estimate) => estimate.projectId === set.projectId) &&
+        url.pathname.startsWith(`/storage/v1/object/sign/plan-files/${set.tenantId}/${set.planSetId}/`));
     const ownedIntakeRead = localBackend && route.request.method === "GET" &&
       (army?.ownedIntakeCopies ?? []).some((copy) =>
         army?.ownedEstimates.some((estimate) => estimate.projectId === copy.projectId) &&
@@ -103,7 +108,7 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
       (army?.ownedEstimates ?? []).some(estimate =>
         estimate.projectId === pdfObject[2] && estimate.versionId === pdfObject[3]);
     const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
-    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedPurchaseRead && !ownedPdfRead && !ownedIntakeRead) || forbiddenMutation) {
+    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedPlanRead && !ownedPurchaseRead && !ownedPdfRead && !ownedIntakeRead) || forbiddenMutation) {
       await route.abort();
       const safePath = url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]");
       throw new Error(`Critical campaign blocked ${route.request.method} ${url.hostname}${safePath}; external request or email/status mutation.`);
