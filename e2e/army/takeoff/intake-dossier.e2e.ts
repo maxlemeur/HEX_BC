@@ -109,7 +109,11 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
     .eq("project_id", ids.projectId).single()).data!;
   expect(await plansGap()).toEqual([]);
   expect((await readBrief()).received_pieces).toContain(`Plans · ${plan.file_name}`);
+  // The dossier table lives in the « Documents du dossier » drawer, which #brief leaves closed
+  // (f63d9cd6): the piece's link opens it on its row, as for the reclassification above.
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${plan.id}#intake`);
   const planRow = browser.locator(`[aria-label="Dossier de consultation"] tr[data-document-id="${plan.id}"]`);
+  await expect(planRow).toHaveAttribute("aria-selected", "true");
   await planRow.getByRole("button", `Détails de ${plan.file_name}`, { exact: true }).click();
   await screen.getByRole("dialog", "Document et détails", { exact: true }).getByRole("button", "Supprimer la copie", { exact: true }).click();
   await screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
