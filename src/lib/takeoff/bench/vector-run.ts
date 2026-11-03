@@ -115,20 +115,42 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
  * A baseline run on a subset (--pages, --pages-from) also lists the pages it read: one left out is unread, even
  * inside a call's range (pages 1 and 3 read in one chunk are put back as « pages 1-3 »). Ranges only hold for pages
  * in order: a selection whose pages do not rise strictly reads none.
+ * An item belongs to its source_page. One without it (the field is optional) belongs to the page its chunks read
+ * (item_chunks, then those calls' pages among the pages read): it is never copied onto every page. When its chunks
+ * read several pages, which one it came from is unknown, and each of those pages is « unread » rather than given it.
  */
 export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "documents">>, selection?: BenchPageSelection | null) {
   return (document: string, pass: number, page: number): TakeoffItem[] | "unread" => {
     if (passes.length === 0) return "unread";
     const run = passes[(pass - 1) % passes.length].documents.find((entry) => entry.id === document && entry.complete);
     if (!run) return "unread";
+    let pagesRead: readonly number[] | null = null;
     if (selection && selection.mode !== "all") {
       const read = selection.documents.find((entry) => entry.id === document);
       if (!read || read.excluded || !read.pages_read.includes(page)) return "unread";
       if (read.pages_read.some((value, index, list) => index > 0 && value <= list[index - 1])) return "unread";
+      pagesRead = read.pages_read;
     }
     const covering = run.calls.filter((call) => call.start_page <= page && page <= call.end_page);
     if (!covering.some((call) => call.status === "ok") || covering.some((call) => call.status !== "ok")) return "unread";
-    return run.items;
+    const items: TakeoffItem[] = [];
+    for (const [index, item] of run.items.entries()) {
+      if (item.source_page !== undefined && item.source_page !== null) {
+        if (item.source_page === page) items.push(item);
+        continue;
+      }
+      const chunks = run.item_chunks[index] ?? [];
+      const calls = run.calls.filter((call) => chunks.includes(call.chunk));
+      const pages = new Set<number>();
+      // Without its chunks, an item may come from any page of the document.
+      const ranges = chunks.length > 0 && calls.length === chunks.length ? calls : [{ start_page: 1, end_page: run.pages }];
+      for (const range of ranges) for (let value = range.start_page; value <= range.end_page; value += 1) pages.add(value);
+      if (pagesRead) for (const value of [...pages]) if (!pagesRead.includes(value)) pages.delete(value);
+      if (!pages.has(page)) continue;
+      if (pages.size > 1) return "unread";
+      items.push(item);
+    }
+    return items;
   };
 }
 
@@ -192,7 +214,7 @@ export async function runVectorBench(input: {
             if (baseline === "unread") {
               throw new VectorExtractionError("failed", `La baseline niveau C n’a pas lu la page raster ${page} de ${document.id}.`);
             }
-            items = baseline.filter((item) => (item.source_page ?? page) === page);
+            items = baseline;
             fallback = items.length;
           }
           ruleData.push(...(reading.mode === "raster" ? items.map(() => null) : data));

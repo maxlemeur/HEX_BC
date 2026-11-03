@@ -46,6 +46,12 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // Review of that fix (written before its own fix): a selection whose pages are
 // out of order (pages 1, 4, 3, 2 read in two chunks, put back as « 1-4 » and
 // « 3-2 ») passes the pages of a failed chunk as read.
+// Post-merge Codex review of PR #145 (written before the fix): a baseline item
+// without source_page (TakeoffItemSchema makes it optional, and the chunk
+// remap keeps it absent) is copied onto every raster page of its document (one
+// 10 ml item read twice on a two-page plan) instead of the one page its chunk
+// read; when that chunk read several pages, it is put on one of them instead of
+// leaving them « unread ».
 
 /** An A3 sheet in points (420 × 297 mm). */
 const SHEET = { width: 1190.55, height: 841.89 };
@@ -218,20 +224,20 @@ describe("takeoff bench vector pipeline", () => {
       1: [baselineItem("EF cuivre DN 22", 30, 1), baselineItem("ECS cuivre DN 22", 5, 2)],
       2: [baselineItem("EF cuivre DN 22", 31, 1), baselineItem("ECS cuivre DN 22", 6, 2)],
     };
-    const asked: Array<[string, number]> = [];
+    const asked: Array<[string, number, number]> = [];
     const extract = async (_bytes: Uint8Array, pageNumber: number) => (pageNumber === 1 ? plan(1, 2, 0.95) : page(2, 2));
     const result = await runVectorBench({
       documents: [benchDocument("a-plan-01", 2)], groups, repeat: 2, extract,
-      rasterFallback: (document, pass) => {
-        asked.push([document, pass]);
-        return baseline[pass];
+      rasterFallback: (document, pass, pageNumber) => {
+        asked.push([document, pass, pageNumber]);
+        return baseline[pass].filter((item) => item.source_page === pageNumber);
       },
     });
     const passes = result.run.couples[0].passes;
     // Page 1 is raster: none of its 25.4 m of EF is measured; page 2 is vector and keeps its own (empty) reading.
     expect(passes.map((pass) => pass.documents[0].items)).toEqual([[baseline[1][0]], [baseline[2][0]]]);
     expect(passes.map((pass) => pass.documents[0].item_chunks)).toEqual([[[1]], [[1]]]);
-    expect(asked).toEqual([["a-plan-01", 1], ["a-plan-01", 2]]);
+    expect(asked).toEqual([["a-plan-01", 1, 1], ["a-plan-01", 2, 1]]);
     const pages = result.vector.passes[0].documents[0].pages;
     expect(pages.map((entry) => [entry.reading?.mode, entry.raster_items_from_baseline])).toEqual([["raster", 1], ["colours", null]]);
     expect(pages[0].reading?.networks).toBeNull();
@@ -312,10 +318,32 @@ describe("the baseline's raster fallback (fourth Codex round of PR #145)", () =>
 
   it("reads a page only when a successful call of the baseline covers it and no failed one does", () => {
     const whole = baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 3, "ok"]], items)])]);
-    expect([1, 2, 3].map((page) => whole("a-plan-01", 1, page))).toEqual([items, items, items]);
+    expect([1, 2, 3].map((page) => whole("a-plan-01", 1, page))).toEqual([[items[0]], [], [items[1]]]);
     expect(whole("b-plan-01", 1, 1)).toBe("unread");
     const failed = baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 2, "ok"], [3, 3, "timeout"]], items)])]);
-    expect([1, 2, 3].map((page) => failed("a-plan-01", 1, page))).toEqual([items, items, "unread"]);
+    expect([1, 2, 3].map((page) => failed("a-plan-01", 1, page))).toEqual([[items[0]], [], "unread"]);
+  });
+
+  it("puts an item without source_page on the one page its chunk read, never on every raster page (post-merge review)", async () => {
+    const unpaged: TakeoffItem = { designation: "EF cuivre DN 22", quantity: 10, unit: "ml", confidence: 0.9, evidence: "Fictional level C evidence" };
+    // One chunk per page; the unpaged item was read by chunk 2 (page 2).
+    const perPage = { ...levelCRun("a-plan-01", [[1, 1, "ok"], [2, 2, "ok"], [3, 3, "ok"]], [items[0], unpaged]), item_chunks: [[1], [2]] };
+    const placed = baselineRasterFallback([passOf(1, [perPage])]);
+    expect([1, 2, 3].map((page) => placed("a-plan-01", 1, page))).toEqual([[items[0]], [unpaged], []]);
+    // Read by one chunk over pages 1-3: it belongs to one of them, which one is unknown; those pages stay unread.
+    const spanning = { ...levelCRun("a-plan-01", [[1, 3, "ok"]], [items[0], unpaged]), item_chunks: [[1], [1]] };
+    const unresolved = baselineRasterFallback([passOf(1, [spanning])]);
+    expect([1, 2, 3].map((page) => unresolved("a-plan-01", 1, page))).toEqual(["unread", "unread", "unread"]);
+    // Through the bench: a two-page raster plan read one page per chunk keeps the 10 ml once.
+    const twoPages = { ...levelCRun("a-plan-01", [[1, 1, "ok"], [2, 2, "ok"]], [unpaged]), pages: 2, item_chunks: [[1]] };
+    const extract = async (_bytes: Uint8Array, pageNumber: number) => plan(pageNumber, 2, 0.95);
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1, extract, rasterFallback: baselineRasterFallback([passOf(1, [twoPages])]),
+    });
+    const document = result.run.couples[0].passes[0].documents[0];
+    expect(document.calls.map((call) => call.status)).toEqual(["ok", "ok"]);
+    expect(document.items).toEqual([unpaged]);
+    expect(document.item_chunks).toEqual([[1]]);
   });
 
   it("never reads a page a subset baseline left out, contiguous or not, nor a document its triage excluded", () => {
@@ -326,7 +354,7 @@ describe("the baseline's raster fallback (fourth Codex round of PR #145)", () =>
     }
     // --pages 1,3 read in one chunk, put back as pages 1-3: page 2 was never sent.
     const spread = baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 3, "ok"]], items)])], listed([1, 3]));
-    expect([1, 2, 3].map((page) => spread("a-plan-01", 1, page))).toEqual([items, "unread", items]);
+    expect([1, 2, 3].map((page) => spread("a-plan-01", 1, page))).toEqual([[items[0]], "unread", [items[1]]]);
     // A document the triage kept no page of is not in the run.
     expect(baselineRasterFallback([passOf(1, [])], listed([], "triage"))("a-plan-01", 1, 1)).toBe("unread");
     expect(baselineRasterFallback([])("a-plan-01", 1, 1)).toBe("unread");
