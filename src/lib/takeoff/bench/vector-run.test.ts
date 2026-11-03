@@ -430,6 +430,8 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(result.run.couples[0].prompt_version).toMatch(/^vector-v\d+\+fixture-groups-v1$/);
     const summary = result.vector.passes[0].documents[0].pages[0];
     expect(summary.reading?.groups.find((group) => group.id === BLUE_ID)).toMatchObject({ class: "EU", source: "decisions", confidence: 0.62 });
+    // The proposal at 0.62 is neither « classé » nor a measured network group in the page summary (review of the PR).
+    expect(summary.reading).toMatchObject({ groups_classified: 1, groups_network: 1 });
     expect(summary.decisions).toMatchObject({
       candidates: 2, left_out: 0, stop: null, calls: [{ kind: "batch", status: "available", usage: { total_tokens: 1000 } }],
       answers: [

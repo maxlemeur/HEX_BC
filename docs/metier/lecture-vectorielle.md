@@ -122,7 +122,9 @@ est une constante nommée et versionnée dans le code.
      sous 256 Kio : on retire d'abord les libellés, puis les noms de calque, jamais les
      alias.
    - Images : 1. un extrait de la page autour de la légende (rendu pdfjs, 1 600 px au
-     plus), ou la page entière sans légende ; 2. la planche des groupes, dessinée depuis
+     plus), ou la page entière sans légende. Les cadres de légende à moins de 48 pt les
+     uns des autres forment une légende ; on garde celle qui en a le plus, jamais l'union
+     avec un code isolé loin d'elle ; 2. la planche des groupes, dessinée depuis
      la géométrie extraite : le groupe épaissi dans une version foncée de sa couleur, les
      autres tracés imprimés en gris très clair, chaque vignette titrée par son alias.
      Les points sont plafonnés par vignette.

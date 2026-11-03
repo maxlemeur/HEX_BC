@@ -38,6 +38,8 @@ export const GROUP_SHEET = {
   maxBytes: 1_500_000,
   legendMaxEdgePx: 1600,
   legendMarginPt: 12,
+  /** Legend boxes closer than this (edge to edge) are one legend; the crop keeps the cluster with the most boxes. */
+  legendClusterGapPt: 48,
   /** A small legend is enlarged up to this scale (pt to px). */
   legendMaxScale: 4,
 } as const;
@@ -189,12 +191,33 @@ export function planDedicated(model: PageModel, entry: { alias: string; group: n
   return { width: size, height: size, tiles: [{ x: 0, y: 0, size, label: entry.alias, plan: planTile(model, entry.group, size, "dedicated") }] };
 }
 
-/** The legend boxes' union with GROUP_SHEET.legendMarginPt, clamped to the page; null without a legend. */
+/**
+ * The crop of the legend: the boxes closer than GROUP_SHEET.legendClusterGapPt to one another form a legend, the one
+ * with the most boxes is kept (then the larger), never the union with a stray box far from it (a lone code read as an
+ * entry would make the crop a strip where the legend is a few pixels tall); with GROUP_SHEET.legendMarginPt, clamped
+ * to the page; null without a legend.
+ */
 export function legendCrop(boxes: readonly Box[], width: number, height: number): Box | null {
   if (boxes.length === 0) return null;
+  const gap = GROUP_SHEET.legendClusterGapPt;
+  const parent = boxes.map((_, index) => index);
+  const find = (index: number): number => (parent[index] === index ? index : (parent[index] = find(parent[index])));
+  for (let a = 0; a < boxes.length; a += 1) {
+    for (let b = a + 1; b < boxes.length; b += 1) {
+      const dx = Math.max(0, boxes[b].x0 - boxes[a].x1, boxes[a].x0 - boxes[b].x1);
+      const dy = Math.max(0, boxes[b].y0 - boxes[a].y1, boxes[a].y0 - boxes[b].y1);
+      if (dx <= gap && dy <= gap) parent[find(a)] = find(b);
+    }
+  }
+  const clusters = new Map<number, Box[]>();
+  boxes.forEach((box, index) => clusters.set(find(index), [...(clusters.get(find(index)) ?? []), box]));
+  const union = (members: readonly Box[]) => ({
+    x0: Math.min(...members.map((box) => box.x0)), y0: Math.min(...members.map((box) => box.y0)),
+    x1: Math.max(...members.map((box) => box.x1)), y1: Math.max(...members.map((box) => box.y1)),
+  });
+  const area = (box: Box) => (box.x1 - box.x0) * (box.y1 - box.y0);
+  const main = [...clusters.values()].map(union).map((box, index) => ({ box, count: [...clusters.values()][index].length }))
+    .sort((left, right) => right.count - left.count || area(right.box) - area(left.box))[0].box;
   const margin = GROUP_SHEET.legendMarginPt;
-  return {
-    x0: Math.max(0, Math.min(...boxes.map((box) => box.x0)) - margin), y0: Math.max(0, Math.min(...boxes.map((box) => box.y0)) - margin),
-    x1: Math.min(width, Math.max(...boxes.map((box) => box.x1)) + margin), y1: Math.min(height, Math.max(...boxes.map((box) => box.y1)) + margin),
-  };
+  return { x0: Math.max(0, main.x0 - margin), y0: Math.max(0, main.y0 - margin), x1: Math.min(width, main.x1 + margin), y1: Math.min(height, main.y1 + margin) };
 }

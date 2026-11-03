@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildBenchReport, type BenchReport, type BenchReportMetadata, type PassReport } from "@/lib/takeoff/bench/report";
 import { GroupTruthFileSchema } from "@/lib/takeoff/bench/schemas";
 import type { KeyLabel, KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
-import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
+import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
 import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 
@@ -312,6 +312,20 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
     });
     // Renders: the legend and the sheets of each page, never the calls.
     expect(document.render_ms.raw).toEqual([400, 100, 300, 400, 100, 300]);
+  });
+
+  it("totals the Decisions of the whole run across documents, calls and renders of every page (review of the PR)", () => {
+    const two = [{ pass: 1, documents: [...passes[0].documents, { ...passes[0].documents[0], id: "b-plan-11" }] }];
+    expect(vectorDecisionsSummary(two)).toHaveLength(2);
+    const total = vectorDecisionsTotal(two);
+    expect(total).toMatchObject({
+      document: null, pages: 4, calls: { batch: 4, dedicated: 4, without_usage: 2 }, tokens: { input: 15400, output: 600, total: 16000 },
+      candidates: 160, left_out: 20, answers: { classified: 4, proposals: 4, review: 4 },
+    });
+    expect(total?.latency_ms.raw).toHaveLength(8);
+    expect(total?.render_ms.raw).toHaveLength(12);
+    expect(vectorDecisionsTotal([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }])).toBeNull();
+    expect(renderVectorSections(two, null).join("\n")).toMatch(/\| Total \| 4 \| 4 \/ 4 \|/);
   });
 
   it("prints the Decisions section with the budget, never a group id, colour or layer", () => {
