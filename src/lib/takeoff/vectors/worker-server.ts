@@ -7,6 +7,7 @@ import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
 import { extractVectorPage, VectorExtractionError } from "@/lib/takeoff/vectors/extraction";
 import {
+  budgetVectorItems,
   locationFromFileName,
   vectorItemRecords,
   vectorPageRecord,
@@ -14,6 +15,7 @@ import {
   type VectorPageRecord,
 } from "@/lib/takeoff/vectors/persistence";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
+import { TAKEOFF_VECTOR_READ_LIMITS } from "@/lib/takeoff/vectors/read-contracts";
 import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
 
 // The vector reading in the takeoff worker (TI-662), opt-in with
@@ -27,7 +29,9 @@ import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
 // word for it). A page that fails or is raster gives no item; the level C
 // reading of the same job is unchanged beside it (pipeline step 5), the rules
 // of TI-664 decide between both. Any error of a page fails that page only,
-// logged: the vector reading never fails the level C job it joins.
+// logged: the vector reading never fails the level C job it joins. The job's
+// items stay within what its review reads (budgetVectorItems): a page past
+// those limits keeps its record without its items, logged.
 
 export const TAKEOFF_VECTOR_MAX_PAGES = 60;
 
@@ -72,14 +76,14 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
   context?: { jobId: string; tenantId: string };
 } = {}): Promise<VectorPageOutcome[]> {
   const outcomes: VectorPageOutcome[] = [];
-  for (const original of source.originalPdfSources ?? []) {
+  read: for (const original of source.originalPdfSources ?? []) {
     const bytes = new Uint8Array(original.bytes);
     // Hashed once per file, and only when a preparation may name it.
     const documentId = source.preparationSnapshot ? preparationDocumentId(original.document, original.bytes) : null;
     const pages = original.pages.length ? original.pages : Array.from({ length: await getPdfPageCount(original.bytes) }, (_, index) => index + 1);
     const location = locationFromFileName(original.fileName);
     for (const page of pages) {
-      if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) return outcomes;
+      if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) break read;
       // The lease renewal is the job's own: its failure stops the job, as everywhere else.
       await options.onPage?.();
       try {
@@ -96,5 +100,11 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
       }
     }
   }
-  return outcomes;
+  const budgeted = budgetVectorItems(outcomes, TAKEOFF_VECTOR_READ_LIMITS);
+  budgeted.forEach((outcome, index) => {
+    if (outcome.items.length === outcomes[index].items.length) return;
+    console.error("takeoff.vector.page_items_dropped", { job_id: options.context?.jobId ?? null, tenant_id: options.context?.tenantId ?? null,
+      document: outcome.document, page: outcome.page, reason: outcome.error });
+  });
+  return budgeted;
 }

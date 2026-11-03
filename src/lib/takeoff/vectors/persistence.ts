@@ -218,8 +218,9 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
       }));
     }
   }
-  // The rooms vectorItems measures (items.ts): the polygon area, never the printed surface, on the same page frame.
-  for (const surface of reading.surfaces) {
+  // The rooms vectorItems measures (items.ts): the polygon area, never the printed surface, on the same page frame;
+  // the rooms the page record keeps (VECTOR_PAGE_LIMITS.surfaces), never more.
+  for (const surface of reading.surfaces.slice(0, VECTOR_PAGE_LIMITS.surfaces)) {
     if (surface.polygon_m2 === null || surface.polygon_m2 <= 0 || surface.outline === null) continue;
     const polygon = surface.outline.points.length <= 2 * VECTOR_GEOMETRY_LIMITS.polygon ? surface.outline.points.map(metres) : null;
     records.push({
@@ -234,4 +235,30 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
     });
   }
   return records;
+}
+
+/** What a geometry weighs against the review's segment budget (read-contracts.ts): its centrelines, one edge per point of its room polygon. */
+export function geometryWeight(geometry: { segments_m: readonly unknown[]; polygon_m: readonly unknown[] | null }) {
+  return geometry.segments_m.length + (geometry.polygon_m?.length ?? 0) / 2;
+}
+
+/**
+ * A job's vector items within what its review reads (geometries and segments, read-contracts.ts), in page order:
+ * a page whose items would pass a limit keeps its record without its items, with the reason; the next pages may
+ * still fit. The review never refuses a job (413) for the items its worker wrote.
+ */
+export function budgetVectorItems<T extends { items: VectorItemRecord[]; error: string | null }>(pages: readonly T[],
+  limits: { geometries: number; segments: number }): T[] {
+  let geometries = 0, segments = 0;
+  return pages.map((page) => {
+    if (page.items.length === 0) return page;
+    const weight = page.items.reduce((sum, record) => sum + geometryWeight(record.geometry), 0);
+    if (geometries + page.items.length > limits.geometries || segments + weight > limits.segments) {
+      return { ...page, items: [], error: `item_budget: ${page.items.length} geometries and ${weight} segments over the ${limits.geometries} `
+        + `geometries and ${limits.segments} segments the review reads` };
+    }
+    geometries += page.items.length;
+    segments += weight;
+    return page;
+  });
 }

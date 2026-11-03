@@ -139,6 +139,9 @@ est une constante nommée et versionnée dans le code.
 8. **Géométrie enregistrée.** Un item de réseau ou de calorifuge porte tous ses axes.
    Au-delà de 4 000 axes, la longueur devient plusieurs items de même désignation, de
    4 000 axes au plus chacun ; leurs quantités s'additionnent à la longueur mesurée.
+   Les items d'un métré restent dans ce que sa revue lit (5 000 géométries, 200 000
+   axes ou côtés de polygone) : une page qui dépasserait garde sa lecture sans ses items,
+   et la raison est journalisée. Une page garde au plus les 300 pièces de sa lecture.
 
 ## Score au banc
 

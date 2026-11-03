@@ -55,13 +55,15 @@ async function readJson(url: string) {
 export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planSetId: string | null }) {
   const [reading, setReading] = useState<TakeoffVectorReadingResponse | null>(null);
   const [error, setError] = useState("");
-  /** Why the page's plan is not drawn under its geometry (no source PDF, or a failed load or render); reset with the page. */
+  /** Why the page's plan is not drawn under its geometry: no source PDF or a failed load (reset with the source), or a failed render (reset with each render). */
   const [planError, setPlanError] = useState("");
+  const [renderError, setRenderError] = useState("");
   const [pageId, setPageId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
+  /** The loaded PDF and the source it was loaded for (its plan file, or the job's upload): a page draws only its own source. */
+  const [pdf, setPdf] = useState<{ source: string; document: PDFDocumentProxy } | null>(null);
   const [rendering, setRendering] = useState(false);
   const [base, setBase] = useState<{ width: number; height: number } | null>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -100,11 +102,18 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
   const hasPage = page !== null;
   const planFileId = page?.plan_file_id ?? null;
   const uploadUrl = page && !planFileId ? reading?.source_download_url ?? null : null;
+  const sourceKey = planFileId ?? uploadUrl;
   useEffect(() => {
     let active = true;
     let task: PDFDocumentLoadingTask | undefined;
     setPdf(null);
     setPlanError("");
+    setRendering(false);
+    // The previous source's plan never stays painted under this page's geometry.
+    if (canvas.current) {
+      canvas.current.width = 0;
+      canvas.current.height = 0;
+    }
     if (!hasPage) return;
     const source = planFileId && planSetId
       ? readJson(`/api/takeoff/plan-sets/${encodeURIComponent(planSetId)}/files/${encodeURIComponent(planFileId)}?include_download_url=true`)
@@ -123,7 +132,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
         task = pdfjs.getDocument({ url, useSystemFonts: true, cMapUrl: `${assetRoot}cmaps/`, cMapPacked: true,
           standardFontDataUrl: `${assetRoot}standard_fonts/`, wasmUrl: `${assetRoot}wasm/`, iccUrl: `${assetRoot}iccs/` });
         const document = await task.promise;
-        if (active) setPdf(document);
+        if (active) setPdf({ source: planFileId ?? url, document });
       })
       .catch(() => active && setPlanError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible."));
     return () => {
@@ -146,12 +155,14 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
   const scale = fit * zoom;
 
   useEffect(() => {
-    if (!pdf || !page || !canvas.current) return;
+    setRenderError("");
+    // A document loaded for another source (the previous page's plan file) is never drawn under this page.
+    if (!pdf || pdf.source !== sourceKey || !page || !canvas.current) return;
     let active = true;
     let render: RenderTask | undefined;
     const element = canvas.current;
     setRendering(true);
-    void pdf.getPage(page.source_page).then(async (source) => {
+    void pdf.document.getPage(page.source_page).then(async (source) => {
       if (!active) return;
       const unit = source.getViewport({ scale: 1 });
       const wanted = scale * Math.min(window.devicePixelRatio || 1, 2);
@@ -168,13 +179,13 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
       // A cancelled render (zoom, page change) is not a failure: its effect is no longer active.
       if (!active) return;
       setRendering(false);
-      setPlanError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible.");
+      setRenderError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible.");
     });
     return () => {
       active = false;
       render?.cancel();
     };
-  }, [pdf, page, scale]);
+  }, [pdf, page, scale, sourceKey]);
 
   // Ctrl/⌘ + wheel (and trackpad pinch) zooms the plan, without zooming the page: a non-passive listener.
   useEffect(() => {
@@ -290,7 +301,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
             ) : null}
           </div>
         </div>
-        {planError || error ? <p className="text-xs text-warning">{planError || error}</p> : null}
+        {planError || renderError || error ? <p className="text-xs text-warning">{planError || renderError || error}</p> : null}
       </div>
     </section>
   );

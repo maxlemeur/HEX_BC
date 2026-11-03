@@ -9,6 +9,7 @@ import {
   type AuthenticatedTakeoffContext,
   type TakeoffJobDetailRow,
 } from "@/lib/takeoff/job-read-server";
+import { geometryWeight } from "@/lib/takeoff/vectors/persistence";
 import { TAKEOFF_VECTOR_READ_LIMITS, takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 // Reads a job's vector reading for the review viewer (TI-662) with the user's
@@ -76,9 +77,10 @@ export async function getTakeoffVectorReading(jobId: string): Promise<TakeoffVec
     if (count > TAKEOFF_VECTOR_READ_LIMITS.geometries) tooLarge(jobId);
     const batch = (data ?? []) as unknown as GeometryRow[];
     for (const row of batch) {
-      // A room polygon counts one edge per x, y pair against the same budget as the centrelines.
-      const geometry = row.geometry as { segments_m?: unknown[]; polygon_m?: unknown[] | null } | null;
-      segments += (Array.isArray(geometry?.segments_m) ? geometry.segments_m.length : 0) + (Array.isArray(geometry?.polygon_m) ? geometry.polygon_m.length / 2 : 0);
+      // A room polygon counts one edge per x, y pair against the same budget as the centrelines (geometryWeight, as the worker's budget).
+      const geometry = row.geometry as { segments_m?: unknown; polygon_m?: unknown } | null;
+      segments += geometryWeight({ segments_m: Array.isArray(geometry?.segments_m) ? geometry.segments_m : [],
+        polygon_m: Array.isArray(geometry?.polygon_m) ? geometry.polygon_m : null });
     }
     if (segments > TAKEOFF_VECTOR_READ_LIMITS.segments) tooLarge(jobId);
     geometryRows.push(...batch);

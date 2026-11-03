@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MeasuredNetwork, NetworkRun } from "@/lib/takeoff/vectors/measure";
-import { VECTOR_GEOMETRY_LIMITS, vectorItemRecords } from "@/lib/takeoff/vectors/persistence";
+import { budgetVectorItems, VECTOR_GEOMETRY_LIMITS, VECTOR_PAGE_LIMITS, vectorItemRecords, type VectorItemRecord } from "@/lib/takeoff/vectors/persistence";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 
@@ -25,6 +25,12 @@ import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 //   its outline (never a cut shape);
 // - a room without closed polygon, or a room of a page whose scale is not
 //   measurable or which is raster, is persisted.
+// Review of these fixes (written before the fix):
+// - a page of more rooms than its record keeps (VECTOR_PAGE_LIMITS.surfaces)
+//   persists an item for each, beyond the rooms its record lists;
+// - a job of many rooms and networks persists more geometries or segments
+//   than its review reads (read-contracts.ts), so the whole viewer fails with
+//   413 instead of showing the pages that fit.
 
 function reading(input: { totals?: MeasuredNetwork[]; runs?: NetworkRun[]; surfaces?: RoomSurface[]; denominator?: number | null }): VectorPageReading {
   const denominator = input.denominator === undefined ? 50 : input.denominator;
@@ -117,5 +123,42 @@ describe("vectorItemRecords, rooms (review of PR #147)", () => {
       ]);
     expect(vectorItemRecords(reading({ denominator: null, surfaces: [{ ...surface("Hall", 120, null), outline: office.outline }] }), location)).toEqual([]);
     expect(vectorItemRecords({ ...reading({ surfaces: [office] }), mode: "raster" }, location)).toEqual([]);
+  });
+});
+
+describe("vector items within the review's read limits (review of PR #147)", () => {
+  const room = (index: number): RoomSurface => ({ room: `Pièce ${index}`, printed_m2: 10, anchor: { x: index, y: 0 }, polygon_m2: 10, polygon_points: 5,
+    outline: { group: "oc:oc2", points: [0, 0, 10, 0, 10, 10, 0, 10, 0, 0] }, deviation: 0 });
+
+  it("persists the rooms its page record keeps, never more", () => {
+    const rooms = Array.from({ length: VECTOR_PAGE_LIMITS.surfaces + 1 }, (_, index) => room(index));
+    const records = vectorItemRecords(reading({ surfaces: rooms }), location);
+    expect(records).toHaveLength(VECTOR_PAGE_LIMITS.surfaces);
+    expect(records.at(-1)?.item.designation).toBe(`Surface « Pièce ${VECTOR_PAGE_LIMITS.surfaces - 1} »`);
+  });
+
+  it("keeps the items of the pages that fit the job's limits, in page order, and drops a page's items as a whole", () => {
+    const network = (segments: number): VectorItemRecord => ({
+      item: { designation: "EF", quantity: 1, unit: "ml", confidence: 0.9, evidence: "", category: "réseau (lecture vectorielle)" },
+      geometry: { schema_version: 1, kind: "network", network: "EF", material: null, dn: null, zone: null, level: null, groups: [],
+        segments_m: Array.from({ length: segments }, () => [0, 0, 1, 0] as [number, number, number, number]), polygon_m: null, length_m: 1,
+        area_m2: null, transform: null },
+    });
+    const surfaceItem = vectorItemRecords(reading({ surfaces: [room(0)] }), location)[0]; // a 5-point polygon: 5 edges
+    const pages = [
+      { page: 1, items: [network(6), surfaceItem], error: null }, // 2 geometries, 11 segments
+      { page: 2, items: [network(10)], error: null }, // would reach 21 segments: dropped
+      { page: 3, items: [network(4), network(1)], error: null }, // 4 geometries, 16 segments: fits
+      { page: 4, items: [network(1)], error: null }, // a fifth geometry: dropped
+      { page: 5, items: [], error: "extraction_timeout: fictional" },
+    ];
+    const budgeted = budgetVectorItems(pages, { geometries: 4, segments: 20 });
+    expect(budgeted.map(({ page, items, error }) => [page, items.length, error])).toEqual([
+      [1, 2, null],
+      [2, 0, "item_budget: 1 geometries and 10 segments over the 4 geometries and 20 segments the review reads"],
+      [3, 2, null],
+      [4, 0, "item_budget: 1 geometries and 1 segments over the 4 geometries and 20 segments the review reads"],
+      [5, 0, "extraction_timeout: fictional"],
+    ]);
   });
 });
