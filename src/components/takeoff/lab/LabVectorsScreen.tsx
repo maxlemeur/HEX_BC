@@ -410,7 +410,7 @@ export function LabVectorsScreen() {
                 }} />
               <section aria-label="Classement Decisions" className="flex min-w-0 shrink-0 flex-col bg-surface" style={{ width: Math.min(resultsWidth, resultsMax) }}>
                 <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 text-xs">
-                  <span className="font-semibold uppercase tracking-wide text-muted-foreground">Classement Decisions</span>
+                  <span className="shrink-0 whitespace-nowrap font-semibold uppercase tracking-wide text-muted-foreground">Classement Decisions</span>
                   {run ? <span className="min-w-0 truncate text-muted-foreground">{new Date(run.created_at).toLocaleString("fr-FR")} · {promptVersionLabel(run.prompt.version)}</span> : null}
                   <IconButton label="Replier le classement" size="icon-xs" variant="ghost" icon={<PanelRightClose />} className="ml-auto" onClick={() => setRightOpen(false)} />
                 </div>
