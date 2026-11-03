@@ -3120,6 +3120,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         apiTakeoffVectorReadingSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
+      "413": jsonResponse(
+        "Lecture vectorielle trop volumineuse pour etre affichee (pages, geometries ou segments).",
+        apiTakeoffFailureResponseSchemaDefinition
+      ),
     },
   },
   {

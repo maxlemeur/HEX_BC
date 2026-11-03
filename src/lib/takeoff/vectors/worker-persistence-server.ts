@@ -12,10 +12,16 @@ import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 // takeoff_vector_pages row per page read, then its measured items in
 // takeoff_items (same columns as the level C items, metadata.vector naming
 // their kind) and one takeoff_item_geometries row per item. Called inside the
-// result persistence of the job, after its result row: a failure fails the
-// whole persistence, and clearing the job's results deletes these rows too.
+// result persistence of the job, after its result row. Clearing the job's
+// results deletes these rows too. A failure never fails the job: the processor
+// calls discardTakeoffVectorReading, which removes the rows already written.
+// Until TI-664 decides between both readings, a vector item is excluded by
+// default (with its reason): applying the level C reading never counts a
+// network twice; the user includes a vector item in the review.
 
 type ServiceClient = SupabaseClient<Database>;
+
+export const VECTOR_ITEM_EXCLUSION_REASON = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
 
 function failed(message: string, error: unknown): never {
   throw Object.assign(new Error(`${message} (${(error as { message?: string } | null)?.message ?? "erreur inconnue"})`), { cause: error });
@@ -44,6 +50,7 @@ export async function persistTakeoffVectorReading(input: {
       tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId,
       designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,
       evidence: record.item.evidence, source_file_name: outcome.fileName, source_page: outcome.page,
+      is_excluded: true, exclusion_reason: VECTOR_ITEM_EXCLUSION_REASON,
       metadata: { category: record.item.category, source_document: outcome.document,
         vector: { schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, kind: record.geometry.kind, key } },
     })) as never).select("id,metadata" as never);
@@ -61,4 +68,24 @@ export async function persistTakeoffVectorReading(input: {
     items += rows.length;
   }
   return { pages, items };
+}
+
+/** Removes what a failed persistence of the vector reading wrote for this result, then logs the failure. */
+export async function discardTakeoffVectorReading(input: {
+  supabase: ServiceClient;
+  job: { id: string; tenant_id: string };
+  resultId: string;
+  error: unknown;
+}) {
+  // Geometries go with their page (on delete cascade); vector items are the result's items with metadata.vector.
+  const pages = await input.supabase.from("takeoff_vector_pages" as never).delete()
+    .eq("tenant_id" as never, input.job.tenant_id as never).eq("job_id" as never, input.job.id as never).eq("result_id" as never, input.resultId as never);
+  const items = await input.supabase.from("takeoff_items" as never).delete()
+    .eq("tenant_id" as never, input.job.tenant_id as never).eq("job_id" as never, input.job.id as never).eq("result_id" as never, input.resultId as never)
+    .not("metadata->vector" as never, "is", null);
+  console.error("takeoff.vector.persistence_failed", {
+    job_id: input.job.id, tenant_id: input.job.tenant_id, result_id: input.resultId,
+    message: (input.error instanceof Error ? input.error.message : String(input.error)).slice(0, 500),
+    cleanup: { pages: pages.error?.message ?? "ok", items: items.error?.message ?? "ok" },
+  });
 }

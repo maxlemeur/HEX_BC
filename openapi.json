@@ -20676,6 +20676,16 @@
               }
             }
           },
+          "413": {
+            "description": "Lecture vectorielle trop volumineuse pour etre affichee (pages, geometries ou segments).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation metier echouee.",
             "content": {

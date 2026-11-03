@@ -6,7 +6,8 @@ import { VectorItemGeometrySchema, VectorPageRecordSchema } from "@/lib/takeoff/
 // job read from its vectors and the geometry of their measured items, for the
 // review viewer. Shared by the route, its client and the OpenAPI registry.
 
-export const TAKEOFF_VECTOR_READ_LIMITS = { pages: 200, geometries: 5000 } as const;
+/** Pages and geometries a job shows at most, and centreline segments across them (a response of a few MB). */
+export const TAKEOFF_VECTOR_READ_LIMITS = { pages: 200, geometries: 5000, segments: 200_000 } as const;
 
 export const takeoffVectorReadingResponseSchema = z.object({
   job_id: z.string().uuid(),

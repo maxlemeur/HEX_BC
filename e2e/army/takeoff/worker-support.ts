@@ -18,7 +18,8 @@ export type WorkerResult = {
   job: { id: string; status: string; level: string; retryCount: number; errorCode: string | null; nextRetryAt: string | null };
   resultIds: string[];
   results: Array<{ id: string; failed: boolean; errorCode: string | null; extractedJson: unknown; warningCodes: string[] }>;
-  items: Array<{ id: string; designation: string; quantity: number; unit: string; source_file_name: string; source_page: number }>;
+  items: Array<{ id: string; designation: string; quantity: number; unit: string; source_file_name: string; source_page: number;
+    is_excluded: boolean; exclusion_reason: string | null }>;
   providerCalls: number;
   /** TI-662: the persisted vector reading, read by the worker's service role. */
   vectorPages: Array<{ id: string; tenantId: string; resultId: string; planFileId: string | null; sourceFileName: string | null; sourcePage: number;
@@ -153,17 +154,22 @@ export async function launchWorkerVectorPlan(ui: WorkerUi) {
   expect(file).toMatchObject({ plan_set_id: plans.id, file_name: storedName, file_type: "application/pdf", file_size_bytes: bytes.length });
   const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
   const { userId } = await localClient();
-  const jobId = randomUUID();
   const plan = await client.from("plan_files").select("file_path").eq("id", file.id).single();
   expect(plan.error).toBeNull();
-  const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
-    plan_set_id: plans.id, created_by: userId, level: "C", status: "pending", source_file_name: fileName,
-    source_file_path: plan.data!.file_path, source_file_type: file.file_type, source_file_size_bytes: file.file_size_bytes,
-    execution_provider: "gemini" }).select("id").single();
-  expect(inserted.error).toBeNull();
+  // A pending level C job on this plan file; the journey seeds a second one as its flag-off control.
+  const seedJob = async () => {
+    const id = randomUUID();
+    const inserted = await client.from("takeoff_jobs").insert({ id, tenant_id: tenantId, estimate_version_id: ids.versionId,
+      plan_set_id: plans.id, created_by: userId, level: "C", status: "pending", source_file_name: fileName,
+      source_file_path: plan.data!.file_path, source_file_type: file.file_type, source_file_size_bytes: file.file_size_bytes,
+      execution_provider: "gemini" }).select("id").single();
+    expect(inserted.error).toBeNull();
+    return id;
+  };
+  const jobId = await seedJob();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
   await recordEvidence(ui.army, "TKW08-vector-plan-created", { ids, planSetId: plans.id, file, job, tenantId,
     boundary: "Fictional vector PDF uploaded through the plans UI; the pending level C job is seeded on the owned stack." });
-  return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id };
+  return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id, seedJob };
 }

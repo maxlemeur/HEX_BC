@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { LoaderCircle, Maximize2, Minus, Plus } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 
@@ -16,13 +16,21 @@ import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse }
 // vérifiée » and its reason). Data comes from GET /api/takeoff/jobs/{id}/
 // vector-pages under the user's session; the PDF from the plan file's signed
 // URL. Geometry is in metres from the page's top-left corner at the page's
-// scale.
+// scale. Ctrl/⌘ + wheel zooms (a plain wheel scrolls the review); the canvas
+// is capped at MAX_CANVAS_PIXELS, drawn smaller and stretched beyond.
 
 const MM_PER_POINT = 25.4 / 72;
+/** Pixels of the rendered page at most (Safari refuses larger canvases; an A0 at zoom 8 would be hundreds of MB). */
+const MAX_CANVAS_PIXELS = 16_777_216;
 const PALETTE = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-3)", "var(--color-chart-4)", "var(--color-chart-5)"];
 const SCALE_LABELS: Record<string, string> = { verified: "vérifiée par une cote", format: "format conforme", calibrated: "calibrée", unverified: "non vérifiée" };
 
 type VectorPage = TakeoffVectorReadingResponse["pages"][number];
+
+/** « 1/50 », a calibrated « 1/47.6 ». */
+function formatDenominator(denominator: number) {
+  return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
+}
 
 function networkLabel(item: VectorPage["items"][number]) {
   return item.geometry.network ?? "à revoir";
@@ -120,12 +128,14 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
     setRendering(true);
     void pdf.getPage(page.source_page).then(async (source) => {
       if (!active) return;
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      const viewport = source.getViewport({ scale: scale * ratio });
+      const unit = source.getViewport({ scale: 1 });
+      const wanted = scale * Math.min(window.devicePixelRatio || 1, 2);
+      const renderScale = Math.min(wanted, Math.sqrt(MAX_CANVAS_PIXELS / (unit.width * unit.height)));
+      const viewport = source.getViewport({ scale: renderScale });
       element.width = Math.ceil(viewport.width);
       element.height = Math.ceil(viewport.height);
-      element.style.width = `${viewport.width / ratio}px`;
-      element.style.height = `${viewport.height / ratio}px`;
+      element.style.width = `${unit.width * scale}px`;
+      element.style.height = `${unit.height * scale}px`;
       render = source.render({ canvas: element, viewport });
       await render.promise;
       if (active) setRendering(false);
@@ -135,6 +145,19 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
       render?.cancel();
     };
   }, [pdf, page, scale]);
+
+  // Ctrl/⌘ + wheel (and trackpad pinch) zooms the plan, without zooming the page: a non-passive listener.
+  useEffect(() => {
+    const element = frame.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setZoom((current) => Math.min(8, Math.max(0.25, current * (event.deltaY < 0 ? 1.15 : 1 / 1.15))));
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [reading]);
 
   if (error && !reading) return <p className="text-sm text-danger">{error}</p>;
   if (!reading) return <p className="text-sm text-muted-foreground"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Lecture vectorielle…</p>;
@@ -151,10 +174,6 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
     else next.add(name);
     return next;
   });
-  const onWheel = (event: ReactWheelEvent) => {
-    if (!event.ctrlKey && !event.metaKey && Math.abs(event.deltaY) < 1) return;
-    setZoom((current) => Math.min(8, Math.max(0.25, current * (event.deltaY < 0 ? 1.15 : 1 / 1.15))));
-  };
   const onPointerDown = (event: ReactPointerEvent) => {
     drag.current = { x: event.clientX - offset.x, y: event.clientY - offset.y };
   };
@@ -174,7 +193,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
         </NativeSelect>
         <div className="flex flex-wrap gap-2">
           <Badge variant={scaleStatus === "unverified" ? "warning" : "neutral"}>
-            Échelle {denominator ? `1/${denominator} ` : ""}{SCALE_LABELS[scaleStatus]}
+            Échelle {denominator ? `1/${formatDenominator(denominator)} ` : ""}{SCALE_LABELS[scaleStatus]}
           </Badge>
           {page?.reading.detection != null ? <Badge variant="info">Détection {Math.round(page.reading.detection * 100)} %</Badge> : null}
         </div>
@@ -185,14 +204,9 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
           {networks.length === 0 ? <p className="text-xs text-muted-foreground">Aucun réseau mesuré sur cette page.</p> : null}
           {networks.map((entry) => (
             <label key={entry.name} className="flex items-center gap-2 text-sm" title="Alt-clic : n’afficher que ce réseau">
+              {/* One handler: React fires onClick and onChange for the same click, so Alt is read from the change's click. */}
               <input type="checkbox" checked={!hidden.has(entry.name)} aria-label={`Afficher ${entry.name}`}
-                onClick={(event) => {
-                  if (event.altKey) {
-                    event.preventDefault();
-                    toggle(entry.name, true);
-                  }
-                }}
-                onChange={() => toggle(entry.name, false)} />
+                onChange={(event) => toggle(entry.name, (event.nativeEvent as MouseEvent).altKey === true)} />
               <span aria-hidden className="inline-block size-3 rounded-sm" style={{ background: entry.color }} />
               <span className="font-medium">{entry.name}</span>
               <span className="ml-auto tabular-nums text-muted-foreground">{entry.length.toFixed(2)} m</span>
@@ -212,7 +226,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
           {rendering ? <LoaderCircle aria-label="Rendu du plan" className="ml-2 size-4 animate-spin text-muted-foreground" /> : null}
         </div>
         <div ref={frame} className="relative h-[32rem] cursor-grab overflow-hidden rounded-md border border-border-subtle bg-surface-subtle"
-          onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; }}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; }}
           onPointerLeave={() => { drag.current = null; }}>
           <div className="absolute left-0 top-0" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>
             <canvas ref={canvas} aria-hidden className="block" />

@@ -337,6 +337,7 @@ export async function loadTakeoffSource(input: {
     const actualBudgetFiles: PlanSetResourceBudgetFile[] = [];
     const validatedSources: Array<{
       document: PDFDocument;
+      bytes: ArrayBuffer;
       fileName: string;
       sourceDocument: TakeoffSourceDocumentRef | undefined;
       filePath: string;
@@ -434,6 +435,7 @@ export async function loadTakeoffSource(input: {
 
       validatedSources.push({
         document: sourcePdf,
+        bytes: sourceBytes,
         fileName:
           getPlanFileSourceLabel(planFile) ??
           `plan-${validatedSources.length + 1}.pdf`,
@@ -474,6 +476,9 @@ export async function loadTakeoffSource(input: {
         filePath: source.filePath,
         pageCount: source.pageCount,
       })),
+      // TI-662: each plan file as drawn, all its pages, for the vector reading.
+      originalPdfSources: validatedSources.flatMap((source) => source.sourceDocument
+        ? [{ document: source.sourceDocument, fileName: source.fileName, bytes: source.bytes, pages: [] }] : []),
     };
   }
 

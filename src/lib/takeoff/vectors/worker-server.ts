@@ -22,7 +22,8 @@ import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
 // revoir »). A page calibration comes from the preparation's conventions when
 // it names that page. A page that fails or is raster gives no item; the level
 // C reading of the same job is unchanged beside it (pipeline step 5), the
-// rules of TI-664 decide between both.
+// rules of TI-664 decide between both. Any error of a page fails that page
+// only, logged: the vector reading never fails the level C job it joins.
 
 export const TAKEOFF_VECTOR_MAX_PAGES = 60;
 
@@ -54,7 +55,11 @@ export function preparationCalibration(snapshot: TakeoffPreparationSnapshot | un
   return Number.isFinite(denominator) && denominator > 0 ? { page, denominator, source: "conventions.calibration de la préparation" } : null;
 }
 
-export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, options: { onPage?: () => Promise<void> } = {}): Promise<VectorPageOutcome[]> {
+export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, options: {
+  onPage?: () => Promise<void>;
+  /** Identity of the job, for the log of a failed page. */
+  context?: { jobId: string; tenantId: string };
+} = {}): Promise<VectorPageOutcome[]> {
   const outcomes: VectorPageOutcome[] = [];
   for (const original of source.originalPdfSources ?? []) {
     const bytes = new Uint8Array(original.bytes);
@@ -62,6 +67,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
     const location = locationFromFileName(original.fileName);
     for (const page of pages) {
       if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) return outcomes;
+      // The lease renewal is the job's own: its failure stops the job, as everywhere else.
       await options.onPage?.();
       try {
         const extraction = await extractVectorPage(bytes, page);
@@ -69,8 +75,11 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
         outcomes.push({ document: original.document, fileName: original.fileName, page, record: vectorPageRecord(reading, location),
           items: vectorItemRecords(reading, location), error: null });
       } catch (error) {
-        if (!(error instanceof VectorExtractionError)) throw error;
-        outcomes.push({ document: original.document, fileName: original.fileName, page, record: null, items: [], error: error.message });
+        const reason = error instanceof VectorExtractionError ? error.reason : "reading_failed";
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("takeoff.vector.page_failed", { job_id: options.context?.jobId ?? null, tenant_id: options.context?.tenantId ?? null,
+          document: original.document, page, reason, message: message.slice(0, 500) });
+        outcomes.push({ document: original.document, fileName: original.fileName, page, record: null, items: [], error: `${reason}: ${message}`.slice(0, 500) });
       }
     }
   }

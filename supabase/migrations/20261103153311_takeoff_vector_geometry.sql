@@ -23,6 +23,8 @@ create table public.takeoff_vector_pages (
 create unique index takeoff_vector_pages_page_key
   on public.takeoff_vector_pages(result_id, coalesce(plan_file_id, '00000000-0000-0000-0000-000000000000'::uuid), source_page);
 create index takeoff_vector_pages_job_idx on public.takeoff_vector_pages(tenant_id, job_id);
+-- Deleting a job cascades here: its foreign key needs an index led by job_id.
+create index takeoff_vector_pages_job_fk_idx on public.takeoff_vector_pages(job_id);
 
 create table public.takeoff_item_geometries (
   takeoff_item_id uuid primary key references public.takeoff_items(id) on delete cascade,
@@ -35,6 +37,7 @@ create table public.takeoff_item_geometries (
 );
 create index takeoff_item_geometries_job_idx on public.takeoff_item_geometries(tenant_id, job_id);
 create index takeoff_item_geometries_page_idx on public.takeoff_item_geometries(vector_page_id);
+create index takeoff_item_geometries_job_fk_idx on public.takeoff_item_geometries(job_id);
 
 -- Tenant and job consistency: a page follows its result's job and tenant, a
 -- geometry its item's, on a page of the same job.

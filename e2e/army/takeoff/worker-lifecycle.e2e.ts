@@ -285,18 +285,21 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
 // TI-662 (L3): the vector reading of a level C plan is persisted beside its result, read back by the review
 // viewer under the user's session, and invisible to another tenant (API and RLS). Fictional plan, no model.
 armyTest("TKW08 a vector plan read at level C persists its measured networks, shows them in the review and stays invisible to another tenant", options, async (ui) => {
-  const { ids, jobId, fileName, tenantId, planFileId } = await launchWorkerVectorPlan(ui);
+  const { ids, jobId, fileName, tenantId, planFileId, seedJob } = await launchWorkerVectorPlan(ui);
   const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true }).done;
   expect(completed.outcome.status).toBe("completed");
   expect(completed.job).toMatchObject({ status: "completed", level: "C" });
   expect(completed.providerCalls).toBe(1);
   expect(completed.resultIds).toHaveLength(1);
   const [resultId] = completed.resultIds;
-  // The level C reading (controlled provider) and the two networks measured on the vectors, side by side.
-  expect(completed.items.map(({ designation, quantity, unit, source_file_name, source_page }) => ({ designation, quantity, unit, source_file_name, source_page }))).toEqual([
-    { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_file_name: fileName, source_page: 1 },
-    { designation: "ARMY worker valve", quantity: 3, unit: "u", source_file_name: fileName, source_page: 1 },
-    ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml", source_file_name: fileName, source_page: 1 })),
+  // The level C reading (controlled provider) and the two networks measured on the vectors, side by side; the vector items are
+  // excluded by default with their reason, so applying the level C reading never counts a network twice.
+  expect(completed.items.map(({ designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason }) =>
+    ({ designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason }))).toEqual([
+    { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_file_name: fileName, source_page: 1, is_excluded: false, exclusion_reason: null },
+    { designation: "ARMY worker valve", quantity: 3, unit: "u", source_file_name: fileName, source_page: 1, is_excluded: false, exclusion_reason: null },
+    ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml", source_file_name: fileName, source_page: 1,
+      is_excluded: true, exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." })),
   ]);
   const vectorItemIds = Object.fromEntries(completed.items.filter((item) => item.unit === "ml").map((item) => [item.designation, item.id]));
   expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId, sourceFileName: fileName, sourcePage: 1,
@@ -338,6 +341,37 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks, sh
   await expect(networks).toContainText("EUV3.00 m");
   const shown = viewer.getByText(/éléments affichés$/);
   await expect(shown).toHaveText("2 / 2 éléments affichés");
+  // The plan itself is drawn under the geometry: a painted canvas, no rendering error, the EF centreline where the PDF draws it.
+  await expect(viewer.getByText(/n’a pas pu être (affiché|chargée)/)).toHaveCount(0);
+  const drawn = await ui.browser.evaluate(async () => {
+    const section = document.querySelector("section[aria-label='Lecture vectorielle du plan']");
+    const deadline = Date.now() + 20_000;
+    let inked = 0, canvasWidth = 0;
+    while (Date.now() < deadline) {
+      const canvas = section?.querySelector("canvas");
+      const context = canvas && canvas.width > 0 ? canvas.getContext("2d") : null;
+      if (canvas && context) {
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        inked = 0;
+        // Bluish pixels only (antialiased thin strokes are lighter): black text and a white page do not count.
+        for (let index = 0; index < pixels.length; index += 4) if (pixels[index + 3] > 0 && pixels[index + 2] - pixels[index] > 60) inked += 1;
+        canvasWidth = canvas.width;
+        if (inked > 0) break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const svg = section?.querySelector("svg[aria-label='Géométrie mesurée']");
+    const lines = [...(svg?.querySelectorAll("g[data-network] line") ?? [])].map((line) => ({ network: line.parentElement?.getAttribute("data-network") ?? null,
+      x1: Number(line.getAttribute("x1")), y1: Number(line.getAttribute("y1")), x2: Number(line.getAttribute("x2")), y2: Number(line.getAttribute("y2")) }));
+    return { canvasWidth, inked, width: Number(svg?.getAttribute("width")), height: Number(svg?.getAttribute("height")), lines };
+  });
+  expect(drawn.canvasWidth).toBeGreaterThan(0);
+  expect(drawn.inked).toBeGreaterThan(0); // the blue pipes of the PDF, painted by pdfjs
+  expect(drawn.lines.map((line) => line.network).sort()).toEqual(["EF", "EUV"]);
+  const efLine = drawn.lines.find((line) => line.network === "EF")!;
+  // In page fractions: from x = 200 pt over 283.46 pt (100 mm), at 341.89 pt from the top, on a 1190.55 × 841.89 pt page.
+  expect([efLine.x1 / drawn.width, (efLine.x2 - efLine.x1) / drawn.width, efLine.y1 / drawn.height, efLine.y2 / drawn.height].map((value) => Math.round(value * 1000) / 1000))
+    .toEqual([200 / 1190.55, 283.46 / 1190.55, 341.89 / 841.89, 341.89 / 841.89].map((value) => Math.round(value * 1000) / 1000));
   const efToggle = viewer.getByRole("checkbox", "Afficher EF", { exact: true });
   const euvToggle = viewer.getByRole("checkbox", "Afficher EUV", { exact: true });
   await efToggle.click({ modifiers: ["Alt"] });
@@ -352,6 +386,17 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks, sh
   await recordEvidence(ui.army, "TKW08-vector-review", { ids, jobId, resultId, vectorPage, geometries: completed.geometries, items: completed.items,
     reading: { scale: page.reading.scale, detection: page.reading.detection, location: page.reading.location },
     boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1, real extraction and persistence; level C provider controlled; fictional vector plan." });
+
+  // Control: the same plan read without MERGEONE_TAKEOFF_VECTORS writes no vector row and no vector item.
+  const controlJobId = await seedJob();
+  const control = await startOwnedWorker(ui, ids, controlJobId).done;
+  expect(control.outcome.status).toBe("completed");
+  expect(control.job).toMatchObject({ status: "completed", level: "C" });
+  expect([control.vectorPages, control.geometries, control.items.map((item) => item.designation)])
+    .toEqual([[], [], ["ARMY worker pipe", "ARMY worker valve"]]);
+  const controlRead = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${controlJobId}/vector-pages`);
+  expect([controlRead.status, controlRead.body.data.pages]).toEqual([200, []]);
+  await recordEvidence(ui.army, "TKW08-flag-off-control", { controlJobId, items: control.items, vectorPages: control.vectorPages });
 
   // Another tenant: its owner sees neither the job nor its vector reading, through the API or the RLS.
   const owner = await ownedEstimateContext(ids.projectId);

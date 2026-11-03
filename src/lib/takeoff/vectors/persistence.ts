@@ -100,8 +100,10 @@ export function vectorPageRecord(reading: VectorPageReading, location: VectorPag
     schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, reading_version: reading.version, mode: reading.mode, size_pt: reading.size_pt,
     rotate: reading.rotate, location,
     scale: {
-      status: reading.scale.status, reason: reading.scale.reason, denominator: reading.scale.denominator, cartouche: reading.scale.cartouche,
-      format: { cartouche: reading.scale.format.cartouche, page_mm: reading.scale.format.page_mm, matches: reading.scale.format.matches },
+      status: reading.scale.status, reason: reading.scale.reason?.slice(0, 64) ?? null, denominator: reading.scale.denominator,
+      // Texts are cut to their bounds: a long scale note never fails the page (the extraction keeps up to 500 characters).
+      cartouche: reading.scale.cartouche === null ? null : { ...reading.scale.cartouche, text: reading.scale.cartouche.text.slice(0, 120) },
+      format: { cartouche: reading.scale.format.cartouche?.slice(0, 40) ?? null, page_mm: reading.scale.format.page_mm, matches: reading.scale.format.matches },
       cotes: reading.scale.cotes.slice(0, VECTOR_PAGE_LIMITS.cotes).map((cote) => ({
         text: cote.text.slice(0, 40), value_m: cote.value_m, measured_m: cote.measured_m, consistent: cote.consistent })),
       calibration: reading.scale.calibration === null ? null : { ...reading.scale.calibration, source: reading.scale.calibration.source.slice(0, 500) },

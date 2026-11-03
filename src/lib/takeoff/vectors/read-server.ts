@@ -9,9 +9,19 @@ import { TAKEOFF_VECTOR_READ_LIMITS, takeoffVectorReadingResponseSchema, type Ta
 // session: the job must be readable (404 otherwise, as the job detail), and the
 // RLS of takeoff_vector_pages and takeoff_item_geometries applies the same
 // estimate access. Rows that fail their versioned schema fail the read.
+// Geometries are read in pages of GEOMETRY_PAGE_ROWS (under the API's
+// max_rows of 1000) with an exact count: never a silent cut. Over the limits
+// of read-contracts.ts the read is refused (413).
 
 type PageRow = { id: string; plan_file_id: string | null; source_file_name: string | null; source_page: number; reading: unknown };
 type GeometryRow = { takeoff_item_id: string; vector_page_id: string; geometry: unknown };
+
+const GEOMETRY_PAGE_ROWS = 500;
+
+function tooLarge(jobId: string): never {
+  throw new TakeoffError({ status: 413, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "La lecture vectorielle de ce métré dépasse la taille affichée.",
+    retryable: false, jobId });
+}
 
 function readError(jobId: string, message: string, error: unknown): never {
   throw toTakeoffError(mapSupabaseError(error as never, message), { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
@@ -25,16 +35,28 @@ export async function getTakeoffVectorReading(jobId: string): Promise<TakeoffVec
     .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, jobId as never)
     .order("source_file_name" as never).order("source_page" as never).range(0, TAKEOFF_VECTOR_READ_LIMITS.pages);
   if (pagesError) readError(jobId, "Impossible de charger la lecture vectorielle du métré.", pagesError);
-  const { data: geometries, error: geometriesError } = await context.supabase.from("takeoff_item_geometries" as never)
-    .select("takeoff_item_id,vector_page_id,geometry" as never)
-    .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, jobId as never)
-    .order("takeoff_item_id" as never).range(0, TAKEOFF_VECTOR_READ_LIMITS.geometries);
-  if (geometriesError) readError(jobId, "Impossible de charger la géométrie du métré.", geometriesError);
   const pageRows = (pages ?? []) as unknown as PageRow[];
-  const geometryRows = (geometries ?? []) as unknown as GeometryRow[];
-  if (pageRows.length > TAKEOFF_VECTOR_READ_LIMITS.pages || geometryRows.length > TAKEOFF_VECTOR_READ_LIMITS.geometries) {
-    throw new TakeoffError({ status: 413, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "La lecture vectorielle de ce métré dépasse la taille affichée.",
-      retryable: false, jobId });
+  if (pageRows.length > TAKEOFF_VECTOR_READ_LIMITS.pages) tooLarge(jobId);
+  const geometryRows: GeometryRow[] = [];
+  let segments = 0;
+  for (let start = 0; ; start += GEOMETRY_PAGE_ROWS) {
+    const { data, error, count } = await context.supabase.from("takeoff_item_geometries" as never)
+      .select("takeoff_item_id,vector_page_id,geometry" as never, { count: "exact" })
+      .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, jobId as never)
+      .order("takeoff_item_id" as never).range(start, start + GEOMETRY_PAGE_ROWS - 1);
+    if (error) readError(jobId, "Impossible de charger la géométrie du métré.", error);
+    if (count === null || count === undefined) readError(jobId, "Impossible de compter la géométrie du métré.", null);
+    if (count > TAKEOFF_VECTOR_READ_LIMITS.geometries) tooLarge(jobId);
+    const batch = (data ?? []) as unknown as GeometryRow[];
+    for (const row of batch) {
+      const rowSegments = (row.geometry as { segments_m?: unknown[] } | null)?.segments_m;
+      segments += Array.isArray(rowSegments) ? rowSegments.length : 0;
+    }
+    if (segments > TAKEOFF_VECTOR_READ_LIMITS.segments) tooLarge(jobId);
+    geometryRows.push(...batch);
+    if (geometryRows.length >= count) break;
+    // A short page before the count: rows changed during the read.
+    if (batch.length < GEOMETRY_PAGE_ROWS) readError(jobId, "Lecture incomplète de la géométrie du métré.", null);
   }
   const parsed = takeoffVectorReadingResponseSchema.safeParse({
     job_id: jobId,

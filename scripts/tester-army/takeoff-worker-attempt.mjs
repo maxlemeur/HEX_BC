@@ -101,6 +101,8 @@ const callGemini = async (options) => {
     tables: [{ page: 1, title: "ARMY quantities", headers: ["designation", "quantity", "unit"],
       rows: [{ row_index: 0, cells: ["ARMY worker pipe", "12.5", "m"] }, { row_index: 1, cells: ["ARMY worker valve", "3", "u"] }] }],
     metadata: { level: current.level, prompt_version: options.context.promptVersion, file_type: current.level === "A" ? "csv" : "pdf", schema_version: "v1" },
+    // Level C requires a global confidence (schemas.ts).
+    ...(current.level === "C" ? { confidence: 0.95 } : {}),
   });
   return { data, tokenCount: 0, tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
     costCents: 0, durationMs: 1, model: options.context.model, promptVersion: options.context.promptVersion, providerBatchId: null, providerBatchStateRaw: null };
@@ -114,7 +116,7 @@ try {
   });
   const job = await readJob();
   const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);
-  const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page").eq("job_id", jobId).order("designation");
+  const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason").eq("job_id", jobId).order("designation");
   // TI-662: the vector reading persisted beside the level C result (MERGEONE_TAKEOFF_VECTORS=1 only).
   const vectorPages = await worker.from("takeoff_vector_pages").select("id, tenant_id, result_id, plan_file_id, source_file_name, source_page, reading").eq("job_id", jobId).order("source_page");
   const geometries = await worker.from("takeoff_item_geometries").select("takeoff_item_id, tenant_id, vector_page_id, geometry").eq("job_id", jobId);
