@@ -76,6 +76,8 @@ export function LabEssaiScreen() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [resultsWidth, setResultsWidth] = useState(620);
   const pdf = useRef<PDFDocumentProxy | null>(null);
+  /** Whether the canvas has loaded the plan: a Decisions essai sends one rendered page of it. */
+  const [planLoaded, setPlanLoaded] = useState(false);
   const fieldId = useId();
   const workArea = useRef<HTMLDivElement>(null);
   const [workWidth, setWorkWidth] = useState(0);
@@ -174,6 +176,7 @@ export function LabEssaiScreen() {
     : configs.some((config) => config.provider === "chatgpt") && !chatgptReady ? state.chatgpt.message ?? "ChatGPT n’est pas prêt."
     : configs.some((config) => config.provider === "chatgpt" && !config.model) ? modelsError ?? "Choisissez un modèle ChatGPT."
     : configs.some((config) => config.provider === "decisions") && !state.decisions.available ? state.decisions.message
+    : configs.some((config) => config.provider === "decisions") && !planLoaded ? "Le plan se charge…"
     : null;
 
   async function launch() {
@@ -374,7 +377,7 @@ export function LabEssaiScreen() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div ref={workArea} className="flex min-h-0 flex-1">
           <LabPdfCanvas className="min-w-0 flex-1" label="Plan de l’essai" url={document ? labApi.documentUrl(document.id) : null}
-            page={page} onPageChange={(next) => { setPage(next); setBox(null); }} onDocument={(value) => { pdf.current = value; }}
+            page={page} onPageChange={(next) => { setPage(next); setBox(null); }} onDocument={(value) => { pdf.current = value; setPlanLoaded(value !== null); }}
             box={box} cropMode={cropMode} onBoxChange={(next) => { setBox(next); setCropMode(false); }} />
           <div role="separator" aria-orientation="vertical" aria-label="Largeur des résultats" tabIndex={0}
             aria-valuenow={Math.round(resultsWidth)} aria-valuemin={RESULTS_MIN} aria-valuemax={Math.round(resultsMax)}
