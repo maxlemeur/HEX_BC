@@ -151,12 +151,37 @@ type ProcessErrorTarget = Pick<NodeJS.Process, "on">;
 const installedTargets = new WeakSet<object>();
 
 /**
+ * Next 16 hands the body of a proxied non-GET request to its route through
+ * `replaceRequestBody` (next/dist/server/body-streams.js). It copies a plain
+ * Readable's listeners and destroy methods onto the IncomingMessage, which
+ * drops the router's `error` listener and Node's guard that emits an aborted
+ * request's error only when someone listens. When the client leaves before the
+ * route answers (a navigation while a POST or PATCH is pending), Node's HTTP
+ * server destroys the request with its ConnResetException("aborted") and the
+ * error reaches `uncaughtException`. It is a client disconnect, not a server
+ * fault. Remove this exception once Next keeps that guard: the process hook
+ * test in error-reporter.test.ts then no longer sees the uncaught error.
+ *
+ * An HTTP client response cut by an upstream server carries the same code and
+ * message but is created in node:_http_client, so it still ends the process.
+ */
+function isClientAbortedRequest(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, message, stack } = error as { code?: unknown; message?: unknown; stack?: unknown };
+  if (code !== "ECONNRESET" || message !== "aborted" || typeof stack !== "string") return false;
+  const origin = stack.split("\n").map((line) => line.trim()).find((line) => line.startsWith("at "));
+  return origin !== undefined && /^at (?:.+ \()?node:_http_server:\d+:\d+\)?$/.test(origin);
+}
+
+/**
  * Installs process-level reporters once per target (idempotent under HMR).
  *
  * An `uncaughtException` handler replaces Node's default "log and crash";
  * a server kept alive after one is in an undefined state. We report (bounded
  * by a timeout so a dead DSN cannot hang the crash) and then exit non-zero so
- * the platform restarts the worker.
+ * the platform restarts the worker. The only exception is a client that left
+ * before its request was answered (see `isClientAbortedRequest`): the server
+ * logs a warning and keeps serving.
  */
 export function installProcessErrorHooks(
   options: {
@@ -187,6 +212,10 @@ export function installProcessErrorHooks(
     });
 
   target.on("uncaughtException", (error) => {
+    if (isClientAbortedRequest(error)) {
+      console.warn(ERROR_REPORTER_LOG_PREFIX, "client left before its request was answered; the server keeps serving");
+      return;
+    }
     console.error(ERROR_REPORTER_LOG_PREFIX, "uncaughtException", error);
     const report = reportErrorAndWait({
       error,

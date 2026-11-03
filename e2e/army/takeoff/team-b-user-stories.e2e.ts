@@ -222,6 +222,14 @@ async function uploadAndClassifyIntakeDpgf(page: Page, input: {
   const storagePath = classified.data?.[0]?.storage_path;
   if (!storagePath) throw new Error("The owned DPGF has no storage path.");
   (page.army.ownedIntakeCopies ??= []).push({ projectId: input.projectId, storagePath });
+  return documentId as string;
+}
+
+/** A hub with documents keeps them in the « Documents du dossier » drawer (f63d9cd6); the piece's link opens it on the DPGF. */
+async function openDossierDpgfImport(page: Page, projectId: string, documentId: string) {
+  await page.goto(`/dashboard/affaires/${projectId}?intakeDocument=${documentId}#intake`);
+  await page.getByRole("dialog", { name: "Documents du dossier", exact: true })
+    .getByRole("button", { name: "Importer cette DPGF", exact: true }).click();
 }
 
 async function fetchLatestProjectVersion(projectId: string) {
@@ -581,7 +589,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       title: "US-2.3 source version",
     });
 
-    const [projectId] = await Promise.all([
+    const [projectId, documentId] = await Promise.all([
       extractProjectId(page, sourceVersionId),
       uploadAndClassifyIntakeDpgf(page, {
         projectId: await extractProjectId(page, sourceVersionId),
@@ -589,10 +597,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       }),
     ]);
 
-    await page.goto(`/dashboard/affaires/${projectId}`);
-    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
-    await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
-    await page.getByRole("button", { name: /Lancer l'import structur[ée]/i }).click();
+    await openDossierDpgfImport(page, projectId, documentId);
     await expect(page.getByText("Glissez-déposez votre fichier DPGF ici")).toBeVisible();
 
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
@@ -638,12 +643,9 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       title: "US-2.4 source version",
     });
     const projectId = await extractProjectId(page, sourceVersionId);
-    await uploadAndClassifyIntakeDpgf(page, { projectId, fixturePath });
+    const documentId = await uploadAndClassifyIntakeDpgf(page, { projectId, fixturePath });
 
-    await page.goto("/dashboard/affaires/" + projectId);
-    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
-    await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
-    await page.getByRole("button", { name: /Lancer l'import structur[ée]/i }).click();
+    await openDossierDpgfImport(page, projectId, documentId);
     await expect(page.getByText("Glissez-déposez votre fichier DPGF ici")).toBeVisible();
 
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
