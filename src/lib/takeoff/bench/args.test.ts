@@ -29,8 +29,12 @@ import { BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "
 // - a page list with 0, a reversed range, a repeated page or text is accepted, or
 //   --pages and --pages-from are both given.
 // Both modes together (merge of TI-662 and TI-663):
-// - --pipeline vector accepts --mode, --max-decisions-tokens, --pages or
-//   --pages-from it would ignore (it calls no model and reads every page);
+// - --pipeline vector accepts --mode, --pages or --pages-from it would ignore
+//   (it reads every page);
+// Decisions classes of the vector groups (TI-662 L3c), written before the code:
+// - --pipeline vector refuses --max-decisions-tokens, or accepts a zero,
+//   fractional or negative ceiling (paid calls without a real ceiling);
+// - a vector run without it gets a ceiling (and an owner, and paid calls).
 // - a chatgpt run, extraction or triage, does not say its pipeline.
 
 const required = ["--dataset", "/fixture/dataset", "--docs", "all", "--models", "model-a", "--efforts", "auto", "--out", "/fixture/run"];
@@ -72,12 +76,18 @@ describe("takeoff bench arguments", () => {
   it("reads a vector run without model nor effort, its baseline null unless given", () => {
     expect(parseBenchArgs(vector)).toEqual({
       pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 1, out: "/fixture/run", baseline: null,
+      maxDecisionsTokens: null,
     });
     expect(parseBenchArgs([...vector, "--baseline", "/fixture/baseline/report.json", "--repeat", "3"]))
       .toEqual({ pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 3, out: "/fixture/run",
-        baseline: "/fixture/baseline/report.json" });
+        baseline: "/fixture/baseline/report.json", maxDecisionsTokens: null });
     expect(parseBenchArgs(["--pipeline=vector", "--dataset=/fixture/dataset", "--docs=all", "--out=/fixture/run",
       "--baseline=/fixture/baseline/report.json"])).toMatchObject({ pipeline: "vector", docs: "all", baseline: "/fixture/baseline/report.json" });
+  });
+
+  it("reads a vector run with its Decisions ceiling", () => {
+    expect(parseBenchArgs([...vector, "--max-decisions-tokens", "500000"])).toMatchObject({ pipeline: "vector", maxDecisionsTokens: 500_000, baseline: null });
+    expect(parseBenchArgs([...vector, "--max-decisions-tokens=10", "--repeat", "2"])).toMatchObject({ maxDecisionsTokens: 10, repeat: 2 });
   });
 
   it.each([
@@ -94,7 +104,9 @@ describe("takeoff bench arguments", () => {
     ["--baseline without value", [...vector, "--baseline"]],
     ["--baseline given twice", [...vector, "--baseline", "/fixture/a.json", "--baseline", "/fixture/b.json"]],
     ["--mode triage on the vector pipeline", [...vector, "--mode", "triage", "--max-decisions-tokens", "10"]],
-    ["--max-decisions-tokens on the vector pipeline", [...vector, "--max-decisions-tokens", "10"]],
+    ["a zero Decisions ceiling on the vector pipeline", [...vector, "--max-decisions-tokens", "0"]],
+    ["a fractional Decisions ceiling on the vector pipeline", [...vector, "--max-decisions-tokens", "1.5"]],
+    ["a negative Decisions ceiling on the vector pipeline", [...vector, "--max-decisions-tokens=-10"]],
     ["--pages on the vector pipeline", [...vector, "--pages", "1"]],
     ["--pages-from on the vector pipeline", [...vector, "--pages-from", "/fixture/triage/report.json"]],
     ["--baseline on a triage run", ["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "10", "--out", "/o",

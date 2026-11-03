@@ -1,4 +1,4 @@
-import { applyCorrespondences, classifyByKeywords, detectionShare, isNetworkClass, type GroupClass } from "@/lib/takeoff/vectors/classify";
+import { applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, isMeasuredNetwork, type DecisionsAnswer, type GroupClass } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { SegmentIndex, boxContains } from "@/lib/takeoff/vectors/geometry";
 import { readLabelBlocks } from "@/lib/takeoff/vectors/labels";
@@ -9,15 +9,16 @@ import { readPageScale, type PageCalibration, type PageScale } from "@/lib/takeo
 import { readRoomSurfaces, type RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 
-// The vector reading of one page (TI-662 steps 1 to 4, keywords only):
-// extraction → groups → scale → legend, keyword and label-vote classes (then
-// document or user correspondences) → network centrelines, labels, DN → room surfaces
+// The vector reading of one page (TI-662 steps 1 to 4):
+// extraction → groups → scale → legend, keyword and label-vote classes, then
+// Decisions answers when given (group-decisions-server.ts), then document or
+// user correspondences → network centrelines, labels, DN → room surfaces
 // (rings, else the floor filled between walls).
 // A page whose raster images cover ≥ 90 % of it is « raster »: its vectors are
 // read (texts, scale) but no network is measured from them; the level C
 // reading stays the source (TI-658 pipeline step 5).
 
-export const VECTOR_READING_VERSION = 7;
+export const VECTOR_READING_VERSION = 8;
 export const RASTER_COVERAGE = 0.9;
 
 export type VectorGroupReading = Pick<GroupStats, "id" | "layer" | "layerName" | "colors" | "width" | "dash" | "paths" | "segments" | "closed" | "nearWhite" | "grey"> & {
@@ -51,6 +52,8 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   calibration?: PageCalibration | null;
   correspondences?: ReadonlyMap<string, VectorClass>;
   correspondenceSource?: "document" | "user";
+  /** Decisions answers by group id (classify.ts applyDecisions): only groups without class nor candidates take them. */
+  decisions?: ReadonlyMap<string, DecisionsAnswer>;
   clock?: () => number;
 } = {}): VectorPageReading {
   const clock = options.clock ?? (() => performance.now());
@@ -65,6 +68,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
     .filter((block) => !legend.boxes.some((box) => boxContains(box, block.centre)));
   let classes: GroupClass[] = classifyByKeywords(model, legend);
   if (mode === "colours") classes = classifyByLabels(model, classes, labels);
+  if (mode !== "raster" && options.decisions && options.decisions.size > 0) classes = applyDecisions(model, classes, options.decisions);
   if (options.correspondences && options.correspondences.size > 0) {
     classes = applyCorrespondences(model, classes, options.correspondences, options.correspondenceSource ?? "document");
   }
@@ -91,7 +95,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   };
 }
 
-/** Groups classified as a network by this reading. */
+/** Groups measured as a network by this reading (a Decisions proposal under 0.8 is not). */
 export function networkGroups(reading: VectorPageReading) {
-  return reading.groups.filter((group) => isNetworkClass(group.class));
+  return reading.groups.filter((group) => isMeasuredNetwork(group));
 }

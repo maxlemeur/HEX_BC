@@ -6,7 +6,8 @@ toujours les mêmes groupes, la même échelle et les mêmes longueurs.
 
 Le code est dans [`src/lib/takeoff/vectors/`](../../src/lib/takeoff/vectors/).
 Le banc la mesure avec `npm run takeoff:bench -- --pipeline vector`
-([`vector-run.ts`](../../src/lib/takeoff/bench/vector-run.ts)).
+([`vector-run.ts`](../../src/lib/takeoff/bench/vector-run.ts)). Seule l'étape
+Decisions, facultative, appelle un modèle (voir le classement).
 
 Les seuils ci-dessous sont des valeurs de départ. Max peut les changer : chacun
 est une constante nommée et versionnée dans le code.
@@ -102,8 +103,49 @@ est une constante nommée et versionnée dans le code.
    - **libellés** : une couleur sans légende prend le réseau de ses libellés. Il faut au
      moins 2 libellés, d'accord à 80 %, dont la ligne de rappel finit sur elle.
 
-   Viennent ensuite les correspondances de l'utilisateur (au banc, celles de
-   `truth/groups`), puis Decisions pour les groupes restés sans classe (étape à venir).
+   Vient ensuite **Decisions**, pour les groupes restés sans classe
+   ([`group-decisions.ts`](../../src/lib/takeoff/vectors/group-decisions.ts),
+   [`group-decisions-server.ts`](../../src/lib/takeoff/vectors/group-decisions-server.ts)) :
+   - Candidats : les groupes d'une page non raster sans classe ni candidats de légende
+     (une couleur partagée se tranche par les libellés), ni masqués (calque OFF), ni
+     quasi blancs, d'au moins 0,1 % de la longueur visible de la page (hors quasi-blancs
+     et calques masqués). Les plus longs d'abord.
+   - Limites par page du document : 10 appels groupés de 36 groupes, soit 360 groupes au
+     plus ; au-delà, les groupes restent « à revoir » et leur nombre est compté.
+   - N = 36 : une planche de 6 × 6 vignettes de 384 px reste lisible pour environ 0,27 Mo
+     en base64 (essai du 3/11/2026).
+   - Une question à choix par groupe, nommée par un alias (« groupe_01 »… dans l'ordre de
+     la planche) : un identifiant de groupe peut dépasser les 160 caractères d'un nom de
+     question. Les choix sont les codes réseau, avec leur libellé, puis mur, cloison,
+     fond, cotation, texte et autre. Un groupe gris ne se voit proposer aucun réseau.
+   - Contexte JSON : des statistiques seulement (couleurs, épaisseur, tiret, longueurs
+     en pt et en m si l'échelle est mesurable, part de la page, tracés, segments,
+     fermés, rectangle englobant en fractions de page, nom du calque si la page en a,
+     les 3 libellés les plus proches), l'échelle et les codes de la légende. Il reste
+     sous 256 Kio : on retire d'abord les libellés, puis les noms de calque, jamais les
+     alias.
+   - Images : 1. un extrait de la page autour de la légende (rendu pdfjs, 1 600 px au
+     plus), ou la page entière sans légende. Les cadres de légende à moins de 48 pt les
+     uns des autres forment une légende ; on garde celle qui en a le plus, jamais l'union
+     avec un code isolé loin d'elle ; 2. la planche des groupes, dessinée depuis
+     la géométrie extraite : le groupe épaissi dans une version foncée de sa couleur, les
+     autres tracés imprimés en gris très clair, chaque vignette titrée par son alias.
+     Les points sont plafonnés par vignette.
+   - Appel dédié : un groupe dont la réponse manque, est refusée, invalide ou sous 0,5
+     est redemandé seul, avec son propre rendu de 1 200 px (50 appels dédiés par page au
+     plus). Sa réponse remplace celle du lot.
+   - Le plafond de jetons est consulté avant chaque appel. Un refus, le premier appel en
+     échec ou indisponible, ou une erreur avant l'envoi arrêtent les appels, sans
+     nouvel essai : les groupes restants restent « à revoir ».
+   - Sans module de dessin, ou si une image ne peut pas être dessinée, aucun appel n'est
+     fait pour la page : ses groupes restent « à revoir », la raison est gardée.
+   - Une réponse ne s'applique qu'à un groupe encore sans classe. Elle ne fait jamais un
+     réseau d'un groupe quasi blanc, gris ou masqué.
+   - Une réponse à 0,8 ou plus est classée et mesurée. En dessous, c'est une proposition
+     affichée avec sa confiance : elle n'est ni mesurée, ni comptée dans le badge.
+
+   Les correspondances de l'utilisateur (au banc, celles de `truth/groups`) passent
+   enfin devant toute autre classe.
 
    Le badge « Détection X % » vaut la longueur classée divisée par la longueur des
    tracés de la page hors quasi-blancs.
@@ -183,7 +225,7 @@ est une constante nommée et versionnée dans le code.
        PORTE, DOOR, FENÊTRE, WINDOW, au singulier ou au pluriel) : leurs portes et
        fenêtres ferment les baies des murs. Jamais un calque masqué ni un trait quasi
        blanc. Une page sans groupe mur ou cloison n'est pas remplie (une page lue par
-       couleurs n'en a que par correspondance).
+       couleurs n'en a que par correspondance, ou par Decisions à 0,8 ou plus).
      - Portes : un arc de 60 à 120°, de 0,50 à 1,60 m de rayon, dont les points sont à
        égale distance d'un centre (la paumelle), seul autour de ce centre (deux copies
        d'un même arc tracé deux fois n'en font qu'un : mêmes bouts et même milieu ; les
@@ -236,6 +278,23 @@ est une constante nommée et versionnée dans le code.
    Les items d'un métré restent dans ce que sa revue lit (5 000 géométries, 200 000
    axes ou côtés de polygone) : une page qui dépasserait garde sa lecture sans ses items,
    et la raison est journalisée. Une page garde au plus les 300 pièces de sa lecture.
+
+## Decisions au banc
+
+Sans option, le banc vectoriel ne lit que les mots-clés et n'appelle aucun modèle.
+Avec `--max-decisions-tokens <n>`, il classe les groupes restants par Decisions, sous ce
+plafond de jetons pour tout le run :
+
+- il faut `TAKEOFF_BENCH_CHATGPT_OWNER` (le tenant des appels), et, injectés seuls,
+  `MERGEONE_OPENAI_DECISIONS=1` et `OPENAI_DECISIONS_API_KEY`. La clé n'est jamais
+  enregistrée ;
+- chaque page est lue par mots-clés, classée, puis relue avec les réponses ;
+- si Decisions est indisponible, aucune page n'est lue. Un appel en échec ou un refus du
+  plafond arrête le run : il est incomplet, les pages suivantes ne sont pas lues, et le
+  script sort avec le code 2 ;
+- le rapport donne, par document, les appels groupés et dédiés, les jetons, les
+  latences p50 / p95 des appels et des rendus, le plafond et l'arrêt ; `report.json`
+  garde la réponse de chaque groupe (alias, groupe, classe, confiance, statut, appel).
 
 ## Score au banc
 
