@@ -23,7 +23,7 @@ import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
 import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active";
-import { isProductionWorkspaceRoute } from "@/lib/navigation/dashboard-navigation-mode";
+import { isProductionWorkspaceRoute, isToolWorkspaceRoute } from "@/lib/navigation/dashboard-navigation-mode";
 import { initStore } from "@/lib/stores/last-affaire-store";
 import { KeyboardIcon, XIcon } from "lucide-react";
 
@@ -128,6 +128,7 @@ export function DashboardShell({
   // The navigation is always the workspace top bar + drawer (see dashboard-navigation-mode.ts).
   const navigationMode = "workspace" as const;
   const isProductionWorkspace = isProductionWorkspaceRoute(pathname);
+  const isToolWorkspace = isToolWorkspaceRoute(pathname);
   const userInitials = buildInitials(displayName);
   const { enabled: isSidebarFlagIndicatorEnabled } = useFeatureFlag(
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
@@ -495,25 +496,34 @@ export function DashboardShell({
         data-density={density}
         className="min-w-0 min-h-0 flex-1 focus:outline-none"
       >
-        <div
-          className={`mx-auto w-full px-3 pb-6 sm:px-6 sm:pb-8 ${
-            isProductionWorkspace
-              ? "dashboard-workspace-content pt-0"
-              : "py-6 sm:py-8"
-          }`}
-        >
-          {children}
-        </div>
-        <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-micro font-medium tracking-wide text-subtle-foreground sm:px-6">
-          <p
-            role="note"
-            aria-label={`Version de l'application ${appVersion}${
-              appBuildId ? `, build ${appBuildId}` : ""
-            }`}
-          >
-            {`v${appVersion}${appBuildId ? ` · ${appBuildId}` : ""}`}
-          </p>
-        </footer>
+        {isToolWorkspace ? (
+          // Tool mode: the screen owns the whole height under the top bar; its panels scroll, never the page.
+          <div className="h-[calc(100dvh-60px)] overflow-hidden" data-layout="tool">
+            {children}
+          </div>
+        ) : (
+          <>
+            <div
+              className={`mx-auto w-full px-3 pb-6 sm:px-6 sm:pb-8 ${
+                isProductionWorkspace
+                  ? "dashboard-workspace-content pt-0"
+                  : "py-6 sm:py-8"
+              }`}
+            >
+              {children}
+            </div>
+            <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-micro font-medium tracking-wide text-subtle-foreground sm:px-6">
+              <p
+                role="note"
+                aria-label={`Version de l'application ${appVersion}${
+                  appBuildId ? `, build ${appBuildId}` : ""
+                }`}
+              >
+                {`v${appVersion}${appBuildId ? ` · ${appBuildId}` : ""}`}
+              </p>
+            </footer>
+          </>
+        )}
       </main>
 
       <KeyboardShortcutsModal

@@ -191,7 +191,26 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
   return checked;
 }
 
-export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>, selection?: { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null }, override?: LocalChatGptOverride): Promise<CallGeminiStructuredResult<T> & { reasoningEffort: ChatGptReasoningEffort | null }> {
+type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
+export type LocalChatGptResult<T> = CallGeminiStructuredResult<T> & { reasoningEffort: ChatGptReasoningEffort | null };
+/** An answer that is not JSON (SyntaxError) or does not match the schema (ZodError). */
+export type LocalChatGptSchemaError = SyntaxError | z.ZodError;
+/**
+ * With returnRawOnSchemaError (takeoff lab, TI-661): the answer's text as received,
+ * which the schema's parse may have stripped of unknown keys, and, instead of a
+ * thrown schema failure, the error with the tokens and the duration it consumed.
+ */
+export type LocalChatGptRawResult<T> =
+  | (LocalChatGptResult<T> & { rawText: string; schemaError: null })
+  | (Omit<LocalChatGptResult<T>, "data"> & { data: null; rawText: string; schemaError: LocalChatGptSchemaError });
+
+export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>,
+  selection?: LocalChatGptSelection, override?: LocalChatGptOverride): Promise<LocalChatGptResult<T>>;
+/** Provider errors still throw; only the answer's parse comes back as `schemaError`. */
+export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>,
+  selection: LocalChatGptSelection | undefined, override: LocalChatGptOverride | undefined,
+  mode: { returnRawOnSchemaError: true }): Promise<LocalChatGptRawResult<T>>;
+export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>, selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { returnRawOnSchemaError: true }): Promise<LocalChatGptResult<T> | LocalChatGptRawResult<T>> {
   const startedAt = Date.now();
   const credential = await getLocalChatGptCredential(owner);
   if (!credential) throw new Error("Connectez votre compte ChatGPT.");
@@ -233,19 +252,23 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
   const { text, usage } = await readChatGptResponse(response);
   const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
   const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };
+  const answered = {
+    tokenCount: usage.total_tokens, tokenUsage,
+    // No API-priced charge: the request consumes the user's ChatGPT allowance.
+    costCents: 0, model: sent.model, reasoningEffort,
+    promptVersion: options.context?.promptVersion ?? "unknown", providerBatchId: null, providerBatchStateRaw: null,
+  };
   let data: T;
   try {
     data = options.schema.parse(JSON.parse(text));
   } catch (error) {
+    if (mode?.returnRawOnSchemaError && (error instanceof SyntaxError || error instanceof z.ZodError)) {
+      return { ...answered, data: null, durationMs: Date.now() - startedAt, rawText: text, schemaError: error };
+    }
     // A schema failure still consumed tokens: the error keeps its type and carries them.
     if (error instanceof Error) Object.assign(error, { usage: tokenUsage });
     throw error;
   }
-  return {
-    data, tokenCount: usage.total_tokens, tokenUsage,
-    // No API-priced charge: the request consumes the user's ChatGPT allowance.
-    costCents: 0, durationMs: Date.now() - startedAt, model: sent.model,
-    reasoningEffort,
-    promptVersion: options.context?.promptVersion ?? "unknown", providerBatchId: null, providerBatchStateRaw: null,
-  };
+  const result = { ...answered, data, durationMs: Date.now() - startedAt };
+  return mode?.returnRawOnSchemaError ? { ...result, rawText: text, schemaError: null } : result;
 }
