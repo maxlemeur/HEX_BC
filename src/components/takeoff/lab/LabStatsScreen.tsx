@@ -145,8 +145,14 @@ function BenchReports() {
   }, []);
   useEffect(() => {
     if (!open) return;
+    // Only the selected report fills the sheet: an answer (or failure) for a report opened before it is dropped.
+    let selected = true;
     setMarkdown(null);
-    void labApi.benchReport(open).then(setMarkdown).catch((cause) => setMarkdown(errorMessage(cause)));
+    labApi.benchReport(open).then(
+      (text) => { if (selected) setMarkdown(text); },
+      (cause) => { if (selected) setMarkdown(errorMessage(cause)); },
+    );
+    return () => { selected = false; };
   }, [open]);
   return (
     <section aria-labelledby="lab-bench-reports" className="space-y-2">

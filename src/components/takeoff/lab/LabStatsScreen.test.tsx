@@ -3,6 +3,8 @@
 //    for the new selection: its counts must not replace the current ones.
 // 2. The previous request fails after the current one succeeded: its error must
 //    not cover the current statistics.
+// 3. A bench report requested before the selected one resolves last: its
+//    markdown must not replace the selected report's (Codex, second review).
 // The army journey cannot order two responses deterministically, so this check
 // holds the two requests and resolves them in the wrong order.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -10,13 +12,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LabState, LabStats } from "@/lib/takeoff/lab/contracts";
 
-const { statsMock } = vi.hoisted(() => ({ statsMock: vi.fn() }));
+const { statsMock, benchReportsMock, benchReportMock } = vi.hoisted(() => ({ statsMock: vi.fn(), benchReportsMock: vi.fn(), benchReportMock: vi.fn() }));
 
 vi.mock("@/components/takeoff/lab/lab-api", async (importActual) => {
   const actual = await importActual<typeof import("@/components/takeoff/lab/lab-api")>();
   return {
     ...actual,
-    labApi: { ...actual.labApi, stats: statsMock, benchReports: vi.fn().mockResolvedValue([]), benchReport: vi.fn() },
+    labApi: { ...actual.labApi, stats: statsMock, benchReports: benchReportsMock, benchReport: benchReportMock },
   };
 });
 
@@ -48,6 +50,8 @@ const stats = (runs: number, verdicts: number): LabStats => ({ groups: [], runs,
 
 beforeEach(() => {
   statsMock.mockReset();
+  benchReportsMock.mockReset().mockResolvedValue([]);
+  benchReportMock.mockReset();
 });
 
 afterEach(() => {
@@ -92,5 +96,30 @@ describe("LabStatsScreen", () => {
 
     expect(screen.queryByText("Sélection précédente indisponible")).toBeNull();
     expect(screen.getByText("7 essais · 9 verdicts")).toBeTruthy();
+  });
+
+  it("shows the selected bench report when a report opened before it resolves last", async () => {
+    statsMock.mockResolvedValue(stats(0, 0));
+    const report = (name: string) => ({ name, started_at: null, commit: null, dataset_sha256: null, status: "complete", couples: [] });
+    benchReportsMock.mockResolvedValue([report("takeoff-bench-a"), report("takeoff-bench-b")]);
+    const first = deferred<string>();
+    const second = deferred<string>();
+    benchReportMock.mockImplementation((name: string) => (name === "takeoff-bench-a" ? first.promise : second.promise));
+
+    render(<LabStatsScreen />);
+    const [openA, openB] = await screen.findAllByRole("button", { name: "Lire" });
+    fireEvent.click(openA);
+    await waitFor(() => expect(benchReportMock).toHaveBeenCalledWith("takeoff-bench-a"));
+    fireEvent.click(openB);
+    await waitFor(() => expect(benchReportMock).toHaveBeenCalledWith("takeoff-bench-b"));
+
+    second.resolve("Rapport B");
+    await screen.findByText("Rapport B");
+    first.resolve("Rapport A");
+    await first.promise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByText("Rapport A")).toBeNull();
+    expect(screen.getByText("Rapport B")).toBeTruthy();
   });
 });
