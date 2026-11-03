@@ -101,7 +101,7 @@ async function setupLease(browser: Browser, versionId: string, release = false) 
   }, { versionId, release });
 }
 
-export async function prepareLeaseCase(ui: LeaseUi, label: "NAV01" | "NAV01b" | "NAV05"): Promise<LeasePrepared> {
+export async function prepareLeaseCase(ui: LeaseUi, label: "NAV01" | "NAV01b" | "NAV01c" | "NAV05"): Promise<LeasePrepared> {
   const fixture = await loadOwner();
   await ui.app.open("/dashboard/estimates");
   const created = await apiRequest<Envelope<{ project: { id: string; tenant_id: string; user_id: string }; version: ArmyVersion }>>(
@@ -189,9 +189,12 @@ export async function observeLeaseRequests(ui: LeaseUi, p: LeasePrepared): Promi
 // TI-665: in CI the departure page renders in about 450 ms, long enough for the
 // document that is leaving to send its lease request. Its page is held here until
 // that request has been sent, plus 300 ms for the server to commit it (8 s at
-// most), so the same order runs on any machine. Nothing is changed or answered by
-// the harness: both requests reach the real server.
+// most), so the same order runs on any machine. Only a request sent after the
+// departure's own page request counts: the browser sends that page request once
+// beforeunload has run. Nothing is changed or answered by the harness: both
+// requests reach the real server.
 export async function departAfterLeaseRequest(ui: LeaseUi, p: LeasePrepared, path: string) {
+  let navigationRequestedAt: string | null = null;
   let leaseRequestSeenAt: string | null = null;
   let markLeaseRequested = () => {};
   const leaseRequested = new Promise<void>((resolve) => { markLeaseRequested = resolve; });
@@ -199,13 +202,14 @@ export async function departAfterLeaseRequest(ui: LeaseUi, p: LeasePrepared, pat
   const pagePattern = new RegExp(`${path.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}$`);
   const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   await ui.browser.route(lockPattern, async (route) => {
-    if (route.request.method === "POST" && !leaseRequestSeenAt) {
+    if (route.request.method === "POST" && navigationRequestedAt && !leaseRequestSeenAt) {
       leaseRequestSeenAt = new Date().toISOString();
       markLeaseRequested();
     }
     await route.fallback();
   });
   await ui.browser.route(pagePattern, async (route) => {
+    navigationRequestedAt ??= new Date().toISOString();
     await Promise.race([leaseRequested.then(() => pause(300)), pause(8_000)]);
     await route.fallback();
   });
@@ -216,7 +220,34 @@ export async function departAfterLeaseRequest(ui: LeaseUi, p: LeasePrepared, pat
     await ui.browser.unroute(pagePattern);
     await ui.browser.unroute(lockPattern);
   }
-  return { startedAt, finishedAt: new Date().toISOString(), leaseRequestSeenAt: leaseRequestSeenAt as string | null };
+  return {
+    startedAt, finishedAt: new Date().toISOString(),
+    navigationRequestedAt: navigationRequestedAt as string | null, leaseRequestSeenAt: leaseRequestSeenAt as string | null,
+  };
+}
+
+// NAV01c: the release the leaving page sends never reaches the server (lost
+// keepalive, dropped connection), so its lease stays held by a page that no
+// longer exists. This abort is the only transport fault; it is counted and
+// limited to DELETE /lock during this departure.
+export async function departWithLostRelease(ui: LeaseUi, p: LeasePrepared, path: string) {
+  let abortedReleases = 0;
+  const lockPattern = new RegExp(`/api/estimates/${p.versionId}/lock$`);
+  await ui.browser.route(lockPattern, async (route) => {
+    if (route.request.method === "DELETE") {
+      abortedReleases += 1;
+      await route.abort();
+      return;
+    }
+    await route.fallback();
+  });
+  const startedAt = new Date().toISOString();
+  try {
+    await ui.app.open(path);
+  } finally {
+    await ui.browser.unroute(lockPattern);
+  }
+  return { startedAt, finishedAt: new Date().toISOString(), abortedReleases };
 }
 
 export async function documentObservation(browser: Browser, title: string, versionId: string) {
