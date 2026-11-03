@@ -80,6 +80,21 @@ import { readRoomSurfaces } from "@/lib/takeoff/vectors/surfaces";
 // - the fill outline is not a closed page-space polygon of at most 2000 points
 //   around the measured floor, so persistence (which keeps a surface only with
 //   its outline) loses the room, or the item still reads « polygone fermé ».
+// Review of the L3c fill (written before the fixes):
+// - a door swing arc stroked twice (two identical copies) is two arcs around
+//   one centre, not a door: it bounds the doorway and its quarter-disc goes to
+//   the room on the other side;
+// - any lone arc of a door's sweep and radius is taken for a swing, so a
+//   rounded wall corner (r = 1 m, its own subpath, no leaf, no wall ending at
+//   its centre) loses its quarter-disc (−5.7 % on a 14 m² room);
+// - a door drawn as one subpath (hinge, leaf tip, arc, far end: an LWPOLYLINE
+//   export) is no arc as a whole, so it is never read as a door;
+// - a pocket behind joinery bordering two rooms (a niche between them) is
+//   counted in both;
+// - the pockets are measured but the outline keeps the floor's largest loop
+//   only, and the cell boundary lies half a cell inside the walls: the
+//   persisted polygon encloses less than the measured area (2.7 % with two
+//   window swings).
 
 const POINTS_PER_MM = 72 / 25.4;
 
@@ -455,5 +470,58 @@ describe("readRoomSurfaces, fill between walls (TI-662 L3c)", () => {
     expect(vectorPageRecord(reading, location).surfaces).toEqual([
       { room: "Bureau", printed_m2: 13.97, polygon_m2: surface.polygon_m2, deviation: surface.deviation },
     ]);
+  });
+
+  describe("review of the L3c fill", () => {
+    // The doorway of the two-room fixture: a 0.91 m opening in the wall at X1, hinged at its top, opening into the right room.
+    const r = 26 * c, [D0, D1] = [at(80), at(80) + r];
+    const walls = [...box(X0, Y0, X1, Y1).filter((_, index) => index !== 1), ...box(X1, Y0, X2, Y1).filter((_, index) => index !== 3),
+      { layer: WALLS, points: [X1, Y0, X1, D0] }, { layer: WALLS, points: [X1, D1, X1, Y1] }];
+    const arc = Array.from({ length: 9 }, (_, index) => [X1 + r * Math.cos((index * Math.PI) / 16), D0 + r * Math.sin((index * Math.PI) / 16)]).flat();
+    const leaf = { layer: JOINERY, points: [X1, D0, X1 + r, D0] };
+    const texts = [line("Bureau 13.97 m²", X0 + 60, Y0 + 90), line("Archives 13.97 m²", X1 + 40, Y0 + 150)];
+    const areas = (strokes: Stroke[]) => read(layered(texts, [...walls, ...strokes])).surfaces.map(({ polygon_m2 }) => polygon_m2 ?? 0);
+
+    it("reads a door swing stroked twice as one door", () => {
+      for (const area of areas([leaf, { layer: JOINERY, points: arc }, { layer: JOINERY, points: [...arc] }])) expect(Math.abs(area - ROOM_M2)).toBeLessThan(0.05);
+    });
+
+    it("reads a door drawn as one subpath (hinge, leaf, arc) as a door", () => {
+      for (const area of areas([{ layer: JOINERY, points: [X1, D0, ...arc] }])) expect(Math.abs(area - ROOM_M2)).toBeLessThan(0.05);
+    });
+
+    it("keeps a rounded wall corner (no leaf, no wall ending at its centre) as a wall", () => {
+      // The top right corner of the room rounded with r = 1 m on site, its own subpath.
+      const R = sheet(1);
+      const corner = Array.from({ length: 9 }, (_, index) => [X1 - R + R * Math.sin((index * Math.PI) / 16), Y0 + R - R * Math.cos((index * Math.PI) / 16)]).flat();
+      const rounded = [{ layer: WALLS, points: [X0, Y0, X1 - R, Y0] }, { layer: WALLS, points: corner }, { layer: WALLS, points: [X1, Y0 + R, X1, Y1] },
+        { layer: WALLS, points: [X1, Y1, X0, Y1] }, { layer: WALLS, points: [X0, Y1, X0, Y0] }];
+      const [surface] = read(layered([line("Bureau 13.75 m²", X0 + 60, Y0 + 90)], rounded)).surfaces;
+      expect(surface).toMatchObject({ method: "fill", fill_rejected: null });
+      expect(Math.abs((surface.polygon_m2 ?? 0) - (ROOM_M2 - (1 - Math.PI / 4)))).toBeLessThan(0.05);
+    });
+
+    it("never counts a pocket bordered by two rooms' joinery in both", () => {
+      // A niche 0.60 m wide and 1.20 m high across the wall at X1, closed on each side by a joinery stroke.
+      const [N0, N1, half] = [at(70), at(70) + sheet(1.2), sheet(0.3)];
+      const niche = [...box(X0, Y0, X1, Y1).filter((_, index) => index !== 1), ...box(X1, Y0, X2, Y1).filter((_, index) => index !== 3),
+        { layer: WALLS, points: [X1, Y0, X1, N0] }, { layer: WALLS, points: [X1, N1, X1, Y1] },
+        { layer: WALLS, points: [X1 - half, N0, X1 + half, N0] }, { layer: WALLS, points: [X1 - half, N1, X1 + half, N1] },
+        { layer: JOINERY, points: [X1 - half, N0, X1 - half, N1] }, { layer: JOINERY, points: [X1 + half, N0, X1 + half, N1] }];
+      const surfaces = read(layered(texts, niche)).surfaces;
+      expect(surfaces.map(({ method }) => method)).toEqual(["fill", "fill"]);
+      // Each room loses its half of the niche; the niche itself is in neither.
+      for (const { polygon_m2 } of surfaces) expect(Math.abs((polygon_m2 ?? 0) - (ROOM_M2 - 0.3 * 1.2))).toBeLessThan(0.05);
+    });
+
+    it("keeps the outline consistent with the measured area, pockets behind joinery included", () => {
+      const swing = (x: number) => ({ layer: JOINERY, points: [x, Y0, x + sheet(0.6), Y0 + sheet(0.6), x + sheet(1.2), Y0] });
+      for (const strokes of [box(X0, Y0, X1, Y1), [...box(X0, Y0, X1, Y1), swing(X0 + 20), swing(X0 + 120)]]) {
+        const [surface] = read(layered([line("Bureau 13.97 m²", X0 + 60, Y0 + 150)], strokes)).surfaces;
+        const points = surface.outline?.points ?? [];
+        const outlineM2 = squarePointsToSquareMetres(ringArea(points, 0, points.length / 2), 50);
+        expect(Math.abs(outlineM2 - (surface.polygon_m2 ?? 0)) / (surface.polygon_m2 ?? 1)).toBeLessThan(0.005);
+      }
+    });
   });
 });

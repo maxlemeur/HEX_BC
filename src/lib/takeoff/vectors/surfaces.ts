@@ -8,8 +8,9 @@ import { groupId, type PageModel } from "@/lib/takeoff/vectors/page-model";
 // Room surfaces of a page (TI-662 step 4). The area of the smallest closed
 // stroked polygon around the room's printed surface (« Infirmerie 13.62m² »,
 // or a label line above « 84.95 m² ») × scale² is the measure; the printed
-// surface is its control, never its fallback: a room without closed polygon
-// has no measured area and is reported. The printed label and surface stay in
+// surface is its control, never the quantity nor its fallback: a room with
+// neither a closed polygon nor a valid fill between walls (below) has no
+// measured area and is reported. The printed label and surface stay in
 // the reading for the control and the report. Text items of one baseline are
 // merged first (pdfjs splits a line at font changes); a ring no larger than 4
 // times the text's box is its frame, not the room; a label prefix such as

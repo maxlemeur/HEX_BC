@@ -14,10 +14,14 @@ import { isOpeningLayerName } from "@/lib/takeoff/vectors/vocabulary";
 //   the walls' gaps). Never a hidden layer nor a near-white stroke. A page
 //   without wall or partition group is not filled.
 // - Door symbols: an arc of DOOR_ARC sweep and radius on site, its points
-//   equidistant from a centre (the hinge), alone around that centre, is the
-//   door's swing: it is no barrier, its two radii are (the leaf, and the
-//   opening line from the hinge along the wall to the arc's far end). The
-//   swing quarter-disc thus stays in the room the door opens into. A circle
+//   equidistant from a centre (the hinge), alone around that centre (copies
+//   of one arc stroked twice are one arc), with a stroke ending at the hinge
+//   (the leaf, a jamb: within DOOR_HINGE of it), is the door's swing: it is no
+//   barrier, its two radii are (the leaf, and the opening line from the hinge
+//   along the wall to the arc's far end). The swing quarter-disc thus stays in
+//   the room the door opens into. A door drawn as one subpath (hinge, leaf
+//   tip, arc, far end: a polyline export) is read so too. An arc with nothing
+//   at its centre (a rounded wall corner) stays a barrier. A circle
 //   (ISLAND_CIRCLE: pieces around one centre making a full turn, small on
 //   site) is a column, a fixture or a turning circle: no barrier.
 // - Raster: cells of FILL_CELL_M on site from the page origin (fillCellPt),
@@ -33,13 +37,19 @@ import { isOpeningLayerName } from "@/lib/takeoff/vectors/vocabulary";
 //   the sheet (along its frame: « frame »).
 // - Closed shapes inside the floor (furniture, fixtures drawn on a wall
 //   layer) up to FILL_HOLE_MAX_M2 each are floor; a larger one (a shaft, a
-//   core) or one holding a room's printed area is not.
+//   core) or one holding a room's printed area is not. So are the closed
+//   pockets behind the joinery bordering the floor (a window's swing drawn
+//   into the room), up to FILL_HOLE_MAX_M2 each; a pocket the joinery of two
+//   rooms borders (a niche between them) is in neither.
 // - Area: the cells, plus half a cell along every edge between the floor and
 //   a stroke (a stroke crosses its cells anywhere: on average half a cell of
 //   floor lies beyond the cells reached).
-// - Outline: the floor's outer boundary in page space, simplified to at most
-//   FILL_OUTLINE_MAX_POINTS points (the persisted polygon limit), its group
-//   FILL_GROUP_ID.
+// - Outline: the outer boundary of the floor and its pockets (joined to it
+//   through the joinery cells between them), moved half a cell out onto the
+//   strokes as the area counts them, in page space: it encloses the measured
+//   area (a core left out of the floor stays inside it, the outline has no
+//   hole). Simplified to at most FILL_OUTLINE_MAX_POINTS points (the persisted
+//   polygon limit), its group FILL_GROUP_ID.
 
 /** Side of a raster cell on site: a room's floor is counted within a fraction of the surface tolerance (max(2 %, 0.5 m²)). */
 export const FILL_CELL_M = 0.035;
@@ -64,6 +74,8 @@ export const FILL_GROUP_ID = "fill:mur";
  * strokes is no arc) and chords of at most maxChordDeg (a flattened curve or a polyline).
  */
 export const DOOR_ARC = { minSweepDeg: 60, maxSweepDeg: 120, minRadiusM: 0.5, maxRadiusM: 1.6, maxChordDeg: 46, minPoints: 4 } as const;
+/** A stroke ends at a door's hinge within this many points, or this share of the swing's radius when larger. */
+export const DOOR_HINGE = { minPt: 1, radiusShare: 0.05 } as const;
 /** A circle (arcs around one centre turning at least minSweepDeg) of at most maxRadiusM on site bounds no room. */
 export const ISLAND_CIRCLE = { minSweepDeg: 300, maxRadiusM: 1 } as const;
 
@@ -78,7 +90,8 @@ export function fillCellPt(denominator: number, width: number, height: number) {
   return Math.max(site, Math.sqrt((width * height) / FILL_MAX_CELLS));
 }
 
-type Arc = { centre: Point; radius: number; sweep: number; points: number; ends: [Point, Point] };
+/** An arc; `leaf`: its subpath also draws a radius from its centre (a door drawn hinge, leaf, arc in one subpath). */
+type Arc = { centre: Point; radius: number; sweep: number; points: number; ends: [Point, Point]; leaf: boolean };
 
 /** An arc: at least 3 points within tolerance of one circle, turning one way by chords of at most DOOR_ARC.maxChordDeg. */
 function arcOf(points: ArrayLike<number>, start: number, count: number): Arc | null {
@@ -105,8 +118,38 @@ function arcOf(points: ArrayLike<number>, start: number, count: number): Arc | n
     sign = Math.sign(delta);
     sweep += delta;
   }
-  return { centre, radius, sweep: (Math.abs(sweep) * 180) / Math.PI, points: count, ends: [a, at(count - 1)] };
+  return { centre, radius, sweep: (Math.abs(sweep) * 180) / Math.PI, points: count, ends: [a, at(count - 1)], leaf: false };
 }
+
+const hingeTolerance = (arc: Pick<Arc, "radius">) => Math.max(DOOR_HINGE.minPt, DOOR_HINGE.radiusShare * arc.radius);
+
+/**
+ * The arc of a subpath: the whole path, or a door drawn in one subpath, its first or last point (or both) at the
+ * centre of the arc the rest draws (the hinge, then the leaf to the arc).
+ */
+function arcOfPath(points: ArrayLike<number>, start: number, count: number): Arc | null {
+  const whole = arcOf(points, start, count);
+  if (whole) return whole;
+  if (count < 5) return null;
+  const at = (k: number) => ({ x: points[2 * (start + k)], y: points[2 * (start + k) + 1] });
+  for (const [skipFirst, skipLast] of [[1, 0], [0, 1], [1, 1]] as const) {
+    const arc = arcOf(points, start + skipFirst, count - skipFirst - skipLast);
+    if (!arc) continue;
+    const hinges = [...(skipFirst ? [at(0)] : []), ...(skipLast ? [at(count - 1)] : [])];
+    if (hinges.every((hinge) => Math.hypot(hinge.x - arc.centre.x, hinge.y - arc.centre.y) <= hingeTolerance(arc))) return { ...arc, leaf: true };
+  }
+  return null;
+}
+
+/** Whether two arcs are copies of one (same centre, radius and ends within 1 pt, in either direction). */
+function sameArc(left: Arc, right: Arc) {
+  const near = (p: Point, q: Point) => Math.hypot(p.x - q.x, p.y - q.y) < 1;
+  return near(left.centre, right.centre) && Math.abs(left.radius - right.radius) < 1
+    && ((near(left.ends[0], right.ends[0]) && near(left.ends[1], right.ends[1])) || (near(left.ends[0], right.ends[1]) && near(left.ends[1], right.ends[0])));
+}
+
+/** Bucket side of the stroke points a door's hinge is looked up in. */
+const HINGE_BUCKET_PT = 4;
 
 // Cell values, by precedence when strokes cross (a wall over a door's opening line over joinery); seeds are free.
 const FREE = 0, SEED = 1, JOINERY = 2, DOOR = 3, WALL = 4;
@@ -129,20 +172,45 @@ function barrierStrokes(extraction: VectorPageExtraction, model: PageModel, clas
   const keyOf = (x: number, y: number, r: number) => `${x}|${y}|${r}`;
   paths.forEach((path, id) => {
     if (!kept[id] || path.count < 3) return;
-    const arc = arcOf(points, path.start, path.count);
+    const arc = arcOfPath(points, path.start, path.count);
     if (!arc || arc.radius * metresPerPoint > DOOR_ARC.maxRadiusM) return;
     arcs.set(id, arc);
     const key = keyOf(Math.round(arc.centre.x), Math.round(arc.centre.y), Math.round(arc.radius));
     buckets.set(key, [...(buckets.get(key) ?? []), id]);
   });
+  // The points of the barrier strokes, bucketed by HINGE_BUCKET_PT, where a door's hinge looks for a stroke ending at it.
+  let ends: Map<string, Point[]> | null = null;
+  const endsNear = (centre: Point, tolerance: number) => {
+    if (ends === null) {
+      const built = new Map<string, Point[]>();
+      paths.forEach((path, id) => {
+        if (value[id] === FREE) return;
+        for (let k = path.start; k < path.start + path.count; k += 1) {
+          const key = `${Math.floor(points[2 * k] / HINGE_BUCKET_PT)}|${Math.floor(points[2 * k + 1] / HINGE_BUCKET_PT)}`;
+          const list = built.get(key);
+          if (list) list.push({ x: points[2 * k], y: points[2 * k + 1] });
+          else built.set(key, [{ x: points[2 * k], y: points[2 * k + 1] }]);
+        }
+      });
+      ends = built;
+    }
+    const reach = Math.ceil(tolerance / HINGE_BUCKET_PT);
+    const [bx, by] = [Math.floor(centre.x / HINGE_BUCKET_PT), Math.floor(centre.y / HINGE_BUCKET_PT)];
+    for (let dx = -reach; dx <= reach; dx += 1) for (let dy = -reach; dy <= reach; dy += 1) {
+      if ((ends.get(`${bx + dx}|${by + dy}`) ?? []).some((point) => Math.hypot(point.x - centre.x, point.y - centre.y) <= tolerance)) return true;
+    }
+    return false;
+  };
   const doors: Arc[] = [];
   for (const [id, arc] of arcs) {
     const [cx, cy, cr] = [Math.round(arc.centre.x), Math.round(arc.centre.y), Math.round(arc.radius)];
+    // The arcs around this centre, copies of one arc (stroked twice) counted once.
     const twins: Arc[] = [];
     for (let dx = -1; dx <= 1; dx += 1) for (let dy = -1; dy <= 1; dy += 1) for (let dr = -1; dr <= 1; dr += 1) {
       for (const other of buckets.get(keyOf(cx + dx, cy + dy, cr + dr)) ?? []) {
         const twin = arcs.get(other) as Arc;
-        if (Math.hypot(twin.centre.x - arc.centre.x, twin.centre.y - arc.centre.y) < 1 && Math.abs(twin.radius - arc.radius) < 1) twins.push(twin);
+        if (Math.hypot(twin.centre.x - arc.centre.x, twin.centre.y - arc.centre.y) >= 1 || Math.abs(twin.radius - arc.radius) >= 1) continue;
+        if (!twins.some((known) => sameArc(known, twin))) twins.push(twin);
       }
     }
     const radius = arc.radius * metresPerPoint;
@@ -150,9 +218,11 @@ function barrierStrokes(extraction: VectorPageExtraction, model: PageModel, clas
       kept[id] = false;
       continue;
     }
-    if (twins.length === 1 && arc.points >= DOOR_ARC.minPoints && arc.sweep >= DOOR_ARC.minSweepDeg && arc.sweep <= DOOR_ARC.maxSweepDeg && radius >= DOOR_ARC.minRadiusM) {
+    if (twins.length === 1 && arc.points >= DOOR_ARC.minPoints && arc.sweep >= DOOR_ARC.minSweepDeg && arc.sweep <= DOOR_ARC.maxSweepDeg && radius >= DOOR_ARC.minRadiusM
+      && (arc.leaf || endsNear(arc.centre, hingeTolerance(arc)))) {
       kept[id] = false;
-      doors.push(arc);
+      // A copy of a door already read adds no stroke.
+      if (!doors.some((door) => sameArc(door, arc))) doors.push(arc);
     }
   }
   const strokes: Array<{ segment: Segment; value: number }> = [];
@@ -387,7 +457,10 @@ function simplifyChain(chain: number[], epsilon: number): number[] {
   return kept;
 }
 
-/** The floor's outer boundary (cell corners, page space), simplified to at most FILL_OUTLINE_MAX_POINTS points, closed. */
+/**
+ * The floor's outer boundary in page space, its cell corners moved half a cell out (onto the strokes, as the area
+ * counts half a cell along them), simplified to at most FILL_OUTLINE_MAX_POINTS points, closed.
+ */
 function traceOutline(raster: Raster, window: Window): number[] {
   const { w, h, mask } = window;
   const stride = w + 1;
@@ -437,7 +510,9 @@ function traceOutline(raster: Raster, window: Window): number[] {
     const dx0 = (current % stride) - (previous % stride), dy0 = Math.floor(current / stride) - Math.floor(previous / stride);
     const dx1 = (next % stride) - (current % stride), dy1 = Math.floor(next / stride) - Math.floor(current / stride);
     if (dx0 === dx1 && dy0 === dy1) continue;
-    corners.push(raster.x0 + (window.x0 + (current % stride)) * cell, raster.y0 + (window.y0 + Math.floor(current / stride)) * cell);
+    // Half a cell out: along the outward normals of both sides (the floor lies on the right of the boundary, y down).
+    const ox = (dy0 + dy1) / 2, oy = -(dx0 + dx1) / 2;
+    corners.push(raster.x0 + (window.x0 + (current % stride) + ox) * cell, raster.y0 + (window.y0 + Math.floor(current / stride) + oy) * cell);
   }
   // A ring split at its first point and the point farthest from it, each half simplified (the steps of a slanted wall become one side).
   let far = 0, farDistance = -1;
@@ -494,7 +569,9 @@ export function fillRooms(input: {
   for (const seed of seeds) if (seed >= 0) raster.grid[seed] = SEED;
   const cellM2 = (cell * metresPerPoint) ** 2;
   const holeMax = Math.floor(FILL_HOLE_MAX_M2 / cellM2);
-  return rooms.map((room, index): FillResult | null => {
+  // Every room's floor and the pockets behind its joinery first: a pocket two rooms find is in neither.
+  type Flooded = { flood: ReturnType<Raster["flood"]>; pockets: Int32Array[] } | { rejected: FillRejection } | null;
+  const floods = rooms.map((room, index): Flooded => {
     if (!room.fill) return null;
     const seed = seeds[index];
     if (seed < 0) return { rejected: "seed" };
@@ -502,7 +579,18 @@ export function fillRooms(input: {
     const limit = Math.max(1, Math.ceil((FILL_SANITY_RATIO * room.printed_m2) / cellM2));
     const flood = raster.flood(seed, limit);
     if (flood.status !== "ok") return { rejected: flood.status };
-    const pockets = raster.pockets(flood, holeMax, raster.lastStamp);
+    return { flood, pockets: raster.pockets(flood, holeMax, raster.lastStamp) };
+  });
+  const claims = new Uint8Array(raster.cols * raster.rows);
+  for (const entry of floods) {
+    if (entry === null || !("flood" in entry)) continue;
+    for (const pocket of entry.pockets) for (const index of pocket) if (claims[index] < 2) claims[index] += 1;
+  }
+  return rooms.map((room, index): FillResult | null => {
+    const entry = floods[index];
+    if (entry === null || !("flood" in entry)) return entry;
+    const { flood } = entry;
+    const pockets = entry.pockets.filter((pocket) => pocket.every((cell) => claims[cell] === 1));
     const all = new Int32Array(pockets.reduce((sum, pocket) => sum + pocket.length, flood.cells.length));
     all.set(flood.cells);
     pockets.reduce((offset, pocket) => {
@@ -517,7 +605,29 @@ export function fillRooms(input: {
     const { cells, edges } = floorCount(window);
     const area = (cells + edges / 2) * cellM2;
     if (area > FILL_SANITY_RATIO * room.printed_m2 || area < room.printed_m2 / FILL_SANITY_RATIO) return { rejected: "ratio" };
-    const outline = traceOutline(raster, window);
+    const outline = traceOutline(raster, bridged(raster, window, flood.joinery, pockets));
     return outline.length >= 8 ? { area_m2: area, outline } : { rejected: "seed" };
   });
+}
+
+/**
+ * The floor's window with its pockets joined to it: the joinery cells between the floor and a pocket (next to both)
+ * become floor, so that the outline goes around the pockets the area counts.
+ */
+function bridged(raster: Raster, window: Window, joinery: readonly number[], pockets: readonly Int32Array[]): Window {
+  if (pockets.length === 0) return window;
+  const local = (index: number) => {
+    const x = index % raster.cols, y = (index - x) / raster.cols;
+    return (y - window.y0) * window.w + (x - window.x0);
+  };
+  const pocket = new Uint8Array(window.mask.length);
+  for (const cells of pockets) for (const index of cells) pocket[local(index)] = 1;
+  const mask = window.mask.slice();
+  for (const index of joinery) {
+    const at = local(index);
+    const x = at % window.w;
+    if (x <= 0 || x >= window.w - 1 || at < window.w || at >= mask.length - window.w) continue;
+    if ([at - 1, at + 1, at - window.w, at + window.w].some((next) => pocket[next] === 1)) mask[at] = 1;
+  }
+  return { ...window, mask };
 }

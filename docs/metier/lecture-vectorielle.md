@@ -158,8 +158,9 @@ est une constante nommée et versionnée dans le code.
 6. **Surfaces** ([`surfaces.ts`](../../src/lib/takeoff/vectors/surfaces.ts)).
    - La mesure est l'aire du plus petit polygone fermé autour de la surface imprimée
      d'une pièce, × échelle².
-   - La surface imprimée sert de contrôle, jamais de repli : une pièce sans polygone
-     fermé n'a pas d'aire mesurée. Elle est comptée au rapport.
+   - La surface imprimée sert de contrôle, jamais de quantité ni de repli : une pièce
+     sans polygone fermé ni remplissage valable entre les murs (ci-dessous) n'a pas
+     d'aire mesurée. Elle est comptée au rapport.
    - Un polygone est fermé par son tracé (h, s, re) ou revient à son premier point, à
      moins de 0,5 pt, sans fermeture explicite. Un contour laissé ouvert (une porte, un
      côté manquant) ne délimite aucune pièce.
@@ -176,11 +177,16 @@ est une constante nommée et versionnée dans le code.
        blanc. Une page sans groupe mur ou cloison n'est pas remplie (une page lue par
        couleurs n'en a que par correspondance).
      - Portes : un arc de 60 à 120°, de 0,50 à 1,60 m de rayon, dont les points sont à
-       égale distance d'un centre (la paumelle), est le battant d'une porte. Il ne fait
-       pas barrière ; ses deux rayons, oui : le vantail et la ligne d'ouverture, de la
-       paumelle à l'autre bout de l'arc, le long du mur. Le quart de disque du battant
-       reste ainsi à la pièce où la porte s'ouvre. Un cercle d'au plus 1 m de rayon
-       (poteau, appareil, aire de rotation) ne fait pas barrière.
+       égale distance d'un centre (la paumelle), seul autour de ce centre (deux copies
+       d'un même arc tracé deux fois n'en font qu'un), avec un trait qui finit à la
+       paumelle (le vantail, un tableau de mur : à moins de 1 pt, ou 5 % du rayon), est
+       le battant d'une porte. Il ne fait pas barrière ; ses deux rayons, oui : le
+       vantail et la ligne d'ouverture, de la paumelle à l'autre bout de l'arc, le long
+       du mur. Le quart de disque du battant reste ainsi à la pièce où la porte s'ouvre.
+       Une porte tracée d'un seul trait (paumelle, bout du vantail, arc, autre bout :
+       une polyligne exportée) se lit de même. Un arc sans rien à son centre (un angle
+       de mur arrondi) reste une barrière. Un cercle d'au plus 1 m de rayon (poteau,
+       appareil, aire de rotation) ne fait pas barrière.
      - Grille de cellules de 3,5 cm sur le terrain (au plus 8,4 millions par page, soit
        une feuille A0 à 1 pt ; au-delà de 10 cm par cellule, la page n'est pas remplie).
        Chaque pièce se remplit depuis le centre de sa surface imprimée, ou la cellule libre
@@ -188,7 +194,9 @@ est une constante nommée et versionnée dans le code.
      - Sont de la pièce : les formes fermées intérieures (mobilier, appareils dessinés
        sur un calque de murs) jusqu'à 4 m² chacune, sauf si elles portent la surface
        d'une autre pièce, et les poches fermées derrière une menuiserie qui la borde
-       (le battant d'une fenêtre dessiné vers l'intérieur), jusqu'à 4 m² chacune.
+       (le battant d'une fenêtre dessiné vers l'intérieur), jusqu'à 4 m² chacune. Une
+       poche que bordent les menuiseries de deux pièces (une niche entre elles) n'est à
+       aucune des deux.
      - Aire : les cellules, plus une demi-cellule le long de chaque bord entre la pièce et
        un trait (un trait passe n'importe où dans ses cellules).
      - Rejetés, comptés au rapport avec leur raison, jamais mesurés : un remplissage qui
@@ -199,6 +207,10 @@ est une constante nommée et versionnée dans le code.
      - La surface imprimée reste un contrôle : jamais la quantité, jamais un repli.
      - Le contour du remplissage (au plus 2 000 points, en coordonnées de page) est la
        géométrie de la pièce, comme un polygone ; l'item dit « remplissage entre murs ».
+       Il fait le tour de la pièce et de ses poches (reliées par les cellules de
+       menuiserie entre elles), une demi-cellule plus loin, sur les traits, comme l'aire
+       les compte : il entoure l'aire mesurée. Il n'a pas de trou : une forme fermée de
+       plus de 4 m² laissée hors de l'aire (une gaine) reste à l'intérieur du contour.
    - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
      page tournée (/Rotate 90) se lit comme dessinée.
    - Dans le métré, chaque pièce mesurée donne un item en m² (l'aire du polygone) et sa
