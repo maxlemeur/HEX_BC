@@ -96,6 +96,9 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // - a group of pages at two scales settled with the coarsest minimum of all, so a
 //   0.4 m duplicate of two 1/50 pages was never paid by its own reduction;
 // - (bench) a Decisions stop left the documents read before it without rules.
+// Fourth Codex round (written before their fix):
+// - a group's reductions were compared with its debt as sums, so clearing A = X
+//   and B = X + Y settled the duplicate Z of C and D, which they never draw.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -353,32 +356,38 @@ describe("duplicate runs between zones", () => {
     expect(commonLength(run, identity, { id: "b", segments: [[4.9, 0, 8, 0]] }, identity)).toBeLessThan(ZONE_OVERLAP.minLength_m);
   });
 
-  /** A line of a group of duplicates: its reduction, what other lines cover of it, what lines before it cover. */
-  const member = (id: string, reduction_m: number, covered_m: number, duplicated_m: number, frozen = false) =>
-    ({ id, frozen, reduction_m, covered_m, duplicated_m });
+  /** A line of a group of duplicates and its reduction; a stretch drawn by some of the lines over its length. */
+  const member = (id: string, reduction_m: number, frozen = false) => ({ id, frozen, reduction_m });
+  const shared = (length_m: number, ...lines: string[]) => ({ lines, length_m });
 
   it("settles a pair with one reduction, counts a reduction once, and never asks a frozen line to change", () => {
     // A shares 1 m with B: either reduction of 1 m settles it.
-    expect(settleDuplicates([member("a", 1, 1, 0), member("b", 0, 1, 1)])).toEqual({ settled: true, deficit_m: 0 });
-    expect(settleDuplicates([member("a", 0, 1, 0), member("b", 0, 1, 1)])).toEqual({ settled: false, deficit_m: 1 });
+    expect(settleDuplicates([member("a", 1), member("b", 0)], [shared(1, "a", "b")])).toEqual({ settled: true, deficit_m: 0 });
+    expect(settleDuplicates([member("a", 0), member("b", 0)], [shared(1, "a", "b")])).toEqual({ settled: false, deficit_m: 1 });
     // A shares 1 m with B and another 1 m with C: A reduced by 1 m leaves 1 m counted twice.
-    expect(settleDuplicates([member("a", 1, 2, 0), member("b", 0, 1, 1), member("c", 0, 1, 1)])).toMatchObject({ settled: false, deficit_m: 1 });
-    // A reduction never counts beyond what others cover of the line.
-    expect(settleDuplicates([member("a", 3, 1, 0), member("b", 0, 1, 1), member("c", 0, 1, 1)])).toMatchObject({ settled: false });
+    expect(settleDuplicates([member("a", 1), member("b", 0), member("c", 0)], [shared(1, "a", "b"), shared(1, "a", "c")]))
+      .toMatchObject({ settled: false, deficit_m: 1 });
+    // A reduction never removes more of a stretch than its line draws: 1 m drawn three times needs two lines.
+    expect(settleDuplicates([member("a", 3), member("b", 0), member("c", 0)], [shared(1, "a", "b", "c")]))
+      .toMatchObject({ settled: false, deficit_m: 1 });
     // A frozen line reduced by its whole share settles the current one.
-    expect(settleDuplicates([member("f", 1, 1, 0, true), member("n", 0, 1, 1)])).toMatchObject({ settled: true });
+    expect(settleDuplicates([member("f", 1, true), member("n", 0)], [shared(1, "f", "n")])).toMatchObject({ settled: true });
     // Three copies of 5 m: two lines left at 1 cm each settle it (a centimetre of rounding per line reduced), 2 cm each do not.
-    expect(settleDuplicates([member("a", 0, 5, 0), member("b", 4.99, 5, 5), member("c", 4.99, 5, 5)]).settled).toBe(true);
-    expect(settleDuplicates([member("a", 0, 5, 0), member("b", 4.98, 5, 5), member("c", 4.98, 5, 5)])).toEqual({ settled: false, deficit_m: 0.04 });
+    expect(settleDuplicates([member("a", 0), member("b", 4.99), member("c", 4.99)], [shared(5, "a", "b", "c")]).settled).toBe(true);
+    expect(settleDuplicates([member("a", 0), member("b", 4.98), member("c", 4.98)], [shared(5, "a", "b", "c")]))
+      .toEqual({ settled: false, deficit_m: 0.04 });
   });
 
   it("spends a frozen reduction on the applied pair it was made for, and shares reductions that cover every pair", () => {
     // F (applied) was reduced by 1 m for its duplicate with Z (applied); N (current) also shares 1 m with F: N must reduce.
-    expect(settleDuplicates([member("f", 1, 2, 0, true), member("z", 0, 1, 1, true), member("n", 0, 1, 1)]))
-      .toEqual({ settled: false, deficit_m: 1 });
-    expect(settleDuplicates([member("f", 1, 2, 0, true), member("z", 0, 1, 1, true), member("n", 1, 1, 1)]).settled).toBe(true);
+    const stretches = [shared(1, "f", "z"), shared(1, "f", "n")];
+    expect(settleDuplicates([member("f", 1, true), member("z", 0, true), member("n", 0)], stretches)).toEqual({ settled: false, deficit_m: 1 });
+    expect(settleDuplicates([member("f", 1, true), member("z", 0, true), member("n", 1)], stretches).settled).toBe(true);
     // A shares 1 m with B and 1 m with C; B and A were each reduced by 1 m: both are settled, whatever the order.
-    expect(settleDuplicates([member("a", 1, 2, 0), member("b", 1, 1, 1), member("c", 0, 1, 1)]).settled).toBe(true);
+    expect(settleDuplicates([member("a", 1), member("b", 1), member("c", 0)], [shared(1, "a", "b"), shared(1, "a", "c")]).settled).toBe(true);
+    // A reduction never pays a stretch its line does not draw: A = X, B = X + Y, C = Y + Z, D = Z, A and B cleared.
+    expect(settleDuplicates([member("a", 5), member("b", 10), member("c", 0), member("d", 0)],
+      [shared(5, "a", "b"), shared(5, "b", "c"), shared(5, "c", "d")])).toEqual({ settled: false, deficit_m: 5 });
   });
 
   it("settles three overlapping runs once the version counts each stretch once", () => {
@@ -414,6 +423,28 @@ describe("duplicate runs between zones", () => {
     expect(rule(scaled(5.4).results, "s0", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 5.4 } });
     const settled = scaled(0.01);
     for (const id of ["s0", "s1", "s2"]) expect(rule(settled.results, id, "zone_overlap")?.code, id).toBe("ZONE_OVERLAP_RESOLVED");
+  });
+
+  it("spends a reduction only on the stretches its line draws, never on another pair's duplicate", () => {
+    // Four pages: A = X, B = X + Y, C = Y + Z, D = Z, three separate 5 m stretches each drawn twice (15 m too many).
+    const X: [number, number, number, number] = [0, 1, 5, 1], Y: [number, number, number, number] = [10, 1, 15, 1];
+    const Z: [number, number, number, number] = [20, 1, 25, 1];
+    const drawn = [[X], [X, Y], [Y, Z], [Z]];
+    const four = (quantities: [number, number, number, number]) => evaluateTakeoffRules({
+      pages: [0, 1, 2, 3].map((index) => page(`job-${index}#1`, { order: index * 10_000, zone: `Z${index + 1}`,
+        anchors: sheet(-40 * index, 0, { titleBlock: 10 }), denominator: 50 })),
+      lines: [0, 1, 2, 3].map((index) => line(`q${index}`, { job_id: `job-${index}`, page_key: `job-${index}#1`, quantity: quantities[index],
+        geometry: { segments_m: drawn[index].map(([x0, y0, x1, y1]) => [x0 - 40 * index, y0, x1 - 40 * index, y1] as [number, number, number, number]),
+          polygon_m: null, length_m: drawn[index].length * 5, area_m2: null } })),
+    });
+    // A and B cleared (15 m removed) leave Z counted twice: no reduction of A or B can remove it.
+    const wrong = four([0, 0, 10, 5]);
+    for (const id of ["q2", "q3"]) {
+      expect(rule(wrong.results, id, "zone_overlap"), id).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 5 } });
+    }
+    // One copy of each stretch removed (A by X, B by Y, C by Z) settles the four.
+    const right = four([0, 5, 5, 5]);
+    for (const id of ["q0", "q1", "q2", "q3"]) expect(rule(right.results, id, "zone_overlap")?.code, id).toBe("ZONE_OVERLAP_RESOLVED");
   });
 
   it("compares one pipe labelled « DN 100 » on a plan and « Ø 110 » on the other", () => {

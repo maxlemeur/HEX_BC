@@ -280,28 +280,114 @@ export function coveredBy(line: OverlapLine, transform: TakeoffFrameTransform,
   return Math.round(unionLength(kept) * 1000) / 1000;
 }
 
-/**
- * A line of a group of duplicates (the lines joined by pairs): its reduction (measured − quantity), the length of it
- * other lines of the group cover, and the length of it lines before it in the group's order cover (lines of applied
- * jobs first): the length it counts again.
- */
-export type SettleLine = { id: string; frozen: boolean; reduction_m: number; covered_m: number; duplicated_m: number };
+/** A line of a group of duplicates (the lines joined by pairs) and its reduction (measured − quantity). */
+export type SettleLine = { id: string; frozen: boolean; reduction_m: number };
+
+/** A stretch of the group drawn by `lines` (k of them, each over its whole length): counted k − 1 times too many. */
+export type SharedStretch = { lines: string[]; length_m: number };
+
+/** A line of a group, in the group's order, with its partners and each pair's minimum common length. */
+export type GroupMember = {
+  id: string;
+  line: OverlapLine;
+  transform: TakeoffFrameTransform;
+  partners: ReadonlyArray<{ id: string; line: OverlapLine; transform: TakeoffFrameTransform; minimum: number }>;
+};
 
 /**
- * Whether a group of duplicates is counted once: a stretch drawn on k pages is counted k − 1 times too many, the sum
- * of the lines' duplicated lengths. A line's reduction removes at most what other lines cover of it. The lines of
- * applied jobs (frozen) first pay what they count twice among themselves, which only they could remove; what their
- * reductions leave over, and the reductions of the lines that can still change, pay the rest. Each reduced line may
- * leave its centimetre of rounding (ZONE_OVERLAP.settle_m). `deficit_m`: what the version still counts twice.
+ * The group's shared stretches: along each line, the pieces where the same partners cover it (each with its pair's
+ * minimum, continuous stretches only), each piece taken once, on the first of its lines in the group's order. Pieces
+ * drawn by the same lines are added up.
  */
-export function settleDuplicates(lines: readonly SettleLine[]): { settled: boolean; deficit_m: number } {
-  const useful = (line: SettleLine) => Math.max(0, Math.min(line.reduction_m, line.covered_m));
-  const frozen = lines.filter((line) => line.frozen);
-  const current = lines.filter((line) => !line.frozen);
-  const spare = Math.max(0, frozen.reduce((sum, line) => sum + useful(line), 0) - frozen.reduce((sum, line) => sum + line.duplicated_m, 0));
-  const owed = current.reduce((sum, line) => sum + line.duplicated_m, 0);
-  const paid = current.reduce((sum, line) => sum + useful(line), 0) + spare;
+export function sharedStretches(members: readonly GroupMember[]): SharedStretch[] {
+  const order = new Map(members.map((member, index) => [member.id, index]));
+  const stretches = new Map<string, SharedStretch>();
+  for (const [index, member] of members.entries()) {
+    const own = transformed(member.line.segments, member.transform);
+    if (own.length === 0) continue;
+    // Intervals of each centreline of the line covered by each partner.
+    const covers = member.partners.map((partner) => {
+      const segments = transformed(partner.line.segments, partner.transform);
+      const kept = segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), partner.minimum);
+      return { id: partner.id, kept };
+    });
+    for (const segment of own.keys()) {
+      const intervals = covers.map(({ id, kept }) => ({ id, spans: union(kept.filter((entry) => entry.segment === segment)
+        .map((entry): [number, number] => [entry.lo, entry.hi])) }));
+      const cuts = [...new Set(intervals.flatMap(({ spans }) => spans.flat()))].sort((left, right) => left - right);
+      for (let cut = 0; cut + 1 < cuts.length; cut += 1) {
+        const [lo, hi] = [cuts[cut], cuts[cut + 1]];
+        if (hi - lo <= EPSILON_M) continue;
+        const middle = (lo + hi) / 2;
+        const drawers = intervals.filter(({ spans }) => spans.some(([a, b]) => a <= middle && middle <= b)).map(({ id }) => id);
+        // Taken on the first line that draws it: a later line sees it again from its own side.
+        if (drawers.length === 0 || drawers.some((id) => (order.get(id) ?? Infinity) < index)) continue;
+        const lines = [member.id, ...drawers].sort();
+        const key = lines.join("|");
+        const entry = stretches.get(key);
+        if (entry) entry.length_m += hi - lo;
+        else stretches.set(key, { lines, length_m: hi - lo });
+      }
+    }
+  }
+  return [...stretches.values()];
+}
+
+/** Adds to `flow` a maximum flow from `source` to `sink` within `capacity` (augmenting shortest paths). */
+function augment(capacity: number[][], flow: number[][], source: number, sink: number) {
+  let added = 0;
+  for (;;) {
+    const previous = new Array<number>(capacity.length).fill(-1);
+    previous[source] = source;
+    const queue = [source];
+    while (queue.length > 0 && previous[sink] === -1) {
+      const node = queue.shift() as number;
+      for (let next = 0; next < capacity.length; next += 1) {
+        if (previous[next] === -1 && capacity[node][next] - flow[node][next] > EPSILON_M) {
+          previous[next] = node;
+          queue.push(next);
+        }
+      }
+    }
+    if (previous[sink] === -1) return added;
+    let room = Infinity;
+    for (let node = sink; node !== source; node = previous[node]) room = Math.min(room, capacity[previous[node]][node] - flow[previous[node]][node]);
+    for (let node = sink; node !== source; node = previous[node]) {
+      flow[previous[node]][node] += room;
+      flow[node][previous[node]] -= room;
+    }
+    added += room;
+  }
+}
+
+/**
+ * Whether a group of duplicates is counted once. A stretch drawn by k lines is counted k − 1 times too many; a line's
+ * reduction removes, of each stretch it draws, at most that stretch's length, and never anything of a stretch it does
+ * not draw. Reductions are allocated to the stretches they can remove (a maximum flow): the lines of applied jobs
+ * (frozen) first pay what they count twice among themselves, which only they could remove; then every reduction,
+ * what is left of theirs included, pays the stretches a current line draws. Each reduced line may leave its
+ * centimetre of rounding (ZONE_OVERLAP.settle_m). `deficit_m`: what the version still counts twice.
+ */
+export function settleDuplicates(lines: readonly SettleLine[], stretches: readonly SharedStretch[]): { settled: boolean; deficit_m: number } {
+  const index = new Map(lines.map((line, position) => [line.id, position]));
+  const usable = stretches.filter((stretch) => stretch.lines.length > 1 && stretch.length_m > 0 && stretch.lines.every((id) => index.has(id)));
+  // Nodes: source, the lines, the stretches, sink.
+  const source = 0, sink = lines.length + usable.length + 1;
+  const capacity = Array.from({ length: sink + 1 }, () => new Array<number>(sink + 1).fill(0));
+  const flow = Array.from({ length: sink + 1 }, () => new Array<number>(sink + 1).fill(0));
+  lines.forEach((line, position) => { capacity[source][position + 1] = Math.max(0, line.reduction_m); });
+  usable.forEach((stretch, position) => {
+    for (const id of stretch.lines) capacity[(index.get(id) as number) + 1][lines.length + 1 + position] = stretch.length_m;
+  });
+  const debt = (stretch: SharedStretch) => (stretch.lines.length - 1) * stretch.length_m;
+  const frozenOnly = (stretch: SharedStretch) => stretch.lines.every((id) => lines[index.get(id) as number].frozen);
+  // Applied lines pay their own duplicates first; augmenting paths never take back what reached the sink.
+  usable.forEach((stretch, position) => { if (frozenOnly(stretch)) capacity[lines.length + 1 + position][sink] = debt(stretch); });
+  augment(capacity, flow, source, sink);
+  usable.forEach((stretch, position) => { if (!frozenOnly(stretch)) capacity[lines.length + 1 + position][sink] = debt(stretch); });
+  const paid = augment(capacity, flow, source, sink);
+  const owed = usable.filter((stretch) => !frozenOnly(stretch)).reduce((sum, stretch) => sum + debt(stretch), 0);
   const deficit = Math.max(0, Math.round((owed - paid) * 1000) / 1000);
-  const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, lines.filter((line) => useful(line) > 0).length);
+  const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, lines.filter((line) => line.reduction_m > EPSILON_M).length);
   return { settled: deficit <= tolerance + EPSILON_M, deficit_m: deficit <= tolerance + EPSILON_M ? 0 : deficit };
 }
