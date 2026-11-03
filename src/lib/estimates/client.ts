@@ -4617,7 +4617,9 @@ if (typeof window !== "undefined") {
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) hasDocumentStartedLeaving = false;
   });
-  window.addEventListener("pagehide", () => {
+  window.addEventListener("pagehide", (event) => {
+    // A page kept in the back/forward cache may come back and still uses its lease.
+    if (event.persisted) return;
     const granted = [...draftLeasesGrantedWhileLeaving];
     for (const versionId of new Set([...granted, ...draftLeaseRequestsInFlight.keys()])) {
       void releaseEstimateDraftLock(versionId, { keepalive: true }).catch(() => undefined);
@@ -4663,6 +4665,15 @@ export function takeoverEstimateDraftLock(
   return requestDraftLease(versionId, () => requestEstimateDraftLockTakeover(versionId));
 }
 
+// A page that renews a lease uses it, even without having requested it (a
+// reload reusing its identity): it must look alive to the other pages.
+export function renewEstimateDraftLock(
+  versionId: string
+): Promise<RenewEstimateDraftLockResult> {
+  holdEstimateDraftLockSessionLiveness(getEstimateDraftLockSessionId(versionId));
+  return requestEstimateDraftLockRenewal(versionId);
+}
+
 async function requestEstimateDraftLockAcquisition(
   versionId: string
 ): Promise<AcquireEstimateDraftLockResult> {
@@ -4696,7 +4707,7 @@ async function requestEstimateDraftLockAcquisition(
   }
 }
 
-export async function renewEstimateDraftLock(
+async function requestEstimateDraftLockRenewal(
   versionId: string
 ): Promise<RenewEstimateDraftLockResult> {
   try {
