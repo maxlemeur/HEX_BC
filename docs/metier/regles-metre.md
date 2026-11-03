@@ -228,6 +228,11 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 - Les items mesurés par L3 sont créés dans le job de niveau C qui a lu le plan.
 - Les lignes que le plan de mapping exclut (`skip`, ouvrage) ne comptent pas, des deux côtés.
 
+**Refus** : 422 `TAKEOFF_APPLY_GUARD_FAILED`.
+
+- Chaque ligne bloquée porte ses raisons ; pour les règles, `rule_codes` et `rule_reasons`, dans le même ordre.
+- Un refus du trigger porte `guard: "database"`.
+
 **Override admin : gardé.**
 
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.

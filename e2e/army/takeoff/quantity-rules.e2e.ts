@@ -21,7 +21,7 @@ const options = { session: "army", trace: "off" as const, tags: ["critical", "ta
 
 type Item = TakeoffJobDetailResponse["items"]["data"][number];
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; details?: { blocked_items?: Array<{ item_id: string; reasons: string[];
-  rule_failures?: Array<{ rule: string; code: string; reason: string }> }> } } };
+  rule_codes?: string[]; rule_reasons?: string[] }> } } };
 
 async function applyWithLease(browser: Browser, versionId: string, jobId: string, body: unknown) {
   return browser.evaluate(async (input) => {
@@ -38,7 +38,7 @@ async function applyWithLease(browser: Browser, versionId: string, jobId: string
 }
 
 async function readItems(ui: WorkerUi, jobId: string) {
-  const read = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}?itemsLimit=200`);
+  const read = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}?items_limit=200`);
   expect([read.status, read.body.ok]).toEqual([200, true]);
   return read.body.data.items.data;
 }
@@ -119,9 +119,12 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
     const apply = { strategy: "append", target_section_id: target.parent_id };
     const blocked = await applyWithLease(ui.browser, ids.versionId, jobs.Z1, apply);
     const failure = blocked.body as Envelope<unknown>;
+    await recordEvidence(ui.army, "TKR01-blocked", { ids, jobs, status: blocked.status, body: failure });
     expect([blocked.status, failure.ok, failure.error?.code]).toEqual([422, false, "TAKEOFF_APPLY_GUARD_FAILED"]);
-    expect(failure.error?.details?.blocked_items).toEqual([expect.objectContaining({ item_id: lines.Z1.ef.id, reasons: ["rule_failed"],
-      rule_failures: [expect.objectContaining({ rule: "zone_overlap", code: "ZONE_OVERLAP_DUPLICATE" })] })]);
+    const blockedItems = failure.error?.details?.blocked_items ?? [];
+    expect(blockedItems.map((entry) => [entry.item_id, entry.reasons, entry.rule_codes]))
+      .toEqual([[lines.Z1.ef.id, ["rule_failed"], ["ZONE_OVERLAP_DUPLICATE"]]]);
+    expect(blockedItems[0]?.rule_reasons?.[0]).toContain("1,00 m");
 
     // The user settles it: the Z1 line loses the shared length (5.00 → 4.00 m). Both lines are settled.
     const corrected = (await patchItems(ui, jobs.Z1, [{ item: duplicate, fields: { quantity: ZONE_PLANS.zones.Z1.length_m - ZONE_PLANS.overlap_m } }]))

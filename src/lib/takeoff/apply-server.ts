@@ -25,7 +25,7 @@ import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-
 import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-comparison-server";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
-import { checkApplyGuard } from "@/lib/takeoff/guards";
+import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -33,6 +33,14 @@ import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import { parseWithSchema, TAKEOFF_TENANT_ADMIN_ROLE } from "@/lib/takeoff/server-helpers";
 import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
+
+/**
+ * A blocked item as the guard error carries it: the error details keep four levels (sanitizeUnknown), so the failed
+ * rules are flattened into their codes and reasons, in one order.
+ */
+function blockedItemDetails({ rule_failures: failures, ...item }: GuardBlockedItem) {
+  return failures ? { ...item, rule_codes: failures.map((failure) => failure.code), rule_reasons: failures.map((failure) => failure.reason) } : item;
+}
 
 function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
   if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
@@ -177,7 +185,7 @@ export async function applyTakeoffJob(
             code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
             status: 422,
             details: {
-              blocked_items: guardResult.blocked_items,
+              blocked_items: guardResult.blocked_items.map(blockedItemDetails),
               medium_items: guardResult.medium_items,
               threshold: guardResult.threshold,
             },
