@@ -175,6 +175,11 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 // - the first wave through an unlabelled parent run (a member's DN, nearer)
 //   stops every later wave there, so a member's run joined beyond it gets no DN
 //   although the parent's label reaches it over legal joins.
+// Third review of the L3c measurement PR (written before the fix):
+// - a run holding its own label lets no other network's DN pass on through it,
+//   so the other member beyond it gets none, although the parent's DN reaches
+//   it over legal joins (« EU/EV » DN 100, then a run labelled « EU » DN 40,
+//   then an EV branch off that run).
 
 const A3 = { width: 1190.55, height: 841.89 };
 /** Sheet points that are 5 m (and 3 m) on site at 1/50. */
@@ -1075,5 +1080,19 @@ describe("second review of the L3c measurement PR", () => {
     expect(runAt(reading, { x: 350, y: 550 })).toEqual({ network: "EUV", dn: 100, attached: "propagated" });
     // EU's DN never reaches EV; the parent's DN does, through P2.
     expect(runAt(reading, { x: 400, y: 400 })).toEqual({ network: "EV", dn: 100, attached: "propagated" });
+  });
+
+  it("lets a parent's DN pass on through a run its member's own label holds (third review of the PR)", () => {
+    // D labelled « EU/EV » DN 100, A labelled « EU » DN 40 joined to it; the EV run F joins A only.
+    const reading = read(page([{
+      strokes: [
+        line(BLUE, 100, 300, 300, 300, { layer: "1" }), line(BLUE, 300, 300, 600, 300, { layer: "1" }),
+        line(BLUE, 450, 300, 450, 450, { layer: "3" }),
+      ],
+      texts: [centred("EU/EV - PVC DN 100", 200, 297), centred("EU - PVC DN 40", 520, 297)],
+    }], LAYERS));
+    // A keeps its own label's DN; the parent's DN goes on through it to the other member, never EU's.
+    expect(runAt(reading, { x: 520, y: 300 })).toMatchObject({ network: "EUV", dn: 40, attached: "label" });
+    expect(runAt(reading, { x: 450, y: 400 })).toEqual({ network: "EV", dn: 100, attached: "propagated" });
   });
 });

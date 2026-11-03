@@ -660,7 +660,8 @@ export function measureNetworks(input: {
     for (const { id: current, carried } of frontier) {
       for (const next of neighbours[current]) {
         const run = result[next];
-        if (run.attached === "label" || passed.has(pass(next, carried.network))) continue;
+        // A labelled run keeps its own DN (its seed already passed it for its own network) but lets the others go on.
+        if (passed.has(pass(next, carried.network))) continue;
         if (!joins(result[current].network, run.network) || !joins(carried.network, run.network)) continue;
         const known = offers.get(next) ?? new Map<NetworkCode | null, Carried>();
         if (!known.has(carried.network)) known.set(carried.network, carried);

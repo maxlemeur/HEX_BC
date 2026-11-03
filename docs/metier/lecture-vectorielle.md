@@ -155,9 +155,10 @@ est une constante nommée et versionnée dans le code.
      « EV ») portent leur parent, quel que soit leur ordre de lecture. De deux libellés
      aussi proches d'un tronçon, celui de son propre réseau l'emporte.
    - Chaque réseau porté fait son propre chemin : un tronçon qu'un DN d'un autre réseau
-     a atteint le premier garde ce DN, mais laisse passer celui-ci vers les tronçons
-     qu'il peut atteindre (le DN d'un EU/EV jusqu'à un EV, au-delà d'un tronçon EU/EV
-     qu'un DN EU plus proche a atteint).
+     a atteint le premier, ou qui porte son propre libellé, garde son DN, mais laisse
+     passer celui-ci vers les tronçons qu'il peut atteindre (le DN d'un EU/EV jusqu'à un
+     EV, au-delà d'un tronçon EU/EV qu'un DN EU plus proche a atteint ou que libelle
+     « EU »).
    - Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à revoir »).
    - Les recherches de voisinage (libellés, raccords, embouts) trouvent tout tracé, même
      un long tuyau en diagonale d'une feuille A0.
