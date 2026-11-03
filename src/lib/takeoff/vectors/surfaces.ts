@@ -1,5 +1,5 @@
 import type { VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
-import { pointInRing, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
+import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 import { groupId } from "@/lib/takeoff/vectors/page-model";
 
@@ -13,10 +13,15 @@ import { groupId } from "@/lib/takeoff/vectors/page-model";
 // times the text's box is its frame, not the room; a label prefix such as
 // « S = » or « Surface : » is not the room's name. An outline on a layer hidden
 // by the document's default configuration (OFF) is not printed: it bounds no room.
+// A polygon is closed by its path (h, s, re) or drawn back to its first point
+// and stroked without closePath (within RING_CLOSURE_PT, a CAD export may round
+// its last point); an outline left open (a door gap, a missing side) bounds no room.
+// A ring that also holds the label of another room (a building envelope, a
+// sheet frame) is not this room's outline: one room per outline.
 // The polygon taken keeps its group and points (page space, 0.01 pt) for the
 // geometry the worker persists (persistence.ts); the bench report leaves them out.
 
-export const SURFACE_RULE_VERSION = 3;
+export const SURFACE_RULE_VERSION = 4;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
 
 export type RoomSurface = {
@@ -51,7 +56,7 @@ function roomLabel(text: VectorText, before: string, texts: readonly VectorText[
   // Offsets from the area's baseline start: along its baseline, and up (towards the top of its glyphs, y down).
   const along = (other: VectorText) => (other.x - text.x) * c + (other.y - text.y) * s;
   const up = (other: VectorText) => (other.x - text.x) * s - (other.y - text.y) * c;
-  const above = texts.filter((other) => other !== text && Math.abs(other.angle - text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
+  const above = texts.filter((other) => other !== text && angleGap(other.angle, text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
     && up(other) > 0.5 * h && up(other) < 3.4 * h
     && along(other) < text.width + h && along(other) + other.width > -h).sort((left, right) => up(right) - up(left));
   // Keep the lines stacked right above the surface (each within 1.7 heights of the next).
@@ -69,22 +74,27 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
   const surfaces: RoomSurface[] = [];
   // A layer hidden by the document's default configuration is not printed: its outlines bound no room.
   const hidden = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
-  const closed = extraction.paths.filter((path) => path.closed && path.count >= 4 && !hidden.has(extraction.groups[path.group]?.layer ?? ""));
+  // A ring: closed by its path, or drawn back to its first point and stroked without closePath (m, l… to the start, S).
+  const closed = extraction.paths.filter((path) => path.count >= 4 && (path.closed || returnsToStart(extraction.points, path.start, path.count))
+    && !hidden.has(extraction.groups[path.group]?.layer ?? ""));
   const lines = mergeTextLines(extraction.texts);
-  for (const text of lines) {
+  const rooms = lines.flatMap((text) => {
     const match = AREA_PATTERN.exec(text.str);
-    if (!match) continue;
+    if (!match) return [];
     const printed = Number(match[1].replace(",", "."));
-    if (!Number.isFinite(printed) || printed <= 0) continue;
+    if (!Number.isFinite(printed) || printed <= 0) return [];
     const room = roomLabel(text, text.str.slice(0, match.index), lines);
-    if (!room) continue;
-    const anchor = lineCentre(text);
+    return room ? [{ text, room, printed, anchor: lineCentre(text) }] : [];
+  });
+  for (const { text, room, printed, anchor } of rooms) {
     let best: { area: number; path: VectorPath } | null = null;
     for (const path of closed) {
       if (!pointInRing(anchor, extraction.points, path.start, path.count)) continue;
       const area = ringArea(extraction.points, path.start, path.count);
-      if (area <= 4 * text.width * text.height) continue;
-      if (!best || area < best.area) best = { area, path };
+      if (area <= 4 * text.width * text.height || (best && area >= best.area)) continue;
+      // One room per outline: a ring around another room's label too is an envelope or a frame.
+      if (rooms.some((other) => other.text !== text && pointInRing(other.anchor, extraction.points, path.start, path.count))) continue;
+      best = { area, path };
     }
     const polygon = best && denominator !== null ? Math.round(squarePointsToSquareMetres(best.area, denominator) * 100) / 100 : null;
     const outline = best === null ? null : {

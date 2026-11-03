@@ -1,5 +1,5 @@
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
-import { boxArea, emptyBox, extendBox, type Box, type Point } from "@/lib/takeoff/vectors/geometry";
+import { angleGap, boxArea, emptyBox, extendBox, type Box, type Point } from "@/lib/takeoff/vectors/geometry";
 import { parsePipeLabel, type PipeLabel } from "@/lib/takeoff/vectors/vocabulary";
 
 // Pipe labels of a page (TI-662 step 4). Text lines of one label (same angle
@@ -45,11 +45,21 @@ function overlap(left: Box, right: Box) {
  * Text items on one baseline (same angle and height within 30 %, baseline offset under 0.25 height, the next
  * starting within 1.5 heights after the previous end) form one line: pdfjs splits a label at font changes.
  */
-/** Texts of one direction (within 0.02 rad, a bucket of 0.04 rad and its neighbour), as the merges compare them. */
+/** Buckets of 0.04 rad around the circle: keys −DIRECTION_KEYS … DIRECTION_KEYS − 1, ±π in one bucket. */
+const DIRECTION_KEYS = Math.round(Math.PI / 0.04);
+
+/** The neighbour of a direction bucket, around the circle (the last one is next to the first). */
+function nextKey(key: number, step: 1 | -1) {
+  const next = key + step;
+  return next >= DIRECTION_KEYS ? next - 2 * DIRECTION_KEYS : next < -DIRECTION_KEYS ? next + 2 * DIRECTION_KEYS : next;
+}
+
+/** Texts of one direction (within 0.02 rad, a bucket of 0.04 rad and its neighbour, across ±π), as the merges compare them. */
 function byDirection(items: readonly VectorText[]) {
   const buckets = new Map<number, number[]>();
   items.forEach((item, index) => {
-    const key = Math.round(item.angle / 0.04);
+    const turned = Math.round(Math.atan2(Math.sin(item.angle), Math.cos(item.angle)) / 0.04);
+    const key = turned >= DIRECTION_KEYS ? turned - 2 * DIRECTION_KEYS : turned;
     const list = buckets.get(key);
     if (list) list.push(index);
     else buckets.set(key, [index]);
@@ -58,7 +68,7 @@ function byDirection(items: readonly VectorText[]) {
 }
 
 const sameStyle = (left: VectorText, right: VectorText) =>
-  Math.abs(left.angle - right.angle) <= 0.02 && Math.abs(left.height - right.height) <= 0.3 * Math.max(left.height, right.height);
+  angleGap(left.angle, right.angle) <= 0.02 && Math.abs(left.height - right.height) <= 0.3 * Math.max(left.height, right.height);
 
 export function mergeTextLines(texts: readonly VectorText[]): VectorText[] {
   const items = texts.filter((text) => text.height > 0 && text.str.trim().length > 0);
@@ -68,7 +78,7 @@ export function mergeTextLines(texts: readonly VectorText[]): VectorText[] {
   for (const [key, own] of [...buckets.entries()].sort(([left], [right]) => left - right)) {
     // Each piece is taken once, in the order of its own reading direction (an upward label starts at its bottom).
     const mine = new Set(own);
-    const pool = [...own, ...(buckets.get(key + 1) ?? []), ...(buckets.get(key - 1) ?? [])];
+    const pool = [...own, ...(buckets.get(nextKey(key, 1)) ?? []), ...(buckets.get(nextKey(key, -1)) ?? [])];
     const c = Math.cos(key * 0.04), s = Math.sin(key * 0.04);
     const along = (index: number) => items[index].x * c + items[index].y * s;
     pool.sort((left, right) => along(left) - along(right));
@@ -102,7 +112,7 @@ export function readLabelBlocks(texts: readonly VectorText[]): LabelBlock[] {
   const buckets = byDirection(lines);
   for (const [key, own] of buckets) {
     const mine = new Set(own);
-    const pool = [...own, ...(buckets.get(key + 1) ?? []), ...(buckets.get(key - 1) ?? [])];
+    const pool = [...own, ...(buckets.get(nextKey(key, 1)) ?? []), ...(buckets.get(nextKey(key, -1)) ?? [])];
     const c = Math.cos(key * 0.04), s = Math.sin(key * 0.04);
     const downOf = (index: number) => -lines[index].x * s + lines[index].y * c;
     pool.sort((left, right) => downOf(left) - downOf(right));

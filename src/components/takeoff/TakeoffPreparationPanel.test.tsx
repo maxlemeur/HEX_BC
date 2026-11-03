@@ -13,7 +13,7 @@ import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPrepa
 const loadChatGptConnectionMock = vi.hoisted(() => vi.fn());
 vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
 
-const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn() }));
+const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), triageAvailability: vi.fn(), triage: vi.fn() }));
 vi.mock("@/app/dashboard/affaires/_actions/takeoff-preparation", () => ({
   loadTakeoffPreparationAction: actions.load,
   saveTakeoffPreparationAction: actions.save,
@@ -22,6 +22,8 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff-preparation", () => ({
   loadTakeoffPreparationProfilesAction: actions.profiles,
   saveTakeoffPreparationProfileAction: actions.saveProfile,
   getTakeoffPreparationSourcePreviewAction: actions.preview,
+  loadTakeoffPageTriageAvailabilityAction: actions.triageAvailability,
+  proposeTakeoffPageTriageAction: actions.triage,
 }));
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -64,6 +66,7 @@ beforeEach(() => {
     return success(state());
   });
   actions.profiles.mockResolvedValue(success([]));
+  actions.triageAvailability.mockResolvedValue(success({ status: "disabled", message: "Decisions n’est pas activé pour le métré.", model: "gpt-6-luna", max_pages: 60 }));
 });
 afterEach(cleanup);
 

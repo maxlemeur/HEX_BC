@@ -16,7 +16,7 @@ const owner = { userId: "user-a", tenantId: "tenant-a" };
 function input() {
   const preparation = createEmptyTakeoffPreparation();
   preparation.sources = [{ document_id: "plan-a", document_name: "Plan R+1.pdf", source_version: "sha-a", revision: "A", kind: "plan",
-    active: true, confirmed: false, pages: [1], file_path: "private-storage/plan.pdf", page_count: 1, plan_set_id: null, logical_document_id: null, content_hash: null, source_updated_at: null, mime_type: "application/pdf" }];
+    active: true, confirmed: false, pages: [1], file_path: "private-storage/plan.pdf", page_count: 1, plan_set_id: null, logical_document_id: null, content_hash: null, source_updated_at: null, mime_type: "application/pdf", page_triage: null }];
   return { owner, projectId: "project-a", preparation, sources: preparation.sources, revision: 1, sourceFingerprint: "sha-sources" };
 }
 const generated = { proposals: [

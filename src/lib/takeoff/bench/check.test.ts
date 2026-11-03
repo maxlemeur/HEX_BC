@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createFixtureDataset,
   FAKE_PLAN_PATH,
+  pageTruth,
   type FixtureDataset,
 } from "@/lib/takeoff/bench/bench-dataset.test-utils";
 import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/bench/check";
@@ -113,7 +114,7 @@ describe("takeoff bench dataset check", () => {
       truthFiles: 5,
       truthLines: 11,
       noise: "measured",
-      pageFiles: 1,
+      pageFiles: 5,
       groupFiles: 0,
       truthWithoutBinary: ["b-plan-01"],
     });
@@ -769,15 +770,65 @@ describe("takeoff bench dataset check", () => {
     expectIssue(result, "truth/noise.json", "keys[0]", /baseline_quantity/);
   });
 
-  it("validates the page truth owned by TI-663 when present", async () => {
-    await dataset.writeJson("truth/pages/a-plan-02.json", {
-      schema_version: 1, document: "a-plan-02", pages: [{ page: 3, type: "plan" }],
+  // Page truths (TI-663), written before the check: a binary PDF without its page truth
+  // (G1), a page missing, repeated or beyond the document, a wrong page count (G2), a
+  // kept type, cited page or ambiguous page not kept, or an excluded page kept without
+  // reason (G3), an unnormalised level or zone (G4), a type, status or labeller outside
+  // the contract (G6), page labels on a document without PDF pages.
+  it("requires a page truth for every binary PDF and allows an empty one for a document without pages", async () => {
+    await rm(path.join(dataset.root, "truth/pages/c-plan-01.json"));
+    await dataset.writeJson("truth/pages/e-plan-01.json", { schema_version: 1, document: "e-plan-01", page_count: null, labeled_at: "2026-11-03", pages: [] });
+    await dataset.writeJson("truth/pages/a-devis-02.json", pageTruth("a-devis-02", [{ page: 1, type: "piece_ecrite", niveau: null, zone: null, garder: false }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/pages/c-plan-01.json", "", /missing.*binary PDF/);
+    expectIssue(result, "truth/pages/a-devis-02.json", "pages", /no PDF pages/);
+    expect(result.errors.filter((issue) => issue.file === "truth/pages/e-plan-01.json")).toEqual([]);
+  });
+
+  it("requires every page exactly once with the manifest page count", async () => {
+    await dataset.writeJson("truth/pages/a-plan-01.json", pageTruth("a-plan-01", [{ page: 1, type: "reseau", niveau: "R+1", zone: "Z1", garder: true }]));
+    await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
+      (truth.pages as Array<Record<string, unknown>>)[0].page = 3;
     });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/pages/a-plan-01.json", "page_count", /2 pages/);
+    expectIssue(result, "truth/pages/a-plan-01.json", "pages", /page 2 is missing/);
+    expectIssue(result, "truth/pages/a-plan-02.json", "pages[0].page", /1 page/);
+  });
+
+  it("refuses an unnormalised level or zone and values outside the contract", async () => {
+    await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
+      Object.assign((truth.pages as Array<Record<string, unknown>>)[0], { niveau: "R + 1", zone: "Zone 2", type: "plan", statut: "ok", labeled_by: "" });
+    });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    for (const field of ["niveau", "zone", "type", "statut", "labeled_by"]) expectIssue(result, "truth/pages/a-plan-02.json", `pages[0].${field}`, /./);
+    await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
+      Object.assign((truth.pages as Array<Record<string, unknown>>)[0], { niveau: "R+01", zone: "Z02", type: "reseau", statut: "à valider", labeled_by: "agent" });
+    });
+    const zeros = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(zeros, "truth/pages/a-plan-02.json", "pages[0].niveau", /./);
+    expectIssue(zeros, "truth/pages/a-plan-02.json", "pages[0].zone", /./);
+  });
+
+  it("keeps every kept type, cited page and ambiguous page, and only those", async () => {
+    await dataset.mutateJson("truth/pages/a-plan-01.json", (truth) => {
+      (truth.pages as Array<Record<string, unknown>>)[1].garder = false;
+    });
+    await dataset.writeJson("truth/pages/load-plan-01.json", pageTruth("load-plan-01", [{ page: 1, type: "reseau", niveau: null, zone: null, garder: false }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/pages/a-plan-01.json", "pages[1].garder", /covered by a quantity truth/);
+    expectIssue(result, "truth/pages/load-plan-01.json", "pages[0].garder", /kept type/);
+    await dataset.writeJson("truth/pages/load-plan-01.json", pageTruth("load-plan-01", [{ page: 1, type: "facade", niveau: null, zone: null, garder: false, statut: "ambigu" }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/pages/load-plan-01.json", "pages[0].garder", /ambiguous/);
+    await dataset.writeJson("truth/pages/load-plan-01.json", pageTruth("load-plan-01", [{ page: 1, type: "coupe", niveau: null, zone: null, garder: true }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/pages/load-plan-01.json", "pages[0].garder", /excluded type/);
+  });
+
+  it("validates the group truth owned by TI-662 when present", async () => {
     await dataset.writeJson("truth/groups/a-plan-09.json", {
       schema_version: 1, document: "a-plan-09", groups: [{ page: 1, group: "layer:fictional", class: "EF" }],
     });
     const result = await checkTakeoffBenchDataset(dataset.root);
-    expectIssue(result, "truth/pages/a-plan-02.json", "pages[0].page", /1 page/);
     expectIssue(result, "truth/groups/a-plan-09.json", "document", /not in the manifest/);
   });
 
@@ -796,7 +847,8 @@ describe("takeoff bench dataset check", () => {
     const result = await checkTakeoffBenchDataset(dataset.root);
     expect(result.errors).toEqual([]);
     expect(result.ok).toBe(true);
-    expect(result.summary).toMatchObject({ pageFiles: 1, groupFiles: 1 });
+    // The fixture's page truths (TI-663) are unchanged; the group truth is counted apart.
+    expect(result.summary).toMatchObject({ pageFiles: 5, groupFiles: 1 });
   });
 
   it("refuses a group class that is neither a network code nor a known class", async () => {

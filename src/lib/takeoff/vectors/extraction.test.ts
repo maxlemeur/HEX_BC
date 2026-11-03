@@ -43,6 +43,17 @@
 //     clipping its content.
 // 16. Two images over the same half page reported as covering all of it
 //     (areas added instead of their union), so the page reads as raster.
+// Third Codex round (written before the fix):
+// 17. A full-page image on a layer hidden by the default configuration (OFF), a
+//     former scan kept under the plan, by a BDC /OC, the image's own /OC, a
+//     form's /OC, an OCMD of that layer, an ON layer nested in it or a BMC
+//     inside it, counted as raster coverage, so the visible vector plan reads
+//     as a raster page; or a printed image (ON layer, after the OFF layer's
+//     EMC, under a BMC alone) no longer counted.
+// Review of that round (written before the fix):
+// 18. A stroke that is not printed because an outer level hides it (an ON
+//     layer nested in an OFF one, an OCMD of an OFF layer) read as a visible
+//     stroke of the ON layer or of its colour, and measured.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -55,6 +66,7 @@ import {
 } from "@/lib/takeoff/vectors/extraction";
 import { pointsToMetres, polylineLength } from "@/lib/takeoff/vectors/geometry";
 import { buildPageModel, type GroupStats } from "@/lib/takeoff/vectors/page-model";
+import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 
 const SPAWN = { timeout: 30_000 } as const;
 
@@ -514,6 +526,70 @@ describe("raster coverage", () => {
     const extraction = await extractVectorPage(new Uint8Array(bytes), 1);
     expect(extraction.counts.images).toBe(2);
     expect(extraction.counts.imageCoverage).toBeCloseTo(0.5, 3);
+  });
+
+  it("never counts an image on a layer hidden by the default configuration (third review of PR #145)", SPAWN, async () => {
+    const scan = "q 200 0 0 100 0 0 cm /Im1 Do Q";
+    const plan = "/OC /on BDC 0 0 1 RG 10 50 m 190 50 l S EMC";
+    const bytes = await buildPdf((doc) => {
+      const off = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of("FICTIF_SCAN_ANCIEN") }));
+      const on = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of("FICTIF_RES_EF") }));
+      doc.catalog.set(PDFName.of("OCProperties"), doc.context.obj({ OCGs: [off, on], D: { Order: [off, on], ON: [on], OFF: [off] } }));
+      // A 1 x 1 grey image, stretched over the whole page by the cm.
+      const pixel = { Type: "XObject", Subtype: "Image", Width: 1, Height: 1, ColorSpace: "DeviceGray", BitsPerComponent: 8 };
+      const image = doc.context.register(doc.context.stream(new Uint8Array([128]), pixel));
+      const ownOc = doc.context.register(doc.context.stream(new Uint8Array([128]), { ...pixel, OC: off }));
+      const form = doc.context.register(doc.context.stream(scan, {
+        Type: "XObject", Subtype: "Form", BBox: [0, 0, 200, 100], OC: off, Resources: { XObject: { Im1: image } },
+      }));
+      const ocmd = doc.context.register(doc.context.obj({ Type: "OCMD", OCGs: [off], P: "AllOn" }));
+      const properties = doc.context.obj({ off, on, md: ocmd });
+      const pages: Array<[string[], Record<string, PDFObject>]> = [
+        // Not printed: a BDC /OC, the image's own /OC, a Form /OC, an OCMD of the OFF layer, an ON layer nested in it, a BMC inside it.
+        [[`/OC /off BDC ${scan} EMC`], { Im1: image }],
+        [[scan], { Im1: ownOc }],
+        [["/Fm1 Do"], { Fm1: form }],
+        [[`/OC /md BDC ${scan} EMC`], { Im1: image }],
+        [[`/OC /off BDC /OC /on BDC ${scan} EMC EMC`], { Im1: image }],
+        [[`/OC /off BDC /Artifact BMC ${scan} EMC EMC`], { Im1: image }],
+        // Printed: on the ON layer, after the OFF layer's EMC, under a BMC alone.
+        [[`/OC /on BDC ${scan} EMC`], { Im1: image }],
+        [["/OC /off BDC 0 0 m 10 0 l S EMC", scan], { Im1: image }],
+        [[`/Artifact BMC ${scan} EMC`], { Im1: image }],
+      ];
+      for (const [content, xobjects] of pages) {
+        addRawPage(doc, [200, 100], [...content, plan], { Properties: properties, XObject: doc.context.obj(xobjects) });
+      }
+    });
+
+    const extractions = await Promise.all(Array.from({ length: 9 }, (_, index) => extractVectorPage(bytes, index + 1)));
+
+    expect(extractions.map((extraction) => Math.round(extraction.counts.imageCoverage * 1000) / 1000)).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 1]);
+    // Still one image of the page; the visible plan is read on its layers, not as a raster page.
+    expect(extractions.map((extraction) => extraction.counts.images)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(extractions.map((extraction) => readVectorPage(extraction, { clock: () => 0 }).mode)).toEqual([
+      "layers", "layers", "layers", "layers", "layers", "layers", "raster", "raster", "raster",
+    ]);
+  });
+
+  it("never measures a stroke an outer optional content hides (review of the third round of PR #145)", SPAWN, async () => {
+    const pipe = "0 0 1 RG 10 50 m 190 50 l S";
+    const bytes = await buildPdf((doc) => {
+      const off = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of("FICTIF_ANCIEN") }));
+      const on = doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of("FICTIF_RES_EF") }));
+      doc.catalog.set(PDFName.of("OCProperties"), doc.context.obj({ OCGs: [off, on], D: { Order: [off, on], ON: [on], OFF: [off] } }));
+      const ocmd = doc.context.register(doc.context.obj({ Type: "OCMD", OCGs: [off], P: "AllOn" }));
+      const properties = doc.context.obj({ off, on, md: ocmd });
+      // Not printed: an ON layer nested in the OFF one, an OCMD of the OFF layer, the OFF layer itself. Printed: the ON layer.
+      for (const content of [`/OC /off BDC /OC /on BDC ${pipe} EMC EMC`, `/OC /md BDC ${pipe} EMC`, `/OC /off BDC ${pipe} EMC`, `/OC /on BDC ${pipe} EMC`]) {
+        addRawPage(doc, [200, 100], [content], { Properties: properties });
+      }
+    });
+
+    const models = await Promise.all([1, 2, 3, 4].map(async (page) => buildPageModel(await extractVectorPage(bytes, page))));
+
+    expect(models.map((model) => Math.round(model.visibleLength_pt))).toEqual([0, 0, 0, 180]);
+    expect(models.map((model) => model.segments.length)).toEqual([0, 0, 0, 1]);
   });
 });
 

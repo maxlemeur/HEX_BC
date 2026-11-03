@@ -20,6 +20,9 @@ import { datasetSha256, loadBenchDataset, readVerifiedPdf } from "@/lib/takeoff/
 // - an explicit id without quantity truth or without binary, or given twice, is run;
 // - the dataset SHA misses a truth file (truth/pages, truth/noise.json), covers
 //   the raw files, or depends on the listing order or on the dataset path.
+// Page triage (TI-663), written before the code: a triage run takes a document
+// without page truth or without binary PDF; an explicit extraction refuses a plan
+// that only has a page truth (lot E, measured for tokens and latency, unscored).
 
 let dataset: FixtureDataset;
 
@@ -85,13 +88,26 @@ describe("takeoff bench dataset", () => {
   });
 
   it.each([
-    [["e-plan-01"], /e-plan-01 has no quantity truth/],
-    [["load-plan-01"], /load-plan-01 has no quantity truth/],
-    [["a-devis-01"], /a-devis-01 has no quantity truth/],
+    [["e-plan-01"], /e-plan-01 has no quantity truth nor page truth/],
+    [["a-devis-01"], /a-devis-01 has no quantity truth nor page truth/],
     [["b-plan-01"], /b-plan-01 has no verified binary/],
     [["a-plan-01", "a-plan-01"], /a-plan-01 is given twice/],
   ])("refuses the explicit documents %j", async (ids, message) => {
     await expect(loadBenchDataset(dataset.root, ids)).rejects.toThrow(message);
+  });
+
+  it("measures an explicit plan that only has a page truth, without scoring it", async () => {
+    const loaded = await loadBenchDataset(dataset.root, ["load-plan-01"]);
+    expect(loaded.selected.map(({ document }) => document.id)).toEqual(["load-plan-01"]);
+    expect(loaded.pageTruths.get("load-plan-01")?.pages[0].type).toBe("coupe");
+  });
+
+  it("selects for a triage run every binary PDF with its page truth", async () => {
+    const loaded = await loadBenchDataset(dataset.root, "all", { mode: "triage" });
+    expect(loaded.selected.map(({ document }) => document.id)).toEqual(["a-plan-01", "a-plan-02", "c-plan-01", "d-plan-01", "load-plan-01"]);
+    expect([...loaded.pageTruths.keys()].sort()).toEqual(["a-plan-01", "a-plan-02", "c-plan-01", "d-plan-01", "load-plan-01"]);
+    await expect(loadBenchDataset(dataset.root, ["e-plan-01"], { mode: "triage" })).rejects.toThrow(/e-plan-01 has no page truth/);
+    await expect(loadBenchDataset(dataset.root, ["a-devis-01"], { mode: "triage" })).rejects.toThrow(/a-devis-01 has no page truth/);
   });
 
   it("hashes manifest.json and every truth/**/*.json, sorted, and nothing else", async () => {
@@ -99,7 +115,7 @@ describe("takeoff bench dataset", () => {
     expect(first).toBe(await expectedSha(dataset.root));
     expect((await loadBenchDataset(dataset.root, "all")).sha256).toBe(first);
 
-    await dataset.mutateJson("truth/pages/a-plan-01.json", (value) => { value.pages = [{ page: 1, type: "plan" }]; });
+    await dataset.mutateJson("truth/pages/a-plan-01.json", (value) => { value.labeled_at = "2026-11-04"; });
     const afterPages = await datasetSha256(dataset.root);
     expect(afterPages).not.toBe(first);
     await dataset.mutateJson("truth/noise.json", (value) => { value.rules = "Fictional rule, revised."; });

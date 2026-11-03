@@ -1,14 +1,19 @@
-import { MM_PER_POINT, SegmentIndex, distanceToSegment, orientation, orientationGap, segmentLength, type Segment } from "@/lib/takeoff/vectors/geometry";
+import {
+  MM_PER_POINT, SegmentIndex, distanceToSegment, orientation, orientationGap, segmentLength, textFrame, type Segment,
+} from "@/lib/takeoff/vectors/geometry";
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
 
 // Scale of a page (TI-662 step 2): the cartouche scale, checked by a cote.
 // - Cartouche: a « 1/n » or « 1 : n » text labelled by « Échelle » / « Scale »
-//   (same text, or within 4 text heights after it); every value of a text
-//   counts. Several labelled values that differ (views at other scales):
+//   (same text; or a text after the label on its baseline, within 8 text
+//   heights, or under it, within 4; offsets are read along the label's
+//   baseline and across it, so a page turned by /Rotate reads as drawn); every
+//   value of a text counts. Several labelled values that differ (views at other scales):
 //   ambiguous. Without label, a single value of 1/10 or above on the whole
 //   page is taken, never a sheet number (« Page 1/2 »); two or more: ambiguous.
-// - Format: an ISO A0 to A4 or « 1398x841 » text labelled by « Format »,
-//   compared with the page size (both orientations) within 1 % or 3 mm.
+// - Format: an ISO A0 to A4 or « 1398x841 » text labelled by « Format » (same
+//   text, or placed as a scale value is), compared with the page size (both
+//   orientations) within 1 % or 3 mm.
 // - Cote: a numeric text (« 5,00 » in metres when it has decimals, « 4500 »
 //   in millimetres when it has none, or with its unit) above a stroked segment
 //   parallel to it (text centre over the middle 80 % of the segment, 0.1 to 1.5
@@ -30,7 +35,7 @@ import type { VectorText } from "@/lib/takeoff/vectors/extraction";
 //   is then mandatory). Lengths and areas are given only when measurable;
 //   counts always.
 
-export const SCALE_RULE_VERSION = 1;
+export const SCALE_RULE_VERSION = 2;
 export const COTE_RELATIVE_TOLERANCE = 0.02;
 /** Past this ratio between drawn length and value, a numeric text by a line is not read as a cote. */
 export const COTE_PLAUSIBLE_RATIO = 4;
@@ -80,9 +85,12 @@ function centre(text: VectorText) {
 
 function near(label: VectorText, value: VectorText) {
   const h = Math.max(label.height, value.height, 1);
-  const dx = value.x - (label.x + label.width), dy = value.y - label.y;
-  const below = Math.abs(value.x - label.x) <= Math.max(label.width, value.width) + 2 * h && dy > 0 && dy <= 4 * h;
-  const after = dx >= -h && dx <= 8 * h && Math.abs(dy) <= h;
+  // The value's offset in the label's own frame: along its baseline, and down across it. A page turned by /Rotate
+  // (texts at ±90° or 180°) reads as drawn; at 0° this is the page's x and y.
+  const frame = textFrame(label.angle);
+  const along = frame.along(value.x - label.x, value.y - label.y), down = -frame.up(value.x - label.x, value.y - label.y);
+  const below = Math.abs(along) <= Math.max(label.width, value.width) + 2 * h && down > 0 && down <= 4 * h;
+  const after = along - label.width >= -h && along - label.width <= 8 * h && Math.abs(down) <= h;
   return below || after;
 }
 

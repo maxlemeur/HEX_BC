@@ -27,7 +27,9 @@ est une constante nommée et versionnée dans le code.
      seul ce qu'il montre est mesuré. Un détourage rectangulaire est exact ; une autre
      forme est prise par son rectangle englobant.
    - La part raster d'une page est l'union des images qui la couvrent, dans leur
-     détourage : deux images superposées ne comptent qu'une fois.
+     détourage : deux images superposées ne comptent qu'une fois. Une image sur un
+     calque masqué par la configuration par défaut (OFF), par exemple un ancien scan
+     gardé sous le plan, n'est pas imprimée : elle ne compte pas.
 2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
    - Un groupe est un calque quand la page en a, sinon une couleur avec son
      épaisseur et son tiret.
@@ -37,9 +39,14 @@ est une constante nommée et versionnée dans le code.
    - Un groupe quasi blanc ou gris n'est jamais classé réseau par mot-clé.
    - Un trait quasi blanc n'est jamais mesuré, même dans un calque réseau.
    - Un calque masqué par la configuration par défaut du PDF (OFF) n'est pas lu : ni
-     cote, ni légende, ni ligne de rappel, ni mesure, ni contour de pièce.
+     cote, ni légende, ni ligne de rappel, ni mesure, ni contour de pièce. Un tracé
+     masqué par un niveau englobant (un calque ON dans un calque OFF, un OCMD d'un
+     calque OFF) n'est pas imprimé : il n'est pas lu non plus.
 3. **Échelle** ([`scale.ts`](../../src/lib/takeoff/vectors/scale.ts)), page par page.
    - On lit l'échelle du cartouche (« Échelle 1/50 »).
+   - Une valeur séparée de son libellé (« Échelle » puis « 1/50 », « Format » puis « A3 »)
+     est prise juste après lui sur sa ligne ou juste en dessous, dans le repère du texte :
+     une page tournée (/Rotate 90, 180 ou 270) se lit comme dessinée.
    - On la contrôle par une cote : un nombre au-dessus d'une ligne dont les deux
      extrémités sont barrées.
      - L'unité est le mètre si le nombre a des décimales, le millimètre sinon.
@@ -65,6 +72,12 @@ est une constante nommée et versionnée dans le code.
      les tracés dessinés sur sa ligne avant le texte suivant de cette ligne (échantillon
      de 25 hauteurs de texte au plus), donne la couleur du réseau. Chaque partie du code
      est un code réseau ou un sens : « EU - PVC » est un libellé, pas une légende.
+     - La légende se lit dans le sens de la feuille. Elle est lue le long des deux axes
+       de la page, et l'axe qui donne le plus d'entrées est retenu (à égalité, celui de
+       la plupart des textes). Une page tournée (/Rotate 90, 180 ou 270), ou dessinée
+       tournée, se lit comme dessinée, et des libellés verticaux plus nombreux ne
+       tournent pas une feuille droite. Un code écrit en travers de ce sens, le long
+       d'un tuyau, est une étiquette du plan, pas une légende.
      - Les teintes de cette couleur (mêlée de blanc à 10 – 85 %) et ses ombres (de noir
        à 10 – 60 %) suivent.
      - Une couleur partagée par EU et EU/EV donne EUV. Une couleur partagée par deux
@@ -110,6 +123,11 @@ est une constante nommée et versionnée dans le code.
      d'une pièce, × échelle².
    - La surface imprimée sert de contrôle, jamais de repli : une pièce sans polygone
      fermé n'a pas d'aire mesurée. Elle est comptée au rapport.
+   - Un polygone est fermé par son tracé (h, s, re) ou revient à son premier point, à
+     moins de 0,5 pt, sans fermeture explicite. Un contour laissé ouvert (une porte, un
+     côté manquant) ne délimite aucune pièce.
+   - Une pièce par contour : un polygone qui contient aussi le libellé d'une autre pièce
+     (l'enveloppe d'un bâtiment, le cadre de la feuille) n'est pas le contour de la pièce.
    - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
    - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
      page tournée (/Rotate 90) se lit comme dessinée.

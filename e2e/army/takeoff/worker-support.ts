@@ -194,7 +194,7 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
   preparation.scope = { ...preparation.scope, lots: ["Plomberie"], networks: ["EF", "EU/EV"], confirmed: true };
   preparation.sources = [{ document_id: `upload:${hash}`, document_name: fileName, kind: "plan", revision: "A", source_version: hash,
     content_hash: hash, pages: [1], active: true, confirmed: true, plan_set_id: null, file_path: null, page_count: null,
-    logical_document_id: null, source_updated_at: null, mime_type: "application/pdf" }];
+    logical_document_id: null, source_updated_at: null, mime_type: "application/pdf", page_triage: null }];
   preparation.conventions = { unit: "m", measurement_basis: "calibrated", purchase: null, confirmed: true,
     calibration: { document_id: `upload:${hash}`, page: 1, reference_length: 5, reference_unit: "m", measured_span: 100, measured_span_unit: "paper_mm" } };
   preparation.destination = { ...preparation.destination, kind: "estimate_review", reviewer: "Réviseur ARMY", confirmed: true };

@@ -782,7 +782,11 @@
       "note": "Préparation commune aux lancements depuis le hub et par fichier, reprise et refus métier.",
       "paths": [
         "src/lib/takeoff/preparation*",
+        "src/lib/takeoff/page-triage*",
+        "src/lib/takeoff/takeoff-decisions-server.ts",
+        "src/lib/pdf/**",
         "src/components/takeoff/TakeoffPreparation*",
+        "src/components/takeoff/TakeoffPageTriage.tsx",
         "src/components/takeoff/useTakeoffPreparation.ts",
         "src/app/dashboard/affaires/_actions/takeoff-preparation.ts",
         "e2e/army/critical/preparation-support.ts"
@@ -834,6 +838,7 @@
       "id": "intake-dossier",
       "paths": [
         "src/lib/affaires/**",
+        "src/lib/pdf/**",
         "src/components/affaires/**",
         "src/app/api/affaires/**"
       ],

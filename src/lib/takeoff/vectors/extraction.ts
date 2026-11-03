@@ -21,7 +21,9 @@ import { z } from "zod";
 //   form's BBox clips its content. Strokes are cut to the clip (a rectangle
 //   exactly, another clip shape by its bounding box);
 // - image coverage is the union of the image footprints inside the clip, read
-//   on a 256 x 256 grid of the page;
+//   on a 256 x 256 grid of the page; an image under a marked content that the
+//   default configuration hides (config.isVisible, pdfjs's own canvas rule:
+//   every open level must be shown) is counted but covers nothing;
 // - coordinates are in the current user space: the CTM follows save, restore,
 //   transform and paintFormXObjectBegin (its matrix) / paintFormXObjectEnd,
 //   then page.getViewport({ scale: 1 }).transform, which includes userUnit and
@@ -32,7 +34,11 @@ import { z } from "zod";
 // - layers: beginMarkedContentProps is ["OC", { type, id }], ["OC", { type:
 //   "OCMD" }] without id or ["OC", null]; the id is a key of
 //   getOptionalContentConfig(). Every beginMarkedContent* pushes (OC or not),
-//   endMarkedContent pops; a path belongs to the innermost OC with an id;
+//   endMarkedContent pops; a path belongs to the innermost OC with an id; an
+//   image XObject's or a form's /OC arrives as such a marked content around it;
+//   a stroke an outer level hides (an ON layer nested in an OFF one, an OCMD of
+//   an OFF layer) is not printed and not extracted; a stroke of a layer that is
+//   itself OFF is kept in that layer's group, which the page model never measures;
 // - getOperatorList({ annotationMode: AnnotationMode.DISABLE }); no
 //   disableWorker (removed in 6.x): the legacy build runs its fake worker in
 //   the process.
@@ -40,7 +46,7 @@ import { z } from "zod";
 // a coordinate that is not finite or beyond 10^7 pt fails the page. pdfjs
 // stops at a content error (stopAtErrors) instead of returning what it read.
 
-export const VECTOR_EXTRACTION_VERSION = 2;
+export const VECTOR_EXTRACTION_VERSION = 3;
 export const VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE = 15_000;
 /** V8 heap of the extraction process, measured on the heaviest plans of the bench (TI-662 load criterion). */
 export const VECTOR_EXTRACTION_HEAP_MB = 1536;
@@ -72,6 +78,7 @@ async function main() {
     const config = await pdf.getOptionalContentConfig();
     const layers = [];
     for (const [id, group] of config) layers.push({ id: String(id), name: String(group.name ?? ""), visible: group.visible !== false });
+    const offLayers = new Set(layers.filter((entry) => !entry.visible).map((entry) => entry.id));
     const t0 = performance.now();
     const ops = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
     const t1 = performance.now();
@@ -107,6 +114,9 @@ async function main() {
     };
     const stack = [];
     const marked = [];
+    // Whether each open marked content is shown: an OC as the default configuration says (an OCMD by its policy or
+    // expression), any other mark always. Content is printed only when every open level is shown.
+    const shown = [];
     const groupIndex = new Map();
     const groups = [];
     const paths = [];
@@ -154,11 +164,12 @@ async function main() {
           break;
         case OPS.setStrokeRGBColor: state.color = String(args[0]).toLowerCase(); state.pattern = false; break;
         case OPS.setStrokeColorN: state.pattern = true; break;
-        case OPS.beginMarkedContent: marked.push(undefined); break;
+        case OPS.beginMarkedContent: marked.push(undefined); shown.push(true); break;
         case OPS.beginMarkedContentProps:
           marked.push(args[0] === "OC" ? (args[1] && args[1].id !== undefined && args[1].id !== null ? String(args[1].id) : null) : undefined);
+          shown.push(args[0] !== "OC" || config.isVisible(args[1]));
           break;
-        case OPS.endMarkedContent: marked.pop(); break;
+        case OPS.endMarkedContent: marked.pop(); shown.pop(); break;
         case OPS.constructPath: {
           const paint = args[0];
           // The clip (W) named before this path applies after it is painted.
@@ -210,6 +221,11 @@ async function main() {
             const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
             let layer = null;
             for (let k = marked.length - 1; k >= 0; k--) if (marked[k] !== undefined) { layer = marked[k]; if (layer !== null) break; }
+            // Hidden by an outer level (pdfjs's canvas paints only when every open level is shown), and not as an OFF layer's own stroke.
+            if (shown.includes(false) && (layer === null || !offLayers.has(layer))) {
+              if (clipping) { const all = subpaths.flatMap((sub) => sub.coords); if (all.length >= 2) state.clip = intersect(state.clip, boxOf(all)); }
+              break;
+            }
             const width = Math.round(state.width * scale * 100) / 100;
             const color = state.pattern ? "pattern" : state.color;
             const key = JSON.stringify([layer, color, width, state.dash]);
@@ -246,8 +262,10 @@ async function main() {
         default:
           if (IMAGE.has(fn)) {
             // Coverage is the union of the image footprints inside the clip, on a GRID x GRID raster of the page:
-            // two images over one half page cover half of it.
+            // two images over one half page cover half of it. An image on a hidden layer (a former scan kept OFF under
+            // the plan) is not printed: it is counted but covers nothing.
             counts.images++;
+            if (shown.includes(false)) break;
             const m = Util.transform(vt, state.ctm);
             const det = m[0] * m[3] - m[1] * m[2];
             if (det === 0) break;

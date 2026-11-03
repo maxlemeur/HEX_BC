@@ -16,7 +16,9 @@ Le lancement propose quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx) :
 
 1. **Mes documents** : sélectionner les pièces actives, leur révision et les pages
-   retenues. Les pièces non actives restent dans le dossier.
+   retenues. Les pièces non actives restent dans le dossier. Au niveau Détaillé,
+   « Proposer le tri des pages » demande à Decisions un type, un niveau et une
+   zone pour chaque page des plans actifs (voir « Tri des pages » ci-dessous).
 2. **Ce que je veux mesurer** : choisir l'objectif et préciser les lots, réseaux,
    niveaux, zones, inclusions et exclusions. Confirmer ce périmètre.
 3. **Points à préciser** : renseigner l'unité et les conventions nécessaires,
@@ -62,6 +64,7 @@ le traitement existant et son fournisseur d'exécution.
 | Profil | Identifiant, nom et version du profil réutilisé, lorsqu'il existe |
 | Traitement | Niveau d'analyse et choix du fournisseur, propres à cette préparation ; aucun compte ou secret n'est enregistré |
 | Assistance acceptée | Contexte tenant/affaire/révision, empreintes, fournisseur/modèle, version de consigne, consommation connue et identifiants des propositions acceptées |
+| Tri des pages | Par plan (`sources[].page_triage`) : version du fichier, nombre de pages, empreinte des questions, modèle, version de consigne, consommation du tri, acceptation ; par page : empreinte de la demande, type, niveau, zone, confiance, proposition (écarter, garder, à vérifier), raison et statut (proposée, à vérifier, corrigée) |
 
 Un champ inconnu reste `null`. Il ne devient pas zéro. Les listes vides restent
 vides ; le périmètre doit contenir au moins une inclusion, un lot, un réseau, un
@@ -200,6 +203,52 @@ le parcours manuel. La configuration et les limites de la connexion locale sont
 décrites dans [ChatGPT local](../testing/chatgpt-local.md).
 La configuration distincte de Decisions est décrite dans
 [Decisions](../testing/decisions.md).
+
+## Tri des pages
+
+Le tri n'envoie au niveau C que les pages utiles, sans écarter de plan utile :
+Decisions propose, l'utilisateur accepte ou corrige. Il est demandé explicitement
+par « Proposer le tri des pages », jamais à l'ouverture ni au rechargement.
+L'action enregistre d'abord le brouillon, puis traite un plan actif à la fois avec
+la révision attendue ; un brouillon modifié pendant le tri provoque un conflit
+explicite. Le bouton est désactivé, avec sa raison, hors du niveau Détaillé, sans
+plan actif du dossier, ou quand Decisions n'est pas activé pour le métré
+(`MERGEONE_TAKEOFF_DECISIONS=1`, voir [Decisions](../testing/decisions.md)).
+La sélection manuelle des pages reste toujours disponible et le métré lançable.
+
+Le serveur lit chaque page du plan confirmé (texte et vignette) et pose trois
+questions : le type (plan de réseau, d'architecture, de toiture, de masse, coupe,
+schéma, façade, détail, pièce écrite, autre ; un réseau dessiné sur une toiture
+ou une masse est un plan de réseau), le niveau et la zone. Les choix de niveau et
+de zone viennent du texte de la page et du périmètre (`RDC`, `R+n`, `R-n`, `SSn`,
+`Zn`, normalisés), plus `inconnu` ; sans candidat, la question n'est pas posée.
+
+Une page n'est proposée à l'écart que si le type répondu est une coupe, une
+façade, un plan de toiture, un plan de masse ou une pièce écrite, avec une
+confiance d'au moins 0,8, une réponse complète et une vignette lisible. Sinon elle
+reste retenue « À vérifier » (confiance faible, refus, réponse partielle, échec,
+vignette absente ou blanche, plafond de jetons ou durée atteints).
+
+La proposition s'affiche à part. Seule « Accepter le tri » écrit `pages` et
+`active` : les pages retenues, toutes les pages par la liste vide, ou la pièce
+désactivée quand toutes ses pages sont écartées (jamais `pages: []` pour aucune
+page). L'acceptation rouvre la confirmation de la pièce et du lancement. Retenir
+ou retirer une page ensuite est une correction marquée « Corrigée », que ni un
+nouveau tri ni une nouvelle acceptation n'écrasent. Changer de niveau garde la
+sélection. Les pages inchangées (fichier, questions, modèle, vignette) ne sont pas
+redemandées ; une nouvelle version du fichier efface le tri sans toucher la
+sélection. Le worker de niveau C est inchangé : il ne copie que les pages
+confirmées.
+
+Un plan de plus de 60 pages n'est pas trié automatiquement : un message invite à
+sélectionner ses pages à la main. Un PDF dont le nombre de pages lu diffère de
+celui du dossier est refusé avant tout appel.
+
+Le schéma strict ajoute `page_triage` à chaque source, `null` compris, quel que
+soit `MERGEONE_TAKEOFF_DECISIONS`. Dès qu'une préparation est enregistrée ou
+confirmée avec cette version, son brouillon et son instantané (worker compris)
+ne peuvent plus être relus par une version antérieure : ne pas revenir en
+dessous de cette version après le déploiement.
 
 ## Base de données et validation
 

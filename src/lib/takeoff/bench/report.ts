@@ -6,6 +6,7 @@ import {
 } from "@/lib/takeoff/benchmark";
 import { DIAMETER_TABLE_VERSION } from "@/lib/takeoff/bench/diameters";
 import { ITEM_KEY_READER_VERSION, scoredUnit, type ScoredUnit } from "@/lib/takeoff/bench/item-keys";
+import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import {
   BENCH_CHUNKING,
   LOCAL_CHATGPT_TIMEOUT_CAP_MS,
@@ -78,6 +79,10 @@ export type BenchReportMetadata = {
     skipped: Array<{ id: string; reason: string }>;
   };
   profile: { model: string | null; reasoning_effort: ChatGptReasoningEffort | null; unchanged: boolean | null };
+  /** Host and load before and after the run (AGENTS.md: performance figures carry the host load). */
+  host?: { platform: string; release: string; cpus: number; loadavg_before: number[]; loadavg_after: number[] };
+  /** Pages read when the extraction did not read every page (TI-663 « après »). */
+  page_selection?: BenchPageSelection;
 };
 
 export type LatencySummary = { n: number; p50_ms: number | null; p95_ms: number | null };
@@ -351,6 +356,8 @@ export function buildBenchReport(input: {
   pipeline?: BenchPipeline;
   /** Rules of the vector reading (versions and thresholds), recorded with a vector run. */
   vectorRules?: Record<string, unknown>;
+  /** Documents a page triage fully excluded (`--pages-from`): scored as read with no item, their keys missed. */
+  excludedDocuments?: readonly string[];
 }): BenchReport {
   const promptVersion = getTakeoffPromptVersion("C");
   const vector = input.pipeline === "vector";
@@ -397,6 +404,7 @@ export function buildBenchReport(input: {
       passes: couple.passes.map((pass) => {
         const read = pass.documents.filter((document) => document.complete);
         const items = new Map(read.map((document) => [document.id, document.items]));
+        for (const id of input.excludedDocuments ?? []) if (!items.has(id)) items.set(id, []);
         const failures = new Map(read.map((document) => [document.id, document.calls.filter((entry) => entry.status !== "ok")
           .map((entry) => ({ start_page: entry.start_page, end_page: entry.end_page, status: entry.status }))]));
         const chunks = new Map(read.map((document) => [document.id, document.item_chunks]));
@@ -570,6 +578,9 @@ export function renderBenchReportMarkdown(report: BenchReport) {
         + `table des diamètres v${DIAMETER_TABLE_VERSION}`,
     ...(vector ? [] : [`- Profil ChatGPT : ${metadata.profile.model ?? "aucun modèle"} / ${metadata.profile.reasoning_effort ?? "auto"}, inchangé après le run : `
       + `${metadata.profile.unchanged === null ? "non vérifié" : metadata.profile.unchanged ? "oui" : "NON"}`]),
+    ...(metadata.host ? [`- Machine : ${metadata.host.platform} ${metadata.host.release}, ${metadata.host.cpus} CPU, charge ${metadata.host.loadavg_before.map((value) => value.toFixed(2)).join(" ")} → ${metadata.host.loadavg_after.map((value) => value.toFixed(2)).join(" ")}`] : []),
+    ...(metadata.page_selection && metadata.page_selection.mode !== "all"
+      ? [`- Pages lues (${metadata.page_selection.mode}) : ${metadata.page_selection.documents.map((entry) => `${entry.id} ${entry.excluded ? "écarté" : entry.pages_read.join("+")}/${entry.pages_total}`).join(", ")}`] : []),
     `- Appels : ${report.calls_done} faits sur ${report.calls_planned} prévus`,
     "",
     ...stopLines(report.stop),

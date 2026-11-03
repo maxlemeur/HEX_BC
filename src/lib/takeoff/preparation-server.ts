@@ -21,6 +21,12 @@ import { classifyPreparationReferenceFormat } from "@/lib/takeoff/preparation-re
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
 import { assertTakeoffPreparationProcessing, type TakeoffRequestedProcessing } from "@/lib/takeoff/preparation-processing-server";
+import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
+import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
+import {
+  runTakeoffPageTriage, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS, TAKEOFF_PAGE_TRIAGE_MAX_PAGES, TAKEOFF_PAGE_TRIAGE_MAX_TOKENS,
+} from "@/lib/takeoff/page-triage-server";
+import { getTakeoffDecisionsCapability } from "@/lib/takeoff/takeoff-decisions-server";
 
 const projectIdSchema = z.string().uuid();
 const revisionSchema = z.number().int().positive();
@@ -198,6 +204,96 @@ export async function assistTakeoffPreparation(input: { projectId: string; expec
     preparationConflict("Les sources ou la préparation ont changé pendant l'assistance. Relancez les propositions.");
   }
   return result;
+}
+
+/** Read-only: lets the documents step disable « Proposer le tri des pages » without any call. */
+export async function getTakeoffPageTriageAvailability(projectId: string) {
+  projectIdSchema.parse(projectId);
+  const context = await getAuthenticatedContext();
+  await assertPreparationProjectAccess(context, projectId);
+  const capability = getTakeoffDecisionsCapability();
+  return { status: capability.status, message: capability.message, model: capability.model, max_pages: TAKEOFF_PAGE_TRIAGE_MAX_PAGES };
+}
+
+export type TakeoffPageTriageOutcome = {
+  document_id: string;
+  status: "proposed" | "partial" | "unavailable";
+  message: string;
+  pages: number;
+  excluded: number;
+  to_review: number;
+  cached: number;
+  calls: number;
+  total_tokens: number;
+  /** `call_failed`: Decisions refused or failed; the client stops before the next document. */
+  stop_reason: "call_failed" | "budget_reached" | "time_limit" | "render_failed" | "page_limit" | "page_count_mismatch" | null;
+};
+
+/**
+ * Explicit triage of one active plan at level C: renders its pages server-side,
+ * asks Decisions per page and stores the proposal in `page_triage` only; the
+ * selection (`pages`, `active`) changes on acceptance alone. Like any draft
+ * change, the new revision reopens a launch confirmation.
+ */
+export async function proposeTakeoffPageTriage(input: { projectId: string; expectedRevision: number; documentId: string }) {
+  projectIdSchema.parse(input.projectId);
+  revisionSchema.parse(input.expectedRevision);
+  const documentId = z.string().trim().min(1).max(4000).parse(input.documentId);
+  const context = await getAuthenticatedContext();
+  await assertPreparationProjectAccess(context, input.projectId, true);
+  const state = await loadPreparation(context, input.projectId);
+  if (state.revision !== input.expectedRevision) preparationConflict("La préparation a changé avant le tri des pages. Rechargez-la.");
+  if (state.draft.processing.level !== "C") {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED, retryable: false,
+      message: "Le tri des pages s’applique au niveau Détaillé. Choisissez ce niveau ou sélectionnez les pages manuellement." });
+  }
+  const capability = getTakeoffDecisionsCapability();
+  if (capability.status !== "available") throw new TakeoffError({ status: 422, code: TakeoffErrorCode.BAD_REQUEST, message: capability.message, retryable: false });
+  const index = state.draft.sources.findIndex((source) => source.document_id === documentId);
+  const source = state.draft.sources[index];
+  if (!source?.active || source.kind !== "plan" || !source.plan_set_id || !source.file_path) {
+    preparationConflict("Seuls les plans actifs du dossier peuvent être triés.");
+  }
+  const available = state.availableSources.find((entry) => entry.document_id === documentId);
+  if (!available || available.source_version !== source.source_version) preparationConflict(`Le plan « ${source.document_name} » a changé. Vérifiez sa version avant le tri.`);
+  const { data, error } = await context.supabase.storage.from(PLAN_FILES_BUCKET).download(source.file_path);
+  if (error || !data) throw mapSupabaseError({ code: "SOURCE_DOWNLOAD", message: error?.message ?? "Fichier introuvable." }, "Impossible de lire le plan à trier.");
+  const run = await runTakeoffPageTriage({
+    owner: { tenantId: context.tenantId, userId: context.userId }, projectId: input.projectId,
+    bytes: new Uint8Array(await data.arrayBuffer()), fileName: source.document_name, sourceVersion: source.source_version,
+    scope: { levels: state.draft.scope.levels, zones: state.draft.scope.zones }, previous: source.page_triage,
+    budget: createDecisionsTokenBudget(TAKEOFF_PAGE_TRIAGE_MAX_TOKENS, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS),
+    pageCountHint: source.page_count, expectedPageCount: source.page_count,
+  });
+  const counts = {
+    pages: run.triage?.page_count ?? 0,
+    excluded: run.triage?.pages.filter((page) => page.proposal === "exclude").length ?? 0,
+    to_review: run.triage?.pages.filter((page) => page.proposal === "review").length ?? 0,
+    cached: run.calls.filter((call) => call.status === "cached").length,
+    calls: run.calls.filter((call) => !["cached", "skipped"].includes(call.status)).length,
+    total_tokens: run.run_usage.total_tokens,
+    stop_reason: run.stop?.reason ?? null,
+  };
+  if (!run.triage) {
+    return { state, outcome: { document_id: documentId, status: "unavailable", message: run.stop?.message ?? "Le tri n’a pas pu être proposé.", ...counts } satisfies TakeoffPageTriageOutcome };
+  }
+  const latest = await loadPreparation(context, input.projectId);
+  if (latest.revision !== state.revision || latest.sourceFingerprint !== state.sourceFingerprint) {
+    preparationConflict("Les sources ou la préparation ont changé pendant le tri. Relancez-le.");
+  }
+  const draft = takeoffPreparationSchema.parse(structuredClone(state.draft));
+  draft.sources[index] = reconcileTakeoffPageTriageStatuses({ ...draft.sources[index], page_triage: run.triage });
+  await persistPreparationRecord({
+    context, projectId: input.projectId, expectedRevision: state.revision, revision: state.revision + 1,
+    draft: takeoffPreparationSchema.parse(draft) as unknown as Json, snapshot: null, confirmedAt: null,
+  });
+  const summary = `${counts.excluded} page${counts.excluded > 1 ? "s" : ""} à écarter, ${counts.to_review} à vérifier sur ${counts.pages}.`;
+  const outcome: TakeoffPageTriageOutcome = {
+    document_id: documentId, status: run.stop ? "partial" : "proposed",
+    message: run.stop ? `${run.stop.message} ${summary}` : `Tri proposé : ${summary} Acceptez-le pour l’appliquer à la sélection.`,
+    ...counts,
+  };
+  return { state: await loadPreparation(context, input.projectId), outcome };
 }
 
 export async function getTakeoffPreparationSourcePreview(input: { projectId: string; documentId: string; page?: number }) {

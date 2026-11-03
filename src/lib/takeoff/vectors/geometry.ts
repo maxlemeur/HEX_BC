@@ -42,6 +42,15 @@ export function ringArea(points: ArrayLike<number>, start: number, count: number
   return Math.abs(twice) / 2;
 }
 
+/** A subpath whose last point lies within this distance of its first is a ring, closePath (h, s) or not (CAD exports round). */
+export const RING_CLOSURE_PT = 0.5;
+
+/** Whether points[start .. start + count) ends where it began (within RING_CLOSURE_PT): drawn back to its start, stroked without closePath. */
+export function returnsToStart(points: ArrayLike<number>, start: number, count: number) {
+  const last = start + count - 1;
+  return Math.hypot(points[2 * last] - points[2 * start], points[2 * last + 1] - points[2 * start + 1]) < RING_CLOSURE_PT;
+}
+
 export function pointInRing(point: Point, points: ArrayLike<number>, start: number, count: number) {
   let inside = false;
   for (let index = start, previous = start + count - 1; index < start + count; previous = index, index += 1) {
@@ -132,8 +141,24 @@ export function orientation(segment: Segment) {
   return angle < 0 ? angle + Math.PI : angle >= Math.PI ? angle - Math.PI : angle;
 }
 
+/** Smallest difference between two directions (radians), across ±π: 3.1416 and −3.1364 are 0.0052 apart. */
+export function angleGap(left: number, right: number) {
+  return Math.abs(Math.atan2(Math.sin(left - right), Math.cos(left - right)));
+}
+
 /** Smallest difference between two orientations in [0, π). */
 export function orientationGap(left: number, right: number) {
   const gap = Math.abs(left - right) % Math.PI;
   return Math.min(gap, Math.PI - gap);
+}
+
+/**
+ * The frame of a text whose baseline runs at `angle` (radians, page space, y down): the baseline runs along
+ * (cos, sin) in its reading direction and the glyphs rise along (sin, −cos). `along` and `up` project a page
+ * point, or an offset, on them; read so, a page turned by /Rotate reads as drawn. At angle 0 they are exactly
+ * x and −y, so a horizontal text reads as before.
+ */
+export function textFrame(angle: number) {
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  return { cos, sin, along: (x: number, y: number) => x * cos + y * sin, up: (x: number, y: number) => x * sin - y * cos };
 }

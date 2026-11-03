@@ -27,6 +27,9 @@ import { createFixtureDataset, type FixtureDataset } from "@/lib/takeoff/bench/b
 // - the recorded command leaves out the working directory and the variables the
 //   run needs (owner, TSX_TSCONFIG_PATH), and gives the script relative to its
 //   own checkout: run from the canonical checkout, it would bench main's code.
+// Page triage (TI-663), written before the code:
+// - a triage run without Decisions configured calls something, exits 0, or writes
+//   no partial report; its report records the API key or the ceiling is missing.
 
 const ROOT = path.resolve(".");
 const OWNER = "fixture-user:fixture-tenant";
@@ -144,5 +147,24 @@ describe("takeoff:bench command", () => {
     expect(report.metadata.dataset.documents.map((document: { id: string }) => document.id)).toEqual(["a-plan-01", "a-plan-02", "c-plan-01", "d-plan-01"]);
     // The store directory exists for the lock; no store file was written.
     expect(await readdir(path.join(scratch, ".private", "chatgpt-local"))).toEqual([]);
+  });
+
+  it("exits 2 with a partial triage report and no call when Decisions is not configured", { timeout: 30_000 }, async () => {
+    const result = await runBench(["--mode", "triage", "--dataset", dataset.root, "--docs", "all", "--max-decisions-tokens", "50000", "--out", out], {
+      cwd: scratch, env: { TAKEOFF_BENCH_CHATGPT_OWNER: OWNER, TSX_TSCONFIG_PATH: path.join(ROOT, "tsconfig.json"), OPENAI_DECISIONS_API_KEY: "fixture-never-sent" },
+    });
+    expect(result.code, result.stderr).toBe(2);
+    expect((await readdir(out)).sort()).toEqual(["report.json", "report.md"]);
+    const text = await readFile(path.join(out, "report.json"), "utf8");
+    expect(text).not.toContain("fixture-never-sent");
+    const report = JSON.parse(text);
+    expect(report).toMatchObject({
+      mode: "triage", status: "incomplete", stop: { reason: "decisions_unavailable" },
+      budget: { max_tokens: 50_000, calls: 0, spent_tokens: 0 },
+      metadata: { node: process.version, decisions: { status: "disabled" }, host: { loadavg_before: expect.any(Array) } },
+    });
+    expect(report.documents.map((entry: { id: string; status: string }) => [entry.id, entry.status])).toEqual([
+      ["a-plan-01", "not_run"], ["a-plan-02", "not_run"], ["c-plan-01", "not_run"], ["d-plan-01", "not_run"], ["load-plan-01", "not_run"],
+    ]);
   });
 });

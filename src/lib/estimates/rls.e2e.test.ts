@@ -1276,7 +1276,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
     document_id: `upload:${"a".repeat(64)}`, document_name: "rls-fixture.csv", kind: "dpgf",
     revision: "A", source_version: "a".repeat(64), pages: [], active: true, confirmed: true,
     plan_set_id: null, file_path: null, page_count: null, logical_document_id: null,
-    content_hash: "a".repeat(64), source_updated_at: null, mime_type: "text/csv",
+    content_hash: "a".repeat(64), source_updated_at: null, mime_type: "text/csv", page_triage: null,
   };
   let preparationRevision = 0;
   const seedPreparation = async (sources: TakeoffPreparationSource[]) => {

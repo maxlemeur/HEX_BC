@@ -14,12 +14,14 @@ import {
   TruthFileSchema,
   type GroupTruthFile,
   type ManifestDocument,
+  type PageTruthFile,
   type RowBasis,
   type TruthFile,
   type TruthLine,
   type TruthSource,
 } from "@/lib/takeoff/bench/schemas";
 import { pdfStructureError, xlsxStructureError } from "@/lib/takeoff/bench/structure";
+import { TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES } from "@/lib/takeoff/page-triage";
 import { isVectorClass } from "@/lib/takeoff/vectors/classify";
 import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 
@@ -100,6 +102,8 @@ class DatasetCheck {
   /** The first row basis each workbook is cited by: one document keeps one numbering of its rows. */
   readonly rowBases = new Map<string, { basis: RowBasis; at: string }>();
   readonly truthWithoutBinary = new Set<string>();
+  /** PDF pages a quantity truth line cites as its source: a page truth keeps them. */
+  readonly citedPages = new Map<string, Set<number>>();
   coverageComplete = true;
 
   constructor(readonly root: string) {}
@@ -414,6 +418,9 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
       if (document?.file_type === "pdf" && (source.page ?? null) === null) {
         check.error(file, segments, `${source.document} is a PDF: the source names its page`);
       }
+      if (document?.file_type === "pdf" && source.page != null) {
+        check.citedPages.set(document.id, (check.citedPages.get(document.id) ?? new Set()).add(source.page));
+      }
       if (document?.file_type === "pdf" && source.page != null && document.pages != null && source.page > document.pages) {
         check.error(file, [...segments, "page"],
           `page ${source.page} is beyond the ${document.pages} page${document.pages > 1 ? "s" : ""} of ${document.id}`);
@@ -609,7 +616,7 @@ function parseAnnotation(kind: "pages" | "groups", value: unknown) {
   if (kind === "pages") {
     const parsed = PageTruthFileSchema.safeParse(value);
     return parsed.success
-      ? { success: true as const, document: parsed.data.document, pages: parsed.data.pages.map((entry) => entry.page) }
+      ? { success: true as const, document: parsed.data.document, pages: parsed.data.pages.map((entry) => entry.page), truth: parsed.data }
       : parsed;
   }
   const parsed = GroupTruthFileSchema.safeParse(value);
@@ -639,6 +646,32 @@ function checkGroupEntries(check: DatasetCheck, file: string, groups: GroupTruth
   }
 }
 
+const hasPdfPages = (document: ManifestDocument) => document.raw_status === "binary" && document.file_type === "pdf" && document.pages !== null;
+
+/** Page count, complete coverage and the `garder` rule of a page truth (TI-663). */
+function checkPageTruth(check: DatasetCheck, file: string, document: ManifestDocument, truth: PageTruthFile) {
+  if (!hasPdfPages(document)) {
+    if (truth.pages.length || truth.page_count !== null) check.error(file, ["pages"], `${document.id} has no PDF pages: its page truth is empty, page_count null`);
+    return;
+  }
+  const count = document.pages as number;
+  if (truth.page_count !== count) check.error(file, ["page_count"], `${document.id} has ${count} page${count > 1 ? "s" : ""}: page_count is ${count}`);
+  const listed = new Set(truth.pages.map((entry) => entry.page));
+  for (let page = 1; page <= count; page += 1) {
+    if (!listed.has(page)) check.error(file, ["pages"], `page ${page} is missing: a page truth lists every page of ${document.id}`);
+  }
+  const cited = check.coverage.has(document.id);
+  for (const [index, entry] of truth.pages.entries()) {
+    const keptType = !TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES.includes(entry.type);
+    const keptPage = cited || (check.citedPages.get(document.id)?.has(entry.page) ?? false);
+    const expected = keptType || keptPage || entry.statut === "ambigu";
+    if (entry.garder === expected) continue;
+    const reason = keptType ? `${entry.type} is a kept type` : keptPage ? `the page is covered by a quantity truth`
+      : entry.statut === "ambigu" ? "an ambiguous page is kept" : `${entry.type} is an excluded type and the page is not cited`;
+    check.error(file, ["pages", index, "garder"], `garder is ${expected}: ${reason}`);
+  }
+}
+
 async function checkAnnotationFile(check: DatasetCheck, file: string, kind: "pages" | "groups") {
   const json = await check.readJson(file);
   if (!json) return;
@@ -659,6 +692,7 @@ async function checkAnnotationFile(check: DatasetCheck, file: string, kind: "pag
       check.error(file, ["document"], "a page truth is named truth/pages/<document id>.json");
     }
     if (new Set(parsed.pages).size !== parsed.pages.length) check.error(file, ["pages"], "a page is listed twice");
+    if (document && "truth" in parsed && parsed.truth) checkPageTruth(check, file, document, parsed.truth);
   }
   if (document?.pages == null) return;
   for (const [index, page] of parsed.pages.entries()) {
@@ -670,7 +704,16 @@ async function checkAnnotationFile(check: DatasetCheck, file: string, kind: "pag
 }
 
 async function checkAnnotations(check: DatasetCheck, kind: "pages" | "groups") {
-  for (const entry of (await check.listDirectory(`truth/${kind}`)) ?? []) {
+  const entries = (await check.listDirectory(`truth/${kind}`)) ?? [];
+  if (kind === "pages") {
+    const present = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
+    for (const { document } of check.documents.values()) {
+      if (hasPdfPages(document) && !present.has(`${document.id}.json`)) {
+        check.error(`truth/pages/${document.id}.json`, [], `missing: every binary PDF has a page truth (${document.id})`);
+      }
+    }
+  }
+  for (const entry of entries) {
     const file = `truth/${kind}/${entry.name}`;
     if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
       check.error(file, [], "unexpected entry: annotation files are <document id>.json");
