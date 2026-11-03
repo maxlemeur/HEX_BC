@@ -253,7 +253,8 @@ describe("VNEXT US-6.1 - import flow carry-over", { session: "army", tags: ["cri
     });
 
     // A hub with documents keeps them in the « Documents du dossier » drawer (f63d9cd6): the
-    // estimator opens it from Cadrage and imports the validated dossier DPGF from its preview.
+    // estimator opens it from Cadrage and starts the import from the validated DPGF's preview.
+    // The journey then uploads the same workbook locally; DOG01 covers the dossier-copy hand-off.
     await page.goto(`/dashboard/affaires/${projectId}`);
     await page.getByRole("button", { name: "Ouvrir les documents", exact: true }).click();
     const documents = page.getByRole("dialog", { name: "Documents du dossier", exact: true });

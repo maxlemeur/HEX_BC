@@ -187,8 +187,10 @@ armyTest("PU04 a converted offer serves both units, the comparison and purchase 
     await expect(browser.locator("#finish-line-orders")).toHaveCount(0);
     await screen.getByText("Détails du dossier et du devis", { exact: true }).tap();
     await screen.getByRole("link", "Préparer les achats de cette version", { exact: true }).tap();
-    await expect(browser.locator("#finish-line-orders").getByText("10 barre", { exact: true }).first())
-      .toBeVisible({ timeout: 60_000 });
+    const convertedLine = browser.locator("#finish-line-orders tr").filter({ hasText: lines.puUiConverted.title });
+    await expect(convertedLine.getByText("10 barre", { exact: true })).toBeVisible({ timeout: 60_000 });
+    // fr-FR separators (U+202F, U+00A0) match \s.
+    await expect(convertedLine).toContainText(/262,45\s€/);
 
     // A line written in bars is ordered as such.
     const ordered = await orderLines(browser, fixture, [lines.puBarOrdered.id], estimate);
