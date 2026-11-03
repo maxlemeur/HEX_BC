@@ -56,9 +56,13 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 //   members (EUV and EU or EV, HW and HW-S or HW-R: PARENT_NETWORK), never
 //   between two members (EU and EV are two pipes), even through their parent:
 //   a DN carries the network its label names (« EU - PVC DN 40 » on an EU/EV
-//   run reaches EU runs, never EV ones); nearest label first (in joins), and
-//   of labels as near, one naming the run's own network; a run reached by none
-//   keeps DN null (« à revoir »).
+//   run reaches EU runs, never EV ones), or the network holding every one its
+//   run's agreeing labels name (« EU » and « EU/EV », or « EU » and « EV »:
+//   EU/EV, whatever their order); nearest label first (in joins), and of
+//   labels as near, one naming the run's own network; each network carried
+//   goes its own way (a run another network's DN reached first still passes
+//   this one on to the runs it may reach); a run reached by none keeps DN null
+//   (« à revoir »).
 //   A run of a shared legend colour takes the network of its component's
 //   labels among its candidates, else stays « à revoir ».
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
@@ -572,12 +576,15 @@ export function measureNetworks(input: {
   }));
   const attachedLabels = attached.count;
   const incomplete = input.labels.filter((block) => block.label.dn === null || block.label.network === null).length;
-  // The label of each run: one with a DN when there is one (all of a piece's DN-bearing labels agree).
-  const labelled = new Map<number, LabelBlock>();
+  // The label of each run: one with a DN when there is one (all of a piece's DN-bearing labels agree), and the
+  // network its DN carries: the one containing every network its DN-bearing labels name (« EU » and « EU/EV »: EU/EV).
+  const labelled = new Map<number, { block: LabelBlock; networks: NetworkCode[] }>();
   pieces.forEach((piece, id) => {
     for (const { block } of piece.labels) {
       const known = labelled.get(id);
-      if (!known || (known.label.dn === null && block.label.dn !== null)) labelled.set(id, block);
+      if (!known) labelled.set(id, { block, networks: [] });
+      else if (known.block.label.dn === null && block.label.dn !== null) known.block = block;
+      if (block.label.dn !== null && block.label.network !== null) labelled.get(id)?.networks.push(block.label.network);
     }
   });
   // Connectivity between runs: an end of one within JOIN_PT of another's centreline.
@@ -629,11 +636,13 @@ export function measureNetworks(input: {
   // DN and material: from labelled runs to connected runs of the same network, or of a parent and its members
   // (never two members, even through their parent's run: a DN carries its label's network), nearest first
   // (breadth first, one join at a time; of the DN reaching a run at once, one of the run's own network first).
+  // Each network carried goes its own way: a run another network's DN reached first still lets this one pass on.
   // A conflict run keeps DN null but lets the DN pass on to the runs beyond it.
   type Carried = { network: NetworkCode | null; dn: number; material: MaterialCode | null; insulated: boolean; label: string };
-  const reached = new Uint8Array(result.length);
+  const passed = new Set<string>();
+  const pass = (id: number, network: NetworkCode | null) => `${id}|${network ?? ""}`;
   let frontier: Array<{ id: number; carried: Carried }> = [];
-  for (const [id, block] of labelled) {
+  for (const [id, { block, networks }] of labelled) {
     const run = result[id];
     if (block.label.dn === null || run.attached === "conflict") continue;
     run.dn = block.label.dn;
@@ -641,27 +650,32 @@ export function measureNetworks(input: {
     run.insulated = block.label.insulated;
     run.label = block.text;
     run.attached = "label";
-    reached[id] = 1;
-    frontier.push({ id, carried: { network: block.label.network ?? run.network, dn: run.dn, material: run.material, insulated: run.insulated,
-      label: block.text } });
+    const network = commonNetwork(networks) ?? run.network;
+    passed.add(pass(id, network));
+    frontier.push({ id, carried: { network, dn: run.dn, material: run.material, insulated: run.insulated, label: block.text } });
   }
   while (frontier.length > 0) {
-    const offers = new Map<number, Carried>();
+    // Of each network carried to a run at once, the first; the run's DN: of its own network first.
+    const offers = new Map<number, Map<NetworkCode | null, Carried>>();
     for (const { id: current, carried } of frontier) {
       for (const next of neighbours[current]) {
         const run = result[next];
-        if (reached[next] || (run.attached !== null && run.attached !== "conflict")) continue;
+        if (run.attached === "label" || passed.has(pass(next, carried.network))) continue;
         if (!joins(result[current].network, run.network) || !joins(carried.network, run.network)) continue;
-        const known = offers.get(next);
-        if (!known || (known.network !== run.network && carried.network === run.network)) offers.set(next, carried);
+        const known = offers.get(next) ?? new Map<NetworkCode | null, Carried>();
+        if (!known.has(carried.network)) known.set(carried.network, carried);
+        offers.set(next, known);
       }
     }
     frontier = [];
-    for (const [next, carried] of offers) {
+    for (const [next, carriedBy] of offers) {
       const run = result[next];
-      reached[next] = 1;
-      frontier.push({ id: next, carried });
-      if (run.attached === "conflict") continue;
+      for (const [network, carried] of carriedBy) {
+        passed.add(pass(next, network));
+        frontier.push({ id: next, carried });
+      }
+      if (run.attached !== null) continue;
+      const carried = carriedBy.get(run.network) ?? (carriedBy.values().next().value as Carried);
       run.dn = carried.dn;
       run.material = carried.material;
       run.insulated = carried.insulated;

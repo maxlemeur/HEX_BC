@@ -166,6 +166,15 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 // - two disagreeing labels at the same place along a run (above and below)
 //   leave the whole run « conflict », the section a clear third label names
 //   included (DN 20 or DN 40 lost over metres of pipe).
+// Second review of the L3c measurement PR (written before the fixes):
+// - a run labelled by two agreeing labels naming different networks of one
+//   family (« EU - PVC DN 100 » and « EU/EV - PVC DN 100 » on one EU/EV run)
+//   carries only the network of the label read first, so the other member's
+//   branch (EV) gets no DN although the parent's label reaches it; the answer
+//   then depends on the order the labels are read in;
+// - the first wave through an unlabelled parent run (a member's DN, nearer)
+//   stops every later wave there, so a member's run joined beyond it gets no DN
+//   although the parent's label reaches it over legal joins.
 
 const A3 = { width: 1190.55, height: 841.89 };
 /** Sheet points that are 5 m (and 3 m) on site at 1/50. */
@@ -1028,5 +1037,43 @@ describe("review of the L3c measurement PR", () => {
     expect(totals(forty).map(({ dn, length_m }) => ({ dn, length_m }))).toEqual(expect.arrayContaining([
       { dn: 40, length_m: expect.closeTo(pointsToMetres(272.5 - 100, 50), 2) },
     ]));
+  });
+});
+
+describe("second review of the L3c measurement PR", () => {
+  const runAt = (reading: VectorPageReading, point: Point) => {
+    const run = (reading.networks?.runs ?? []).find((entry) => distanceToSegment(point, entry.segment) < 0.5);
+    return run ? { network: run.network, dn: run.dn, attached: run.attached } : null;
+  };
+  const LAYERS = [{ id: "1", name: "FICTIF_EU/EV" }, { id: "2", name: "FICTIF_EU" }, { id: "3", name: "FICTIF_EV" }];
+  const centred = (str: string, cx: number, y: number) => text(str, cx - (0.55 * 6 * str.length) / 2, y);
+
+  it("carries every network the agreeing labels of a run name, whatever their order", () => {
+    // One EU/EV run from x 100 to 500 labelled DN 100 twice; an EU branch at its left end, an EV branch at its right end.
+    const strokes = [line(BLUE, 100, 300, 500, 300, { layer: "1" }), line(BLUE, 100, 300, 100, 450, { layer: "2" }), line(BLUE, 500, 300, 500, 450, { layer: "3" })];
+    for (const [left, right] of [["EU", "EU/EV"], ["EU/EV", "EU"], ["EU", "EV"], ["EV", "EU"]]) {
+      const reading = read(page([{ strokes, texts: [centred(`${left} - PVC DN 100`, 150, 297), centred(`${right} - PVC DN 100`, 450, 297)] }], LAYERS));
+      expect(runAt(reading, { x: 300, y: 300 })).toEqual({ network: "EUV", dn: 100, attached: "label" });
+      expect(runAt(reading, { x: 100, y: 400 })).toEqual({ network: "EU", dn: 100, attached: "propagated" });
+      expect(runAt(reading, { x: 500, y: 400 })).toEqual({ network: "EV", dn: 100, attached: "propagated" });
+    }
+  });
+
+  it("lets a parent's DN pass on through a run a member's nearer DN reached first", () => {
+    // EU/EV: P1 labelled « EU » DN 40, P2 unlabelled, Q diagonal, P3 labelled « EU/EV » DN 100; the EV run X joins P2 only.
+    const reading = read(page([{
+      strokes: [
+        line(BLUE, 100, 300, 300, 300, { layer: "1" }), line(BLUE, 300, 300, 300, 500, { layer: "1" }),
+        line(BLUE, 300, 400, 450, 400, { layer: "3" }),
+        line(BLUE, 300, 500, 400, 600, { layer: "1" }), line(BLUE, 400, 600, 600, 600, { layer: "1" }),
+      ],
+      texts: [centred("EU - PVC DN 40", 200, 297), centred("EU/EV - PVC DN 100", 500, 597)],
+    }], LAYERS));
+    expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "EUV", dn: 40, attached: "label" });
+    // P2 is one join from P1 and two from P3: the nearer DN is its own.
+    expect(runAt(reading, { x: 300, y: 450 })).toEqual({ network: "EUV", dn: 40, attached: "propagated" });
+    expect(runAt(reading, { x: 350, y: 550 })).toEqual({ network: "EUV", dn: 100, attached: "propagated" });
+    // EU's DN never reaches EV; the parent's DN does, through P2.
+    expect(runAt(reading, { x: 400, y: 400 })).toEqual({ network: "EV", dn: 100, attached: "propagated" });
   });
 });
