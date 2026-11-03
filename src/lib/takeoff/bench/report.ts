@@ -644,6 +644,17 @@ export function commandLine(metadata: Pick<BenchReportMetadata, "command" | "cwd
   return [`cd ${shellWord(metadata.cwd)} &&`, ...env, ...metadata.command.map(shellWord)].join(" ");
 }
 
+/** Remaining errors grouped by kind and cause, with their count (the keys stay in report.json). */
+function groupedErrors(errors: ConfidenceSummary["high_confidence_errors"]) {
+  const groups = new Map<string, number>();
+  for (const entry of errors) {
+    const label = `${entry.kind === "invented" ? "inventée" : "hors tolérance"} (${entry.cause ?? "–"}${entry.reason ? `, ${entry.reason}` : ""})`;
+    groups.set(label, (groups.get(label) ?? 0) + 1);
+  }
+  return [...groups.entries()].sort(([left, a], [right, b]) => b - a || (left < right ? -1 : 1))
+    .map(([label, count]) => `${label} × ${count}`).join(", ") || "–";
+}
+
 function tierCells(counts: TierCounts) {
   return `${counts.rejected} / ${counts.uncertain} / ${counts.high}`;
 }
@@ -652,8 +663,7 @@ function tierCells(counts: TierCounts) {
 export function rulesSection(rules: PassRules): string[] {
   const confidenceRow = (label: string, before: ConfidenceSummary, after: ConfidenceSummary) => [
     label, after.scopes, `${before.keys_high_confidence_error} / ${before.keys_high_confidence}`, `${after.keys_high_confidence_error} / ${after.keys_high_confidence}`,
-    after.high_confidence_errors.map((entry) => `${entry.kind === "invented" ? "inventée" : "hors tolérance"} (${entry.cause ?? "–"}`
-      + `${entry.reason ? `, ${entry.reason}` : ""})`).join(", ") || "–",
+    groupedErrors(after.high_confidence_errors),
   ];
   return [
     `### Règles fixes (v${rules.version}, seuil de confiance ${rules.threshold})`,
