@@ -50,7 +50,8 @@ export type PageModel = {
   visibleLength_pt: number;
 };
 
-function groupId(key: VectorGroupKey) {
+/** Id of an extraction group: its layer, else its colour, width and dash. */
+export function groupId(key: VectorGroupKey) {
   return key.layer !== null ? `oc:${key.layer}` : `c:${key.color}|w:${key.width}|d:${key.dash ?? ""}`;
 }
 

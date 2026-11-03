@@ -1,6 +1,7 @@
-import type { VectorPageExtraction, VectorText } from "@/lib/takeoff/vectors/extraction";
+import type { VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
 import { pointInRing, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
+import { groupId } from "@/lib/takeoff/vectors/page-model";
 
 // Room surfaces of a page (TI-662 step 4). The area of the smallest closed
 // stroked polygon around the room's printed surface (« Infirmerie 13.62m² »,
@@ -12,6 +13,8 @@ import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 // times the text's box is its frame, not the room; a label prefix such as
 // « S = » or « Surface : » is not the room's name. An outline on a layer hidden
 // by the document's default configuration (OFF) is not printed: it bounds no room.
+// The polygon taken keeps its group and points (page space, 0.01 pt) for the
+// geometry the worker persists (persistence.ts); the bench report leaves them out.
 
 export const SURFACE_RULE_VERSION = 3;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
@@ -23,6 +26,8 @@ export type RoomSurface = {
   /** Area of the closed polygon around the anchor, in m² (null: no polygon, or scale not measurable). */
   polygon_m2: number | null;
   polygon_points: number | null;
+  /** That polygon: its group id and its x, y pairs in page space (sheet points, y down; the closing point repeats the first). */
+  outline: { group: string; points: number[] } | null;
   deviation: number | null;
 };
 
@@ -74,15 +79,19 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     const room = roomLabel(text, text.str.slice(0, match.index), lines);
     if (!room) continue;
     const anchor = lineCentre(text);
-    let best: { area: number; points: number } | null = null;
+    let best: { area: number; path: VectorPath } | null = null;
     for (const path of closed) {
       if (!pointInRing(anchor, extraction.points, path.start, path.count)) continue;
       const area = ringArea(extraction.points, path.start, path.count);
       if (area <= 4 * text.width * text.height) continue;
-      if (!best || area < best.area) best = { area, points: path.count };
+      if (!best || area < best.area) best = { area, path };
     }
     const polygon = best && denominator !== null ? Math.round(squarePointsToSquareMetres(best.area, denominator) * 100) / 100 : null;
-    surfaces.push({ room, printed_m2: printed, anchor, polygon_m2: polygon, polygon_points: best?.points ?? null,
+    const outline = best === null ? null : {
+      group: groupId(extraction.groups[best.path.group]),
+      points: Array.from(extraction.points.subarray(2 * best.path.start, 2 * (best.path.start + best.path.count)), (value) => Math.round(value * 100) / 100),
+    };
+    surfaces.push({ room, printed_m2: printed, anchor, polygon_m2: polygon, polygon_points: best?.path.count ?? null, outline,
       deviation: polygon === null ? null : Math.round(((polygon - printed) / printed) * 10000) / 10000 });
   }
   // Reading order: top to bottom, then left to right.

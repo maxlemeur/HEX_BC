@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
@@ -20,10 +22,12 @@ import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
 // extracted in its killable process and read with keywords. Decisions is not
 // called (TI-663 shares its helper; until then unclassified groups stay « à
 // revoir »). A page calibration comes from the preparation's conventions when
-// it names that page. A page that fails or is raster gives no item; the level
-// C reading of the same job is unchanged beside it (pipeline step 5), the
-// rules of TI-664 decide between both. Any error of a page fails that page
-// only, logged: the vector reading never fails the level C job it joins.
+// it names that page of that document: its plan file, or for a direct upload
+// `upload:` and the SHA-256 of the original bytes read (never the snapshot's
+// word for it). A page that fails or is raster gives no item; the level C
+// reading of the same job is unchanged beside it (pipeline step 5), the rules
+// of TI-664 decide between both. Any error of a page fails that page only,
+// logged: the vector reading never fails the level C job it joins.
 
 export const TAKEOFF_VECTOR_MAX_PAGES = 60;
 
@@ -40,13 +44,20 @@ export type VectorPageOutcome = {
   error: string | null;
 };
 
+/**
+ * The preparation's identity of an original PDF: its plan file, or for a direct upload `upload:` and the SHA-256 of
+ * the bytes read (TakeoffUploadForm), the identity the loader already held them to (assertPreparedUploadBytes).
+ */
+export function preparationDocumentId(document: TakeoffSourceDocumentRef, bytes: ArrayBuffer): string {
+  return document.kind === "plan_file" ? document.plan_file_id : `upload:${createHash("sha256").update(Buffer.from(bytes)).digest("hex")}`;
+}
+
 /** conventions.calibration of a confirmed preparation, when complete and on this document's page (docs/metier/preparation-metre.md). */
-export function preparationCalibration(snapshot: TakeoffPreparationSnapshot | undefined, document: TakeoffSourceDocumentRef, page: number): PageCalibration | null {
+export function preparationCalibration(snapshot: TakeoffPreparationSnapshot | undefined, documentId: string | null, page: number): PageCalibration | null {
   const conventions = snapshot?.preparation.conventions;
   const calibration = conventions?.calibration;
   if (!conventions || conventions.measurement_basis !== "calibrated" || !calibration) return null;
-  const id = document.kind === "plan_file" ? document.plan_file_id : null;
-  if (id === null || calibration.document_id !== id || calibration.page !== page) return null;
+  if (documentId === null || calibration.document_id !== documentId || calibration.page !== page) return null;
   const { reference_length, reference_unit, measured_span, measured_span_unit } = calibration;
   if (!reference_length || !reference_unit || !measured_span || !measured_span_unit) return null;
   const metres = reference_length * (reference_unit === "m" ? 1 : reference_unit === "cm" ? 0.01 : 0.001);
@@ -63,6 +74,8 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
   const outcomes: VectorPageOutcome[] = [];
   for (const original of source.originalPdfSources ?? []) {
     const bytes = new Uint8Array(original.bytes);
+    // Hashed once per file, and only when a preparation may name it.
+    const documentId = source.preparationSnapshot ? preparationDocumentId(original.document, original.bytes) : null;
     const pages = original.pages.length ? original.pages : Array.from({ length: await getPdfPageCount(original.bytes) }, (_, index) => index + 1);
     const location = locationFromFileName(original.fileName);
     for (const page of pages) {
@@ -71,7 +84,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
       await options.onPage?.();
       try {
         const extraction = await extractVectorPage(bytes, page);
-        const reading = readVectorPage(extraction, { calibration: preparationCalibration(source.preparationSnapshot, original.document, page) });
+        const reading = readVectorPage(extraction, { calibration: preparationCalibration(source.preparationSnapshot, documentId, page) });
         outcomes.push({ document: original.document, fileName: original.fileName, page, record: vectorPageRecord(reading, location),
           items: vectorItemRecords(reading, location), error: null });
       } catch (error) {

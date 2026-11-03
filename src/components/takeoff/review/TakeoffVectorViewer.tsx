@@ -12,10 +12,13 @@ import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse }
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
 // the plan page rendered by pdfjs in the browser, the centrelines of its
 // measured items drawn over it per network, a toggle per network (Alt-click
-// isolates it), the detection badge and the page scale (« échelle non
-// vérifiée » and its reason). Data comes from GET /api/takeoff/jobs/{id}/
+// isolates it), the room polygons (one « Surfaces » toggle), the detection
+// badge and the page scale (« échelle non vérifiée » and its reason). Data
+// comes from GET /api/takeoff/jobs/{id}/
 // vector-pages under the user's session; the PDF from the plan file's signed
-// URL. Geometry is in metres from the page's top-left corner at the page's
+// URL, or for a direct upload (no plan file) from the job's own, signed by that
+// read. Without a source PDF, or when it cannot be drawn, the viewer says so
+// and keeps the geometry. Geometry is in metres from the page's top-left corner at the page's
 // scale. Ctrl/⌘ + wheel zooms (a plain wheel scrolls the review); the canvas
 // is capped at MAX_CANVAS_PIXELS, drawn smaller and stretched beyond.
 
@@ -24,6 +27,8 @@ const MM_PER_POINT = 25.4 / 72;
 const MAX_CANVAS_PIXELS = 16_777_216;
 const PALETTE = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-3)", "var(--color-chart-4)", "var(--color-chart-5)"];
 const SCALE_LABELS: Record<string, string> = { verified: "vérifiée par une cote", format: "format conforme", calibrated: "calibrée", unverified: "non vérifiée" };
+const SURFACES = "Surfaces";
+const SURFACE_COLOR = "var(--color-info)";
 
 type VectorPage = TakeoffVectorReadingResponse["pages"][number];
 
@@ -36,6 +41,11 @@ function networkLabel(item: VectorPage["items"][number]) {
   return item.geometry.network ?? "à revoir";
 }
 
+/** The toggle an item follows: its network (an insulation with its pipe), « Surfaces » for a room polygon. */
+function toggleOf(item: VectorPage["items"][number]) {
+  return item.geometry.kind === "surface" ? SURFACES : networkLabel(item);
+}
+
 async function readJson(url: string) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(String(response.status));
@@ -45,6 +55,8 @@ async function readJson(url: string) {
 export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planSetId: string | null }) {
   const [reading, setReading] = useState<TakeoffVectorReadingResponse | null>(null);
   const [error, setError] = useState("");
+  /** Why the page's plan is not drawn under its geometry (no source PDF, or a failed load or render); reset with the page. */
+  const [planError, setPlanError] = useState("");
   const [pageId, setPageId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [zoom, setZoom] = useState(1);
@@ -75,23 +87,36 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
   const networks = useMemo(() => {
     const totals = new Map<string, number>();
     for (const item of page?.items ?? []) {
-      if (item.geometry.kind === "insulation") continue;
+      if (item.geometry.kind !== "network") continue;
       totals.set(networkLabel(item), (totals.get(networkLabel(item)) ?? 0) + (item.geometry.length_m ?? 0));
     }
     return [...totals.entries()].sort(([left], [right]) => (left < right ? -1 : 1)).map(([name, length], index) => ({
       name, length, color: PALETTE[index % PALETTE.length],
     }));
   }, [page]);
+  const surfaces = useMemo(() => (page?.items ?? []).filter((item) => item.geometry.kind === "surface"), [page]);
 
+  // The page's PDF: its plan file's signed URL (plan set), else the job's own upload, signed with the reading.
+  const hasPage = page !== null;
+  const planFileId = page?.plan_file_id ?? null;
+  const uploadUrl = page && !planFileId ? reading?.source_download_url ?? null : null;
   useEffect(() => {
     let active = true;
     let task: PDFDocumentLoadingTask | undefined;
     setPdf(null);
-    if (!page?.plan_file_id || !planSetId) return;
-    void readJson(`/api/takeoff/plan-sets/${encodeURIComponent(planSetId)}/files/${encodeURIComponent(page.plan_file_id)}?include_download_url=true`)
-      .then(async (body) => {
-        const url = (body.data as { plan_file?: { download_url?: string | null } } | undefined)?.plan_file?.download_url;
-        if (!url || !active) return;
+    setPlanError("");
+    if (!hasPage) return;
+    const source = planFileId && planSetId
+      ? readJson(`/api/takeoff/plan-sets/${encodeURIComponent(planSetId)}/files/${encodeURIComponent(planFileId)}?include_download_url=true`)
+        .then((body) => (body.data as { plan_file?: { download_url?: string | null } } | undefined)?.plan_file?.download_url ?? null)
+      : Promise.resolve(uploadUrl);
+    void source
+      .then(async (url) => {
+        if (!active) return;
+        if (!url) {
+          setPlanError("Le plan source de cette page n’est pas disponible ; la géométrie reste visible.");
+          return;
+        }
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
         const assetRoot = new URL("/assets/pdfjs/", window.location.origin).href;
@@ -100,12 +125,12 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
         const document = await task.promise;
         if (active) setPdf(document);
       })
-      .catch(() => active && setError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible."));
+      .catch(() => active && setPlanError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible."));
     return () => {
       active = false;
       void task?.destroy().catch(() => undefined);
     };
-  }, [page?.plan_file_id, planSetId]);
+  }, [hasPage, planFileId, planSetId, uploadUrl]);
 
   useEffect(() => {
     if (!page) return;
@@ -139,7 +164,12 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
       render = source.render({ canvas: element, viewport });
       await render.promise;
       if (active) setRendering(false);
-    }).catch(() => active && setRendering(false));
+    }).catch(() => {
+      // A cancelled render (zoom, page change) is not a failure: its effect is no longer active.
+      if (!active) return;
+      setRendering(false);
+      setPlanError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible.");
+    });
     return () => {
       active = false;
       render?.cancel();
@@ -168,7 +198,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
   const toScreen = (metres: number) => (denominator ? ((metres * 1000) / denominator / MM_PER_POINT) * scale : 0);
   const colorOf = new Map(networks.map((entry) => [entry.name, entry.color]));
   const toggle = (name: string, isolate: boolean) => setHidden((current) => {
-    if (isolate) return new Set(networks.map((entry) => entry.name).filter((entry) => entry !== name));
+    if (isolate) return new Set([...networks.map((entry) => entry.name), ...(surfaces.length > 0 ? [SURFACES] : [])].filter((entry) => entry !== name));
     const next = new Set(current);
     if (next.has(name)) next.delete(name);
     else next.add(name);
@@ -213,8 +243,21 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
             </label>
           ))}
         </div>
+        {surfaces.length > 0 ? (
+          <div role="group" aria-label="Surfaces" className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm" title="Alt-clic : n’afficher que les surfaces">
+              <input type="checkbox" checked={!hidden.has(SURFACES)} aria-label="Afficher les surfaces"
+                onChange={(event) => toggle(SURFACES, (event.nativeEvent as MouseEvent).altKey === true)} />
+              <span aria-hidden className="inline-block size-3 rounded-sm border-2" style={{ borderColor: SURFACE_COLOR }} />
+              <span className="font-medium">{SURFACES} ({surfaces.length})</span>
+              <span className="ml-auto tabular-nums text-muted-foreground">
+                {surfaces.reduce((total, item) => total + (item.geometry.area_m2 ?? 0), 0).toFixed(2)} m²
+              </span>
+            </label>
+          </div>
+        ) : null}
         <p className="text-xs text-muted-foreground" aria-live="polite">
-          {(page?.items ?? []).filter((item) => !hidden.has(networkLabel(item))).length} / {page?.items.length ?? 0} éléments affichés
+          {(page?.items ?? []).filter((item) => !hidden.has(toggleOf(item))).length} / {page?.items.length ?? 0} éléments affichés
         </p>
       </div>
       <div className="flex min-w-0 flex-col gap-2">
@@ -232,7 +275,11 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
             <canvas ref={canvas} aria-hidden className="block" />
             {base ? (
               <svg aria-label="Géométrie mesurée" role="img" className="absolute left-0 top-0" width={base.width * scale} height={base.height * scale}>
-                {(page?.items ?? []).filter((item) => !hidden.has(networkLabel(item)) && item.geometry.kind !== "insulation").map((item) => (
+                {hidden.has(SURFACES) ? null : surfaces.map((item) => item.geometry.polygon_m === null ? null : (
+                  <polygon key={item.takeoff_item_id} data-kind="surface" fill="none" stroke={SURFACE_COLOR} strokeWidth={2} strokeDasharray="6 3"
+                    points={item.geometry.polygon_m.map(toScreen).join(" ")} />
+                ))}
+                {(page?.items ?? []).filter((item) => item.geometry.kind === "network" && !hidden.has(networkLabel(item))).map((item) => (
                   <g key={item.takeoff_item_id} data-network={networkLabel(item)} stroke={colorOf.get(networkLabel(item)) ?? PALETTE[0]} strokeWidth={3} strokeLinecap="round">
                     {item.geometry.segments_m.map(([x0, y0, x1, y1], index) => (
                       <line key={index} x1={toScreen(x0)} y1={toScreen(y0)} x2={toScreen(x1)} y2={toScreen(y1)} />
@@ -243,7 +290,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
             ) : null}
           </div>
         </div>
-        {error ? <p className="text-xs text-warning">{error}</p> : null}
+        {planError || error ? <p className="text-xs text-warning">{planError || error}</p> : null}
       </div>
     </section>
   );

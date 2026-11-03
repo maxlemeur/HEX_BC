@@ -20603,7 +20603,7 @@
           "Takeoff"
         ],
         "summary": "Recuperer la lecture vectorielle d'un job Takeoff",
-        "description": "Retourne les pages lues dans les vecteurs du plan (echelle, groupes, detection, surfaces imprimees) et la geometrie de leurs items mesures, en metres.",
+        "description": "Retourne les pages lues dans les vecteurs du plan (echelle, groupes, detection, surfaces imprimees) et la geometrie de leurs items mesures, en metres ; pour un PDF televerse directement (pages sans plan_file_id), son URL signee (10 min).",
         "parameters": [
           {
             "name": "jobId",
@@ -70225,6 +70225,17 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "source_download_url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "pages": {
                 "maxItems": 200,
                 "type": "array",
@@ -71067,6 +71078,7 @@
             },
             "required": [
               "job_id",
+              "source_download_url",
               "pages"
             ],
             "additionalProperties": false

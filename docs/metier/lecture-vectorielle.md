@@ -47,8 +47,10 @@ est une constante nommée et versionnée dans le code.
    - Statut de la page :
      - **vérifiée** : au moins une cote cohérente, aucune incohérente ;
      - **format** : aucune cote, et le format du cartouche est celui de la page ;
-     - **calibrée** : la page a une calibration (`conventions.calibration` ; au banc,
-       `truth/groups/<id>.json`) ;
+     - **calibrée** : la page a une calibration (`conventions.calibration` de la
+       préparation confirmée, qui nomme ce plan et cette page : son fichier du jeu de
+       plans, ou `upload:<SHA-256>` des octets lus pour un PDF téléversé directement ;
+       au banc, `truth/groups/<id>.json`) ;
      - **non vérifiée** : pas d'échelle, échelle ambiguë, cote incohérente, ou aucune
        cote alors que le format diffère. La raison est donnée.
    - Une page non vérifiée ne donne ni longueur ni surface. Les comptages restent
@@ -111,8 +113,14 @@ est une constante nommée et versionnée dans le code.
    - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
    - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
      page tournée (/Rotate 90) se lit comme dessinée.
+   - Dans le métré, chaque pièce mesurée donne un item en m² (l'aire du polygone) et sa
+     géométrie : le polygone en mètres depuis le coin haut gauche de la page. Un polygone
+     de plus de 2 000 points garde son aire sans son contour, jamais une forme coupée.
 7. **Page raster.** Quand des images couvrent au moins 90 % de la page, ses vecteurs
    ne mesurent pas ses réseaux. La lecture niveau C reste la source.
+8. **Géométrie enregistrée.** Un item de réseau ou de calorifuge porte tous ses axes.
+   Au-delà de 4 000 axes, la longueur devient plusieurs items de même désignation, de
+   4 000 axes au plus chacun ; leurs quantités s'additionnent à la longueur mesurée.
 
 ## Score au banc
 

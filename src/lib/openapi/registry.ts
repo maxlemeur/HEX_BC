@@ -3111,7 +3111,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/vector-pages",
     summary: "Recuperer la lecture vectorielle d'un job Takeoff",
     description:
-      "Retourne les pages lues dans les vecteurs du plan (echelle, groupes, detection, surfaces imprimees) et la geometrie de leurs items mesures, en metres.",
+      "Retourne les pages lues dans les vecteurs du plan (echelle, groupes, detection, surfaces imprimees) et la geometrie de leurs items mesures, en metres ; pour un PDF televerse directement (pages sans plan_file_id), son URL signee (10 min).",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter],
     responses: {

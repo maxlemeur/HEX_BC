@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
-import { MM_PER_POINT } from "@/lib/takeoff/vectors/geometry";
+import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
 import { VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
+import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 
@@ -16,9 +17,14 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 // - per item: network, material, DN, insulated, zone and level, the groups it
 //   comes from, its centreline segments (or room polygon) in metres from the
 //   page's top-left corner at the page scale, length, area, and the transform
-//   to the common frame (null until TI-664 computes it).
+//   to the common frame (null until TI-664 computes it). A length of more
+//   than VECTOR_GEOMETRY_LIMITS.segments centrelines is several items of the
+//   same designation, each holding all its centrelines, their quantities
+//   adding up to the measured length: never a quantity with part of its
+//   geometry.
 // Only measured items have a geometry: a page whose scale is not verified has
-// none, its page row says why.
+// none, its page row says why. A room polygon over VECTOR_GEOMETRY_LIMITS.polygon
+// points keeps its measured area without its outline (never a cut shape).
 
 export const VECTOR_PERSISTENCE_SCHEMA_VERSION = 1;
 export const VECTOR_PAGE_LIMITS = { groups: 400, cotes: 50, surfaces: 300, codes: 40 } as const;
@@ -137,14 +143,44 @@ const MATERIAL_LABELS: Record<string, string> = {
 };
 
 /**
+ * A measured length (network or insulation) as parts of at most
+ * VECTOR_GEOMETRY_LIMITS.segments runs, of nearly equal counts, so that each
+ * item's geometry holds every centreline its quantity counts. A part's length
+ * is its runs' length, rounded on their running sum: the parts add up to the
+ * measured length exactly, the last one ending on it. One part (the total
+ * itself) up to the limit; a part under 1 cm gives no item, as a total.
+ */
+function lengthParts(runs: readonly NetworkRun[], length_m: number, denominator: number) {
+  const count = Math.max(1, Math.ceil(runs.length / VECTOR_GEOMETRY_LIMITS.segments));
+  const size = Math.ceil(runs.length / count);
+  const parts: Array<{ runs: NetworkRun[]; length_m: number; quantity: number }> = [];
+  let points = 0, reached = 0;
+  for (let index = 0; index < count; index += 1) {
+    const part = runs.slice(index * size, (index + 1) * size);
+    for (const run of part) points += run.length_pt;
+    const end = index === count - 1 ? length_m : round(pointsToMetres(points, denominator), 3);
+    parts.push({ runs: part, length_m: round(end - reached, 3), quantity: round(round(end, 2) - round(reached, 2), 2) });
+    reached = end;
+  }
+  return parts.filter((part) => part.quantity >= 0.01);
+}
+
+/** « (partie 2 sur 3) » in the evidence of a split length; nothing for a whole one. */
+function partOf(index: number, count: number) {
+  return count > 1 ? ` (partie ${index + 1} sur ${count})` : "";
+}
+
+/**
  * The items of a measurable page with their geometry: one per network,
  * material and DN (and its insulation when labelled), one per room polygon.
- * The same keys as vectorItems (items.ts), with the centrelines kept.
+ * The same keys as vectorItems (items.ts), with the centrelines kept: a key
+ * over VECTOR_GEOMETRY_LIMITS.segments centrelines is several items (lengthParts).
  */
 export function vectorItemRecords(reading: VectorPageReading, location: VectorPageRecord["location"]): VectorItemRecord[] {
   const denominator = reading.scale.denominator;
   if (denominator === null || reading.mode === "raster") return [];
   const metres = (value: number) => round((value * MM_PER_POINT * denominator) / 1000, 4);
+  const segmentOf = ({ segment }: NetworkRun) => [metres(segment.x0), metres(segment.y0), metres(segment.x1), metres(segment.y1)] as [number, number, number, number];
   const scale = `1/${round(denominator, 2)} (${reading.scale.status})`;
   const groupsOf = (network: NetworkCode) => reading.groups
     .filter((group) => group.class === network || group.candidates.includes(network)).map((group) => group.id.slice(0, 120)).slice(0, 64);
@@ -152,33 +188,50 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;
     const runs = (reading.networks?.runs ?? []).filter((run) => run.network === total.network && run.material === total.material && run.dn === total.dn);
-    const segments = runs.slice(0, VECTOR_GEOMETRY_LIMITS.segments).map((run) =>
-      [metres(run.segment.x0), metres(run.segment.y0), metres(run.segment.x1), metres(run.segment.y1)] as [number, number, number, number]);
     const material = total.material ? MATERIAL_LABELS[total.material] ?? total.material : null;
     const code = total.network === "EUV" ? "EU/EV" : total.network;
     const base = { network: total.network, material: total.material, dn: total.dn, zone: location.zone, level: location.level,
-      groups: groupsOf(total.network), segments_m: segments, polygon_m: null, area_m2: null, transform: null };
-    records.push({
-      item: {
-        designation: [code, material, total.dn === null ? null : `DN ${total.dn}`].filter(Boolean).join(" "),
-        quantity: round(total.length_m, 2), unit: "ml", category: "réseau (lecture vectorielle)",
-        confidence: total.dn !== null && total.material !== null ? VECTOR_ITEM_CONFIDENCE.labelled : VECTOR_ITEM_CONFIDENCE.review,
-        evidence: `Lecture vectorielle : ${total.runs} tronçon${total.runs > 1 ? "s" : ""} d’axe, échelle ${scale}.`,
-      },
-      geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "network", ...base, length_m: round(total.length_m, 3) }),
-    });
-    if (total.insulated_m !== null && total.insulated_m >= 0.01 && total.dn !== null) {
-      const insulated = runs.filter((run) => run.insulated).slice(0, VECTOR_GEOMETRY_LIMITS.segments).map((run) =>
-        [metres(run.segment.x0), metres(run.segment.y0), metres(run.segment.x1), metres(run.segment.y1)] as [number, number, number, number]);
+      groups: groupsOf(total.network), polygon_m: null, area_m2: null, transform: null };
+    const pipes = lengthParts(runs, total.length_m, denominator);
+    pipes.forEach((part, index) => {
+      const count = pipes.length > 1 ? part.runs.length : total.runs;
       records.push({
         item: {
-          designation: `${code} calorifuge DN ${total.dn}`, quantity: round(total.insulated_m, 2), unit: "ml", category: "calorifuge (lecture vectorielle)",
-          confidence: VECTOR_ITEM_CONFIDENCE.labelled, evidence: `Lecture vectorielle : tronçons dont le libellé indique un calorifuge, échelle ${scale}.`,
+          designation: [code, material, total.dn === null ? null : `DN ${total.dn}`].filter(Boolean).join(" "),
+          quantity: part.quantity, unit: "ml", category: "réseau (lecture vectorielle)",
+          confidence: total.dn !== null && total.material !== null ? VECTOR_ITEM_CONFIDENCE.labelled : VECTOR_ITEM_CONFIDENCE.review,
+          evidence: `Lecture vectorielle : ${count} tronçon${count > 1 ? "s" : ""} d’axe${partOf(index, pipes.length)}, échelle ${scale}.`,
         },
-        geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "insulation", ...base, material: "calorifuge", segments_m: insulated,
-          length_m: round(total.insulated_m, 3) }),
+        geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "network", ...base, segments_m: part.runs.map(segmentOf), length_m: part.length_m }),
       });
+    });
+    if (total.insulated_m !== null && total.insulated_m >= 0.01 && total.dn !== null) {
+      const insulated = lengthParts(runs.filter((run) => run.insulated), total.insulated_m, denominator);
+      insulated.forEach((part, index) => records.push({
+        item: {
+          designation: `${code} calorifuge DN ${total.dn}`, quantity: part.quantity, unit: "ml", category: "calorifuge (lecture vectorielle)",
+          confidence: VECTOR_ITEM_CONFIDENCE.labelled,
+          evidence: `Lecture vectorielle : tronçons dont le libellé indique un calorifuge${partOf(index, insulated.length)}, échelle ${scale}.`,
+        },
+        geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "insulation", ...base, material: "calorifuge",
+          segments_m: part.runs.map(segmentOf), length_m: part.length_m }),
+      }));
     }
+  }
+  // The rooms vectorItems measures (items.ts): the polygon area, never the printed surface, on the same page frame.
+  for (const surface of reading.surfaces) {
+    if (surface.polygon_m2 === null || surface.polygon_m2 <= 0 || surface.outline === null) continue;
+    const polygon = surface.outline.points.length <= 2 * VECTOR_GEOMETRY_LIMITS.polygon ? surface.outline.points.map(metres) : null;
+    records.push({
+      item: {
+        designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: surface.polygon_m2, unit: "m2", category: "surface (polygone fermé)",
+        confidence: VECTOR_ITEM_CONFIDENCE.labelled,
+        evidence: `Aire du polygone fermé (${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
+      },
+      geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "surface", network: null, material: null, dn: null,
+        zone: location.zone, level: location.level, groups: [surface.outline.group.slice(0, 120)], segments_m: [], polygon_m: polygon,
+        length_m: null, area_m2: surface.polygon_m2, transform: null }),
+    });
   }
   return records;
 }

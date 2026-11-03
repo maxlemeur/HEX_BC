@@ -25,8 +25,10 @@ export const VECTOR_PIPELINE_LABEL = "vector";
 
 export type VectorBenchDocument = { id: string; lot: string; role: "truth" | "reserve"; bytes: Uint8Array; sha256: string; pages: number };
 
-export type VectorReadingSummary = Omit<VectorPageReading, "networks" | "groups"> & {
+export type VectorReadingSummary = Omit<VectorPageReading, "networks" | "groups" | "surfaces"> & {
   groups: Array<Pick<VectorPageReading["groups"][number], "id" | "layerName" | "colors" | "length_pt" | "nearWhite" | "grey" | "class" | "source" | "candidates">>;
+  /** Rooms without their outline points: the report keeps areas, not geometry. */
+  surfaces: Array<Omit<VectorPageReading["surfaces"][number], "outline">>;
   groups_classified: number;
   groups_network: number;
   /** Near-white groups classified as a network: must stay 0 (TI-658 pitfall). */
@@ -57,12 +59,14 @@ function correspondencesOf(groups: GroupTruthFile | undefined, page: number) {
 }
 
 function summarize(reading: VectorPageReading): VectorReadingSummary {
-  const { networks, groups, ...rest } = reading;
+  const { networks, groups, surfaces, ...rest } = reading;
   const isNetwork = (group: VectorPageReading["groups"][number]) => isNetworkClass(group.class);
   return {
     ...rest,
     groups: groups.map((group) => ({ id: group.id, layerName: group.layerName, colors: group.colors, length_pt: group.length_pt,
       nearWhite: group.nearWhite, grey: group.grey, class: group.class, source: group.source, candidates: group.candidates })),
+    surfaces: surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, anchor: surface.anchor, polygon_m2: surface.polygon_m2,
+      polygon_points: surface.polygon_points, deviation: surface.deviation })),
     groups_classified: groups.filter((group) => group.class !== null && group.class !== "autre").length,
     groups_network: groups.filter(isNetwork).length,
     near_white_network_groups: groups.filter((group) => group.nearWhite && isNetwork(group)).length,
