@@ -329,7 +329,7 @@ export function TakeoffUploadForm({
     void selectedFile.arrayBuffer().then((bytes) => crypto.subtle.digest("SHA-256", bytes)).then((buffer) => {
       if (!active) return;
       const hash = Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
-      setUploadSource({ document_id: `upload:${hash}`, document_name: selectedFile.name, source_version: hash, kind: "plan", revision: null, pages: [], active: true, confirmed: false, plan_set_id: null, file_path: null, page_count: null, logical_document_id: null, source_updated_at: null, mime_type: selectedFile.type || null, content_hash: hash });
+      setUploadSource({ document_id: `upload:${hash}`, document_name: selectedFile.name, source_version: hash, kind: "plan", revision: null, pages: [], active: true, confirmed: false, plan_set_id: null, file_path: null, page_count: null, logical_document_id: null, source_updated_at: null, mime_type: selectedFile.type || null, content_hash: hash, page_triage: null });
     }).catch(() => { if (active) setErrorMessage("Impossible de vérifier l'identité du fichier. Sélectionnez-le à nouveau."); });
     return () => { active = false; };
   }, [selectedFile]);

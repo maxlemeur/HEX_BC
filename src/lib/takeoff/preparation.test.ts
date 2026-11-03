@@ -35,6 +35,7 @@ function countingPreparation(): TakeoffPreparation {
     content_hash: null,
     source_updated_at: "2026-10-29T09:00:00Z",
     mime_type: "application/pdf",
+    page_triage: null,
   }];
   preparation.conventions.unit = "u";
   preparation.conventions.confirmed = true;

@@ -12,13 +12,21 @@ import { BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "
 // - --repeat is not a positive integer;
 // - the couples are not models x efforts in the order given, one at a time;
 // - an owner that is not <userId>:<tenantId> is accepted.
+// Page triage (TI-663), written before the code:
+// - a triage run without --max-decisions-tokens, or with a zero, fractional or
+//   negative ceiling, starts paid Decisions calls without a ceiling (C3);
+// - a triage run accepts models, efforts or repeats (one pass per page and prompt);
+// - an extraction accepts a Decisions ceiling it would ignore;
+// - a page list with 0, a reversed range, a repeated page or text is accepted, or
+//   --pages and --pages-from are both given.
 
 const required = ["--dataset", "/fixture/dataset", "--docs", "all", "--models", "model-a", "--efforts", "auto", "--out", "/fixture/run"];
 
 describe("takeoff bench arguments", () => {
   it("reads the documents, models, efforts, passes and output, auto as null", () => {
     expect(parseBenchArgs(required)).toEqual({
-      dataset: "/fixture/dataset", docs: "all", models: ["model-a"], efforts: [null], repeat: 1, out: "/fixture/run",
+      mode: "extract", dataset: "/fixture/dataset", docs: "all", models: ["model-a"], efforts: [null], repeat: 1, out: "/fixture/run",
+      maxDecisionsTokens: null, pages: null, pagesFrom: null,
     });
     expect(parseBenchArgs([
       "--dataset=/fixture/dataset", "--docs=a-plan-01,c-plan-01", "--models", "model-a,model-b", "--efforts", "none,max,auto",
@@ -40,6 +48,36 @@ describe("takeoff bench arguments", () => {
     [[...required, "--repeat", "1.5"]],
     [[...required, "--repeat"]],
   ])("refuses %j", (args) => {
+    expect(() => parseBenchArgs(args)).toThrow(BenchUsageError);
+  });
+
+  it("reads a triage run under its Decisions ceiling, and page lists for an extraction", () => {
+    const triage = ["--mode", "triage", "--dataset", "/fixture/dataset", "--docs", "all", "--max-decisions-tokens", "2000000", "--out", "/fixture/run"];
+    expect(parseBenchArgs(triage)).toEqual({
+      mode: "triage", dataset: "/fixture/dataset", docs: "all", models: [], efforts: [], repeat: 1, out: "/fixture/run",
+      maxDecisionsTokens: 2_000_000, pages: null, pagesFrom: null,
+    });
+    expect(parseBenchArgs([...required, "--pages", "1,3-5"])).toMatchObject({ pages: [1, 3, 4, 5], pagesFrom: null });
+    expect(parseBenchArgs([...required, "--pages-from", "/fixture/triage/report.json"])).toMatchObject({ pages: null, pagesFrom: "/fixture/triage/report.json" });
+  });
+
+  it.each([
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--out", "/o"]],
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "0", "--out", "/o"]],
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "1.5", "--out", "/o"]],
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "-3", "--out", "/o"]],
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "10", "--models", "model-a", "--out", "/o"]],
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "10", "--repeat", "2", "--out", "/o"]],
+    [["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "10", "--pages", "1", "--out", "/o"]],
+    [["--mode", "other", ...required]],
+    [[...required, "--max-decisions-tokens", "10"]],
+    [[...required, "--pages", "0"]],
+    [[...required, "--pages", "3-1"]],
+    [[...required, "--pages", "1,1"]],
+    [[...required, "--pages", "1-2,2"]],
+    [[...required, "--pages", "un"]],
+    [[...required, "--pages", "1", "--pages-from", "/r.json"]],
+  ])("refuses the page triage arguments %j", (args) => {
     expect(() => parseBenchArgs(args)).toThrow(BenchUsageError);
   });
 

@@ -114,13 +114,26 @@ globalThis.fetch = async (input, init) => {
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-decisions-fixture");
     const request = JSON.parse(init.body);
     assert.equal(request.model, "gpt-6-luna");
-    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length }) + "\n");
+    // Page triage (TI-663): the evidence names the task; page 1 of the fictional sheet is a facade.
+    const content = request.input?.[0]?.content ?? [];
+    const evidence = content.find((part) => part.type === "input_json")?.data ?? {};
+    const triage = evidence.task === "takeoff_page_triage";
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length,
+      ...(triage ? { task: "page-triage", page: evidence.page, images: content.filter((part) => part.type === "input_image").length } : {}) }) + "\n");
     const deadline = Date.now() + 15_000;
     while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).hold) {
       if (Date.now() >= deadline) throw new Error("The controlled Decisions response was not released.");
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     const answers = request.questions.map((question) => {
+      if (question.type === "choice" && question.name.startsWith("page_")) {
+        const facade = /FA[ÇC]ADE/i.test(String(evidence.page_text ?? ""));
+        const choice = question.name === "page_type"
+          ? question.choices.find((candidate) => candidate.value === (facade ? "facade" : "reseau"))
+          : question.choices.find((candidate) => candidate.value !== "inconnu") ?? question.choices.at(-1);
+        return { name: question.name, type: "choice", choice: choice.value, confidence: 0.95,
+          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === choice.value ? 0.95 : 0.05 / (question.choices.length - 1) })) };
+      }
       if (question.type === "choice") {
         const preferred = question.name.startsWith("document_") ? "plans" : "sources";
         // Reprise des prix (PRX02) : le dernier candidat, différent de la proposition du rapprochement (le premier).
