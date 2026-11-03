@@ -150,8 +150,14 @@ est une constante nommée et versionnée dans le code.
      - jamais entre deux membres (EU et EV, un départ et un retour sont deux tuyaux),
        même par un tronçon de leur parent, ni vers un autre réseau.
    - Un DN porte le réseau que son libellé nomme : « EU - PVC DN 40 » sur un tronçon
-     EU/EV passe aux tronçons EU, jamais aux EV. De deux libellés aussi proches d'un
-     tronçon, celui de son propre réseau l'emporte.
+     EU/EV passe aux tronçons EU, jamais aux EV. Des libellés d'accord sur un tronçon
+     qui nomment plusieurs réseaux d'une famille (« EU » et « EU/EV », ou « EU » et
+     « EV ») portent leur parent, quel que soit leur ordre de lecture. De deux libellés
+     aussi proches d'un tronçon, celui de son propre réseau l'emporte.
+   - Chaque réseau porté fait son propre chemin : un tronçon qu'un DN d'un autre réseau
+     a atteint le premier garde ce DN, mais laisse passer celui-ci vers les tronçons
+     qu'il peut atteindre (le DN d'un EU/EV jusqu'à un EV, au-delà d'un tronçon EU/EV
+     qu'un DN EU plus proche a atteint).
    - Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à revoir »).
    - Les recherches de voisinage (libellés, raccords, embouts) trouvent tout tracé, même
      un long tuyau en diagonale d'une feuille A0.
@@ -179,7 +185,8 @@ est une constante nommée et versionnée dans le code.
        couleurs n'en a que par correspondance).
      - Portes : un arc de 60 à 120°, de 0,50 à 1,60 m de rayon, dont les points sont à
        égale distance d'un centre (la paumelle), seul autour de ce centre (deux copies
-       d'un même arc tracé deux fois n'en font qu'un), avec un trait qui finit à la
+       d'un même arc tracé deux fois n'en font qu'un : mêmes bouts et même milieu ; les
+       deux moitiés d'un cercle sont deux arcs), avec un trait qui finit à la
        paumelle (le vantail, un tableau de mur : à moins de 1 pt, ou 5 % du rayon), est
        le battant d'une porte. Il ne fait pas barrière ; ses deux rayons, oui : le
        vantail et la ligne d'ouverture, de la paumelle à l'autre bout de l'arc, le long
@@ -196,8 +203,11 @@ est une constante nommée et versionnée dans le code.
        sur un calque de murs) jusqu'à 4 m² chacune, sauf si elles portent la surface
        d'une autre pièce, et les poches fermées derrière une menuiserie qui la borde
        (le battant d'une fenêtre dessiné vers l'intérieur), jusqu'à 4 m² chacune. Une
-       poche que bordent les menuiseries de deux pièces (une niche entre elles) n'est à
-       aucune des deux.
+       poche est prise entière : si une partie atteint la surface imprimée d'une autre
+       pièce, le bord de la grille ou 4 m², ce n'en est pas une (jamais ce qui reste de
+       la pièce voisine derrière une cloison vitrée). Une poche que bordent les
+       menuiseries de deux pièces (une niche entre elles), ou posée sur le sol d'une
+       autre pièce, n'est à aucune des deux.
      - Aire : les cellules, plus une demi-cellule le long de chaque bord entre la pièce et
        un trait (un trait passe n'importe où dans ses cellules).
      - Rejetés, comptés au rapport avec leur raison, jamais mesurés : un remplissage qui
