@@ -137,6 +137,8 @@ const { getCloneableBody } = await import("next/dist/server/body-streams.js");
 
 process.on("uncaughtExceptionMonitor", (error) => record({ uncaught: { code: error?.code, message: error?.message } }));
 installProcessErrorHooks({ exit: (code) => { record({ exit: code }); process.exit(code); } });
+// Never outlive the test: a stopped or killed Vitest worker closes this pipe.
+process.stdin.on("end", () => process.exit(0)).resume();
 
 const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
 
@@ -154,6 +156,13 @@ if (scenario === "client-left") {
     // The route is still compiling or working: the response stays pending.
   });
   record({ port: await listen(server) });
+} else if (scenario === "server-fault") {
+  // An application bug raised by Node's HTTP server code itself.
+  const server = http.createServer((req, res) => {
+    res.end("done");
+    setTimeout(() => res.writeHead(200), 10);
+  });
+  http.get({ host: "127.0.0.1", port: await listen(server) }, (response) => response.resume());
 } else {
   // An upstream server that cuts its response in the middle of the body.
   const upstream = http.createServer((req, res) => {
@@ -180,12 +189,12 @@ type HookedRecord = {
   exit?: number;
 };
 
-function startHookedProcess(scenario: "client-left" | "upstream-cut") {
+function startHookedProcess(scenario: "client-left" | "server-fault" | "upstream-cut") {
   const reporter = new URL("./error-reporter.ts", import.meta.url).href;
   const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", HOOKED_PROCESS, "--", reporter, scenario], {
     // No reporting DSN: the hook logs its report and never reaches the network.
     env: { PATH: process.env.PATH ?? "", SystemRoot: process.env.SystemRoot ?? "", NODE_ENV: "test" },
-    shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+    shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
   });
   const records: HookedRecord[] = [];
   const changes = new EventEmitter();
@@ -275,6 +284,19 @@ describe("installProcessErrorHooks in a Node HTTP server process", () => {
     try {
       // Same code and message as a client disconnect, but a failure of this server's own call.
       expect(await hooked.waitFor("uncaught")).toEqual({ code: "ECONNRESET", message: "aborted" });
+      expect(await hooked.ended()).toBe(1);
+      expect(hooked.exits()).toEqual([{ exit: 1 }]);
+    } finally {
+      await hooked.stop();
+    }
+  }, 20_000);
+
+  it("still exits on an application fault raised inside Node's HTTP server code", async () => {
+    const hooked = startHookedProcess("server-fault");
+    try {
+      // Its first stack frame is in node:_http_server too: only its code and message differ.
+      expect(await hooked.waitFor("uncaught")).toEqual({
+        code: "ERR_HTTP_HEADERS_SENT", message: "Cannot write headers after they are sent to the client" });
       expect(await hooked.ended()).toBe(1);
       expect(hooked.exits()).toEqual([{ exit: 1 }]);
     } finally {
