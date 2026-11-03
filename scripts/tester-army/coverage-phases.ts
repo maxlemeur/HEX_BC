@@ -24,7 +24,7 @@ export const COVERAGE_PHASE_DEFINITIONS: Readonly<Record<CoveragePhase, CalcV3Ph
   "source-coverage-recovery": { ...phase(sourceCoverage, 3), defaultGrep: "^SC0[789]\\s" },
   "generated-atomic": phase("e2e/army/local/estimate-generated-atomic.e2e.ts", 2),
   "generated-recovery": phase("e2e/army/local/estimate-generated-recovery.e2e.ts", 6),
-  "navigation-lease": phase("e2e/army/local/editor-navigation-lease.e2e.ts", 2),
+  "navigation-lease": phase("e2e/army/local/editor-navigation-lease.e2e.ts", 5),
   "batch-client": phase("e2e/army/local/estimate-batch-client.e2e.ts", 4),
   "assembly-totals": phase("e2e/army/local/assembly-totals.e2e.ts", 2),
 };

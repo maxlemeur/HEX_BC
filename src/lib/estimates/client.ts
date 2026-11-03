@@ -36,8 +36,15 @@ import {
   runEstimateEditorMutation,
   isOlderEstimateVersionToken,
 } from "@/lib/estimates/editor-mutations";
-import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
-import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
+} from "@/lib/estimates/lock-session";
+import {
+  getEstimateDraftLockSessionId,
+  holdEstimateDraftLockSessionLiveness,
+  retireEstimateDraftLockSessionId,
+} from "@/lib/estimates/draft-lock-session-client";
 import type { Database } from "@/types/database";
 import {
   isEstimateApprovalDecisionFilter,
@@ -895,6 +902,8 @@ export type EstimateDraftLock = {
   expiresAt: string | null;
   isOwnedByCurrentUser: boolean | null;
   isOwnedByCurrentSession: boolean | null;
+  /** Identité de page du détenteur, telle que le serveur l'expose (`session_id`). */
+  sessionId?: string | null;
 };
 
 export type AcquireEstimateDraftLockResult = {
@@ -910,6 +919,11 @@ export type RenewEstimateDraftLockResult = {
 export type ReleaseEstimateDraftLockOptions = {
   force?: boolean;
   keepalive?: boolean;
+  /**
+   * Libère le bail d'une autre identité de page que celle de ce document :
+   * réservé au bail laissé par un document mort de cet onglet (TI-665).
+   */
+  sessionId?: string;
 };
 
 export type ReleaseEstimateDraftLockResult = {
@@ -3263,6 +3277,10 @@ function parseEstimateDraftLock(
     toBooleanValue(root.isOwnedByCurrentSession) ??
     null;
 
+  const sessionId = normalizeEstimateDraftLockSessionId(
+    toStringValue(lockEntity.session_id) ?? toStringValue(lockEntity.sessionId)
+  );
+
   return {
     versionId,
     userId,
@@ -3271,6 +3289,7 @@ function parseEstimateDraftLock(
     expiresAt,
     isOwnedByCurrentUser,
     isOwnedByCurrentSession,
+    sessionId,
   };
 }
 
@@ -4576,7 +4595,89 @@ export async function fetchEstimatePurchaseOrderDraftReceipt(
   return parsed;
 }
 
-export async function acquireEstimateDraftLock(
+// TI-665 : un document qui part pendant son chargement peut encore obtenir un
+// bail : sa demande part après son beforeunload (son écouteur de libération
+// n'existait pas encore) et le serveur la conserve alors qu'aucun script ne la
+// libérera. Le document libère donc à sa disparition (pagehide) le bail obtenu
+// après le début de son départ, ou dont la demande est encore en cours, sauf si
+// une libération de sa propre identité a suivi. C'est un effort : la
+// libération peut précéder l'insertion d'une demande en cours, et seul le
+// document suivant du même onglet sait libérer ce reste (useDraftLock).
+// Un bail obtenu avant le départ suit le cycle ordinaire (beforeunload,
+// démontage) : rien de plus n'est envoyé, en particulier au document rechargé
+// qui reprend la même identité, ni avant la sauvegarde finale de l'éditeur.
+const draftLeaseRequestsInFlight = new Map<string, number>();
+const draftLeasesGrantedWhileLeaving = new Set<string>();
+let hasDocumentStartedLeaving = false;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    hasDocumentStartedLeaving = true;
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) hasDocumentStartedLeaving = false;
+  });
+  window.addEventListener("pagehide", (event) => {
+    // A page kept in the back/forward cache may come back and still uses its lease.
+    if (event.persisted) return;
+    const released = [...new Set([...draftLeasesGrantedWhileLeaving, ...draftLeaseRequestsInFlight.keys()])];
+    for (const versionId of released) {
+      void releaseEstimateDraftLock(versionId, { keepalive: true }).catch(() => undefined);
+    }
+    // After the release is sent, so that a reload cannot reuse this identity: a delayed DELETE
+    // (scoped by version, user and session) would otherwise delete the reloaded document's lease.
+    // A request still in flight may land after its DELETE; the next document of the tab hands
+    // that rest over from the retired identity (useDraftLock).
+    released.forEach(retireEstimateDraftLockSessionId);
+  });
+}
+
+async function requestDraftLease<T extends { acquired: boolean }>(
+  versionId: string,
+  request: () => Promise<T>
+) {
+  holdEstimateDraftLockSessionLiveness(getEstimateDraftLockSessionId(versionId));
+  draftLeaseRequestsInFlight.set(versionId, (draftLeaseRequestsInFlight.get(versionId) ?? 0) + 1);
+  // null: unknown outcome (lost reply, server error), counted as granted.
+  let granted: boolean | null = null;
+  try {
+    const result = await request();
+    granted = result.acquired;
+    return result;
+  } catch (error) {
+    if (isEstimateApiError(error) && error.status < 500) granted = false;
+    throw error;
+  } finally {
+    const remaining = (draftLeaseRequestsInFlight.get(versionId) ?? 1) - 1;
+    if (remaining > 0) draftLeaseRequestsInFlight.set(versionId, remaining);
+    else draftLeaseRequestsInFlight.delete(versionId);
+    if (granted === false) draftLeasesGrantedWhileLeaving.delete(versionId);
+    else if (hasDocumentStartedLeaving) draftLeasesGrantedWhileLeaving.add(versionId);
+  }
+}
+
+export function acquireEstimateDraftLock(
+  versionId: string
+): Promise<AcquireEstimateDraftLockResult> {
+  return requestDraftLease(versionId, () => requestEstimateDraftLockAcquisition(versionId));
+}
+
+export function takeoverEstimateDraftLock(
+  versionId: string
+): Promise<AcquireEstimateDraftLockResult> {
+  return requestDraftLease(versionId, () => requestEstimateDraftLockTakeover(versionId));
+}
+
+// A page that renews a lease uses it, even without having requested it (a
+// reload reusing its identity): it must look alive to the other pages.
+export function renewEstimateDraftLock(
+  versionId: string
+): Promise<RenewEstimateDraftLockResult> {
+  holdEstimateDraftLockSessionLiveness(getEstimateDraftLockSessionId(versionId));
+  return requestEstimateDraftLockRenewal(versionId);
+}
+
+async function requestEstimateDraftLockAcquisition(
   versionId: string
 ): Promise<AcquireEstimateDraftLockResult> {
   try {
@@ -4609,7 +4710,7 @@ export async function acquireEstimateDraftLock(
   }
 }
 
-export async function renewEstimateDraftLock(
+async function requestEstimateDraftLockRenewal(
   versionId: string
 ): Promise<RenewEstimateDraftLockResult> {
   try {
@@ -4642,7 +4743,7 @@ export async function renewEstimateDraftLock(
   }
 }
 
-export async function takeoverEstimateDraftLock(
+async function requestEstimateDraftLockTakeover(
   versionId: string
 ): Promise<AcquireEstimateDraftLockResult> {
   const payload = await requestJson<unknown>(
@@ -4664,12 +4765,16 @@ export async function releaseEstimateDraftLock(
   versionId: string,
   options: ReleaseEstimateDraftLockOptions = {}
 ): Promise<ReleaseEstimateDraftLockResult> {
+  if (!options.sessionId) draftLeasesGrantedWhileLeaving.delete(versionId);
   try {
     const payload = await requestJson<unknown>(
       buildEstimateDraftLockPath(versionId, { force: options.force }),
       {
         method: "DELETE",
         keepalive: options.keepalive,
+        ...(options.sessionId
+          ? { headers: { [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: options.sessionId } }
+          : {}),
       },
       options.force
         ? "Impossible de forcer le déverrouillage."
