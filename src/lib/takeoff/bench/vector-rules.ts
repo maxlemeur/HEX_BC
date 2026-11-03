@@ -69,7 +69,8 @@ export function assertRuleDataAligned(items: readonly TakeoffItem[], data: reado
     const item = items[index];
     const surface = entry.inputs.kind === "surface";
     const code = entry.inputs.network === "EUV" ? "EU/EV" : entry.inputs.network;
-    if ((item.unit === "m2") !== surface || (!surface && !item.designation.startsWith(`${code} `))) {
+    const named = item.designation === code || item.designation.startsWith(`${code} `);
+    if ((item.unit === "m2") !== surface || (!surface && !named)) {
       throw new Error(`vectorItemRuleData entry ${index} (${entry.inputs.kind} ${code ?? "-"}) does not describe item « ${item.designation} » (${where}).`);
     }
   });

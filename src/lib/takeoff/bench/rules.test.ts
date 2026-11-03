@@ -156,6 +156,9 @@ describe("rules in the vector pipeline", () => {
     const surface = { inputs: { ...network.inputs, kind: "surface" as const, network: null, material: null, dn: null }, geometry: null };
     expect(() => assertRuleDataAligned(items, [network, surface], "fixture")).not.toThrow();
     expect(() => assertRuleDataAligned(items, [surface, network], "fixture")).toThrow(/does not describe/);
+    // An unlabelled line is named by its network alone.
+    expect(() => assertRuleDataAligned([item("EU/EV", 3, 0.5)], [{ ...network, inputs: { ...network.inputs, network: "EUV" as const } }], "fixture"))
+      .not.toThrow();
   });
 
   it("gives the rules exactly the items the bench scores, in their order", () => {
