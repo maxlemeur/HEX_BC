@@ -17,7 +17,8 @@ import { classifyByKeywords, isVectorClass, type DecisionsAnswer, type GroupClas
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { pointsToMetres } from "@/lib/takeoff/vectors/geometry";
 import {
-  classifyVectorGroups, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, isDecisionsRunStop, type GroupDecisionsStop,
+  classifyVectorGroups, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, type GroupDecisionsDecide, type GroupDecisionsRender,
+  type GroupDecisionsStop,
 } from "@/lib/takeoff/vectors/group-decisions-server";
 import { buildPageModel, type GroupStats, type PageModel } from "@/lib/takeoff/vectors/page-model";
 import { readVectorPage, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
@@ -32,9 +33,12 @@ import { readVectorPage, type VectorPageReading } from "@/lib/takeoff/vectors/pi
 // - the task runs group-decisions-server.ts classifyVectorGroups once, within
 //   what TAKEOFF_LAB_DECISIONS_MAX_TOKENS leaves (asked before each call), its
 //   images drawn by the server; the first failed or unavailable call stops it,
-//   never retried. Its run keeps every call's normalized result (no image, no
-//   key) and one question element per asked group, so the verdicts and stats
-//   of the lab read it like any choice;
+//   never retried. A stop after answers (provider, ceiling or a dedicated
+//   render) is a partial configuration that keeps them, its message the stop's;
+//   an answer's probabilities come from the call whose answer is kept. Its run
+//   keeps every call's normalized result (no image, no key) and one question
+//   element per asked group, so the verdicts and stats of the lab read it like
+//   any choice;
 // - the geometry sent to the page is bounded: LAB_VECTOR_MAX_SEGMENTS segments
 //   per page, longest groups first, a cut group says so.
 // The lab never writes the dataset: « Copier la sélection » gives the JSON of
@@ -123,6 +127,9 @@ export async function runVectorGroupsConfig(input: {
   /** Tokens TAKEOFF_LAB_DECISIONS_MAX_TOKENS still allows (pre-flight: at least 1). */
   remainingTokens: number;
   extract?: VectorExtract;
+  /** Tests only: a Decisions fake and fake renders (production: callOpenAiDecisions, group-sheet-server.ts). */
+  decide?: GroupDecisionsDecide;
+  render?: GroupDecisionsRender;
 }): Promise<VectorGroupsConfig> {
   const { task, document, page } = input;
   const bytes = new Uint8Array(document.bytes);
@@ -133,18 +140,22 @@ export async function runVectorGroupsConfig(input: {
   const results: OpenAiDecisionsResult[] = [];
   const budget = createDecisionsTokenBudget(Math.max(1, input.remainingTokens), GROUP_DECISIONS_CALL_ESTIMATE_TOKENS);
   const outcome = await classifyVectorGroups({
-    bytes, extraction, reading, owner: input.access.owner, budget,
+    bytes, extraction, reading, owner: input.access.owner, budget, render: input.render,
     context: { tenantId: input.access.owner.tenantId, projectId: "takeoff-lab",
       preparationFingerprint: sha256Hex(`${document.sha256}\u0000${task.id}\u0000${input.promptVersion}`) },
     decide: async (request) => {
-      const result = await callOpenAiDecisions(request);
+      const result = await (input.decide ?? callOpenAiDecisions)(request);
       results.push(result);
       return result;
     },
   });
-  // A dedicated answer replaces the batch one (group-decisions-server.ts): the last answer of an alias is the one kept.
+  // A dedicated answer replaces the batch one (group-decisions-server.ts), never one of a failed or unavailable call:
+  // the last answer of an alias among the results the loop applied is the one kept.
   const rawByAlias = new Map<string, OpenAiDecisionAnswer>();
-  for (const result of results) for (const answer of result.answers) rawByAlias.set(answer.name, answer);
+  for (const result of results) {
+    if (result.status === "failed" || result.status === "unavailable") continue;
+    for (const answer of result.answers) rawByAlias.set(answer.name, answer);
+  }
   const indexOf = new Map(model.groups.map((group, index) => [group.id, index]));
   const asked = [...outcome.answers].sort(([, left], [, right]) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0));
   const answers: LabAnswer[] = [];
@@ -177,8 +188,8 @@ export async function runVectorGroupsConfig(input: {
   const latency = outcome.calls.length === 0 ? null : outcome.calls.reduce((total, call) => total + call.latency_ms, 0);
   const stop = outcome.stop;
   const incomplete = answers.some((answer) => answer.status !== "answered");
-  const status: LabConfigResult["status"] = stop ? (isDecisionsRunStop(stop.reason) && answers.length > 0 ? "partial" : "failed")
-    : incomplete ? "partial" : "ok";
+  // A stop after answers (provider, ceiling or a dedicated render) keeps them: they are paid, applied and judged.
+  const status: LabConfigResult["status"] = stop ? (answers.length > 0 ? "partial" : "failed") : incomplete ? "partial" : "ok";
   const message = stop?.message
     ?? (outcome.candidates === 0 ? (reading.mode === "raster" ? "Page raster : aucun groupe vectoriel à classer." : "Aucun groupe à classer : les mots-clés ont classé toute la page.")
       : incomplete ? "Classement partiel : les groupes sans réponse restent à revoir." : null);
