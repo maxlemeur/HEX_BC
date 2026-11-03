@@ -22,6 +22,11 @@ Les écritures de devis exigent un tenant actif, le rôle approprié, l'accès �
 l'affaire, un statut éditable et les contrôles de concurrence. Le verrou de
 brouillon appartient à une **session de page**, pas seulement à un utilisateur :
 deux onglets du même compte ne possèdent pas implicitement le même verrou.
+Chaque document a sa propre identité de page ; seul un rechargement la conserve.
+Si un bail est encore tenu par une identité antérieure du même onglet dont aucun
+document n'existe plus (départ pendant le chargement, TI-665), le document suivant
+de l'onglet libère ce bail puis le demande sous sa propre identité. Une copie
+d'onglet dont la source est vivante reste en lecture seule.
 Les écrivains vérifient aussi la révision attendue ; un conflit doit être résolu
 en rechargeant l'état courant, sans écraser une modification concurrente.
 

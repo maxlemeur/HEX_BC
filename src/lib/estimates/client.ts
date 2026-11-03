@@ -36,7 +36,10 @@ import {
   runEstimateEditorMutation,
   isOlderEstimateVersionToken,
 } from "@/lib/estimates/editor-mutations";
-import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
+} from "@/lib/estimates/lock-session";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import type { Database } from "@/types/database";
 import {
@@ -895,6 +898,8 @@ export type EstimateDraftLock = {
   expiresAt: string | null;
   isOwnedByCurrentUser: boolean | null;
   isOwnedByCurrentSession: boolean | null;
+  /** Identité de page du détenteur, telle que le serveur l'expose (`session_id`). */
+  sessionId?: string | null;
 };
 
 export type AcquireEstimateDraftLockResult = {
@@ -910,6 +915,11 @@ export type RenewEstimateDraftLockResult = {
 export type ReleaseEstimateDraftLockOptions = {
   force?: boolean;
   keepalive?: boolean;
+  /**
+   * Libère le bail d'une autre identité de page que celle de ce document :
+   * réservé au bail laissé par un document mort de cet onglet (TI-665).
+   */
+  sessionId?: string;
 };
 
 export type ReleaseEstimateDraftLockResult = {
@@ -3263,6 +3273,10 @@ function parseEstimateDraftLock(
     toBooleanValue(root.isOwnedByCurrentSession) ??
     null;
 
+  const sessionId = normalizeEstimateDraftLockSessionId(
+    toStringValue(lockEntity.session_id) ?? toStringValue(lockEntity.sessionId)
+  );
+
   return {
     versionId,
     userId,
@@ -3271,6 +3285,7 @@ function parseEstimateDraftLock(
     expiresAt,
     isOwnedByCurrentUser,
     isOwnedByCurrentSession,
+    sessionId,
   };
 }
 
@@ -4670,6 +4685,9 @@ export async function releaseEstimateDraftLock(
       {
         method: "DELETE",
         keepalive: options.keepalive,
+        ...(options.sessionId
+          ? { headers: { [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: options.sessionId } }
+          : {}),
       },
       options.force
         ? "Impossible de forcer le déverrouillage."
