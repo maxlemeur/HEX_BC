@@ -17,6 +17,7 @@ API séparée. Configurer uniquement côté serveur :
 ```dotenv
 MERGEONE_OPENAI_DECISIONS=0
 MERGEONE_INTAKE_DECISIONS=0
+MERGEONE_TAKEOFF_DECISIONS=0
 OPENAI_DECISIONS_API_KEY=
 ```
 
@@ -57,6 +58,20 @@ Le premier périmètre comprend :
 - Cockpit : sur demande explicite, conseil parmi les candidats reconstruits côté
   serveur et encore visibles dans le cockpit. Les actions épinglées sont
   préservées. La réponse n’exécute rien et ne réordonne aucune liste en cours.
+- Métré, tri des pages (TI-663) : sur demande explicite à l’étape « Mes documents »
+  du niveau Détaillé (C), un appel par page de chaque plan actif (type, niveau,
+  zone en questions `choice`). Il exige en plus `MERGEONE_TAKEOFF_DECISIONS=1`
+  (`getTakeoffDecisionsCapability()`), sans quoi le bouton est désactivé avec sa
+  raison. Les pages sont lues côté serveur par le lecteur partagé
+  `src/lib/pdf/page-render-server.ts` (texte borné à 12 000 caractères, vignette
+  JPEG de 1 200 px au plus et 1,5 Mo, processus séparé à 768 Mo et 20 s + 10 s
+  par page, plafonné à 120 s). Quatre appels au plus en parallèle, plafond de
+  200 000 jetons par tri (`TAKEOFF_PAGE_TRIAGE_MAX_TOKENS`), aucun nouvel appel
+  après 200 s, arrêt au premier échec, sans relance ni autre fournisseur. Les
+  pages inchangées réutilisent leur réponse. Une page n’est proposée à l’écart
+  que pour une réponse complète, avec vignette, d’un type exclu (coupe, façade,
+  toiture, masse, pièce écrite) à une confiance d’au moins 0,8 ; toute autre page
+  reste retenue « À vérifier ». Voir [Préparation du métré](../metier/preparation-metre.md).
 - Reprise des prix : sur demande explicite dans l’éditeur, choix parmi les articles
   candidats d’un devis de référence pour les seules lignes « à vérifier »
   (question `choice`, valeur « aucun » admise). La proposition ne coche aucune ligne
@@ -110,6 +125,25 @@ les catégories/questions/actions attendues avant l’appel, puis consigner les
 propositions, refus, consommation et corrections humaines. Ne pas qualifier la
 précision à partir des seules probabilités du modèle. Aucun appel réel n’est
 nécessaire pour vérifier le parcours manuel.
+
+## Banc du tri des pages (TI-663)
+
+`npm run takeoff:bench -- --mode triage --dataset <dataset> --docs <ids|all>
+--max-decisions-tokens <n> --out <run_path>` applique le tri du produit à chaque
+PDF du jeu privé qui a une vérité `truth/pages/<id>.json`, avec un contexte de banc
+(`bench:<id>`, empreinte du plan), un passage par page et par version de consigne,
+sans relance, sous le plafond donné (vérifié avant chaque appel), et s’arrête au
+premier échec. Il ne lit que `OPENAI_DECISIONS_API_KEY` et
+`MERGEONE_OPENAI_DECISIONS=1`, injectés pour la commande seule : jamais
+`--env-file`, et la clé n’entre pas dans le rapport. Le rapport donne les pages
+gardées proposées à l’écart (le rappel doit rester à 100 %), la précision par type,
+le seuil qui garderait chaque page utile hors réserve, les jetons et les durées.
+Une extraction peut ensuite ne lire que les pages retenues (`--pages-from
+<rapport du tri>`), comme le worker ne copie que les pages confirmées.
+
+La dépense suit le budget de TI-658 (2 M de jetons par exécution, 10 M sur L2 à
+L4). La première mesure (3 novembre 2026, consigne `takeoff-page-triage-v1`) est
+publiée sur TI-658 ; la réserve n’a servi qu’une fois, seuil figé à 0,8.
 
 Références officielles vérifiées le 29 octobre 2026 :
 [guide Decisions](https://developers.openai.com/api/docs/guides/decisions) et
