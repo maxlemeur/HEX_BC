@@ -2,9 +2,9 @@ import { expect } from "e2e";
 
 import { apiRequest, armyTest, recordEvidence, type ArmyItem, type ArmyVersion } from "../critical/fixtures";
 import {
-  clonedPopupObservation, departAfterLeaseRequest, departWithLostRelease, documentObservation, editorPath, leaseCheckpoint, leaseEditorReady,
-  leaseTotals, observeLeaseRequests, openClonedLeasePopup, prepareLeaseCase, reloadClonedLeasePopup,
-  withLeaseEvidence, type LeasePrepared, type LeaseUi,
+  clonedPopupObservation, departAfterLeaseRequest, departWithLostRelease, documentObservation, editorPath, leaseCheckpoint,
+  leaseEditorReady, leaseTotals, leaveAfterLeaseRequest, observeLeaseRequests, openClonedLeasePopup, prepareLeaseCase,
+  reloadClonedLeasePopup, waitForLeaseCount, withLeaseEvidence, type LeasePrepared, type LeaseUi,
 } from "./editor-navigation-lease-support";
 
 // Failures/oracles recorded first in docs/testing/editor-navigation-lease.md.
@@ -185,6 +185,9 @@ armyTest("NAV01b real reload then departure answered after the reloaded document
     const reloaded = await documentObservation(ui.browser, p.title, p.versionId);
     const departure = await departAfterLeaseRequest(ui, p, `/dashboard/estimates/${p.versionId}/source-review/requirements`);
     const away = await documentObservation(ui.browser, p.title, p.versionId);
+    // The page that left released the lease it obtained while leaving: nothing
+    // blocks another tab or user, before the return of this one.
+    const afterDeparture = await waitForLeaseCount(ui, p, observer, "NAV01b-after-departure", 0);
     const returnStartedAt = new Date().toISOString();
     await ui.app.open(editorPath(p));
     const returnedAt = Date.now();
@@ -192,7 +195,8 @@ armyTest("NAV01b real reload then departure answered after the reloaded document
     const lateRequests = observer.requests.filter((entry) => entry.method === "POST" && entry.pathname.endsWith("/lock") &&
       entry.sessionAlias === reloadedSession && entry.interceptedAt >= departureRequestedAt && entry.interceptedAt <= departure.finishedAt);
     const returned = await leaseCheckpoint(ui, p, observer, "NAV01b-immediate-return", {
-      reloaded, departure, away, returnStartedAt, returnFinishedAt: new Date(returnedAt).toISOString(), lateRequestCount: lateRequests.length,
+      reloaded, departure, away, afterDeparture, returnStartedAt, returnFinishedAt: new Date(returnedAt).toISOString(),
+      lateRequestCount: lateRequests.length,
     });
     // Proof that this run exercised the order: the reloaded document sent its
     // lease request after its departure had begun (the departure's page request
@@ -201,18 +205,20 @@ armyTest("NAV01b real reload then departure answered after the reloaded document
     expect(departure.navigationRequestedAt).not.toBeNull();
     expect(departure.leaseRequestSeenAt).not.toBeNull();
     expect(lateRequests.length > 0).toBe(true);
+    expect(departure.leaseCommittedAt).not.toBeNull();
     expect(away.pathname).toBe(`/dashboard/estimates/${p.versionId}/source-review/requirements`);
     expect(away.h1).toContain("Exigences du CCTP");
     expect(returned.financial).toEqual(baseline.financial);
 
     await leaseEditorReady(ui, p);
     const editableAfterMs = Date.now() - returnedAt;
-    // Recorded, not asserted: either the leaving page released its late lease on
-    // pagehide, or that release lost the race and the return released it under
-    // the dead page's identity (NAV01c asserts that second path).
+    // The return found no lease to release (NAV01c covers that path).
     const handoverReleases = observer.requests.filter((entry) => entry.method === "DELETE" && entry.pathname.endsWith("/lock") &&
       entry.sessionAlias === reloadedSession && entry.interceptedAt >= returnStartedAt).length;
     const ready = await leaseCheckpoint(ui, p, observer, "NAV01b-return-ready", { editableAfterMs, maximumMs: 10_000, handoverReleases });
+    expect(afterDeparture.errors).toEqual({ lease: null, version: null, items: null });
+    expect(afterDeparture.leases).toHaveLength(0);
+    expect(handoverReleases).toBe(0);
     assertOrdinaryRls(ready);
     expect(editableAfterMs <= 10_000).toBe(true);
     if ("failed" in ready.rls) throw new Error("NAV01b ordinary return lease unavailable.");
@@ -273,6 +279,59 @@ armyTest("NAV01c full departure whose lease release is lost then return releases
 
     await saveThreeThroughUi(ui, p, "NAV01c");
     const saved = await leaseCheckpoint(ui, p, observer, "NAV01c-saved-through-ui");
+    assertOrdinaryRls(saved);
+    expect(leaseTotals(saved.financial!.version)).toEqual([3000, 600, 3600]);
+    expect(saved.forcedRequests).toBe(0);
+  });
+});
+
+// NAV01d: the same order on a second reload. The reloaded document that
+// obtained its lease while leaving releases it on pagehide and retires its
+// identity: the next reload holds the lease under a new identity, which a late
+// release of the old one cannot reach (NAV04b).
+armyTest("NAV01d reload during the reloaded editor's lease request keeps the next reload usable under a new identity", options, async (ui) => {
+  const p = await prepareLeaseCase(ui, "NAV01d");
+  const observer = await observeLeaseRequests(ui, p);
+  await withLeaseEvidence(ui, p, observer, "NAV01d", async () => {
+    await ui.app.open(editorPath(p));
+    await leaseEditorReady(ui, p);
+    const baseline = await leaseCheckpoint(ui, p, observer, "NAV01d-ready-baseline");
+    assertOrdinaryRls(baseline);
+    expect(leaseTotals(baseline.financial!.version)).toEqual([2000, 400, 2400]);
+    if ("failed" in baseline.rls) throw new Error("NAV01d ordinary lease baseline unavailable.");
+    const reloadedSession = baseline.rls.leases[0].sessionAlias;
+
+    await ui.browser.reload({ timeout: 15_000 });
+    const reloaded = await documentObservation(ui.browser, p.title, p.versionId);
+    const second = await leaveAfterLeaseRequest(ui, p, editorPath(p), () => ui.browser.reload({ timeout: 15_000 }));
+    const reloadedAt = Date.now();
+    const lateRequests = observer.requests.filter((entry) => entry.method === "POST" && entry.pathname.endsWith("/lock") &&
+      entry.sessionAlias === reloadedSession && entry.interceptedAt >= (second.navigationRequestedAt ?? second.finishedAt) &&
+      entry.interceptedAt <= second.finishedAt);
+    const afterReload = await leaseCheckpoint(ui, p, observer, "NAV01d-second-reload", { reloaded, second, lateRequestCount: lateRequests.length });
+    // Proof of the order: the first reloaded document obtained its lease after
+    // the second reload's page request had left.
+    expect(reloaded.navigationType).toBe("reload");
+    expect(second.navigationRequestedAt).not.toBeNull();
+    expect(second.leaseRequestSeenAt).not.toBeNull();
+    expect(second.leaseCommittedAt).not.toBeNull();
+    expect(lateRequests.length > 0).toBe(true);
+    if ("failed" in afterReload.document) throw new Error("NAV01d second reload observation unavailable.");
+    expect(afterReload.document.navigationType).toBe("reload");
+    expect(afterReload.financial).toEqual(baseline.financial);
+
+    await leaseEditorReady(ui, p);
+    const editableAfterMs = Date.now() - reloadedAt;
+    const ready = await leaseCheckpoint(ui, p, observer, "NAV01d-ready-after-second-reload", { editableAfterMs, maximumMs: 10_000 });
+    assertOrdinaryRls(ready);
+    expect(editableAfterMs <= 10_000).toBe(true);
+    if ("failed" in ready.rls) throw new Error("NAV01d ordinary lease after the second reload unavailable.");
+    expect(ready.rls.leases[0].sessionAlias).not.toBe(reloadedSession);
+    expect(ready.financial).toEqual(baseline.financial);
+    expect(ready.forcedRequests).toBe(0);
+
+    await saveThreeThroughUi(ui, p, "NAV01d");
+    const saved = await leaseCheckpoint(ui, p, observer, "NAV01d-saved-through-ui");
     assertOrdinaryRls(saved);
     expect(leaseTotals(saved.financial!.version)).toEqual([3000, 600, 3600]);
     expect(saved.forcedRequests).toBe(0);
