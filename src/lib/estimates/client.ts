@@ -4620,12 +4620,15 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", (event) => {
     // A page kept in the back/forward cache may come back and still uses its lease.
     if (event.persisted) return;
-    const granted = [...draftLeasesGrantedWhileLeaving];
-    for (const versionId of new Set([...granted, ...draftLeaseRequestsInFlight.keys()])) {
+    const released = [...new Set([...draftLeasesGrantedWhileLeaving, ...draftLeaseRequestsInFlight.keys()])];
+    for (const versionId of released) {
       void releaseEstimateDraftLock(versionId, { keepalive: true }).catch(() => undefined);
     }
-    // After the release is sent, so that a reload cannot reuse this identity.
-    granted.forEach(retireEstimateDraftLockSessionId);
+    // After the release is sent, so that a reload cannot reuse this identity: a delayed DELETE
+    // (scoped by version, user and session) would otherwise delete the reloaded document's lease.
+    // A request still in flight may land after its DELETE; the next document of the tab hands
+    // that rest over from the retired identity (useDraftLock).
+    released.forEach(retireEstimateDraftLockSessionId);
   });
 }
 
