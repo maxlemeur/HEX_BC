@@ -403,6 +403,12 @@ export function useSpreadsheetNavigation({
   const editInitialValuesRef = useRef<Map<string, string>>(new Map());
   const lastFocusedCellIdRef = useRef<string | null>(null);
   const lastMissingCellNotifiedRef = useRef<string | null>(null);
+  // The cell a keyboard move asked to focus, with the element that held focus
+  // then: the request stands only while focus is still there.
+  const focusRequestRef = useRef<{ cellId: string; from: Element | null } | null>(null);
+  // Where a native focus change out of a cell is going. Until it lands the
+  // body is focused, which must not read as lost focus.
+  const pendingFocusTargetRef = useRef<Element | null>(null);
 
   const navigationModel = useMemo(() => createSpreadsheetNavigationModel(rows), [rows]);
 
@@ -413,12 +419,21 @@ export function useSpreadsheetNavigation({
       editInitialValuesRef.current.clear();
       lastFocusedCellIdRef.current = null;
       lastMissingCellNotifiedRef.current = null;
+      focusRequestRef.current = null;
+      pendingFocusTargetRef.current = null;
       return;
     }
 
+    // Enabled again (draft lease, undo/redo, settings save): the cell that
+    // still holds DOM focus stays active, otherwise the first cell.
+    const focusedCellId =
+      document.activeElement?.closest("[data-cell-id]")?.getAttribute("data-cell-id") ?? null;
     setActiveCellId((previous) => {
       if (previous && navigationModel.flatIdSet.has(previous)) {
         return previous;
+      }
+      if (focusedCellId && navigationModel.flatIdSet.has(focusedCellId)) {
+        return focusedCellId;
       }
       return navigationModel.flatIds[0] ?? null;
     });
@@ -466,6 +481,11 @@ export function useSpreadsheetNavigation({
 
     lastMissingCellNotifiedRef.current = null;
     lastFocusedCellIdRef.current = activeCellId;
+    const focusRequest = focusRequestRef.current;
+    const isFocusRequested = focusRequest !== null && focusRequest.cellId === activeCellId;
+    if (isFocusRequested) {
+      focusRequestRef.current = null;
+    }
 
     const activeElement = document.activeElement;
     if (
@@ -486,6 +506,22 @@ export function useSpreadsheetNavigation({
       activeElement instanceof Node &&
       cellElement.contains(activeElement)
     ) {
+      return;
+    }
+
+    // Move DOM focus only for a keyboard move while focus is still where the
+    // key was pressed, or when focus is lost (the body: Escape from an editor,
+    // first load, a removed row). Focus put anywhere else since stays there:
+    // another cell, an open menu or popover, a toolbar control. An older
+    // render's pass, flushed late at the start of a newer focus event (the
+    // deferred quality render), and the first cell activated when the draft
+    // lease lands must not take it back (TI-668). Nor may this pass, run from
+    // a blur while a click moves focus to another input, cancel that move.
+    const isFocusLost =
+      (!activeElement || activeElement === document.body) &&
+      !pendingFocusTargetRef.current?.isConnected;
+    const isRequestedFromHere = isFocusRequested && activeElement === focusRequest?.from;
+    if (!isRequestedFromHere && !isFocusLost) {
       return;
     }
 
@@ -522,6 +558,10 @@ export function useSpreadsheetNavigation({
     (fromCellId: string, direction: SpreadsheetMoveDirection) => {
       const nextCellId = resolveNextCellId(fromCellId, direction);
       if (!nextCellId) return;
+      // A move that stays on its cell renders nothing to consume a request.
+      if (nextCellId !== fromCellId) {
+        focusRequestRef.current = { cellId: nextCellId, from: document.activeElement };
+      }
       setEditingCellId(null);
       setActiveCellId(nextCellId);
     },
@@ -685,6 +725,7 @@ export function useSpreadsheetNavigation({
       editable: boolean,
       event: FocusEvent<SpreadsheetCellElement>
     ) => {
+      pendingFocusTargetRef.current = null;
       if (disabled) return;
 
       setActiveCellId(cellId);
@@ -711,6 +752,14 @@ export function useSpreadsheetNavigation({
   const handleCellBlur = useCallback(
     (cellId: string, event: FocusEvent<SpreadsheetCellElement>) => {
       const nextTarget = event.relatedTarget;
+      if (nextTarget instanceof Element) {
+        pendingFocusTargetRef.current = nextTarget;
+        window.setTimeout(() => {
+          if (pendingFocusTargetRef.current === nextTarget) {
+            pendingFocusTargetRef.current = null;
+          }
+        }, 0);
+      }
       if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
         return;
       }
@@ -724,6 +773,7 @@ export function useSpreadsheetNavigation({
   const handleEditorFocus = useCallback(
     (cellId: string, event: FocusEvent<SpreadsheetEditorElement>) => {
       const editor = event.currentTarget;
+      pendingFocusTargetRef.current = null;
       editorElementsRef.current.set(cellId, editor);
       setActiveCellId(cellId);
       setEditingCellId((previous) => {
