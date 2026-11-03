@@ -339,6 +339,8 @@ test("LAB02 a Decisions choice shows its probabilities and a ChatGPT schema erro
   const configB = screen.getByRole("group", "Configuration B");
   await configB.getByLabel("Fournisseur").selectOption({ value: "chatgpt" });
   await configB.getByLabel("Modèle").selectOption({ value: "army-plan-model" });
+  // Decisions reads a rendered page: « Lancer » stays disabled until the canvas has loaded the plan (TI-673).
+  await expect(screen.getByRole("button", "Lancer · 2 configurations")).toBeEnabled({ timeout: 30_000 });
   const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }),
     screen.getByRole("button", "Lancer · 2 configurations").click()]);
   expect(launched.status).toBe(201);
