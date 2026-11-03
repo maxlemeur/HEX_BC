@@ -2,7 +2,7 @@ import { applyCorrespondences, classifyByKeywords, detectionShare, isNetworkClas
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { SegmentIndex, boxContains } from "@/lib/takeoff/vectors/geometry";
 import { readLabelBlocks } from "@/lib/takeoff/vectors/labels";
-import { readLegend, type PageLegend } from "@/lib/takeoff/vectors/legend";
+import { LEGEND_RULE_VERSION, readLegend, type PageLegend } from "@/lib/takeoff/vectors/legend";
 import { classifyByLabels, measureNetworks, type NetworkMeasure } from "@/lib/takeoff/vectors/measure";
 import { buildPageModel, type GroupStats } from "@/lib/takeoff/vectors/page-model";
 import { readPageScale, type PageCalibration, type PageScale } from "@/lib/takeoff/vectors/scale";
@@ -16,7 +16,7 @@ import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 // read (texts, scale) but no network is measured from them; the level C
 // reading stays the source (TI-658 pipeline step 5).
 
-export const VECTOR_READING_VERSION = 1;
+export const VECTOR_READING_VERSION = 2;
 export const RASTER_COVERAGE = 0.9;
 
 export type VectorGroupReading = Pick<GroupStats, "id" | "layer" | "layerName" | "colors" | "width" | "dash" | "paths" | "segments" | "closed" | "nearWhite" | "grey"> & {
@@ -58,7 +58,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   const mode = extraction.counts.imageCoverage >= RASTER_COVERAGE ? "raster" : extraction.layers.length > 0 && model.groups.some((group) => group.layer !== null) ? "layers" : "colours";
   const index = new SegmentIndex(model.segments, Math.max(extraction.width, 1));
   const scale = readPageScale({ texts: extraction.texts, index, width: extraction.width, height: extraction.height, calibration: options.calibration ?? null });
-  const legend = mode === "colours" ? readLegend(model) : { version: 1, entries: [], colors: [], boxes: [] };
+  const legend = mode === "colours" ? readLegend(model) : { version: LEGEND_RULE_VERSION, entries: [], colors: [], boxes: [] };
   // The legend's own codes are not pipe labels.
   const labels = mode === "raster" ? [] : readLabelBlocks(extraction.texts)
     .filter((block) => !legend.boxes.some((box) => boxContains(box, block.centre)));

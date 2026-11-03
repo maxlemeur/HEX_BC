@@ -74,6 +74,19 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   before it;
 // - an upward label split by pdfjs is never merged; a level « R-1 » in a layer
 //   name reads as a return.
+// Review of PR #145 (Codex, 3/11/2026, written before the fixes):
+// - of two pipes of a label's network within inline reach, the farther one takes
+//   its DN because it was compared with the nearer one's distance plus 8 pt;
+// - two touching sections of one network labelled DN 40 and DN 20 merge into one
+//   run that keeps the first DN for the whole length; a run whose labels
+//   disagree with no single place to cut keeps one of their DN instead of
+//   staying « à revoir »;
+// - a short pipe of another network crossing a longer pipe is dropped as its
+//   cap or fitting;
+// - an open dark polyline (a U-shaped wall) or a closed non-rectangular outline
+//   is taken for a diagram frame, and the pipes inside it are not measured;
+// - a legend code with its direction (« CHW-S », « EG-R ») is not read, so its
+//   colour stays unclassified; a pipe label (« EU - PVC ») is read as a legend code.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -560,5 +573,65 @@ describe("review of 3/11/2026", () => {
       .toEqual([{ network: "EU", material: "pvc", materialLabel: "PVC", dn: 40, insulated: false }]);
     expect(classOfLayerName("XX_CHW_R-1")).toBe("CHW");
     expect(classOfLayerName("XX_CHW L00-R")).toBe("CHW-R");
+  });
+});
+
+describe("review of PR #145 (Codex, 3/11/2026)", () => {
+  const dnOfRunAt = (reading: VectorPageReading, y: number) =>
+    (reading.networks?.runs ?? []).find((run) => Math.abs(run.segment.y0 - y) < 0.5)?.dn ?? null;
+
+  it("gives an inline label's DN to the nearest pipe of its network, whichever is indexed first", () => {
+    // Two disconnected EF pipes 6 pt apart; a 6 pt label centred 2 pt from one and 8 pt from the other (both within 2.5 heights).
+    const pipes = { strokes: [line(BLUE, 100, 100, 100 + FIVE_M, 100), line(BLUE, 100, 106, 100 + FIVE_M, 106)] };
+    const nearUpper = read(page([...LEGEND, pipes, { texts: [text("EF - PER DN 16", 150, 101)] }]));
+    expect([dnOfRunAt(nearUpper, 100), dnOfRunAt(nearUpper, 106)]).toEqual([16, null]);
+    const nearLower = read(page([...LEGEND, pipes, { texts: [text("EF - PER DN 16", 150, 111)] }]));
+    expect([dnOfRunAt(nearLower, 100), dnOfRunAt(nearLower, 106)]).toEqual([null, 16]);
+  });
+
+  it("cuts a run where two touching sections change DN, and leaves a run « à revoir » when no single cut is drawn", () => {
+    // Two 100 pt EF sections touching at x 200, each labelled inline above itself.
+    const labels = { texts: [text("EF - PVC DN 40", 127, 297), text("EF - PVC DN 20", 227, 297)] };
+    const sections = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 200, 300), line(BLUE, 200, 300, 300, 300)] }, labels]));
+    expect(totals(sections).map(({ network, material, dn, length_m }) => ({ network, material, dn, length_m }))).toEqual(expect.arrayContaining([
+      { network: "EF", material: "pvc", dn: 40, length_m: expect.closeTo(pointsToMetres(100, 50), 3) },
+      { network: "EF", material: "pvc", dn: 20, length_m: expect.closeTo(pointsToMetres(100, 50), 3) },
+    ]));
+    expect(totals(sections)).toHaveLength(2);
+    // The same 200 pt drawn as one stroke: nothing says where DN 40 ends, so neither DN is given to it.
+    const single = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 300, 300)] }, labels]));
+    expect(totals(single)).toEqual([{ network: "EF", material: null, dn: null, runs: 1, length_m: expect.closeTo(pointsToMetres(200, 50), 3) }]);
+    // Nor does a DN reach it from a joined run of its network.
+    const joined = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 300, 300), line(BLUE, 300, 300, 300, 500)] }, labels,
+      { texts: [text("EF - PVC DN 32", 303, 400)] }]));
+    expect(dnOfRunAt(joined, 300)).toBeNull();
+  });
+
+  it("never drops a short pipe of another network crossing a longer pipe as its cap", () => {
+    const reading = read(page([...LEGEND, { strokes: [line(BLUE, 100, 300, 300, 300), line(ORANGE, 200, 294, 200, 306)] }]));
+    expect(metres(reading, "EF")).toBeCloseTo(pointsToMetres(200, 50), 3);
+    expect(metres(reading, "EU")).toBeCloseTo(pointsToMetres(12, 50), 3);
+  });
+
+  it("takes only a closed rectangle for a diagram frame, never an open U-shaped wall or a closed trapezoid", () => {
+    const pipe = line(BLUE, 150, 200, 250, 200);
+    const open: Stroke = { color: BLACK, points: [100, 100, 300, 100, 300, 300, 100, 300] };
+    const trapezoid: Stroke = { color: BLACK, points: [100, 100, 300, 100, 300, 300, 200, 300, 100, 100], closed: true };
+    for (const wall of [open, trapezoid]) {
+      const reading = read(page([...LEGEND, { strokes: [wall, pipe] }]));
+      expect(reading.networks?.excluded.diagram_frames).toEqual([]);
+      expect(metres(reading, "EF")).toBeCloseTo(pointsToMetres(100, 50), 3);
+    }
+  });
+
+  it("reads a legend code with its direction (« CHW-S », « EG-R »), never a pipe label (« EU - PVC »)", () => {
+    const reading = read(page([legendRow("CHW-S", 0, [BLUE]), legendRow("EG-R", 1, [ORANGE]), legendRow("EU - PVC", 2, [MAGENTA]), { strokes: [
+      line(BLUE, 100, 300, 100 + FIVE_M, 300), line(ORANGE, 100, 400, 100 + THREE_M, 400), line(MAGENTA, 100, 500, 100 + THREE_M, 500),
+    ] }]));
+    expect(classOf(reading, BLUE)).toMatchObject({ class: "CHW-S", source: "legend" });
+    expect(classOf(reading, ORANGE)).toMatchObject({ class: "CHW-R", source: "legend" });
+    expect(classOf(reading, MAGENTA)?.class).toBeNull();
+    expect(metres(reading, "CHW-S")).toBeCloseTo(5, 2);
+    expect(metres(reading, "CHW-R")).toBeCloseTo(3, 2);
   });
 });

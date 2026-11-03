@@ -10,9 +10,10 @@ import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 // the reading for the control and the report. Text items of one baseline are
 // merged first (pdfjs splits a line at font changes); a ring no larger than 4
 // times the text's box is its frame, not the room; a label prefix such as
-// « S = » or « Surface : » is not the room's name.
+// « S = » or « Surface : » is not the room's name. An outline on a layer hidden
+// by the document's default configuration (OFF) is not printed: it bounds no room.
 
-export const SURFACE_RULE_VERSION = 1;
+export const SURFACE_RULE_VERSION = 2;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
 
 export type RoomSurface = {
@@ -53,7 +54,9 @@ function roomLabel(text: VectorText, before: string, texts: readonly VectorText[
 
 export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: number | null): RoomSurface[] {
   const surfaces: RoomSurface[] = [];
-  const closed = extraction.paths.filter((path) => path.closed && path.count >= 4);
+  // A layer hidden by the document's default configuration is not printed: its outlines bound no room.
+  const hidden = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
+  const closed = extraction.paths.filter((path) => path.closed && path.count >= 4 && !hidden.has(extraction.groups[path.group]?.layer ?? ""));
   const lines = mergeTextLines(extraction.texts);
   for (const text of lines) {
     const match = AREA_PATTERN.exec(text.str);

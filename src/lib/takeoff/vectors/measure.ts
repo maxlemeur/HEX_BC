@@ -26,20 +26,24 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 //   across that overlap along, a cluster at most BAND_MAX_PT wide), then in runs (intervals along the
 //   direction merged across gaps up to RUN_GAP_PT): a run's length is the
 //   union of its intervals, so overlapping or duplicated strokes count once;
-// - a run no longer than 2 × BAND_MAX_PT lying across a longer run (centre
-//   within its half width plus 1 pt, at 30° or more) is a cap or a fitting
-//   outline, not pipe;
-// - strokes in the legend boxes or in a diagram frame (a dark closed rectangle
-//   of 0.3 % to 40 % of the page holding network strokes but almost no
+// - a run no longer than 2 × BAND_MAX_PT lying across a longer run of its own
+//   network (centre within its half width plus 1 pt, at 30° or more) is a cap
+//   or a fitting outline, not pipe; a short pipe of another network is kept;
+// - strokes in the legend boxes or in a diagram frame (a dark closed rectangle,
+//   its four corners drawn, of 0.3 % to 40 % of the page holding network strokes but almost no
 //   background: grey or near-white length under 5 % of the network length)
 //   are not measured: samples, details and schematics are not at scale (a
 //   frame is never a network stroke and is at least 10 band widths on each side);
 // - labels (labels.ts) attach to a run of their network: by a leader (a dark
 //   stroke passing under the label or starting at its box, followed over up to
 //   5 joined strokes, whose far end lies within LEADER_REACH of the run), else
-//   inline (a run parallel to the label within 10°, 2.5 label heights away);
+//   inline (the nearest run parallel to the label within 10°, 2.5 label heights away);
 //   a label without network attaches to none (« à revoir »), a label without
 //   DN only decides the network of a shared colour;
+// - a run whose labels disagree on DN, material or insulation (sections of one
+//   network touching end to end at a reducer) is cut where one of its strokes
+//   ends, when exactly one such place lies between the two labels; otherwise
+//   it keeps DN null (« conflict », « à revoir ») and no DN reaches it;
 // - DN and material go from labelled runs to connected runs (an end within
 //   JOIN_PT of another run), nearest label first; a run reached by none keeps
 //   DN null (« à revoir »). A run of a shared legend colour takes the network
@@ -47,7 +51,7 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
 
-export const MEASURE_RULE_VERSION = 1;
+export const MEASURE_RULE_VERSION = 2;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -68,7 +72,8 @@ export type NetworkRun = {
   material: MaterialCode | null;
   insulated: boolean;
   label: string | null;
-  attached: "label" | "propagated" | null;
+  /** « conflict »: its labels disagree with no single place to cut it; DN stays null (« à revoir »). */
+  attached: "label" | "propagated" | "conflict" | null;
 };
 
 export type MeasuredNetwork = {
@@ -105,6 +110,10 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
   const frames: Box[] = [];
   for (const path of extraction.paths) {
     if (path.count < 4 || path.count > 6) continue;
+    const first = path.start, last = path.start + path.count - 1;
+    const shut = path.closed || Math.hypot(extraction.points[2 * first] - extraction.points[2 * last],
+      extraction.points[2 * first + 1] - extraction.points[2 * last + 1]) < 0.5;
+    if (!shut) continue;
     const group = groups[groupOf[path.group]];
     // A network stroke is the pipe itself (a band drawn as a closed outline), never the frame of a detail.
     if (!group.colors.some(isDark) || isNetworkClass(classes[groupOf[path.group]].class)) continue;
@@ -117,9 +126,16 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
     const area = (box.x1 - box.x0) * (box.y1 - box.y0);
     if (area < 0.003 * pageArea || area > 0.4 * pageArea) continue;
     if (Math.min(box.x1 - box.x0, box.y1 - box.y0) < 10 * BAND_MAX_PT) continue;
-    // Axis-aligned rectangle: every point on the box edges.
-    const onEdge = xs.every((x, index) => Math.min(Math.abs(x - box.x0), Math.abs(x - box.x1)) < 0.5 || Math.min(Math.abs(ys[index] - box.y0), Math.abs(ys[index] - box.y1)) < 0.5);
-    if (onEdge && !frames.some((frame) => Math.abs(frame.x0 - box.x0) < 1 && Math.abs(frame.y0 - box.y0) < 1 && Math.abs(frame.x1 - box.x1) < 1 && Math.abs(frame.y1 - box.y1) < 1)) frames.push(box);
+    // Axis-aligned rectangle: every point at a corner of the box, and all four corners drawn.
+    const corners = new Set<number>();
+    const atCorners = xs.every((x, index) => {
+      const left = Math.abs(x - box.x0) < 0.5, right = Math.abs(x - box.x1) < 0.5;
+      const top = Math.abs(ys[index] - box.y0) < 0.5, bottom = Math.abs(ys[index] - box.y1) < 0.5;
+      if (!(left || right) || !(top || bottom)) return false;
+      corners.add((right ? 1 : 0) + (bottom ? 2 : 0));
+      return true;
+    });
+    if (atCorners && corners.size === 4 && !frames.some((frame) => Math.abs(frame.x0 - box.x0) < 1 && Math.abs(frame.y0 - box.y0) < 1 && Math.abs(frame.x1 - box.x1) < 1 && Math.abs(frame.y1 - box.y1) < 1)) frames.push(box);
   }
   if (frames.length === 0) return [];
   const network = frames.map(() => 0), background = frames.map(() => 0);
@@ -140,7 +156,11 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
   return frames.filter((_, index) => network[index] > 0 && background[index] < 0.05 * network[index]);
 }
 
-export type Run = { a: number; b: number; offset: number; width: number; u: Point; n: Point; network: NetworkCode | null; candidates: NetworkCode[] };
+export type Run = {
+  a: number; b: number; offset: number; width: number; u: Point; n: Point; network: NetworkCode | null; candidates: NetworkCode[];
+  /** Ends, along u, of the strokes the run is made of: where its sections may change DN. */
+  breaks: number[];
+};
 
 /**
  * Orientations in [0, π) sorted from the largest circular gap: a horizontal line
@@ -249,16 +269,18 @@ export function bundle(raw: readonly RawSegment[]): Run[] {
           current.weight += length;
           current.lowOffset = Math.min(current.lowOffset, entry.offset);
           current.highOffset = Math.max(current.highOffset, entry.offset);
+          current.breaks.push(entry.lo, entry.hi);
           for (const candidate of entry.member.candidates) if (!current.candidates.includes(candidate)) current.candidates.push(candidate);
           continue;
         }
         current = { a: entry.lo, b: entry.hi, offset: entry.offset * length, weight: length, width: 0, u, n,
-          lowOffset: entry.offset, highOffset: entry.offset, network: entry.member.network, candidates: [...entry.member.candidates] };
+          lowOffset: entry.offset, highOffset: entry.offset, network: entry.member.network, candidates: [...entry.member.candidates],
+          breaks: [entry.lo, entry.hi] };
         pending.push(current);
       }
       for (const run of pending) {
         runs.push({ a: run.a, b: run.b, offset: run.weight > 0 ? run.offset / run.weight : run.lowOffset, width: run.highOffset - run.lowOffset,
-          u: run.u, n: run.n, network: run.network, candidates: run.candidates });
+          u: run.u, n: run.n, network: run.network, candidates: run.candidates, breaks: run.breaks.filter((value) => value > run.a && value < run.b) });
       }
     }
     start = end;
@@ -377,6 +399,97 @@ export function classifyByLabels(model: PageModel, classes: readonly GroupClass[
   });
 }
 
+const fitsNetwork = (run: Pick<Run, "network" | "candidates">, network: NetworkCode | null) => network === null || run.network === network
+  || run.candidates.includes(network) || (run.network !== null && commonNetwork([run.network, network]) === run.network);
+
+type Attachment = { block: LabelBlock; t: number };
+
+/**
+ * Labels on the runs of their network: by a leader whose end is nearest a run (within LEADER_REACH_PT),
+ * else inline, on the nearest parallel run within 2.5 label heights. Each attachment keeps its position
+ * along the run (t, in the run's direction), where a change of DN is looked for.
+ */
+function attachLabels(runs: readonly Run[], leaders: SegmentIndex, labels: readonly LabelBlock[], width: number) {
+  const segments = runs.map(runSegment);
+  const index = new SegmentIndex(segments, width);
+  const attached = runs.map(() => [] as Attachment[]);
+  let count = 0;
+  for (const block of labels) {
+    // A label without network cannot say which pipe it names: it stays « à revoir ».
+    if (block.label.network === null) continue;
+    let best: { id: number; distance: number; at: Point } | null = null;
+    for (const tip of leaderTips(block, leaders)) {
+      for (const id of index.near(tip, LEADER_REACH_PT)) {
+        if (!fitsNetwork(runs[id], block.label.network)) continue;
+        const distance = distanceToSegment(tip, segments[id]);
+        if (distance <= LEADER_REACH_PT && (!best || distance < best.distance)) best = { id, distance, at: tip };
+      }
+    }
+    if (!best) {
+      for (const id of index.near(block.centre, 2.5 * block.height)) {
+        if (!fitsNetwork(runs[id], block.label.network)) continue;
+        if (orientationGap(orientation(segments[id]), ((block.angle % Math.PI) + Math.PI) % Math.PI) > Math.PI / 18) continue;
+        const distance = distanceToSegment(block.centre, segments[id]);
+        if (distance <= 2.5 * block.height && (!best || distance < best.distance)) best = { id, distance, at: block.centre };
+      }
+    }
+    if (!best) continue;
+    count += 1;
+    const run = runs[best.id];
+    attached[best.id].push({ block, t: best.at.x * run.u.x + best.at.y * run.u.y });
+  }
+  return { labels: attached, count };
+}
+
+/** Stroke ends within RUN_GAP_PT of each other are one place. */
+function places(values: readonly number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const groups: number[][] = [];
+  for (const value of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && value - last[last.length - 1] <= RUN_GAP_PT) last.push(value);
+    else groups.push([value]);
+  }
+  return groups.map((group) => group.reduce((sum, value) => sum + value, 0) / group.length);
+}
+
+/**
+ * Runs cut where their labels change DN, material or insulation: between two disagreeing labels, at the one
+ * place a stroke of the run ends. No such place, or several: the run stays whole, « conflict ».
+ */
+function splitAtLabelChanges(runs: readonly Run[], labels: ReadonlyArray<readonly Attachment[]>) {
+  const valueOf = (block: LabelBlock) => (block.label.dn === null ? null : JSON.stringify([block.label.dn, block.label.material, block.label.insulated]));
+  const pieces: Array<{ run: Run; labels: Attachment[]; conflict: boolean }> = [];
+  runs.forEach((run, id) => {
+    const own = [...labels[id]].sort((left, right) => left.t - right.t);
+    const valued = own.filter((entry) => valueOf(entry.block) !== null);
+    const cuts: number[] = [];
+    let conflict = false;
+    for (let index = 1; index < valued.length; index += 1) {
+      const left = valued[index - 1], right = valued[index];
+      if (valueOf(left.block) === valueOf(right.block)) continue;
+      const between = places(run.breaks.filter((value) => value > Math.max(left.t, run.a + RUN_GAP_PT) && value < Math.min(right.t, run.b - RUN_GAP_PT)));
+      if (between.length === 1) cuts.push(between[0]);
+      else conflict = true;
+    }
+    if (conflict || cuts.length === 0) {
+      pieces.push({ run, labels: own, conflict });
+      return;
+    }
+    const bounds = [run.a, ...cuts, run.b];
+    for (let index = 1; index < bounds.length; index += 1) {
+      const a = bounds[index - 1], b = bounds[index];
+      const first = index === 1, last = index === bounds.length - 1;
+      pieces.push({
+        run: { ...run, a, b, breaks: run.breaks.filter((value) => value > a && value < b) },
+        labels: own.filter((entry) => (first || entry.t >= a) && (last || entry.t < b)),
+        conflict: false,
+      });
+    }
+  });
+  return pieces;
+}
+
 export function measureNetworks(input: {
   model: PageModel;
   classes: readonly GroupClass[];
@@ -410,44 +523,29 @@ export function measureNetworks(input: {
     if (list) list.push(entry);
     else byNetwork.set(key, [entry]);
   }
-  const runs = dropCapsAndFittings([...byNetwork.keys()].sort().flatMap((key) => bundle(byNetwork.get(key) ?? [])));
-  const segments = runs.map(runSegment);
+  // A cap or a fitting outline lies across a pipe of its own network: another network's short pipe is pipe.
+  const bundled = [...byNetwork.keys()].sort().flatMap((key) => dropCapsAndFittings(bundle(byNetwork.get(key) ?? [])));
   const width = Math.max(model.extraction.width, 1);
-  const runIndex = new SegmentIndex(segments, width);
   const leaders = new SegmentIndex(darkLeaderSegments(model, classes), width);
+  const attached = attachLabels(bundled, leaders, input.labels, width);
+  const pieces = splitAtLabelChanges(bundled, attached.labels);
+  const runs = pieces.map((piece) => piece.run);
+  const segments = runs.map(runSegment);
+  const runIndex = new SegmentIndex(segments, width);
   const result: NetworkRun[] = runs.map((run, id) => ({
     network: run.network, candidates: [...run.candidates].sort(), segment: segments[id], length_pt: run.b - run.a, width_pt: run.width,
-    dn: null, material: null, insulated: false, label: null, attached: null,
+    dn: null, material: null, insulated: false, label: null, attached: pieces[id].conflict ? "conflict" : null,
   }));
-  const fits = (run: NetworkRun, network: NetworkCode | null) => network === null || run.network === network
-    || run.candidates.includes(network) || (run.network !== null && commonNetwork([run.network, network]) === run.network);
-  let attachedLabels = 0, incomplete = 0;
+  const attachedLabels = attached.count;
+  const incomplete = input.labels.filter((block) => block.label.dn === null || block.label.network === null).length;
+  // The label of each run: one with a DN when there is one (all of a piece's DN-bearing labels agree).
   const labelled = new Map<number, LabelBlock>();
-  for (const block of input.labels) {
-    if (block.label.dn === null || block.label.network === null) incomplete += 1;
-    // A label without network cannot say which pipe it names: it stays « à revoir ».
-    if (block.label.network === null) continue;
-    let best: { id: number; distance: number } | null = null;
-    for (const tip of leaderTips(block, leaders)) {
-      for (const id of runIndex.near(tip, LEADER_REACH_PT)) {
-        if (!fits(result[id], block.label.network)) continue;
-        const distance = distanceToSegment(tip, segments[id]);
-        if (distance <= LEADER_REACH_PT && (!best || distance < best.distance)) best = { id, distance };
-      }
+  pieces.forEach((piece, id) => {
+    for (const { block } of piece.labels) {
+      const known = labelled.get(id);
+      if (!known || (known.label.dn === null && block.label.dn !== null)) labelled.set(id, block);
     }
-    if (!best) {
-      for (const id of runIndex.near(block.centre, 2.5 * block.height)) {
-        if (!fits(result[id], block.label.network)) continue;
-        if (orientationGap(orientation(segments[id]), ((block.angle % Math.PI) + Math.PI) % Math.PI) > Math.PI / 18) continue;
-        const distance = distanceToSegment(block.centre, segments[id]);
-        if (distance <= 2.5 * block.height && (!best || distance < best.distance)) best = { id, distance: distance + LEADER_REACH_PT };
-      }
-    }
-    if (!best) continue;
-    attachedLabels += 1;
-    const known = labelled.get(best.id);
-    if (!known || (known.label.dn === null && block.label.dn !== null)) labelled.set(best.id, block);
-  }
+  });
   // Connectivity between runs: an end of one within JOIN_PT of another's centreline.
   const neighbours = result.map(() => [] as number[]);
   result.forEach((run, id) => {
@@ -495,7 +593,7 @@ export function measureNetworks(input: {
   const queue: number[] = [];
   for (const [id, block] of labelled) {
     const run = result[id];
-    if (block.label.dn === null) continue;
+    if (block.label.dn === null || run.attached === "conflict") continue;
     run.dn = block.label.dn;
     run.material = block.label.material;
     run.insulated = block.label.insulated;
