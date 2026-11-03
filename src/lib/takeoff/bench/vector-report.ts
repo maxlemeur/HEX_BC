@@ -195,11 +195,15 @@ function summarizeDecisions(document: string | null, pages: readonly DecisionsPa
     render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
     candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
     left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
-    answers: {
-      classified: answers.filter((answer) => answer.status === "answered" && answer.class !== null && (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length,
-      proposals: answers.filter((answer) => answer.status === "answered" && answer.class !== null && (answer.confidence ?? 0) < CLASSIFIED_DECISIONS_CONFIDENCE).length,
-      review: answers.filter((answer) => answer.status !== "answered" || answer.class === null).length,
-    },
+    answers: (() => {
+      // As isClassified reads them: « autre » is never classified; every candidate without such an answer (unanswered,
+      // refused, « autre », or never asked: images not drawn, budget refused, a failed call or a stop) is to review.
+      const proposed = answers.filter((answer) => answer.status === "answered" && answer.class !== null && answer.class !== "autre");
+      const classified = proposed.filter((answer) => (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length;
+      const proposals = proposed.length - classified;
+      const candidates = pages.reduce((total, entry) => total + entry.decisions.candidates, 0);
+      return { classified, proposals, review: Math.max(0, candidates - classified - proposals) };
+    })(),
     stops: pages.flatMap((entry) => (entry.decisions.stop ? [{ pass: entry.pass, page: entry.page, reason: entry.decisions.stop.reason }] : [])),
   };
 }
