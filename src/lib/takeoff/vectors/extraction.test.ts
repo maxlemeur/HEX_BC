@@ -54,6 +54,13 @@
 // 18. A stroke that is not printed because an outer level hides it (an ON
 //     layer nested in an OFF one, an OCMD of an OFF layer) read as a visible
 //     stroke of the ON layer or of its colour, and measured.
+// Fourth Codex round (written before the fix):
+// 19. A CropBox narrower than the drawing: a 200 pt pipe crossing a 100 pt
+//     wide visible page measured 200 pt, a stroke wholly outside it extracted,
+//     a text outside it (a cartouche cropped off the sheet) read; or, once
+//     clipped, a closed outline inside the page losing its closed flag, a
+//     turned page (/Rotate 90) clipped on the wrong axis, or a coordinate out
+//     of range no longer failing the page because it lies outside the crop.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -496,6 +503,44 @@ describe("clipping (review of PR #145)", () => {
     const extraction = await extractVectorPage(bytes, 1);
     const lengths = extraction.paths.map((path) => Math.round(polylineLength(extraction.points, path.start, path.count) * 100) / 100).sort((a, b) => a - b);
     expect(lengths).toEqual([30, 50, 60, 100]);
+  });
+});
+
+describe("the visible page (fourth Codex round of PR #145)", () => {
+  it("measures and reads only what the CropBox shows, on an upright and a turned page", SPAWN, async () => {
+    const bytes = await buildPdf(async (doc) => {
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      for (const rotation of [0, 90]) {
+        const page = addRawPage(doc, [300, 200], [
+          "0 20 m 200 20 l S", // 200 pt drawn, 100 pt shown (x 50 to 150)
+          "1 0 0 RG 200 60 m 290 60 l S", // wholly right of the crop
+          "0 0 1 RG 60 80 m 100 80 l 100 120 l 60 120 l h S", // inside: a closed 40 pt square
+          "BT /F1 10 Tf 70 150 Td (ECHELLE 1/50) Tj ET",
+          "BT /F1 10 Tf 200 150 Td (ECHELLE 1/20) Tj ET", // a cartouche cropped off the sheet
+        ], fontResources(doc, font));
+        page.setCropBox(50, 0, 100, 200);
+        page.setRotation(degrees(rotation));
+      }
+    });
+
+    for (const [pageNumber, size] of [[1, [100, 200]], [2, [200, 100]]] as const) {
+      const extraction = await extractVectorPage(bytes, pageNumber);
+      expect([extraction.width, extraction.height]).toEqual(size);
+      const lengths = extraction.paths.map((path) => Math.round(polylineLength(extraction.points, path.start, path.count) * 100) / 100)
+        .sort((a, b) => a - b);
+      expect(lengths).toEqual([100, 160]);
+      expect(extraction.paths.filter((path) => path.closed)).toHaveLength(1);
+      expect(buildPageModel(extraction).groups.map((group) => group.colors[0]).sort()).toEqual(["#000000", "#0000ff"]);
+      for (const path of subpaths(extraction)) {
+        for (const [x, y] of path) {
+          expect(x).toBeGreaterThanOrEqual(0);
+          expect(x).toBeLessThanOrEqual(size[0]);
+          expect(y).toBeGreaterThanOrEqual(0);
+          expect(y).toBeLessThanOrEqual(size[1]);
+        }
+      }
+      expect(extraction.texts.map((entry) => entry.str)).toEqual(["ECHELLE 1/50"]);
+    }
   });
 });
 

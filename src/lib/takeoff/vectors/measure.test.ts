@@ -107,6 +107,11 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   labels), and reads a vertical inline tag as its legend instead;
 // - on a page turned by /Rotate 180, the two pieces of one label tilted by a
 //   fraction of a degree read at angles on both sides of ±π and are not merged.
+// Fourth Codex round (written before the fix):
+// - on a large sheet (A0), a pipe drawn on a long diagonal is left out of the
+//   proximity index (its bounding box spans too many cells): its inline label
+//   is never attached, so it is measured without material or DN, and a
+//   labelled branch joined to its middle does not pass its DN on to it.
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -754,5 +759,32 @@ describe("review of the third Codex round of PR #145", () => {
     const head = { ...text("EU - PVC", 500, 300), angle: Math.PI };
     const tail = { ...text("DN 40", 500 - head.width - 1.5, 300), angle: -Math.PI + 0.005 };
     expect(mergeTextLines([head, tail]).map((entry) => entry.str)).toEqual(["EU - PVC DN 40"]);
+  });
+});
+
+describe("fourth Codex round of PR #145", () => {
+  const A0 = { width: 3370.39, height: 2383.94 };
+  // An EF pipe on the diagonal of an A0 sheet: 2000 pt across and down (y = x − 100), 49.89 m at 1/50.
+  const diagonal = line(BLUE, 300, 200, 2300, 2200);
+  const diagonalLength = 2000 * Math.SQRT2;
+  const onA0 = (parts: readonly Part[]) => read({ ...page(parts), width: A0.width, height: A0.height });
+
+  it("attaches the inline label of a long diagonal pipe on an A0 sheet", () => {
+    // « EF - PVC DN 40 » along the pipe, 2 pt above its middle (the glyphs rise along (sin, −cos)).
+    const angle = Math.PI / 4;
+    const label = { ...text("EF - PVC DN 40", 1200 + 2 * Math.sin(angle), 1100 - 2 * Math.cos(angle)), angle };
+    const reading = onA0([...LEGEND, { strokes: [diagonal], texts: [label] }]);
+    expect(totals(reading)).toEqual([
+      { network: "EF", material: "pvc", dn: 40, runs: 1, length_m: expect.closeTo(pointsToMetres(diagonalLength, 50), 2) },
+    ]);
+  });
+
+  it("passes the DN of a branch joined to the middle of a long diagonal pipe on to it", () => {
+    // A 100 pt EF branch from the diagonal's point (1300, 1200), labelled inline above itself.
+    const branch = { strokes: [diagonal, line(BLUE, 1300, 1200, 1400, 1200)], texts: [text("EF - PVC DN 25", 1320, 1197)] };
+    const reading = onA0([...LEGEND, branch]);
+    expect(totals(reading)).toEqual([
+      { network: "EF", material: "pvc", dn: 25, runs: 2, length_m: expect.closeTo(pointsToMetres(diagonalLength + 100, 50), 2) },
+    ]);
   });
 });

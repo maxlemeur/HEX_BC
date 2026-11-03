@@ -16,10 +16,15 @@ import { z } from "zod";
 //   3 quadraticCurveTo, 4 closePath. Only stroke painting ops are measured
 //   (stroke, closeStroke, fillStroke, eoFillStroke, closeFillStroke,
 //   closeEOFillStroke), never fill-only paths nor endPath (clipping);
+// - only the visible page is read: the viewport is the CropBox (pdfjs's
+//   page.view), and what the drawing holds outside it (a stroke crossing its
+//   edge, a cartouche cropped off the sheet) is not printed. Strokes are cut to
+//   it, a text wholly outside it is dropped;
 // - a clip is OPS.clip or OPS.eoClip right before the constructPath of its
 //   path; it applies after that path is painted, follows save / restore, and a
-//   form's BBox clips its content. Strokes are cut to the clip (a rectangle
-//   exactly, another clip shape by its bounding box);
+//   form's BBox clips its content. Strokes are cut to the clip within the page
+//   (a rectangle exactly, another clip shape by its bounding box); a subpath
+//   inside it, to the 0.01 pt of the rounding, is kept as drawn;
 // - image coverage is the union of the image footprints inside the clip, read
 //   on a 256 x 256 grid of the page; an image under a marked content that the
 //   default configuration hides (config.isVisible, pdfjs's own canvas rule:
@@ -43,10 +48,11 @@ import { z } from "zod";
 //   disableWorker (removed in 6.x): the legacy build runs its fake worker in
 //   the process.
 // Curves are flattened (2 to 16 chords by size). Points are rounded to 0.01 pt;
-// a coordinate that is not finite or beyond 10^7 pt fails the page. pdfjs
-// stops at a content error (stopAtErrors) instead of returning what it read.
+// a printed stroke with a coordinate that is not finite or beyond 10^7 pt fails
+// the page, even outside the crop. pdfjs stops at a content error
+// (stopAtErrors) instead of returning what it read.
 
-export const VECTOR_EXTRACTION_VERSION = 3;
+export const VECTOR_EXTRACTION_VERSION = 4;
 export const VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE = 15_000;
 /** V8 heap of the extraction process, measured on the heaviest plans of the bench (TI-662 load criterion). */
 export const VECTOR_EXTRACTION_HEAP_MB = 1536;
@@ -86,13 +92,18 @@ async function main() {
     const FILL = new Set([OPS.fill, OPS.eoFill]);
     const IMAGE = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject]);
     const vt = viewport.transform;
-    // clip: the visible box in page space ([x0, y0, x1, y1], y down), null for the whole page. A rectangular clip is
-    // exact; any other clip path is taken as its bounding box (what lies outside is never printed).
-    let state = { ctm: [1, 0, 0, 1, 0, 0], color: "#000000", pattern: false, width: 1, dash: null, clip: null };
+    // clip: the visible box in page space ([x0, y0, x1, y1], y down), the page itself (the CropBox) at first. A
+    // rectangular clip is exact; any other clip path is taken as its bounding box (what lies outside is never printed).
+    const PAGE = [0, 0, viewport.width, viewport.height];
+    const EDGE = 0.01;
+    let state = { ctm: [1, 0, 0, 1, 0, 0], color: "#000000", pattern: false, width: 1, dash: null, clip: PAGE };
     let pendingClip = false;
     const GRID = 256;
     const covered = new Uint8Array(GRID * GRID);
-    const intersect = (a, b) => (a === null ? b : [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]);
+    const intersect = (a, b) => [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])];
+    const inRange = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e7 || Math.abs(y) > 1e7) throw new Error("coordinate out of range");
+    };
     const boxOf = (coords) => {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (let k = 0; k < coords.length; k += 2) {
@@ -124,7 +135,7 @@ async function main() {
     let used = 0;
     const counts = { operators: ops.fnArray.length, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0 };
     const push = (x, y) => {
-      if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e7 || Math.abs(y) > 1e7) throw new Error("coordinate out of range");
+      inRange(x, y);
       if (used + 2 > points.length) {
         if (points.length >= input.maxPoints * 2) throw new Error("point budget");
         const next = new Float32Array(Math.min(points.length * 2, input.maxPoints * 2));
@@ -229,17 +240,23 @@ async function main() {
             const width = Math.round(state.width * scale * 100) / 100;
             const color = state.pattern ? "pattern" : state.color;
             const key = JSON.stringify([layer, color, width, state.dash]);
+            // A group is listed once one of its pieces is printed: a stroke wholly outside the page or its clip makes none.
             let group = groupIndex.get(key);
-            if (group === undefined) { group = groups.length; groupIndex.set(key, group); groups.push({ layer, color, width, dash: state.dash }); }
             const emit = (coords, closed) => {
               if (coords.length < 4) return;
+              if (group === undefined) { group = groups.length; groupIndex.set(key, group); groups.push({ layer, color, width, dash: state.dash }); }
               const begin = used / 2;
               for (let k = 0; k < coords.length; k += 2) push(coords[k], coords[k + 1]);
               paths.push(group, begin, used / 2 - begin, closed ? 1 : 0);
             };
             for (const sub of subpaths) {
+              for (let k = 0; k < sub.coords.length; k += 2) inRange(sub.coords[k], sub.coords[k + 1]);
               const box = state.clip;
-              if (box === null) { emit(sub.coords, sub.closed); continue; }
+              const own = boxOf(sub.coords);
+              if (own[0] >= box[0] - EDGE && own[1] >= box[1] - EDGE && own[2] <= box[2] + EDGE && own[3] <= box[3] + EDGE) {
+                emit(sub.coords, sub.closed);
+                continue;
+              }
               // Only what the clip shows: the polyline cut into the pieces inside the box (a cut piece is open).
               let piece = null, whole = true;
               for (let k = 2; k < sub.coords.length; k += 2) {
@@ -269,8 +286,7 @@ async function main() {
             const m = Util.transform(vt, state.ctm);
             const det = m[0] * m[3] - m[1] * m[2];
             if (det === 0) break;
-            let box = boxOf([m[4], m[5], m[0] + m[4], m[1] + m[5], m[2] + m[4], m[3] + m[5], m[0] + m[2] + m[4], m[1] + m[3] + m[5]]);
-            if (state.clip !== null) box = intersect(box, state.clip);
+            const box = intersect(boxOf([m[4], m[5], m[0] + m[4], m[1] + m[5], m[2] + m[4], m[3] + m[5], m[0] + m[2] + m[4], m[1] + m[3] + m[5]]), state.clip);
             const cw = viewport.width / GRID, ch = viewport.height / GRID;
             const i0 = Math.max(0, Math.floor(box[0] / cw)), i1 = Math.min(GRID - 1, Math.ceil(box[2] / cw));
             const j0 = Math.max(0, Math.floor(box[1] / ch)), j1 = Math.min(GRID - 1, Math.ceil(box[3] / ch));
@@ -291,17 +307,23 @@ async function main() {
     const content = await page.getTextContent();
     const texts = [];
     const lin = [vt[0], vt[1], vt[2], vt[3]];
+    const pageScale = Math.sqrt(Math.abs(vt[0] * vt[3] - vt[1] * vt[2]));
     for (const item of content.items) {
       if (typeof item.str !== "string" || !item.str.trim()) continue;
-      if (texts.length >= input.maxTexts) throw new Error("text budget");
       const tr = item.transform;
       const x = vt[0] * tr[4] + vt[2] * tr[5] + vt[4], y = vt[1] * tr[4] + vt[3] * tr[5] + vt[5];
       const dx = lin[0] * tr[0] + lin[2] * tr[1], dy = lin[1] * tr[0] + lin[3] * tr[1];
       const ux = lin[0] * tr[2] + lin[2] * tr[3], uy = lin[1] * tr[2] + lin[3] * tr[3];
       const along = Math.hypot(dx, dy) || 1;
-      const pageScale = Math.sqrt(Math.abs(vt[0] * vt[3] - vt[1] * vt[2]));
+      const width = item.width * pageScale;
+      // The text's box: its baseline along (dx, dy) over its width, its glyphs rising along (ux, uy). A text wholly
+      // outside the visible page is not printed.
+      const ex = (dx / along) * width, ey = (dy / along) * width;
+      const own = boxOf([x, y, x + ex, y + ey, x + ux, y + uy, x + ex + ux, y + ey + uy]);
+      if (own[2] < PAGE[0] || own[3] < PAGE[1] || own[0] > PAGE[2] || own[1] > PAGE[3]) continue;
+      if (texts.length >= input.maxTexts) throw new Error("text budget");
       texts.push({ str: item.str.slice(0, 500), x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
-        width: Math.round(item.width * pageScale * 100) / 100, height: Math.round(Math.hypot(ux, uy) * 100) / 100,
+        width: Math.round(width * 100) / 100, height: Math.round(Math.hypot(ux, uy) * 100) / 100,
         angle: Math.round(Math.atan2(dy, dx) * 10000) / 10000 });
     }
     const t3 = performance.now();

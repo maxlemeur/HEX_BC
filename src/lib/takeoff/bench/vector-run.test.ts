@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { buildBenchReport, renderBenchReportMarkdown, VECTOR_PRODUCTION_GAPS, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import { GroupTruthFileSchema, ManifestDocumentSchema, TruthFileSchema, type GroupTruthFile, type ManifestDocument } from "@/lib/takeoff/bench/schemas";
 import { buildScoreScopes } from "@/lib/takeoff/bench/score";
-import { runVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
+import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
+import type { BenchPass, CallStatus, DocumentRun } from "@/lib/takeoff/bench/run";
+import { baselineRasterFallback, runVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
 import {
   VectorExtractionError,
   type VectorGroupKey,
@@ -32,9 +34,15 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 //   a colour group to EF is not applied, or applied on a page it was not given
 //   for; the page calibration is ignored (the cartouche scale stands instead),
 //   or applied to another page.
-// Not testable here: the modulo of the script's rasterFallback (pass 4 of a
-// 3-pass baseline takes pass 1) lives in scripts/run-takeoff-provider-benchmark.ts,
-// an unexported closure; runVectorBench only asks for the pass it runs.
+// Fourth Codex round of PR #145 (written before the fix), the baseline's raster
+// fallback (baselineRasterFallback, formerly a closure of the script):
+// - a baseline run on a subset (--pages, --pages-from) has no call on a page it
+//   left out, yet that page is taken as read with no item, and its keys are
+//   blamed on the vector reading; a noncontiguous subset (pages 1 and 3 in one
+//   chunk, put back as « pages 1-3 ») passes page 2 as read; a document the
+//   triage excluded is read;
+// - a page under a failed chunk is read, or a page under a successful one is not;
+// - pass 4 of a 3-pass baseline does not take pass 1.
 
 /** An A3 sheet in points (420 × 297 mm). */
 const SHEET = { width: 1190.55, height: 841.89 };
@@ -276,5 +284,67 @@ describe("takeoff bench vector pipeline", () => {
     const scope = report.couples[0].passes[0].scopes[0];
     expect(scope.keys).toMatchObject([{ key: { network: "EF", material: "cuivre", dn: "DN 22" }, status: "ok", expected: 38.1, actual: 38.1, items: 2 }]);
     expect(scope.false_positives).toEqual([]);
+  });
+});
+
+describe("the baseline's raster fallback (fourth Codex round of PR #145)", () => {
+  /** A level C run of a 3-page document: its calls as [start, end, status], in original page numbers. */
+  function levelCRun(id: string, calls: Array<[number, number, CallStatus]>, items: TakeoffItem[]): DocumentRun {
+    return {
+      id, lot: "a", role: "truth", sha256: "1".repeat(64), bytes: 4, pages: 3, chunks_planned: calls.length, complete: true,
+      calls: calls.map(([start, end, status], index) => ({
+        chunk: index + 1, chunks: calls.length, start_page: start, end_page: end, pages: end - start + 1, bytes: 4, status,
+        duration_ms: 1000, duration_per_page_ms: 1000, model: "fictional-model", reasoning_effort: null, prompt_version: "v1", usage: null,
+        items: status === "ok" ? items.length : null, warnings: status === "ok" ? 0 : null, error: null,
+      })),
+      failed_chunks: calls.filter(([, , status]) => status !== "ok").length, items, item_chunks: items.map(() => [1]),
+      duplicate_items: 0, deduplicated_items: 0,
+    };
+  }
+  const passOf = (pass: number, documents: DocumentRun[]): BenchPass => ({ pass, complete: true, documents });
+  const listed = (pagesRead: number[], mode: BenchPageSelection["mode"] = "list"): BenchPageSelection => ({
+    mode, triage_report: null, documents: [{ id: "a-plan-01", pages_total: 3, pages_read: pagesRead, excluded: pagesRead.length === 0 }],
+  });
+  const items = [baselineItem("EF cuivre DN 22", 30, 1), baselineItem("ECS cuivre DN 22", 5, 3)];
+
+  it("reads a page only when a successful call of the baseline covers it and no failed one does", () => {
+    const whole = baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 3, "ok"]], items)])]);
+    expect([1, 2, 3].map((page) => whole("a-plan-01", 1, page))).toEqual([items, items, items]);
+    expect(whole("b-plan-01", 1, 1)).toBe("unread");
+    const failed = baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 2, "ok"], [3, 3, "timeout"]], items)])]);
+    expect([1, 2, 3].map((page) => failed("a-plan-01", 1, page))).toEqual([items, items, "unread"]);
+  });
+
+  it("never reads a page a subset baseline left out, contiguous or not, nor a document its triage excluded", () => {
+    // --pages 1: one call on page 1, even without its page selection.
+    const first = [passOf(1, [levelCRun("a-plan-01", [[1, 1, "ok"]], [items[0]])])];
+    for (const fallback of [baselineRasterFallback(first, listed([1])), baselineRasterFallback(first)]) {
+      expect([1, 2, 3].map((page) => fallback("a-plan-01", 1, page))).toEqual([[items[0]], "unread", "unread"]);
+    }
+    // --pages 1,3 read in one chunk, put back as pages 1-3: page 2 was never sent.
+    const spread = baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 3, "ok"]], items)])], listed([1, 3]));
+    expect([1, 2, 3].map((page) => spread("a-plan-01", 1, page))).toEqual([items, "unread", items]);
+    // A document the triage kept no page of is not in the run.
+    expect(baselineRasterFallback([passOf(1, [])], listed([], "triage"))("a-plan-01", 1, 1)).toBe("unread");
+    expect(baselineRasterFallback([])("a-plan-01", 1, 1)).toBe("unread");
+  });
+
+  it("takes pass 1 of a 3-pass baseline for pass 4", () => {
+    const passes = [1, 2, 3].map((pass) => passOf(pass, [levelCRun("a-plan-01", [[1, 3, "ok"]], [baselineItem("EF cuivre DN 22", 30 + pass, 1)])]));
+    const fallback = baselineRasterFallback(passes);
+    expect([1, 2, 3, 4].map((pass) => (fallback("a-plan-01", pass, 1) as TakeoffItem[])[0].quantity)).toEqual([31, 32, 33, 31]);
+  });
+
+  it("fails the raster page a --pages 1 baseline never read, so that its scope is not scored", async () => {
+    const extract = async (_bytes: Uint8Array, pageNumber: number) => plan(pageNumber, 2, 0.95);
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1, extract,
+      rasterFallback: baselineRasterFallback([passOf(1, [levelCRun("a-plan-01", [[1, 1, "ok"]], [items[0]])])], listed([1])),
+    });
+    const document = result.run.couples[0].passes[0].documents[0];
+    expect(document.calls.map((call) => call.status)).toEqual(["ok", "provider_failed"]);
+    const report = buildBenchReport({ metadata, run: result.run, scopes: buildScoreScopes([truthOf("a-plan-01", [{ quantity: 30 }])],
+      [manifestDocument("a-plan-01", 2)]), noise: null, pipeline: "vector" });
+    expect(report.couples[0].passes[0].scopes[0]).toMatchObject({ status: "read_failed", keys: [] });
   });
 });
