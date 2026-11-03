@@ -21,9 +21,10 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // baseline: per pass and document, each page is extracted (child process, 15 s,
 // killed at the deadline), read with keywords and the document's truth/groups
 // (correspondences and page calibrations), and turned into items scored like a
-// level C answer. No provider call. A page whose extraction fails (timeout, too
-// large, invalid output) is a failed « call »: its document's scope is not
-// scored; any other error is the bench's own and stops the run. A
+// level C answer. No provider call without a Decisions hook. A page whose
+// extraction fails (timeout, too large, invalid output) is a failed « call »:
+// its document's scope is not scored; any other error is the bench's own and
+// stops the run. A
 // raster page (images over 90 % of it) gives no vector item: the level C
 // reading of the baseline stands for it when the run is given one (pipeline
 // step 5) — a raster page the baseline did not read fails, it is never scored
