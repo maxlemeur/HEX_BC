@@ -67,6 +67,7 @@
       "e2e/army/local/source-reference-read.e2e.ts",
       "e2e/army/local/source-reference.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
+      "e2e/army/local/takeoff-lab.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
     "setup": "e2e/army/critical/auth.setup.e2e.ts",
@@ -917,7 +918,23 @@
       ],
       "journeys": [
         "e2e/army/local/chatgpt-local.e2e.ts",
-        "e2e/army/local/profile-polish.e2e.ts"
+        "e2e/army/local/profile-polish.e2e.ts",
+        "e2e/army/local/takeoff-lab.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-lab",
+      "note": "Labo métré (TI-661) : essais, verdicts et stats sur ChatGPT local et Decisions en fixture ; mise en page outil de DashboardShell.",
+      "paths": [
+        "src/lib/takeoff/lab/**",
+        "src/components/takeoff/lab/**",
+        "src/app/dashboard/admin/takeoff/lab/**",
+        "src/app/api/admin/takeoff/lab/**",
+        "src/lib/navigation/dashboard-navigation-mode.ts",
+        "e2e/army/local/takeoff-lab.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/local/takeoff-lab.e2e.ts"
       ]
     },
     {
