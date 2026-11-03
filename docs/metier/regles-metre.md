@@ -24,6 +24,7 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   - Le DN passe par l'analyse de `price-reuse-matching.ts` et la table des diamètres de L0.
   - Un triplet incomplet le reste : pas de réseau, deux réseaux ou deux DN.
   - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue.
+  - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm ») n'est jamais un DN.
   - Une ligne de réseau en m² est une surface de calorifuge, jamais un tuyau.
 - **Quantité proposée** : la quantité du modèle ou de la lecture, avant toute
   correction.
@@ -121,14 +122,16 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 ([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 1) :
 
 - Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série du matériau : « DN 100 » et « Ø 110 » d'une même fonte sont le même tuyau.
+- Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
 - Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions.
+- Le minimum vaut pour chaque tronçon continu : des tronçons couverts bout à bout (à D près) n'en font qu'un. Quatre contacts de 10 cm en limite de zone ne font pas un doublon de 40 cm.
 
 **Résolution**
 
 - Les lignes reliées par des doublons forment un groupe. Un tronçon dessiné sur k pages y est compté k − 1 fois de trop : c'est la longueur à retirer du groupe.
 - La réduction d'une ligne (longueur mesurée − quantité) retire au plus ce que les autres lignes du groupe recouvrent d'elle. Un mètre de réduction ne compte qu'une fois.
-- Le groupe est réglé, à 1 cm près, quand les réductions couvrent la longueur comptée de trop. Trois copies d'un tronçon de 5 m se règlent en retirant 10 m.
+- Le groupe est réglé quand les réductions couvrent la longueur comptée de trop, à 1 cm près par ligne réduite (les quantités sont arrondies au centimètre). Trois copies d'un tronçon de 5 m se règlent en retirant 10 m.
 - Les lignes de jobs appliqués (figées) paient d'abord ce qu'elles comptent deux fois entre elles : elles seules le peuvent. Ce que leurs réductions laissent, et les réductions des lignes du job courant, paient le reste. Une ligne figée non réduite laisse la correction à la ligne du job courant.
 - Exclure une ligne entièrement en double règle aussi la paire.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement.

@@ -80,10 +80,18 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // - « Pose seule de vanne », « Transport de pompe », « Mise en service de pompe »
 //   became observable because an organ followed the activity the head names;
 // - « EF cuivre DN 22 / DN 23 » passed the DN rule on its first, known size;
-// - three copies of one run demanded a reduction per pair (15 m for 10 m counted
-//   twice), so a correct correction never settled them;
+// - runs drawn on three plans demanded a reduction per pair (a stretch on three
+//   plans counted three times over instead of twice), so a correct correction
+//   never settled them;
 // - « DN 100 » and « Ø 110 » of one cast-iron pipe on two zone plans were never
 //   compared.
+// Second Codex round (written before their fix):
+// - two insulations « DN 15 » and « DN 20 » met in a series of another material
+//   (an insulation has none) and were taken as one run;
+// - four runs each touching their continuation by 10 cm at the zone limit added
+//   up past the minimum common length;
+// - a wall thickness (« ép. 20 mm ») became the DN of a line without one;
+// - « Tronçons verticaux » (the masculine plural) stayed observable.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -226,6 +234,16 @@ describe("inputs read in a designation", () => {
     expect(ruleInputsFromDesignation({ designation: "Mise en service", unit: "ens", quantity: 1 }).non_observable).toBe("service");
   });
 
+  it("reads vertical runs in the masculine plural too, and never a wall thickness as a DN", () => {
+    expect(nonObservableCause("Tronçons verticaux EF cuivre DN 22")).toBe("vertical");
+    for (const designation of ["EF PEHD ép. 20 mm", "EF PEHD épaisseur 20 mm", "EF PEHD Ep 20mm"]) {
+      const thick = ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 });
+      expect(thick.dn, designation).toBeNull();
+      expect(checkNetworkDiameter("EF", "pehd", thick.dn).status, designation).toBe("dn_missing");
+    }
+    expect(ruleInputsFromDesignation({ designation: "EF PEHD 20 mm ép. 2 mm", unit: "ml", quantity: 10 }).dn).toBe("20 mm");
+  });
+
   it("keeps the activity a head names to be entered, whatever organ follows it", () => {
     for (const designation of ["Pose seule de vanne DN 20", "Transport de pompe", "Mise en service de pompe"]) {
       expect(ruleInputsFromDesignation({ designation, unit: "u", quantity: 2 }).non_observable, designation).not.toBeNull();
@@ -345,6 +363,9 @@ describe("duplicate runs between zones", () => {
     expect(settleDuplicates([member("a", 3, 1, 0), member("b", 0, 1, 1), member("c", 0, 1, 1)])).toMatchObject({ settled: false });
     // A frozen line reduced by its whole share settles the current one.
     expect(settleDuplicates([member("f", 1, 1, 0, true), member("n", 0, 1, 1)])).toMatchObject({ settled: true });
+    // Three copies of 5 m: two lines left at 1 cm each settle it (a centimetre of rounding per line reduced), 2 cm each do not.
+    expect(settleDuplicates([member("a", 0, 5, 0), member("b", 4.99, 5, 5), member("c", 4.99, 5, 5)]).settled).toBe(true);
+    expect(settleDuplicates([member("a", 0, 5, 0), member("b", 4.98, 5, 5), member("c", 4.98, 5, 5)])).toEqual({ settled: false, deficit_m: 0.04 });
   });
 
   it("spends a frozen reduction on the applied pair it was made for, and shares reductions that cover every pair", () => {
@@ -354,6 +375,52 @@ describe("duplicate runs between zones", () => {
     expect(settleDuplicates([member("f", 1, 2, 0, true), member("z", 0, 1, 1, true), member("n", 1, 1, 1)]).settled).toBe(true);
     // A shares 1 m with B and 1 m with C; B and A were each reduced by 1 m: both are settled, whatever the order.
     expect(settleDuplicates([member("a", 1, 2, 0), member("b", 1, 1, 1), member("c", 0, 1, 1)]).settled).toBe(true);
+  });
+
+  it("settles three overlapping runs once the version counts each stretch once", () => {
+    // Z1 0–6 m, Z2 4–10 m, Z3 5–12 m: 4–5 m drawn twice, 5–6 m three times, 6–10 m twice: 7 m counted too many,
+    // though their pairs add up to 8 m. Z2 reduced by 2 m and Z3 by 5 m settle the three; Z3 by 4 m leaves 1 m.
+    const runs: Array<[number, number]> = [[0, 6], [4, 10], [5, 12]];
+    const three = (quantities: [number, number, number]) => evaluateTakeoffRules({
+      pages: [0, 1, 2].map((index) => page(`job-${index}#1`, { order: index * 10_000, zone: `Z${index + 1}`,
+        anchors: sheet(-40 * index, 0, { titleBlock: 10 }), denominator: 50 })),
+      lines: [0, 1, 2].map((index) => line(`r${index}`, { job_id: `job-${index}`, page_key: `job-${index}#1`, quantity: quantities[index],
+        geometry: { segments_m: [[runs[index][0] - 40 * index, 1, runs[index][1] - 40 * index, 1]], polygon_m: null,
+          length_m: runs[index][1] - runs[index][0], area_m2: null } })),
+    });
+    expect(rule(three([6, 6, 7]).results, "r0", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 7 } });
+    const corrected = three([6, 4, 2]);
+    for (const id of ["r0", "r1", "r2"]) expect(rule(corrected.results, id, "zone_overlap")?.code, id).toBe("ZONE_OVERLAP_RESOLVED");
+    expect(rule(three([6, 4, 3]).results, "r2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+  });
+
+  it("compares one pipe labelled « DN 100 » on a plan and « Ø 110 » on the other", () => {
+    const castIron = (dn: number) => inputs({ network: "EU", material: "fonte", dn: `DN ${dn}` });
+    const result = zones({ z1: { inputs: castIron(100) }, z2: { inputs: castIron(110) } });
+    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  it("never takes two insulations of different sizes for one run", () => {
+    const insulation = (dn: number) => inputs({ kind: "insulation", material: "calorifuge", dn: `DN ${dn}` });
+    const result = zones({ z1: { inputs: insulation(15) }, z2: { inputs: insulation(20) } });
+    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(zones({ z1: { inputs: insulation(20) }, z2: { inputs: insulation(20) } }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  it("applies the minimum common length to each continuous stretch, never to touches added up", () => {
+    // Four runs of Z1 (0–2 m, 3–5 m, 6–8 m, 9–11 m) each touched 10 cm by its continuation on Z2: four touches, no duplicate.
+    const z1 = [[0, 1, 2, 1], [3, 1, 5, 1], [6, 1, 8, 1], [9, 1, 11, 1]] as Array<[number, number, number, number]>;
+    const z2 = z1.map(([, , x1]) => [x1 - 0.1 - 40, 1, x1 + 1 - 40, 1] as [number, number, number, number]);
+    const touches = zones({ z1: { geometry: { segments_m: z1, polygon_m: null, length_m: 8, area_m2: null } },
+      z2: { geometry: { segments_m: z2, polygon_m: null, length_m: 4.4, area_m2: null } } });
+    expect(rule(touches.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    // One run drawn as three short legs end to end, all on both plans: one stretch of 60 cm, a duplicate.
+    const legs = [[0, 1, 0.2, 1], [0.2, 1, 0.4, 1], [0.4, 1, 0.6, 1]] as Array<[number, number, number, number]>;
+    const chained = zones({ z1: { geometry: { segments_m: legs, polygon_m: null, length_m: 0.6, area_m2: null } },
+      z2: { geometry: { segments_m: legs.map(([a, b, c, d]) => [a - 40, b, c - 40, d] as [number, number, number, number]), polygon_m: null,
+        length_m: 0.6, area_m2: null } } });
+    expect(rule(chained.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
   });
 
   it("measures a long diagonal run once along its length", () => {

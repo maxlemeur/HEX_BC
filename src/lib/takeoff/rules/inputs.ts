@@ -34,7 +34,7 @@ const NON_OBSERVABLE_PATTERNS: ReadonlyArray<{ cause: NonObservableCause; patter
   { cause: "weld", pattern: /^(?:soudures?|brasures?)\b/i },
   { cause: "tap", pattern: /^piquages?\b/i },
   { cause: "support", pattern: /^(?:supports?|supportages?|colliers?|suspentes?|consoles?)\b/i },
-  { cause: "vertical", pattern: /^(?:chutes?|colonnes?\s+montantes?|remontees?|descentes?)\b|^(?:tron[cç]ons?\s+)?verticale?s?\b/i },
+  { cause: "vertical", pattern: /^(?:chutes?|colonnes?\s+montantes?|remontees?|descentes?)\b|^(?:tron[cç]ons?\s+)?(?:verticale?s?|verticaux)\b/i },
   { cause: "transport", pattern: /^(?:transports?|manutentions?|levages?|acheminements?)\b/i },
   { cause: "install_only", pattern: /^(?:pose\s+seule|fourniture\s+seule|main[- ]d['’]?\s*[œo]e?uvre)\b/i },
   {
@@ -62,8 +62,8 @@ export function nonObservableCause(designation: string): NonObservableCause | nu
 
 export type DesignationLine = { designation: string; category?: string | null; evidence?: string | null; unit: string; quantity: number };
 
-/** Sizes printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" »), as printed. */
-const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*mm\b|\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|\b\d\/\d\s*(?:"|”|pouces?)/gi;
+/** Sizes printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" »); a thickness (« ép. 20 mm ») is none. */
+const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|(?<!(?:^|[^A-Za-zÀ-ÿ])[ÉéEe]p(?:aisseur)?\.?\s*)\b\d+(?:[.,]\d+)?\s*mm\b|\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|\b\d\/\d\s*(?:"|”|pouces?)/gi;
 
 /**
  * Inputs of a line the model proposed (levels B and C): read in its text, never in its quantity.
@@ -94,7 +94,16 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
 }
 
 function printedSizes(designation: string) {
-  return [...designation.matchAll(PRINTED_SIZE)].map((match) => match[0].replace(/\s+/g, " ").trim());
+  return [...designation.matchAll(PRINTED_SIZE)].map((match) => printedSize(match[0]));
+}
+
+/** A printed size as the diameter table prints it: « DN 15 », « Ø 22 », « 20 mm » (decimal point), others as printed. */
+function printedSize(raw: string) {
+  const text = raw.replace(/\s+/g, " ").trim();
+  const marked = /^(DN|[Øø⌀])\s*-?\s*(\d+(?:[.,]\d+)?)$/i.exec(text);
+  if (marked) return `${/^dn$/i.test(marked[1]) ? "DN" : "Ø"} ${marked[2].replace(",", ".")}`;
+  const millimetres = /^(\d+(?:[.,]\d+)?)\s*mm$/i.exec(text);
+  return millimetres ? `${millimetres[1].replace(",", ".")} mm` : text;
 }
 
 /** The first size a designation prints that the material's series lacks (null: every printed size is known). */
