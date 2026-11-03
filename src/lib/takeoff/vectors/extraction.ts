@@ -16,6 +16,12 @@ import { z } from "zod";
 //   3 quadraticCurveTo, 4 closePath. Only stroke painting ops are measured
 //   (stroke, closeStroke, fillStroke, eoFillStroke, closeFillStroke,
 //   closeEOFillStroke), never fill-only paths nor endPath (clipping);
+// - a clip is OPS.clip or OPS.eoClip right before the constructPath of its
+//   path; it applies after that path is painted, follows save / restore, and a
+//   form's BBox clips its content. Strokes are cut to the clip (a rectangle
+//   exactly, another clip shape by its bounding box);
+// - image coverage is the union of the image footprints inside the clip, read
+//   on a 256 x 256 grid of the page;
 // - coordinates are in the current user space: the CTM follows save, restore,
 //   transform and paintFormXObjectBegin (its matrix) / paintFormXObjectEnd,
 //   then page.getViewport({ scale: 1 }).transform, which includes userUnit and
@@ -34,7 +40,7 @@ import { z } from "zod";
 // a coordinate that is not finite or beyond 10^7 pt fails the page. pdfjs
 // stops at a content error (stopAtErrors) instead of returning what it read.
 
-export const VECTOR_EXTRACTION_VERSION = 1;
+export const VECTOR_EXTRACTION_VERSION = 2;
 export const VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE = 15_000;
 /** V8 heap of the extraction process, measured on the heaviest plans of the bench (TI-662 load criterion). */
 export const VECTOR_EXTRACTION_HEAP_MB = 1536;
@@ -73,7 +79,32 @@ async function main() {
     const FILL = new Set([OPS.fill, OPS.eoFill]);
     const IMAGE = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject]);
     const vt = viewport.transform;
-    let state = { ctm: [1, 0, 0, 1, 0, 0], color: "#000000", pattern: false, width: 1, dash: null };
+    // clip: the visible box in page space ([x0, y0, x1, y1], y down), null for the whole page. A rectangular clip is
+    // exact; any other clip path is taken as its bounding box (what lies outside is never printed).
+    let state = { ctm: [1, 0, 0, 1, 0, 0], color: "#000000", pattern: false, width: 1, dash: null, clip: null };
+    let pendingClip = false;
+    const GRID = 256;
+    const covered = new Uint8Array(GRID * GRID);
+    const intersect = (a, b) => (a === null ? b : [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]);
+    const boxOf = (coords) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let k = 0; k < coords.length; k += 2) {
+        x0 = Math.min(x0, coords[k]); x1 = Math.max(x1, coords[k]); y0 = Math.min(y0, coords[k + 1]); y1 = Math.max(y1, coords[k + 1]);
+      }
+      return [x0, y0, x1, y1];
+    };
+    // Liang-Barsky: the part of a segment inside the box, or null.
+    const clipSegment = (x0, y0, x1, y1, b) => {
+      let t0 = 0, t1 = 1;
+      const dx = x1 - x0, dy = y1 - y0;
+      const p = [-dx, dx, -dy, dy], q = [x0 - b[0], b[2] - x0, y0 - b[1], b[3] - y0];
+      for (let k = 0; k < 4; k++) {
+        if (p[k] === 0) { if (q[k] < 0) return null; continue; }
+        const r = q[k] / p[k];
+        if (p[k] < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+      }
+      return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy, t0 > 0, t1 < 1];
+    };
     const stack = [];
     const marked = [];
     const groupIndex = new Map();
@@ -82,7 +113,6 @@ async function main() {
     let points = new Float32Array(1 << 16);
     let used = 0;
     const counts = { operators: ops.fnArray.length, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0 };
-    let imageArea = 0;
     const push = (x, y) => {
       if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e7 || Math.abs(y) > 1e7) throw new Error("coordinate out of range");
       if (used + 2 > points.length) {
@@ -99,7 +129,20 @@ async function main() {
         case OPS.save: stack.push({ ...state }); break;
         case OPS.restore: if (stack.length) state = stack.pop(); break;
         case OPS.transform: state.ctm = Util.transform(state.ctm, args); break;
-        case OPS.paintFormXObjectBegin: stack.push({ ...state }); if (args[0]) state.ctm = Util.transform(state.ctm, args[0]); break;
+        case OPS.paintFormXObjectBegin: {
+          stack.push({ ...state });
+          if (args[0]) state.ctm = Util.transform(state.ctm, args[0]);
+          // The form's BBox, in its own space, clips its content.
+          const bbox = args[1];
+          if (bbox && bbox.length === 4) {
+            const f = Util.transform(vt, state.ctm);
+            const corners = [];
+            for (const [x, y] of [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[2], bbox[3]], [bbox[0], bbox[3]]]) corners.push(f[0] * x + f[2] * y + f[4], f[1] * x + f[3] * y + f[5]);
+            state.clip = intersect(state.clip, boxOf(corners));
+          }
+          break;
+        }
+        case OPS.clip: case OPS.eoClip: pendingClip = true; break;
         case OPS.paintFormXObjectEnd: if (stack.length) state = stack.pop(); break;
         case OPS.setLineWidth: state.width = args[0]; break;
         case OPS.setDash: state.dash = dashOf(args[0], args[1]); break;
@@ -118,61 +161,111 @@ async function main() {
         case OPS.endMarkedContent: marked.pop(); break;
         case OPS.constructPath: {
           const paint = args[0];
-          if (paint === OPS.endPath) { counts.clipPaths++; break; }
-          if (FILL.has(paint)) { counts.fillPaths++; break; }
-          if (!STROKE.has(paint)) break;
+          // The clip (W) named before this path applies after it is painted.
+          const clipping = pendingClip;
+          pendingClip = false;
+          if (paint === OPS.endPath) counts.clipPaths++;
+          else if (FILL.has(paint)) counts.fillPaths++;
+          const stroked = STROKE.has(paint);
           const buffer = args[1] && args[1][0];
-          if (!buffer) break;
-          counts.strokePaths++;
+          if (!buffer || (!stroked && !clipping)) break;
           const m = Util.transform(vt, state.ctm);
-          const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
-          let layer = null;
-          for (let k = marked.length - 1; k >= 0; k--) if (marked[k] !== undefined) { layer = marked[k]; if (layer !== null) break; }
-          const width = Math.round(state.width * scale * 100) / 100;
-          const color = state.pattern ? "pattern" : state.color;
-          const key = JSON.stringify([layer, color, width, state.dash]);
-          let group = groupIndex.get(key);
-          if (group === undefined) { group = groups.length; groupIndex.set(key, group); groups.push({ layer, color, width, dash: state.dash }); }
           const tx = (x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-          let start = -1, cx = 0, cy = 0, sx = 0, sy = 0;
-          const close = (closed) => { if (start >= 0 && used / 2 - start >= 2) paths.push(group, start, used / 2 - start, closed ? 1 : 0); start = -1; };
+          // Subpaths in page space, curves flattened: { coords: [x, y, ...], closed }.
+          const subpaths = [];
+          let current = null, cx = 0, cy = 0, sx = 0, sy = 0;
+          const end = (closed) => { if (current && current.length >= 4) subpaths.push({ coords: current, closed }); current = null; };
           for (let j = 0; j < buffer.length;) {
             const op = buffer[j++];
             if (op === 0) {
-              close(false);
-              [cx, cy] = tx(buffer[j++], buffer[j++]); sx = cx; sy = cy; start = used / 2; push(cx, cy);
+              end(false);
+              [cx, cy] = tx(buffer[j++], buffer[j++]); sx = cx; sy = cy; current = [cx, cy];
             } else if (op === 1) {
-              if (start < 0) { start = used / 2; push(cx, cy); }
-              [cx, cy] = tx(buffer[j++], buffer[j++]); push(cx, cy);
+              if (!current) current = [cx, cy];
+              [cx, cy] = tx(buffer[j++], buffer[j++]); current.push(cx, cy);
             } else if (op === 2 || op === 3) {
-              if (start < 0) { start = used / 2; push(cx, cy); }
+              if (!current) current = [cx, cy];
               const p1 = tx(buffer[j++], buffer[j++]);
               const p2 = tx(buffer[j++], buffer[j++]);
               const p3 = op === 2 ? tx(buffer[j++], buffer[j++]) : null;
-              const end = p3 || p2;
+              const last = p3 || p2;
               const hull = Math.hypot(p1[0] - cx, p1[1] - cy) + Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) + (p3 ? Math.hypot(p3[0] - p2[0], p3[1] - p2[1]) : 0);
               const steps = Math.max(2, Math.min(16, Math.ceil(hull / 2)));
-              for (let s = 1; s <= steps; s++) {
-                const t = s / steps, u = 1 - t;
+              for (let k = 1; k <= steps; k++) {
+                const t = k / steps, u = 1 - t;
                 const x = p3 ? u * u * u * cx + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0] : u * u * cx + 2 * u * t * p1[0] + t * t * p2[0];
                 const y = p3 ? u * u * u * cy + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1] : u * u * cy + 2 * u * t * p1[1] + t * t * p2[1];
-                push(x, y);
+                current.push(x, y);
               }
-              cx = end[0]; cy = end[1];
+              cx = last[0]; cy = last[1];
             } else if (op === 4) {
-              if (start >= 0) { push(sx, sy); cx = sx; cy = sy; close(true); }
+              if (current) { current.push(sx, sy); cx = sx; cy = sy; end(true); }
             } else {
               throw new Error("DrawOPS " + op);
             }
           }
-          close(false);
+          end(false);
+          if (stroked) {
+            counts.strokePaths++;
+            const scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+            let layer = null;
+            for (let k = marked.length - 1; k >= 0; k--) if (marked[k] !== undefined) { layer = marked[k]; if (layer !== null) break; }
+            const width = Math.round(state.width * scale * 100) / 100;
+            const color = state.pattern ? "pattern" : state.color;
+            const key = JSON.stringify([layer, color, width, state.dash]);
+            let group = groupIndex.get(key);
+            if (group === undefined) { group = groups.length; groupIndex.set(key, group); groups.push({ layer, color, width, dash: state.dash }); }
+            const emit = (coords, closed) => {
+              if (coords.length < 4) return;
+              const begin = used / 2;
+              for (let k = 0; k < coords.length; k += 2) push(coords[k], coords[k + 1]);
+              paths.push(group, begin, used / 2 - begin, closed ? 1 : 0);
+            };
+            for (const sub of subpaths) {
+              const box = state.clip;
+              if (box === null) { emit(sub.coords, sub.closed); continue; }
+              // Only what the clip shows: the polyline cut into the pieces inside the box (a cut piece is open).
+              let piece = null, whole = true;
+              for (let k = 2; k < sub.coords.length; k += 2) {
+                const part = clipSegment(sub.coords[k - 2], sub.coords[k - 1], sub.coords[k], sub.coords[k + 1], box);
+                if (part === null) { whole = false; if (piece) emit(piece, false); piece = null; continue; }
+                if (part[4]) { whole = false; if (piece) emit(piece, false); piece = null; }
+                if (!piece) piece = [part[0], part[1]];
+                piece.push(part[2], part[3]);
+                if (part[5]) { whole = false; emit(piece, false); piece = null; }
+              }
+              if (piece) emit(piece, whole && sub.closed);
+            }
+          }
+          if (clipping) {
+            const all = subpaths.flatMap((sub) => sub.coords);
+            if (all.length >= 2) state.clip = intersect(state.clip, boxOf(all));
+          }
           break;
         }
         default:
           if (IMAGE.has(fn)) {
+            // Coverage is the union of the image footprints inside the clip, on a GRID x GRID raster of the page:
+            // two images over one half page cover half of it.
             counts.images++;
             const m = Util.transform(vt, state.ctm);
-            imageArea += Math.abs(m[0] * m[3] - m[1] * m[2]);
+            const det = m[0] * m[3] - m[1] * m[2];
+            if (det === 0) break;
+            let box = boxOf([m[4], m[5], m[0] + m[4], m[1] + m[5], m[2] + m[4], m[3] + m[5], m[0] + m[2] + m[4], m[1] + m[3] + m[5]]);
+            if (state.clip !== null) box = intersect(box, state.clip);
+            const cw = viewport.width / GRID, ch = viewport.height / GRID;
+            const i0 = Math.max(0, Math.floor(box[0] / cw)), i1 = Math.min(GRID - 1, Math.ceil(box[2] / cw));
+            const j0 = Math.max(0, Math.floor(box[1] / ch)), j1 = Math.min(GRID - 1, Math.ceil(box[3] / ch));
+            for (let jj = j0; jj <= j1; jj++) {
+              const y = (jj + 0.5) * ch;
+              if (y < box[1] || y > box[3]) continue;
+              for (let ii = i0; ii <= i1; ii++) {
+                const x = (ii + 0.5) * cw;
+                if (x < box[0] || x > box[2]) continue;
+                const u = (m[3] * (x - m[4]) - m[2] * (y - m[5])) / det, v = (m[0] * (y - m[5]) - m[1] * (x - m[4])) / det;
+                if (u >= 0 && u <= 1 && v >= 0 && v <= 1) covered[jj * GRID + ii] = 1;
+              }
+            }
           }
       }
     }
@@ -198,7 +291,7 @@ async function main() {
     write({ ok: true, version: input.version, page: input.page, pages: pdf.numPages,
       width: viewport.width, height: viewport.height, userUnit: page.userUnit, rotate: page.rotate, view,
       layers, groups, texts, paths, points: Buffer.from(points.buffer, 0, used * 4).toString("base64"),
-      counts: { ...counts, imageCoverage: Math.min(1, imageArea / (viewport.width * viewport.height)) },
+      counts: { ...counts, imageCoverage: covered.reduce((sum, cell) => sum + cell, 0) / (GRID * GRID) },
       timings: { operators_ms: Math.round(t1 - t0), walk_ms: Math.round(t2 - t1), text_ms: Math.round(t3 - t2) },
       memory: { max_rss_kb: process.resourceUsage().maxRSS, heap_used_mb: Math.round(process.memoryUsage().heapUsed / 1048576) } });
   } finally {

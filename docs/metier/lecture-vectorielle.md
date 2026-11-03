@@ -23,6 +23,11 @@ est une constante nommée et versionnée dans le code.
    - Les surfaces seulement remplies et les tracés de détourage ne sont pas mesurés.
    - Une erreur de contenu (opérateur invalide, objet manquant) ou une coordonnée hors
      plage fait échouer la page : pdfjs ne rend jamais une page lue en partie.
+   - Un détourage (W n, ou le cadre BBox d'une forme) coupe les tracés qui le suivent :
+     seul ce qu'il montre est mesuré. Un détourage rectangulaire est exact ; une autre
+     forme est prise par son rectangle englobant.
+   - La part raster d'une page est l'union des images qui la couvrent, dans leur
+     détourage : deux images superposées ne comptent qu'une fois.
 2. **Groupes** ([`page-model.ts`](../../src/lib/takeoff/vectors/page-model.ts)).
    - Un groupe est un calque quand la page en a, sinon une couleur avec son
      épaisseur et son tiret.
@@ -31,7 +36,8 @@ est une constante nommée et versionnée dans le code.
    - Couleur grise : saturation < 0,1.
    - Un groupe quasi blanc ou gris n'est jamais classé réseau par mot-clé.
    - Un trait quasi blanc n'est jamais mesuré, même dans un calque réseau.
-   - Un calque masqué par la configuration par défaut du PDF (OFF) n'est pas lu.
+   - Un calque masqué par la configuration par défaut du PDF (OFF) n'est pas lu : ni
+     cote, ni légende, ni ligne de rappel, ni mesure, ni contour de pièce.
 3. **Échelle** ([`scale.ts`](../../src/lib/takeoff/vectors/scale.ts)), page par page.
    - On lit l'échelle du cartouche (« Échelle 1/50 »).
    - On la contrôle par une cote : un nombre au-dessus d'une ligne dont les deux
@@ -61,7 +67,8 @@ est une constante nommée et versionnée dans le code.
        à 10 – 60 %) suivent.
      - Une couleur partagée par EU et EU/EV donne EUV. Une couleur partagée par deux
        réseaux distincts reste « à revoir » ; les libellés la tranchent tronçon par
-       tronçon ;
+       tronçon. Tous les libellés rattachés comptent : deux réseaux nommés sur des
+       tronçons raccordés la laissent « à revoir » ;
    - **libellés** : une couleur sans légende prend le réseau de ses libellés. Il faut au
      moins 2 libellés, d'accord à 80 %, dont la ligne de rappel finit sur elle.
 
@@ -102,6 +109,8 @@ est une constante nommée et versionnée dans le code.
    - La surface imprimée sert de contrôle, jamais de repli : une pièce sans polygone
      fermé n'a pas d'aire mesurée. Elle est comptée au rapport.
    - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
+   - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
+     page tournée (/Rotate 90) se lit comme dessinée.
 7. **Page raster.** Quand des images couvrent au moins 90 % de la page, ses vecteurs
    ne mesurent pas ses réseaux. La lecture niveau C reste la source.
 
@@ -114,6 +123,9 @@ un retour sur sa clé confondue (CHW, HW, GLY, HRC, CW). Cela ne vaut que si le
 périmètre chiffre le parent et jamais le membre, dans ce matériau. Un item qui hésite
 entre deux membres d'un même parent se lit comme ce parent. RECS ne compte jamais
 sur ECS.
+
+Depuis la version 4, un tel item garde les contrôles de ses autres attributs : un DN
+inconnu ou deux DN le laissent illisible, comme tout item.
 
 La comparaison avec la baseline niveau C ne totalise que les périmètres notés par les
 deux runs à chaque passe. Une page raster que la baseline n'a pas lue fait échouer la

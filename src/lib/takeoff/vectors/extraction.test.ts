@@ -37,6 +37,12 @@
 // 14. A malformed content stream (an operator with too many arguments, a Do
 //     of a missing form) recovered by pdfjs and returned as a partial page; a
 //     coordinate out of range returned as a page whose lengths are NaN.
+// Review of PR #145 (Codex, 3/11/2026, written before the fixes):
+// 15. A clip (W n) ignored: a 100 pt pipe drawn through a clip exposing its
+//     first 50 pt measured 100 pt; the clip kept after Q; a form's BBox not
+//     clipping its content.
+// 16. Two images over the same half page reported as covering all of it
+//     (areas added instead of their union), so the page reads as raster.
 
 import {
   degrees, PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, type PDFFont, type PDFObject, type PDFPage,
@@ -462,6 +468,25 @@ describe("extractVectorPage", () => {
   });
 });
 
+describe("clipping (review of PR #145)", () => {
+  it("measures only what a clip shows, forgets it after Q, and clips a form to its BBox", SPAWN, async () => {
+    const bytes = await buildPdf((doc) => {
+      const form = doc.context.register(doc.context.stream("0 0 m 100 0 l S", { Type: "XObject", Subtype: "Form", BBox: [0, -5, 30, 5] }));
+      addRawPage(doc, [200, 200], [
+        "q 0 0 60 200 re W n",
+        "10 20 m 110 20 l S", // 100 pt drawn, 50 pt shown (x 10 to 60)
+        "Q",
+        "10 40 m 110 40 l S", // after Q: 100 pt
+        "q 1 0 0 1 10 60 cm /Fm1 Do Q", // 100 pt in a 30 pt wide form
+        "q 20 80 m 80 80 l 50 140 l h W n 0 100 m 200 100 l S Q", // triangle clip: kept within its box (x 20 to 80)
+      ], { XObject: doc.context.obj({ Fm1: form }) });
+    });
+    const extraction = await extractVectorPage(bytes, 1);
+    const lengths = extraction.paths.map((path) => Math.round(polylineLength(extraction.points, path.start, path.count) * 100) / 100).sort((a, b) => a - b);
+    expect(lengths).toEqual([30, 50, 60, 100]);
+  });
+});
+
 describe("raster coverage", () => {
   it("reports a page covered by an image, and half of it for an image on half the page", SPAWN, async () => {
     // A 1 x 1 white PNG, stretched by the image matrix.
@@ -476,6 +501,19 @@ describe("raster coverage", () => {
     expect(full.counts).toMatchObject({ images: 1 });
     expect(full.counts.imageCoverage).toBeCloseTo(1, 3);
     expect(half.counts.imageCoverage).toBeCloseTo(0.5, 3);
+  });
+
+  it("counts two images over the same half page once (their union, review of PR #145)", SPAWN, async () => {
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==", "base64");
+    const bytes = await buildPdf(async (doc) => {
+      const image = await doc.embedPng(png);
+      const page = doc.addPage([200, 100]);
+      page.drawImage(image, { x: 0, y: 0, width: 100, height: 100 });
+      page.drawImage(image, { x: 0, y: 0, width: 100, height: 100 });
+    });
+    const extraction = await extractVectorPage(new Uint8Array(bytes), 1);
+    expect(extraction.counts.images).toBe(2);
+    expect(extraction.counts.imageCoverage).toBeCloseTo(0.5, 3);
   });
 });
 

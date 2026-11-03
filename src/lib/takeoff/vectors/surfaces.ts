@@ -13,7 +13,7 @@ import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 // « S = » or « Surface : » is not the room's name. An outline on a layer hidden
 // by the document's default configuration (OFF) is not printed: it bounds no room.
 
-export const SURFACE_RULE_VERSION = 2;
+export const SURFACE_RULE_VERSION = 3;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
 
 export type RoomSurface = {
@@ -33,21 +33,29 @@ function lineCentre(text: VectorText): Point {
 
 const LABEL_PREFIX = /(?:^|\s)(?:s|surf(?:ace)?\.?|aire)\s*[=:]\s*$/i;
 
-/** The label of a surface line: the text before the area in the same line, else the horizontal lines just above it. */
+/**
+ * The label of a surface line: the text before the area in the same line, else the lines of its direction just
+ * above it. « Above » and « along » are read in the text's own frame (baseline and its normal), so a page
+ * rotated by /Rotate reads as drawn.
+ */
 function roomLabel(text: VectorText, before: string, texts: readonly VectorText[]) {
   const own = before.replace(LABEL_PREFIX, "").trim();
   if (own.length >= 2) return own;
   const h = text.height;
+  const c = Math.cos(text.angle), s = Math.sin(text.angle);
+  // Offsets from the area's baseline start: along its baseline, and up (towards the top of its glyphs, y down).
+  const along = (other: VectorText) => (other.x - text.x) * c + (other.y - text.y) * s;
+  const up = (other: VectorText) => (other.x - text.x) * s - (other.y - text.y) * c;
   const above = texts.filter((other) => other !== text && Math.abs(other.angle - text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
-    && text.y - other.y > 0.5 * h && text.y - other.y < 3.4 * h
-    && other.x < text.x + text.width + h && other.x + other.width > text.x - h).sort((left, right) => left.y - right.y);
+    && up(other) > 0.5 * h && up(other) < 3.4 * h
+    && along(other) < text.width + h && along(other) + other.width > -h).sort((left, right) => up(right) - up(left));
   // Keep the lines stacked right above the surface (each within 1.7 heights of the next).
   const kept: VectorText[] = [];
-  let bottom = text.y;
+  let bottom = 0;
   for (const line of [...above].reverse()) {
-    if (bottom - line.y > 1.7 * h) break;
+    if (up(line) - bottom > 1.7 * h) break;
     kept.unshift(line);
-    bottom = line.y;
+    bottom = up(line);
   }
   return kept.map((line) => line.str.trim()).join(" ").replace(/\s+/g, " ").trim();
 }

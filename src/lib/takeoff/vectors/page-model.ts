@@ -8,7 +8,9 @@ import { emptyBox, extendBox, polylineLength, type Box, type Segment } from "@/l
 // the page with their group, for the scale, legend, label and measure passes.
 // A near-white stroke stays near-white inside a layer of other colours: it is
 // never measured nor counted in the detection badge. A layer hidden by the
-// document's default configuration (OFF) is not printed: it is not read.
+// document's default configuration (OFF) is not printed: it is not read. Its
+// group keeps its statistics, but its strokes give no segment, so no scale
+// check, legend, leader or measure ever sees them.
 
 export type GroupStats = {
   id: string;
@@ -78,6 +80,7 @@ export function buildPageModel(extraction: VectorPageExtraction): PageModel {
   const segmentGroups: number[] = [];
   const segmentNearWhite: number[] = [];
   const keyNearWhite = extraction.groups.map((key) => isNearWhite(key.color));
+  const keyHidden = extraction.groups.map((key) => key.layer !== null && hiddenLayers.has(key.layer));
   for (const path of extraction.paths) {
     const group = groups[groupOf[path.group]];
     group.paths += 1;
@@ -87,6 +90,7 @@ export function buildPageModel(extraction: VectorPageExtraction): PageModel {
     if (!keyNearWhite[path.group]) group.visibleLength_pt += length;
     if (path.closed) group.closed += 1;
     for (let index = path.start; index < path.start + path.count; index += 1) extendBox(group.bbox, points[2 * index], points[2 * index + 1]);
+    if (keyHidden[path.group]) continue;
     for (let index = path.start + 1; index < path.start + path.count; index += 1) {
       segments.push({ x0: points[2 * index - 2], y0: points[2 * index - 1], x1: points[2 * index], y1: points[2 * index + 1] });
       segmentGroups.push(groupOf[path.group]);

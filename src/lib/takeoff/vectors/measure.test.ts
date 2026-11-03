@@ -87,6 +87,11 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   is taken for a diagram frame, and the pipes inside it are not measured;
 // - a legend code with its direction (« CHW-S », « EG-R ») is not read, so its
 //   colour stays unclassified; a pipe label (« EU - PVC ») is read as a legend code.
+// Second Codex round (written before the fixes):
+// - a cote on a hidden layer decides the page scale (« dimension_mismatch »
+//   from a dimension that is not printed);
+// - a shared colour run labelled « ECS PVC DN 20 » and « CS PVC DN 20 » takes
+//   the first label's network instead of staying « à revoir ».
 // Detection badge:
 // - the share is not classified length ÷ stroke length without near-white
 //   strokes (near-white counted, or a grey wall layer not counted classified).
@@ -633,5 +638,30 @@ describe("review of PR #145 (Codex, 3/11/2026)", () => {
     expect(classOf(reading, MAGENTA)?.class).toBeNull();
     expect(metres(reading, "CHW-S")).toBeCloseTo(5, 2);
     expect(metres(reading, "CHW-R")).toBeCloseTo(3, 2);
+  });
+});
+
+describe("review of PR #145, second Codex round", () => {
+  it("never checks the scale with a cote of a hidden layer", () => {
+    const tick = (x: number, y: number) => line(BLACK, x - 3, y + 3, x + 3, y - 3, { layer: "2R" });
+    const extraction = page([
+      { texts: [text("Echelle 1/50", 900, 780), text("Format A3", 900, 800)] },
+      // A 200 pt dimension (3.53 m at 1/50) printed « 5.00 », on a layer OFF by default.
+      { strokes: [line(BLACK, 100, 600, 300, 600, { layer: "2R" }), tick(100, 600), tick(300, 600)], texts: [text("5.00", 190, 598)] },
+    ], [{ id: "2R", name: "FICTIF_COTES" }]);
+    // Read from its cartouche, without the calibration of read().
+    const scaleOf = () => readVectorPage(extraction, { clock: () => 0 }).scale;
+    extraction.layers = extraction.layers.map((layer) => ({ ...layer, visible: false }));
+    expect(scaleOf()).toMatchObject({ status: "format", denominator: 50 });
+    extraction.layers = extraction.layers.map((layer) => ({ ...layer, visible: true }));
+    expect(scaleOf()).toMatchObject({ status: "unverified", reason: "dimension_mismatch" });
+  });
+
+  it("leaves a shared colour run whose labels name two of its candidates « à revoir »", () => {
+    const reading = read(page([legendRow("ECS", 0, [RED]), legendRow("CS", 1, [RED]), { strokes: [line(RED, 100, 300, 400, 300)] },
+      { texts: [text("ECS - PVC DN 20", 127, 297), text("CS - PVC DN 20", 327, 297)] }]));
+    const run = (reading.networks?.runs ?? []).find((entry) => Math.abs(entry.segment.y0 - 300) < 0.5);
+    expect(run).toMatchObject({ network: null, candidates: ["CS", "ECS"] });
+    expect(totals(reading).filter((total) => total.network === "ECS" || total.network === "CS")).toEqual([]);
   });
 });
