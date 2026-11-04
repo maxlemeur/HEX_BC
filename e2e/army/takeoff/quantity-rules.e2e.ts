@@ -180,6 +180,7 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     const screen = ui.screen;
     const targeted = (jobId: string) => `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review/targeted?versionId=${ids.versionId}`;
 
+    await ui.browser.setViewport({ width: 1440, height: 900 });
     await ui.app.open(targeted(jobs.Z1));
     await expect(screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible();
     const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
@@ -211,7 +212,16 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     await expect(others.getByRole("link", "Ouvrir Z2", { exact: true })).toHaveAttribute("href", new RegExp(`/takeoff/${jobs.Z2}/review/targeted\\?versionId=${ids.versionId}&line=`));
     await expect(decision.getByRole("button", /^Retirer 1,00 m/)).toBeVisible();
     await expect(screen.getByText("1 ligne à trancher avant l’application.", { exact: true })).toBeVisible();
-    await recordEvidence(ui.army, "TKR02-blocked-in-review", { ids, jobs, reason: await decision.textContent() });
+    // Tool layout (TI-658): the page never scrolls, only its panels, at 1440 × 900 and 1920 × 1080.
+    const screenshots: string[] = [];
+    for (const size of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }]) {
+      await ui.browser.setViewport(size);
+      await expect(screen.getByRole("listbox", "Lignes à trancher", { exact: true })).toBeVisible();
+      const [scrollHeight, innerHeight] = await ui.browser.evaluate(() => [document.scrollingElement!.scrollHeight, window.innerHeight]);
+      expect([size.width, scrollHeight <= innerHeight]).toEqual([size.width, true]);
+      screenshots.push(await ui.app.screenshot(`takeoff-targeted-review-duplicate-${size.width}`));
+    }
+    await recordEvidence(ui.army, "TKR02-blocked-in-review", { ids, jobs, reason: await decision.textContent(), screenshots });
 
     // Settled by direct entry: 4 then Enter on the Z1 line (5.00 → 4.00 m); the answer carries the Z2 partner too.
     await ui.browser.keyboard.press("4");
