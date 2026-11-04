@@ -1,4 +1,5 @@
-// Test-only transport. Only the dedicated local browser test preloads this file.
+// Test-only transport. Only the local browser tests (chatgpt-local, takeoff-lab) preload this file; the owned takeoff
+// worker of TKW10 imports it after its network guard (scripts/tester-army/takeoff-worker-attempt.mjs) for Decisions only.
 import assert from "node:assert/strict";
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -121,8 +122,12 @@ globalThis.fetch = async (input, init) => {
     // Vector groups (TI-662 L3c): one choice per group alias; the entry names the task and its images, others keep their shape.
     const vectorGroups = evidence.task === "takeoff_vector_groups";
     const images = content.filter((part) => part.type === "input_image").length;
+    // `fail` (TI-662 L3d, worker): the provider answers 500, so callOpenAiDecisions returns `failed`; the entry says so.
+    const fail = JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).fail === true;
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length,
-      ...(triage ? { task: "page-triage", page: evidence.page, images } : vectorGroups ? { task: "vector-groups", images } : {}) }) + "\n");
+      ...(triage ? { task: "page-triage", page: evidence.page, images } : vectorGroups ? { task: "vector-groups", images } : {}),
+      ...(fail ? { failed: true } : {}) }) + "\n");
+    if (fail) return new Response("{}", { status: 500, headers: { "content-type": "application/json" } });
     const deadline = Date.now() + 15_000;
     while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).hold) {
       if (Date.now() >= deadline) throw new Error("The controlled Decisions response was not released.");

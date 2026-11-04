@@ -47,7 +47,7 @@ function scale(denominator: number | null): VectorPageReading["scale"] {
 function reading(input: { page?: number; denominator: number | null; totals?: MeasuredNetwork[]; surfaces?: RoomSurface[] }): VectorPageReading {
   return {
     version: 1, page: input.page ?? 1, mode: "layers", size_pt: [3370.39, 2383.94], userUnit: 1, rotate: 0,
-    counts: { operators: 0, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0, texts: 0, groups: 0, groups_visible: 0 },
+    counts: { operators: 0, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0, texts: 0, groups: 0, groups_visible: 0, to_review: 0 },
     scale: scale(input.denominator), legend: { version: 1, entries: [], colors: [], boxes: [] }, groups: [], detection: null,
     networks: {
       rule_version: 1, runs: [], totals: input.totals ?? [],

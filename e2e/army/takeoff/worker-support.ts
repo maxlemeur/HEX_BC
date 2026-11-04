@@ -6,6 +6,7 @@ import path from "node:path";
 import { expect } from "e2e";
 
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
+import type { VectorPageDecisions } from "@/lib/takeoff/vectors/persistence";
 
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
@@ -26,7 +27,8 @@ export type WorkerResult = {
   providerCalls: number;
   /** TI-662: the persisted vector reading, read by the worker's service role. */
   vectorPages: Array<{ id: string; tenantId: string; resultId: string; planFileId: string | null; sourceFileName: string | null; sourcePage: number;
-    scale: { status: string; denominator: number | null }; detection: number | null; classes: Array<string | null> }>;
+    scale: { status: string; denominator: number | null }; detection: number | null; classes: Array<string | null>;
+    sources: Array<string | null>; confidences: Array<number | null>; decisions: VectorPageDecisions | null }>;
   geometries: Array<{ itemId: string; tenantId: string; pageId: string; kind: string; network: string | null; lengthM: number | null; segments: number }>;
 };
 
@@ -44,8 +46,32 @@ export async function signUpWorkerOwner(ui: WorkerUi, tag: string): Promise<Work
   return { ...await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag, password }), password };
 }
 
+/**
+ * TI-662 L3d: Decisions for the owned worker's vector groups, answered by e2e/army/local/chatgpt-provider-fixture.mjs, which
+ * the worker child installs over its network guard (never a paid call). `control` is the fixture's control file
+ * ({ fail: true } answers 500), `transportLog` the JSONL of its calls.
+ */
+export type WorkerDecisions = { control: string; transportLog: string };
+
+/** The control file and the empty call log of a journey's Decisions fixture, in its run's artifacts. */
+export async function workerDecisionsFixture(ui: WorkerUi, journey: string, control: { fail?: boolean } = {}): Promise<WorkerDecisions> {
+  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", ui.army.runPrefix);
+  await mkdir(directory, { recursive: true });
+  const fixture = { control: path.join(directory, `${journey}-decisions-control.json`), transportLog: path.join(directory, `${journey}-decisions.jsonl`) };
+  await writeFile(fixture.control, JSON.stringify(control));
+  await writeFile(fixture.transportLog, "");
+  return fixture;
+}
+
+/** The fixture's Decisions calls since `from` (a line count), never a forbidden provider. */
+export async function readWorkerDecisionsCalls(fixture: WorkerDecisions, from = 0) {
+  const lines = (await readFile(fixture.transportLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(lines.filter((entry) => entry.provider === "forbidden")).toEqual([]);
+  return lines.slice(from).filter((entry) => entry.provider === "decisions-fixture");
+}
+
 export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
-  options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner } = {}) {
+  options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner; decisions?: WorkerDecisions } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
     throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
   }
@@ -57,6 +83,9 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
     ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
     // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
     ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
+    // TI-662 L3d: Decisions for its vector groups, only with the vector reading, the takeoff opt-in and the fixture's key.
+    ...(options.vectors && options.decisions ? { MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture",
+      ARMY_DECISIONS_CONTROL: options.decisions.control, ARMY_CHATGPT_TRANSPORT_LOG: options.decisions.transportLog } : {}),
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
@@ -149,11 +178,13 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   return { ids, jobId: job.id, fileName: file.file_name };
 }
 
-// TI-662: a level C job on a fictional vector plan (vector-plan-fixture.ts) uploaded through the plans UI.
-export async function launchWorkerVectorPlan(ui: WorkerUi) {
+// TI-662: a level C job on a fictional vector plan (vector-plan-fixture.ts) uploaded through the plans UI; TKW10 adds
+// the layer Decisions classifies, under its own owner.
+export async function launchWorkerVectorPlan(ui: WorkerUi, { journey = "TKW08", tag = "VPL", decisionsLayer = false }:
+  { journey?: string; tag?: string; decisionsLayer?: boolean } = {}) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
-  const owner = await signUpWorkerOwner(ui, "VPL");
-  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-TKW08`, title: "Plan vectoriel" }, ui.army);
+  const owner = await signUpWorkerOwner(ui, tag);
+  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${journey}`, title: "Plan vectoriel" }, ui.army);
   expect((await readEstimate(ui.browser, ids.versionId)).version.calc_engine_version).toBe(2);
   const plans = await createPlanSet(ui, ui.army, ids, `${ui.army.runPrefix} plans vectoriels`);
   // « R+1 » is the name the user sees and the worker reads the level from; plan_files.file_name keeps the
@@ -163,7 +194,7 @@ export async function launchWorkerVectorPlan(ui: WorkerUi) {
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", ui.army.runPrefix);
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, fileName);
-  const bytes = await buildVectorPlanPdf();
+  const bytes = await buildVectorPlanPdf({ decisionsLayer });
   await writeFile(filePath, bytes);
   await ui.screen.getByRole("heading", plans.name, { exact: true }).click();
   const [uploaded] = await Promise.all([
@@ -192,7 +223,7 @@ export async function launchWorkerVectorPlan(ui: WorkerUi) {
   const jobId = await seedJob();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
-  await recordEvidence(ui.army, "TKW08-vector-plan-created", { ids, planSetId: plans.id, file, job, tenantId, owner: owner.userId,
+  await recordEvidence(ui.army, `${journey}-vector-plan-created`, { ids, planSetId: plans.id, file, job, tenantId, owner: owner.userId,
     boundary: "Fictional vector PDF uploaded through the plans UI by the journey's dedicated owner; its pending level C jobs are seeded on the owned stack." });
   return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id, seedJob, owner };
 }

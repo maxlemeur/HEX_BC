@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
 import type { MeasuredNetwork, NetworkRun } from "@/lib/takeoff/vectors/measure";
-import { budgetVectorItems, VECTOR_GEOMETRY_LIMITS, VECTOR_PAGE_LIMITS, vectorItemRecords, type VectorItemRecord } from "@/lib/takeoff/vectors/persistence";
+import {
+  budgetVectorItems, VECTOR_GEOMETRY_LIMITS, VECTOR_PAGE_LIMITS, vectorItemRecords, vectorPageRecord, VectorPageRecordSchema, type VectorItemRecord,
+  type VectorPageDecisions,
+} from "@/lib/takeoff/vectors/persistence";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 
@@ -32,12 +35,15 @@ import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 // - a job of many rooms and networks persists more geometries or segments
 //   than its review reads (read-contracts.ts), so the whole viewer fails with
 //   413 instead of showing the pages that fit.
+// The Decisions summary of a page (worker, TI-662 L3d, written before the code):
+// - a page row stored before it (no summary) no longer reads;
+// - a summary holds an unknown stop, or an unbounded message.
 
 function reading(input: { totals?: MeasuredNetwork[]; runs?: NetworkRun[]; surfaces?: RoomSurface[]; denominator?: number | null }): VectorPageReading {
   const denominator = input.denominator === undefined ? 50 : input.denominator;
   return {
     version: 1, page: 1, mode: "layers", size_pt: [3370.39, 2383.94], userUnit: 1, rotate: 0,
-    counts: { operators: 0, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0, texts: 0, groups: 0, groups_visible: 0 },
+    counts: { operators: 0, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0, texts: 0, groups: 0, groups_visible: 0, to_review: 0 },
     scale: {
       rule_version: 1, status: denominator === null ? "unverified" : "verified", reason: denominator === null ? "no_scale" : null, denominator,
       cartouche: denominator === null ? null : { denominator, text: `Échelle 1/${denominator}`, labelled: true },
@@ -169,5 +175,27 @@ describe("vector items within the review's read limits (review of PR #147)", () 
       [4, 0, "item_budget: 1 geometries and 1 segments over the 4 geometries and 20 segments the review reads"],
       [5, 0, "extraction_timeout: fictional"],
     ]);
+  });
+});
+
+describe("the Decisions summary of a page record (worker, TI-662 L3d)", () => {
+  const summary: VectorPageDecisions = {
+    prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, dedicated_left_out: 0, calls: { batch: 1, dedicated: 1, failed: 1 },
+    answered: 2, total_tokens: 1200, latency_ms: 900, stop: { reason: "call_failed", message: "Fictional failure.", from_earlier_page: false },
+  };
+
+  it("still reads a page row stored before it, and keeps the summary when given", () => {
+    const before = vectorPageRecord(reading({}), location);
+    expect(before).not.toHaveProperty("decisions");
+    expect(VectorPageRecordSchema.parse(JSON.parse(JSON.stringify(before)))).toEqual(before);
+    expect(vectorPageRecord(reading({}), location, summary).decisions).toEqual(summary);
+  });
+
+  it("refuses an unknown stop and cuts a long message to its bound", () => {
+    const record = vectorPageRecord(reading({}), location, summary);
+    expect(() => VectorPageRecordSchema.parse({ ...record, decisions: { ...summary, stop: { ...summary.stop, reason: "retry" } } })).toThrow();
+    expect(() => VectorPageRecordSchema.parse({ ...record, decisions: { ...summary, evidence: {} } })).toThrow();
+    const long = vectorPageRecord(reading({}), location, { ...summary, stop: { ...summary.stop!, message: "x".repeat(400) } });
+    expect(long.decisions?.stop?.message).toHaveLength(300);
   });
 });

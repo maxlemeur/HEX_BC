@@ -9,7 +9,10 @@ import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } 
 import { ownedEstimateContext, querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
-import { launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, startOwnedWorker } from "./worker-support";
+import {
+  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readWorkerDecisionsCalls, startOwnedWorker,
+  workerDecisionsFixture,
+} from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
 
@@ -312,7 +315,9 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   const vectorItemIds = Object.fromEntries(completed.items.filter((item) => item.unit === "ml").map((item) => [item.designation, item.id]));
   const roomItemId = completed.items.find((item) => item.designation === VECTOR_PLAN.room.designation)!.id;
   expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId, sourceFileName: fileName, sourcePage: 1,
-    scale: { status: "format", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"] }]);
+    scale: { status: "format", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"],
+    // Classes read by keywords; without MERGEONE_TAKEOFF_DECISIONS, no Decisions summary (TI-662 L3d).
+    sources: ["keyword", "keyword", "keyword"], confidences: [null, null, null], decisions: null }]);
   const [vectorPage] = completed.vectorPages;
   expect([...completed.geometries].sort((left, right) => (left.network ?? "").localeCompare(right.network ?? ""))).toEqual([
     { itemId: roomItemId, tenantId, pageId: vectorPage.id, kind: "surface", network: null, lengthM: null, segments: 0 },
@@ -448,7 +453,9 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
   const [resultId] = completed.resultIds;
   // Without the calibration the page would be « échelle non vérifiée » (no printed scale) and give no measure.
   expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId: null, sourceFileName: fileName, sourcePage: 1,
-    scale: { status: "calibrated", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"] }]);
+    scale: { status: "calibrated", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"],
+    // Classes read by keywords; without MERGEONE_TAKEOFF_DECISIONS, no Decisions summary (TI-662 L3d).
+    sources: ["keyword", "keyword", "keyword"], confidences: [null, null, null], decisions: null }]);
   expect(completed.items.filter((item) => item.is_excluded).map(({ designation, quantity, unit }) => ({ designation, quantity, unit }))).toEqual([
     ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml" })),
     { designation: VECTOR_PLAN.room.designation, quantity: VECTOR_PLAN.room.area_m2, unit: "m2" },
@@ -506,4 +513,85 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
   expect([denied.status, denied.body.ok, denied.body.data, denied.body.error?.code]).toEqual([404, false, undefined, "TAKEOFF_JOB_NOT_FOUND"]);
   await recordEvidence(ui.army, "TKW09-source-missing-and-foreign", { jobId, sourceRemoved: true, sourceDownloadUrl: null, foreignTenant: foreign.tenantId,
     api: denied.status });
+});
+
+// TI-662 L3d: with MERGEONE_TAKEOFF_DECISIONS=1, the worker asks Decisions about the one group of the plan no keyword names
+// (vector-plan-fixture.ts `decisionsLayer`), answered EU at 0.8 by the provider fixture over the worker's network guard: one
+// batch call of one question, the group classified and measured, its source and confidence persisted and shown in the review.
+// A failed call is never retried, never fails the job, and leaves the group « à revoir ». Fictional plan, no paid call.
+armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the worker, shown with its source; a failed call leaves it à revoir without failing the job", options, async (ui) => {
+  const { ids, jobId, fileName, seedJob, owner } = await launchWorkerVectorPlan(ui, { journey: "TKW10", tag: "VDE", decisionsLayer: true });
+  const decisions = await workerDecisionsFixture(ui, "TKW10");
+  const answered = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner, decisions }).done;
+  expect(answered.outcome.status).toBe("completed");
+  expect(answered.job).toMatchObject({ status: "completed", level: "C" });
+  expect(answered.providerCalls).toBe(1);
+  // One batch call, one question, its two images (page thumbnail and contact sheet); 0.8 is not asked again alone.
+  expect(await readWorkerDecisionsCalls(decisions)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2 }]);
+  const [page] = answered.vectorPages;
+  expect(answered.vectorPages).toHaveLength(1);
+  // Groups longest first: the room's walls (300 mm), EF (100 mm), the unnamed red pipe (80 mm), EU/EV (60 mm).
+  expect(page).toMatchObject({ scale: { status: "format", denominator: 50 }, detection: 1, classes: ["mur", "EF", "EU", "EUV"],
+    sources: ["keyword", "keyword", "decisions", "keyword"], confidences: [null, null, 0.8, null] });
+  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v1", candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
+    calls: { batch: 1, dedicated: 0, failed: 0 }, answered: 1, total_tokens: 1, latency_ms: expect.any(Number), stop: null });
+  const exclusion = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
+  // The red pipe is measured at 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
+  expect(answered.items.filter((item) => item.unit === "ml").map(({ designation, quantity, is_excluded, exclusion_reason }) => ({ designation, quantity, is_excluded, exclusion_reason })))
+    .toEqual([
+      { designation: "EF PER DN 16", quantity: 5, is_excluded: true, exclusion_reason: exclusion },
+      { designation: "EU", quantity: VECTOR_PLAN.decisions.length_m, is_excluded: true, exclusion_reason: exclusion },
+      { designation: "EU/EV PVC DN 40", quantity: 3, is_excluded: true, exclusion_reason: exclusion },
+    ]);
+  expect(answered.geometries.filter((geometry) => geometry.network === "EU")).toEqual([expect.objectContaining({ kind: "network", lengthM: 4, segments: 1 })]);
+
+  // The API the viewer reads: the group's class, source and confidence, and the page's Decisions summary.
+  const read = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
+  expect([read.status, read.body.ok, read.body.data.pages.length]).toEqual([200, true, 1]);
+  const [readPage] = read.body.data.pages;
+  const decided = readPage.reading.groups.find((group) => group.source === "decisions");
+  expect(decided).toMatchObject({ class: "EU", confidence: 0.8, near_white: false });
+  expect(readPage.items.find((item) => item.geometry.network === "EU")?.geometry.groups).toEqual([decided!.id]);
+  expect(readPage.reading.decisions).toMatchObject({ calls: { batch: 1, dedicated: 0, failed: 0 }, stop: null });
+
+  // The review: each network with its source, EU with Decisions' confidence; nothing left « à revoir ».
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
+  await expect(viewer).toBeVisible({ timeout: 30_000 });
+  await expect(viewer.getByText("Détection 100 %", { exact: true })).toBeVisible();
+  const networks = viewer.getByRole("group", "Réseaux", { exact: true });
+  // Each row: the network, its length, then how its class was read.
+  await expect(networks).toContainText(/EF\s*5\.00 m\s*mots-clés\s*EU\s*4\.00 m\s*Decisions 80 %\s*EUV\s*3\.00 m\s*mots-clés/);
+  await expect(viewer.getByText("Decisions : 1 appel, 1 jeton, 1 réponse", { exact: true })).toBeVisible();
+  await expect(viewer.getByText(/à revoir/)).toHaveCount(0);
+  await expect(viewer.getByText(/éléments affichés$/)).toHaveText("4 / 4 éléments affichés");
+  const drawn = await readVectorViewerDrawing(ui);
+  expect(drawn.lines.map((line) => line.network).sort()).toEqual(["EF", "EU", "EUV"]);
+  await recordEvidence(ui.army, "TKW10-decisions-answered", { ids, jobId, vectorPage: page, items: answered.items, geometries: answered.geometries,
+    boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 and MERGEONE_TAKEOFF_DECISIONS=1; Decisions answered by the provider fixture installed over the worker's network guard; no paid call; fictional vector plan." });
+
+  // A failed Decisions call: no retry, the job completes, the group stays « à revoir » and is not measured.
+  const failing = await workerDecisionsFixture(ui, "TKW10-failed", { fail: true });
+  const failedJobId = await seedJob();
+  const failed = await startOwnedWorker(ui, ids, failedJobId, "success", { vectors: true, owner, decisions: failing }).done;
+  expect(failed.outcome.status).toBe("completed");
+  expect(failed.job).toMatchObject({ status: "completed", level: "C" });
+  expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2, failed: true }]);
+  const [failedPage] = failed.vectorPages;
+  // Classified groups first in the page record, then the unclassified one.
+  expect(failedPage).toMatchObject({ classes: ["mur", "EF", "EUV", null], sources: ["keyword", "keyword", "keyword", null], confidences: [null, null, null, null] });
+  expect(failedPage.decisions).toMatchObject({ candidates: 1, calls: { batch: 1, dedicated: 0, failed: 1 }, answered: 0, total_tokens: 0,
+    stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } });
+  expect(failed.items.map((item) => item.designation)).toEqual(["ARMY worker pipe", "ARMY worker valve", "EF PER DN 16", "EU/EV PVC DN 40",
+    VECTOR_PLAN.room.designation].sort((left, right) => left.localeCompare(right)));
+  expect(failed.geometries.some((geometry) => geometry.network === "EU")).toBe(false);
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${failedJobId}/review`);
+  await expect(viewer).toBeVisible({ timeout: 30_000 });
+  await expect(viewer.getByText("Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("Decisions : 1 appel, 0 jeton, 0 réponse", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("1 groupe de tracés à revoir", { exact: true })).toBeVisible();
+  await expect(networks).not.toContainText(/EU\s*4\.00 m/);
+  await expect(viewer.getByText(/éléments affichés$/)).toHaveText("3 / 3 éléments affichés");
+  await recordEvidence(ui.army, "TKW10-decisions-failed", { failedJobId, fileName, vectorPage: failedPage, items: failed.items,
+    boundary: "The provider fixture answers 500 to the one Decisions call; the worker completes the job with its keyword reading." });
 });

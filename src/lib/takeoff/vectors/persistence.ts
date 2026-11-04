@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
+import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
 import { surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
@@ -11,9 +12,15 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 // contract), versioned and bounded like its tables (takeoff_vector_pages
 // 256 KiB, takeoff_item_geometries 512 KiB):
 // - per page: size, scale (status, reason, cartouche, format, cotes,
-//   calibration), legend codes, groups (class, source, length; the longest 400),
+//   calibration), legend codes, groups (class, source, confidence, length; the
+//   400 kept are the classified ones first, then the longest, so that the
+//   groups of every measured item stay readable), the count of groups « à
+//   revoir » on the whole page (optional: rows of before it lack it),
 //   detection, label counts, printed surfaces with their polygon area, zone and
-//   level (page_triage of TI-663 when it exists, else the file name);
+//   level (page_triage of TI-663 when it exists, else the file name); with
+//   Decisions in the worker, its summary (calls by kind, tokens, latency and
+//   why it stopped: never the evidence nor the images), optional: rows of
+//   before it stay valid at the same schema version;
 // - per item: network, material, DN, insulated, zone and level, the groups it
 //   comes from, its centreline segments (or room polygon) in metres from the
 //   page's top-left corner at the page scale, length, area, and the transform
@@ -34,6 +41,33 @@ export const VECTOR_GEOMETRY_LIMITS = { segments: 4000, polygon: 2000 } as const
 const finite = z.number().finite();
 const text = (max: number) => z.string().max(max);
 const VectorClassSchema = z.union([z.enum(NETWORK_CODES), z.enum(OTHER_CLASSES)]);
+
+/** Why Decisions stopped on a page: a stop of classifyVectorGroups, or the document's call caps (worker). */
+export const VECTOR_DECISIONS_STOP_REASONS = [
+  "budget_reached", "call_failed", "decisions_unavailable", "exception", "canvas_unavailable", "render_failed", "call_limit",
+] as const;
+const count = z.number().int().nonnegative();
+
+/** The Decisions classification of one page in the worker (worker-server.ts). */
+export const VectorPageDecisionsSchema = z.object({
+  prompt_version: text(64),
+  /**
+   * Groups asked, groups that could be, groups past the batch caps, groups whose weak batch answer was not asked again
+   * alone (the dedicated caps); null when the page was not asked (an earlier stop of the job).
+   */
+  candidates: count.nullable(),
+  eligible: count.nullable(),
+  left_out: count.nullable(),
+  dedicated_left_out: count.nullable(),
+  /** Calls sent; `failed`: failed, unavailable or thrown before sending, among them. */
+  calls: z.object({ batch: count, dedicated: count, failed: count }).strict(),
+  /** Groups given a class by Decisions (at any confidence: under 0.8, a proposal shown, neither classified nor measured). */
+  answered: count,
+  total_tokens: count,
+  latency_ms: count,
+  stop: z.object({ reason: z.enum(VECTOR_DECISIONS_STOP_REASONS), message: text(300), from_earlier_page: z.boolean() }).strict().nullable(),
+}).strict();
+export type VectorPageDecisions = z.infer<typeof VectorPageDecisionsSchema>;
 
 export const VectorPageRecordSchema = z.object({
   schema_version: z.literal(VECTOR_PERSISTENCE_SCHEMA_VERSION),
@@ -61,6 +95,9 @@ export const VectorPageRecordSchema = z.object({
   labels: z.object({ blocks: z.number().int(), attached: z.number().int(), superposed: z.number().int(), incomplete: z.number().int() }).strict().nullable(),
   surfaces: z.array(z.object({ room: text(120), printed_m2: finite, polygon_m2: finite.nullable(), deviation: finite.nullable() }).strict())
     .max(VECTOR_PAGE_LIMITS.surfaces),
+  /** Groups the review must still decide on the whole page (classify.ts groupsToReview); absent from rows of before it. */
+  to_review: count.optional(),
+  decisions: VectorPageDecisionsSchema.optional(),
 }).strict();
 export type VectorPageRecord = z.infer<typeof VectorPageRecordSchema>;
 
@@ -100,9 +137,13 @@ function round(value: number, digits = 3) {
   return Math.round(value * factor) / factor;
 }
 
-/** The page row of a reading, bounded: the longest groups first. */
-export function vectorPageRecord(reading: VectorPageReading, location: VectorPageRecord["location"]): VectorPageRecord {
-  const groups = [...reading.groups].sort((left, right) => right.length_pt - left.length_pt);
+/**
+ * The page row of a reading, bounded: the classified groups (a class or legend candidates) first, then the longest;
+ * with the summary of its Decisions classification when given.
+ */
+export function vectorPageRecord(reading: VectorPageReading, location: VectorPageRecord["location"], decisions?: VectorPageDecisions): VectorPageRecord {
+  const classified = (group: VectorPageReading["groups"][number]) => (group.class !== null || group.candidates.length > 0 ? 1 : 0);
+  const groups = [...reading.groups].sort((left, right) => classified(right) - classified(left) || right.length_pt - left.length_pt);
   return VectorPageRecordSchema.parse({
     schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, reading_version: reading.version, mode: reading.mode, size_pt: reading.size_pt,
     rotate: reading.rotate, location,
@@ -122,12 +163,14 @@ export function vectorPageRecord(reading: VectorPageReading, location: VectorPag
       length_pt: round(group.length_pt, 1), near_white: group.nearWhite, colors: group.colors.slice(0, 4),
     })),
     groups_total: reading.groups.length,
+    to_review: reading.counts.to_review,
     labels: reading.networks ? {
       blocks: reading.networks.labels.blocks, attached: reading.networks.labels.attached,
       superposed: reading.networks.labels.superposed, incomplete: reading.networks.labels.incomplete,
     } : null,
     surfaces: reading.surfaces.slice(0, VECTOR_PAGE_LIMITS.surfaces).map((surface) => ({
       room: surface.room.slice(0, 120), printed_m2: surface.printed_m2, polygon_m2: surface.polygon_m2, deviation: surface.deviation })),
+    ...(decisions ? { decisions: { ...decisions, stop: decisions.stop === null ? null : { ...decisions.stop, message: decisions.stop.message.slice(0, 300) } } } : {}),
   });
 }
 
@@ -185,8 +228,13 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   const metres = (value: number) => round((value * MM_PER_POINT * denominator) / 1000, 4);
   const segmentOf = ({ segment }: NetworkRun) => [metres(segment.x0), metres(segment.y0), metres(segment.x1), metres(segment.y1)] as [number, number, number, number];
   const scale = `1/${round(denominator, 2)} (${reading.scale.status})`;
+  // The groups the length comes from: a Decisions proposal under 0.8 is not measured (isMeasuredNetwork), never named.
+  // Decisions groups first, the least sure first: past the 64 named, the review still reads how the class was given.
+  const decisionsFirst = (group: VectorPageReading["groups"][number]) => (group.source === "decisions" ? group.confidence ?? 0 : 2);
   const groupsOf = (network: NetworkCode) => reading.groups
-    .filter((group) => group.class === network || group.candidates.includes(network)).map((group) => group.id.slice(0, 120)).slice(0, 64);
+    .filter((group) => (group.class === network && isMeasuredNetwork(group)) || group.candidates.includes(network))
+    .sort((left, right) => decisionsFirst(left) - decisionsFirst(right))
+    .map((group) => group.id.slice(0, 120)).slice(0, 64);
   const records: VectorItemRecord[] = [];
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;

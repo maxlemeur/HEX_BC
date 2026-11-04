@@ -7,13 +7,20 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
+import { CLASS_SOURCE_LABELS, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
 // the plan page rendered by pdfjs in the browser, the centrelines of its
 // measured items drawn over it per network, a toggle per network (Alt-click
 // isolates it), the room polygons (one « Surfaces » toggle), the detection
-// badge and the page scale (« échelle non vérifiée » and its reason). Data
+// badge and the page scale (« échelle non vérifiée » and its reason). Each
+// network says how its class was read (« mots-clés », « légende », « libellés »,
+// « Decisions 80 % » at the lowest confidence of its Decisions groups); the
+// page says what Decisions did (calls, tokens, why it stopped) and how many of
+// its groups stay « à revoir », as the worker counted them on the whole page
+// (classify.ts groupsToReview: visible groups without class, or a Decisions
+// proposal under 80 %, neither classified nor measured). Data
 // comes from GET /api/takeoff/jobs/{id}/
 // vector-pages under the user's session; the PDF from the plan file's signed
 // URL, or for a direct upload (no plan file) from the job's own, signed by that
@@ -31,6 +38,33 @@ const SURFACES = "Surfaces";
 const SURFACE_COLOR = "var(--color-info)";
 
 type VectorPage = TakeoffVectorReadingResponse["pages"][number];
+
+const percent = (value: number) => `${Math.round(value * 100)} %`;
+const plural = (count: number, word: string) => `${new Intl.NumberFormat("fr-FR").format(count)} ${word}${count > 1 ? "s" : ""}`;
+
+/** How each network's class was read, from the groups its items measure: sources in order, Decisions at its lowest confidence. */
+function networkSources(page: VectorPage | null) {
+  const groups = new Map((page?.reading.groups ?? []).map((group) => [group.id, group]));
+  const found = new Map<string, { sources: Set<ClassSource>; decisions: number | null }>();
+  for (const item of page?.items ?? []) {
+    if (item.geometry.kind !== "network") continue;
+    const entry = found.get(networkLabel(item)) ?? { sources: new Set<ClassSource>(), decisions: null };
+    found.set(networkLabel(item), entry);
+    for (const id of item.geometry.groups) {
+      const group = groups.get(id);
+      // A shared legend colour decided per run by the labels has no class of its own.
+      const source = (group?.source ?? (group && group.candidates.length > 0 ? "label" : null)) as ClassSource | null;
+      if (!source || !(source in CLASS_SOURCE_LABELS)) continue;
+      entry.sources.add(source);
+      if (source === "decisions" && group?.confidence != null) entry.decisions = Math.min(entry.decisions ?? 1, group.confidence);
+    }
+  }
+  // In one order (keywords, legend, labels, document, user, Decisions), whatever the order of the item's groups.
+  const order = Object.keys(CLASS_SOURCE_LABELS) as ClassSource[];
+  return new Map([...found].map(([name, { sources, decisions }]) => [name, order.filter((source) => sources.has(source))
+    .map((source) => (source === "decisions" && decisions !== null ? `${CLASS_SOURCE_LABELS.decisions} ${percent(decisions)}` : CLASS_SOURCE_LABELS[source]))
+    .join(", ")]));
+}
 
 /** « 1/50 », a calibrated « 1/47.6 ». */
 function formatDenominator(denominator: number) {
@@ -97,6 +131,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
     }));
   }, [page]);
   const surfaces = useMemo(() => (page?.items ?? []).filter((item) => item.geometry.kind === "surface"), [page]);
+  const sources = useMemo(() => networkSources(page), [page]);
 
   // The page's PDF: its plan file's signed URL (plan set), else the job's own upload, signed with the reading.
   const hasPage = page !== null;
@@ -222,6 +257,9 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
     if (drag.current) setOffset({ x: event.clientX - drag.current.x, y: event.clientY - drag.current.y });
   };
   const scaleStatus = page?.reading.scale.status ?? "unverified";
+  const decisions = page?.reading.decisions ?? null;
+  const decisionCalls = decisions ? decisions.calls.batch + decisions.calls.dedicated : 0;
+  const reviewCount = page?.reading.to_review ?? 0;
 
   return (
     <section aria-label="Lecture vectorielle du plan" className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[18rem_1fr]">
@@ -241,16 +279,24 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
         {scaleStatus === "unverified" ? (
           <p className="text-xs text-warning">Échelle non vérifiée ({page?.reading.scale.reason ?? "raison inconnue"}) : ni longueur ni surface sur cette page.</p>
         ) : null}
+        {decisions ? (
+          <p className="text-xs text-muted-foreground">
+            Decisions : {plural(decisionCalls, "appel")}, {plural(decisions.total_tokens, "jeton")}, {plural(decisions.answered, "réponse")}
+          </p>
+        ) : null}
+        {decisions?.stop ? <p role="status" className="text-xs text-warning">{decisions.stop.message}</p> : null}
+        {reviewCount > 0 ? <p className="text-xs text-muted-foreground">{plural(reviewCount, "groupe")} de tracés à revoir</p> : null}
         <div role="group" aria-label="Réseaux" className="flex flex-col gap-1">
           {networks.length === 0 ? <p className="text-xs text-muted-foreground">Aucun réseau mesuré sur cette page.</p> : null}
           {networks.map((entry) => (
-            <label key={entry.name} className="flex items-center gap-2 text-sm" title="Alt-clic : n’afficher que ce réseau">
+            <label key={entry.name} className="flex flex-wrap items-center gap-x-2 text-sm" title="Alt-clic : n’afficher que ce réseau">
               {/* One handler: React fires onClick and onChange for the same click, so Alt is read from the change's click. */}
               <input type="checkbox" checked={!hidden.has(entry.name)} aria-label={`Afficher ${entry.name}`}
                 onChange={(event) => toggle(entry.name, (event.nativeEvent as MouseEvent).altKey === true)} />
               <span aria-hidden className="inline-block size-3 rounded-sm" style={{ background: entry.color }} />
               <span className="font-medium">{entry.name}</span>
               <span className="ml-auto tabular-nums text-muted-foreground">{entry.length.toFixed(2)} m</span>
+              {sources.get(entry.name) ? <span className="basis-full pl-5 text-xs text-muted-foreground">{sources.get(entry.name)}</span> : null}
             </label>
           ))}
         </div>
