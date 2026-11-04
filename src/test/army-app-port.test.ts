@@ -186,9 +186,13 @@ describe("Army application port probe", () => {
     );
     expect(((failure as Error).cause as NodeJS.ErrnoException).code).toBe("EADDRINUSE");
 
-    // The real listing, where the host has lsof (macOS, the CI runners).
+    // The real listing, where the host has lsof (macOS, the CI runners). Its
+    // command name is the process's on macOS (`node`) and its main thread's
+    // on Linux (`node-MainThread`): the PID identifies the listener.
     if (!spawnSync("lsof", ["-v"]).error) {
-      await expect(assertLocalAppPortAvailable(port)).rejects.toThrow(`(EADDRINUSE, listening: node (PID ${neighbour.pid}))`);
+      await expect(assertLocalAppPortAvailable(port)).rejects.toThrow(
+        new RegExp(`\\(EADDRINUSE, listening: [A-Za-z0-9._+-]+ \\(PID ${neighbour.pid}\\)\\)\\. `),
+      );
     }
   }, 30_000);
 
