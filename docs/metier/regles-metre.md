@@ -284,7 +284,8 @@ modification client) ou arrive périmée (les nouvelles lignes du worker), les l
 les bloque, dans le trigger comme dans `checkApplyGuard` : jamais un ancien « passe »
 appliqué. Seul ce drapeau bouge, `updated_at` reste le jeton de la revue.
 
-Chaque invalidation date la ligne (`rules_stale_at`), même déjà périmée. L'écrivain
+Chaque invalidation date la ligne (`rules_stale_at`), même déjà périmée, et même une
+ligne qui attend sa première évaluation (écrite périmée par le worker). L'écrivain
 n'écrit une ligne que telle que le calcul l'a lue, `updated_at` et `rules_stale_at`
 compris : un calcul qui l'a lue avant l'édition d'un partenaire, même validée après
 son contrôle de l'empreinte de version, ne lève jamais cette invalidation.

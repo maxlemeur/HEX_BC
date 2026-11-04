@@ -109,8 +109,11 @@ from (values
   ('9e000000-0000-4000-8000-000000000408'::uuid, '9e000000-0000-4000-8000-000000000306'::uuid, 'ECS inox DN 22', 3::numeric, 'ml', 0.95, '[]', 8),
   -- 409 (Z1, job 307) passes while its duplicate 410 (Z2, job 308) is excluded.
   ('9e000000-0000-4000-8000-000000000409'::uuid, '9e000000-0000-4000-8000-000000000307'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]', 9),
-  ('9e000000-0000-4000-8000-000000000410'::uuid, '9e000000-0000-4000-8000-000000000308'::uuid, 'EF inox DN 22', 3::numeric, 'ml', 0.95, '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]', 10)
+  ('9e000000-0000-4000-8000-000000000410'::uuid, '9e000000-0000-4000-8000-000000000308'::uuid, 'EF inox DN 22', 3::numeric, 'ml', 0.95, '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]', 10),
+  -- 411 (job 307): a line the worker wrote with rule inputs, awaiting its first evaluation (stale, never evaluated).
+  ('9e000000-0000-4000-8000-000000000411'::uuid, '9e000000-0000-4000-8000-000000000307'::uuid, 'EF inox DN 22', 2::numeric, 'ml', 0.95, '[]', 11)
 ) as fixture(id, job_id, designation, quantity, unit, confidence, results, rank);
+update public.takeoff_items set rules_stale = true where id = '9e000000-0000-4000-8000-000000000411';
 
 -- One lock per version: the admin holds the override's draft, the engineer every other one.
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
@@ -319,6 +322,26 @@ select is(
 reset role;
 select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true,
   'the line stays stale until a computation that read it after the edit');
+-- The same for a line awaiting its first evaluation (Codex review of L5b): a first computation read 411 (never
+-- evaluated) before its partner's edit; the edit must move its token too, or the obsolete first pass is stored.
+select set_config('test.unevaluated_updated_at', (select updated_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000411'), true);
+select set_config('test.unevaluated_stale_at', coalesce((select to_jsonb(item) ->> 'rules_stale_at' from public.takeoff_items as item
+  where item.id = '9e000000-0000-4000-8000-000000000411'), ''), true);
+set local role authenticated;
+select is(pg_temp.rules_exec('peer-4', 'update public.takeoff_items set quantity = 2.5 where id = ''9e000000-0000-4000-8000-000000000410'''), 'ok',
+  'the engineer corrects the Z2 line');
+reset role;
+set local role service_role;
+select is(
+  (select count(*)::integer from public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
+    '9e000000-0000-4000-8000-000000000107', jsonb_build_array(jsonb_build_object('id', '9e000000-0000-4000-8000-000000000411',
+      'results', '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]'::jsonb,
+      'expected_updated_at', current_setting('test.unevaluated_updated_at'),
+      'expected_stale_at', nullif(current_setting('test.unevaluated_stale_at'), ''))), '[]'::jsonb, null)),
+  0, 'a first computation that read a line before its partner''s edit never stores its obsolete pass');
+reset role;
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000411'), true,
+  'the line awaiting its first evaluation stays stale');
 set local role authenticated;
 
 reset role;

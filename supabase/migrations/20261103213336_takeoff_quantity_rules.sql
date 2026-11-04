@@ -206,7 +206,7 @@ begin
   -- TI-664: the rules read the quantity, its entry, the unit, the exclusion
   -- and the page (the scale rule) as they are now; after a client edit their
   -- results wait for the server.
-  if old.rules_evaluated_at is not null
+  if (old.rules_evaluated_at is not null or old.rules_stale)
     and (
       new.quantity is distinct from old.quantity
       or new.quantity_entered_by is distinct from old.quantity_entered_by
@@ -229,8 +229,9 @@ revoke all on function public.enforce_authenticated_takeoff_item_fields()
 -- The rules of one line read the other lines of its version (a run drawn on two
 -- zone plans, two rooms of one page): when a line is made stale (a client edit,
 -- even of a line already stale) or arrives stale (the worker's new lines), the
--- evaluated lines of the version's unapplied jobs are made stale with it, their
--- rules_stale_at moved (a computation that read them before never clears it). If the server's computation then fails or is
+-- lines the rules read in the version's unapplied jobs (evaluated, or awaiting
+-- their first evaluation) are made stale with it, their rules_stale_at moved (a
+-- computation that read them before never clears it). If the server's computation then fails or is
 -- skipped, the stored state blocks them too, in the apply trigger as in
 -- checkApplyGuard (fail closed); the computation clears them. Only the stale
 -- flag moves (updated_at stays the review's token, set_takeoff_items_updated_at
@@ -254,7 +255,8 @@ begin
     where job.status = 'completed'::public.takeoff_job_status
       and item.job_id = job.id
       and item.tenant_id = job.tenant_id
-      and item.rules_evaluated_at is not null
+      -- Every line the rules read: evaluated, or awaiting its first evaluation (stale since the worker wrote it).
+      and (item.rules_evaluated_at is not null or item.rules_stale)
       and (job.tenant_id, job.estimate_version_id) in (
         select changed_job.tenant_id, changed_job.estimate_version_id
         from new_rows as changed
@@ -268,7 +270,8 @@ begin
     where job.status = 'completed'::public.takeoff_job_status
       and item.job_id = job.id
       and item.tenant_id = job.tenant_id
-      and item.rules_evaluated_at is not null
+      -- Every line the rules read: evaluated, or awaiting its first evaluation (stale since the worker wrote it).
+      and (item.rules_evaluated_at is not null or item.rules_stale)
       and (job.tenant_id, job.estimate_version_id) in (
         select changed_job.tenant_id, changed_job.estimate_version_id
         from new_rows as changed
