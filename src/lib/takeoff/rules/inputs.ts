@@ -63,8 +63,11 @@ export function nonObservableCause(designation: string): NonObservableCause | nu
 
 export type DesignationLine = { designation: string; category?: string | null; evidence?: string | null; unit: string; quantity: number };
 
-/** Sizes printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" »); a thickness (« ép. 20 mm ») is none. */
-const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|(?<!(?:^|[^A-Za-zÀ-ÿ])[ÉéEe]p(?:aisseur)?\.?\s*)\b\d+(?:[.,]\d+)?\s*mm\b|\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|\b\d\/\d\s*(?:"|”|pouces?)/gi;
+/**
+ * Sizes printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" », « 1"1/4 »); a thickness
+ * (« ép. 20 mm », « ép. 2,20 mm ») is none. A size never starts inside a number (« 20 mm » of « 2,20 mm »).
+ */
+const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|(?<!\d[.,])\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|(?<!(?:^|[^A-Za-zÀ-ÿ])[ÉéEe]p(?:aisseur)?\.?\s*)(?<!\d[.,])\b\d+(?:[.,]\d+)?\s*mm\b|(?<!\d[.,])\b\d+\s*(?:"|”)\s*\d\/\d\b|(?<!\d[.,])\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|(?<!\d[.,])\b\d\/\d\s*(?:"|”|pouces?)/gi;
 
 /**
  * Inputs of a line the model proposed (levels B and C): read in its text, never in its quantity.
@@ -107,7 +110,10 @@ function printedSize(raw: string) {
   const marked = /^(DN|[Øø⌀])\s*-?\s*(\d+(?:[.,]\d+)?)$/i.exec(text);
   if (marked) return `${/^dn$/i.test(marked[1]) ? "DN" : "Ø"} ${marked[2].replace(",", ".")}`;
   const millimetres = /^(\d+(?:[.,]\d+)?)\s*mm$/i.exec(text);
-  return millimetres ? `${millimetres[1].replace(",", ".")} mm` : text;
+  if (millimetres) return `${millimetres[1].replace(",", ".")} mm`;
+  // « 1"1/4 » is « 1 1/4" ».
+  const compound = /^(\d+)\s*["”]\s*(\d\/\d)$/.exec(text);
+  return compound ? `${compound[1]} ${compound[2]}"` : text;
 }
 
 /** The first size a designation prints that the material's series lacks (null: every printed size is known). */

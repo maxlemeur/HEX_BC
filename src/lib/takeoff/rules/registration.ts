@@ -198,15 +198,20 @@ function candidates(reference: PageAnchors, other: PageAnchors): Candidate[] {
 
 type Landing = { lines: number; offsets: Array<[number, number]>; box: [number, number, number, number] | null };
 
-/** Lines of `other`, moved by (dx, dy), that land on a line of `reference`, both ends within the tolerance. */
+/**
+ * Lines of `other`, moved by (dx, dy), that land on a line of `reference`, both ends within the tolerance. Each line of
+ * `reference` is credited once: strokes drawn over one another never add up to the support of a translation.
+ */
 function land(reference: PageAnchors, other: PageAnchors, index: EndIndex, dx: number, dy: number): Landing {
   const tolerance = REGISTRATION.lineTolerance_m;
   const offsets: Array<[number, number]> = [];
+  const credited = new Set<number>();
   let lines = 0;
   let box: [number, number, number, number] | null = null;
   for (const [x0, y0, x1, y1] of other.lines) {
     const ax = x0 + dx, ay = y0 + dy, bx = x1 + dx, by = y1 + dy;
     let best: [number, number, number, number] | null = null;
+    let bestLine = -1;
     let bestDistance = Infinity;
     for (const id of index.near(ax, ay, tolerance)) {
       const line = reference.lines[id >> 1];
@@ -218,9 +223,11 @@ function land(reference: PageAnchors, other: PageAnchors, index: EndIndex, dx: n
       if (distance < bestDistance) {
         bestDistance = distance;
         best = [sx, sy, ex, ey];
+        bestLine = id >> 1;
       }
     }
-    if (!best) continue;
+    if (!best || credited.has(bestLine)) continue;
+    credited.add(bestLine);
     lines += 1;
     offsets.push([best[0] - x0, best[1] - y0], [best[2] - x1, best[3] - y1]);
     box = [Math.min(box?.[0] ?? Infinity, best[0], best[2]), Math.min(box?.[1] ?? Infinity, best[1], best[3]),
