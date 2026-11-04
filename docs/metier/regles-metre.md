@@ -246,7 +246,8 @@ L'écrivain `write_takeoff_rule_results`, réservé au service :
 - laisse de côté, sans l'attendre, un job qu'une application tient ;
 - ne déplace jamais `updated_at`, qu'un client ne fixe jamais lui-même.
 
-Les résultats sont bornés avant écriture (raison de 1 000 caractères, 50 partenaires) : toute lecture les accepte.
+Les résultats sont bornés avant écriture (raison de 1 000 caractères, 50 partenaires, puis 64 Kio de texte jsonb, voir
+« Bornes, seuil et sérialisation ») : toute lecture les accepte et la colonne les stocke.
 
 **Niveaux** : les raisons des règles s'appliquent à toute ligne qui porte des entrées de
 règles, en B comme en C ; les raisons existantes (confiance faible, preuve, page)
@@ -308,6 +309,43 @@ pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
 
 - Sans elles, aucune règle ne lit la ligne : rien ne change pour un job sans entrées.
 - Le recalcul tourne dès qu'une version a des lignes qui en portent.
+
+### Bornes, seuil et sérialisation (TI-677, prérequis de l'activation)
+
+Migration `20261104215000_takeoff_rule_bounds_and_serialization.sql`.
+
+- **Taille mesurée comme la base la mesure** : les contraintes portent sur
+  `octet_length(valeur::text)` du jsonb (`, ` et `: `, nombres en notation décimale,
+  caractères en UTF-8). [`jsonb-size.ts`](../../src/lib/takeoff/rules/jsonb-size.ts) mesure
+  la même chose avant l'écriture ; pgTAP vérifie les mêmes tailles. Un NUL ou un
+  demi-surrogate ne se stocke pas.
+- **Résultats ≤ 64 Kio** : `boundRuleResults` essaie des bornes de plus en plus
+  courtes (désignations des partenaires, raison, partenaires gardés par longueur
+  commune décroissante, pièces recouvertes), puis, en dernier recours, une raison
+  courte et les seuls nombres des détails : des résultats valides tiennent toujours.
+  Code, statut, « acceptable », longueur comptée deux fois, taille du groupe et aire
+  recouverte ne changent jamais. L'écrivain SQL n'écrit pas une ligne hors bornes
+  (elle garde son état) au lieu d'échouer tout son lot.
+- **Ancres ≤ 256 Kio** : `pageAnchors` écarte les textes non stockables, puis les
+  textes les plus courts (toutes les lignes de bâtiment sont gardées) ; le worker
+  borne encore avant l'insertion de la page. Une page trop chargée n'écarte plus la
+  lecture vectorielle du job. Le banc lit les mêmes ancres.
+- **Seuil de confiance basse** : une seule lecture, `parseLowConfidenceThreshold`
+  (garde TS, moniteur, revue) et `takeoff_low_confidence_threshold` (trigger). Espaces
+  rognés comme `trim()` de JS, décimal d'au plus 100 caractères (exposant de 3
+  chiffres au plus, ni hexadécimal ni « Infinity »), entre 0 et 1, sinon 0,5 ; puis
+  arrondi au 1e-4 supérieur, la précision des confiances stockées : les mêmes lignes
+  bloquent qu'avec la valeur exacte, et l'audit d'un override porte la valeur que le
+  trigger compare.
+- **Enregistrements d'une version sérialisés** : la revue enregistre une ligne par
+  `update_takeoff_item_for_review`, qui prend le verrou de la version (celui de
+  l'écrivain) avant celui de la ligne. L'invalidation des voisines, l'insertion du
+  worker et la complétion d'un job prennent ce verrou avant de verrouiller des
+  lignes (quand les règles en lisent), et l'application d'un job aussi, avant la
+  ligne de son job. Deux enregistrements d'une même version s'attendent au lieu de
+  s'interbloquer ; l'écrivain, le worker et l'application aussi. Un enregistrement
+  pendant l'application d'un autre job de la version attend sa fin, au lieu d'échouer
+  sur les lignes du job appliqué (`TAKEOFF_ITEM_APPLIED_JOB_IMMUTABLE`).
 
 ## Revue ciblée (L5c)
 
