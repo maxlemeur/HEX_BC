@@ -22,14 +22,12 @@ import type {
   ZoneOverlapPartner,
 } from "@/lib/takeoff/rules/types";
 import {
-  ZONE_OVERLAP,
   ZONE_OVERLAP_VERSION,
   CoverageCache,
   commonLength,
   coveredBy,
   minCommonLength,
-  settleDuplicates,
-  sharedStretches,
+  settlePair,
   type Centreline,
   type DuplicatePair,
 } from "@/lib/takeoff/rules/zone-overlap";
@@ -40,6 +38,8 @@ import {
 // writes the results of the lines it may still change (jobs not applied).
 // - Lines are compared only when included; an excluded line still gets its
 //   results (for the review), never blocks and is no partner.
+// - Duplicates: a correction settles an isolated pair only; three lines or
+//   more joined by pairs stay failed until each is excluded or accepted.
 // - Versions: each result carries the version of its rule, which moves with
 //   its thresholds or reference table.
 
@@ -403,14 +403,19 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     const transformOf = (line: ZoneLine) => registered.transforms.get(line.page_key) as TakeoffFrameTransform;
     const overlapLine = (line: ZoneLine) => ({ line: { id: line.id, segments: line.geometry.segments_m }, transform: transformOf(line) });
     const reduction = (line: ZoneLine) => Math.max(0, (line.geometry.length_m ?? line.inputs.model_quantity) - line.quantity);
-    const partnersOf = (id: string, includedOnly: boolean) => pairs.filter((pair) => pair.left === id || pair.right === id)
-      .map((pair) => byId.get(pair.left === id ? pair.right : pair.left) as ZoneLine)
-      .filter((other) => !includedOnly || !other.is_excluded);
+    const pairsOf = new Map<string, Array<{ other: ZoneLine; overlap_m: number }>>();
+    for (const pair of pairs) {
+      for (const [id, other] of [[pair.left, pair.right], [pair.right, pair.left]]) {
+        pairsOf.set(id, [...(pairsOf.get(id) ?? []), { other: byId.get(other) as ZoneLine, overlap_m: pair.overlap_m }]);
+      }
+    }
+    // An excluded line counts nothing: only included lines are the other side of a pair.
+    const partnersOf = (id: string) => (pairsOf.get(id) ?? []).filter(({ other }) => !other.is_excluded);
     // What partners cover of a line: with each partner, its continuous stretches of at least that pair's minimum.
     const coveredOf = (line: ZoneLine, partners: readonly ZoneLine[]) => coveredBy(overlapLine(line).line, transformOf(line),
       partners.map((other) => ({ ...overlapLine(other),
-        minimum: minCommonLength([pages.get(line.page_key)?.denominator, pages.get(other.page_key)?.denominator]) })));
-    // Groups of duplicates: included lines joined by pairs. A stretch drawn on k pages counts k − 1 times too many.
+        minimum: minCommonLength([pages.get(line.page_key)?.denominator, pages.get(other.page_key)?.denominator]) })), coverage);
+    // Groups of duplicates: included lines joined by pairs.
     const parent = new Map<string, string>();
     const find = (id: string): string => {
       let root = id;
@@ -423,32 +428,24 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       const [left, right] = [find(pair.left), find(pair.right)];
       if (left !== right) parent.set(left, right);
     }
-    const groupOutcome = new Map<string, { settled: boolean; deficit_m: number }>();
-    const members = new Map<string, ZoneLine[]>();
+    const groupSize = new Map<string, number>();
     for (const line of levelLines) {
-      if (line.is_excluded || partnersOf(line.id, true).length === 0) continue;
-      const root = find(line.id);
-      members.set(root, [...(members.get(root) ?? []), line]);
+      if (!line.is_excluded && partnersOf(line.id).length > 0) groupSize.set(find(line.id), (groupSize.get(find(line.id)) ?? 0) + 1);
     }
-    for (const [root, lines] of members) {
-      // Lines of applied jobs first, then in the level's page order (the settlement itself depends on no order).
-      const ordered = [...lines].sort((left, right) => Number(right.frozen) - Number(left.frozen)
-        || (pages.get(left.page_key)?.order ?? 0) - (pages.get(right.page_key)?.order ?? 0) || byText(left.id, right.id));
-      const minimumOf = (line: ZoneLine, other: ZoneLine) =>
-        minCommonLength([pages.get(line.page_key)?.denominator, pages.get(other.page_key)?.denominator]);
-      const stretches = sharedStretches(ordered.map((line) => ({
-        ...overlapLine(line), id: line.id,
-        partners: partnersOf(line.id, true).map((other) => ({ ...overlapLine(other), id: other.id, minimum: minimumOf(line, other) })),
-      })), coverage);
-      groupOutcome.set(root, settleDuplicates(ordered.map((line) => ({ id: line.id, frozen: line.frozen, reduction_m: reduction(line) })),
-        stretches));
-    }
-    // An excluded line is shown as it would stand if it came back: settled when its own reduction removes all it shares.
-    const outcomeOf = (line: ZoneLine) => {
-      if (!line.is_excluded) return groupOutcome.get(find(line.id)) ?? { settled: true, deficit_m: 0 };
-      const covered = coveredOf(line, partnersOf(line.id, true));
-      const deficit = Math.max(0, Math.round((covered - reduction(line)) * 1000) / 1000);
-      return { settled: deficit <= ZONE_OVERLAP.settle_m, deficit_m: deficit <= ZONE_OVERLAP.settle_m ? 0 : deficit };
+    /**
+     * A line's group and whether it is counted once. A reduction says how much a line removed, never where: it settles
+     * an isolated pair (settlePair), never a group of three lines or more, whose lines stay failed until each is
+     * excluded or accepted; `overlap_m` is then what other lines draw of the line. An excluded line is shown as it
+     * would stand if it came back, with its partners and their groups.
+     */
+    const outcomeOf = (line: ZoneLine, partners: ReturnType<typeof partnersOf>) => {
+      const roots = new Set(partners.map(({ other }) => find(other.id)));
+      const size = line.is_excluded ? 1 + [...roots].reduce((sum, root) => sum + (groupSize.get(root) ?? 1), 0) : groupSize.get(find(line.id)) ?? 1;
+      if (size === 2) {
+        const [{ other, overlap_m }] = partners;
+        return { size, ...settlePair(overlap_m, [reduction(line), reduction(other)]) };
+      }
+      return { size, settled: false, deficit_m: coveredOf(line, partners.map(({ other }) => other)) };
     };
 
     for (const line of levelLines) {
@@ -459,29 +456,29 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
           { level }));
         continue;
       }
-      // An excluded partner counts nothing: only included lines are the other side of a pair.
-      const outcome = outcomeOf(line);
-      const partners: ZoneOverlapPartner[] = pairs
-        .filter((pair) => (pair.left === line.id && !byId.get(pair.right)?.is_excluded) || (pair.right === line.id && !byId.get(pair.left)?.is_excluded))
-        .map((pair) => {
-          const other = byId.get(pair.left === line.id ? pair.right : pair.left) as ZoneLine;
-          return { item_id: other.id, job_id: other.job_id, zone: pages.get(other.page_key)?.zone ?? null, designation: other.designation,
-            overlap_m: pair.overlap_m, resolved: outcome.settled };
-        }).sort((left, right) => right.overlap_m - left.overlap_m || byText(left.item_id, right.item_id));
-      const open = outcome.settled ? [] : partners;
-      const total = outcome.deficit_m;
-      if (partners.length === 0) {
+      const included = partnersOf(line.id);
+      if (included.length === 0) {
         push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_NONE",
           `Aucun tronçon commun avec une autre page du niveau ${level}.`, { level }));
-      } else if (open.length === 0) {
+        continue;
+      }
+      const outcome = outcomeOf(line, included);
+      const partners: ZoneOverlapPartner[] = included.map(({ other, overlap_m }) => ({ item_id: other.id, job_id: other.job_id,
+        zone: pages.get(other.page_key)?.zone ?? null, designation: other.designation, overlap_m, resolved: outcome.settled }))
+        .sort((left, right) => right.overlap_m - left.overlap_m || byText(left.item_id, right.item_id));
+      const where = partners.map((partner) => `${metres(partner.overlap_m)} avec « ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}`).join(", ");
+      if (outcome.settled) {
         push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_RESOLVED",
           `Longueur commune avec ${partners.map((partner) => partner.zone ?? "une autre page").join(", ")} déjà retirée d’une des deux lignes.`,
           { level, partners }));
-      } else {
-        const where = open.map((partner) => `${metres(partner.overlap_m)} avec « ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}`).join(", ");
+      } else if (outcome.size === 2) {
         push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
-          `Tronçon compté aussi sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. La version compte encore ${metres(total)} deux fois : retirez cette longueur d’une des lignes, ou excluez une ligne entièrement en double.`,
-          { level, partners, overlap_m: total }));
+          `Tronçon compté aussi sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. La version compte encore ${metres(outcome.deficit_m)} deux fois : retirez cette longueur d’une des lignes, ou excluez une ligne entièrement en double.`,
+          { level, partners, overlap_m: outcome.deficit_m }));
+      } else {
+        push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
+          `Tronçon compté aussi sur d’autres pages du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}, soit ${metres(outcome.deficit_m)} de cette ligne. ${outcome.size} lignes se recouvrent : une correction de quantité ne règle pas un groupe de plus de deux lignes. Excluez chaque ligne entièrement en double, ou acceptez (V) chaque ligne une fois vérifiée.`,
+          { level, partners, overlap_m: outcome.deficit_m, group_size: outcome.size }));
       }
     }
   }

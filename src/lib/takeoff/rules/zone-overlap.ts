@@ -7,10 +7,13 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 // lines of the same network and DN on two pages, brought into one frame,
 // whose centrelines run within ZONE_OVERLAP.distance_m of each other along a
 // common length of at least ZONE_OVERLAP.minLength_m. That common length is
-// counted twice by the version: the rule fails the lines until it is removed
-// (settleDuplicates: a group of duplicates is settled when the lines'
-// reductions cover what it counts k − 1 times too many), or a line excluded,
-// or the user accepts it.
+// counted twice by the version: the rule fails the lines until it is removed,
+// or a line excluded, or the user accepts it (V). A reduction (measured −
+// quantity) says how much a line removed, never where: it settles an isolated
+// pair only (settlePair, two lines joined by no other pair). Three lines or
+// more joined by pairs stay failed whatever their corrections, until each is
+// excluded or accepted: errors fall on the side of a block, never of a
+// double count.
 // - Common length: along each centreline of a line, the union of the
 //   stretches a centreline of the other line covers (parallel within
 //   ZONE_OVERLAP.angle_deg, within the distance at both ends of the stretch),
@@ -266,7 +269,7 @@ export function commonLength(left: OverlapLine, leftTransform: TakeoffFrameTrans
 /**
  * What a partner covers of a line (its continuous stretches of at least the pair's minimum), computed once per line,
  * partner and minimum within one evaluation (lines and their frames do not change during it): the pairs and the
- * settlement of a group read the same coverage.
+ * length a line of a group shares (coveredBy) read the same coverage.
  */
 export class CoverageCache {
   private readonly entries = new Map<string, Stretch[]>();
@@ -291,169 +294,22 @@ export type DuplicatePair = { left: string; right: string; overlap_m: number };
  * their union. A coarser partner never raises the minimum of another pair.
  */
 export function coveredBy(line: OverlapLine, transform: TakeoffFrameTransform,
-  others: ReadonlyArray<{ line: OverlapLine; transform: TakeoffFrameTransform; minimum?: number }>): number {
-  const own = transformed(line.segments, transform);
-  if (own.length === 0) return 0;
-  const kept = others.flatMap((other) => {
-    const segments = transformed(other.line.segments, other.transform);
-    return segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), other.minimum ?? 0);
-  });
+  others: ReadonlyArray<{ line: OverlapLine; transform: TakeoffFrameTransform; minimum?: number }>, cache?: CoverageCache): number {
+  const coverage = cache ?? new CoverageCache();
+  const kept = others.flatMap((other) => coverage.of(line, transform, other.line, other.transform, other.minimum ?? 0));
   return Math.round(unionLength(kept) * 1000) / 1000;
 }
 
-/** A line of a group of duplicates (the lines joined by pairs) and its reduction (measured − quantity). */
-export type SettleLine = { id: string; frozen: boolean; reduction_m: number };
-
 /**
- * Stretches of the group drawn by the same `lines` (each over its whole length), `pairs` the partners among them.
- * Copies of lines that are not partners (a touch under the minimum common length, two pipes 10 cm apart) are not
- * duplicates of each other.
+ * Whether an isolated pair of duplicates is counted once: both lines' reductions (measured − quantity, from 0), each
+ * up to the pair's common length, remove it, within a centimetre per line reduced (ZONE_OVERLAP.settle_m: quantities
+ * are rounded to the centimetre). A line of an applied job is never asked to change, but a reduction it carried when
+ * it was applied counts. `deficit_m`: what the version still counts twice.
  */
-export type SharedStretch = { lines: string[]; length_m: number; pairs: Array<[string, string]> };
-
-/** A line of a group, with its partners and each pair's minimum common length. */
-export type GroupMember = {
-  id: string;
-  line: OverlapLine;
-  transform: TakeoffFrameTransform;
-  partners: ReadonlyArray<{ id: string; line: OverlapLine; transform: TakeoffFrameTransform; minimum: number }>;
-};
-
-/**
- * The group's shared stretches, whatever its order. Along each line, from its own side, the pieces where the same
- * partners cover it (each with its pair's minimum, continuous stretches only) are added up by the set of lines that
- * draw them. A set's length is the smallest any of its hubs measures, a hub being a line that is a partner of all the
- * others: for a pair, the smaller of both directions; a place a hub sees drawn by more lines counts in that larger
- * set, never twice.
- */
-export function sharedStretches(members: readonly GroupMember[], cache?: CoverageCache): SharedStretch[] {
-  const coverage = cache ?? new CoverageCache();
-  const partnersOf = new Map(members.map((member) => [member.id, new Set(member.partners.map((partner) => partner.id))]));
-  const isPair = (left: string, right: string) => Boolean(partnersOf.get(left)?.has(right) || partnersOf.get(right)?.has(left));
-  const seen = new Map<string, { lines: string[]; byViewpoint: Map<string, number> }>();
-  for (const member of members) {
-    // Intervals of each centreline of the line covered by each partner, by centreline.
-    const covers = member.partners.map((partner) => {
-      const kept = coverage.of(member.line, member.transform, partner.line, partner.transform, partner.minimum);
-      const bySegment = new Map<number, Array<[number, number]>>();
-      for (const entry of kept) bySegment.set(entry.segment, [...(bySegment.get(entry.segment) ?? []), [entry.lo, entry.hi]]);
-      return { id: partner.id, bySegment };
-    });
-    const covered = [...new Set(covers.flatMap(({ bySegment }) => [...bySegment.keys()]))].sort((left, right) => left - right);
-    for (const segment of covered) {
-      const intervals = covers.map(({ id, bySegment }) => ({ id, spans: union([...(bySegment.get(segment) ?? [])]) }));
-      const cuts = [...new Set(intervals.flatMap(({ spans }) => spans.flat()))].sort((left, right) => left - right);
-      for (let cut = 0; cut + 1 < cuts.length; cut += 1) {
-        const [lo, hi] = [cuts[cut], cuts[cut + 1]];
-        if (hi - lo <= EPSILON_M) continue;
-        const middle = (lo + hi) / 2;
-        const drawers = intervals.filter(({ spans }) => spans.some(([start, end]) => start <= middle && middle <= end)).map(({ id }) => id);
-        if (drawers.length === 0) continue;
-        const lines = [member.id, ...drawers].sort();
-        const key = lines.join("|");
-        const entry = seen.get(key) ?? { lines, byViewpoint: new Map<string, number>() };
-        entry.byViewpoint.set(member.id, (entry.byViewpoint.get(member.id) ?? 0) + (hi - lo));
-        seen.set(key, entry);
-      }
-    }
-  }
-  return [...seen.values()].flatMap(({ lines, byViewpoint }) => {
-    const hubs = lines.filter((id) => lines.every((other) => other === id || isPair(id, other)));
-    const length = Math.min(...hubs.map((id) => byViewpoint.get(id) ?? 0));
-    const pairs = lines.flatMap((left, index) => lines.slice(index + 1).filter((right) => isPair(left, right))
-      .map((right): [string, string] => [left, right]));
-    return length > EPSILON_M ? [{ lines, length_m: length, pairs }] : [];
-  });
-}
-
-/** Lines past which the cover is assumed complete (every two of them partners): 2^12 subsets at most. */
-const COVER_LINES_MAX = 12;
-
-/**
- * Copies of a stretch to remove, and the lines that may remove them: what is left must hold no two partners, so the
- * copies to remove are its lines minus the largest set of lines no two of which are partners, and the lines that may
- * remove one are those of a smallest such removal (a minimum vertex cover of the partners).
- */
-function cover(lines: readonly string[], pairs: ReadonlyArray<[string, string]>) {
-  const present = pairs.filter(([left, right]) => lines.includes(left) && lines.includes(right));
-  if (lines.length <= 1 || present.length === 0) return { copies: 0, payers: new Set<string>() };
-  if (lines.length > COVER_LINES_MAX) return { copies: lines.length - 1, payers: new Set(lines) };
-  const bit = new Map(lines.map((id, position) => [id, 1 << position]));
-  const edges = present.map(([left, right]) => (bit.get(left) as number) | (bit.get(right) as number));
-  const size = (mask: number) => { let count = 0; for (let value = mask; value; value &= value - 1) count += 1; return count; };
-  let best = Infinity;
-  const covers: number[] = [];
-  for (let mask = 0; mask < 1 << lines.length; mask += 1) {
-    if (!edges.every((edge) => (edge & mask) !== 0)) continue;
-    const count = size(mask);
-    if (count < best) { best = count; covers.length = 0; }
-    if (count === best) covers.push(mask);
-  }
-  return { copies: best, payers: new Set(lines.filter((id) => covers.some((mask) => (mask & (bit.get(id) as number)) !== 0))) };
-}
-
-/** Adds to `flow` a maximum flow from `source` to `sink` within `capacity` (augmenting shortest paths). */
-function augment(capacity: number[][], flow: number[][], source: number, sink: number) {
-  let added = 0;
-  for (;;) {
-    const previous = new Array<number>(capacity.length).fill(-1);
-    previous[source] = source;
-    const queue = [source];
-    while (queue.length > 0 && previous[sink] === -1) {
-      const node = queue.shift() as number;
-      for (let next = 0; next < capacity.length; next += 1) {
-        if (previous[next] === -1 && capacity[node][next] - flow[node][next] > EPSILON_M) {
-          previous[next] = node;
-          queue.push(next);
-        }
-      }
-    }
-    if (previous[sink] === -1) return added;
-    let room = Infinity;
-    for (let node = sink; node !== source; node = previous[node]) room = Math.min(room, capacity[previous[node]][node] - flow[previous[node]][node]);
-    for (let node = sink; node !== source; node = previous[node]) {
-      flow[previous[node]][node] += room;
-      flow[node][previous[node]] -= room;
-    }
-    added += room;
-  }
-}
-
-/**
- * Whether a group of duplicates is counted once. Of each shared stretch, what is left must hold no two partners
- * (cover): drawn by k lines that are all partners, it is counted k − 1 times too many. A line's reduction removes, of
- * each stretch it may remove, at most that stretch's length, and never anything of a stretch it does not draw. The
- * copies the lines of applied jobs (frozen) count among themselves are theirs to remove, and only they could; the
- * rest is what the version still asks for. Reductions are allocated to the stretches they can remove (a maximum
- * flow): applied lines first pay their own copies; then every reduction, what is left of theirs included, pays the
- * rest. Each reduced line may leave its centimetre of rounding (ZONE_OVERLAP.settle_m). `deficit_m`: what the version
- * still counts twice.
- */
-export function settleDuplicates(lines: readonly SettleLine[], stretches: readonly SharedStretch[]): { settled: boolean; deficit_m: number } {
-  const index = new Map(lines.map((line, position) => [line.id, position]));
-  const usable = stretches.filter((stretch) => stretch.lines.length > 1 && stretch.length_m > 0 && stretch.lines.every((id) => index.has(id)));
-  // Nodes: source, the lines, the stretches, sink.
-  const source = 0, sink = lines.length + usable.length + 1;
-  const capacity = Array.from({ length: sink + 1 }, () => new Array<number>(sink + 1).fill(0));
-  const flow = Array.from({ length: sink + 1 }, () => new Array<number>(sink + 1).fill(0));
-  const parts = usable.map((stretch, position) => {
-    const all = cover(stretch.lines, stretch.pairs);
-    const frozen = cover(stretch.lines.filter((id) => lines[index.get(id) as number].frozen), stretch.pairs);
-    for (const id of new Set([...all.payers, ...frozen.payers])) {
-      capacity[(index.get(id) as number) + 1][lines.length + 1 + position] = stretch.length_m;
-    }
-    return { frozen: frozen.copies * stretch.length_m, current: Math.max(0, all.copies - frozen.copies) * stretch.length_m };
-  });
-  // Applied lines pay their own copies first, with their reductions only; augmenting paths never take back what
-  // reached the sink, and a stretch then takes no more than what they paid plus the rest.
-  lines.forEach((line, position) => { if (line.frozen) capacity[source][position + 1] = Math.max(0, line.reduction_m); });
-  parts.forEach((part, position) => { capacity[lines.length + 1 + position][sink] = part.frozen; });
-  augment(capacity, flow, source, sink);
-  lines.forEach((line, position) => { if (!line.frozen) capacity[source][position + 1] = Math.max(0, line.reduction_m); });
-  parts.forEach((part, position) => { capacity[lines.length + 1 + position][sink] = flow[lines.length + 1 + position][sink] + part.current; });
-  const paid = augment(capacity, flow, source, sink);
-  const owed = parts.reduce((sum, part) => sum + part.current, 0);
-  const deficit = Math.max(0, Math.round((owed - paid) * 1000) / 1000);
-  const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, lines.filter((line) => line.reduction_m > EPSILON_M).length);
-  return { settled: deficit <= tolerance + EPSILON_M, deficit_m: deficit <= tolerance + EPSILON_M ? 0 : deficit };
+export function settlePair(overlap_m: number, reductions: readonly [number, number]): { settled: boolean; deficit_m: number } {
+  const removed = reductions.reduce((sum, reduction) => sum + Math.min(overlap_m, Math.max(0, reduction)), 0);
+  const deficit = Math.max(0, Math.round((overlap_m - removed) * 1000) / 1000);
+  const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, reductions.filter((reduction) => reduction > EPSILON_M).length);
+  const settled = deficit <= tolerance + EPSILON_M;
+  return { settled, deficit_m: settled ? 0 : deficit };
 }

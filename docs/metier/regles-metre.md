@@ -126,21 +126,28 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions.
 - Le minimum vaut pour chaque tronçon continu. Deux morceaux couverts se continuent quand leurs extrémités se touchent à D près (un coude), ou dans le prolongement l'un de l'autre (parallèles, à D de son axe) à moins du minimum : les tirets d'un réseau en pointillés (20 cm, espacés de 5 cm sur B R+4) font un seul tronçon. Quatre contacts de 10 cm en limite de zone, ou trois tuyaux parallèles qui la touchent chacun, ne font pas un doublon.
+- La détection ne dépend pas du règlement : une paire, sa longueur commune et son minimum sont les mêmes qu'elle soit isolée ou dans un groupe (voir Résolution).
 
 **Résolution**
 
-- Les lignes reliées par des doublons forment un groupe. Le règlement ne dépend jamais de l'ordre des pages.
-- **Tronçons communs** : chaque ligne, de son côté, découpe ce que ses partenaires recouvrent d'elle (chaque paire avec son propre minimum : un partenaire au 1/200 ne relève pas le minimum d'une paire au 1/50). Les morceaux dessinés par les mêmes lignes s'additionnent.
-  - La longueur d'un tronçon commun est la plus petite que mesurent ses lignes partenaires de toutes les autres : pour une paire, la plus petite des deux directions.
-  - Un endroit qu'une ligne voit dessiné par plus de lignes compte dans ce tronçon plus large, jamais deux fois.
-- **Copies à retirer** : il ne doit rester, sur un tronçon, aucune paire de partenaires. Dessiné par k lignes toutes partenaires, il est compté k − 1 fois de trop.
-  - Deux lignes qui ne sont pas partenaires ne sont pas des doublons l'une de l'autre : deux zones qui se touchent sous le minimum, deux tuyaux à 9 cm.
-  - Sous un plan d'ensemble qui recouvre ces deux zones, seul le plan d'ensemble doit retirer sa copie.
-- La réduction d'une ligne (longueur mesurée − quantité) ne retire que les tronçons qu'elle dessine, chacun au plus sur sa longueur, et seulement là où la retirer règle le tronçon. Un doublon de C et D ne se règle jamais par une réduction de A ou de B. Les réductions sont réparties sur les tronçons qu'elles peuvent retirer (flot maximal). Un mètre de réduction ne compte qu'une fois.
-- Le groupe est réglé quand les réductions couvrent la longueur comptée de trop, à 1 cm près par ligne réduite (les quantités sont arrondies au centimètre). Trois copies d'un tronçon de 5 m se règlent en retirant 10 m.
-- **Lignes figées** (jobs appliqués) : les copies qu'elles comptent entre elles sont à elles de les retirer, et elles seules le peuvent ; une ligne courante n'en paie jamais. Leurs réductions paient d'abord ces copies, ce qui en reste paie les autres. Une ligne figée non réduite laisse la correction à la ligne du job courant.
-- Exclure une ligne entièrement en double règle aussi la paire.
+- Deux lignes partenaires forment une paire ; les lignes incluses reliées par des paires forment un groupe. Le résultat ne dépend jamais de l'ordre des pages ni de celui des lignes.
+- Une réduction (longueur mesurée − quantité) dit combien une ligne a retiré, jamais où.
+- **Paire isolée** (un groupe de deux lignes) : réglée quand les réductions des deux lignes, chacune au plus la longueur commune, la retirent, à 1 cm près par ligne réduite (les quantités sont arrondies au centimètre).
+  - Chaque paire garde son propre minimum : un partenaire au 1/200 ne relève pas celui d'une paire au 1/50.
+  - **Ligne figée** (job appliqué) : jamais appelée à changer. Non réduite, elle laisse la correction à la ligne du job courant ; réduite avant d'être appliquée, sa réduction compte. Deux lignes figées se jugent de même : un reste entre elles reste visible.
+  - Exclure une ligne entièrement en double règle aussi la paire.
+- **Groupe de trois lignes ou plus** : aucune correction ne le règle. Chaque ligne reste en `ZONE_OVERLAP_DUPLICATE` jusqu'à ce qu'elle soit exclue (entièrement en double) ou acceptée (V).
+  - La raison donne, pour chaque ligne partenaire, la longueur commune ; puis la longueur de la ligne que d'autres lignes dessinent (`overlap_m`) et le nombre de lignes du groupe (`group_size`).
+  - Exclure une ligne entièrement en double peut ramener le groupe à une paire, qui se règle alors par sa réduction. Un plan d'ensemble au-dessus de deux zones qui se touchent, exclu, les laisse sans doublon.
+- **Pourquoi** (décision du 4 nov. 2026, après quatre tours Codex et deux revues adverses) : régler un groupe par ses réductions exige de savoir où chacune a retiré sa longueur.
+  - Chaque modèle essayé a laissé passer un double compte : somme par groupe (une réduction réglait un tronçon que sa ligne ne dessine pas), flot sur des tronçons communs, payeurs d'une couverture minimale (une ligne figée supposée payer ce qu'elle n'a jamais retiré ; des lignes qui sortent d'un tronçon commun, 1,5 m compté deux fois et réglé).
+  - Le ticket ne demande que la paire Z1/Z2 de deux jobs d'une version. Dans un groupe, l'erreur tombe du côté d'un blocage, jamais d'un double compte.
+- Une ligne exclue ne bloque jamais. Elle est montrée telle qu'elle serait si elle revenait, avec ses partenaires et leurs groupes.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement.
+- **Limites connues** :
+  - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
+  - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
+  - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.
 
 **Zones non recalées** : deux lignes qui pourraient être un même tronçon, sur deux
 pages sans repère commun, échouent toutes deux en `ZONE_OVERLAP_UNREGISTERED`.
