@@ -299,6 +299,6 @@
     "20261029204225_estimate_pdf_contract_parent_index.sql": "f1d25996214b8b1e2120fce32a5f9b2dfe75c1dce12731d501d1ed140dc165bb",
     "20261029224500_estimate_v3_freeze_revision_effects.sql": "d4f7b9d02fba2e9c33165a5d41ea92de1ca29431fceaed8e1b585e2f719267f3",
     "20261103153311_takeoff_vector_geometry.sql": "1897ff9600aae452718af1ce91a407156e8cbe89ae7bc28ec0e82acb8a495947",
-    "20261103213336_takeoff_quantity_rules.sql": "7775a90cc898474c4ade94a64fbf6b914b2a6f8ae02a3bbde224af3b6b12baa7"
+    "20261103213336_takeoff_quantity_rules.sql": "82b210e69cac622b35bff0399f92ee26831664666b63f9a0cd0457c32dfeedc3"
   }
 }

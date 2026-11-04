@@ -4,9 +4,9 @@
 -- - rule_results: one entry per rule that reads the line (rule, status, code,
 --   version, acceptable, reason, details), see docs/metier/regles-metre.md;
 -- - rules_evaluated_at: when they were computed (null: never, no rule reads it);
--- - rules_stale: the line changed after its results (quantity, unit, exclusion
---   or page edited by a client): they no longer hold until the server computes
---   them again.
+-- - rules_stale: the line, or another line of its version, changed after its
+--   results (quantity, unit, exclusion or page edited by a client, new lines of
+--   the worker): they no longer hold until the server computes them again.
 -- The apply trigger counts a line « failed and not settled » as blocked, on
 -- every level (the existing reasons stay level C): stale results, or a failed
 -- rule while the line is not verified, or a failed rule that verifying never
@@ -220,6 +220,78 @@ $$;
 
 revoke all on function public.enforce_authenticated_takeoff_item_fields()
   from public;
+
+-- The rules of one line read the other lines of its version (a run drawn on two
+-- zone plans, two rooms of one page): when a line goes stale (a client edit) or
+-- arrives stale (the worker's new lines), the evaluated lines of the version's
+-- unapplied jobs go stale with it. If the server's computation then fails or is
+-- skipped, the stored state blocks them too, in the apply trigger as in
+-- checkApplyGuard (fail closed); the computation clears them. Only the stale
+-- flag moves (updated_at stays the review's token, set_takeoff_items_updated_at
+-- ignores it). Security definer: the whitelist trigger applies to the
+-- authenticated user's own row only.
+create or replace function public.stale_takeoff_rule_peers()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  if pg_catalog.pg_trigger_depth() > 1 then
+    return null;
+  end if;
+
+  if tg_op = 'INSERT' then
+    update public.takeoff_items as item
+    set rules_stale = true
+    from public.takeoff_jobs as job
+    where job.status = 'completed'::public.takeoff_job_status
+      and item.job_id = job.id
+      and item.tenant_id = job.tenant_id
+      and item.rules_evaluated_at is not null
+      and not item.rules_stale
+      and (job.tenant_id, job.estimate_version_id) in (
+        select changed_job.tenant_id, changed_job.estimate_version_id
+        from new_rows as changed
+        join public.takeoff_jobs as changed_job on changed_job.id = changed.job_id and changed_job.tenant_id = changed.tenant_id
+        where changed.rules_stale
+      );
+  else
+    update public.takeoff_items as item
+    set rules_stale = true
+    from public.takeoff_jobs as job
+    where job.status = 'completed'::public.takeoff_job_status
+      and item.job_id = job.id
+      and item.tenant_id = job.tenant_id
+      and item.rules_evaluated_at is not null
+      and not item.rules_stale
+      and (job.tenant_id, job.estimate_version_id) in (
+        select changed_job.tenant_id, changed_job.estimate_version_id
+        from new_rows as changed
+        join old_rows as previous on previous.id = changed.id
+        join public.takeoff_jobs as changed_job on changed_job.id = changed.job_id and changed_job.tenant_id = changed.tenant_id
+        where changed.rules_stale and not previous.rules_stale
+      );
+  end if;
+  return null;
+end;
+$$;
+
+revoke all on function public.stale_takeoff_rule_peers() from public, anon, authenticated;
+
+drop trigger if exists stale_takeoff_rule_peers_after_update on public.takeoff_items;
+create trigger stale_takeoff_rule_peers_after_update
+  after update on public.takeoff_items
+  referencing old table as old_rows new table as new_rows
+  for each statement
+  execute procedure public.stale_takeoff_rule_peers();
+
+drop trigger if exists stale_takeoff_rule_peers_after_insert on public.takeoff_items;
+create trigger stale_takeoff_rule_peers_after_insert
+  after insert on public.takeoff_items
+  referencing new table as new_rows
+  for each statement
+  execute procedure public.stale_takeoff_rule_peers();
 
 -- The apply guard counts, on every level, the included lines whose rules block
 -- them (stale, or failed and not settled); the existing reasons (low confidence

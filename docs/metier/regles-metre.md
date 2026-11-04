@@ -275,6 +275,14 @@ ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses rés
 (trigger) : la ligne bloque jusqu'au recalcul serveur. Une désignation modifiée ne
 change pas les entrées des règles, lues une fois par le worker.
 
+Les règles d'une ligne lisent les autres lignes de sa version (un tronçon dessiné sur
+deux plans de zone, deux pièces d'une page). Quand une ligne devient périmée (une
+modification client) ou arrive périmée (les nouvelles lignes du worker), les lignes
+évaluées des jobs non appliqués de la version le deviennent aussi (trigger
+`stale_takeoff_rule_peers`). Si le recalcul serveur échoue ou est sauté, l'état stocké
+les bloque, dans le trigger comme dans `checkApplyGuard` : jamais un ancien « passe »
+appliqué. Seul ce drapeau bouge, `updated_at` reste le jeton de la revue.
+
 **Saisie d'une quantité à saisir** : `quantity_entered_by` et `quantity_entered_at`.
 
 - Ils sont attestés par leur auteur, comme `is_verified`.

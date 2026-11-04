@@ -62,7 +62,8 @@ select fixture.id, current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-
 from (values
   ('9e000000-0000-4000-8000-000000000101'::uuid, 1), ('9e000000-0000-4000-8000-000000000102'::uuid, 2),
   ('9e000000-0000-4000-8000-000000000103'::uuid, 3), ('9e000000-0000-4000-8000-000000000104'::uuid, 4),
-  ('9e000000-0000-4000-8000-000000000105'::uuid, 5), ('9e000000-0000-4000-8000-000000000106'::uuid, 6)
+  ('9e000000-0000-4000-8000-000000000105'::uuid, 5), ('9e000000-0000-4000-8000-000000000106'::uuid, 6),
+  ('9e000000-0000-4000-8000-000000000107'::uuid, 7)
 ) as fixture(id, number);
 
 insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
@@ -71,7 +72,8 @@ from public.estimate_versions version
 where version.project_id = '9e000000-0000-4000-8000-000000000010';
 
 -- Jobs: ...301 C (rule failed, decided by V), ...302 B (rule failed), ...303 C (quantity to enter),
--- ...304 C (stale after a client edit), ...305 C (override: an old reason and a new one), ...306 C (writer).
+-- ...304 C (stale after a client edit), ...305 C (override: an old reason and a new one), ...306 C (writer),
+-- ...307 and ...308 C, two zone jobs of one version (a partner's edit makes the other job's results stale).
 insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
 select fixture.id, current_setting('test.tenant_id')::uuid, fixture.version_id, fixture.level::public.takeoff_job_level,
   'completed', 'plan-fictif.pdf', '9e000000-0000-4000-8000-000000000001'
@@ -81,7 +83,9 @@ from (values
   ('9e000000-0000-4000-8000-000000000303'::uuid, '9e000000-0000-4000-8000-000000000103'::uuid, 'C'),
   ('9e000000-0000-4000-8000-000000000304'::uuid, '9e000000-0000-4000-8000-000000000104'::uuid, 'C'),
   ('9e000000-0000-4000-8000-000000000305'::uuid, '9e000000-0000-4000-8000-000000000105'::uuid, 'C'),
-  ('9e000000-0000-4000-8000-000000000306'::uuid, '9e000000-0000-4000-8000-000000000106'::uuid, 'C')
+  ('9e000000-0000-4000-8000-000000000306'::uuid, '9e000000-0000-4000-8000-000000000106'::uuid, 'C'),
+  ('9e000000-0000-4000-8000-000000000307'::uuid, '9e000000-0000-4000-8000-000000000107'::uuid, 'C'),
+  ('9e000000-0000-4000-8000-000000000308'::uuid, '9e000000-0000-4000-8000-000000000107'::uuid, 'C')
 ) as fixture(id, version_id, level);
 
 -- A failed acceptable rule (a Z1/Z2 duplicate), a failed rule verifying never settles (a quantity to enter).
@@ -102,7 +106,10 @@ from (values
   ('9e000000-0000-4000-8000-000000000405'::uuid, '9e000000-0000-4000-8000-000000000305'::uuid, 'Vanne DN 22', 2::numeric, 'u', 0.30, '[]', 5),
   ('9e000000-0000-4000-8000-000000000406'::uuid, '9e000000-0000-4000-8000-000000000305'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.duplicate'), 6),
   ('9e000000-0000-4000-8000-000000000407'::uuid, '9e000000-0000-4000-8000-000000000306'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, '[]', 7),
-  ('9e000000-0000-4000-8000-000000000408'::uuid, '9e000000-0000-4000-8000-000000000306'::uuid, 'ECS inox DN 22', 3::numeric, 'ml', 0.95, '[]', 8)
+  ('9e000000-0000-4000-8000-000000000408'::uuid, '9e000000-0000-4000-8000-000000000306'::uuid, 'ECS inox DN 22', 3::numeric, 'ml', 0.95, '[]', 8),
+  -- 409 (Z1, job 307) passes while its duplicate 410 (Z2, job 308) is excluded.
+  ('9e000000-0000-4000-8000-000000000409'::uuid, '9e000000-0000-4000-8000-000000000307'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]', 9),
+  ('9e000000-0000-4000-8000-000000000410'::uuid, '9e000000-0000-4000-8000-000000000308'::uuid, 'EF inox DN 22', 3::numeric, 'ml', 0.95, '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]', 10)
 ) as fixture(id, job_id, designation, quantity, unit, confidence, results, rank);
 
 -- One lock per version: the admin holds the override's draft, the engineer every other one.
@@ -272,6 +279,28 @@ select is((select rules_stale from public.takeoff_items where id = '9e000000-000
   'a page edit makes the evaluated results stale');
 -- The rule inputs live in metadata, written by the worker only.
 select is(pg_temp.rules_exec('update-13', 'update public.takeoff_items set metadata = jsonb_set(coalesce(metadata, ''{}''::jsonb), ''{rule_inputs}'', ''{"version":1}''::jsonb) where id = ''9e000000-0000-4000-8000-000000000408'''), '42501 TAKEOFF_ITEM_TRUSTED_FIELDS_IMMUTABLE', 'authenticated cannot rewrite the rule inputs');
+-- A partner's edit makes the results of the version's other lines stale (Codex review of L5b): job 307's line passes
+-- while its duplicate in job 308 is excluded; re-including it must block 307 until the server computes the version
+-- again, even when that computation fails or is skipped.
+select set_config('test.peer_updated_at', (select updated_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true);
+select is(pg_temp.rules_exec('peer-1', 'update public.takeoff_items set is_excluded = true, exclusion_reason = ''Doublon fictif''
+  where id = ''9e000000-0000-4000-8000-000000000410'''), 'ok', 'the engineer excludes the Z2 duplicate');
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true,
+  'an edit of one line makes the evaluated lines of its version stale');
+select is((select updated_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'),
+  current_setting('test.peer_updated_at'), 'a partner made stale keeps its updated_at (the review''s concurrency token)');
+reset role;
+-- The server computes the version: 307 passes, 308 is excluded.
+update public.takeoff_items set rules_stale = false, rules_evaluated_at = now()
+where id in ('9e000000-0000-4000-8000-000000000409', '9e000000-0000-4000-8000-000000000410');
+set local role authenticated;
+select is(pg_temp.rules_exec('peer-2', 'update public.takeoff_items set is_excluded = false, exclusion_reason = null
+  where id = ''9e000000-0000-4000-8000-000000000410'''), 'ok', 'the engineer includes the Z2 line again');
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true,
+  'its Z1 partner, in another job of the version, goes stale with it');
+-- The computation fails: nothing is written. The Z1 job's application is refused.
+select is(pg_temp.rules_apply('peer-3', '9e000000-0000-4000-8000-000000000307'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
+  'a line made stale by its partner''s edit blocks the application until the version is computed again');
 
 reset role;
 

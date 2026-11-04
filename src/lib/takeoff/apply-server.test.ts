@@ -132,3 +132,22 @@ describe("takeoff apply orchestration", () => {
     calledBefore(vi.mocked(logTakeoffAuditEvent), vi.mocked(bulkUpdateEstimateItems));
   });
 });
+
+// A partner's edit makes the other lines of the version stale in the database (TI-664 L5b, Codex): when the
+// computation before the application fails, the route keeps the stored state, and a line its partner's edit made
+// stale blocks it, as the trigger does, before any authorization or write.
+describe("takeoff apply when the rules computation fails", () => {
+  it("refuses a line left stale by its partner's edit, never applies its obsolete pass", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([{
+      id: "66666666-6666-4666-8666-666666666666", designation: "EF inox DN 22", confidence: 0.95, evidence: "Repère localisé",
+      source_page: 1, is_verified: false, is_excluded: false, rules_stale: true,
+      rule_results: [{ rule: "zone_overlap", status: "pass", code: "ZONE_OVERLAP_NONE", version: 101, acceptable: true, reason: "Aucun tronçon commun." }],
+    }] as never);
+    const { recomputeTakeoffRulesQuietly } = await import("@/lib/takeoff/rules/recompute-server");
+    vi.mocked(recomputeTakeoffRulesQuietly).mockResolvedValue(null);
+    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalled();
+    expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
+    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  });
+});
