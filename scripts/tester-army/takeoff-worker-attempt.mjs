@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { register } from "tsx/cjs/api";
 import { createClient } from "@supabase/supabase-js";
@@ -21,6 +22,16 @@ assert(["postgres:", "postgresql:"].includes(database.protocol));
 assert.equal(backend.hostname, process.env.E2E_ALLOWED_SUPABASE_HOST);
 assert(!["45585", "33485"].includes(backend.port) && !["45585", "33485"].includes(database.port), "Long-lived recipe stack is not a worker target.");
 await import("./coverage-network-guard.mjs");
+// TI-662 L3d: the Decisions classification of vector groups (TKW10) is answered by the provider fixture, installed
+// over the network guard: a call to api.openai.com never leaves this process, any other external origin stays blocked.
+if (process.env.ARMY_DECISIONS_CONTROL) {
+  assert.equal(process.env.OPENAI_DECISIONS_API_KEY, "army-decisions-fixture");
+  assert(process.env.ARMY_CHATGPT_TRANSPORT_LOG, "The Decisions fixture needs its transport log.");
+  assert(!existsSync(".private/chatgpt-local-live-probe.json"), "The owned worker never runs a live Decisions probe.");
+  await import("../../e2e/army/local/chatgpt-provider-fixture.mjs");
+} else {
+  assert(!process.env.OPENAI_DECISIONS_API_KEY, "Without its fixture, the owned worker holds no Decisions key.");
+}
 process.env.GEMINI_API_KEY = "";
 process.env.GOOGLE_GENERATIVE_AI_API_KEY = "";
 process.env.SENTRY_DSN = "";
@@ -130,7 +141,9 @@ try {
       warningCodes: row.warnings.map((entry) => entry.code) })), items: items.data, providerCalls: events.length,
     vectorPages: vectorPages.data.map((row) => ({ id: row.id, tenantId: row.tenant_id, resultId: row.result_id, planFileId: row.plan_file_id,
       sourceFileName: row.source_file_name, sourcePage: row.source_page, scale: { status: row.reading.scale.status, denominator: row.reading.scale.denominator },
-      detection: row.reading.detection, classes: row.reading.groups.map((group) => group.class) })),
+      detection: row.reading.detection, classes: row.reading.groups.map((group) => group.class),
+      sources: row.reading.groups.map((group) => group.source), confidences: row.reading.groups.map((group) => group.confidence),
+      decisions: row.reading.decisions ?? null })),
     geometries: geometries.data.map((row) => ({ itemId: row.takeoff_item_id, tenantId: row.tenant_id, pageId: row.vector_page_id,
       kind: row.geometry.kind, network: row.geometry.network, lengthM: row.geometry.length_m, segments: row.geometry.segments_m.length })) });
 } finally {

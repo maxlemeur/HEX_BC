@@ -131,18 +131,27 @@ export function preparationCalibration(snapshot: TakeoffPreparationSnapshot | un
   return Number.isFinite(denominator) && denominator > 0 ? { page, denominator, source: "conventions.calibration de la préparation" } : null;
 }
 
-type DecisionsStop = NonNullable<GroupDecisionsOutcome["stop"]>;
 /** A page's stop: one of classifyVectorGroups, or its document's caps reached (« call_limit »). */
 type PageStop = { reason: NonNullable<VectorPageDecisions["stop"]>["reason"]; message: string };
 const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
-const CALL_LIMIT_MESSAGE = "Le plafond d’appels Decisions de ce document est atteint : les groupes restants sont à revoir.";
-const EXCEPTION_MESSAGE = "Le classement Decisions a échoué sur cette page : les groupes restent à revoir.";
+/**
+ * What the review says of a stop: the worker's own words (the provider's messages speak of the preparation), the
+ * render messages of classifyVectorGroups kept.
+ */
+const STOP_MESSAGES: Partial<Record<PageStop["reason"], string>> = {
+  budget_reached: "Le plafond de jetons Decisions de ce métré est atteint : les groupes restants sont à revoir.",
+  call_failed: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.",
+  decisions_unavailable: "Decisions est indisponible, aucun autre appel n’a été envoyé : les groupes restants sont à revoir.",
+  exception: "Le classement Decisions a échoué, aucun autre appel n’a été envoyé : les groupes restants sont à revoir.",
+  call_limit: "Le plafond d’appels Decisions de ce document est atteint : les groupes restants sont à revoir.",
+};
+const stopOf = (reason: PageStop["reason"], message: string): PageStop => ({ reason, message: STOP_MESSAGES[reason] ?? message });
 
 /** The Decisions state of a job: one token budget, the stop that ends its calls, and each document's calls left. */
 type DecisionsRun = {
   hook: TakeoffVectorDecisionsHook;
   budget: DecisionsTokenBudget;
-  stop: DecisionsStop | null;
+  stop: PageStop | null;
   /** Set when the job's own check before a call failed: rethrown, never taken for a Decisions failure. */
   jobError: { error: unknown } | null;
   calls: number;
@@ -166,7 +175,7 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
 }
 
 /** A page not asked because the job's Decisions stopped before it. */
-function stoppedSummary(stop: DecisionsStop): VectorPageDecisions {
+function stoppedSummary(stop: PageStop): VectorPageDecisions {
   return {
     prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: null, eligible: null, left_out: null,
     calls: { batch: 0, dedicated: 0, failed: 0 }, answered: 0, total_tokens: 0, latency_ms: 0,
@@ -207,8 +216,8 @@ async function decidePage(run: DecisionsRun, input: {
     for (const call of outcome.calls) input.allowance[call.kind] -= 1;
     run.calls += outcome.calls.length;
     // The provider, the ceiling or a server without canvas end the job's calls; a page's render failure, that page's.
-    if (outcome.stop && (isDecisionsRunStop(outcome.stop.reason) || outcome.stop.reason === "canvas_unavailable")) run.stop = outcome.stop;
-    const stop: PageStop | null = outcome.stop ?? (outcome.left_out > 0 ? { reason: "call_limit", message: CALL_LIMIT_MESSAGE } : null);
+    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message) : outcome.left_out > 0 ? stopOf("call_limit", "") : null;
+    if (outcome.stop && (isDecisionsRunStop(outcome.stop.reason) || outcome.stop.reason === "canvas_unavailable")) run.stop = stop;
     const answers = decisionsOfOutcome(outcome);
     const reading = answers.size > 0 ? readVectorPage(input.extraction, { ...input.readOptions, decisions: answers }) : input.reading;
     return { reading, decisions: pageDecisionsSummary(outcome, stop) };
@@ -216,7 +225,7 @@ async function decidePage(run: DecisionsRun, input: {
     if (run.jobError) throw run.jobError.error;
     console.error("takeoff.vector.decisions_failed", { job_id: input.log.jobId, tenant_id: input.log.tenantId, document: input.log.document,
       page: input.log.page, message: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
-    run.stop = { reason: "exception", message: EXCEPTION_MESSAGE };
+    run.stop = stopOf("exception", "");
     return { reading: input.reading, decisions: { ...stoppedSummary(run.stop), stop: { ...run.stop, from_earlier_page: false } } };
   }
 }

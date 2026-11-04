@@ -802,10 +802,13 @@
     },
     {
       "id": "worker-lifecycle",
+      "note": "Worker du métré possédé (TKW) : cycle de vie, lecture vectorielle, son classement Decisions par la fixture fournisseur que le worker charge par chemin, et le viewer de la revue (TI-662).",
       "paths": [
         "src/lib/takeoff/**",
         "src/app/api/takeoff/**",
-        "scripts/tester-army/takeoff-worker-*"
+        "scripts/tester-army/takeoff-worker-*",
+        "e2e/army/local/chatgpt-provider-fixture.mjs",
+        "src/components/takeoff/review/TakeoffVectorViewer.tsx"
       ],
       "journeys": [
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"

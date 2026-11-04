@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { OpenAiDecisionsResult } from "@/lib/ai/decisions";
 import type { DownloadedTakeoffFile } from "@/lib/takeoff/source-loader";
@@ -9,6 +9,7 @@ import { VectorPageRecordSchema } from "@/lib/takeoff/vectors/persistence";
 import {
   readTakeoffVectorPages,
   TAKEOFF_VECTOR_DECISIONS_LIMITS,
+  takeoffVectorDecisionsHook,
   type TakeoffVectorDecisionsHook,
 } from "@/lib/takeoff/vectors/worker-server";
 
@@ -33,7 +34,9 @@ import {
 //   names a proposal under 0.8 among the groups it measures;
 // - without canvas, every later page renders again;
 // - the page record holds the evidence or the images (only counts, tokens,
-//   timings and the stop).
+//   timings and the stop);
+// - the hook is on without MERGEONE_TAKEOFF_DECISIONS, the vector reading,
+//   Decisions configured, or a user to act for.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const OWNER = { userId: "user-fixture", tenantId: "tenant-fixture" };
@@ -251,5 +254,22 @@ describe("Decisions in the takeoff worker (worker-server.ts readTakeoffVectorPag
     expect(seen).toHaveLength(0);
     expect(noCanvas.calls).toEqual({ legend: 1, sheets: 1 });
     expect(outcomes.map((outcome) => outcome.record?.decisions?.stop?.reason)).toEqual(["canvas_unavailable", "canvas_unavailable", "canvas_unavailable"]);
+  });
+});
+
+describe("the worker's Decisions opt-in (takeoffVectorDecisionsHook)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const on = { MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "fictional-key" };
+  const job = { jobId: "job-fixture", tenantId: "tenant-fixture", userId: "user-fixture" };
+
+  it("is off unless the vector reading, the takeoff opt-in, Decisions and its key are all set, and a user is known", () => {
+    for (const [name, value] of Object.entries(on)) vi.stubEnv(name, value);
+    expect(takeoffVectorDecisionsHook(job)).toMatchObject({ owner: { tenantId: "tenant-fixture", userId: "user-fixture" }, projectId: "takeoff-job:job-fixture" });
+    expect(takeoffVectorDecisionsHook({ ...job, userId: null })).toBeUndefined();
+    for (const name of Object.keys(on)) {
+      vi.stubEnv(name, "");
+      expect(takeoffVectorDecisionsHook(job), name).toBeUndefined();
+      vi.stubEnv(name, on[name as keyof typeof on]);
+    }
   });
 });

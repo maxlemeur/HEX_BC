@@ -74,6 +74,14 @@ Le premier périmètre comprend :
   que pour une réponse complète, avec vignette, d’un type exclu (coupe, façade,
   toiture, masse, pièce écrite) à une confiance d’au moins 0,8 ; toute autre page
   reste retenue « À vérifier ». Voir [Préparation du métré](../metier/preparation-metre.md).
+- Métré, classes des groupes de tracés (TI-662) : dans le worker de niveau C, avec
+  `MERGEONE_TAKEOFF_VECTORS=1` et `MERGEONE_TAKEOFF_DECISIONS=1`. Les groupes qu'aucun
+  mot-clé ne classe sont classés par Decisions. Plafonds : 10 appels groupés et 50
+  dédiés par document et traitement, et un plafond de jetons par traitement
+  (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`). Le traitement s'arrête au premier échec,
+  sans relance. Un échec ne fait jamais échouer le métré : les groupes restent « à
+  revoir ». En E2E (TKW10), le worker possédé charge la fixture fournisseur
+  par-dessus son garde réseau. Voir [Lecture vectorielle](../metier/lecture-vectorielle.md).
 - Reprise des prix : sur demande explicite dans l’éditeur, choix parmi les articles
   candidats d’un devis de référence pour les seules lignes « à vérifier »
   (question `choice`, valeur « aucun » admise). La proposition ne coche aucune ligne

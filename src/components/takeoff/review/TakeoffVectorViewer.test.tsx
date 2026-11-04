@@ -9,6 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 //   same upload, which renders fine;
 // - a page without source PDF keeps the previous plan painted under its
 //   geometry beside « n’est pas disponible ».
+// How a class was read (TI-662 L3d, the worker's Decisions), written before the
+// code: the army journey TKW10 covers one Decisions network and one failed
+// call; mixed sources and the « à revoir » count are only reachable here:
+// - a network does not say its source, or shows a Decisions class at a higher
+//   confidence than its least sure group;
+// - a Decisions proposal under 80 % or a group without class is not counted
+//   « à revoir », or a near-white group or a legend candidate is;
+// - the page does not say what Decisions did, or why it stopped.
 // pdfjs is replaced by a document whose getPage rejects a page beyond its count
 // (« Invalid page request », as pdfjs 6.4 does) and whose render may fail.
 
@@ -115,5 +123,54 @@ describe("TakeoffVectorViewer, page changes (review of PR #147)", () => {
     expect(warning()).toBe("Le plan source de cette page n’est pas disponible ; la géométrie reste visible.");
     expect([canvas.width, canvas.height]).toEqual([0, 0]);
     expect(screen.queryByLabelText("Rendu du plan")).toBeNull();
+  });
+});
+
+describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => {
+  const group = (id: string, cls: string | null, source: string | null, confidence: number | null, extra: Record<string, unknown> = {}) => ({
+    id, class: cls, source, confidence, candidates: [], length_pt: 100, near_white: false, colors: ["#ff00ff"], ...extra,
+  });
+  const decided = {
+    ...reading,
+    groups: [
+      group("g-ef", "EF", "keyword", null), group("g-eu", "EU", "decisions", 0.85), group("g-eu2", "EU", "decisions", 0.8),
+      group("g-proposal", "EU", "decisions", 0.6), group("g-none", null, null, null), group("g-white", null, null, null, { near_white: true }),
+      group("g-shared", null, null, null, { candidates: ["EF", "EU"] }),
+    ],
+    groups_total: 7,
+    decisions: { prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, calls: { batch: 1, dedicated: 0, failed: 1 },
+      answered: 3, total_tokens: 1200, latency_ms: 900,
+      stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } },
+  };
+  const items = [
+    { takeoff_item_id: "88888881-8888-4888-8888-888888888888", geometry: { ...geometry, groups: ["g-ef"] } },
+    { takeoff_item_id: "88888882-8888-4888-8888-888888888888", geometry: { ...geometry, network: "EU", groups: ["g-eu", "g-eu2"] } },
+  ];
+
+  it("names each network's source, Decisions at its lowest confidence, and counts the groups still à revoir", async () => {
+    documents.set(UPLOAD, { pages: 1, failing: new Set() });
+    stubPdfjs();
+    stubFetch({ pages: [{ ...page(1, null, 1, "plan.pdf"), reading: decided, items }], source_download_url: UPLOAD }, {});
+    render(<TakeoffVectorViewer jobId={JOB} planSetId={null} />);
+    await settle();
+    const networks = screen.getByRole("group", { name: "Réseaux" });
+    const row = (name: string) => screen.getByLabelText(`Afficher ${name}`).closest("label")!.textContent;
+    expect(row("EF")).toBe("EF5.00 mmots-clés");
+    expect(row("EU")).toBe("EU5.00 mDecisions 80 %");
+    expect(networks.textContent).not.toContain("à revoir");
+    expect(screen.getByText(/de tracés à revoir$/).textContent).toBe("2 groupes de tracés à revoir");
+    expect(screen.getByText(/^Decisions :/).textContent).toMatch(/^Decisions : 1 appel, 1\s200 jetons, 3 réponses$/);
+    expect(screen.getByRole("status").textContent).toBe(decided.decisions.stop.message);
+  });
+
+  it("says nothing of Decisions for a reading without it", async () => {
+    documents.set(UPLOAD, { pages: 1, failing: new Set() });
+    stubPdfjs();
+    stubFetch({ pages: [page(1, null, 1, "plan.pdf")], source_download_url: UPLOAD }, {});
+    render(<TakeoffVectorViewer jobId={JOB} planSetId={null} />);
+    await settle();
+    expect(screen.getByLabelText("Afficher EF")).toBeTruthy();
+    expect(screen.queryByText(/^Decisions :/)).toBeNull();
+    expect(screen.queryByText(/à revoir/)).toBeNull();
   });
 });

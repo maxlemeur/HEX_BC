@@ -20,6 +20,10 @@ import { classOfLayerName, OTHER_CLASSES, type VectorClass } from "@/lib/takeoff
 export const CLASSIFIED_DECISIONS_CONFIDENCE = 0.8;
 
 export type ClassSource = "keyword" | "legend" | "label" | "document" | "user" | "decisions";
+/** How the lab and the review name the source of a class. */
+export const CLASS_SOURCE_LABELS: Record<ClassSource, string> = {
+  keyword: "mots-clés", legend: "légende", label: "libellés", document: "document", user: "utilisateur", decisions: "Decisions",
+};
 export type GroupClass = {
   class: VectorClass | null;
   source: ClassSource | null;
