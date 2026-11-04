@@ -29,6 +29,7 @@ import {
 import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, describeArmyRunFailure, outputTail, reserveAppPort } from "./tester-army/app-port";
 import { runLocalDevelopmentSession } from "./tester-army/local-development";
+import { EvidenceRetentionError, failedPhase, keepRunError } from "./tester-army/phase-failure";
 import { assertInstalledDependencies } from "./tester-army/installed-dependencies.mjs";
 
 const suite = process.argv[2];
@@ -498,11 +499,11 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
         try {
           await runJourneys("critical", journeyEnvironment, context);
         } catch (error) {
-          const retention = retainFailedJourney("critical", context);
-          const message = [redact(error instanceof Error ? error.message : String(error)), retention].filter(Boolean).join("; ");
+          const failure = failedPhase({ error, launched: context.manifest.phase === "critical", redact,
+            retain: () => retainCurrentJourney(true, context) });
           const phases = (context.manifest.phases ??= []) as unknown[];
-          phases.push({ phase: "critical", status: "failed", error: message });
-          throw retention ? new Error(message, { cause: error }) : error;
+          phases.push({ phase: "critical", status: "failed", error: failure.message });
+          throw new Error(failure.message, { cause: error });
         }
       },
       finalize: (context) => { writeRetainedManifest(context); },
@@ -531,13 +532,12 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
         ? { ...journeyEnvironment, E2E_ARMY_SERVER_MODE: "development" }
         : journeyEnvironment);
     } catch (error) {
-      const retention = retainFailedJourney(phase);
-      const message = [redact(error instanceof Error ? error.message : String(error)), retention].filter(Boolean).join("; ");
+      // A phase stopped before its journeys (a busy port) has no output to retain (TI-672).
+      const failure = failedPhase({ error, launched: manifest.phase === phase, redact, retain: () => retainCurrentJourney(true) });
       const phases = (manifest.phases ??= []) as unknown[];
-      phases.push({ phase, status: "failed", error: message });
-      failures.push(`${phase}: ${message}`);
-      // The next phase would overwrite the output this one could not retain.
-      if (retention) break;
+      phases.push({ phase, status: "failed", error: failure.message });
+      failures.push(`${phase}: ${failure.message}`);
+      if (failure.stop) break;
     }
   }
   if (failures.length) throw new Error(failures.join("; "));
@@ -592,32 +592,21 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
     (phase !== "development" && armyManifest.productionBuild?.changedDuringRun !== false)) {
     throw new Error("The source and production build must stay unchanged throughout the campaign.");
   }
+  try {
+    retainCurrentJourney(true, context);
+  } catch (error) {
+    throw new EvidenceRetentionError(`its evidence was not retained: ${redact(error instanceof Error ? error.message : String(error))}`);
+  }
   const phases = (manifest.phases ??= []) as unknown[];
   phases.push({ phase, status: "passed", result: run.summary });
-  retainCurrentJourney(true, context);
 }
 
 /** The run-level cause the army CLI recorded for this phase (an app that could not start), with the app port. */
 function armyRunFailure(context: RunContext) {
   const file = path.join(root, ".e2e/army/critical/manifest.json");
   if (!fs.existsSync(file) || fs.statSync(file).mtimeMs < Date.parse(String(context.manifest.campaignStartedAt))) return undefined;
-  const causes = describeArmyRunFailure(JSON.parse(fs.readFileSync(file, "utf8")));
+  const causes = describeArmyRunFailure(JSON.parse(fs.readFileSync(file, "utf8")), redact);
   return causes.length ? `app port ${appPort}; ${causes.join("; ")}` : undefined;
-}
-
-/**
- * Retains a failed phase's journey output. A phase stopped before its journeys
- * started (a busy port) has none. Returns the problem instead of throwing: it
- * follows the phase's own error and never replaces it (TI-672).
- */
-function retainFailedJourney(phase: string, context = mainContext) {
-  if (context.manifest.phase !== phase) return undefined;
-  try {
-    retainCurrentJourney(true, context);
-    return undefined;
-  } catch (error) {
-    return `its evidence was not retained: ${redact(error instanceof Error ? error.message : String(error))}`;
-  }
 }
 
 function retainCurrentJourney(required = false, context = mainContext) {
@@ -691,8 +680,9 @@ function writeRetainedManifest(context: RunContext) {
   let retained = true;
   try { retainEvidence(context); } catch (error) {
     manifest.privacy = "failed";
+    // The run's own error stays first (TI-672); the privacy check below still covers the whole text.
+    manifest.error = keepRunError(manifest, redact(error instanceof Error ? error.message : String(error)));
     manifest.status = "failed";
-    manifest.error = redact(error instanceof Error ? error.message : String(error));
     retained = false;
   }
   // The failure reason reaches the manifest and the public job log only

@@ -40,6 +40,8 @@ import {
 } from "@/test/supabase-migrations";
 import { verifyLocalDatabaseTypes } from "@/test/database-types";
 
+import { leasedAppPorts } from "../../scripts/tester-army/app-port";
+
 type RoleKey = "admin" | "engineer" | "viewer";
 
 // Chromium's restricted HTTP ports above 1023; lower ports are never candidates.
@@ -326,7 +328,8 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
       54329,
       8083,
     ];
-    const reservedPorts = new Set([...configuredPorts, ...additionalReservedPorts]);
+    // The application ports live Army campaigns lease are not bound before their journeys (TI-672).
+    const reservedPorts = new Set([...configuredPorts, ...additionalReservedPorts, ...leasedAppPorts()]);
     const ephemeralRanges = hostEphemeralPortRanges();
     const portReplacements = new Map<number, number>();
     for (const configuredPort of configuredPorts) {
@@ -872,9 +875,10 @@ export function describeSafeFailure(error: unknown, status?: number) {
  * per pgTAP file to stderr, which alone filled the end of the joined output.
  */
 function cliFailureExcerpt({ streams }: SupabaseCliCommandError) {
-  const stderr = streams.stderr.split(/\r?\n/)
+  // Redacted whole, then sliced: a slice could cut a secret the redaction then misses.
+  const stderr = redactRlsEnvironmentValues(streams.stderr, {}).split(/\r?\n/)
     .filter((line) => !/\b(?:NOTICE|INFO|DEBUG\d?|LOG):\s/.test(line)).join("\n").trim().slice(-3_000);
-  return [streams.stdout.trim().slice(-(6_000 - stderr.length)), stderr].filter(Boolean).join("\n");
+  return [redactRlsEnvironmentValues(streams.stdout, {}).trim().slice(-(6_000 - stderr.length)), stderr].filter(Boolean).join("\n");
 }
 
 function createPhaseError(phase: string, error: unknown) {
@@ -884,7 +888,7 @@ function createPhaseError(phase: string, error: unknown) {
     SAFE_DIAGNOSTIC_PHASES.has(phase) &&
     error instanceof SupabaseCliCommandError
   ) {
-    detail += `\n${redactRlsEnvironmentValues(cliFailureExcerpt(error), {})}`;
+    detail += `\n${cliFailureExcerpt(error)}`;
   }
   return new Error(`Phase failed: ${phase}${detail}`, { cause });
 }

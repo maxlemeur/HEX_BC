@@ -59,7 +59,8 @@ export async function assertLocalAppPortAvailable(port: number, listeners: (port
     const accepted = await new Promise<boolean>((resolve) => {
       const socket = net.connect({ port, host });
       const settle = (value: boolean) => { socket.destroy(); resolve(value); };
-      socket.setTimeout(2_000, () => settle(false));
+      // A closed loopback port refuses at once; one that neither accepts nor refuses is not free.
+      socket.setTimeout(2_000, () => settle(true));
       socket.once("connect", () => settle(true));
       // ECONNREFUSED: nothing listens; EADDRNOTAVAIL: no IPv6 loopback.
       socket.once("error", () => settle(false));
@@ -84,7 +85,8 @@ export interface ReserveAppPortOptions {
   label: string;
   directory?: string;
   pid?: number;
-  isAlive?: (pid: number) => boolean;
+  /** Whether the launcher that wrote a lease, with its recorded start time, still runs. */
+  isAlive?: (pid: number, processStartedAt: unknown) => boolean;
 }
 
 /** This user's leases, shared by every checkout of the machine. */
@@ -92,17 +94,70 @@ export function defaultAppPortLeaseDirectory() {
   return path.join(os.homedir(), ".supabase", "army-app-ports");
 }
 
-function isProcessAlive(pid: number) {
+/** The process's start time as `ps` prints it, or undefined where `ps` cannot tell. */
+function processStartTime(pid: number) {
+  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 });
+  const value = result.status === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
+  return value || undefined;
+}
+
+/**
+ * Whether the launcher that wrote a lease still runs. A launcher stopped by
+ * SIGINT/SIGTERM during its stack phases ends by the re-raised signal, which
+ * skips its exit handler: its lease stays until a later reservation sweeps it,
+ * by which time its PID may run something else. EPERM (another user's process)
+ * cannot be a launcher of this user's directory either.
+ */
+function isLeaseHolderAlive(pid: number, processStartedAt: unknown) {
   try {
     process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM: alive, owned by another user.
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+  } catch {
+    return false;
   }
+  const current = typeof processStartedAt === "string" ? processStartTime(pid) : undefined;
+  return current === undefined || current === processStartedAt;
 }
 
 const LEASE_FILE = /^(\d+)-(\d+)-[0-9a-f-]{36}\.json$/;
+
+interface LeaseRecord { label?: string; cwd?: string; startedAt?: string; processStartedAt?: string }
+
+/**
+ * The live leases of a directory, any port; stale ones (dead or reused PID)
+ * are removed. A lease still being written by its live owner is unreadable
+ * and kept.
+ */
+function liveLeases(directory: string, isAlive: (pid: number, processStartedAt: unknown) => boolean) {
+  const leases: Array<{ file: string; port: number; pid: number; record?: LeaseRecord }> = [];
+  for (const name of fs.readdirSync(directory)) {
+    const match = LEASE_FILE.exec(name);
+    if (!match) continue;
+    const file = path.join(directory, name);
+    let record: LeaseRecord | undefined;
+    try {
+      record = JSON.parse(fs.readFileSync(file, "utf8")) as LeaseRecord;
+    } catch {
+      // Still being written by its live owner, or already removed.
+    }
+    if (!isAlive(Number(match[2]), record?.processStartedAt)) {
+      fs.rmSync(file, { force: true });
+      continue;
+    }
+    leases.push({ file, port: Number(match[1]), pid: Number(match[2]), record });
+  }
+  return leases;
+}
+
+/**
+ * The application ports other live campaigns lease: an isolated native stack
+ * must not take one for its services while that campaign, still in its
+ * database checks, has not bound it yet.
+ */
+export function leasedAppPorts(directory = defaultAppPortLeaseDirectory()) {
+  if (!fs.existsSync(directory)) return [];
+  return [...new Set(liveLeases(directory, isLeaseHolderAlive).filter((lease) => lease.pid !== process.pid).map((lease) => lease.port))]
+    .sort((left, right) => left - right);
+}
 
 /**
  * Leases the application port for this launcher's life, or refuses at once
@@ -114,30 +169,21 @@ const LEASE_FILE = /^(\d+)-(\d+)-[0-9a-f-]{36}\.json$/;
 export function reserveAppPort(options: ReserveAppPortOptions): AppPortLease {
   const directory = options.directory ?? defaultAppPortLeaseDirectory();
   const pid = options.pid ?? process.pid;
-  const isAlive = options.isAlive ?? isProcessAlive;
+  const isAlive = options.isAlive ?? isLeaseHolderAlive;
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = path.join(directory, `${options.port}-${pid}-${randomUUID()}.json`);
-  const record = { port: options.port, pid, label: options.label, cwd: process.cwd(), startedAt: new Date().toISOString() };
+  const record = {
+    port: options.port, pid, label: options.label, cwd: process.cwd(), startedAt: new Date().toISOString(),
+    // Tells this launcher from a later process that reuses its PID.
+    processStartedAt: processStartTime(pid),
+  };
   fs.writeFileSync(file, `${JSON.stringify(record)}\n`, { flag: "wx", mode: 0o600 });
   const holders: string[] = [];
   try {
-    for (const name of fs.readdirSync(directory)) {
-      const match = LEASE_FILE.exec(name);
-      const other = path.join(directory, name);
-      if (!match || other === file || Number(match[1]) !== options.port) continue;
-      const holder = Number(match[2]);
-      if (!isAlive(holder)) {
-        fs.rmSync(other, { force: true });
-        continue;
-      }
-      let detail = "starting";
-      try {
-        const lease = JSON.parse(fs.readFileSync(other, "utf8")) as { label?: string; cwd?: string; startedAt?: string };
-        detail = `${lease.label} in ${lease.cwd} since ${lease.startedAt}`;
-      } catch {
-        // Still being written by its live owner.
-      }
-      holders.push(`PID ${holder}, ${detail} (lease ${other})`);
+    for (const lease of liveLeases(directory, isAlive)) {
+      if (lease.file === file || lease.port !== options.port) continue;
+      const detail = lease.record ? `${lease.record.label} in ${lease.record.cwd} since ${lease.record.startedAt}` : "starting";
+      holders.push(`PID ${lease.pid}, ${detail} (lease ${lease.file})`);
     }
   } catch (error) {
     fs.rmSync(file, { force: true });
@@ -172,15 +218,16 @@ function clip(text: string) {
  * with its log tail) and its own setup error. Journey failures are results,
  * not run-level errors, and stay in the report.
  */
-export function describeArmyRunFailure(manifest: unknown) {
+export function describeArmyRunFailure(manifest: unknown, redact: (text: string) => string = (text) => text) {
   const result = manifest && typeof manifest === "object" ? (manifest as { result?: { errors?: unknown; error?: unknown } }).result : undefined;
   const errors = Array.isArray(result?.errors) ? result.errors as Array<{ code?: unknown; message?: unknown }> : [];
   const lines = errors.slice(0, 3).map((error) => {
     const code = typeof error?.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) ? error.code : "UNKNOWN";
-    return `${code}: ${typeof error?.message === "string" ? clip(error.message) : "no message"}`;
+    // Redacted whole, then clipped: a clip could cut a secret the redaction then misses.
+    return `${code}: ${typeof error?.message === "string" ? clip(redact(error.message)) : "no message"}`;
   });
   if (errors.length > 3) lines.push(`${errors.length - 3} more run-level errors in the retained manifest`);
-  if (typeof result?.error === "string" && result.error.trim()) lines.push(clip(result.error));
+  if (typeof result?.error === "string" && result.error.trim()) lines.push(clip(redact(result.error)));
   return lines;
 }
 

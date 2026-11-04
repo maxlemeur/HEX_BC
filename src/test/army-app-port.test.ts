@@ -12,7 +12,15 @@
 //    neighbour, a zombie `next start` and a startup crash read the same;
 // 5. a journeys child that could not start its app (APP_ALREADY_RUNNING,
 //    APP_UNREACHABLE) is reported by its exit code only, its cause left in a
-//    retained file.
+//    retained file;
+// 6. a lease whose PID now belongs to another process (a launcher stopped by
+//    a signal skips its exit handler; PIDs wrap) refuses its port for good;
+// 7. a phase's own error is replaced by the failure to retain its evidence
+//    (the TI-663 symptom: "The current phase must retain a fresh manifest"
+//    instead of "port unavailable"), or a phase stopped before its journeys
+//    blocks the next one;
+// 8. a native stack of another run takes a leased port for one of its
+//    services while the lease holder is still in its database checks.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -22,9 +30,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  AppPortReservedError, assertLocalAppPortAvailable, describeArmyRunFailure, describePortListeners,
-  LocalAppPortUnavailableError, outputTail, reserveAppPort,
+  AppPortReservedError, assertLocalAppPortAvailable, describeArmyRunFailure,
+  leasedAppPorts, LocalAppPortUnavailableError, outputTail, reserveAppPort,
 } from "../../scripts/tester-army/app-port";
+import { EvidenceRetentionError, failedPhase, keepRunError } from "../../scripts/tester-army/phase-failure";
 
 const MODULE = path.resolve("scripts/tester-army/app-port.ts");
 const children: ChildProcess[] = [];
@@ -99,9 +108,10 @@ describe("Army application port lease", () => {
     other.release();
     other.release();
     expect(fs.readdirSync(directory)).toEqual([held]);
-  });
+    expect(leasedAppPorts(directory)).toEqual([4107]);
+  }, 30_000);
 
-  it("treats the lease of a launcher killed by SIGKILL as stale and removes it", async () => {
+  it("treats the lease of a launcher killed by SIGKILL as stale and removes it, whatever port is reserved next", async () => {
     const directory = leaseDirectory();
     const holder = await startLeaseHolder(4109, directory);
     const [stale] = fs.readdirSync(directory);
@@ -109,12 +119,13 @@ describe("Army application port lease", () => {
     await exited(holder);
     // No exit handler ran: its file is still there, its process is not.
     expect(fs.readdirSync(directory)).toEqual([stale]);
+    expect(leasedAppPorts(directory)).toEqual([]);
 
-    const lease = reserveAppPort({ port: 4109, label: "run-tester-army-ci.ts critical", directory });
+    const lease = reserveAppPort({ port: 4120, label: "run-tester-army-ci.ts critical", directory });
     expect(fs.readdirSync(directory)).toEqual([path.basename(lease.file)]);
     lease.release();
     expect(fs.readdirSync(directory)).toEqual([]);
-  });
+  }, 30_000);
 
   it("releases the lease when its launcher exits, failed or not", () => {
     const directory = leaseDirectory();
@@ -124,6 +135,23 @@ describe("Army application port lease", () => {
       process.exitCode = 1;
     `], { encoding: "utf8", timeout: 30_000 });
     expect(child.status, child.stderr).toBe(1);
+    expect(fs.readdirSync(directory)).toEqual([]);
+  }, 30_000);
+
+  it("treats a lease whose PID now runs another process, or another user's, as stale", () => {
+    const directory = leaseDirectory();
+    const lease = (port: number, pid: number) => {
+      const file = path.join(directory, `${port}-${pid}-00000000-0000-4000-8000-00000000000${port % 10}.json`);
+      fs.writeFileSync(file, `${JSON.stringify({ port, pid, label: "run-tester-army-ci.ts critical", cwd: "/elsewhere",
+        startedAt: "2026-01-01T00:00:00.000Z", processStartedAt: "Thu Jan  1 00:00:00 1970" })}\n`);
+      return file;
+    };
+    // The vitest parent is alive, but not the process that wrote the lease.
+    lease(4112, process.ppid);
+    // PID 1 belongs to root: never a launcher of this user's lease directory.
+    lease(4113, 1);
+    expect(leasedAppPorts(directory)).toEqual([]);
+    reserveAppPort({ port: 4112, label: "next", directory }).release();
     expect(fs.readdirSync(directory)).toEqual([]);
   });
 
@@ -160,10 +188,9 @@ describe("Army application port probe", () => {
 
     // The real listing, where the host has lsof (macOS, the CI runners).
     if (!spawnSync("lsof", ["-v"]).error) {
-      expect(describePortListeners(port)).toEqual([`node (PID ${neighbour.pid})`]);
       await expect(assertLocalAppPortAvailable(port)).rejects.toThrow(`(EADDRINUSE, listening: node (PID ${neighbour.pid}))`);
     }
-  });
+  }, 30_000);
 
   // macOS lets the loopback bind succeed next to a wildcard listener (Linux
   // refuses it with EADDRINUSE); http://localhost:<port> reaches that listener.
@@ -178,7 +205,7 @@ describe("Army application port probe", () => {
       new RegExp(`^Local application port ${port} is unavailable on (?:127\\.0\\.0\\.1|::1) ` +
         "\\((?:EADDRINUSE|it already accepts connections there: a listener on every interface), listening: node \\(PID 4242\\)\\)"),
     );
-  });
+  }, 30_000);
 });
 
 describe("Army journeys failure cause", () => {
@@ -209,7 +236,54 @@ describe("Army journeys failure cause", () => {
     expect(describeArmyRunFailure(null)).toEqual([]);
   });
 
+  it("redacts a cause before clipping it, so a secret across the clip boundary cannot escape", () => {
+    const secret = "army-secret-0123456789";
+    const [cause] = describeArmyRunFailure({ result: { errors: [{ code: "APP_UNREACHABLE", message: `${"x".repeat(290)}${secret}` }] } },
+      (text) => text.replaceAll(secret, "[redacted]"));
+    expect(cause).toBe(`APP_UNREACHABLE: ${"x".repeat(290)}[redacted]`);
+  });
+
   it("keeps the last output lines of a step without a recorded cause", () => {
     expect(outputTail(`a\n\n\u001b[31mb\u001b[39m\n${"x".repeat(400)}\n`, 2)).toBe(`b\n    ${"x".repeat(300)}…`);
+  });
+});
+
+describe("Army phase failure", () => {
+  const redact = (text: string) => text.replaceAll("s3cret", "[redacted]");
+  const port = new Error("Local application port 3172 is unavailable on 127.0.0.1 (EADDRINUSE). Choose another --app-port.");
+
+  it("keeps a phase's own error first when its evidence cannot be retained, and stops the next phase", () => {
+    const failure = failedPhase({ error: new Error("journeys-critical failed (s3cret)"), launched: true, redact,
+      retain: () => { throw new Error("The phase archive manifest does not match its retained fingerprint."); } });
+    expect(failure).toEqual({ stop: true, message: "journeys-critical failed ([redacted]); its evidence was not retained: " +
+      "The phase archive manifest does not match its retained fingerprint." });
+  });
+
+  it("neither retains nor blocks after a phase stopped before its journeys started", () => {
+    let retained = 0;
+    expect(failedPhase({ error: port, launched: false, redact, retain: () => { retained += 1; throw new Error("The current phase must retain a fresh manifest before another phase can run."); } }))
+      .toEqual({ stop: false, message: port.message });
+    expect(retained).toBe(0);
+  });
+
+  it("retains a launched phase once and lets the next phase run", () => {
+    let retained = 0;
+    expect(failedPhase({ error: new Error("journeys failed"), launched: true, redact, retain: () => { retained += 1; } }))
+      .toEqual({ stop: false, message: "journeys failed" });
+    expect(retained).toBe(1);
+  });
+
+  it("does not retry a retention that already failed after passing journeys", () => {
+    let retained = 0;
+    expect(failedPhase({ error: new EvidenceRetentionError("its evidence was not retained: x"), launched: true, redact, retain: () => { retained += 1; } }))
+      .toEqual({ stop: true, message: "its evidence was not retained: x" });
+    expect(retained).toBe(0);
+  });
+
+  it("keeps the run's error first when the final evidence retention fails too", () => {
+    expect(keepRunError({ status: "failed", error: port.message }, "CI evidence failed the privacy check; upload is forbidden."))
+      .toBe(`${port.message}; its evidence was not retained: CI evidence failed the privacy check; upload is forbidden.`);
+    expect(keepRunError({ status: "passed" }, "The phase archive must remain inside the owned runs directory."))
+      .toBe("The phase archive must remain inside the owned runs directory.");
   });
 });
