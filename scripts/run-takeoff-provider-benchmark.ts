@@ -32,6 +32,9 @@ import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
 import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
 import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
+import { renderVisionSection, visionReport } from "@/lib/takeoff/bench/vision-report";
+import { VISION_CORRECTED_CONFIDENCE, VISION_REVIEW_LIMITS, VISION_REVIEW_PROMPT_VERSION, VISION_REVIEW_VERSION } from "@/lib/takeoff/bench/vision-review";
+import { visionReviewHook } from "@/lib/takeoff/bench/vision-review-server";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
 import {
   runTakeoffPageTriage,
@@ -95,6 +98,11 @@ import { SURFACE_RULE_VERSION } from "@/lib/takeoff/vectors/surfaces";
 // OPENAI_DECISIONS_API_KEY with MERGEONE_OPENAI_DECISIONS=1 (the key is never
 // recorded). Exit 0 or 1, and 2 when Decisions is unavailable (no page read),
 // at the first failed call or when the ceiling refuses one, with a partial report.
+// `--vision-review rejected` (TI-664 L5c): after each pass's rules, the local ChatGPT profile of
+// TAKEOFF_BENCH_CHATGPT_OWNER reviews the lines the DN × network rule rejects, one crop per line (vision-review.ts);
+// the profile is checked before the first call and never changed. report.json `vision`: tokens, latencies, page
+// durations p50/p95 against the baseline's (L1, same pages), and the rules after vision apart. Exit 2 at the first
+// provider stop (« Limite du forfait ChatGPT », rate limit, authorisation, changed profile), with a partial report.
 
 const SCRIPT_ROOT = path.resolve(import.meta.dirname, "..");
 const REPORT_FILES = ["report.json", "report.md"] as const;
@@ -306,8 +314,8 @@ async function readBaseline(file: string) {
 }
 
 async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
-  // Decisions needs the owner whose tenant the calls are made for; keywords alone need none.
-  const owner = args.maxDecisionsTokens === null ? null : parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
+  // Decisions and the vision pass need the owner whose tenant the calls are made for; keywords alone need none.
+  const owner = args.maxDecisionsTokens === null && !args.visionReview ? null : parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
   assertOwnCode();
   await assertOutput(args.out);
   const startedAt = new Date().toISOString();
@@ -333,7 +341,16 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
       zone: document.zone ?? null, page_ranges: document.page_ranges ?? [] });
   }
   const budget = args.maxDecisionsTokens === null ? null : createDecisionsTokenBudget(args.maxDecisionsTokens, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS);
-  const capability = owner ? getOpenAiDecisionsCapability() : null;
+  const capability = owner && budget ? getOpenAiDecisionsCapability() : null;
+  // The vision pass reads the profile once, before any page: a profile without model is refused, never given one.
+  let profile: Profile | null = null;
+  if (args.visionReview && owner) {
+    const credential = await getLocalChatGptCredential(owner).catch((error: unknown) => {
+      throw new BenchRefusal(`--vision-review: ChatGPT local non prêt (${describeError(error).message}).`);
+    });
+    if (!credential?.model) throw new BenchRefusal("--vision-review: aucun compte ChatGPT ou aucun modèle choisi pour ce propriétaire (Mon profil).");
+    profile = { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null };
+  }
   const log = (line: string) => console.error(line);
   const hook: VectorDecisionsHook | undefined = owner && budget ? {
     promptVersion: GROUP_DECISIONS_PROMPT_VERSION,
@@ -346,7 +363,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   // Unavailable Decisions: no page is read, the run stops before its first page.
   const result = capability && capability.status !== "available"
     ? stoppedVectorBench(documents, args.repeat, GROUP_DECISIONS_PROMPT_VERSION, { reason: "decisions_unavailable", message: capability.message })
-    : await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, decisions: hook, log });
+    : await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, decisions: hook, log,
+      vision: owner && profile ? visionReviewHook({ owner, selection: profile, log }) : undefined });
   const status = git(["status", "--porcelain"]);
   const metadata: BenchReportMetadata = {
     started_at: startedAt, finished_at: new Date().toISOString(),
@@ -360,7 +378,9 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
       })),
       skipped: dataset.skipped,
     },
-    profile: { model: null, reasoning_effort: null, unchanged: null },
+    profile: profile && owner
+      ? { model: profile.model, reasoning_effort: profile.reasoningEffort, unchanged: await profileUnchanged(owner, profile) }
+      : { model: null, reasoning_effort: null, unchanged: null },
     ...(owner ? { host: host(loadBefore) } : {}),
   };
   const report = buildBenchReport({ metadata, run: result.run, scopes, noise: dataset.noise, pipeline: "vector", vectorRules: vectorRules() });
@@ -372,8 +392,17 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     run: vectorDecisionsTotal(result.vector.passes),
     documents: vectorDecisionsSummary(result.vector.passes),
   } : null;
+  // The vision pass: its costs and times, and the rules after its corrections, scored apart from « after the rules ».
+  const visionScored = result.vision && result.vision.passes.length > 0 ? buildBenchReport({ metadata, scopes, noise: dataset.noise,
+    pipeline: "vector", vectorRules: vectorRules(), run: { ...result.run, couples: [{ ...result.run.couples[0], passes: result.vision.passes }] } }) : null;
+  const vision = result.vision ? {
+    version: VISION_REVIEW_VERSION, prompt_version: VISION_REVIEW_PROMPT_VERSION, limits: VISION_REVIEW_LIMITS,
+    corrected_confidence: VISION_CORRECTED_CONFIDENCE,
+    summary: visionReport({ vector: result.vector.passes, passes: result.run.couples[0]?.passes ?? [], baseline: baseline?.run.couples[0]?.passes ?? [] }),
+    rules_after_vision: visionScored?.couples[0]?.passes.map((pass) => ({ pass: pass.pass, rules: pass.rules ?? null })) ?? [],
+  } : null;
   const full = {
-    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison,
+    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison, vision,
     baseline: baseline ? {
       file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256,
       // The level C reading re-scored with the fixed rules of TI-664 (designations: DN × network, quantities to enter).
@@ -383,8 +412,11 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
   const baselineRules = (baselineReport?.couples[0]?.passes ?? []).flatMap((pass) => (pass.rules
     ? [`## Lecture niveau C (baseline) : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
+  const visionRules = (visionScored?.couples[0]?.passes ?? []).flatMap((pass) => (pass.rules
+    ? [`## Après la passe vision : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
   const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`
-    + (baselineRules.length > 0 ? `\n${baselineRules.join("\n")}\n` : "");
+    + (baselineRules.length > 0 ? `\n${baselineRules.join("\n")}\n` : "")
+    + (vision ? `\n${renderVisionSection(vision.summary).join("\n")}\n${visionRules.join("\n")}\n` : "");
   await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
   console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
   if (budget) console.log(`Decisions: ${budget.snapshot().calls} calls, ${budget.snapshot().spent_tokens} tokens.`);

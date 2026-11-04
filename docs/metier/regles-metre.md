@@ -328,3 +328,27 @@ lues dans les désignations.
 
 Les règles tournent par lot : les plans d'un même lot sont ceux d'une version. Zone et
 niveau viennent du manifest.
+
+### Passe vision ciblée (L5c)
+
+`--vision-review rejected` (pipeline vectoriel, `TAKEOFF_BENCH_CHATGPT_OWNER`) : après les
+règles de chaque passe, le profil ChatGPT local revoit les lignes rejetées, et elles seules
+([`vision-review.ts`](../../src/lib/takeoff/bench/vision-review.ts)).
+
+- **Lignes revues** : les lignes vectorielles que la règle DN × réseau rejette (réseau,
+  matériau ou taille non lus, taille hors série), sur un extrait du plan autour de leur
+  tronçon. Une ligne rejetée pour une raison géométrique (doublon, aire, chevauchement,
+  échelle) ou sans géométrie (ligne niveau C d'une page raster) n'est pas envoyée.
+- Au plus 12 lignes par page (les autres sont comptées « laissées de côté »), 6 par appel,
+  une image par ligne.
+- **Réponse** : « corrige » remplace réseau, matériau et taille (vocabulaire du banc),
+  réécrit la désignation et plafonne la confiance à 0,7 : une lecture du modèle reste
+  incertaine, jamais à haute confiance. « confirme » et « illisible » ne changent rien.
+- **État séparé** : les lignes corrigées et leurs règles recalculées forment « après
+  vision », notées à part de « après règles ».
+- **Rapport** : jetons, latence des appels et rendu des extraits p50 / p95, durée par page
+  (vecteurs + vision) face à la baseline L1 sur les mêmes pages (`--baseline`), régression
+  ou non.
+- Le profil est lu une fois avant la première page et jamais modifié. Le premier arrêt du
+  fournisseur (« Limite du forfait ChatGPT », limite de débit, autorisation, profil changé)
+  arrête le run, avec un rapport partiel et le code de sortie 2. L5 n'appelle pas Decisions.
