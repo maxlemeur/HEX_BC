@@ -23,7 +23,8 @@ import type { Database } from "@/types/database";
 // updated_at), and nothing when the version changed since this computation
 // read its stamp (takeoff_rule_version_stamp): a line edited meanwhile keeps
 // its stale results, and the edit's own computation writes them. Results are
-// bounded before they are written (boundRuleResults), so every read accepts them.
+// bounded before they are written (boundRuleResults: fields, then 64 KiB of
+// jsonb text, TI-677), so every read accepts them and the column stores them.
 
 type ServiceClient = SupabaseClient<Database>;
 
@@ -163,17 +164,28 @@ export async function recomputeTakeoffRulesForVersion(input: {
   // Each line as read: its updated_at and when it was last made stale (a partner's later edit keeps it stale).
   const writes: Array<{ id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null }> = [];
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
+  let unbounded = 0;
   for (const { item, inputs } of items) {
     if (inputs === null || status.get(item.job_id) !== "completed") continue;
-    const results = boundRuleResults(evaluation.results.get(item.id) ?? []);
-    if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, results)) {
-      writes.push({ id: item.id, results, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
-    }
     const stored = geometries.get(item.id);
     if (stored) {
       const transform = evaluation.transforms.get(stored.page) ?? null;
       if (!sameJson(stored.geometry.transform, transform)) transforms.push({ item_id: item.id, transform });
     }
+    // Results that cannot be bounded to the column (TI-677) leave this line stale, never the whole version.
+    let results: TakeoffRuleResult[];
+    try {
+      results = boundRuleResults(evaluation.results.get(item.id) ?? []);
+    } catch {
+      unbounded += 1;
+      continue;
+    }
+    if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, results)) {
+      writes.push({ id: item.id, results, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
+    }
+  }
+  if (unbounded > 0) {
+    console.error("takeoff.rules.results_unbounded", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: unbounded });
   }
   let written = 0;
   for (let offset = 0; offset < Math.max(writes.length, transforms.length); offset += TAKEOFF_RULES_WRITE_CHUNK) {

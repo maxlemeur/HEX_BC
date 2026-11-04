@@ -48,17 +48,16 @@ describe("takeoff item patch persistence", () => {
         takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
         takeoff_items: (query) => {
           const id = filterValue(query, "id");
-          const row = takeoffItemRow({ id });
           if (id === M3_ITEM_ID) return { data: null, error: null };
-          if (id === THIRD_ITEM_ID && query.operation === "update") {
-            return { data: null, error: null };
-          }
-          return {
-            data: query.operation === "update" ? { ...row, ...query.payload as object } : row,
-            error: null,
-          };
+          return { data: takeoffItemRow({ id }), error: null };
         },
         audit_logs: () => ({ data: null, error: null }),
+      },
+      rpc: {
+        update_takeoff_item_for_review: (args) => {
+          const { p_item_id: id, p_fields: fields } = args as { p_item_id: string; p_fields: object };
+          return { data: id === THIRD_ITEM_ID ? [] : [{ ...takeoffItemRow({ id }), ...fields }], error: null };
+        },
       },
     });
     useFake(fake);
@@ -77,12 +76,15 @@ describe("takeoff item patch persistence", () => {
         { item_id: FOURTH_ITEM_ID, success: true, item: { quantity: 18 } },
       ],
     });
-    expect(fake.writesTo("takeoff_items").map((query) => filterValue(query, "id")))
-      .toEqual([THIRD_ITEM_ID, FOURTH_ITEM_ID]);
+    const saves = fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")
+      .map((call) => call.args as { p_item_id: string; p_tenant_id: string; p_job_id: string; p_expected_updated_at: string });
+    expect(saves.map((save) => save.p_item_id)).toEqual([THIRD_ITEM_ID, FOURTH_ITEM_ID]);
+    for (const save of saves) {
+      expect([save.p_tenant_id, save.p_job_id, save.p_expected_updated_at]).toEqual([M3_TENANT_ID, M3_JOB_ID, UPDATED_AT]);
+    }
     for (const query of fake.queries.filter((query) => query.table === "takeoff_items")) {
       expect(filterValue(query, "tenant_id")).toBe(M3_TENANT_ID);
       expect(filterValue(query, "job_id")).toBe(M3_JOB_ID);
-      if (query.operation === "update") expect(filterValue(query, "updated_at")).toBe(UPDATED_AT);
     }
     expect(fake.writesTo("audit_logs")).toHaveLength(1);
     expect(response.results[3]?.item?.metadata).toMatchObject({ original_unit: "m.l" });
@@ -97,11 +99,14 @@ describe("takeoff item patch persistence", () => {
     const fake = createSupabaseFake({
       tables: {
         takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
-        takeoff_items: (query) => {
-          if (query.operation === "update") item = { ...item, ...query.payload as object };
-          return { data: item, error: null };
-        },
+        takeoff_items: () => ({ data: item, error: null }),
         audit_logs: () => pendingAudit,
+      },
+      rpc: {
+        update_takeoff_item_for_review: (args) => {
+          item = { ...item, ...(args as { p_fields: object }).p_fields };
+          return { data: [item], error: null };
+        },
       },
     });
     useFake(fake);
@@ -115,7 +120,8 @@ describe("takeoff item patch persistence", () => {
     });
     await vi.waitFor(() => expect(fake.writesTo("audit_logs")).toHaveLength(1));
     expect(settled).toBe(false);
-    expect(fake.queries.filter((query) => query.table === "takeoff_items")).toHaveLength(2);
+    expect(fake.queries.filter((query) => query.table === "takeoff_items")).toHaveLength(1);
+    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toHaveLength(1);
     releaseAudit({ data: null, error: { code: "42501", message: "audit refused" } });
 
     const response = await operation;
@@ -127,7 +133,7 @@ describe("takeoff item patch persistence", () => {
         { success: false, error: expect.stringContaining("Conflit de concurrence") },
       ],
     });
-    expect(fake.writesTo("takeoff_items")).toHaveLength(1);
+    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toHaveLength(1);
   });
 
   // TI-664 L5c: a saved line's rules read the other lines of its job (a run on two zone plans, two rooms of a page).
@@ -145,9 +151,6 @@ describe("takeoff item patch persistence", () => {
         takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
         takeoff_items: (query) => {
           const id = filterValue(query, "id");
-          if (query.operation === "update") {
-            return { data: { ...takeoffItemRow({ id }), ...query.payload as object, rules_stale: true }, error: null };
-          }
           if (id) return { data: takeoffItemRow({ id, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: false }), error: null };
           return { data: [
             { id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
@@ -157,7 +160,13 @@ describe("takeoff item patch persistence", () => {
         },
         audit_logs: () => ({ data: null, error: null }),
       },
-      rpc: { takeoff_rule_version_stamp: () => ({ data: null, error: { message: "verrou de version" } }) },
+      rpc: {
+        update_takeoff_item_for_review: (args) => {
+          const { p_item_id: id, p_fields: fields } = args as { p_item_id: string; p_fields: object };
+          return { data: [{ ...takeoffItemRow({ id }), ...fields, rules_stale: true }], error: null };
+        },
+        takeoff_rule_version_stamp: () => ({ data: null, error: { message: "verrou de version" } }),
+      },
     });
     useFake(fake);
 

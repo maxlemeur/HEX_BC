@@ -2,6 +2,7 @@ import { isGrey, isNearWhite, lightnessSaturation, parseHexColor } from "@/lib/t
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { MM_PER_POINT } from "@/lib/takeoff/vectors/geometry";
 import { groupId } from "@/lib/takeoff/vectors/page-model";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 
 // Registration of two plans of one level (TI-664 step 1, « recalage »): the
@@ -31,6 +32,10 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   when two identical wings are plotted at one sheet place.
 // - Only translations: a plan drawn rotated or at another scale than its
 //   page's (a view turned on its sheet) is not registered.
+// - Anchors fit takeoff_vector_pages.rule_anchors (262,144 bytes of jsonb
+//   text, TI-677): past it, the shortest texts are left out first (every
+//   building line is kept), and a text the database cannot store (a NUL, a
+//   lone surrogate) is never kept. The bench reads the same anchors.
 
 export const REGISTRATION_VERSION = 1;
 
@@ -66,6 +71,40 @@ export type PageAnchors = {
   texts: Array<[string, number, number]>;
   lines: Array<[number, number, number, number]>;
 };
+
+/** The check of takeoff_vector_pages.rule_anchors: octet_length(rule_anchors::text) <= 262144. */
+export const RULE_ANCHORS_MAX_BYTES = 262_144;
+
+/** Bytes of the first `count` entries of a jsonb array whose entries measure `sizes` (", " between two). */
+function arrayBytes(prefix: readonly number[], count: number) {
+  return 2 + prefix[count] + 2 * Math.max(0, count - 1);
+}
+
+function prefixSums(sizes: readonly number[]) {
+  const sums = [0];
+  for (const size of sizes) sums.push(sums[sums.length - 1] + size);
+  return sums;
+}
+
+/**
+ * Anchors as the column stores them: texts the database cannot store left out, then, past `maxBytes` of jsonb text,
+ * the last texts (the shortest: texts come longest first), and only when no text is left, the last lines (the
+ * shortest). Deterministic, and the identity on anchors that fit.
+ */
+export function boundPageAnchors(anchors: PageAnchors, maxBytes = RULE_ANCHORS_MAX_BYTES): PageAnchors {
+  const texts = anchors.texts.filter((text) => Number.isFinite(jsonbTextBytes(text)));
+  const textSums = prefixSums(texts.map((text) => jsonbTextBytes(text)));
+  const lineSums = prefixSums(anchors.lines.map((line) => jsonbTextBytes(line)));
+  // {"lines": […], "texts": […], "version": n}: braces, keys, ": " and ", " around the two arrays.
+  const frame = jsonbTextBytes({ version: anchors.version, texts: [], lines: [] }) - 4;
+  const size = (textCount: number, lineCount: number) => frame + arrayBytes(textSums, textCount) + arrayBytes(lineSums, lineCount);
+  let textCount = texts.length;
+  let lineCount = anchors.lines.length;
+  while (textCount > 0 && size(textCount, lineCount) > maxBytes) textCount -= 1;
+  while (lineCount > 0 && size(textCount, lineCount) > maxBytes) lineCount -= 1;
+  if (textCount === anchors.texts.length && lineCount === anchors.lines.length) return anchors;
+  return { version: anchors.version, texts: texts.slice(0, textCount), lines: anchors.lines.slice(0, lineCount) };
+}
 
 const BUILDING_CLASSES = new Set(["mur", "cloison", "fond"]);
 /** Frames and title blocks are near black: never building lines. */
@@ -133,7 +172,7 @@ export function pageAnchors(extraction: Pick<VectorPageExtraction, "texts" | "pa
     }
   }
   lines.sort((left, right) => right.length - left.length || left.line.join(",").localeCompare(right.line.join(",")));
-  return { version: REGISTRATION_VERSION, texts, lines: lines.slice(0, REGISTRATION.maxLines).map(({ line }) => line) };
+  return boundPageAnchors({ version: REGISTRATION_VERSION, texts, lines: lines.slice(0, REGISTRATION.maxLines).map(({ line }) => line) });
 }
 
 export type Registration =

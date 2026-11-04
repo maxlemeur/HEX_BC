@@ -29,7 +29,7 @@ select throws_ok($$select '["ok", "\ud800"]'::jsonb$$, '22P02', null, 'a lone su
 -- The low confidence threshold (guards.test.ts, same cases) ----------------------------------------------
 
 select is(public.takeoff_low_confidence_threshold(fixture.raw), fixture.expected,
-  format('reads %s as %s', coalesce(quote_literal(fixture.raw), 'null'), fixture.expected))
+  format('reads %s as %s', coalesce(to_json(fixture.raw)::text, 'null'), fixture.expected))
 from (values
   (null::text, 0.5::numeric), ('', 0.5), ('   ', 0.5), ('0.7', 0.7), (' 0.7 ', 0.7), (chr(9) || '0.7' || chr(10), 0.7),
   (chr(160) || '0.7', 0.7), ('0x1', 0.5), ('0b1', 0.5), ('0.70000000000000001', 0.7001), ('0.123456789012345678901', 0.1235),

@@ -8,19 +8,11 @@ import { releaseEstimateDraftLock } from "@/lib/estimates/client";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import { applyTakeoffJob, isTakeoffApiError } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
-import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
+import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
 
 // Shared by the takeoff review and its targeted review (TI-664 L5c): the low confidence threshold the guard reads,
 // and the application of a job through the version's draft lock.
-
-function parseLowConfidenceThreshold(value: string | null): number {
-  if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  return parsed;
-}
 
 /** The tenant's low confidence threshold (feature flag), as the apply guard reads it. */
 export function useTakeoffLowConfidenceThreshold() {

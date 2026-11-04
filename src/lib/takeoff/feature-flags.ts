@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { forbidden } from "@/lib/estimates/errors";
 import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
-import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
+import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import {
   TAKEOFF_AI_ESCALATION_ENABLED_DEFAULT,
   TAKEOFF_AI_ESCALATION_ENABLED_FLAG_KEY,
@@ -244,10 +244,8 @@ export async function getTakeoffLowConfidenceThresholdForTenant(
     input
   );
 
-  return parseConfidenceThresholdOrFallback(
-    thresholdRaw,
-    DEFAULT_LOW_CONFIDENCE_THRESHOLD
-  );
+  // Read as the apply trigger reads it (TI-677): the guard and the trigger block the same lines.
+  return parseLowConfidenceThreshold(thresholdRaw);
 }
 
 export async function getTakeoffEscalationConfigForTenant(
