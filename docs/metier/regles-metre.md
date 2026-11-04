@@ -26,7 +26,8 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   - Toutes les tailles imprimées comptent, quelle que soit celle que garde le lecteur (il lit « DN 22 » et saute « Ø 23 » à côté).
   - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue, même à côté d'une taille connue (« DN 22 / Ø 23 »).
   - Deux tailles connues différentes, quelles que soient leurs notations (« DN 22 / Ø 28 »), sont deux DN. Une même taille écrite de deux façons (« DN 20 / Ø 22 » d'un tube cuivre) en est une.
-  - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm ») n'est jamais un DN.
+  - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm », « ép. 2,20 mm ») n'est jamais un DN, et aucune taille ne commence à l'intérieur d'un nombre (« 20 mm » de « 2,20 mm »).
+  - « 1"1/4 » et « 1 1/4" » sont une même taille.
   - Une ligne de réseau en m² est une surface de calorifuge, jamais un tuyau.
 - **Quantité proposée** : la quantité du modèle ou de la lecture, avant toute
   correction.
@@ -112,7 +113,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - Les textes imprimés une seule fois sur deux pages proposent des translations : leurs décalages, regroupés à 10 cm près.
   - Les traits du bâtiment décident. Ce sont les traits gris ou quasi blancs du fond d'architecture (jamais un trait quasi noir de couleur : cadres et cartouches), ou ceux d'un calque classé mur, cloison ou fond, quelle que soit leur couleur.
   - Une translation n'est candidate que si au moins 2 de ses textes sont sur le bâtiment : dans le cadre des traits qu'elle fait coïncider, à 1 m près.
-  - Elle est retenue si au moins 20 traits tombent sur ceux de l'autre page, extrémités à 5 cm près.
+  - Elle est retenue si au moins 20 traits tombent sur ceux de l'autre page, extrémités à 5 cm près. Chaque trait de la page de référence ne compte qu'une fois : des traits superposés ne fabriquent ni le soutien ni la dominance d'une translation.
   - Elle doit aussi réunir deux fois plus de traits que la suivante.
   - Elle est ensuite affinée sur ces extrémités. Son erreur résiduelle (RMS) doit rester sous 2 cm.
 - **Pourquoi jamais le cartouche** : il est au même endroit des deux feuilles, loin du dessin. Il propose la translation nulle, que les traits du bâtiment refusent dès que le dessin a bougé ; et ses textes, hors du bâtiment, ne la rendent jamais candidate seuls, même quand deux ailes identiques sont tracées au même endroit de la feuille.

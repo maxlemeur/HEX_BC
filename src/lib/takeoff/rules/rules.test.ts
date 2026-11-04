@@ -128,6 +128,10 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // shared a cached coverage; a model quantity stored to the thousandth read as typed.
 // Fifth Codex round (written before its fix): « EF cuivre DN 22 / Ø 23 » passed the
 // DN rule, the reader keeping DN 22 and skipping the unknown Ø 23 beside it.
+// Sixth Codex round (written before their fix): « ép. 2,20 mm » gave a 20 mm pipe
+// (a match inside a decimal thickness) and « DN 22 ép. 1,0 mm » a 0 mm one; « 1"1/4 »
+// was read « 1" » beside « DN 32 », two sizes; fifty overprinted strokes landing on one
+// reference wall outweighed twenty distinct walls and registered a wrong frame.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -334,6 +338,20 @@ describe("inputs read in a designation", () => {
     }
   });
 
+  it("reads a decimal thickness and a compound inch size whole, whatever the notation (Codex round 6)", () => {
+    const read = (designation: string) => ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 });
+    const dn = (designation: string) => rule(evaluateTakeoffRules({ pages: [], lines: [line("x", { designation, inputs: read(designation) })] }).results,
+      "x", "dn_network")?.code;
+    // « ép. 2,20 mm » is a thickness, never a 20 mm pipe; « ép. 1,0 mm » beside a DN never a 0 mm one.
+    expect(read("EF PEHD ép. 2,20 mm").dn).toBeNull();
+    expect(dn("EF PEHD ép. 2,20 mm")).toBe("DN_NETWORK_DN_MISSING");
+    expect(dn("EF cuivre DN 22 ép. 1,0 mm")).toBe("DN_NETWORK_COMPATIBLE");
+    // « 1"1/4 » and « 1 1/4" » are one size, as is the DN 32 printed beside either.
+    expect(read('HW acier 1"1/4 DN 32').dn).toBe(read('HW acier 1 1/4" DN 32').dn);
+    expect(dn('HW acier 1"1/4 DN 32')).toBe(dn('HW acier 1 1/4" DN 32'));
+    expect(dn('HW acier 1"1/4 DN 32')).not.toBe("DN_NETWORK_DN_MISSING");
+  });
+
   it("enters a quantity the user typed even when it equals the model's (1 ens of a service)", () => {
     const service = (entered: boolean) => line("service", { designation: "Mise en service", unit: "ens", quantity: 1, quantity_entered: entered,
       inputs: ruleInputsFromDesignation({ designation: "Mise en service", unit: "ens", quantity: 1 }) });
@@ -384,6 +402,18 @@ describe("registration of two plans of one level", () => {
     expect(outcome.dx).toBeCloseTo(42.4, 3);
     expect(outcome.dy).toBeCloseTo(6.6, 3);
     expect(outcome.residual_m).toBeLessThanOrEqual(REGISTRATION.maxResidual_m);
+  });
+
+  it("credits a reference line once, so that overprinted strokes never outweigh distinct walls (Codex round 6)", () => {
+    type Line = [number, number, number, number];
+    const walls = (sx: number) => Array.from({ length: 20 }, (_, index): Line => [10 + sx, 2 + index * 0.7, 13 + (index % 5) + sx, 2 + index * 0.7]);
+    const texts = (sx: number) => TEXTS.map(([text, index]): [string, number, number] => [text, 12 + index * 1.3 + sx, 4 + index * 0.9]);
+    const reference: PageAnchors = { version: 1, lines: [...walls(0), [40, 5, 42, 5]], texts: [...texts(0), ["Gaine A", 40.5, 5.5], ["Gaine B", 41.5, 5.5]] };
+    // The other sheet shows the building 30 m further left. Fifty strokes overprinted within 2.5 cm, away from it, land
+    // on the reference's one extra wall through the wrong translation (-20, -45) that its two « Gaine » texts propose.
+    const strokes = Array.from({ length: 50 }, (_, index): Line => [60, 50 + index * 0.0005, 62, 50 + index * 0.0005]);
+    const other: PageAnchors = { version: 1, lines: [...walls(-30), ...strokes], texts: [...texts(-30), ["Gaine A", 60.5, 50.5], ["Gaine B", 61.5, 50.5]] };
+    expect(registerPages(reference, other)).toMatchObject({ status: "registered", dx: 30, dy: 0 });
   });
 
   it("registers two readings of one drawing at one place with no shift", () => {
