@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GroupTruthFileSchema, type GroupTruthFile } from "@/lib/takeoff/bench/schemas";
-import { runVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
+import { runVectorBench, stoppedVisionBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
 import {
   applyVisionAnswers,
   VISION_CORRECTED_CONFIDENCE,
@@ -220,7 +220,9 @@ describe("the vision pass in the vector bench", () => {
   it("ends the run at the first quota stop, with no later page sent (V6)", async () => {
     const asked: string[] = [];
     const result = await runVectorBench({
-      documents: [benchDocument("a-plan-01", 2)], groups: groups("a-plan-01", 2), repeat: 2, extract: async (_bytes, pageNumber) => plan(pageNumber, 2),
+      // Two pages without level: never compared for duplicates, each rejected by the DN rule alone.
+      documents: [{ ...benchDocument("a-plan-01", 2), level: null, zone: null }], groups: groups("a-plan-01", 2), repeat: 2,
+      extract: async (_bytes, pageNumber) => plan(pageNumber, 2),
       vision: {
         promptVersion: "fixture-vision-v1",
         review: async (document, page) => {
@@ -235,5 +237,12 @@ describe("the vision pass in the vector bench", () => {
       stop: { kind: "provider", reason: "quota", error: { name: "VisionStop", message: "Limite du forfait ChatGPT atteinte." } } });
     expect(result.run.couples[0].passes).toHaveLength(1);
     expect(result.vector.passes[0].vision?.stop).toEqual({ reason: "quota", message: "Limite du forfait ChatGPT atteinte." });
+  });
+
+  it("records a run whose vision pass could not start as stopped before its first page", () => {
+    const result = stoppedVisionBench([benchDocument("a-plan-01", 2)], 3, "fixture-vision-v1", { reason: "auth_required", message: "Reconnectez ChatGPT." });
+    expect(result.run).toMatchObject({ status: "incomplete", calls_done: 0, calls_planned: 6,
+      stop: { kind: "provider", reason: "auth_required", error: { name: "VisionStop", message: "Reconnectez ChatGPT." }, calls_remaining: 6 } });
+    expect(result.vision?.passes).toEqual([]);
   });
 });

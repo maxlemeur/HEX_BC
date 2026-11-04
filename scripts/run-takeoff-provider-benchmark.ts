@@ -31,7 +31,7 @@ import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
 import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
-import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
+import { baselineRasterFallback, runVectorBench, stoppedVectorBench, stoppedVisionBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
 import { renderVisionSection, visionReport } from "@/lib/takeoff/bench/vision-report";
 import { VISION_CORRECTED_CONFIDENCE, VISION_REVIEW_LIMITS, VISION_REVIEW_PROMPT_VERSION, VISION_REVIEW_VERSION } from "@/lib/takeoff/bench/vision-review";
 import { visionReviewHook } from "@/lib/takeoff/bench/vision-review-server";
@@ -342,14 +342,20 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   }
   const budget = args.maxDecisionsTokens === null ? null : createDecisionsTokenBudget(args.maxDecisionsTokens, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS);
   const capability = owner && budget ? getOpenAiDecisionsCapability() : null;
-  // The vision pass reads the profile once, before any page: a profile without model is refused, never given one.
+  // The vision pass reads the profile once, before any page (the token may be renewed, nothing else is written): a
+  // profile without model stops the run before its first page, never given one; so does a token that cannot be read.
   let profile: Profile | null = null;
+  let visionStop: { reason: StopReason; message: string } | null = null;
   if (args.visionReview && owner) {
-    const credential = await getLocalChatGptCredential(owner).catch((error: unknown) => {
-      throw new BenchRefusal(`--vision-review: ChatGPT local non prêt (${describeError(error).message}).`);
-    });
-    if (!credential?.model) throw new BenchRefusal("--vision-review: aucun compte ChatGPT ou aucun modèle choisi pour ce propriétaire (Mon profil).");
-    profile = { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null };
+    try {
+      const credential = await getLocalChatGptCredential(owner);
+      if (!credential) visionStop = { reason: "account_missing", message: "Aucun compte ChatGPT sélectionné pour ce propriétaire." };
+      else if (!credential.model) visionStop = { reason: "model_missing", message: "Le profil ChatGPT n’a pas de modèle : choisissez-le dans Mon profil." };
+      else profile = { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null };
+    } catch (error) {
+      const classified = classifyCallError(error);
+      visionStop = { reason: classified.outcome === "stop" ? classified.reason : "other", message: describeError(error).message };
+    }
   }
   const log = (line: string) => console.error(line);
   const hook: VectorDecisionsHook | undefined = owner && budget ? {
@@ -361,7 +367,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     }),
   } : undefined;
   // Unavailable Decisions: no page is read, the run stops before its first page.
-  const result = capability && capability.status !== "available"
+  const result = visionStop ? stoppedVisionBench(documents, args.repeat, VISION_REVIEW_PROMPT_VERSION, visionStop)
+    : capability && capability.status !== "available"
     ? stoppedVectorBench(documents, args.repeat, GROUP_DECISIONS_PROMPT_VERSION, { reason: "decisions_unavailable", message: capability.message })
     : await runVectorBench({ documents, groups: dataset.groups, repeat: args.repeat, rasterFallback, decisions: hook, log,
       vision: owner && profile ? visionReviewHook({ owner, selection: profile, log }) : undefined });
@@ -398,7 +405,9 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   const vision = result.vision ? {
     version: VISION_REVIEW_VERSION, prompt_version: VISION_REVIEW_PROMPT_VERSION, limits: VISION_REVIEW_LIMITS,
     corrected_confidence: VISION_CORRECTED_CONFIDENCE,
-    summary: visionReport({ vector: result.vector.passes, passes: result.run.couples[0]?.passes ?? [], baseline: baseline?.run.couples[0]?.passes ?? [] }),
+    summary: visionReport({ vector: result.vector.passes, passes: result.run.couples[0]?.passes ?? [], baseline: baseline?.run.couples[0]?.passes ?? [],
+      scores: (visionScored?.couples[0]?.passes ?? []).map((pass) => ({ pass: pass.pass, after_vision: pass.rules ?? null,
+        after_rules: report.couples[0]?.passes.find((entry) => entry.pass === pass.pass)?.rules ?? null })) }),
     rules_after_vision: visionScored?.couples[0]?.passes.map((pass) => ({ pass: pass.pass, rules: pass.rules ?? null })) ?? [],
   } : null;
   const full = {
@@ -412,14 +421,14 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
   const baselineRules = (baselineReport?.couples[0]?.passes ?? []).flatMap((pass) => (pass.rules
     ? [`## Lecture niveau C (baseline) : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
-  const visionRules = (visionScored?.couples[0]?.passes ?? []).flatMap((pass) => (pass.rules
-    ? [`## Après la passe vision : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
   const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`
     + (baselineRules.length > 0 ? `\n${baselineRules.join("\n")}\n` : "")
-    + (vision ? `\n${renderVisionSection(vision.summary).join("\n")}\n${visionRules.join("\n")}\n` : "");
+    + (vision ? `\n${renderVisionSection(vision.summary).join("\n")}\n` : "");
   await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
   console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
   if (budget) console.log(`Decisions: ${budget.snapshot().calls} calls, ${budget.snapshot().spent_tokens} tokens.`);
+  if (vision) console.log(`Vision: ${vision.summary.calls.total} calls, ${vision.summary.tokens.total} tokens, ${vision.summary.lines.corrected} lines corrected.`);
+  if (metadata.profile.unchanged === false) console.error("The ChatGPT profile changed during the run.");
   if (result.run.stop) {
     console.error(`Stopped: ${result.run.stop.error.code ?? result.run.stop.reason}: ${result.run.stop.error.message}`);
     process.exitCode = 2;

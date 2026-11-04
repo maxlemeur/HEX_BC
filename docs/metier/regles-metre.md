@@ -335,20 +335,34 @@ niveau viennent du manifest.
 règles de chaque passe, le profil ChatGPT local revoit les lignes rejetées, et elles seules
 ([`vision-review.ts`](../../src/lib/takeoff/bench/vision-review.ts)).
 
-- **Lignes revues** : les lignes vectorielles que la règle DN × réseau rejette (réseau,
-  matériau ou taille non lus, taille hors série), sur un extrait du plan autour de leur
-  tronçon. Une ligne rejetée pour une raison géométrique (doublon, aire, chevauchement,
-  échelle) ou sans géométrie (ligne niveau C d'une page raster) n'est pas envoyée.
+- **Lignes revues** : les lignes vectorielles que seule la règle DN × réseau rejette
+  (réseau, matériau ou taille non lus, taille hors série), sur un extrait du plan autour de
+  leurs tronçons. Ne sont pas envoyées : une ligne rejetée aussi pour une raison
+  géométrique (doublon, aire, chevauchement, échelle), qu'aucune correction ne lèverait ;
+  une ligne sans géométrie (ligne niveau C d'une page raster) ; un total dont les tronçons
+  s'étalent sur plus de 900 pt (32 cm de papier) : son extrait serait presque toute la
+  feuille, ses libellés illisibles, et une réponse réécrirait tous ses tronçons (« trop
+  étalées »).
 - Au plus 12 lignes par page (les autres sont comptées « laissées de côté »), 6 par appel,
-  une image par ligne.
-- **Réponse** : « corrige » remplace réseau, matériau et taille (vocabulaire du banc),
-  réécrit la désignation et plafonne la confiance à 0,7 : une lecture du modèle reste
-  incertaine, jamais à haute confiance. « confirme » et « illisible » ne changent rien.
+  une image par ligne ; un extrait que pdfjs ne dessine pas n'est pas envoyé, et compté.
+  Seules les réponses des lignes envoyées dans l'appel sont lues.
+- **Réponse** : « corrige » remplace réseau, matériau et taille (codes du banc ; jamais un
+  matériau d'enveloppe, calorifuge ou cordon chauffant, qui sortirait le tube de la règle
+  DN), réécrit la désignation et plafonne la confiance à 0,7 : une lecture du modèle reste
+  incertaine, jamais à haute confiance. Le calorifuge du même total suit la correction.
+  Une correction qui répète la lecture, « confirme » et « illisible » ne changent rien.
 - **État séparé** : les lignes corrigées et leurs règles recalculées forment « après
   vision », notées à part de « après règles ».
-- **Rapport** : jetons, latence des appels et rendu des extraits p50 / p95, durée par page
-  (vecteurs + vision) face à la baseline L1 sur les mêmes pages (`--baseline`), régression
-  ou non.
-- Le profil est lu une fois avant la première page et jamais modifié. Le premier arrêt du
-  fournisseur (« Limite du forfait ChatGPT », limite de débit, autorisation, profil changé)
-  arrête le run, avec un rapport partiel et le code de sortie 2. L5 n'appelle pas Decisions.
+- **Rapport** : jetons (entrée, sortie, raisonnement, y compris ceux d'une réponse hors
+  schéma), latence des appels et rendu des extraits p50 / p95, durée par page (vecteurs +
+  vision). La comparaison avec la baseline L1 (`--baseline`) ne porte que sur les mêmes
+  pages des deux côtés : celles que L1 a lues seules, hors pages raster (leurs lignes
+  viennent de L1) ; les pages écartées sont comptées. Par passe et par rôle, les clés à
+  haute confiance en erreur après règles puis après vision ; toute hausse est signalée.
+- Le profil est lu une fois avant la première page (le jeton peut être renouvelé, rien
+  d'autre n'est écrit) et jamais modifié. Un compte, un modèle ou un jeton absent arrête le
+  run avant sa première page ; le premier arrêt du fournisseur (« Limite du forfait
+  ChatGPT », limite de débit, autorisation, profil changé) l'arrête là où il en est. Dans
+  les deux cas, rapport partiel et code de sortie 2. L5 n'appelle pas Decisions.
+- Un « Ø 110 » est écrit « DN 110 », comme la lecture vectorielle le fait déjà ; la
+  conversion par la série du matériau reste à faire (fonte, acier, inox soudé).

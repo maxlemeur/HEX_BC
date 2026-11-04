@@ -254,7 +254,8 @@ async function reviewPass(input: { hook: VectorVisionHook; documents: readonly V
     const answers = new Map<number, VisionAnswer>();
     const pages: VisionPageSummary[] = [];
     for (const page of visionCandidates({ items: ruleDocument.items, data: ruleDocument.data, results, denominators })) {
-      const outcome = await input.hook.review(document, page.page, page.lines);
+      const outcome: VisionPageOutcome = page.lines.length > 0 ? await input.hook.review(document, page.page, page.lines)
+        : { calls: [], render_ms: [], answers: [], stop: null };
       const byAlias = new Map(page.lines.map((line) => [line.alias, line]));
       const pageAnswers = outcome.answers.flatMap((answer) => {
         const line = byAlias.get(answer.alias);
@@ -262,8 +263,9 @@ async function reviewPass(input: { hook: VectorVisionHook; documents: readonly V
       });
       // One answer per line, its first: a repeated alias never overwrites it.
       for (const answer of pageAnswers) if (!answers.has(answer.index)) answers.set(answer.index, answer);
-      pages.push({ page: page.page, lines: page.lines.length, left_out: page.left_out, corrected: 0, calls: outcome.calls,
-        render_ms: outcome.render_ms, answers: pageAnswers });
+      const notDrawn = outcome.not_drawn?.length ?? 0;
+      pages.push({ page: page.page, lines: page.lines.length - notDrawn, not_drawn: notDrawn, too_spread: page.too_spread, left_out: page.left_out,
+        corrected: 0, calls: outcome.calls, render_ms: outcome.render_ms, answers: pageAnswers });
       if (outcome.stop) {
         summary.stop = outcome.stop;
         break;
@@ -280,6 +282,22 @@ async function reviewPass(input: { hook: VectorVisionHook; documents: readonly V
   const documents = input.runs.map((run) => ({ ...run, items: [...(items.get(run.id) ?? run.items)],
     ...(rules.results.has(run.id) ? { item_rules: rules.results.get(run.id) } : {}) }));
   return { summary, documents };
+}
+
+/** A run whose vision pass could not start (no ChatGPT account, model or token): no page read, every page left. */
+export function stoppedVisionBench(documents: readonly Pick<VectorBenchDocument, "pages">[], repeat: number, promptVersion: string,
+  stop: { reason: StopReason; message: string }): VectorBenchResult {
+  const planned = repeat * documents.reduce((total, document) => total + document.pages, 0);
+  return {
+    run: {
+      status: "incomplete", calls_planned: planned, calls_done: 0,
+      stop: { kind: "provider", reason: stop.reason, error: { name: "VisionStop", code: stop.reason, message: stop.message.slice(0, 300) },
+        calls_done: 0, calls_remaining: planned, at: null },
+      couples: [{ model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, override: null, prompt_version: promptVersionOf(null, { promptVersion }), passes: [] }],
+    },
+    vector: { version: VECTOR_READING_VERSION, passes: [] },
+    vision: { prompt_version: promptVersion, passes: [] },
+  };
 }
 
 /** A run stopped before its first page (Decisions unavailable): no page read, every page left. */
