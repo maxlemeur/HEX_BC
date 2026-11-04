@@ -583,6 +583,33 @@ export async function fetchTakeoffJob(
   return validateTakeoffResponse(jobId, () => parseTakeoffJobDetailResponse(response, { jobId, itemsLimit: options?.itemsLimit, itemsOffset: options?.itemsOffset }));
 }
 
+/** Lines read per page when every line of a job is needed (the route's largest page). */
+const TAKEOFF_JOB_ALL_ITEMS_PAGE_SIZE = 200;
+
+/**
+ * A job with every one of its lines, page by page: the apply guard reads them all, as the server does (TI-664). Throws
+ * when the pages stop before the job's total, rather than guard part of the lines.
+ */
+export async function fetchTakeoffJobWithAllItems(
+  jobId: string,
+  options: { signal?: AbortSignal } = {},
+  fetchPage: typeof fetchTakeoffJob = fetchTakeoffJob
+): Promise<TakeoffJobDetailResponse> {
+  const first = await fetchPage(jobId, { signal: options.signal, itemsLimit: TAKEOFF_JOB_ALL_ITEMS_PAGE_SIZE, itemsOffset: 0 });
+  const items = [...first.items.data];
+  let offset = first.items.pagination.offset + first.items.data.length;
+  while (items.length < first.items.pagination.total) {
+    const next = await fetchPage(jobId, { signal: options.signal, itemsLimit: TAKEOFF_JOB_ALL_ITEMS_PAGE_SIZE, itemsOffset: offset });
+    if (next.items.data.length === 0) break;
+    items.push(...next.items.data);
+    offset += next.items.data.length;
+  }
+  if (items.length < first.items.pagination.total) {
+    throw new Error("Lignes du job incomplètes : rechargez la page avant d'appliquer.");
+  }
+  return { ...first, items: { ...first.items, data: items } };
+}
+
 export async function fetchTakeoffJobCompare(
   jobId: string,
   input: {

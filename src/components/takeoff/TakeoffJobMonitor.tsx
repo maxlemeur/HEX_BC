@@ -25,12 +25,14 @@ import {
   isTakeoffApiError,
   reconcileTakeoffJob,
   resubmitTakeoffJob,
+  fetchTakeoffJobWithAllItems,
 } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import { useTakeoffJobPolling } from "@/lib/takeoff/use-takeoff-job-polling";
 import {
   TAKEOFF_JOB_MAX_RETRY_COUNT,
+  type TakeoffJobItem,
   type TakeoffJobSummary,
 } from "@/lib/takeoff/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -420,6 +422,9 @@ export default function TakeoffJobMonitor({
   const [applyState, setApplyState] = useState<ActionState>("idle");
   const [applyError, setApplyError] = useState<string | null>(null);
   const [isApplyWizardOpen, setIsApplyWizardOpen] = useState(false);
+  // Every line of the job, read when the wizard opens: its guard reads them all, as the server does (TI-664).
+  const [applyItems, setApplyItems] = useState<TakeoffJobItem[] | null>(null);
+  const [isLoadingApplyItems, setIsLoadingApplyItems] = useState(false);
   const [applySuccess, setApplySuccess] = useState<ApplySuccessSummary | null>(
     null
   );
@@ -493,18 +498,31 @@ export default function TakeoffJobMonitor({
     }
   }, [jobId, refetch]);
 
-  const includedItemsCount = data?.items.data.filter((item) => !item.is_excluded).length ?? 0;
-  const excludedItemsCount = (data?.items.data.length ?? 0) - includedItemsCount;
+  const wizardItems = applyItems ?? data?.items.data;
+  const includedItemsCount = wizardItems?.filter((item) => !item.is_excluded).length ?? 0;
+  const excludedItemsCount = (wizardItems?.length ?? 0) - includedItemsCount;
 
   const handleApplyWizardOpenChange = useCallback(
     (open: boolean) => {
-      if (applyState === "loading") return;
-      setIsApplyWizardOpen(open);
-      if (open) {
-        setApplyError(null);
+      if (applyState === "loading" || isLoadingApplyItems) return;
+      if (!open) {
+        setIsApplyWizardOpen(false);
+        return;
       }
+      setApplyError(null);
+      setIsLoadingApplyItems(true);
+      // The poll reads the job's first page, before its rules may be computed: read every line again, then open.
+      fetchTakeoffJobWithAllItems(jobId)
+        .then((detail) => {
+          setApplyItems(detail.items.data);
+          setIsApplyWizardOpen(true);
+        })
+        .catch((loadError: unknown) => {
+          setApplyError(loadError instanceof Error ? loadError.message : "Impossible de lire les lignes du job.");
+        })
+        .finally(() => setIsLoadingApplyItems(false));
     },
-    [applyState]
+    [applyState, isLoadingApplyItems, jobId]
   );
 
   const handleApplyConfirm = useCallback(
@@ -718,7 +736,7 @@ export default function TakeoffJobMonitor({
           <Button
             variant="outline"
             disabled={!canOpenApplyWizard}
-            loading={applyState === "loading"}
+            loading={applyState === "loading" || isLoadingApplyItems}
             onClick={() => handleApplyWizardOpenChange(true)}
           >
             Appliquer au devis
@@ -793,7 +811,7 @@ export default function TakeoffJobMonitor({
         submitError={applyError}
         onOpenChange={handleApplyWizardOpenChange}
         onConfirm={handleApplyConfirm}
-        items={data?.items.data}
+        items={applyItems ?? undefined}
         jobLevel={data?.job.level ?? null}
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
