@@ -1,5 +1,5 @@
 -- TI-677 (métré L5, PR B) : une règle croisée en échec ne bloque plus une ligne dont tous les partenaires sont
--- laissés de côté (Codex #160, fil 4467409538 ; migration 20261105000000_takeoff_rule_cross_exclusions.sql).
+-- laissés de côté (Codex #160, fil 4467409538 ; migration 20261104224500_takeoff_rule_cross_exclusions.sql).
 -- Isolation justifiée : le décompte du trigger doit rester celui du garde TS (guards.test.ts), y compris pour un
 -- client Data API qui appelle la RPC d'application avec son propre plan.
 -- Cas écrits avant la migration :

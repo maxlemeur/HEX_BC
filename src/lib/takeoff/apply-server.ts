@@ -15,6 +15,7 @@ import {
   invokeApplyTakeoffRpc,
   issueTakeoffDpgfApplyAuthorization,
   listTakeoffApplyGuardItems,
+  listTakeoffRulePartnerExclusions,
   loadTakeoffApplyConcurrencyToken,
   logTakeoffMappingApplyAuditEvents,
   revokeTakeoffDpgfApplyAuthorization,
@@ -26,6 +27,7 @@ import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-compari
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
+import { failurePartners } from "@/lib/takeoff/rules/blocking";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -146,7 +148,15 @@ export async function applyTakeoffJob(
         tenantId,
         jobId: normalizedJobId,
       })).map((item) => (plannedExclusions.has(item.id) ? { ...item, is_excluded: true } : item));
-      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold, { level: jobRow.level });
+      // A cross-line failure no longer blocks once all its partners are left out (TI-677): the job's own lines with
+      // the plan's exclusions, the partners of other jobs as the database holds them now (as the trigger reads them).
+      const ownIds = new Set(guardItems.map((item) => item.id));
+      const outsidePartners = [...new Set(guardItems.flatMap((item) => (item.is_excluded ? [] : item.rule_results ?? [])
+        .flatMap((result) => (result.status === "fail" ? failurePartners(result)?.ids ?? [] : []))
+        .filter((id): id is string => typeof id === "string" && !ownIds.has(id))))];
+      const partnerExclusions = outsidePartners.length > 0
+        ? await listTakeoffRulePartnerExclusions({ supabase, tenantId, itemIds: outsidePartners }) : undefined;
+      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold, { level: jobRow.level, partnerExclusions });
 
       if (!guardResult.passed) {
         if (payload.override === true) {

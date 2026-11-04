@@ -36,7 +36,7 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 
 export const VECTOR_PERSISTENCE_SCHEMA_VERSION = 1;
 export const VECTOR_PAGE_LIMITS = { groups: 400, cotes: 50, surfaces: 300, codes: 40 } as const;
-export const VECTOR_GEOMETRY_LIMITS = { segments: 4000, polygon: 2000 } as const;
+export const VECTOR_GEOMETRY_LIMITS = { segments: 4000, polygon: 2000, holes: 16, holePoints: 200 } as const;
 
 const finite = z.number().finite();
 const text = (max: number) => z.string().max(max);
@@ -114,6 +114,8 @@ export const VectorItemGeometrySchema = z.object({
   segments_m: z.array(z.tuple([finite, finite, finite, finite])).max(VECTOR_GEOMETRY_LIMITS.segments),
   /** Room polygon, x, y pairs in metres. */
   polygon_m: z.array(finite).max(2 * VECTOR_GEOMETRY_LIMITS.polygon).nullable(),
+  /** What a filled room's floor leaves out inside its polygon (another room, a core), x, y pairs in metres (TI-677). */
+  holes_m: z.array(z.array(finite).max(2 * VECTOR_GEOMETRY_LIMITS.holePoints)).max(VECTOR_GEOMETRY_LIMITS.holes).optional(),
   length_m: finite.nonnegative().nullable(),
   area_m2: finite.nonnegative().nullable(),
   /** Page metres to the common frame of the version (TI-664); null until computed. */
@@ -274,6 +276,8 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   for (const surface of reading.surfaces.slice(0, VECTOR_PAGE_LIMITS.surfaces)) {
     if (surface.polygon_m2 === null || surface.polygon_m2 <= 0 || surface.outline === null) continue;
     const polygon = surface.outline.points.length <= 2 * VECTOR_GEOMETRY_LIMITS.polygon ? surface.outline.points.map(metres) : null;
+    const holes = polygon ? (surface.outline.holes ?? []).slice(0, VECTOR_GEOMETRY_LIMITS.holes)
+      .filter((hole) => hole.length <= 2 * VECTOR_GEOMETRY_LIMITS.holePoints).map((hole) => hole.map(metres)) : [];
     records.push({
       item: {
         designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: surface.polygon_m2, unit: "m2", ...surfaceWording(surface, scale),
@@ -281,7 +285,7 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
       },
       geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "surface", network: null, material: null, dn: null,
         zone: location.zone, level: location.level, groups: [surface.outline.group.slice(0, 120)], segments_m: [], polygon_m: polygon,
-        length_m: null, area_m2: surface.polygon_m2, transform: null }),
+        ...(holes.length > 0 ? { holes_m: holes } : {}), length_m: null, area_m2: surface.polygon_m2, transform: null }),
       room: { label: surface.room.slice(0, 120), printed_m2: surface.printed_m2 },
     });
   }

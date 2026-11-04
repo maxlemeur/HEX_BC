@@ -154,8 +154,8 @@ export async function recomputeTakeoffRulesForVersion(input: {
       inputs,
       // A line read by the model belongs to the vector page of its own document and page, when the job read one (scale rule).
       page_key: stored?.page ?? ruleLinePage(item, candidates),
-      geometry: stored ? { segments_m: stored.geometry.segments_m, polygon_m: stored.geometry.polygon_m, length_m: stored.geometry.length_m,
-        area_m2: stored.geometry.area_m2 } : null,
+      geometry: stored ? { segments_m: stored.geometry.segments_m, polygon_m: stored.geometry.polygon_m, holes_m: stored.geometry.holes_m ?? null,
+        length_m: stored.geometry.length_m, area_m2: stored.geometry.area_m2 } : null,
     };
   });
   const evaluation = evaluateTakeoffRules({ lines, pages });

@@ -81,8 +81,9 @@ export type RuleLine = {
   /** A user typed the line's current quantity (attested entry): a quantity to enter is entered. */
   quantity_entered?: boolean;
   inputs: TakeoffRuleInputs | null;
-  /** Vector geometry in page metres (TI-662). */
-  geometry: { segments_m: readonly Centreline[]; polygon_m: readonly number[] | null; length_m: number | null; area_m2: number | null } | null;
+  /** Vector geometry in page metres (TI-662); a filled room's holes (TI-677): what its floor leaves out inside its polygon. */
+  geometry: { segments_m: readonly Centreline[]; polygon_m: readonly number[] | null; holes_m?: ReadonlyArray<readonly number[]> | null;
+    length_m: number | null; area_m2: number | null } | null;
 };
 
 export type LevelRegistration = {
@@ -234,13 +235,16 @@ function closedBox(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleResult
 // Rules across lines
 
 function roomOverlaps(lines: readonly RuleLine[], results: Map<string, TakeoffRuleResult[]>) {
-  const byPage = new Map<string, Array<{ line: RuleLine; points: Array<[number, number]>; area: number }>>();
+  type Floor = { line: RuleLine; points: Array<[number, number]>; holes: Array<Array<[number, number]>>; area: number };
+  const byPage = new Map<string, Floor[]>();
   for (const line of lines) {
     if (line.inputs?.kind !== "surface" || line.page_key === null || !line.geometry?.polygon_m) continue;
     const points = polygonPoints(line.geometry.polygon_m);
     if (points.length < 3) continue;
+    // A filled floor's holes are not its floor: a room around another room does not overlap it (TI-677).
+    const holes = (line.geometry.holes_m ?? []).map(polygonPoints).filter((hole) => hole.length >= 3);
     const entries = byPage.get(line.page_key) ?? [];
-    entries.push({ line, points, area: line.geometry.area_m2 ?? line.quantity });
+    entries.push({ line, points, holes, area: line.geometry.area_m2 ?? line.quantity });
     byPage.set(line.page_key, entries);
   }
   for (const entries of byPage.values()) {
@@ -248,7 +252,7 @@ function roomOverlaps(lines: readonly RuleLine[], results: Map<string, TakeoffRu
       const overlaps: Array<{ id: string; area: number }> = [];
       for (const other of entries) {
         if (other === entry || other.line.is_excluded) continue;
-        const shared = sharedArea(entry.points, other.points);
+        const shared = sharedArea(entry.points, other.points, entry.holes, other.holes);
         if (roomsOverlap(shared, entry.area, other.area)) overlaps.push({ id: other.line.id, area: shared });
       }
       const total = Math.round(overlaps.reduce((sum, overlap) => sum + overlap.area, 0) * 1000) / 1000;
@@ -256,7 +260,7 @@ function roomOverlaps(lines: readonly RuleLine[], results: Map<string, TakeoffRu
         ? result("room_overlap", "pass", "ROOM_OVERLAP_NONE", "Aucune autre pièce de la page ne recouvre ce contour.")
         : result("room_overlap", "fail", "ROOM_OVERLAP",
           `Ce contour recouvre ${overlaps.length} autre${overlaps.length > 1 ? "s" : ""} pièce${overlaps.length > 1 ? "s" : ""} de la page sur ${squareMetres(total)}.`,
-          { overlapping_item_ids: overlaps.map((overlap) => overlap.id), overlap_m2: total }));
+          { overlapping_item_ids: overlaps.map((overlap) => overlap.id), overlap_count: overlaps.length, overlap_m2: total }));
     }
   }
 }
@@ -374,7 +378,14 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       }
       continue;
     }
-    const registered = registerLevel(level, levelPages);
+    // The pages with lines register first; when some of them still share no frame, every page of the level with
+    // anchors joins, a page without network lines too (an overview joining two zone plans: TI-677). Only pages with
+    // lines are compared and get a transform.
+    let registered = registerLevel(level, levelPages);
+    const split = levelPages.some((page) => registered.component.get(page.key) !== registered.component.get(levelPages[0].key));
+    const hubs = split ? [...pages.values()].filter((page) => page.level === level && page.anchors !== null
+      && !levelPages.some((other) => other.key === page.key)) : [];
+    if (hubs.length > 0) registered = registerLevel(level, [...levelPages, ...hubs]);
     registrations.push(...registered.registrations);
     // A page sharing no common frame with another page of its level has none to write.
     for (const page of levelPages) {
@@ -491,11 +502,11 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
           `Tronçon compté aussi sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. La version compte encore ${metres(outcome.deficit_m)} deux fois : ${included[0].other.frozen && !line.frozen
             ? `retirez cette longueur de cette ligne (« ${included[0].other.designation} » est dans un job appliqué), ou excluez-la si elle est entièrement en double.`
             : "retirez cette longueur d’une des lignes, ou excluez une ligne entièrement en double."}`,
-          { level, partners, overlap_m: outcome.deficit_m }));
+          { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m }));
       } else {
         push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
           `Tronçon compté aussi sur d’autres pages du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}, soit ${metres(outcome.deficit_m)} de cette ligne. ${outcome.size} lignes se recouvrent : une correction de quantité ne règle pas un groupe de plus de deux lignes. Excluez chaque ligne entièrement en double, ou acceptez (V) chaque ligne une fois vérifiée.`,
-          { level, partners, overlap_m: outcome.deficit_m, group_size: outcome.size }));
+          { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m, group_size: outcome.size }));
       }
     }
   }

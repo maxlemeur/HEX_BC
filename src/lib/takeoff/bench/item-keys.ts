@@ -280,7 +280,7 @@ function isInchMark(text: string, index: number, close: string) {
  * A quoted text is “…”, or "…" opened after neither a letter nor a digit (the mark of « 3/4" » opens nothing); an
  * inch mark inside it (« "Vanne 3/4" EF" », « “Vanne 3/4” EF” ») stays, and the text closes at the next quote.
  */
-function unquote(text: string) {
+export function unquote(text: string) {
   const chars = text.split("");
   let open: { index: number; close: string } | null = null;
   for (const [index, char] of chars.entries()) {

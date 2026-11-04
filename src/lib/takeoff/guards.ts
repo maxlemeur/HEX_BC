@@ -118,7 +118,8 @@ export type ApplyGuardItem = Pick<
  *
  * - Level C (the existing reasons): missing proof/source, or confidence < threshold while unverified.
  * - Every level (TI-664): stale rule results, or a failed rule while unverified, or a failed rule verifying never
- *   settles (a quantity to enter) — rules/blocking.ts, mirrored by takeoff_item_rule_blocked in SQL.
+ *   settles (a quantity to enter) — rules/blocking.ts, mirrored by takeoff_item_rule_blocked in SQL. A cross-line
+ *   failure whose partners, all named, are all left out (here or in `partnerExclusions`) does not block (TI-677).
  * - Medium  = level C, threshold ≤ confidence < MEDIUM_CONFIDENCE_CEILING AND is_verified === false, not blocked.
  * - `passed` is true when no blocked items exist. Without a level, the job is read as level C (the only level the
  *   guard ran on before TI-664).
@@ -126,11 +127,18 @@ export type ApplyGuardItem = Pick<
 export function checkApplyGuard(
   items: ApplyGuardItem[],
   threshold: number = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
-  context: { level?: string | null } = {}
+  context: {
+    level?: string | null;
+    /** Lines of other jobs a cross-line failure names, as the database holds them (excluded or not). */
+    partnerExclusions?: ReadonlyMap<string, boolean>;
+  } = {}
 ): ApplyGuardResult {
   const blocked_items: GuardBlockedItem[] = [];
   const medium_items: GuardMediumItem[] = [];
   const levelC = (context.level ?? "C") === "C";
+  // The job's own lines as given (the plan's exclusions included), the others from the context; unknown: counted.
+  const own = new Map(items.map((item) => [item.id, item.is_excluded]));
+  const excluded = (id: string) => own.get(id) ?? context.partnerExclusions?.get(id);
 
   for (const item of items) {
     // Only consider included items
@@ -142,7 +150,7 @@ export function checkApplyGuard(
     if (levelC && !item.is_verified && (conf === null || conf < threshold)) {
       reasons.unshift("low_confidence");
     }
-    const failures = blockingRules(item.rule_results, item.is_verified);
+    const failures = blockingRules(item.rule_results, item.is_verified, excluded);
     if (failures.length > 0) reasons.push("rule_failed");
     if (item.rules_stale) reasons.push("rules_stale");
 

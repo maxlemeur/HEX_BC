@@ -1,5 +1,5 @@
 import { findDiameterEntries } from "@/lib/takeoff/bench/diameters";
-import { readItemKey } from "@/lib/takeoff/bench/item-keys";
+import { readItemKey, unquote } from "@/lib/takeoff/bench/item-keys";
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
 
@@ -100,8 +100,12 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn };
 }
 
+/**
+ * Sizes printed in a designation, read after the reader drops the quotes around a quoted plan text (unquote): the
+ * quote closing « "EF cuivre 20/22" » is the end of the text, never the inch mark of a 22" (TI-677).
+ */
 function printedSizes(designation: string) {
-  return [...designation.matchAll(PRINTED_SIZE)].map((match) => printedSize(match[0]));
+  return [...unquote(designation).matchAll(PRINTED_SIZE)].map((match) => printedSize(match[0]));
 }
 
 /** A printed size as the diameter table prints it: « DN 15 », « Ø 22 », « 20 mm » (decimal point), others as printed. */
