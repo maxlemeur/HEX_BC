@@ -5,6 +5,15 @@ import { connectionSecretContext, openDriveSecret, sealDriveSecret } from "./sec
 const key = Buffer.alloc(32, 3);
 const start = (now = 1_000) => beginDriveAuthorization({ clientId: "fictitious-client", key, redirectUri: "http://localhost:3000/api/google-drive/oauth/callback",
   returnTo: "/dashboard/affaires/11111111-1111-4111-8111-111111111111", userId: "user_demo", tenantId: "tenant_demo", generation:"44444444-4444-4444-8444-444444444444", now });
+// Flips one bit of a decoded byte of a `v1.<iv>.<tag>.<ciphertext>` segment. Rewriting the base64url text
+// instead can leave the bytes intact: the text may already end that way, or differ only in ignored padding bits.
+const flipBit = (sealed: string, segment: number, index: number) => {
+  const parts = sealed.split(".");
+  const bytes = Buffer.from(parts[segment], "base64url");
+  bytes[index < 0 ? bytes.length + index : index] ^= 1;
+  parts[segment] = bytes.toString("base64url");
+  return parts.join(".");
+};
 afterEach(() => vi.unstubAllGlobals());
 describe("Google Drive OAuth boundaries", () => {
   it("asks Google for read-only, durable access with PKCE and a fresh account choice", () => {
@@ -23,7 +32,8 @@ describe("Google Drive OAuth boundaries", () => {
     expect(cookie).not.toContain(authorization.verifier);
     expect(readDriveAuthorization(key, cookie, 1_000 + 600_001)).toBeNull();
     expect(readDriveAuthorization(Buffer.alloc(32, 4), cookie, 2_000)).toBeNull();
-    expect(readDriveAuthorization(key, `${cookie.slice(0, -2)}AA`, 2_000)).toBeNull();
+    // An altered authentication tag, then an altered last ciphertext byte.
+    for (const forged of [flipBit(cookie, 2, 0), flipBit(cookie, 3, -1)]) expect(readDriveAuthorization(key, forged, 2_000)).toBeNull();
     expect(readDriveAuthorization(key, undefined)).toBeNull();
   });
   it.each(["https://example.invalid", "//example.invalid", "/dashboard/../login", "/login", "/dashboard?x=1", "/dashboard/a//b", null])
