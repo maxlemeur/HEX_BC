@@ -29,9 +29,20 @@ export class LocalAppPortUnavailableError extends Error {
   override name = "LocalAppPortUnavailableError";
 }
 
+function unavailable(port: number, host: string, reason: string, holders: string[], cause?: Error) {
+  return new LocalAppPortUnavailableError(
+    `Local application port ${port} is unavailable on ${host} (${reason}${holders.length ? `, listening: ${holders.join(", ")}` : ""}). ` +
+    "Choose another --app-port, or stop that process if it is left over from an earlier campaign.",
+    { cause },
+  );
+}
+
 /**
  * Refuses a port another process listens on, on either loopback. The error
  * keeps the system code (EADDRINUSE, EACCES…) and the listener when known.
+ * On macOS a listener on every interface (`next start` without --hostname)
+ * lets a loopback bind succeed, yet answers http://localhost:<port>, where the
+ * e2e CLI then fails with APP_ALREADY_RUNNING: a connection probe refuses it.
  */
 export async function assertLocalAppPortAvailable(port: number, listeners: (port: number) => string[] = describePortListeners) {
   for (const host of ["127.0.0.1", "::1"]) {
@@ -41,13 +52,19 @@ export async function assertLocalAppPortAvailable(port: number, listeners: (port
       server.listen({ port, host, exclusive: true }, () => server.close((error) => resolve(error)));
     });
     if (!failure || (host === "::1" && ["EADDRNOTAVAIL", "EAFNOSUPPORT"].includes(failure.code ?? ""))) continue;
-    const code = /^E[A-Z0-9_]{1,31}$/.test(failure.code ?? "") ? failure.code : "unknown error";
-    const holders = code === "EADDRINUSE" ? listeners(port) : [];
-    throw new LocalAppPortUnavailableError(
-      `Local application port ${port} is unavailable on ${host} (${code}${holders.length ? `, listening: ${holders.join(", ")}` : ""}). ` +
-      "Choose another --app-port, or stop that process if it is left over from an earlier campaign.",
-      { cause: failure },
-    );
+    const code = /^E[A-Z0-9_]{1,31}$/.test(failure.code ?? "") ? failure.code! : "unknown error";
+    throw unavailable(port, host, code, code === "EADDRINUSE" ? listeners(port) : [], failure);
+  }
+  for (const host of ["127.0.0.1", "::1"]) {
+    const accepted = await new Promise<boolean>((resolve) => {
+      const socket = net.connect({ port, host });
+      const settle = (value: boolean) => { socket.destroy(); resolve(value); };
+      socket.setTimeout(2_000, () => settle(false));
+      socket.once("connect", () => settle(true));
+      // ECONNREFUSED: nothing listens; EADDRNOTAVAIL: no IPv6 loopback.
+      socket.once("error", () => settle(false));
+    });
+    if (accepted) throw unavailable(port, host, "it already accepts connections there: a listener on every interface", listeners(port));
   }
 }
 

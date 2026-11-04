@@ -164,6 +164,21 @@ describe("Army application port probe", () => {
       await expect(assertLocalAppPortAvailable(port)).rejects.toThrow(`(EADDRINUSE, listening: node (PID ${neighbour.pid}))`);
     }
   });
+
+  // macOS lets the loopback bind succeed next to a wildcard listener (Linux
+  // refuses it with EADDRINUSE); http://localhost:<port> reaches that listener.
+  it("refuses a listener on every interface, which a loopback bind may not see", async () => {
+    const port = await freePort();
+    await startProcess(["-e", `
+      require("node:http").createServer((request, response) => response.end("neighbour"))
+        .listen({ port: ${port}, exclusive: true }, () => console.log("listening"));
+      setInterval(() => {}, 60_000);
+    `], "listening");
+    await expect(assertLocalAppPortAvailable(port, () => ["node (PID 4242)"])).rejects.toThrow(
+      new RegExp(`^Local application port ${port} is unavailable on (?:127\\.0\\.0\\.1|::1) ` +
+        "\\((?:EADDRINUSE|it already accepts connections there: a listener on every interface), listening: node \\(PID 4242\\)\\)"),
+    );
+  });
 });
 
 describe("Army journeys failure cause", () => {
