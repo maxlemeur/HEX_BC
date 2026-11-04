@@ -130,6 +130,12 @@ vérifie le résultat en base (12,5 m), le fournisseur, le modèle, les jetons e
 l’absence d’appel Gemini ou Edge. Par défaut, le transport OpenAI est une fixture
 explicite : cela ne prouve pas l’utilisation d’un abonnement réel.
 
+Le serveur `next dev` de ces parcours garde chaque route compilée jusqu’à la fin
+du fichier (`onDemandEntries` de `next.config.ts`, réservé aux serveurs ayant un
+`E2E_ARMY_DEV_SERVER_ID`). Avec l’abandon par défaut d’une route inactive depuis
+60 s, un runner lent recompilait connexion, chiffrage et métré d’un test à
+l’autre, jusqu’au redémarrage mémoire de Next (80 % du tas) au milieu de PRX02.
+
 Pour une qualification réelle explicitement autorisée, le même parcours accepte
 `.private/chatgpt-local-live-probe.json` dans un checkout de QA isolé, contenant
 uniquement `accessToken`, `model`, `expiresAt` et le réglage `reasoningEffort`
