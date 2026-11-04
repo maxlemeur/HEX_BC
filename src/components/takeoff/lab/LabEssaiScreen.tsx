@@ -265,7 +265,8 @@ export function LabEssaiScreen() {
             <Step index={2} title="Tâche">
               <fieldset className="space-y-1.5">
                 <legend className="sr-only">Tâche de l’essai</legend>
-                {state.tasks.map((entry) => (
+                {/* « Classe de calque » is launched from the vectors page, on a whole page read by the server. */}
+                {state.tasks.filter((entry) => entry.screen !== "vectors").map((entry) => (
                   <label key={entry.id} className={cn("flex cursor-pointer gap-2 rounded-md border p-2 text-xs",
                     entry.id === taskId ? "border-primary bg-primary/5" : "border-border hover:bg-surface-subtle")}>
                     <input type="radio" name="lab-task" value={entry.id} checked={entry.id === taskId} onChange={() => chooseTask(entry.id)} className="mt-0.5" />

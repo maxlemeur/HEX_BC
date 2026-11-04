@@ -81,7 +81,9 @@ est une constante nommée et versionnée dans le code.
    [`legend.ts`](../../src/lib/takeoff/vectors/legend.ts)). Mots-clés d'abord :
    - **calque** : son nom est découpé sur « _ », les espaces, « - » et « / ». Les codes
      génériques (EF, ECS, EU, EV, EP, VP, CHW…) donnent le réseau. S, A, D ou R donnent
-     le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes ;
+     le départ ou le retour. TEXTE, COTE, MUR et CLOISON donnent les autres classes.
+     MENUISERIE, PORTE ou FENÊTRE ne donnent pas de classe : ces calques ferment seulement
+     les pièces remplies entre les murs (étape 6) ;
    - **légende** : un code seul, éventuellement avec son sens (« CHW-S », « EG-R »), avec
      les tracés dessinés sur sa ligne avant le texte suivant de cette ligne (échantillon
      de 25 hauteurs de texte au plus), donne la couleur du réseau. Chaque partie du code
@@ -172,27 +174,98 @@ est une constante nommée et versionnée dans le code.
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
        du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
      - sinon par sa position : le tuyau parallèle le plus proche.
-   - Deux tronçons bout à bout dont les libellés diffèrent (DN, matériau ou calorifuge,
-     à une réduction) sont coupés là où un de leurs traits finit, s'il y a exactement un
-     tel endroit entre les deux libellés. Sinon le tronçon garde un DN vide
-     (« à revoir ») et aucun DN ne lui est propagé.
-   - Ces valeurs passent aux tronçons raccordés du même réseau, du plus proche au plus
-     loin, jamais à un autre réseau. Un tronçon qui n'est rattaché à aucun libellé
-     garde un DN vide (« à revoir »).
+   - Un tronçon dont deux libellés diffèrent (DN, matériau ou calorifuge, à une
+     réduction) est coupé entre eux : à la fin de trait la plus proche du milieu des
+     deux libellés, ou à ce milieu si aucun trait ne finit entre eux. Un tuyau exporté
+     en nombreux morceaux est donc coupé lui aussi.
+   - Des libellés à moins de 7 pt l'un de l'autre le long du tuyau (l'un au-dessus et
+     l'autre en dessous par exemple) sont au même endroit : le tronçon n'est jamais
+     coupé entre eux. S'ils diffèrent, le morceau qui les porte garde un DN vide
+     (« à revoir ») et aucun DN ne lui est donné ; un DN propagé le traverse vers les
+     tronçons suivants. Le tronçon reste coupé entre cet endroit et un libellé clair
+     plus loin, qui garde sa section.
+   - Ces valeurs passent aux tronçons raccordés, du plus proche au plus loin (en
+     nombre de raccords) :
+     - du même réseau ;
+     - d'un réseau parent à un de ses membres et inversement : EU/EV avec EU ou EV,
+       CHW, HW, GLY, HRC et CW avec leur départ ou leur retour (les familles du score) ;
+     - jamais entre deux membres (EU et EV, un départ et un retour sont deux tuyaux),
+       même par un tronçon de leur parent, ni vers un autre réseau.
+   - Un DN porte le réseau que son libellé nomme : « EU - PVC DN 40 » sur un tronçon
+     EU/EV passe aux tronçons EU, jamais aux EV. Des libellés d'accord sur un tronçon
+     qui nomment plusieurs réseaux d'une famille (« EU » et « EU/EV », ou « EU » et
+     « EV ») portent leur parent, quel que soit leur ordre de lecture. De deux libellés
+     aussi proches d'un tronçon, celui de son propre réseau l'emporte.
+   - Chaque réseau porté fait son propre chemin : un tronçon qu'un DN d'un autre réseau
+     a atteint le premier, ou qui porte son propre libellé, garde son DN, mais laisse
+     passer celui-ci vers les tronçons qu'il peut atteindre (le DN d'un EU/EV jusqu'à un
+     EV, au-delà d'un tronçon EU/EV qu'un DN EU plus proche a atteint ou que libelle
+     « EU »).
+   - Un tronçon qui n'est rattaché à aucun libellé garde un DN vide (« à revoir »).
    - Les recherches de voisinage (libellés, raccords, embouts) trouvent tout tracé, même
      un long tuyau en diagonale d'une feuille A0.
    - Longueur réelle = longueur sur la feuille (mm) × dénominateur de l'échelle.
 6. **Surfaces** ([`surfaces.ts`](../../src/lib/takeoff/vectors/surfaces.ts)).
    - La mesure est l'aire du plus petit polygone fermé autour de la surface imprimée
      d'une pièce, × échelle².
-   - La surface imprimée sert de contrôle, jamais de repli : une pièce sans polygone
-     fermé n'a pas d'aire mesurée. Elle est comptée au rapport.
+   - La surface imprimée sert de contrôle, jamais de quantité ni de repli : une pièce
+     sans polygone fermé ni remplissage valable entre les murs (ci-dessous) n'a pas
+     d'aire mesurée. Elle est comptée au rapport.
    - Un polygone est fermé par son tracé (h, s, re) ou revient à son premier point, à
      moins de 0,5 pt, sans fermeture explicite. Un contour laissé ouvert (une porte, un
      côté manquant) ne délimite aucune pièce.
    - Une pièce par contour : un polygone qui contient aussi le libellé d'une autre pièce
      (l'enveloppe d'un bâtiment, le cadre de la feuille) n'est pas le contour de la pièce.
    - Un contour sur un calque masqué n'est pas imprimé : il ne délimite aucune pièce.
+   - Une pièce sans polygone fermé est remplie entre les murs
+     ([`fill.ts`](../../src/lib/takeoff/vectors/fill.ts)) : beaucoup de plans dessinent
+     les murs en traits séparés, sans contour fermé autour des pièces.
+     - Barrières : les traits des groupes classés mur ou cloison (toute source que la
+       lecture retient), et ceux des calques de menuiseries ou d'ouvertures (MENUISERIE,
+       PORTE, DOOR, FENÊTRE, WINDOW, au singulier ou au pluriel) : leurs portes et
+       fenêtres ferment les baies des murs. Un tel calque le reste quelle que soit la
+       classe que Decisions lui propose (sauf mur ou cloison à 0,8 ou plus). Jamais un calque masqué ni un trait quasi
+       blanc. Une page sans groupe mur ou cloison n'est pas remplie (une page lue par
+       couleurs n'en a que par correspondance, ou par Decisions à 0,8 ou plus).
+     - Portes : un arc de 60 à 120°, de 0,50 à 1,60 m de rayon, dont les points sont à
+       égale distance d'un centre (la paumelle), seul autour de ce centre (deux copies
+       d'un même arc tracé deux fois n'en font qu'un : mêmes bouts et même milieu ; les
+       deux moitiés d'un cercle sont deux arcs), avec un trait qui finit à la
+       paumelle (le vantail, un tableau de mur : à moins de 1 pt, ou 5 % du rayon), est
+       le battant d'une porte. Il ne fait pas barrière ; ses deux rayons, oui : le
+       vantail et la ligne d'ouverture, de la paumelle à l'autre bout de l'arc, le long
+       du mur. Le quart de disque du battant reste ainsi à la pièce où la porte s'ouvre.
+       Une porte tracée d'un seul trait (paumelle, bout du vantail, arc, autre bout :
+       une polyligne exportée) se lit de même. Un arc sans rien à son centre (un angle
+       de mur arrondi) reste une barrière. Un cercle d'au plus 1 m de rayon (poteau,
+       appareil, aire de rotation) ne fait pas barrière.
+     - Grille de cellules de 3,5 cm sur le terrain (au plus 8,4 millions par page, soit
+       une feuille A0 à 1 pt ; au-delà de 10 cm par cellule, la page n'est pas remplie).
+       Chaque pièce se remplit depuis le centre de sa surface imprimée, ou la cellule libre
+       la plus proche à moins de deux hauteurs de texte.
+     - Sont de la pièce : les formes fermées intérieures (mobilier, appareils dessinés
+       sur un calque de murs) jusqu'à 4 m² chacune, sauf si elles portent la surface
+       d'une autre pièce, et les poches fermées derrière une menuiserie qui la borde
+       (le battant d'une fenêtre dessiné vers l'intérieur), jusqu'à 4 m² chacune. Une
+       poche est prise entière : si une partie atteint la surface imprimée d'une autre
+       pièce, le bord de la grille ou 4 m², ce n'en est pas une (jamais ce qui reste de
+       la pièce voisine derrière une cloison vitrée). Une poche que bordent les
+       menuiseries de deux pièces (une niche entre elles), ou posée sur le sol d'une
+       autre pièce, n'est à aucune des deux.
+     - Aire : les cellules, plus une demi-cellule le long de chaque bord entre la pièce et
+       un trait (un trait passe n'importe où dans ses cellules).
+     - Rejetés, comptés au rapport avec leur raison, jamais mesurés : un remplissage qui
+       sort des murs (bord de la grille), qui contient la surface imprimée d'une autre pièce
+       (une pièce par contour), qui couvre 90 % de la largeur ou de la hauteur de la feuille
+       (le long du cadre), ou dont l'aire dépasse 1,5 fois la surface imprimée ou en est
+       sous les deux tiers.
+     - La surface imprimée reste un contrôle : jamais la quantité, jamais un repli.
+     - Le contour du remplissage (au plus 2 000 points, en coordonnées de page) est la
+       géométrie de la pièce, comme un polygone ; l'item dit « remplissage entre murs ».
+       Il fait le tour de la pièce et de ses poches (reliées par les cellules de
+       menuiserie entre elles), une demi-cellule plus loin, sur les traits, comme l'aire
+       les compte : il entoure l'aire mesurée. Il n'a pas de trou : une forme fermée de
+       plus de 4 m² laissée hors de l'aire (une gaine) reste à l'intérieur du contour.
    - Le nom de pièce imprimé au-dessus de sa surface se lit dans le repère du texte : une
      page tournée (/Rotate 90) se lit comme dessinée.
    - Dans le métré, chaque pièce mesurée donne un item en m² (l'aire du polygone) et sa
@@ -223,6 +296,31 @@ plafond de jetons pour tout le run :
 - le rapport donne, par document, les appels groupés et dédiés, les jetons, les
   latences p50 / p95 des appels et des rendus, le plafond et l'arrêt ; `report.json`
   garde la réponse de chaque groupe (alias, groupe, classe, confiance, statut, appel).
+
+## Labo : écran Vecteurs et « classe de calque »
+
+Le labo métré (`/dashboard/admin/takeoff/lab/vectors`, [guide](../testing/takeoff-lab.md))
+montre la lecture d'une page d'un document du labo, sans rien écrire dans la base ni dans
+le dataset :
+
+- la page est extraite et lue par mots-clés, comme au banc. Chaque groupe de tracés (un
+  calque, sinon une couleur) a sa classe, sa source (mots-clés, légende, libellés,
+  Decisions…), sa confiance, la devinette des mots-clés seuls, sa longueur et ses
+  segments. Le plan montre les groupes cochés ; Alt-clic sur une case n'affiche que ce
+  groupe. Au plus 20 000 segments par page sont dessinés, les plus longs groupes d'abord ;
+  un groupe coupé le dit ;
+- « Classer avec Decisions » lance la tâche « classe de calque » : un appel
+  `classifyVectorGroups` sur la page, sous le plafond `TAKEOFF_LAB_DECISIONS_MAX_TOKENS`
+  demandé avant chaque appel. Les images sont rendues par le serveur. Le premier appel en
+  échec arrête l'essai, sans relance. L'essai enregistre la somme des jetons, chaque
+  réponse normalisée et un élément par groupe interrogé, jugé dans les verdicts comme toute
+  réponse ;
+- la page est relue avec les réponses de cet essai : un réseau Decisions n'est mesuré qu'à
+  0,8 ou plus ;
+- la version du prompt est `takeoff-vector-groups-v1+<sha256>` du modèle des questions
+  (instructions et choix, alias « groupe_NN ») : deux documents gardent la même version ;
+- « Copier la sélection » donne le JSON `truth/groups` des groupes cochés (`{ page, group,
+  class }`) : une personne écrit la vérité hors du labo.
 
 ## Score au banc
 

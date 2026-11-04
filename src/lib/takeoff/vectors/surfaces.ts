@@ -1,13 +1,16 @@
+import type { GroupClass } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
+import { FILL_GROUP_ID, fillRooms, type FillRejection } from "@/lib/takeoff/vectors/fill";
 import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
-import { groupId } from "@/lib/takeoff/vectors/page-model";
+import { groupId, type PageModel } from "@/lib/takeoff/vectors/page-model";
 
 // Room surfaces of a page (TI-662 step 4). The area of the smallest closed
-// stroked polygon around the room's printed surface (« Infirmerie 13.62m² »,
+// stroked polygon around the room's printed surface (« Local fictif 13.80m² »,
 // or a label line above « 84.95 m² ») × scale² is the measure; the printed
-// surface is its control, never its fallback: a room without closed polygon
-// has no measured area and is reported. The printed label and surface stay in
+// surface is its control, never the quantity nor its fallback: a room with
+// neither a closed polygon nor a valid fill between walls (below) has no
+// measured area and is reported. The printed label and surface stay in
 // the reading for the control and the report. Text items of one baseline are
 // merged first (pdfjs splits a line at font changes); a ring no larger than 4
 // times the text's box is its frame, not the room; a label prefix such as
@@ -20,8 +23,13 @@ import { groupId } from "@/lib/takeoff/vectors/page-model";
 // sheet frame) is not this room's outline: one room per outline.
 // The polygon taken keeps its group and points (page space, 0.01 pt) for the
 // geometry the worker persists (persistence.ts); the bench report leaves them out.
+// A room no ring bounds is filled between the page's walls (fill.ts, TI-662
+// L3c): its floor's area is the measure and its outline the polygon (group
+// FILL_GROUP_ID). A fill rejected (outside the walls, around another room,
+// along the frame, far from the printed surface) gives no area: its reason is
+// reported, the printed surface stays a control, never the quantity.
 
-export const SURFACE_RULE_VERSION = 4;
+export const SURFACE_RULE_VERSION = 5;
 const AREA_PATTERN = /(\d{1,5}(?:[.,]\d{1,2})?)\s*m\s*[²2](?![\d])/i;
 
 export type RoomSurface = {
@@ -34,6 +42,10 @@ export type RoomSurface = {
   /** That polygon: its group id and its x, y pairs in page space (sheet points, y down; the closing point repeats the first). */
   outline: { group: string; points: number[] } | null;
   deviation: number | null;
+  /** How the polygon was found: the smallest ring around the label, or the floor filled between walls (null: none). */
+  method: "ring" | "fill" | null;
+  /** Why the fill between walls gave no area (reported, never measured); null when not filled or measured. */
+  fill_rejected: FillRejection | null;
 };
 
 function lineCentre(text: VectorText): Point {
@@ -70,7 +82,12 @@ function roomLabel(text: VectorText, before: string, texts: readonly VectorText[
   return kept.map((line) => line.str.trim()).join(" ").replace(/\s+/g, " ").trim();
 }
 
-export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: number | null): RoomSurface[] {
+/**
+ * Room surfaces of a page: the smallest ring around each printed area first, else (given the page's groups and
+ * classes) the floor filled between its walls.
+ */
+export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: number | null,
+  walls?: { model: PageModel; classes: readonly GroupClass[] }): RoomSurface[] {
   const surfaces: RoomSurface[] = [];
   // A layer hidden by the document's default configuration is not printed: its outlines bound no room.
   const hidden = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
@@ -86,7 +103,7 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     const room = roomLabel(text, text.str.slice(0, match.index), lines);
     return room ? [{ text, room, printed, anchor: lineCentre(text) }] : [];
   });
-  for (const { text, room, printed, anchor } of rooms) {
+  const rings: Array<{ area: number; path: VectorPath } | null> = rooms.map(({ text, anchor }) => {
     let best: { area: number; path: VectorPath } | null = null;
     for (const path of closed) {
       if (!pointInRing(anchor, extraction.points, path.start, path.count)) continue;
@@ -96,14 +113,27 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
       if (rooms.some((other) => other.text !== text && pointInRing(other.anchor, extraction.points, path.start, path.count))) continue;
       best = { area, path };
     }
-    const polygon = best && denominator !== null ? Math.round(squarePointsToSquareMetres(best.area, denominator) * 100) / 100 : null;
-    const outline = best === null ? null : {
+    return best;
+  });
+  // The rooms no ring bounds, filled between the walls when the page has some and a measurable scale.
+  const fills = walls && denominator !== null && rings.some((ring) => ring === null)
+    ? fillRooms({ extraction, model: walls.model, classes: walls.classes, denominator,
+      rooms: rooms.map(({ text, printed, anchor }, index) => ({ anchor, printed_m2: printed, height: text.height, fill: rings[index] === null })) })
+    : null;
+  rooms.forEach(({ room, printed, anchor }, index) => {
+    const best = rings[index];
+    const fill = fills?.[index] ?? null;
+    const filled = fill !== null && "area_m2" in fill ? fill : null;
+    const polygon = best && denominator !== null ? Math.round(squarePointsToSquareMetres(best.area, denominator) * 100) / 100
+      : filled ? Math.round(filled.area_m2 * 100) / 100 : null;
+    const outline = best !== null ? {
       group: groupId(extraction.groups[best.path.group]),
       points: Array.from(extraction.points.subarray(2 * best.path.start, 2 * (best.path.start + best.path.count)), (value) => Math.round(value * 100) / 100),
-    };
-    surfaces.push({ room, printed_m2: printed, anchor, polygon_m2: polygon, polygon_points: best?.path.count ?? null, outline,
-      deviation: polygon === null ? null : Math.round(((polygon - printed) / printed) * 10000) / 10000 });
-  }
+    } : filled ? { group: FILL_GROUP_ID, points: filled.outline } : null;
+    surfaces.push({ room, printed_m2: printed, anchor, polygon_m2: polygon, polygon_points: best ? best.path.count : filled ? filled.outline.length / 2 : null,
+      outline, deviation: polygon === null ? null : Math.round(((polygon - printed) / printed) * 10000) / 10000,
+      method: best ? "ring" : filled ? "fill" : null, fill_rejected: fill !== null && "rejected" in fill ? fill.rejected : null });
+  });
   // Reading order: top to bottom, then left to right.
   return surfaces.sort((left, right) => left.anchor.y - right.anchor.y || left.anchor.x - right.anchor.x);
 }

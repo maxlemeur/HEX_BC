@@ -13,11 +13,13 @@ import { cn } from "@/lib/utils";
 
 /**
  * Screens of the takeoff lab (TI-661), one link each in the lab's bar. A new
- * screen (TI-662: vectors) adds its route under /dashboard/admin/takeoff/lab and
- * one entry here; the shell, its access check and the tool layout stay shared.
+ * screen adds its route under /dashboard/admin/takeoff/lab and one entry here;
+ * the shell, its access check and the tool layout stay shared. « Vecteurs »
+ * (TI-662): layers and colours of a page, and its « classe de calque » task.
  */
 export const LAB_VIEWS = [
   { href: "/dashboard/admin/takeoff/lab", label: "Essai" },
+  { href: "/dashboard/admin/takeoff/lab/vectors", label: "Vecteurs" },
   { href: "/dashboard/admin/takeoff/lab/verdicts", label: "Verdicts" },
   { href: "/dashboard/admin/takeoff/lab/stats", label: "Stats" },
 ] as const;

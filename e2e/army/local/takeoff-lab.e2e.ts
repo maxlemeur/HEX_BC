@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +12,7 @@ import { LAB_DATASET_LAYOUT } from "@/lib/takeoff/lab/contracts";
 import { apiRequest } from "../critical/fixtures";
 import { querySql } from "./calculation-gate-support";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace } from "./chatgpt-server-support";
+import { labSessionCookies, rawLabRequest, type LabRawRequest } from "./takeoff-lab-support";
 
 // Takeoff lab (TI-661), on the owned local stack and the local ChatGPT server
 // (scripts/dev-chatgpt-local.mjs on 127.0.0.1) with the ARMY provider fixture:
@@ -49,34 +49,11 @@ async function tenantOf(email: string) {
   return membership.data.tenant_id as string;
 }
 
-/** Supabase SSR cookies of a local account, as the browser would hold them; nothing is logged. */
-async function sessionCookies(email: string) {
-  const jar = new Map<string, string>();
-  const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    cookies: { getAll: () => [...jar].map(([name, value]) => ({ name, value })),
-      setAll: (values) => { for (const { name, value } of values) jar.set(name, value); } },
-  });
-  const login = await client.auth.signInWithPassword({ email, password: process.env.E2E_LOGIN_PASSWORD! });
-  if (login.error) throw new Error("Lab fixture login failed.");
-  return { jar, header: [...jar].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") };
-}
+const sessionCookies = labSessionCookies;
 
 /** A request with an explicit Host header (fetch cannot set one), to prove the host check. */
-function rawRequest(input: { method: string; path: string; host: string; cookie?: string; body?: unknown; origin?: string; contentType?: string }) {
-  return new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const payload = input.body === undefined ? undefined : JSON.stringify(input.body);
-    const request = httpRequest({ host: "127.0.0.1", port, method: input.method, path: input.path,
-      headers: { host: input.host, ...(input.cookie ? { cookie: input.cookie } : {}), ...(input.origin ? { origin: input.origin } : {}),
-        ...(payload ? { "content-type": input.contentType ?? "application/json" } : {}) } }, (response) => {
-      let body = "";
-      response.setEncoding("utf8");
-      response.on("data", (chunk) => { body += chunk; });
-      response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
-    });
-    request.on("error", reject);
-    request.setTimeout(120_000, () => request.destroy(new Error("Lab request timed out.")));
-    request.end(payload);
-  });
+function rawRequest(input: LabRawRequest) {
+  return rawLabRequest(port, input);
 }
 
 async function readTransport() {
@@ -405,6 +382,7 @@ test("LAB03 the lab refuses another host, a non-admin member and an anonymous re
   const routes = [
     { method: "GET", path: "/api/admin/takeoff/lab" },
     { method: "GET", path: `/api/admin/takeoff/lab/documents/${DOCUMENT}` },
+    { method: "GET", path: `/api/admin/takeoff/lab/vectors/${DOCUMENT}?page=1` },
     { method: "POST", path: "/api/admin/takeoff/lab/runs", body: { documentId: DOCUMENT, campaign: "refused", taskId: "extraction-niveau-c", crop: null,
       prompt: "x", configs: [{ provider: "chatgpt", model: "army-plan-model", reasoningEffort: null }], image: null } },
     { method: "PUT", path: `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}/verdicts/${"0".repeat(64)}`, body: { verdict: "good" } },

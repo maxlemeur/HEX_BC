@@ -2,7 +2,7 @@
 
 Le labo compare des configurations de lecture de plans sur de vrais plans, avec
 des verdicts humains et des stats. C'est un outil local d'administrateur :
-`/dashboard/admin/takeoff/lab` (essai), `/verdicts` et `/stats`. Il n'écrit rien
+`/dashboard/admin/takeoff/lab` (essai), `/vectors`, `/verdicts` et `/stats`. Il n'écrit rien
 dans la base ; ses essais et verdicts sont des fichiers.
 
 ## Accès
@@ -58,10 +58,11 @@ Un recadrage n'est jamais noté : la vérité porte sur le document entier.
 - Document, recadrage (une page, ou une zone tracée sur le plan : PDF d'une page
   avec CropBox), nom de campagne (par défaut document et date).
 - Tâche, une par essai. Le registre est `src/lib/takeoff/lab/tasks.ts` : une
-  extraction ChatGPT (prompt et schéma du niveau C) et une question `choice`
-  générique (« Lot technique du plan »). Ajouter une tâche, c'est ajouter une
-  entrée à ce registre ; un nouvel écran (TI-662) ajoute sa route sous `lab/` et
-  une entrée à `LAB_VIEWS` de `TakeoffLabShell.tsx`.
+  extraction ChatGPT (prompt et schéma du niveau C), une question `choice`
+  générique (« Lot technique du plan ») et « Classe de calque », lancée depuis
+  l'écran Vecteurs. Ajouter une tâche, c'est ajouter une entrée à ce registre ; un
+  nouvel écran ajoute sa route sous `lab/` et une entrée à `LAB_VIEWS` de
+  `TakeoffLabShell.tsx`.
 - Une à quatre configurations : modèle ChatGPT × effort, envoyés par le
   paramètre `override` de `callLocalChatGptStructured` après contrôle par
   `listLocalChatGptModels` (le profil doit déjà avoir un modèle ; le labo ne
@@ -71,6 +72,23 @@ Un recadrage n'est jamais noté : la vérité porte sur le document entier.
   réponse : texte brut, erreur, jetons et un élément à juger. Une limite du
   forfait, une limite de débit, un refus d'accès ou un échec Decisions arrêtent
   l'essai sans relance ; un timeout n'échoue que sa configuration.
+
+## Vecteurs (TI-662)
+
+- Document et page, puis les calques et couleurs de la page lus par mots-clés
+  (`GET /api/admin/takeoff/lab/vectors/<documentId>?page=n[&run=<runId>]`) : par
+  groupe, la classe, sa confiance et sa source, la devinette des mots-clés, la
+  longueur et les segments ; au centre le plan et les groupes cochés, les badges
+  « Échelle » et « Détection », les longueurs mesurées par réseau.
+- Tout masquer, Tout afficher, Choix du modèle (les groupes classés par
+  Decisions), Mots-clés (ceux que les mots-clés classent), Copier la sélection (le
+  JSON `truth/groups` des groupes cochés) ; Alt-clic sur une case isole un groupe.
+- « Classer avec Decisions » passe par `POST /runs` avec la tâche
+  `classe-de-calque` : une seule configuration Decisions, une page entière, sans
+  image du navigateur ni zone, le prompt fixé. Les images sont rendues par le
+  serveur ; les appels s'arrêtent au premier échec ou au reste du plafond. La page
+  est relue avec les réponses (`&run=`). Règles :
+  [lecture vectorielle](../metier/lecture-vectorielle.md), section « Labo ».
 
 ## Stockage
 
@@ -103,6 +121,17 @@ fixture `chatgpt-provider-fixture.mjs` et Decisions en fixture : aucun appel ré
 Son dataset fictif et sa sortie vide sont sous
 `.e2e/army/critical/artifacts/<id>/`.
 
+L'écran Vecteurs est prouvé par VEC01 de `chatgpt-local.e2e.ts` : un plan fictif
+à calques (`lab-vector-plan-fixture.ts`) dans un dataset fictif sous les artefacts
+du run, la fixture Decisions qui répond EU à 0,8 pour chaque groupe. Il retient
+aussi la réponse Decisions pendant un changement de document : l'essai enregistré
+ne s'applique pas à la nouvelle sélection. LAB03 vérifie aussi les refus de sa
+route. Les arrêts que le navigateur ne peut pas provoquer (rendu dédié ou appel
+dédié en échec après des réponses payées, course de deux essais sur le plafond,
+appels sans usage) sont vérifiés par `src/lib/takeoff/lab/vectors.test.ts` et
+`src/lib/takeoff/lab/runs.test.ts` ; un essai de l'historique (« Afficher ») qui
+répond après un changement de document, par `LabVectorsScreen.test.tsx`.
+
 ```sh
-npm run e2e:army:local -- --grep 'LAB0'
+npm run e2e:army:local -- --grep 'LAB0|VEC01'
 ```

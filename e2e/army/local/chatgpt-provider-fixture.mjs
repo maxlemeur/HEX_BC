@@ -118,14 +118,24 @@ globalThis.fetch = async (input, init) => {
     const content = request.input?.[0]?.content ?? [];
     const evidence = content.find((part) => part.type === "input_json")?.data ?? {};
     const triage = evidence.task === "takeoff_page_triage";
+    // Vector groups (TI-662 L3c): one choice per group alias; the entry names the task and its images, others keep their shape.
+    const vectorGroups = evidence.task === "takeoff_vector_groups";
+    const images = content.filter((part) => part.type === "input_image").length;
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length,
-      ...(triage ? { task: "page-triage", page: evidence.page, images: content.filter((part) => part.type === "input_image").length } : {}) }) + "\n");
+      ...(triage ? { task: "page-triage", page: evidence.page, images } : vectorGroups ? { task: "vector-groups", images } : {}) }) + "\n");
     const deadline = Date.now() + 15_000;
     while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).hold) {
       if (Date.now() >= deadline) throw new Error("The controlled Decisions response was not released.");
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     const answers = request.questions.map((question) => {
+      if (vectorGroups && question.type === "choice" && question.name.startsWith("groupe_")) {
+        // Every group is EU at 0.8 (classified and measured at the threshold); the other choices share 0.2.
+        const others = question.choices.filter((candidate) => candidate.value !== "EU");
+        assert.equal(others.length, question.choices.length - 1, "A vector group question must offer EU.");
+        return { name: question.name, type: "choice", choice: "EU", confidence: 0.8,
+          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === "EU" ? 0.8 : 0.2 / others.length })) };
+      }
       if (question.type === "choice" && question.name.startsWith("page_")) {
         const facade = /FA[ÇC]ADE/i.test(String(evidence.page_text ?? ""));
         const choice = question.name === "page_type"

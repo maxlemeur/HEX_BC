@@ -67,7 +67,7 @@ function total(network: NetworkCode, material: MaterialCode | null, dn: number |
 function surface(room: string, printed_m2: number, polygon_m2: number | null): RoomSurface {
   return { room, printed_m2, anchor: { x: 0, y: 0 }, polygon_m2, polygon_points: polygon_m2 === null ? null : 5,
     outline: polygon_m2 === null ? null : { group: "oc:oc2", points: [0, 0, 10, 0, 10, 10, 0, 10, 0, 0] },
-    deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2 };
+    deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2, method: polygon_m2 === null ? null : "ring", fill_rejected: null };
 }
 
 /** The bench key of an item, failing with the reading when it is not read. */
@@ -139,7 +139,7 @@ describe("vectorItems", () => {
   it("gives no item for a total without measurable scale or of a few millimetres", () => {
     const unmeasured = vectorItems(reading({
       denominator: null, totals: [total("EF", "cuivre", 22, null), total("HW", "acier-noir", 32, null, null)],
-      surfaces: [surface("Infirmerie", 13.62, null)],
+      surfaces: [surface("Local fictif", 13.8, null)],
     }), "a-plan-01");
     expect(unmeasured).toEqual([]);
     const tiny = vectorItems(reading({ denominator: 50, totals: [total("EF", "cuivre", 22, 0.004, 0.004)] }), "a-plan-01");
@@ -148,11 +148,11 @@ describe("vectorItems", () => {
 
   it("gives a room surface item only for a room with a closed polygon, of the polygon area", () => {
     const items = vectorItems(reading({
-      denominator: 50, surfaces: [surface("Infirmerie", 13.62, 14), surface("circulation", 84.95, null)],
+      denominator: 50, surfaces: [surface("Local fictif", 13.8, 14), surface("circulation", 84.95, null)],
     }), "a-plan-01");
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ quantity: 14, unit: "m2" });
-    expect(keyOf(items[0], ["Infirmerie", "Circulation"])).toMatchObject({ kind: "surface", room: "Infirmerie", unit: "m2" });
+    expect(keyOf(items[0], ["Local fictif", "Circulation"])).toMatchObject({ kind: "surface", room: "Local fictif", unit: "m2" });
   });
 
   it("gives confidence 0.9 with DN and material, 0.5 without one of them", () => {
@@ -172,7 +172,7 @@ describe("vectorItems", () => {
     const items = vectorItems(reading({
       page: 3, denominator: 50,
       totals: [total("EUV", "pvc", 100, 21.5), total("HW", "acier-noir", 32, 6, 6), total("EF", "cuivre", 22, 0.012)],
-      surfaces: [surface("Infirmerie", 13.62, 14)],
+      surfaces: [surface("Local fictif", 13.8, 14)],
     }), "b-plan-02");
     expect(items).toHaveLength(5);
     for (const item of items) {
@@ -190,7 +190,7 @@ describe("vectorItems", () => {
       page: 1, pages: 1, width: 841.89, height: 595.28, userUnit: 1, rotate: 0,
       layers: [{ id: "oc1", name: "RES_EU-EV", visible: true }, { id: "oc2", name: "MURS", visible: true }],
       groups: [{ layer: "oc1", color: "#7a3f00", width: 0.35, dash: null }, { layer: "oc2", color: "#000000", width: 0.5, dash: null }],
-      texts: [text("EU/EV - PVC DN 40", 150, 397), text("Infirmerie 13.62m²", 150, 200)],
+      texts: [text("EU/EV - PVC DN 40", 150, 397), text("Local fictif 13.80m²", 150, 200)],
       paths: [{ group: 0, start: 0, count: 2, closed: false }, { group: 1, start: 2, count: 5, closed: true }],
       points: Float32Array.from(coordinates),
       counts: { operators: 0, strokePaths: 2, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0 },
@@ -201,9 +201,9 @@ describe("vectorItems", () => {
     const items = vectorItems(page, "a-plan-01");
     expect(items.map(({ designation, quantity, unit, confidence }) => ({ designation, quantity, unit, confidence }))).toEqual([
       { designation: "EU/EV PVC DN 40", quantity: 4, unit: "ml", confidence: 0.9 },
-      { designation: "Surface « Infirmerie »", quantity: 14, unit: "m2", confidence: 0.9 },
+      { designation: "Surface « Local fictif »", quantity: 14, unit: "m2", confidence: 0.9 },
     ]);
     expect(keyOf(items[0])).toMatchObject({ network: "EUV", material: "pvc" });
-    expect(keyOf(items[1], ["Infirmerie"])).toMatchObject({ kind: "surface", room: "Infirmerie" });
+    expect(keyOf(items[1], ["Local fictif"])).toMatchObject({ kind: "surface", room: "Local fictif" });
   });
 });
