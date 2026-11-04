@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  getTakeoffVerificationReadiness,
 } from "@/lib/takeoff/guards";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -149,5 +150,18 @@ describe("checkApplyGuard with rule results", () => {
     expect(checkApplyGuard(items).blocked_items[0].reasons).toEqual(["low_confidence", "rule_failed"]);
     expect(checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "C" }).blocked_items[0].reasons)
       .toEqual(["low_confidence", "rule_failed"]);
+  });
+});
+
+// The apply trigger and the verification trigger read a blank proof with PostgreSQL btrim(), which strips spaces only;
+// JS trim() also strips tabs, line breaks and U+00A0, so a proof of « \t » blocked in TS and not in SQL (TI-664 L5b
+// review): both sides now read the same blank proof.
+describe("blank proof read as the database reads it", () => {
+  it("counts a proof of spaces as missing, and a proof of other whitespace as the database does", () => {
+    expect(getTakeoffVerificationReadiness({ evidence: "   ", source_page: 1 }).issues).toContain("missing_evidence");
+    expect(getTakeoffVerificationReadiness({ evidence: null, source_page: 1 }).issues).toContain("missing_evidence");
+    for (const evidence of ["\t", "\n", "   "]) {
+      expect(getTakeoffVerificationReadiness({ evidence, source_page: 1 }).issues, JSON.stringify(evidence)).not.toContain("missing_evidence");
+    }
   });
 });

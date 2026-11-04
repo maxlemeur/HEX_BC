@@ -65,7 +65,8 @@ export function getTakeoffVerificationReadiness(
 ): TakeoffVerificationReadiness {
   const issues: TakeoffVerificationIssue[] = [];
 
-  if (!item.evidence?.trim()) {
+  // Blank as the database reads it (btrim strips spaces only): the apply and verification triggers count the same.
+  if (!item.evidence?.replace(/^ +| +$/g, "")) {
     issues.push("missing_evidence");
   }
   if (typeof item.source_page !== "number" || item.source_page < 1) {
