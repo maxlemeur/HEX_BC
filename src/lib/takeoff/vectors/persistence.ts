@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
-import { VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
+import { surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
@@ -24,7 +24,8 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 //   geometry.
 // Only measured items have a geometry: a page whose scale is not verified has
 // none, its page row says why. A room polygon over VECTOR_GEOMETRY_LIMITS.polygon
-// points keeps its measured area without its outline (never a cut shape).
+// points keeps its measured area without its outline (never a cut shape). A
+// room filled between walls (fill.ts) keeps its traced outline, group fill:mur.
 
 export const VECTOR_PERSISTENCE_SCHEMA_VERSION = 1;
 export const VECTOR_PAGE_LIMITS = { groups: 400, cotes: 50, surfaces: 300, codes: 40 } as const;
@@ -225,9 +226,8 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
     const polygon = surface.outline.points.length <= 2 * VECTOR_GEOMETRY_LIMITS.polygon ? surface.outline.points.map(metres) : null;
     records.push({
       item: {
-        designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: surface.polygon_m2, unit: "m2", category: "surface (polygone fermé)",
+        designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: surface.polygon_m2, unit: "m2", ...surfaceWording(surface, scale),
         confidence: VECTOR_ITEM_CONFIDENCE.labelled,
-        evidence: `Aire du polygone fermé (${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
       },
       geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "surface", network: null, material: null, dn: null,
         zone: location.zone, level: location.level, groups: [surface.outline.group.slice(0, 120)], segments_m: [], polygon_m: polygon,

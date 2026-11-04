@@ -1,17 +1,19 @@
 import { NETWORKS } from "@/lib/takeoff/bench/keys";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
+import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 
 // Takeoff items of a vector reading (TI-662): one item per network, material
 // and DN measured on a page whose scale is measurable (« ml »), one per room
-// whose closed polygon was found (« m2 », the polygon area, never the printed
-// surface). The designation prints the network's code as plans and devis do
+// whose closed polygon was found or whose floor was filled between walls
+// (« m2 », that area, never the printed surface; category and evidence say
+// which). The designation prints the network's code as plans and devis do
 // (EU/EV for EUV), the material and « DN n », so that the bench reads the same
 // key as from a level C answer. A run whose label says it is insulated adds
 // an insulation item of the same length (« HW calorifuge DN 35 »). Confidence: 0.9 when the DN came from a label
 // on that run or a run joined to it, 0.5 without DN or material (« à revoir »).
 
-export const VECTOR_ITEMS_VERSION = 1;
+export const VECTOR_ITEMS_VERSION = 2;
 export const VECTOR_ITEM_CONFIDENCE = { labelled: 0.9, review: 0.5 } as const;
 
 const MATERIAL_LABELS: Record<string, string> = {
@@ -50,10 +52,20 @@ export function vectorItems(reading: VectorPageReading, sourceFile: string): Tak
   for (const surface of reading.surfaces) {
     if (surface.polygon_m2 === null || surface.polygon_m2 <= 0) continue;
     items.push({
-      designation: `Surface « ${surface.room} »`, quantity: surface.polygon_m2, unit: "m2", category: "surface (polygone fermé)",
+      designation: `Surface « ${surface.room} »`, quantity: surface.polygon_m2, unit: "m2", ...surfaceWording(surface, scale),
       source_page: reading.page, source_file: sourceFile, confidence: VECTOR_ITEM_CONFIDENCE.labelled,
-      evidence: `Aire du polygone fermé (${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
     });
   }
   return items;
+}
+
+/** Category and evidence of a room surface item: a closed polygon, or a floor filled between walls (TI-662 L3c). */
+export function surfaceWording(surface: Pick<RoomSurface, "method" | "polygon_points">, scale: string | null) {
+  return surface.method === "fill" ? {
+    category: "surface (remplissage entre murs)",
+    evidence: `Aire du remplissage entre murs (contour de ${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
+  } : {
+    category: "surface (polygone fermé)",
+    evidence: `Aire du polygone fermé (${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
+  };
 }
