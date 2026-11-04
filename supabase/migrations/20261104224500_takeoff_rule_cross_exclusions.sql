@@ -52,10 +52,8 @@ begin
   if listed = 0 or pg_catalog.jsonb_typeof(total) is distinct from 'number' then
     return false;
   end if;
-  if total::text !~ '^[0-9]{1,6}$' then
-    return false;
-  end if;
-  if total::text::integer <> listed then
+  -- A count compared as a number (1.0 is one partner, as the TS guard reads it).
+  if total::text::numeric <> listed then
     return false;
   end if;
   if exists (
@@ -66,7 +64,8 @@ begin
   ) then
     return false;
   end if;
-  if (select count(distinct id.value) from pg_catalog.jsonb_array_elements_text(ids) as id(value)) <> listed then
+  -- An id whatever its case is one line (a uuid): never two partners.
+  if (select count(distinct pg_catalog.lower(id.value)) from pg_catalog.jsonb_array_elements_text(ids) as id(value)) <> listed then
     return false;
   end if;
   return not exists (

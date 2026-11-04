@@ -137,7 +137,7 @@ export function checkApplyGuard(
   const medium_items: GuardMediumItem[] = [];
   const levelC = (context.level ?? "C") === "C";
   // The job's own lines as given (the plan's exclusions included), the others from the context; unknown: counted.
-  const own = new Map(items.map((item) => [item.id, item.is_excluded]));
+  const own = new Map(items.map((item) => [item.id.toLowerCase(), item.is_excluded]));
   const excluded = (id: string) => own.get(id) ?? context.partnerExclusions?.get(id);
 
   for (const item of items) {

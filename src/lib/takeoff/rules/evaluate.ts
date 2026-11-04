@@ -2,7 +2,15 @@ import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
 import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
 import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/bench/diameters";
 import { NETWORK_DIAMETER_TABLE_VERSION, WRAPPING_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
-import { REGISTRATION_VERSION, composeTranslations, registerPages, translation, type PageAnchors, type Registration } from "@/lib/takeoff/rules/registration";
+import {
+  REGISTRATION_VERSION,
+  composeTranslations,
+  confirmTranslation,
+  registerPages,
+  translation,
+  type PageAnchors,
+  type Registration,
+} from "@/lib/takeoff/rules/registration";
 import {
   ROOM_RULES_VERSION,
   areaAgrees,
@@ -358,6 +366,43 @@ function registerLevel(level: string, pages: readonly RulePage[]) {
   return { transforms, component, registrations, direct };
 }
 
+/** Pages without lines of a level tried as overviews, in page order (each pair of them costs a registration). */
+const OVERVIEWS_MAX = 8;
+
+/**
+ * Pairs of pages with lines that registration left in separate components, joined through the level's pages without
+ * lines (TI-677: an overview printing both zones' texts). The overviews only propose: the translation composed
+ * through them is confirmed on the two pages' own building lines (confirmTranslation), which refines it, so an
+ * overview drawn slightly off scale never carries its error over. Pages already in one component keep their own
+ * frames. `direct` holds each confirmed pair both ways, as registerLevel's `direct` does.
+ */
+function joinThroughOverviews(level: string, linePages: readonly RulePage[], registered: ReturnType<typeof registerLevel>,
+  pages: ReadonlyMap<string, RulePage>) {
+  const direct = new Map<string, TakeoffFrameTransform>();
+  const registrations: LevelRegistration[] = [];
+  const anchored = linePages.filter((page) => page.anchors !== null);
+  const split = anchored.flatMap((left, index) => anchored.slice(index + 1)
+    .filter((right) => registered.component.get(left.key) !== registered.component.get(right.key)).map((right) => [left, right] as const));
+  if (split.length === 0) return { direct, registrations };
+  const overviews = [...pages.values()].filter((page) => page.level === level && page.anchors !== null
+    && !linePages.some((other) => other.key === page.key))
+    .sort((left, right) => left.order - right.order || byText(left.key, right.key)).slice(0, OVERVIEWS_MAX);
+  if (overviews.length === 0) return { direct, registrations };
+  const through = registerLevel(level, [...anchored, ...overviews]);
+  for (const [left, right] of split) {
+    const [leftFrame, rightFrame] = [through.transforms.get(left.key), through.transforms.get(right.key)];
+    if (through.component.get(left.key) !== through.component.get(right.key) || !leftFrame || !rightFrame) continue;
+    // Right's metres into left's frame, through the overviews: x_left = x_right + (T_right − T_left).
+    const outcome = confirmTranslation(left.anchors as PageAnchors, right.anchors as PageAnchors, rightFrame[4] - leftFrame[4],
+      rightFrame[5] - leftFrame[5]);
+    registrations.push({ level, reference: left.key, page: right.key, registration: outcome });
+    if (outcome.status !== "registered") continue;
+    direct.set(JSON.stringify([left.key, right.key]), translation(outcome.dx, outcome.dy));
+    direct.set(JSON.stringify([right.key, left.key]), translation(-outcome.dx, -outcome.dy));
+  }
+  return { direct, registrations };
+}
+
 function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, RulePage>, results: Map<string, TakeoffRuleResult[]>) {
   const transforms = new Map<string, TakeoffFrameTransform | null>();
   const registrations: LevelRegistration[] = [];
@@ -378,14 +423,10 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       }
       continue;
     }
-    // The pages with lines register first; when some of them still share no frame, every page of the level with
-    // anchors joins, a page without network lines too (an overview joining two zone plans: TI-677). Only pages with
-    // lines are compared and get a transform.
-    let registered = registerLevel(level, levelPages);
-    const split = levelPages.some((page) => registered.component.get(page.key) !== registered.component.get(levelPages[0].key));
-    const hubs = split ? [...pages.values()].filter((page) => page.level === level && page.anchors !== null
-      && !levelPages.some((other) => other.key === page.key)) : [];
-    if (hubs.length > 0) registered = registerLevel(level, [...levelPages, ...hubs]);
+    const registered = registerLevel(level, levelPages);
+    // Two pages with lines left in separate components may be joined through pages without lines (an overview: TI-677).
+    const joined = joinThroughOverviews(level, levelPages, registered, pages);
+    registrations.push(...joined.registrations);
     registrations.push(...registered.registrations);
     // A page sharing no common frame with another page of its level has none to write.
     for (const page of levelPages) {
@@ -400,7 +441,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     // Two pages in one frame: through their own registration when they have one (the first page then is the frame),
     // otherwise in the frame of their component.
     const framesOf = (left: string, right: string): [TakeoffFrameTransform, TakeoffFrameTransform] => {
-      const own = registered.direct.get(JSON.stringify([left, right]));
+      const own = registered.direct.get(JSON.stringify([left, right])) ?? joined.direct.get(JSON.stringify([left, right]));
       return own ? [translation(0, 0), own]
         : [registered.transforms.get(left) as TakeoffFrameTransform, registered.transforms.get(right) as TakeoffFrameTransform];
     };
@@ -411,7 +452,8 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         if (left.page_key === right.page_key || !sameRun(left, right, sizes)) continue;
         if (left.is_excluded && right.is_excluded) continue;
         const [leftTransform, rightTransform] = [registered.transforms.get(left.page_key), registered.transforms.get(right.page_key)];
-        const together = registered.component.get(left.page_key) === registered.component.get(right.page_key);
+        const together = registered.component.get(left.page_key) === registered.component.get(right.page_key)
+          || joined.direct.has(JSON.stringify([left.page_key, right.page_key]));
         if (!leftTransform || !rightTransform || !together) {
           // Two lines that could be one run, on pages with no common frame: « zones non recalées ».
           if (!right.is_excluded) unregistered.add(left.id);

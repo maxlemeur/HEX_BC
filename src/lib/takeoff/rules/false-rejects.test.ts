@@ -52,7 +52,8 @@ describe("quoted plan text read as the reader reads it", () => {
   // Review of PR B: a quoted size alone (« "20/22" ») or an ID/OD pair closed by a quote still gave 22".
   it.each([`EF cuivre "20/22"`, "EF cuivre “20/22”", `EF cuivre 20/22"`])("reads %s as copper 20/22 too", (designation) => {
     const read = ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 });
-    expect(read.dn).not.toMatch(/"/);
+    // Never the inch size 22" (the reader prints the last one « 20/22" », copper 20/22 as well).
+    expect(read.dn).toMatch(/^20\/22/);
     const { results } = evaluateTakeoffRules({ pages: [], lines: [line("quoted", { page_key: null, designation, inputs: read })] });
     expect(rule(results, "quoted", "dn_network")?.code).toBe("DN_NETWORK_COMPATIBLE");
   });

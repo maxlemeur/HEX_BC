@@ -293,8 +293,10 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
 }
 
 /** What a geometry weighs against the review's segment budget (read-contracts.ts): its centrelines, one edge per point of its room polygon. */
-export function geometryWeight(geometry: { segments_m: readonly unknown[]; polygon_m: readonly unknown[] | null }) {
-  return geometry.segments_m.length + (geometry.polygon_m?.length ?? 0) / 2;
+export function geometryWeight(geometry: { segments_m: readonly unknown[]; polygon_m: readonly unknown[] | null;
+  holes_m?: ReadonlyArray<readonly unknown[]> }) {
+  return geometry.segments_m.length + (geometry.polygon_m?.length ?? 0) / 2
+    + (geometry.holes_m ?? []).reduce((sum, hole) => sum + hole.length / 2, 0);
 }
 
 /**

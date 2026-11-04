@@ -53,7 +53,10 @@ export function vectorItemRuleData(reading: VectorPageReading): BenchRuleData[] 
     data.push({
       inputs: ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null, quantity: surface.polygon_m2, room: surface.room,
         printed_m2: surface.printed_m2 }),
-      geometry: { segments_m: [], polygon_m: surface.outline ? surface.outline.points.map(metres) : null, length_m: null, area_m2: surface.polygon_m2 },
+      // A filled floor's holes, as the worker persists them (TI-677): a room around another room is no overlap.
+      geometry: { segments_m: [], polygon_m: surface.outline ? surface.outline.points.map(metres) : null,
+        ...(surface.outline?.holes?.length ? { holes_m: surface.outline.holes.map((hole) => hole.map(metres)) } : {}),
+        length_m: null, area_m2: surface.polygon_m2 },
     });
   }
   return data;

@@ -23,6 +23,11 @@ export type PartnerExclusion = (itemId: string) => boolean | undefined;
 
 const LINE_ID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
 
+/** A line id as stored (a uuid, any case). */
+export function isLineId(value: unknown): value is string {
+  return typeof value === "string" && LINE_ID.test(value);
+}
+
 /** The partners a cross-line failure names, with their stored count; null for any other result. */
 export function failurePartners(result: TakeoffRuleResult): { ids: unknown[]; count: unknown } | null {
   if (result.code === "ZONE_OVERLAP_DUPLICATE") {
@@ -42,8 +47,11 @@ export function leftOutByPartners(result: TakeoffRuleResult, excluded: PartnerEx
   if (!named || !excluded) return false;
   const { ids, count } = named;
   if (ids.length === 0 || typeof count !== "number" || !Number.isInteger(count) || count < 0 || count > 999_999 || count !== ids.length) return false;
-  if (!ids.every((id): id is string => typeof id === "string" && LINE_ID.test(id)) || new Set(ids).size !== ids.length) return false;
-  return ids.every((id) => excluded(id) === true);
+  if (!ids.every((id): id is string => typeof id === "string" && LINE_ID.test(id))) return false;
+  // An id whatever its case is one line (the database reads it as a uuid): never two partners.
+  const lines = ids.map((id) => id.toLowerCase());
+  if (new Set(lines).size !== lines.length) return false;
+  return lines.every((id) => excluded(id) === true);
 }
 
 /** The failed rules that still block this line (empty when none does). */
