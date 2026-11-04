@@ -309,6 +309,45 @@ pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
 - Sans elles, aucune règle ne lit la ligne : rien ne change pour un job sans entrées.
 - Le recalcul tourne dès qu'une version a des lignes qui en portent.
 
+## Revue ciblée (L5c)
+
+L'utilisateur ne tranche que ce qui échoue : la revue ciblée d'un métré ne montre que
+les lignes que le garde d'application rejette (`blocked_items`) ou trouve incertaines
+(`medium_items`), avec le même seuil et le même niveau que l'application
+([`targeted-review.ts`](../../src/lib/takeoff/targeted-review.ts)).
+
+- **Écran** : `/dashboard/affaires/<affaire>/takeoff/<job>/review/targeted?versionId=…`,
+  en mise en page outil (TI-658). À gauche les lignes, le filtre « Règle en échec » et
+  l'application ; au centre le plan et sa lecture vectorielle, la ligne en évidence ; à
+  droite ses raisons et ses décisions. La revue complète y renvoie (« Revue ciblée · N
+  lignes »), comme le panneau des lignes bloquées de l'assistant d'application.
+- **Décisions**, enregistrées aussitôt sur la ligne, raccourcis affichés sur les boutons :
+  - **Exclure** (E) : motif obligatoire ;
+  - **Corriger** : saisie directe (un chiffre) ou F2, puis Entrée ; Échap annule. Aucune
+    nouvelle lettre ;
+  - **Accepter** (V) : lève une confiance faible ou moyenne et toute règle acceptable ;
+    jamais une quantité à saisir ni des règles à recalculer. En niveau C, seulement une
+    ligne qui a sa preuve et sa page, comme la base l'exige ;
+  - **Saisir** une quantité non observable : la quantité tapée, même égale à celle du
+    modèle, est attestée (`quantity_entered: true`) et règle `NON_OBSERVABLE_TO_ENTER`.
+- **Doublon Z1/Z2** : la raison donne la longueur comptée deux fois et la ligne de l'autre
+  zone (lien vers sa revue ciblée).
+  - Paire : « Retirer 1,00 m » ramène la ligne à sa quantité moins cette longueur ; une
+    ligne entièrement en double se retire (exclusion, motif proposé).
+  - Groupe de trois lignes ou plus : aucune correction n'est proposée. « Retirer la ligne »
+    n'est offert que pour une ligne que les autres dessinent entièrement (à 1 cm près, sur
+    la longueur mesurée) ; sinon la ligne s'accepte (V) une fois vérifiée.
+- **Relecture** : la réponse du PATCH porte l'état des règles de toutes les lignes du job
+  que les règles lisent (`rule_states`), lu après le recalcul, même en échec. La revue et
+  la revue ciblée l'appliquent aux lignes qu'elles ne sont pas en train de modifier : une
+  ligne partenaire réglée ou devenue « à recalculer » le montre sans rechargement.
+- **Assistant d'application** : le garde y laisse de côté les lignes que l'aperçu à jour
+  saute (`skip`) ou replie dans un ouvrage (`apply_assembly`), comme le serveur ; sans
+  aperçu à jour, il garde toutes les lignes retenues (sens sûr). Le panneau des lignes
+  bloquées nomme chaque règle en échec et sa raison.
+- `ValidationReviewPanel` et `detectAnomalies` n'affichent pas les règles : la revue
+  ciblée le fait.
+
 ## Banc
 
 Chaque passe du pipeline vectoriel rend, par plan, les lignes rejetées, incertaines
