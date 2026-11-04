@@ -28,6 +28,14 @@ import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } fro
 // - V6: « Limite du forfait ChatGPT » (quota) does not end the run at once, or later pages are still sent;
 // - V8: the pass's corrections leak into the « after the rules » reading instead of a separate « after vision » one;
 // - V9: a page's duration leaves out its vision time (render and calls), so the L1 comparison flatters the pass.
+// Review of the pass (written before the fix):
+// - V10: an answer with a wrapping material (« calorifuge ») turns a pipe into a line the DN rule no longer reads: it
+//   leaves « rejected » with no check (false accept);
+// - V11: a network total spread over the sheet (hundreds of runs) is cropped as nearly the whole page, unreadable,
+//   and one answer rewrites all of it: such a line is not sent, it is counted « too spread »;
+// - V12: a line that also fails a geometric rule is sent, though no correction can clear its rejection;
+// - V13: a correction leaves the pipe's insulation line (same total) on the old network or size at high confidence;
+// - V14: a « corrige » that repeats the reading changes the line (confidence lowered) and counts as corrected.
 
 const SHEET = { width: 1190.55, height: 841.89 };
 const RED: VectorGroupKey = { layer: null, color: "#ff0000", width: 1, dash: null };
@@ -98,6 +106,19 @@ describe("visionCandidates", () => {
     expect(box.y0).toBeCloseTo(2 * metre - VISION_REVIEW_LIMITS.marginPt, 3);
   });
 
+  it("never sends a line rejected for a geometric reason too, nor a total spread over the sheet (V11, V12)", () => {
+    const items = [item("EF DN 22", 1), item("EF DN 28", 1), item("EF DN 32", 1)];
+    const data = [datum([[1, 2, 6, 2]]), datum([[1, 3, 3, 3], [40, 20, 44, 20]]), datum([[1, 4, 6, 4]])];
+    const results = [
+      [fail("dn_network", "DN_NETWORK_MATERIAL_MISSING"), fail("zone_overlap", "ZONE_OVERLAP_DUPLICATE")],
+      [fail("dn_network", "DN_NETWORK_MATERIAL_MISSING")],
+      [fail("dn_network", "DN_NETWORK_MATERIAL_MISSING")],
+    ];
+    const [page] = visionCandidates({ items, data, results, denominators: new Map([[1, 50]]) });
+    expect(page.lines.map((line) => line.index)).toEqual([2]);
+    expect(page).toMatchObject({ too_spread: 1, left_out: 0 });
+  });
+
   it("counts the lines beyond the per-page cap as left out (V5)", () => {
     const count = VISION_REVIEW_LIMITS.linesPerPage + 3;
     const items = Array.from({ length: count }, () => item("EF DN 22", 2));
@@ -131,6 +152,27 @@ describe("applyVisionAnswers", () => {
       expect([result.corrected, result.items[0], result.data[0]]).toEqual([[], items[0], data[0]]);
     }
     expect(applyVisionAnswers({ items, data, answers: new Map([[3, answer({})]]) }).corrected).toEqual([]);
+  });
+
+  it("never takes a wrapping material for a pipe (V10)", () => {
+    expect(visionAnswerSchema.safeParse({ lines: [answer({ material: "calorifuge" as never })] }).success).toBe(false);
+    expect(visionAnswerSchema.safeParse({ lines: [answer({ material: "cordon-chauffant" as never })] }).success).toBe(false);
+  });
+
+  it("changes nothing for a « corrige » that repeats the reading (V14)", () => {
+    const repeat = applyVisionAnswers({ items, data, answers: new Map([[0, answer({ material: null })]]) });
+    expect([repeat.corrected, repeat.items[0], repeat.data[0]]).toEqual([[], items[0], data[0]]);
+  });
+
+  it("carries the correction to the pipe's insulation line, capped too (V13)", () => {
+    const withInsulation: TakeoffItem[] = [items[0], { designation: "EF calorifuge DN 22", quantity: 3, unit: "ml", source_page: 1, confidence: 0.9, evidence: "Fictional" }];
+    const insulation: BenchRuleData = { inputs: ruleInputsFromVector({ kind: "insulation", network: "EF", material: "calorifuge", dn: 22, quantity: 3 }),
+      geometry: { segments_m: [[1, 2, 4, 2]], polygon_m: null, length_m: 3, area_m2: null } };
+    const result = applyVisionAnswers({ items: withInsulation, data: [data[0], insulation],
+      answers: new Map([[0, answer({ network: "ECS", material: "cuivre", dn: "28" })]]) });
+    expect(result.items.map((entry) => [entry.designation, entry.confidence])).toEqual([["ECS cuivre DN 28", VISION_CORRECTED_CONFIDENCE],
+      ["ECS calorifuge DN 28", VISION_CORRECTED_CONFIDENCE]]);
+    expect(result.data[1]?.inputs).toMatchObject({ kind: "insulation", network: "ECS", material: "calorifuge", dn: "DN 28" });
   });
 
   it("refuses codes outside the vocabulary and a DN that is not a size (V4)", () => {

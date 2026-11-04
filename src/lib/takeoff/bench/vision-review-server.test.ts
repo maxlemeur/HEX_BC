@@ -12,6 +12,10 @@ import type { PdfRenderOptions } from "@/lib/pdf/page-render-server";
 // - a crop that could not be rendered is sent as nothing, or ends the page; its line is simply not asked;
 // - an answer that does not parse (schema failure) ends the run, or loses its line's count;
 // - V6: « Limite du forfait ChatGPT » (AI_QUOTA) is counted as a failed call and the next call is sent.
+// Review of the pass (written before the fix):
+// - a crop not drawn is only logged: the report counts its line as asked, and says nothing of the render;
+// - an answer for a line not sent in that call (not drawn, or another call's) is applied to it;
+// - a schema failure's tokens (attached to the error) are lost, and reasoning tokens are reported nowhere.
 
 const owner = { userId: "11111111-1111-4111-8111-111111111111", tenantId: "22222222-2222-4222-8222-222222222222" };
 const selection = { profileId: "profile-1", model: "fixture-model", reasoningEffort: null };
@@ -51,8 +55,30 @@ describe("visionReviewHook", () => {
     expect(calls.every((call) => call.selection === selection)).toBe(true);
     expect(calls[0].prompt).toContain("L1 (image 1)");
     expect(calls[0].prompt).not.toContain("L3 (image");
+    expect(outcome.not_drawn).toEqual([{ alias: "L3", issue: "render_failed" }]);
     expect(outcome).toMatchObject({ stop: null, render_ms: Array(8).fill(50),
-      calls: [{ lines: 5, status: "ok", latency_ms: 1800, usage: { input_tokens: 1000, output_tokens: 50, total_tokens: 1050 } }, { lines: 2, status: "ok" }] });
+      calls: [{ lines: 5, status: "ok", latency_ms: 1800, usage: { input_tokens: 1000, output_tokens: 50, reasoning_tokens: 0, total_tokens: 1050 } },
+        { lines: 2, status: "ok" }] });
+  });
+
+  it("keeps only the answers for the lines sent in that call", async () => {
+    const { render } = fakeRender([1]);
+    const hook = visionReviewHook({ owner, selection, render, call: async () => ({ data: { lines: [
+      { alias: "L1", verdict: "corrige", network: "EF", material: "cuivre", dn: "22", label: "EF cu 22" },
+      { alias: "L2", verdict: "corrige", network: "EF", material: "cuivre", dn: "22", label: "EF cu 22" },
+      { alias: "L9", verdict: "corrige", network: "EF", material: "cuivre", dn: "22", label: "EF cu 22" },
+    ] }, tokenUsage: { inputTokens: 1, outputTokens: 1, reasoningTokens: 0, totalTokens: 2 }, durationMs: 10 }) as never });
+    const outcome = await hook.review(document, 1, lines(2));
+    expect(outcome.answers.map((answer) => answer.alias)).toEqual(["L1"]);
+  });
+
+  it("keeps the tokens a schema failure consumed, reasoning tokens apart", async () => {
+    const { render } = fakeRender();
+    const hook = visionReviewHook({ owner, selection, render, call: async () => {
+      throw Object.assign(new SyntaxError("Unexpected token"), { usage: { inputTokens: 900, outputTokens: 40, reasoningTokens: 300, totalTokens: 1240 } });
+    } });
+    const outcome = await hook.review(document, 1, lines(1));
+    expect(outcome.calls).toMatchObject([{ status: "schema_failure", usage: { input_tokens: 900, output_tokens: 40, reasoning_tokens: 300, total_tokens: 1240 } }]);
   });
 
   it("counts an answer that does not parse and goes on", async () => {
