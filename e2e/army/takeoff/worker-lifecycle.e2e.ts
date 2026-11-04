@@ -315,7 +315,9 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   const vectorItemIds = Object.fromEntries(completed.items.filter((item) => item.unit === "ml").map((item) => [item.designation, item.id]));
   const roomItemId = completed.items.find((item) => item.designation === VECTOR_PLAN.room.designation)!.id;
   expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId, sourceFileName: fileName, sourcePage: 1,
-    scale: { status: "format", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"] }]);
+    scale: { status: "format", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"],
+    // Classes read by keywords; without MERGEONE_TAKEOFF_DECISIONS, no Decisions summary (TI-662 L3d).
+    sources: ["keyword", "keyword", "keyword"], confidences: [null, null, null], decisions: null }]);
   const [vectorPage] = completed.vectorPages;
   expect([...completed.geometries].sort((left, right) => (left.network ?? "").localeCompare(right.network ?? ""))).toEqual([
     { itemId: roomItemId, tenantId, pageId: vectorPage.id, kind: "surface", network: null, lengthM: null, segments: 0 },
@@ -451,7 +453,9 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
   const [resultId] = completed.resultIds;
   // Without the calibration the page would be « échelle non vérifiée » (no printed scale) and give no measure.
   expect(completed.vectorPages).toEqual([{ id: expect.any(String), tenantId, resultId, planFileId: null, sourceFileName: fileName, sourcePage: 1,
-    scale: { status: "calibrated", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"] }]);
+    scale: { status: "calibrated", denominator: VECTOR_PLAN.denominator }, detection: 1, classes: ["mur", "EF", "EUV"],
+    // Classes read by keywords; without MERGEONE_TAKEOFF_DECISIONS, no Decisions summary (TI-662 L3d).
+    sources: ["keyword", "keyword", "keyword"], confidences: [null, null, null], decisions: null }]);
   expect(completed.items.filter((item) => item.is_excluded).map(({ designation, quantity, unit }) => ({ designation, quantity, unit }))).toEqual([
     ...VECTOR_PLAN.networks.map((entry) => ({ designation: entry.designation, quantity: entry.length_m, unit: "ml" })),
     { designation: VECTOR_PLAN.room.designation, quantity: VECTOR_PLAN.room.area_m2, unit: "m2" },
