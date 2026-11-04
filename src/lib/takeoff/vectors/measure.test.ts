@@ -180,6 +180,14 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   so the other member beyond it gets none, although the parent's DN reaches
 //   it over legal joins (« EU/EV » DN 100, then a run labelled « EU » DN 40,
 //   then an EV branch off that run).
+// One pipe drawn in a parent's and a member's colours (TI-662 L3d, written before the fix;
+// on the bench, a supply whose outlines read as HW-S by its labels and whose tint read as HW
+// by the legend counted twice in its DN once the DN passed between parent and member):
+// - the outlines of a member's pipe and its tint, read as the parent, are measured as two
+//   pipes on one axis, both given the label's DN: the pipe counts twice;
+// - a return's DN reaches another return through the tint of a supply both end on, read as
+//   their parent's run;
+// - a parent's pipe drawn 1.5 pt beside a member's (two pipes) is merged into it.
 // Decisions classes (TI-662 L3c, classify.ts applyDecisions, written before the code):
 // - a Decisions answer replaces a keyword, legend or label class, or decides a
 //   shared legend colour that the labels decide per run;
@@ -1195,5 +1203,52 @@ describe("Decisions classes (classify.ts applyDecisions)", () => {
     expect(dn(read(extraction))).toEqual([22]);
     expect(dn(decisionsRead(extraction, new Map([[leader, { class: "EU" as const, confidence: 0.62 }]])))).toEqual([22]);
     expect(dn(decisionsRead(extraction, new Map([[leader, { class: "EU" as const, confidence: 0.9 }]])))).toEqual([null]);
+  });
+});
+
+describe("one pipe drawn in a parent's and a member's colours (TI-662 L3d)", () => {
+  const runAt = (reading: VectorPageReading, point: Point) => {
+    const run = (reading.networks?.runs ?? []).find((entry) => distanceToSegment(point, entry.segment) < 0.5);
+    return run ? { network: run.network, dn: run.dn, attached: run.attached } : null;
+  };
+  const LAYERS = [{ id: "1", name: "FICTIF_HW" }, { id: "2", name: "FICTIF_HW-S" }, { id: "3", name: "FICTIF_HW-R" }];
+  const centred = (str: string, cx: number, y: number) => text(str, cx - (0.55 * 6 * str.length) / 2, y);
+  /** A supply pipe along y from x0 to x1: its outlines in the member's layer, its tint (from x0 to tintEnd) in the parent's. */
+  const supply = (x0: number, x1: number, y: number, tintEnd = x1): Stroke[] => [
+    line(BLUE, x0, y - 1, x1, y - 1, { layer: "2" }), line(BLUE, x0, y + 1, x1, y + 1, { layer: "2" }),
+    line(BLUE_TINT, x0, y, tintEnd, y, { width: 1.5, layer: "1" }),
+  ];
+
+  it("measures once, as the member, a pipe whose outlines are a member's and whose tint is its parent's", () => {
+    // 5 m of supply labelled DN 35; its tint goes on 3 m past the outlines' end, alone: that part stays the parent's.
+    const reading = read(page([{
+      strokes: supply(100, 100 + FIVE_M, 300, 100 + FIVE_M + THREE_M),
+      texts: [centred("HW-S - cuivre DN 35", 200, 297)],
+    }], LAYERS));
+    expect(totals(reading)).toEqual(expect.arrayContaining([
+      { network: "HW-S", material: "cuivre", dn: 35, runs: 1, length_m: expect.closeTo(5, 2) },
+      { network: "HW", material: "cuivre", dn: 35, runs: 1, length_m: expect.closeTo(3, 2) },
+    ]));
+    expect(totals(reading)).toHaveLength(2);
+    expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "HW-S", dn: 35, attached: "label" });
+  });
+
+  it("keeps a parent's pipe drawn 1.5 pt beside a member's as two pipes", () => {
+    const reading = read(page([{
+      strokes: [line(BLUE, 100, 300, 100 + FIVE_M, 300, { layer: "1" }), line(BLUE, 100, 301.5, 100 + FIVE_M, 301.5, { layer: "2" })],
+    }], LAYERS));
+    expect(metres(reading, "HW")).toBeCloseTo(5, 2);
+    expect(metres(reading, "HW-S")).toBeCloseTo(5, 2);
+  });
+
+  it("never passes a return's DN to another return through the tint of a supply they both join", () => {
+    // Supply from x 100 to 400; return A (x 150) labelled DN 28 and return B (x 350) both end on it.
+    const reading = read(page([{
+      strokes: [...supply(100, 400, 300), line(BLUE, 150, 300, 150, 450, { layer: "3" }), line(BLUE, 350, 300, 350, 450, { layer: "3" })],
+      texts: [{ ...centred("HW-R - cuivre DN 28", 0, 0), x: 147, y: 420, angle: -Math.PI / 2 }],
+    }], LAYERS));
+    expect(runAt(reading, { x: 150, y: 400 })).toEqual({ network: "HW-R", dn: 28, attached: "label" });
+    expect(runAt(reading, { x: 350, y: 400 })).toEqual({ network: "HW-R", dn: null, attached: null });
+    expect(metres(reading, "HW")).toBeCloseTo(0, 2);
   });
 });
