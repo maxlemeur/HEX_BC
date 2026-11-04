@@ -53,7 +53,7 @@ export async function persistTakeoffVectorReading(input: {
     const keyed = outcome.items.map((record) => ({ key: randomUUID(), record }));
     const { data: inserted, error: itemsError } = await input.supabase.from("takeoff_items" as never).insert(keyed.map(({ key, record }) => {
       // Only inputs the reader accepts are written: a line left stale with unreadable inputs is never computed.
-      const ruleInputs = withRules && outcome.record ? writableRuleInputs(ruleInputsFromVectorRecord(record, outcome.record.surfaces)) : null;
+      const ruleInputs = withRules && outcome.record ? writableRuleInputs(ruleInputsFromVectorRecord(record)) : null;
       return {
         tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId,
         designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,

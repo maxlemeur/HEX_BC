@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
 import type { MeasuredNetwork, NetworkRun } from "@/lib/takeoff/vectors/measure";
 import { budgetVectorItems, VECTOR_GEOMETRY_LIMITS, VECTOR_PAGE_LIMITS, vectorItemRecords, type VectorItemRecord } from "@/lib/takeoff/vectors/persistence";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
@@ -111,6 +112,14 @@ describe("vectorItemRecords, rooms (review of PR #147)", () => {
       outline: polygon_m2 === null ? null : { group: "oc:oc2", points: Array.from({ length: 2 * points }, (_, index) => index % 7) },
       deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2, method: polygon_m2 === null ? null : "ring", fill_rejected: null };
   }
+
+  it("carries each room's own printed surface to its rule inputs, two rooms alike in label and area included (Codex #160)", () => {
+    // Two « Bureau » measured 10 m² each, printed 10 m² and 12 m²: the second was given the first's printed surface.
+    const records = vectorItemRecords(reading({ surfaces: [surface("Bureau", 10, 10), surface("Bureau", 12, 10)] }), location);
+    expect(records.map((record) => ruleInputsFromVectorRecord(record))).toMatchObject([
+      { kind: "surface", room: "Bureau", printed_m2: 10 }, { kind: "surface", room: "Bureau", printed_m2: 12 },
+    ]);
+  });
 
   it("keeps the area of a ring past the bound without its outline, and persists no open, unscaled or raster room", () => {
     const hall = surface("Hall", 120, 118.5, VECTOR_GEOMETRY_LIMITS.polygon + 1);

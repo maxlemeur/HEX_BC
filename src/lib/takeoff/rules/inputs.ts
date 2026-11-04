@@ -142,20 +142,19 @@ export function ruleInputsFromVector(line: VectorLine): TakeoffRuleInputs {
 }
 
 /**
- * Inputs of a line the vector reading persists (vectors/persistence.ts): its geometry's attributes; for a room, its
- * printed label and surface, read in the page's record (the room whose polygon area is the line's).
+ * Inputs of a line the vector reading persists (vectors/persistence.ts): its geometry's attributes; for a room, the
+ * label and surface printed in it, carried from its own surface (two rooms alike in label and area keep theirs).
  */
-export function ruleInputsFromVectorRecord(
-  record: { item: { designation: string; quantity: number }; geometry: { kind: VectorLine["kind"]; network: NetworkCode | null;
-    material: MaterialCode | null; dn: number | null; area_m2: number | null } },
-  surfaces: ReadonlyArray<{ room: string; printed_m2: number; polygon_m2: number | null }>,
-): TakeoffRuleInputs {
+export function ruleInputsFromVectorRecord(record: {
+  item: { quantity: number };
+  geometry: { kind: VectorLine["kind"]; network: NetworkCode | null; material: MaterialCode | null; dn: number | null };
+  room?: { label: string; printed_m2: number };
+}): TakeoffRuleInputs {
   const { item, geometry } = record;
   if (geometry.kind !== "surface") {
     return ruleInputsFromVector({ kind: geometry.kind, network: geometry.network, material: geometry.material, dn: geometry.dn,
       quantity: item.quantity });
   }
-  const room = /^Surface « (.*) »$/.exec(item.designation)?.[1] ?? null;
-  const printed = surfaces.find((surface) => surface.room === room && surface.polygon_m2 === geometry.area_m2)?.printed_m2 ?? null;
-  return ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null, quantity: item.quantity, room, printed_m2: printed });
+  return ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null, quantity: item.quantity,
+    room: record.room?.label ?? null, printed_m2: record.room?.printed_m2 ?? null });
 }
