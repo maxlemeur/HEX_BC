@@ -93,6 +93,14 @@ select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-
   'a duplicate whose partner no longer exists blocks');
 select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
   '9f200000-0000-4000-8000-000000000403'::uuid], 2), false, false), 'a partner listed twice never stands for two');
+-- Review of PR B: the TS guard reads a count of 1.0 as 1 and an id whatever its case; so does the trigger.
+select ok(not public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
+  '{0,details,partner_count}', '1.0'::jsonb), false, false), 'a count written 1.0 is one partner');
+select ok(not public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
+  '{0,details,partners,0,item_id}', to_jsonb(upper('9f200000-0000-4000-8000-000000000403'))), false, false), 'an id in capitals is the same line');
+select ok(public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
+  '9f200000-0000-4000-8000-000000000403'::uuid], 2), '{0,details,partners,0,item_id}', to_jsonb(upper('9f200000-0000-4000-8000-000000000403'))),
+  false, false), 'one line named in two cases never stands for two partners');
 select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1) #- '{0,details,partner_count}',
   false, false), 'a duplicate computed without its partner count blocks');
 select ok(public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),

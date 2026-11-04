@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { vectorItemRuleData } from "@/lib/takeoff/bench/vector-rules";
 import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
 import { ruleInputsFromDesignation, ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
 import type { PageAnchors } from "@/lib/takeoff/rules/registration";
 import type { TakeoffRuleInputs, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
-import { vectorItemRecords } from "@/lib/takeoff/vectors/persistence";
+import { geometryWeight, vectorItemRecords } from "@/lib/takeoff/vectors/persistence";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 
 // False rejects of the fixed rules (TI-677, PR B), written before the fixes. Each rejects a right line (the safe
@@ -46,6 +47,20 @@ describe("quoted plan text read as the reader reads it", () => {
     expect(read.dn).not.toMatch(/"/);
     const { results } = evaluateTakeoffRules({ pages: [], lines: [line("quoted", { page_key: null, designation, inputs: read })] });
     expect(rule(results, "quoted", "dn_network")?.code).toBe("DN_NETWORK_COMPATIBLE");
+  });
+
+  // Review of PR B: a quoted size alone (« "20/22" ») or an ID/OD pair closed by a quote still gave 22".
+  it.each([`EF cuivre "20/22"`, "EF cuivre “20/22”", `EF cuivre 20/22"`])("reads %s as copper 20/22 too", (designation) => {
+    const read = ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 });
+    expect(read.dn).not.toMatch(/"/);
+    const { results } = evaluateTakeoffRules({ pages: [], lines: [line("quoted", { page_key: null, designation, inputs: read })] });
+    expect(rule(results, "quoted", "dn_network")?.code).toBe("DN_NETWORK_COMPATIBLE");
+  });
+
+  // Review of PR B (a false accept beside the fix): a quoted weld line was no quantity to enter.
+  it("reads a quoted quantity the plan cannot show as one to enter", () => {
+    expect(ruleInputsFromDesignation({ designation: `"Soudures acier DN 50"`, unit: "u", quantity: 48 }).non_observable).toBe("weld");
+    expect(ruleInputsFromDesignation({ designation: "“Supports EF cuivre 20/22”", unit: "u", quantity: 12 }).non_observable).toBe("support");
   });
 
   it("keeps an inch mark inside a quoted text, and a size no series has still fails", () => {
@@ -89,6 +104,49 @@ describe("level registration through a page without network lines", () => {
     const { results } = evaluateTakeoffRules({ pages, lines: [z1, z2([-36, 1, -33, 1])] });
     expect(rule(results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
     expect(rule(results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+  });
+
+  // Review of PR B, written before the fix: an overview only proposes a frame. Composed through it, two hops each
+  // within 2 cm moved a far zone plan by more than the 5 cm a duplicate allows (an overview drawn 0.2 % off scale), and
+  // pages already compared through a zone plan were rerouted through the overview once another page was left apart.
+  describe("an overview drawn slightly off scale", () => {
+    let seed = 7;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const building: Line4[] = [];
+    for (let index = 0; index < 500; index += 1) {
+      const [x, y, length] = [random() * 62 + 1, random() * 4 + 1, 1 + random() * 2.5];
+      building.push(random() < 0.5 ? [x, y, x + length, y] : [x, y, x, y + length]);
+    }
+    const labels = Array.from({ length: 60 }, (_, index): [string, number, number] => [`Local ${index}`, 1 + index * 1.05, 1.5 + (index % 4)]);
+    const within = (x0: number, x1: number) => ([a, , c]: Line4) => Math.min(a, c) >= x0 && Math.max(a, c) <= x1;
+    const drawn = (lines: Line4[], texts: Array<[string, number, number]>, sx: number, scale = 1): PageAnchors => ({ version: 1,
+      lines: lines.map(([a, b, c, d]): Line4 => [a * scale + sx, b * scale, c * scale + sx, d * scale]),
+      texts: texts.map(([text, x, y]): [string, number, number] => [text, x * scale + sx, y * scale]) });
+    const z1 = drawn(building.filter(within(0, 34)), labels.filter(([, x]) => x < 29), 0);
+    const z3 = drawn(building.filter(within(18, 50)), labels.filter(([, x]) => (x > 18 && x < 29) || (x > 35 && x < 50)), -18);
+    const z4 = drawn(building.filter(within(30, 66)), labels.filter(([, x]) => x > 35), -30);
+    const run = (id: string, key: string, segment: Line4, dn = "DN 22") => line(id, { job_id: key.split("#")[0], page_key: key, quantity: 4,
+      inputs: inputs({ dn, model_quantity: 4 }), geometry: { segments_m: [segment], polygon_m: null, length_m: 4, area_m2: null } });
+
+    it.each([0.0015, 0.0018, 0.002])("never lets a duplicate through two hops of an overview %d off scale", (error) => {
+      const pages = [page("z1#1", { order: 0, zone: "Z1", anchors: z1 }), page("ov#1", { order: 5_000, anchors: drawn(building, labels, -20, 1 + error) }),
+        page("z4#1", { order: 10_000, zone: "Z4", anchors: z4 })];
+      // The same 4 m run at x = 32 m of the building, on Z1 and on Z4.
+      const { results } = evaluateTakeoffRules({ pages, lines: [run("z1", "z1#1", [32, 1.2, 32, 5.2]), run("z4", "z4#1", [2, 1.2, 2, 5.2])] });
+      expect(rule(results, "z1", "zone_overlap")?.status).toBe("fail");
+      expect(rule(results, "z4", "zone_overlap")?.status).toBe("fail");
+    });
+
+    it("keeps comparing pages joined through a zone plan in their own frame, whatever an overview printed first", () => {
+      for (const error of [0.0015, 0.0019]) {
+        const pages = [page("ov#1", { order: 0, anchors: drawn(building, labels, -20, 1 + error) }), page("z1#1", { order: 10, zone: "Z1", anchors: z1 }),
+          page("z3#1", { order: 20, zone: "Z3", anchors: z3 }), page("z4#1", { order: 30, zone: "Z4", anchors: z4 }),
+          page("z2#1", { order: 40, zone: "Z2", anchors: null })];
+        const { results } = evaluateTakeoffRules({ pages, lines: [run("z1", "z1#1", [32, 1.2, 32, 5.2]), run("z4", "z4#1", [2, 1.2, 2, 5.2]),
+          run("z3", "z3#1", [5, 1, 9, 1], "DN 28"), run("z2", "z2#1", [0, 0, 4, 0], "DN 28")] });
+        expect(rule(results, "z1", "zone_overlap"), `${error}`).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 4 } });
+      }
+    });
   });
 
   it("leaves two zone plans no page joins unregistered", () => {
@@ -175,6 +233,18 @@ describe("a room surrounding another room", () => {
       expect(rule(results, id, "area_printed")?.status, id).toBe("pass");
       expect(rule(results, id, "room_overlap")?.code, id).toBe("ROOM_OVERLAP_NONE");
     }
+  });
+
+  it("keeps the holes in the bench's rule data and in the geometry's weight", () => {
+    const reading = readVectorPage(extraction([text("Hall 96 m²", X0 + m(1), Y0 + m(1)), text("Bureau 4 m²", X0 + m(4.3), Y0 + m(5))],
+      [hall, office]), { calibration: { page: 1, denominator: 50, source: "test" }, clock: () => 0 });
+    const hallData = vectorItemRuleData(reading).find((entry) => entry.inputs.room === "Hall");
+    expect(hallData?.geometry?.holes_m?.length).toBe(1);
+    const hallRecord = vectorItemRecords(reading, { zone: "Z1", level: "R+1", source: "file_name" }).find((record) => record.room?.label === "Hall");
+    const geometry = hallRecord?.geometry;
+    expect(geometry?.holes_m?.length).toBe(1);
+    if (!geometry) return;
+    expect(geometryWeight(geometry)).toBe((geometry.polygon_m?.length ?? 0) / 2 + (geometry.holes_m ?? []).reduce((sum, hole) => sum + hole.length / 2, 0));
   });
 
   it("still finds a room drawn over the hall's floor, beside the office it leaves out", () => {

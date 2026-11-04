@@ -203,6 +203,13 @@ describe("checkApplyGuard with cross-line failures whose partners are left out",
     expect(blocked([makeItem("L", "EF", { rule_results: [{ ...duplicate([P]), code: "ZONE_OVERLAP_UNREGISTERED" as never }] }), left])).toEqual(["L"]);
   });
 
+  // Review of PR B: the trigger reads an id whatever its case; a partner named twice in two cases is one line.
+  it("reads a partner id whatever its case, and never counts one line twice", () => {
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P.toUpperCase()])] }), makeItem(P, "EF", { is_excluded: true })])).toEqual([]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P.toUpperCase(), P])] }), makeItem(P, "EF", { is_excluded: true })]))
+      .toEqual(["L"]);
+  });
+
   it("lets a room pass when every room it overlaps is left out", () => {
     expect(blocked([makeItem("R", "Hall", { rule_results: [rooms([P, Q])] }), makeItem(P, "Bureau", { is_excluded: true }),
       makeItem(Q, "Réserve", { is_excluded: true })])).toEqual([]);

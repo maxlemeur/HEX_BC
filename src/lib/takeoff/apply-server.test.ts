@@ -177,6 +177,14 @@ describe("takeoff apply with a duplicate the mapping plan skips", () => {
     expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalled();
   });
 
+  // Review of PR B: a stored partner id that is no line id never reaches the query (PostgREST would fail the route).
+  it("never asks the database about a partner id that is no line id", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, ["not-a-line", OTHER_JOB_LINE.toUpperCase()])] as never);
+    vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));
+    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [OTHER_JOB_LINE] }));
+  });
+
   it("reads a partner of another job as the database holds it", async () => {
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, [OTHER_JOB_LINE])] as never);
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, false]]));
