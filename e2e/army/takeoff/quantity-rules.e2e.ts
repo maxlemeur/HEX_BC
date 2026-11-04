@@ -134,6 +134,8 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
 
     // Kept after a reload: both lines read back settled, the correction persisted.
     await ui.browser.reload();
+    // The reloaded editor gives its draft lock back and takes it again: applying before it holds it is refused (409).
+    await expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
     const reread = (await readItems(ui, jobs.Z1)).find((item) => item.id === duplicate.id);
     expect(reread).toMatchObject({ quantity: 4, is_excluded: false });
     expect(zoneCode(reread)).toBe("ZONE_OVERLAP_RESOLVED");
