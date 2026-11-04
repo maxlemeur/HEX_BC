@@ -30,6 +30,16 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // - a run no longer than 2 × BAND_MAX_PT lying across a longer run of its own
 //   network (centre within its half width plus 1 pt, at 30° or more) is a cap
 //   or a fitting outline, not pipe; a short pipe of another network is kept;
+// - a pipe whose strokes fall in a parent network and one of its members (the
+//   outlines read as a supply by its labels, the tint as its parent by the
+//   legend) is one pipe: the part of a parent's run that lies along a member's
+//   run, its axis within the larger of half the member's band width and
+//   RUN_GAP_PT of the member's axis, is the member's and is dropped from the
+//   parent's run; the rest stays the parent's. Pipes of unrelated networks side
+//   by side stay two pipes. Limit: a label naming only the parent, printed on
+//   such a pipe, no longer attaches to it (a parent's label never fits a
+//   member's run): the pipe stays « à revoir », or that label goes to the
+//   nearest other run of the parent within its reach;
 // - strokes in the legend boxes or in a diagram frame (a dark closed rectangle,
 //   its four corners drawn, of 0.3 % to 40 % of the page holding network strokes but almost no
 //   background: grey or near-white length under 5 % of the network length)
@@ -71,7 +81,7 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
 
-export const MEASURE_RULE_VERSION = 7;
+export const MEASURE_RULE_VERSION = 8;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -334,6 +344,60 @@ export function dropCapsAndFittings(runs: Run[]): Run[] {
   });
 }
 
+/**
+ * One pipe whose strokes fall in a parent network and one of its members (the outlines read as HW-S by its labels,
+ * the tint as HW by the legend) is measured once, as the member. The part of a parent's run along a member's run,
+ * parallel (within ANGLE_SPAN), its axis at both ends of their overlap within the larger of half the member's band
+ * width and RUN_GAP_PT of the member's axis, is dropped from the parent's run; the pieces left longer than RUN_GAP_PT
+ * stay the parent's. Members, other networks and shared colours are kept whole.
+ */
+export function dropParentDoubles(runs: readonly Run[], width: number): Run[] {
+  const parents = new Set<NetworkCode>(Object.values(PARENT_NETWORK));
+  const segments = runs.map(runSegment);
+  const index = new SegmentIndex(segments, width);
+  return runs.flatMap((run, id) => {
+    if (run.network === null || !parents.has(run.network)) return [run];
+    const theta = orientation(segments[id]);
+    const covered: Array<[number, number]> = [];
+    const seen = new Set<number>([id]);
+    // Members near the run, looked up along it one index cell at a time.
+    for (let t = run.a; ; t = Math.min(run.b, t + index.cell)) {
+      const point = { x: t * run.u.x + run.offset * run.n.x, y: t * run.u.y + run.offset * run.n.y };
+      for (const other of index.near(point, index.cell)) {
+        if (seen.has(other)) continue;
+        seen.add(other);
+        const member = runs[other];
+        if (member.network === null || PARENT_NETWORK[member.network] !== run.network) continue;
+        const segment = segments[other];
+        if (orientationGap(orientation(segment), theta) > ANGLE_SPAN) continue;
+        const t0 = segment.x0 * run.u.x + segment.y0 * run.u.y, t1 = segment.x1 * run.u.x + segment.y1 * run.u.y;
+        const lo = Math.max(run.a, Math.min(t0, t1)), hi = Math.min(run.b, Math.max(t0, t1));
+        if (hi <= lo) continue;
+        // How far the member's axis lies from this run's axis where they face each other.
+        const across = (along: number) => {
+          const f = (along - t0) / (t1 - t0);
+          return Math.abs((segment.x0 + f * (segment.x1 - segment.x0)) * run.n.x + (segment.y0 + f * (segment.y1 - segment.y0)) * run.n.y - run.offset);
+        };
+        const reach = Math.max(member.width / 2, RUN_GAP_PT);
+        if (across(lo) <= reach && across(hi) <= reach) covered.push([lo, hi]);
+      }
+      if (t >= run.b) break;
+    }
+    if (covered.length === 0) return [run];
+    const pieces: Run[] = [];
+    const keep = (a: number, b: number) => {
+      if (b - a > RUN_GAP_PT) pieces.push({ ...run, a, b, breaks: run.breaks.filter((value) => value > a && value < b) });
+    };
+    let cursor = run.a;
+    for (const [lo, hi] of covered.sort((left, right) => left[0] - right[0])) {
+      if (lo > cursor) keep(cursor, lo);
+      cursor = Math.max(cursor, hi);
+    }
+    keep(cursor, run.b);
+    return pieces;
+  });
+}
+
 function darkLeaderSegments(model: PageModel, classes: readonly GroupClass[]) {
   const leaders: Segment[] = [];
   model.segments.forEach((segment, id) => {
@@ -564,9 +628,10 @@ export function measureNetworks(input: {
     if (list) list.push(entry);
     else byNetwork.set(key, [entry]);
   }
-  // A cap or a fitting outline lies across a pipe of its own network: another network's short pipe is pipe.
-  const bundled = [...byNetwork.keys()].sort().flatMap((key) => dropCapsAndFittings(bundle(byNetwork.get(key) ?? [])));
   const width = Math.max(model.extraction.width, 1);
+  // A cap or a fitting outline lies across a pipe of its own network: another network's short pipe is pipe.
+  // A parent's run on a member's axis is that member's pipe drawn again: it counts once, as the member.
+  const bundled = dropParentDoubles([...byNetwork.keys()].sort().flatMap((key) => dropCapsAndFittings(bundle(byNetwork.get(key) ?? []))), width);
   const leaders = new SegmentIndex(darkLeaderSegments(model, classes), width);
   const attached = attachLabels(bundled, leaders, input.labels, width);
   const pieces = splitAtLabelChanges(bundled, attached.labels);
