@@ -71,7 +71,7 @@ describe("visionCandidates", () => {
   const item = (designation: string, page: number): TakeoffItem =>
     ({ designation, quantity: 5, unit: "ml", source_page: page, confidence: 0.5, evidence: "Fictional" });
   const datum = (segments: Array<[number, number, number, number]>, material: string | null = null): BenchRuleData => ({
-    inputs: ruleInputsFromVector({ kind: "network", network: "EF", material: material as never, dn: "22", quantity: 5 }),
+    inputs: ruleInputsFromVector({ kind: "network", network: "EF", material: material as never, dn: 22, quantity: 5 }),
     geometry: { segments_m: segments, polygon_m: null, length_m: 5, area_m2: null },
   });
 
@@ -110,7 +110,7 @@ describe("visionCandidates", () => {
 
 describe("applyVisionAnswers", () => {
   const items: TakeoffItem[] = [{ designation: "EF DN 22", quantity: 5, unit: "ml", source_page: 1, confidence: 0.9, evidence: "Fictional" }];
-  const data: BenchRuleData[] = [{ inputs: ruleInputsFromVector({ kind: "network", network: "EF", material: null, dn: "22", quantity: 5 }),
+  const data: BenchRuleData[] = [{ inputs: ruleInputsFromVector({ kind: "network", network: "EF", material: null, dn: 22, quantity: 5 }),
     geometry: { segments_m: [[1, 2, 6, 2]], polygon_m: null, length_m: 5, area_m2: null } }];
   const answer = (overrides: Partial<VisionAnswer>): VisionAnswer =>
     ({ alias: "L1", verdict: "corrige", network: "EF", material: "cuivre", dn: "22", label: "EF cuivre 20/22", ...overrides });
@@ -161,7 +161,8 @@ describe("the vision pass in the vector bench", () => {
     expect(read.item_rules?.[0]?.find((entry) => entry.rule === "dn_network")).toMatchObject({ status: "fail", code: "DN_NETWORK_MATERIAL_MISSING" });
     // After vision: the corrected line, its rules computed again.
     const reviewed = result.vision?.passes[0].documents[0];
-    expect(reviewed?.items.map((entry) => [entry.designation, entry.confidence])).toEqual([["EF cuivre DN 22", VISION_CORRECTED_CONFIDENCE]]);
+    // Read without material (0.5, « à revoir »), corrected: still uncertain, never raised by the model's reading.
+    expect(reviewed?.items.map((entry) => [entry.designation, entry.confidence])).toEqual([["EF cuivre DN 22", 0.5]]);
     expect(reviewed?.item_rules?.[0]?.find((entry) => entry.rule === "dn_network")).toMatchObject({ status: "pass" });
     const summary = result.vector.passes[0].vision;
     expect(summary).toMatchObject({ stop: null, documents: [{ id: "a-plan-01", pages: [{ page: 1, lines: 1, left_out: 0, corrected: 1,
