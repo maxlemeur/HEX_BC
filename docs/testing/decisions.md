@@ -78,9 +78,9 @@ Le premier périmètre comprend :
   `MERGEONE_TAKEOFF_VECTORS=1` et `MERGEONE_TAKEOFF_DECISIONS=1`. Les groupes qu'aucun
   mot-clé ne classe sont classés par Decisions. Plafonds : 10 appels groupés et 50
   dédiés par document et traitement, et un plafond de jetons par traitement
-  (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`). Le traitement s'arrête au premier échec,
-  sans relance. Un échec ne fait jamais échouer le métré : les groupes restent « à
-  revoir ». En E2E (TKW10), le worker possédé charge la fixture fournisseur
+  (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`). Au premier échec, Decisions s'arrête pour le
+  reste du traitement, sans relance. Un échec ne fait jamais échouer le métré : les
+  groupes restent « à revoir ». En E2E (TKW10), le worker possédé charge la fixture fournisseur
   par-dessus son garde réseau. Voir [Lecture vectorielle](../metier/lecture-vectorielle.md).
 - Reprise des prix : sur demande explicite dans l’éditeur, choix parmi les articles
   candidats d’un devis de référence pour les seules lignes « à vérifier »

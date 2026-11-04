@@ -55,8 +55,12 @@ function cartouche(): VectorText[] {
   return [scaleLabel, text("1/50", x + scaleLabel.width + 4, y), formatLabel, text("A3", x + formatLabel.width + 4, y + 40)];
 }
 
-/** `count` magenta groups told apart by their width, the first the longest; a raster page when `raster`. */
-function page(number: number, count: number, options: { raster?: boolean; scale?: boolean } = {}): VectorPageExtraction {
+/**
+ * `count` magenta groups told apart by their width, the first the longest; a raster page when `raster`; after them,
+ * when asked: a group on a layer hidden in the document's default configuration, `tiny` groups 0.5 pt long, a 50 pt
+ * group on a visible layer FICTIF_EF (classified EF by keyword).
+ */
+function page(number: number, count: number, options: { raster?: boolean; scale?: boolean; hidden?: boolean; tiny?: number; keyword?: boolean } = {}): VectorPageExtraction {
   const groups: VectorGroupKey[] = [];
   const paths: VectorPath[] = [];
   const coordinates: number[] = [];
@@ -65,8 +69,20 @@ function page(number: number, count: number, options: { raster?: boolean; scale?
     paths.push({ group: index, start: coordinates.length / 2, count: 2, closed: false });
     coordinates.push(100, 10 + 1.5 * index, 1000 - index, 10 + 1.5 * index);
   }
+  const extra = (layer: string | null, length: number, total: number, y: number) => {
+    for (let index = 0; index < total; index += 1) {
+      paths.push({ group: groups.length, start: coordinates.length / 2, count: 2, closed: false });
+      groups.push({ layer, color: "#00a0a0", width: 0.3 + 0.01 * index, dash: null });
+      coordinates.push(100, y + 1.5 * index, 100 + length, y + 1.5 * index);
+    }
+  };
+  extra("hidden-layer", 900, options.hidden ? 1 : 0, 700);
+  extra(null, 0.5, options.tiny ?? 0, 760);
+  extra("ef-layer", 50, options.keyword ? 1 : 0, 800);
+  const layers = [...(options.hidden ? [{ id: "hidden-layer", name: "FICTIF_MASQUE", visible: false }] : []),
+    ...(options.keyword ? [{ id: "ef-layer", name: "FICTIF_EF", visible: true }] : [])];
   return {
-    page: number, pages: 3, width: A3.width, height: A3.height, userUnit: 1, rotate: 0, layers: [], groups,
+    page: number, pages: 3, width: A3.width, height: A3.height, userUnit: 1, rotate: 0, layers, groups,
     texts: options.scale ? cartouche() : [], paths, points: Float32Array.from(coordinates),
     counts: { operators: 0, strokePaths: paths.length, fillPaths: 0, clipPaths: 0, images: options.raster ? 1 : 0, imageCoverage: options.raster ? 0.95 : 0 },
     timings: { operators_ms: 0, walk_ms: 0, text_ms: 0, total_ms: 0 }, memory: { max_rss_kb: 0, heap_used_mb: 0 },
@@ -170,6 +186,9 @@ describe("Decisions in the takeoff worker (worker-server.ts readTakeoffVectorPag
     expect(outcomes.map((outcome) => outcome.record?.decisions?.calls)).toEqual([
       { batch: 2, dedicated: 40, failed: 0 }, { batch: 2, dedicated: 10, failed: 0 }, { batch: 2, dedicated: 0, failed: 0 },
     ]);
+    // The weak answers not asked again alone are counted, and the page says why (review of the PR).
+    expect(outcomes.map((outcome) => [outcome.record?.decisions?.dedicated_left_out, outcome.record?.decisions?.stop?.reason ?? null]))
+      .toEqual([[0, null], [30, "call_limit"], [40, "call_limit"]]);
   });
 
   it("stops every later call of the job at the first failed or unavailable result, without retry, and reads every page", async () => {
@@ -236,7 +255,25 @@ describe("Decisions in the takeoff worker (worker-server.ts readTakeoffVectorPag
     expect(record.detection).toBeCloseTo(900 / (900 + 899), 3);
     expect(record.decisions).toMatchObject({ prompt_version: "takeoff-vector-groups-v1", candidates: 2, answered: 2,
       calls: { batch: 1, dedicated: 0, failed: 0 }, total_tokens: 1000, stop: null });
+    // The proposal under 0.8 stays « à revoir ».
+    expect(record.to_review).toBe(1);
     expect(JSON.stringify(record)).not.toContain("AAAA");
+  });
+
+  it("counts the groups à revoir on the whole page: past the 400 it keeps, never a hidden layer nor a group under 0.1 % (review of the PR)", async () => {
+    const [outcome] = await read([[page(1, 450, { hidden: true, tiny: 3 })]]);
+    expect(outcome.record?.groups).toHaveLength(400);
+    expect(outcome.record?.groups_total).toBe(454);
+    expect(outcome.record?.to_review).toBe(450);
+  });
+
+  it("keeps the classified groups among the 400 a page record holds, before longer unclassified ones (review of the PR)", async () => {
+    // 450 groups longer than the EF one: by length alone, the group of the measured EF item would not be kept.
+    const [outcome] = await read([[page(1, 450, { scale: true, keyword: true })]]);
+    const measured = outcome.items.find((item) => item.geometry.network === "EF");
+    expect(measured?.geometry.groups).toEqual(["oc:ef-layer"]);
+    expect(outcome.record?.groups).toHaveLength(400);
+    expect(outcome.record?.groups.find((group) => group.id === "oc:ef-layer")).toMatchObject({ class: "EF", source: "keyword" });
   });
 
   it("asks nothing for a raster page", async () => {

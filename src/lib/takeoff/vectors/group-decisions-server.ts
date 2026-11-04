@@ -38,7 +38,8 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 //   render, for the groups whose batch answer is missing, refused, invalid or
 //   under 0.5; a dedicated answer replaces the batch one;
 // - the worker gives fewer (`limits`): what its document has left of its caps
-//   per run; the groups past them are counted in `left_out`;
+//   per run; the groups past the batch caps are counted in `left_out`, those
+//   whose weak answer is not asked again alone in `dedicated_left_out`;
 // - `beforeCall` runs before each call, outside of the call's own failure: the
 //   worker renews its lease there, and its failure stops the job;
 // - the token budget is asked before each call and given its usage after it;
@@ -85,6 +86,8 @@ export type GroupDecisionsOutcome = {
   candidates: number;
   eligible: number;
   left_out: number;
+  /** Groups whose batch answer needed a dedicated call past the dedicated caps: they keep it (« à revoir » under 0.8). */
+  dedicated_left_out: number;
   render: { legend_ms: number | null; sheets_ms: number[] };
 };
 
@@ -151,7 +154,7 @@ export async function classifyVectorGroups(input: {
   const selection = selectDecisionCandidates(model, input.reading, limits);
   const outcome: GroupDecisionsOutcome = {
     answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
-    render: { legend_ms: null, sheets_ms: [] },
+    dedicated_left_out: 0, render: { legend_ms: null, sheets_ms: [] },
   };
   if (selection.candidates.length === 0) return outcome;
   const { candidates } = selection;
@@ -224,8 +227,9 @@ export async function classifyVectorGroups(input: {
   for (const [index, batch] of batches.entries()) {
     if (!(await ask("batch", batch, sheets.images[index] as GroupImage, sheets.render_ms[index] ?? null))) return outcome;
   }
-  const again = candidates.filter((candidate) => outcome.answers.has(candidate.id) && needsDedicated(outcome.answers.get(candidate.id)))
-    .slice(0, limits.maxDedicatedCalls);
+  const needing = candidates.filter((candidate) => outcome.answers.has(candidate.id) && needsDedicated(outcome.answers.get(candidate.id)));
+  const again = needing.slice(0, limits.maxDedicatedCalls);
+  outcome.dedicated_left_out = needing.length - again.length;
   for (const chunk of decisionBatches(again, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK)) {
     const renders = await safely(() => render.sheets(chunk.map((candidate) => planDedicated(model, candidate))));
     if (!renders || renders.issue !== null || renders.images.some((image) => image === null)) {

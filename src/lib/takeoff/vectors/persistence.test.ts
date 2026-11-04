@@ -42,7 +42,7 @@ function reading(input: { totals?: MeasuredNetwork[]; runs?: NetworkRun[]; surfa
   const denominator = input.denominator === undefined ? 50 : input.denominator;
   return {
     version: 1, page: 1, mode: "layers", size_pt: [3370.39, 2383.94], userUnit: 1, rotate: 0,
-    counts: { operators: 0, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0, texts: 0, groups: 0, groups_visible: 0 },
+    counts: { operators: 0, strokePaths: 0, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0, texts: 0, groups: 0, groups_visible: 0, to_review: 0 },
     scale: {
       rule_version: 1, status: denominator === null ? "unverified" : "verified", reason: denominator === null ? "no_scale" : null, denominator,
       cartouche: denominator === null ? null : { denominator, text: `Échelle 1/${denominator}`, labelled: true },
@@ -171,7 +171,7 @@ describe("vector items within the review's read limits (review of PR #147)", () 
 
 describe("the Decisions summary of a page record (worker, TI-662 L3d)", () => {
   const summary: VectorPageDecisions = {
-    prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, calls: { batch: 1, dedicated: 1, failed: 1 },
+    prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, dedicated_left_out: 0, calls: { batch: 1, dedicated: 1, failed: 1 },
     answered: 2, total_tokens: 1200, latency_ms: 900, stop: { reason: "call_failed", message: "Fictional failure.", from_earlier_page: false },
   };
 

@@ -7,7 +7,7 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import { CLASS_SOURCE_LABELS, CLASSIFIED_DECISIONS_CONFIDENCE, type ClassSource } from "@/lib/takeoff/vectors/classify";
+import { CLASS_SOURCE_LABELS, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
@@ -18,8 +18,9 @@ import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse }
 // network says how its class was read (« mots-clés », « légende », « libellés »,
 // « Decisions 80 % » at the lowest confidence of its Decisions groups); the
 // page says what Decisions did (calls, tokens, why it stopped) and how many of
-// its groups stay « à revoir » (no class, or a Decisions proposal under 80 %,
-// neither classified nor measured). Data
+// its groups stay « à revoir », as the worker counted them on the whole page
+// (classify.ts groupsToReview: visible groups without class, or a Decisions
+// proposal under 80 %, neither classified nor measured). Data
 // comes from GET /api/takeoff/jobs/{id}/
 // vector-pages under the user's session; the PDF from the plan file's signed
 // URL, or for a direct upload (no plan file) from the job's own, signed by that
@@ -37,16 +38,9 @@ const SURFACES = "Surfaces";
 const SURFACE_COLOR = "var(--color-info)";
 
 type VectorPage = TakeoffVectorReadingResponse["pages"][number];
-type VectorGroup = VectorPage["reading"]["groups"][number];
 
 const percent = (value: number) => `${Math.round(value * 100)} %`;
 const plural = (count: number, word: string) => `${new Intl.NumberFormat("fr-FR").format(count)} ${word}${count > 1 ? "s" : ""}`;
-
-/** A group the review must still decide: no class (nor legend candidates), or a Decisions proposal under 80 %. */
-function toReview(group: VectorGroup) {
-  if (group.near_white || group.candidates.length > 0) return false;
-  return group.class === null || (group.source === "decisions" && (group.confidence ?? 0) < CLASSIFIED_DECISIONS_CONFIDENCE);
-}
 
 /** How each network's class was read, from the groups its items measure: sources in order, Decisions at its lowest confidence. */
 function networkSources(page: VectorPage | null) {
@@ -65,7 +59,9 @@ function networkSources(page: VectorPage | null) {
       if (source === "decisions" && group?.confidence != null) entry.decisions = Math.min(entry.decisions ?? 1, group.confidence);
     }
   }
-  return new Map([...found].map(([name, { sources, decisions }]) => [name, [...sources]
+  // In one order (keywords, legend, labels, document, user, Decisions), whatever the order of the item's groups.
+  const order = Object.keys(CLASS_SOURCE_LABELS) as ClassSource[];
+  return new Map([...found].map(([name, { sources, decisions }]) => [name, order.filter((source) => sources.has(source))
     .map((source) => (source === "decisions" && decisions !== null ? `${CLASS_SOURCE_LABELS.decisions} ${percent(decisions)}` : CLASS_SOURCE_LABELS[source]))
     .join(", ")]));
 }
@@ -263,7 +259,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
   const scaleStatus = page?.reading.scale.status ?? "unverified";
   const decisions = page?.reading.decisions ?? null;
   const decisionCalls = decisions ? decisions.calls.batch + decisions.calls.dedicated : 0;
-  const reviewCount = (page?.reading.groups ?? []).filter(toReview).length;
+  const reviewCount = page?.reading.to_review ?? 0;
 
   return (
     <section aria-label="Lecture vectorielle du plan" className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[18rem_1fr]">

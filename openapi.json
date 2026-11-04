@@ -70808,6 +70808,11 @@
                             "additionalProperties": false
                           }
                         },
+                        "to_review": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
                         "decisions": {
                           "type": "object",
                           "properties": {
@@ -70840,6 +70845,18 @@
                               ]
                             },
                             "left_out": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "dedicated_left_out": {
                               "anyOf": [
                                 {
                                   "type": "integer",
@@ -70935,6 +70952,7 @@
                             "candidates",
                             "eligible",
                             "left_out",
+                            "dedicated_left_out",
                             "calls",
                             "answered",
                             "total_tokens",

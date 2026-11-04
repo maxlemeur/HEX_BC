@@ -296,7 +296,9 @@ sont faits pour l'utilisateur du métré, sur son tenant
 - Plafonds par défaut, modifiables par Thanh :
   - 10 appels groupés et 50 appels dédiés au plus par document et par traitement, sur
     l'ensemble de ses pages (`TAKEOFF_VECTOR_DECISIONS_LIMITS`). Au-delà, les groupes
-    restent « à revoir » (arrêt « call_limit ») ;
+    restent « à revoir » et la page le dit (arrêt « call_limit »). Deux cas : les groupes
+    jamais demandés, comptés dans `left_out`, et ceux dont la réponse faible n'est pas
+    redemandée seule, comptés dans `dedicated_left_out` ;
   - un plafond de jetons par traitement, consulté avant chaque appel
     (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`, 400 000 au départ, à recaler sur la passe
     réelle).
@@ -312,16 +314,24 @@ sont faits pour l'utilisateur du métré, sur son tenant
 - Une erreur de Decisions ne fait jamais échouer la page ni le métré. Seul le contrôle
   du métré avant chaque appel l'arrête, comme pour tout appel de fournisseur : le bail
   de traitement, le tenant actif.
-- La page enregistrée garde la classe, la source et la confiance de chaque groupe. Elle
-  garde aussi un résumé Decisions facultatif : appels groupés, dédiés et en échec,
-  réponses, jetons, latence et arrêt. Ni contexte ni image. Les lectures d'avant restent
-  valides, sans migration.
+- La page enregistrée garde la classe, la source et la confiance de chaque groupe. Sur
+  ses 400 groupes, les groupes classés passent avant les plus longs, pour que les groupes
+  de chaque item mesuré restent lisibles.
+- Elle garde aussi le nombre de groupes à revoir, compté sur toute la page : les groupes
+  visibles (ni masqués, ni quasi blancs), sans candidats de légende, d'au moins 0,1 % de
+  la longueur visible, sans classe ou proposés par Decisions sous 0,8.
+- Elle garde enfin un résumé Decisions facultatif : appels groupés, dédiés et en échec,
+  réponses, jetons, latence et arrêt. Ni contexte ni image.
+- Les lectures d'avant restent valides, sans migration. Une lecture enregistrée avec ces
+  champs ne se relit plus avec le code d'avant : pas de retour arrière après le
+  déploiement.
 - Un item ne nomme parmi ses groupes que ceux qu'il mesure, jamais une proposition sous
   0,8.
-- La revue du métré montre la source de chaque réseau : mots-clés, légende, libellés,
-  ou « Decisions 80 % » à la plus faible confiance de ses groupes. Elle montre aussi ce
-  qu'a fait Decisions sur la page et la raison d'un arrêt, ainsi que le nombre de groupes
-  à revoir : groupes sans classe, ou proposés sous 80 %.
+- La revue du métré montre la source de chaque réseau : mots-clés, légende, libellés, ou
+  « Decisions 80 % » à la plus faible confiance de ses groupes. La source est lue sur les
+  groupes que l'item nomme, 64 au plus, ceux de Decisions d'abord. La revue montre aussi
+  ce qu'a fait Decisions sur la page, la raison d'un arrêt et le nombre de groupes à
+  revoir.
 - Sans ces options, aucun appel n'est fait : les groupes sans mot-clé restent « à
   revoir ».
 

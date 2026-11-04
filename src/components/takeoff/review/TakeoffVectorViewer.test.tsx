@@ -13,9 +13,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // code: the army journey TKW10 covers one Decisions network and one failed
 // call; mixed sources and the « à revoir » count are only reachable here:
 // - a network does not say its source, or shows a Decisions class at a higher
-//   confidence than its least sure group;
-// - a Decisions proposal under 80 % or a group without class is not counted
-//   « à revoir », or a near-white group or a legend candidate is;
+//   confidence than its least sure group, or its sources in the order of its
+//   groups instead of one order;
+// - the page does not show the count of groups « à revoir » the worker made on
+//   the whole page (classify.ts groupsToReview), or shows one for a row of
+//   before it;
 // - the page does not say what Decisions did, or why it stopped.
 // pdfjs is replaced by a document whose getPage rejects a page beyond its count
 // (« Invalid page request », as pdfjs 6.4 does) and whose render may fail.
@@ -134,17 +136,18 @@ describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => 
     ...reading,
     groups: [
       group("g-ef", "EF", "keyword", null), group("g-eu", "EU", "decisions", 0.85), group("g-eu2", "EU", "decisions", 0.8),
-      group("g-proposal", "EU", "decisions", 0.6), group("g-none", null, null, null), group("g-white", null, null, null, { near_white: true }),
-      group("g-shared", null, null, null, { candidates: ["EF", "EU"] }),
+      group("g-eu-key", "EU", "keyword", null), group("g-proposal", "EU", "decisions", 0.6), group("g-none", null, null, null),
     ],
-    groups_total: 7,
-    decisions: { prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, calls: { batch: 1, dedicated: 0, failed: 1 },
+    groups_total: 6,
+    // As the worker counts them on the whole page: the proposal and the group without class.
+    to_review: 2,
+    decisions: { prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, dedicated_left_out: 0, calls: { batch: 1, dedicated: 0, failed: 1 },
       answered: 3, total_tokens: 1200, latency_ms: 900,
       stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } },
   };
   const items = [
     { takeoff_item_id: "88888881-8888-4888-8888-888888888888", geometry: { ...geometry, groups: ["g-ef"] } },
-    { takeoff_item_id: "88888882-8888-4888-8888-888888888888", geometry: { ...geometry, network: "EU", groups: ["g-eu", "g-eu2"] } },
+    { takeoff_item_id: "88888882-8888-4888-8888-888888888888", geometry: { ...geometry, network: "EU", groups: ["g-eu", "g-eu2", "g-eu-key"] } },
   ];
 
   it("names each network's source, Decisions at its lowest confidence, and counts the groups still à revoir", async () => {
@@ -156,21 +159,25 @@ describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => 
     const networks = screen.getByRole("group", { name: "Réseaux" });
     const row = (name: string) => screen.getByLabelText(`Afficher ${name}`).closest("label")!.textContent;
     expect(row("EF")).toBe("EF5.00 mmots-clés");
-    expect(row("EU")).toBe("EU5.00 mDecisions 80 %");
+    expect(row("EU")).toBe("EU5.00 mmots-clés, Decisions 80 %");
     expect(networks.textContent).not.toContain("à revoir");
     expect(screen.getByText(/de tracés à revoir$/).textContent).toBe("2 groupes de tracés à revoir");
     expect(screen.getByText(/^Decisions :/).textContent).toMatch(/^Decisions : 1 appel, 1\s200 jetons, 3 réponses$/);
     expect(screen.getByRole("status").textContent).toBe(decided.decisions.stop.message);
   });
 
-  it("says nothing of Decisions for a reading without it", async () => {
+  it("says nothing of Decisions nor of groups to review for a reading without them", async () => {
     documents.set(UPLOAD, { pages: 1, failing: new Set() });
     stubPdfjs();
-    stubFetch({ pages: [page(1, null, 1, "plan.pdf")], source_download_url: UPLOAD }, {});
+    // A row of before the count (no `to_review`), and one with nothing left to review.
+    stubFetch({ pages: [page(1, null, 1, "plan.pdf"), { ...page(2, null, 2, "plan.pdf"), reading: { ...reading, to_review: 0 } }], source_download_url: UPLOAD }, {});
     render(<TakeoffVectorViewer jobId={JOB} planSetId={null} />);
     await settle();
     expect(screen.getByLabelText("Afficher EF")).toBeTruthy();
     expect(screen.queryByText(/^Decisions :/)).toBeNull();
+    expect(screen.queryByText(/à revoir/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Page lue"), { target: { value: "77777772-7777-4777-8777-777777777777" } });
+    await settle();
     expect(screen.queryByText(/à revoir/)).toBeNull();
   });
 });

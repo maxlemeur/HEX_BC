@@ -18,6 +18,8 @@ import { classOfLayerName, OTHER_CLASSES, type VectorClass } from "@/lib/takeoff
 // (isMeasuredNetwork), nor kept out of the leaders and diagram frames.
 
 export const CLASSIFIED_DECISIONS_CONFIDENCE = 0.8;
+/** Smallest share of the page's visible stroke length a group needs to be asked of Decisions, or counted « à revoir ». */
+export const DECISIONS_MIN_SHARE = 0.001;
 
 export type ClassSource = "keyword" | "legend" | "label" | "document" | "user" | "decisions";
 /** How the lab and the review name the source of a class. */
@@ -100,6 +102,21 @@ export function applyDecisions(model: PageModel, classes: readonly GroupClass[],
     if (isNetworkClass(answer.class) && (group.nearWhite || group.grey || group.hidden)) return entry;
     return { class: answer.class, source: "decisions", confidence: answer.confidence, candidates: [] };
   });
+}
+
+/**
+ * Groups the review must still decide (TI-662 L3d): visible (neither hidden nor near-white), without legend candidates
+ * (the labels decide them per run), of at least DECISIONS_MIN_SHARE of the page's visible stroke length, with no class
+ * or a Decisions proposal under 0.8. Counted on the whole page, before the page record keeps its longest groups.
+ */
+export function groupsToReview(model: PageModel, classes: readonly GroupClass[]) {
+  if (model.visibleLength_pt <= 0) return 0;
+  return model.groups.filter((group, index) => {
+    const entry = classes[index];
+    if (group.hidden || group.nearWhite || entry.candidates.length > 0) return false;
+    if (group.visibleLength_pt / model.visibleLength_pt < DECISIONS_MIN_SHARE) return false;
+    return entry.class === null || (entry.source === "decisions" && (entry.confidence ?? 0) < CLASSIFIED_DECISIONS_CONFIDENCE);
+  }).length;
 }
 
 /** Detection badge: classified length ÷ stroke length of the page without near-white strokes, filters ignored. */

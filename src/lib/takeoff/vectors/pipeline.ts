@@ -1,4 +1,6 @@
-import { applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, isMeasuredNetwork, type DecisionsAnswer, type GroupClass } from "@/lib/takeoff/vectors/classify";
+import {
+  applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, groupsToReview, isMeasuredNetwork, type DecisionsAnswer, type GroupClass,
+} from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { SegmentIndex, boxContains } from "@/lib/takeoff/vectors/geometry";
 import { readLabelBlocks } from "@/lib/takeoff/vectors/labels";
@@ -33,7 +35,8 @@ export type VectorPageReading = {
   size_pt: [number, number];
   userUnit: number;
   rotate: number;
-  counts: VectorPageExtraction["counts"] & { texts: number; groups: number; groups_visible: number };
+  /** `to_review`: groups the review must still decide (classify.ts groupsToReview). */
+  counts: VectorPageExtraction["counts"] & { texts: number; groups: number; groups_visible: number; to_review: number };
   scale: PageScale;
   legend: PageLegend;
   groups: VectorGroupReading[];
@@ -88,7 +91,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
     version: VECTOR_READING_VERSION, page: extraction.page, mode, size_pt: [round(extraction.width), round(extraction.height)],
     userUnit: extraction.userUnit, rotate: extraction.rotate,
     counts: { ...extraction.counts, texts: extraction.texts.length, groups: model.groups.length,
-      groups_visible: model.groups.filter((group) => !group.nearWhite).length },
+      groups_visible: model.groups.filter((group) => !group.nearWhite).length, to_review: groupsToReview(model, classes) },
     scale, legend, groups, detection: detectionShare(model, classes), networks, surfaces,
     timings: { ...extraction.timings, reading_ms: Math.round(clock() - startedAt) },
     memory: extraction.memory,

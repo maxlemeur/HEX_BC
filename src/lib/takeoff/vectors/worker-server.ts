@@ -39,11 +39,13 @@ import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
 // MERGEONE_TAKEOFF_DECISIONS=1 too (and Decisions configured,
 // getTakeoffDecisionsCapability), the groups left without class are then
 // classified by Decisions (group-decisions-server.ts) and the page read again
-// with its answers (a class under 0.8 is a proposal: shown, neither classified
-// nor measured):
+// with its answers (a class under 0.8 is a proposal: kept with its confidence
+// in the page record and counted « à revoir », neither classified nor
+// measured):
 // - per document and run, at most 10 batch and 50 dedicated calls over its
 //   pages (TAKEOFF_VECTOR_DECISIONS_LIMITS); the groups past them stay « à
-//   revoir » (stop « call_limit »);
+//   revoir » (stop « call_limit »): not asked, or their weak batch answer not
+//   asked again alone;
 // - per job, one token ceiling (TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS);
 // - the first failed or unavailable result, an exception, the ceiling or a
 //   server without canvas stops Decisions for the rest of the job, never
@@ -169,7 +171,7 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
   const answered = [...outcome.answers.values()].filter((answer) => answer.status === "answered" && answer.class !== null).length;
   return {
     prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out,
-    calls, answered, total_tokens: tokens, latency_ms: Math.round(latency),
+    dedicated_left_out: outcome.dedicated_left_out, calls, answered, total_tokens: tokens, latency_ms: Math.round(latency),
     stop: stop === null ? null : { reason: stop.reason, message: stop.message, from_earlier_page: false },
   };
 }
@@ -177,7 +179,7 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
 /** A page not asked because the job's Decisions stopped before it. */
 function stoppedSummary(stop: PageStop): VectorPageDecisions {
   return {
-    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: null, eligible: null, left_out: null,
+    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: null, eligible: null, left_out: null, dedicated_left_out: null,
     calls: { batch: 0, dedicated: 0, failed: 0 }, answered: 0, total_tokens: 0, latency_ms: 0,
     stop: { reason: stop.reason, message: stop.message, from_earlier_page: true },
   };
@@ -198,8 +200,10 @@ async function decidePage(run: DecisionsRun, input: {
   log: { jobId: string | null; tenantId: string | null; document: TakeoffSourceDocumentRef; page: number };
 }): Promise<{ reading: VectorPageReading; decisions: VectorPageDecisions }> {
   if (run.stop) return { reading: input.reading, decisions: stoppedSummary(run.stop) };
+  // Its calls and tokens stay on the page even when an error follows them.
+  let outcome: GroupDecisionsOutcome | null = null;
   try {
-    const outcome = await classifyVectorGroups({
+    outcome = await classifyVectorGroups({
       bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
       context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
       budget: run.budget, decide: run.hook.decide, render: run.hook.render,
@@ -216,7 +220,8 @@ async function decidePage(run: DecisionsRun, input: {
     for (const call of outcome.calls) input.allowance[call.kind] -= 1;
     run.calls += outcome.calls.length;
     // The provider, the ceiling or a server without canvas end the job's calls; a page's render failure, that page's.
-    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message) : outcome.left_out > 0 ? stopOf("call_limit", "") : null;
+    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message)
+      : outcome.left_out > 0 || outcome.dedicated_left_out > 0 ? stopOf("call_limit", "") : null;
     if (outcome.stop && (isDecisionsRunStop(outcome.stop.reason) || outcome.stop.reason === "canvas_unavailable")) run.stop = stop;
     const answers = decisionsOfOutcome(outcome);
     const reading = answers.size > 0 ? readVectorPage(input.extraction, { ...input.readOptions, decisions: answers }) : input.reading;
@@ -226,6 +231,7 @@ async function decidePage(run: DecisionsRun, input: {
     console.error("takeoff.vector.decisions_failed", { job_id: input.log.jobId, tenant_id: input.log.tenantId, document: input.log.document,
       page: input.log.page, message: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
     run.stop = stopOf("exception", "");
+    if (outcome) return { reading: input.reading, decisions: pageDecisionsSummary(outcome, run.stop) };
     return { reading: input.reading, decisions: { ...stoppedSummary(run.stop), stop: { ...run.stop, from_earlier_page: false } } };
   }
 }

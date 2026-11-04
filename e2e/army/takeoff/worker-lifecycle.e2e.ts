@@ -533,7 +533,7 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   // Groups longest first: the room's walls (300 mm), EF (100 mm), the unnamed red pipe (80 mm), EU/EV (60 mm).
   expect(page).toMatchObject({ scale: { status: "format", denominator: 50 }, detection: 1, classes: ["mur", "EF", "EU", "EUV"],
     sources: ["keyword", "keyword", "decisions", "keyword"], confidences: [null, null, 0.8, null] });
-  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v1", candidates: 1, eligible: 1, left_out: 0,
+  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v1", candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
     calls: { batch: 1, dedicated: 0, failed: 0 }, answered: 1, total_tokens: 1, latency_ms: expect.any(Number), stop: null });
   const exclusion = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
   // The red pipe is measured at 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
@@ -578,7 +578,8 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   expect(failed.job).toMatchObject({ status: "completed", level: "C" });
   expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2, failed: true }]);
   const [failedPage] = failed.vectorPages;
-  expect(failedPage).toMatchObject({ classes: ["mur", "EF", null, "EUV"], sources: ["keyword", "keyword", null, "keyword"], confidences: [null, null, null, null] });
+  // Classified groups first in the page record, then the unclassified one.
+  expect(failedPage).toMatchObject({ classes: ["mur", "EF", "EUV", null], sources: ["keyword", "keyword", "keyword", null], confidences: [null, null, null, null] });
   expect(failedPage.decisions).toMatchObject({ candidates: 1, calls: { batch: 1, dedicated: 0, failed: 1 }, answered: 0, total_tokens: 0,
     stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } });
   expect(failed.items.map((item) => item.designation)).toEqual(["ARMY worker pipe", "ARMY worker valve", "EF PER DN 16", "EU/EV PVC DN 40",

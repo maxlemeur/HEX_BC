@@ -1,5 +1,5 @@
-// Test-only transport. Only the dedicated local browser test preloads this file; the owned takeoff worker of
-// TKW10 imports it after its network guard (scripts/tester-army/takeoff-worker-attempt.mjs) for Decisions only.
+// Test-only transport. Only the local browser tests (chatgpt-local, takeoff-lab) preload this file; the owned takeoff
+// worker of TKW10 imports it after its network guard (scripts/tester-army/takeoff-worker-attempt.mjs) for Decisions only.
 import assert from "node:assert/strict";
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";

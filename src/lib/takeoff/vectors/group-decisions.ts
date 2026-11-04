@@ -1,6 +1,6 @@
 import type { OpenAiDecisionAnswer, OpenAiDecisionQuestion } from "@/lib/ai/decisions";
 import { NETWORK_CODES, NETWORKS } from "@/lib/takeoff/bench/keys";
-import { isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
+import { DECISIONS_MIN_SHARE, isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
 import { boxContains, distanceToSegment, pointsToMetres, SegmentIndex } from "@/lib/takeoff/vectors/geometry";
 import { readLabelBlocks } from "@/lib/takeoff/vectors/labels";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
@@ -43,7 +43,7 @@ export const GROUP_DECISIONS_LIMITS = {
   /** A batch answer under this confidence (or not answered) is asked again alone. */
   dedicatedBelow: 0.5,
   /** Smallest share of the page's visible stroke length a candidate holds. */
-  minShare: 0.001,
+  minShare: DECISIONS_MIN_SHARE,
 } as const;
 /** Under the 256 KiB callOpenAiDecisions accepts, with room for its own JSON envelope. */
 export const GROUP_DECISIONS_EVIDENCE_MAX_BYTES = 240 * 1024;
