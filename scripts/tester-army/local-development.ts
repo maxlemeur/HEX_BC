@@ -1,24 +1,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { assertLocalAppPortAvailable, outputTail } from "./app-port";
 import { prepareArmyTypeScriptConfig } from "./local-recipe-common.mjs";
-
-export async function assertLocalAppPortAvailable(port: number) {
-  for (const host of ["127.0.0.1", "::1"]) {
-    await new Promise<void>((resolve, reject) => {
-      const server = net.createServer();
-      server.once("error", (error: NodeJS.ErrnoException) => {
-        if (host === "::1" && ["EADDRNOTAVAIL", "EAFNOSUPPORT"].includes(error.code ?? "")) resolve();
-        else reject(new Error(`Local application port ${port} is unavailable on ${host}.`));
-      });
-      server.listen({ port, host, exclusive: true }, () => server.close((error) => error ? reject(error) : resolve()));
-    });
-  }
-}
 
 export async function runLocalDevelopmentSession(input: {
   root: string;
@@ -114,7 +101,9 @@ export async function runLocalDevelopmentSession(input: {
       const expectedExit = result.signal === "SIGINT" || result.signal === "SIGTERM" ||
         result.signal === null && [0, 130, 143].includes(result.exitCode ?? -1);
       if (launchError || overflow || forcedStop || !input.signal.aborted || !expectedExit) {
-        throw new Error(`Owned development server failed (exit ${result.exitCode ?? result.signal ?? "unknown"}); see development.log.`);
+        // Its cause (EADDRINUSE on a port taken since the probe, a crash) is in its last lines.
+        throw new Error(`Owned development server failed (exit ${result.exitCode ?? result.signal ?? "unknown"}, port ${input.port}); ` +
+          `development.log ends with:\n    ${outputTail(input.redact(Buffer.concat(chunks).toString("utf8"))) || "(no output)"}`);
       }
       await assertLocalAppPortAvailable(input.port);
       return { status: "stopped", startedAt, readyAt, ...result, stopRequested: input.signal.reason,

@@ -60,6 +60,30 @@ réservé aux parcours critical sur la pile éphémère possédée. La CI critic
 utilise 2 ; les autres valeurs ne sont pas une garantie de fiabilité. Les
 comptes et fixtures partagés interdisent de généraliser ce parallélisme.
 
+### Port applicatif et cause d'un échec
+
+`--app-port` (3107 par défaut) n'est lié que pendant les parcours, plusieurs
+minutes après le lancement. Chaque mode de `scripts/run-tester-army-ci.ts`
+(`e2e:army:local`, `e2e:army:ci`, `e2e:army:calc-v3`, `e2e:army:explore`,
+`dev:army`, le superviseur de `e2e:army:dev-loop`) réserve donc son port pour
+toute sa durée, par un bail dans `~/.supabase/army-app-ports/`, commun à tous
+les checkouts de l'utilisateur. Une deuxième campagne sur le même port est
+refusée dès le lancement, avant toute pile, avec le PID, le checkout et le bail
+de la première. Le bail d'un lanceur disparu (signal, panne) ou dont le PID
+sert désormais un autre processus est ignoré puis retiré. Une pile native ne
+prend pas un port réservé pour ses services. Le lanceur refuse aussi un port
+où un autre processus écoute, y compris sur toutes les interfaces, avec le code
+système (`EADDRINUSE`…) et le processus à l'écoute. Choisir alors un autre
+port ; n'arrêter qu'un processus identifié comme reste d'une campagne
+précédente.
+
+L'erreur finale d'une étape échouée donne sa cause. Pour les parcours, c'est
+l'erreur d'exécution enregistrée par TesterArmy (`APP_ALREADY_RUNNING`,
+`APP_UNREACHABLE` avec la fin du journal de l'application) et le port ; sinon,
+les dernières lignes de l'étape. Une phase pgTAP échouée cite le résumé de
+`pg_prove`, sans les lignes `NOTICE` de psql. Le journal complet reste dans les
+preuves.
+
 ## Boucle d'itération réutilisable
 
 ```sh

@@ -11,7 +11,7 @@ import { prepareCalcV3Fixtures, type CalcV3FixtureContext, type CalcV3Owner, typ
 import {
   CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, CALC_V3_PHASES, type CalcV3Phase,
 } from "./calc-v3-phases";
-import { assertLocalAppPortAvailable } from "./local-development";
+import { assertLocalAppPortAvailable, describeArmyRunFailure } from "./app-port";
 import { buildSourceEvidence, prepareArmyTypeScriptConfig } from "./local-recipe-common.mjs";
 import { extractCollectedPdfTexts } from "./pdf-text";
 
@@ -146,7 +146,7 @@ async function runTesterArmy(root: string, args: string[], env: NodeJS.ProcessEn
 }
 
 /** Exact result accounting of one phase report; a filtered run only proves what it selected. */
-function validateReport(phase: CalcV3Phase, output: string, startedAt: Date, filtered: boolean) {
+function validateReport(phase: CalcV3Phase, output: string, startedAt: Date, filtered: boolean, scrub: (text: string) => string, appPort: number) {
   const definition = CALC_V3_PHASE_DEFINITIONS[phase];
   const reportPath = path.join(output, "report.json");
   if (!fs.existsSync(reportPath)) throw new Error(`${phase}: TesterArmy produced no report.`);
@@ -163,7 +163,11 @@ function validateReport(phase: CalcV3Phase, output: string, startedAt: Date, fil
   for (const result of results) if (result.status === "passed") passedByFile[result.file] = (passedByFile[result.file] ?? 0) + 1;
   const summary = run.summary ?? {};
   const problems: string[] = [];
-  if (run.exitCode !== 0 || (run.errors ?? []).length) problems.push("runner exit code or global errors");
+  if (run.exitCode !== 0 || (run.errors ?? []).length) {
+    // An app that could not start (APP_ALREADY_RUNNING, APP_UNREACHABLE) is a run-level error: name it (TI-672).
+    const causes = describeArmyRunFailure({ result: { errors: run.errors ?? [] } }, scrub);
+    problems.push(`runner exit code or global errors${causes.length ? ` (app port ${appPort}): ${causes.join("; ")}` : ""}`);
+  }
   if (results.some((result) => result.status !== "passed")) problems.push("a selected result did not pass");
   if (["failed", "skipped", "flaky", "interrupted"].some((key) => (summary[key] ?? 0) !== 0)) problems.push("failed, skipped, flaky or interrupted results");
   if (["selected", "executed", "passed"].some((key) => summary[key] !== results.length)) problems.push("selected, executed and passed counts differ");
@@ -310,7 +314,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
       const value = JSON.parse(fs.readFileSync(pointer, "utf8")) as { portalUrl?: unknown; portalToken?: unknown };
       for (const secret of [value.portalUrl, value.portalToken]) if (typeof secret === "string" && secret) input.remember(secret);
     }
-    const validation = validateReport(phase, output, startedAt, filtered);
+    const validation = validateReport(phase, output, startedAt, filtered, scrub, input.appPort);
     summary.validation = validation;
     const problems = [...validation.problems];
     if (fixtureEffectError) problems.push(`fixture effects: ${fixtureEffectError}`);
