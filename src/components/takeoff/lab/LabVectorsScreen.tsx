@@ -18,6 +18,7 @@ import {
   defaultCampaignName, LAB_NAME_PATTERN, LAB_VECTOR_TASK_ID, promptVersionLabel,
   type LabRun, type LabRunSummary, type LabVectorClassSource, type LabVectorGroup, type LabVectorPage,
 } from "@/lib/takeoff/lab/contracts";
+import { CLASS_SOURCE_LABELS } from "@/lib/takeoff/vectors/classify";
 import { cn } from "@/lib/utils";
 
 // Vectors page of the takeoff lab (TI-662), « mise en page outil »: on the
@@ -40,9 +41,7 @@ const PALETTE = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-ch
 const SCALE_LABELS: Record<LabVectorPage["scale"]["status"], string> = {
   verified: "vérifiée par une cote", format: "format conforme", calibrated: "calibrée", unverified: "non vérifiée",
 };
-const SOURCE_LABELS: Record<LabVectorClassSource, string> = {
-  keyword: "mots-clés", legend: "légende", label: "libellés", document: "document", user: "utilisateur", decisions: "Decisions",
-};
+const SOURCE_LABELS: Record<LabVectorClassSource, string> = CLASS_SOURCE_LABELS;
 
 function formatDenominator(denominator: number) {
   return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);

@@ -314,6 +314,10 @@ describe("TesterArmy critical impact map", () => {
     // Preloaded with NODE_OPTIONS --import (no import names them): their rule, not the nonRuntime journey folders, decides.
     expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).files).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
     expect(select(["e2e/army/local/profile-provider-fixture.mjs"]).files).toContain("e2e/army/local/profile-polish.e2e.ts");
+    // TI-662 L3d: the owned takeoff worker of TKW10 imports the provider fixture by path, and its review viewer shows the reading.
+    const workerLifecycle = "e2e/army/takeoff/worker-lifecycle.e2e.ts";
+    expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).fullOnly.files).toContain(workerLifecycle);
+    expect(select(["src/components/takeoff/review/TakeoffVectorViewer.tsx"]).fullOnly.files).toContain(workerLifecycle);
     // The helpers of those folders stay non-runtime themselves: their importing journeys select them.
     expect(select(["e2e/army/local/takeoff-lab-support.ts"]).files).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
   });

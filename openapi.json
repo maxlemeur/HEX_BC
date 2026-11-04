@@ -70807,6 +70807,159 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "to_review": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "decisions": {
+                          "type": "object",
+                          "properties": {
+                            "prompt_version": {
+                              "type": "string",
+                              "maxLength": 64
+                            },
+                            "candidates": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "eligible": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "left_out": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "dedicated_left_out": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "calls": {
+                              "type": "object",
+                              "properties": {
+                                "batch": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "dedicated": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "failed": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "batch",
+                                "dedicated",
+                                "failed"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "answered": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "total_tokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "latency_ms": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "stop": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason": {
+                                      "type": "string",
+                                      "enum": [
+                                        "budget_reached",
+                                        "call_failed",
+                                        "decisions_unavailable",
+                                        "exception",
+                                        "canvas_unavailable",
+                                        "render_failed",
+                                        "call_limit"
+                                      ]
+                                    },
+                                    "message": {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    "from_earlier_page": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "reason",
+                                    "message",
+                                    "from_earlier_page"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "prompt_version",
+                            "candidates",
+                            "eligible",
+                            "left_out",
+                            "dedicated_left_out",
+                            "calls",
+                            "answered",
+                            "total_tokens",
+                            "latency_ms",
+                            "stop"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [

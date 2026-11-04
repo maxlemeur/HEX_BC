@@ -7,6 +7,7 @@ import { GROUP_DECISIONS_LIMITS } from "@/lib/takeoff/vectors/group-decisions";
 import {
   classifyVectorGroups,
   decisionsOfOutcome,
+  type GroupDecisionsCallLimits,
   type GroupDecisionsDecide,
   type GroupDecisionsRender,
 } from "@/lib/takeoff/vectors/group-decisions-server";
@@ -33,7 +34,9 @@ import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 // - the call log keeps the evidence or images (the call record must stay
 //   small and hold nothing but counts, statuses, usage and timings);
 // - an answer is keyed by its alias instead of its group id, or the reading
-//   options get an unanswered group.
+//   options get an unanswered group;
+// - the calls a document has left (worker, TI-662 L3d) are passed over, or
+//   larger ones lift the page caps.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const OWNER = { userId: "user-fixture", tenantId: "tenant-fixture" };
@@ -101,12 +104,14 @@ function fakeDecide(answer: (alias: string, kind: "batch" | "dedicated") => Answ
   return { decide, seen };
 }
 
-function run(extraction: VectorPageExtraction, options: { decide: GroupDecisionsDecide; render?: GroupDecisionsRender; maxTokens?: number }) {
+function run(extraction: VectorPageExtraction, options: {
+  decide: GroupDecisionsDecide; render?: GroupDecisionsRender; maxTokens?: number; limits?: GroupDecisionsCallLimits;
+}) {
   const budget = createDecisionsTokenBudget(options.maxTokens ?? 10_000_000, 1_000);
   const reading = readVectorPage(extraction, { clock: () => 0 });
   return { budget, outcome: classifyVectorGroups({
     bytes: new Uint8Array([37, 80, 68, 70]), extraction, reading, owner: OWNER, context: CONTEXT, budget,
-    decide: options.decide, render: options.render ?? fakeRender().render, clock: () => 0,
+    decide: options.decide, render: options.render ?? fakeRender().render, limits: options.limits, clock: () => 0,
   }) };
 }
 
@@ -194,6 +199,21 @@ describe("Decisions call loop (group-decisions-server.ts classifyVectorGroups)",
     } });
     await expect(run(page(5), { decide, render: throwing.render }).outcome).resolves.toMatchObject({ calls: [], stop: { reason: "render_failed" } });
     expect(seen).toHaveLength(0);
+  });
+
+  it("sends no more calls than it is given, never more than the page caps, and counts the groups past them", async () => {
+    const answers = (_alias: string, kind: "batch" | "dedicated"): Answer => (kind === "batch" ? { value: "autre", confidence: 0.2 } : { value: "mur", confidence: 0.7 });
+    const fewer = fakeDecide(answers);
+    const outcome = await run(page(100), { decide: fewer.decide, limits: { maxBatchCalls: 1, maxDedicatedCalls: 3 } }).outcome;
+    expect(fewer.seen.map((call) => [call.evidence.call, call.names.length])).toEqual([["batch", 36], ["dedicated", 1], ["dedicated", 1], ["dedicated", 1]]);
+    expect(outcome).toMatchObject({ candidates: 36, eligible: 100, left_out: 64 });
+    const none = fakeDecide(answers);
+    await expect(run(page(5), { decide: none.decide, limits: { maxBatchCalls: 0, maxDedicatedCalls: 50 } }).outcome)
+      .resolves.toMatchObject({ calls: [], candidates: 0, eligible: 5, left_out: 5 });
+    const more = fakeDecide(answers);
+    await run(page(400), { decide: more.decide, limits: { maxBatchCalls: 99, maxDedicatedCalls: 999 } }).outcome;
+    expect(more.seen.filter((call) => call.evidence.call === "batch")).toHaveLength(GROUP_DECISIONS_LIMITS.maxBatchCalls);
+    expect(more.seen.filter((call) => call.evidence.call === "dedicated")).toHaveLength(GROUP_DECISIONS_LIMITS.maxDedicatedCalls);
   });
 
   it("neither renders nor calls for a page without candidates", async () => {

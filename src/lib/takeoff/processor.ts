@@ -80,7 +80,9 @@ import {
   type TakeoffSourceDocumentRef,
 } from "@/lib/takeoff/source-loader";
 import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
-import { isTakeoffVectorReadingEnabled, readTakeoffVectorPages, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
+import {
+  isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorDecisionsHook, type VectorPageOutcome,
+} from "@/lib/takeoff/vectors/worker-server";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
@@ -3517,9 +3519,17 @@ async function processTakeoffLevel(
         providerMeta: levelCResult.providerMeta,
       });
 
-      // TI-662: the vector reading of the original pages, beside the level C reading (opt-in).
+      // TI-662: the vector reading of the original pages, beside the level C reading (opt-in), its groups classified
+      // by Decisions with MERGEONE_TAKEOFF_DECISIONS=1; each call checked like a provider call (active tenant, lease).
       const vectorOutcomes = isTakeoffVectorReadingEnabled()
-        ? await readTakeoffVectorPages(sourceFile, { onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id } })
+        ? await readTakeoffVectorPages(sourceFile, {
+          onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id },
+          decisions: takeoffVectorDecisionsHook({ jobId: job.id, tenantId: job.tenant_id, userId: context.userId ?? job.created_by ?? null,
+            beforeCall: async () => {
+              await assertProviderTenantActive();
+              await renewProcessingLease();
+            } }),
+        })
         : [];
       await renewProcessingLease();
       const persisted = await persistTakeoffResultAndItems({

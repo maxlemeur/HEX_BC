@@ -111,7 +111,9 @@ est une constante nommée et versionnée dans le code.
      quasi blancs, d'au moins 0,1 % de la longueur visible de la page (hors quasi-blancs
      et calques masqués). Les plus longs d'abord.
    - Limites par page du document : 10 appels groupés de 36 groupes, soit 360 groupes au
-     plus ; au-delà, les groupes restent « à revoir » et leur nombre est compté.
+     plus ; au-delà, les groupes restent « à revoir » et leur nombre est compté. Dans le
+     métré, ces limites valent pour le document entier et le traitement (voir « Decisions
+     dans le métré »).
    - N = 36 : une planche de 6 × 6 vignettes de 384 px reste lisible pour environ 0,27 Mo
      en base64 (essai du 3/11/2026).
    - Une question à choix par groupe, nommée par un alias (« groupe_01 »… dans l'ordre de
@@ -133,7 +135,7 @@ est une constante nommée et versionnée dans le code.
      Les points sont plafonnés par vignette.
    - Appel dédié : un groupe dont la réponse manque, est refusée, invalide ou sous 0,5
      est redemandé seul, avec son propre rendu de 1 200 px (50 appels dédiés par page au
-     plus). Sa réponse remplace celle du lot.
+     plus, par document dans le métré). Sa réponse remplace celle du lot.
    - Le plafond de jetons est consulté avant chaque appel. Un refus, le premier appel en
      échec ou indisponible, ou une erreur avant l'envoi arrêtent les appels, sans
      nouvel essai : les groupes restants restent « à revoir ».
@@ -279,6 +281,59 @@ est une constante nommée et versionnée dans le code.
    Les items d'un métré restent dans ce que sa revue lit (5 000 géométries, 200 000
    axes ou côtés de polygone) : une page qui dépasserait garde sa lecture sans ses items,
    et la raison est journalisée. Une page garde au plus les 300 pièces de sa lecture.
+
+## Decisions dans le métré
+
+Le worker lit les plans d'un métré de niveau C avec `MERGEONE_TAKEOFF_VECTORS=1`. Il
+classe en plus les groupes restés sans classe par Decisions avec
+`MERGEONE_TAKEOFF_DECISIONS=1`, à condition que Decisions soit configuré
+(`MERGEONE_OPENAI_DECISIONS=1` et sa clé, `getTakeoffDecisionsCapability()`). Les appels
+sont faits pour l'utilisateur du métré, sur son tenant
+([`worker-server.ts`](../../src/lib/takeoff/vectors/worker-server.ts)).
+
+- Chaque page est lue par mots-clés, ses groupes sont classés, puis la page est relue
+  avec les réponses.
+- Plafonds par défaut, modifiables par Thanh :
+  - 10 appels groupés et 50 appels dédiés au plus par document et par traitement, sur
+    l'ensemble de ses pages (`TAKEOFF_VECTOR_DECISIONS_LIMITS`). Au-delà, les groupes
+    restent « à revoir » et la page le dit (arrêt « call_limit »). Deux cas : les groupes
+    jamais demandés, comptés dans `left_out`, et ceux dont la réponse faible n'est pas
+    redemandée seule, comptés dans `dedicated_left_out` ;
+  - un plafond de jetons par traitement, consulté avant chaque appel
+    (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`, 400 000 au départ, à recaler sur la passe
+    réelle).
+- Plusieurs cas arrêtent Decisions pour le reste du traitement, sans nouvel essai :
+  - le premier appel en échec ou indisponible ;
+  - une erreur avant l'envoi ;
+  - le plafond de jetons ;
+  - un serveur sans module de dessin.
+
+  Les pages suivantes gardent leur lecture par mots-clés, leurs groupes « à revoir », et
+  disent pourquoi. Une page dont les images n'ont pas pu être dessinées n'arrête que
+  cette page.
+- Une erreur de Decisions ne fait jamais échouer la page ni le métré. Seul le contrôle
+  du métré avant chaque appel l'arrête, comme pour tout appel de fournisseur : le bail
+  de traitement, le tenant actif.
+- La page enregistrée garde la classe, la source et la confiance de chaque groupe. Sur
+  ses 400 groupes, les groupes classés passent avant les plus longs, pour que les groupes
+  de chaque item mesuré restent lisibles.
+- Elle garde aussi le nombre de groupes à revoir, compté sur toute la page : les groupes
+  visibles (ni masqués, ni quasi blancs), sans candidats de légende, d'au moins 0,1 % de
+  la longueur visible, sans classe ou proposés par Decisions sous 0,8.
+- Elle garde enfin un résumé Decisions facultatif : appels groupés, dédiés et en échec,
+  réponses, jetons, latence et arrêt. Ni contexte ni image.
+- Les lectures d'avant restent valides, sans migration. Une lecture enregistrée avec ces
+  champs ne se relit plus avec le code d'avant : pas de retour arrière après le
+  déploiement.
+- Un item ne nomme parmi ses groupes que ceux qu'il mesure, jamais une proposition sous
+  0,8.
+- La revue du métré montre la source de chaque réseau : mots-clés, légende, libellés, ou
+  « Decisions 80 % » à la plus faible confiance de ses groupes. La source est lue sur les
+  groupes que l'item nomme, 64 au plus, ceux de Decisions d'abord. La revue montre aussi
+  ce qu'a fait Decisions sur la page, la raison d'un arrêt et le nombre de groupes à
+  revoir.
+- Sans ces options, aucun appel n'est fait : les groupes sans mot-clé restent « à
+  revoir ».
 
 ## Decisions au banc
 

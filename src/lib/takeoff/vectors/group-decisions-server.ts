@@ -30,13 +30,18 @@ import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 
 // The Decisions classification of one page's vector groups (TI-662 L3c), for
-// the bench and, later, the takeoff worker. Per document page:
+// the bench and the takeoff worker (worker-server.ts). Per document page:
 // - the candidates of the keyword reading (group-decisions.ts), at most 10
 //   batch calls of 36 groups, each with two images: the legend extract (or the
 //   page thumbnail without a legend) and the contact sheet of its groups;
 // - then at most 50 dedicated calls, one group each with its own 1200 px
 //   render, for the groups whose batch answer is missing, refused, invalid or
 //   under 0.5; a dedicated answer replaces the batch one;
+// - the worker gives fewer (`limits`): what its document has left of its caps
+//   per run; the groups past the batch caps are counted in `left_out`, those
+//   whose weak answer is not asked again alone in `dedicated_left_out`;
+// - `beforeCall` runs before each call, outside of the call's own failure: the
+//   worker renews its lease there, and its failure stops the job;
 // - the token budget is asked before each call and given its usage after it;
 //   a refusal stops the loop (budget_reached). The first failed or unavailable
 //   result, or an exception before sending, stops it too, never retried;
@@ -58,6 +63,9 @@ export type GroupDecisionsRender = {
   sheets: (plans: readonly SheetPlan[]) => Promise<GroupSheetsResult>;
 };
 
+/** Calls one classification may send: GROUP_DECISIONS_LIMITS by default, what a document has left in the worker. */
+export type GroupDecisionsCallLimits = { maxBatchCalls: number; maxDedicatedCalls: number };
+
 export type GroupDecisionsStopReason = "budget_reached" | "call_failed" | "decisions_unavailable" | "exception" | "canvas_unavailable" | "render_failed";
 export type GroupDecisionsStop = { reason: GroupDecisionsStopReason; message: string };
 export type GroupDecisionsCall = {
@@ -78,6 +86,8 @@ export type GroupDecisionsOutcome = {
   candidates: number;
   eligible: number;
   left_out: number;
+  /** Groups whose batch answer needed a dedicated call past the dedicated caps: they keep it (« à revoir » under 0.8). */
+  dedicated_left_out: number;
   render: { legend_ms: number | null; sheets_ms: number[] };
 };
 
@@ -124,17 +134,27 @@ export async function classifyVectorGroups(input: {
   budget: DecisionsTokenBudget;
   decide?: GroupDecisionsDecide;
   render?: GroupDecisionsRender;
+  /** At most GROUP_DECISIONS_LIMITS, never more. */
+  limits?: GroupDecisionsCallLimits;
+  /** Before each call; an error thrown here is not a Decisions failure: it leaves this function. */
+  beforeCall?: () => Promise<void>;
   clock?: () => number;
   log?: (line: string) => void;
 }): Promise<GroupDecisionsOutcome> {
   const decide = input.decide ?? callOpenAiDecisions;
   const render = input.render ?? DEFAULT_RENDER;
   const clock = input.clock ?? (() => performance.now());
+  const cap = (value: number | undefined, max: number) => (value === undefined ? max : Math.max(0, Math.min(max, Math.floor(value))));
+  const limits = {
+    ...GROUP_DECISIONS_LIMITS,
+    maxBatchCalls: cap(input.limits?.maxBatchCalls, GROUP_DECISIONS_LIMITS.maxBatchCalls),
+    maxDedicatedCalls: cap(input.limits?.maxDedicatedCalls, GROUP_DECISIONS_LIMITS.maxDedicatedCalls),
+  };
   const model = buildPageModel(input.extraction);
-  const selection = selectDecisionCandidates(model, input.reading);
+  const selection = selectDecisionCandidates(model, input.reading, limits);
   const outcome: GroupDecisionsOutcome = {
     answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
-    render: { legend_ms: null, sheets_ms: [] },
+    dedicated_left_out: 0, render: { legend_ms: null, sheets_ms: [] },
   };
   if (selection.candidates.length === 0) return outcome;
   const { candidates } = selection;
@@ -154,7 +174,7 @@ export async function classifyVectorGroups(input: {
     outcome.stop = renderStop(legend?.issue ?? null);
     return outcome;
   }
-  const batches = decisionBatches(candidates).slice(0, GROUP_DECISIONS_LIMITS.maxBatchCalls);
+  const batches = decisionBatches(candidates).slice(0, limits.maxBatchCalls);
   const sheets = await safely(() => render.sheets(batches.map((batch) => planContactSheet(model, batch))));
   if (!sheets || sheets.issue !== null || sheets.images.some((image) => image === null)) {
     outcome.stop = renderStop(sheets?.issue ?? null);
@@ -164,6 +184,7 @@ export async function classifyVectorGroups(input: {
 
   /** One call; false when the loop stops. */
   const ask = async (kind: DecisionsCallKind, group: readonly DecisionCandidate[], image: GroupImage, renderMs: number | null) => {
+    await input.beforeCall?.();
     if (!input.budget.tryStart()) {
       outcome.stop = { reason: "budget_reached", message: "Le plafond de jetons Decisions est atteint : les groupes restants sont à revoir." };
       return false;
@@ -206,8 +227,9 @@ export async function classifyVectorGroups(input: {
   for (const [index, batch] of batches.entries()) {
     if (!(await ask("batch", batch, sheets.images[index] as GroupImage, sheets.render_ms[index] ?? null))) return outcome;
   }
-  const again = candidates.filter((candidate) => outcome.answers.has(candidate.id) && needsDedicated(outcome.answers.get(candidate.id)))
-    .slice(0, GROUP_DECISIONS_LIMITS.maxDedicatedCalls);
+  const needing = candidates.filter((candidate) => outcome.answers.has(candidate.id) && needsDedicated(outcome.answers.get(candidate.id)));
+  const again = needing.slice(0, limits.maxDedicatedCalls);
+  outcome.dedicated_left_out = needing.length - again.length;
   for (const chunk of decisionBatches(again, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK)) {
     const renders = await safely(() => render.sheets(chunk.map((candidate) => planDedicated(model, candidate))));
     if (!renders || renders.issue !== null || renders.images.some((image) => image === null)) {
