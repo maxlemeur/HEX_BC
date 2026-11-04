@@ -1168,6 +1168,11 @@ export default function TakeoffReviewPage({
   const backLabel = isAffaireContext
     ? "Centre d'activité métrés"
     : "Retour à l'extraction";
+  // TI-664 L5c: the lines the guard rejects or finds uncertain, settled one by one in the targeted review (affaire).
+  const targetedReviewCount = guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0;
+  const targetedReviewHref = isAffaireContext
+    ? `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`
+    : undefined;
 
   if (loading) {
     return <TakeoffReviewLoadingState title={reviewTitle} />;
@@ -1234,6 +1239,14 @@ export default function TakeoffReviewPage({
                 <Badge variant="neutral" size="sm">
                   {getBusinessLevelLabel(jobLevel)}
                 </Badge>
+              ) : null}
+              {targetedReviewHref && targetedReviewCount > 0 && !hasAlreadyBeenApplied ? (
+                <Link
+                  href={targetedReviewHref}
+                  className={buttonVariants({ variant: "secondary" })}
+                >
+                  Revue ciblée · {targetedReviewCount} ligne{targetedReviewCount > 1 ? "s" : ""}
+                </Link>
               ) : null}
               <Link
                 href={backHref}
@@ -1378,6 +1391,7 @@ export default function TakeoffReviewPage({
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
         onReturnToReview={() => setApplyWizardOpen(false)}
+        targetedReviewHref={targetedReviewHref}
       /> : null}
 
       {/* ---- Evidence panel ---- */}

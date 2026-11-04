@@ -18,9 +18,13 @@ export function isProductionWorkspaceRoute(pathname: string): boolean {
 }
 
 // Technical tool screens (TI-658 « mise en page outil »): the takeoff lab and the
-// screens TI-662 adds under it. Full height under the 60 px top bar, without
-// margins nor version footer; only their own panels scroll.
-const TOOL_WORKSPACE_ROUTE_PATTERNS = [/^\/dashboard\/admin\/takeoff\/lab(?:\/|$)/];
+// screens TI-662 adds under it, and the targeted review of a takeoff job (TI-664).
+// Full height under the 60 px top bar, without margins nor version footer; only
+// their own panels scroll.
+const TOOL_WORKSPACE_ROUTE_PATTERNS = [
+  /^\/dashboard\/admin\/takeoff\/lab(?:\/|$)/,
+  /^\/dashboard\/affaires\/[^/]+\/takeoff\/[^/]+\/review\/targeted(?:\/|$)/,
+];
 
 export function isToolWorkspaceRoute(pathname: string): boolean {
   return TOOL_WORKSPACE_ROUTE_PATTERNS.some((pattern) => pattern.test(pathname));
