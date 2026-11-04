@@ -300,6 +300,41 @@ create trigger stale_takeoff_rule_peers_after_insert
   for each statement
   execute procedure public.stale_takeoff_rule_peers();
 
+-- A job that completes joins the lines its version's rules read: the lines of
+-- the version's unapplied jobs it can pair with (evaluated, or awaiting their
+-- first evaluation) are made stale when it completes, their rules_stale_at
+-- moved. A computation that ran between the worker's insertion of its lines and
+-- its completion read completed jobs only, and may have cleared the insertion's
+-- invalidation; the completion makes them stale again (fail closed).
+create or replace function public.stale_takeoff_rule_lines_on_completion()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  update public.takeoff_items as item
+  set rules_stale = true, rules_stale_at = pg_catalog.clock_timestamp()
+  from public.takeoff_jobs as job
+  where job.tenant_id = new.tenant_id
+    and job.estimate_version_id = new.estimate_version_id
+    and job.status = 'completed'::public.takeoff_job_status
+    and item.job_id = job.id
+    and item.tenant_id = job.tenant_id
+    and (item.rules_evaluated_at is not null or item.rules_stale);
+  return null;
+end;
+$$;
+
+revoke all on function public.stale_takeoff_rule_lines_on_completion() from public, anon, authenticated;
+
+drop trigger if exists stale_takeoff_rule_lines_on_completion on public.takeoff_jobs;
+create trigger stale_takeoff_rule_lines_on_completion
+  after update of status on public.takeoff_jobs
+  for each row
+  when (new.status = 'completed'::public.takeoff_job_status and old.status is distinct from 'completed'::public.takeoff_job_status)
+  execute procedure public.stale_takeoff_rule_lines_on_completion();
+
 -- The apply guard counts, on every level, the included lines whose rules block
 -- them (stale, or failed and not settled); the existing reasons (low confidence
 -- not verified, missing proof or page) stay level C. Same count, same override:

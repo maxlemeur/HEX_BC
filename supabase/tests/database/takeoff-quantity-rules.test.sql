@@ -88,6 +88,11 @@ from (values
   ('9e000000-0000-4000-8000-000000000308'::uuid, '9e000000-0000-4000-8000-000000000107'::uuid, 'C')
 ) as fixture(id, version_id, level);
 
+-- ...309 C, a third job of version 107 still being read (its lines arrive before its completion).
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
+values ('9e000000-0000-4000-8000-000000000309', current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000000107',
+  'C', 'processing', 'plan-fictif.pdf', '9e000000-0000-4000-8000-000000000001');
+
 -- A failed acceptable rule (a Z1/Z2 duplicate), a failed rule verifying never settles (a quantity to enter).
 select set_config('test.duplicate', '[{"rule":"zone_overlap","status":"fail","code":"ZONE_OVERLAP_DUPLICATE","version":101,"acceptable":true,"reason":"Tronçon compté aussi en Z2."}]', true);
 select set_config('test.to_enter', '[{"rule":"non_observable","status":"fail","code":"NON_OBSERVABLE_TO_ENTER","version":1,"acceptable":false,"reason":"Quantité à saisir."}]', true);
@@ -342,6 +347,25 @@ select is(
 reset role;
 select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000411'), true,
   'the line awaiting its first evaluation stays stale');
+-- A job of the version completes after the worker wrote its lines (Codex review of L5b): a computation that ran in
+-- between read only completed jobs and cleared the lines the insertion had made stale; the completion makes them
+-- stale again, or their obsolete pass would be applied if the next computation failed.
+reset role;
+update public.takeoff_items set rules_stale = false, rules_evaluated_at = now() where id = '9e000000-0000-4000-8000-000000000409';
+insert into public.takeoff_items (id, tenant_id, job_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page,
+  rules_stale, created_at)
+values ('9e000000-0000-4000-8000-000000000412', current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000000309',
+  'EF inox DN 22', 4, 'ml', 0.95, 'Repère localisé', 'plan-fictif.pdf', 1, true, now());
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true,
+  'the worker''s new line makes the version''s evaluated lines stale');
+-- The computation before the completion reads completed jobs only: it clears 409 without the new line.
+update public.takeoff_items set rules_stale = false, rules_evaluated_at = now() where id = '9e000000-0000-4000-8000-000000000409';
+select set_config('test.before_completion', (select rules_stale_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true);
+update public.takeoff_jobs set status = 'completed' where id = '9e000000-0000-4000-8000-000000000309';
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true,
+  'the completion of a job makes the version''s lines stale again');
+select isnt((select rules_stale_at::text from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'),
+  current_setting('test.before_completion'), 'and moves their stale token, so a computation that read them before never clears it');
 set local role authenticated;
 
 reset role;
