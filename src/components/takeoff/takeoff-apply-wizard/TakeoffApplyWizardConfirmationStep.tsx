@@ -16,6 +16,7 @@ export function TakeoffApplyWizardConfirmationStep({
   overrideJustification,
   onReturnToReview,
   reviewHref,
+  targetedReviewHref,
   onOverrideJustificationChange,
   onOverrideConfirm,
   isLevelC,
@@ -36,6 +37,7 @@ export function TakeoffApplyWizardConfirmationStep({
   overrideJustification: string;
   onReturnToReview?: () => void;
   reviewHref?: string;
+  targetedReviewHref?: string;
   onOverrideJustificationChange: (value: string) => void;
   onOverrideConfirm: () => void;
   isLevelC: boolean;
@@ -59,6 +61,7 @@ export function TakeoffApplyWizardConfirmationStep({
           overrideJustification={overrideJustification}
           onReturnToReview={onReturnToReview}
           reviewHref={reviewHref}
+          targetedReviewHref={targetedReviewHref}
           onOverrideJustificationChange={onOverrideJustificationChange}
           onOverrideConfirm={onOverrideConfirm}
         />

@@ -487,43 +487,46 @@ export default function TakeoffReviewTable({
   ).length;
 
   // ---- Keyboard shortcuts for row actions
+  // Read on the way down (capture), before the focused cell takes a printable key as its direct entry: E, V and P
+  // on a cell that is not being edited act on its row and never type into it (TI-664 L5c). A cell being edited
+  // (its input has focus) keeps every letter; a digit still starts the direct entry of the quantity.
   const containerRef = useRef<HTMLDivElement>(null);
-  const handleKeyDown = useCallback(
+  const handleKeyDownCapture = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      // Only fire when not editing a cell
-      if (navigation.editingCell) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "e" && key !== "v" && key !== "p") return;
+      // Without a proof panel, P is a letter like any other.
+      if (key === "p" && !onOpenEvidencePanel) return;
+      const target = e.target as HTMLElement;
+      if (!target.matches?.("[data-cell-id]")) return;
 
-      const activeRowId = navigation.activeCell?.rowId;
-      if (!activeRowId) return;
-
-      const activeItem = items.find((i) => i.id === activeRowId);
+      const rowId = target.getAttribute("data-cell-row-id");
+      const activeItem = rowId ? items.find((i) => i.id === rowId) : undefined;
       if (!activeItem) return;
 
-      const key = e.key.toLowerCase();
-
+      e.preventDefault();
+      e.stopPropagation();
       if (key === "e") {
-        e.preventDefault();
         if (activeItem.is_excluded) {
-          onIncludeItems([activeRowId]);
+          onIncludeItems([activeItem.id]);
         } else {
-          onExcludeItems([activeRowId]);
+          onExcludeItems([activeItem.id]);
         }
       } else if (key === "v") {
-        e.preventDefault();
-        onUpdateItem(activeRowId, "is_verified", !activeItem.is_verified);
-      } else if (key === "p") {
-        e.preventDefault();
-        onOpenEvidencePanel?.(activeRowId);
+        onUpdateItem(activeItem.id, "is_verified", !activeItem.is_verified);
+      } else {
+        onOpenEvidencePanel?.(activeItem.id);
       }
     },
-    [navigation.editingCell, navigation.activeCell, items, onIncludeItems, onExcludeItems, onUpdateItem, onOpenEvidencePanel]
+    [items, onIncludeItems, onExcludeItems, onUpdateItem, onOpenEvidencePanel]
   );
 
   const sortHeaderProps = { sortField, sortDirection, onSort: handleSortChange };
 
   return (
-    // Row shortcuts (E/V/P) bubble up from the focused grid cell.
-    <div className="space-y-4" ref={containerRef} onKeyDown={handleKeyDown}>
+    // Row shortcuts (E/V/P) are read before the focused grid cell's direct entry.
+    <div className="space-y-4" ref={containerRef} onKeyDownCapture={handleKeyDownCapture}>
       <TakeoffReviewFilters
         filters={filters}
         onFiltersChange={updateFilters}
