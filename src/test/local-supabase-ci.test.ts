@@ -172,7 +172,10 @@ describe("local Supabase CI", () => {
       }
       return supabase(args, capture);
     });
-    const failure = await runLocalSupabaseCi(dependencies).catch((error: unknown) => error as Error);
+    const failure = await runLocalSupabaseCi(dependencies).then(
+      () => { throw new Error("The pgTAP phase must fail."); },
+      (error: unknown) => error as Error,
+    );
     expect(failure.message).toMatch(/^Phase failed: run pgTAP: Supabase CLI command failed with exit code 1: test db\n/);
     expect(failure.message).toContain("# Failed test 7: \"the concurrent writer waits for the retirement\"");
     expect(failure.message).toContain(`${file("retire-empty-accepted-legacy-race")} (Wstat: 0 Tests: 9 Failed: 1)\n  Failed test:  7`);
