@@ -156,7 +156,15 @@ est une constante nommée et versionnée dans le code.
        tant qu'ils sont à moins de 2,5 pt l'un de l'autre, dans une bande de 7 pt au
        plus : un trait parallèle ailleurs sur la feuille ne coupe jamais une bande ;
      - intervalles fusionnés au-delà des trous de 1 pt au plus ;
-     - un trait en double ne compte qu'une fois.
+     - un trait en double ne compte qu'une fois ;
+     - un tuyau dont les traits tombent dans un réseau parent et un de ses membres
+       (ses contours lus comme un départ par ses libellés, sa teinte comme son parent
+       par la légende) ne compte qu'une fois, au membre. La partie d'un tronçon du
+       parent qui longe un tronçon du membre, parallèle (à 3° près), son axe dans la
+       bande du membre aux deux bouts de leur recouvrement (à moins de la demi-largeur
+       de cette bande, ou de 1 pt d'un membre tracé d'un seul trait), est retirée du
+       parent ; le reste du tronçon, au-delà de 1 pt, reste au parent. Deux tuyaux
+       côte à côte (à 1,5 pt par exemple) restent deux tuyaux.
    - Les embouts et les manchons posés en travers d'une bande de leur réseau ne comptent
      pas. Le tuyau court d'un autre réseau qui la croise compte.
    - Ne sont pas mesurés : les échantillons de la légende et les cadres de détail. Un
