@@ -171,6 +171,7 @@ Elle reprend le résultat par page de TI-662 (`scale.ts`, tolérance de cote
 `COTE_RELATIVE_TOLERANCE`), sans second seuil.
 
 - Une ligne en ml ou en m² échoue sur une page dont une cote contredit l'échelle (`dimension_mismatch`).
+- La page d'une ligne du modèle est celle de son propre document (`metadata.source_document` : fichier du jeu de plans ou téléversement du job) et de son numéro, jamais celle d'un autre fichier de même nom. Une ligne sans document, ou deux pages encore confondues, prend la page dont l'échelle est contredite s'il y en a une (sens sûr).
 - Les comptages ne sont pas concernés.
 
 ### Aire du polygone cohérente avec la surface imprimée

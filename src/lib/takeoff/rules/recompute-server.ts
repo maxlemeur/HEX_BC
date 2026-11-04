@@ -8,6 +8,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { boundRuleResults, readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
 import type { PageAnchors } from "@/lib/takeoff/rules/registration";
+import { ruleLinePage, type RulePageCandidate } from "@/lib/takeoff/rules/recompute-pages";
 import type { TakeoffFrameTransform, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import { VectorItemGeometrySchema, VectorPageRecordSchema } from "@/lib/takeoff/vectors/persistence";
 import type { Database } from "@/types/database";
@@ -47,7 +48,8 @@ type ItemRow = {
   rules_stale_at: string | null;
   rules_evaluated_at: string | null; quantity_entered_by: string | null;
 };
-type PageRow = { id: string; job_id: string; source_file_name: string | null; source_page: number; reading: unknown; rule_anchors: unknown };
+type PageRow = { id: string; job_id: string; plan_file_id: string | null; source_file_name: string | null; source_page: number; reading: unknown;
+  rule_anchors: unknown };
 type GeometryRow = { takeoff_item_id: string; job_id: string; vector_page_id: string; geometry: unknown };
 
 function failed(message: string, error: { message?: string } | null): never {
@@ -121,7 +123,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   const status = new Map(jobs.map((job) => [job.id, job.status]));
   const vectorJobs = [...new Set(items.filter(({ inputs }) => inputs !== null).map(({ item }) => item.job_id))];
   const { data: pageData, error: pageError } = await readAllRows(() => supabase.from("takeoff_vector_pages" as never)
-    .select("id, job_id, source_file_name, source_page, reading, rule_anchors" as never, { count: "exact" })
+    .select("id, job_id, plan_file_id, source_file_name, source_page, reading, rule_anchors" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, vectorJobs as never));
   if (pageError) failed("Impossible de lire les pages vectorielles pour les règles.", pageError as { message?: string });
   const geometries = new Map((await readGeometries(supabase, input.tenantId, vectorJobs)).flatMap((row) => {
@@ -130,7 +132,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   }));
 
   const pages: RulePage[] = [];
-  const pageOf = new Map<string, string>();
+  const candidates: RulePageCandidate[] = [];
   for (const row of (pageData ?? []) as unknown as PageRow[]) {
     const reading = VectorPageRecordSchema.safeParse(row.reading);
     const anchors = AnchorsSchema.safeParse(row.rule_anchors);
@@ -140,7 +142,8 @@ export async function recomputeTakeoffRulesForVersion(input: {
       scale: reading.success ? { status: reading.data.scale.status, reason: reading.data.scale.reason } : null,
       denominator: reading.success ? reading.data.scale.denominator : null, anchors: anchors.success ? anchors.data : null,
     });
-    pageOf.set(`${row.job_id}|${row.source_file_name ?? ""}|${row.source_page}`, row.id);
+    candidates.push({ id: row.id, job_id: row.job_id, plan_file_id: row.plan_file_id ?? null, source_file_name: row.source_file_name,
+      source_page: row.source_page, scale_mismatch: reading.success && reading.data.scale.reason === "dimension_mismatch" });
   }
 
   const lines: RuleLine[] = items.filter(({ inputs }) => inputs !== null).map(({ item, inputs }) => {
@@ -149,8 +152,8 @@ export async function recomputeTakeoffRulesForVersion(input: {
       id: item.id, job_id: item.job_id, designation: item.designation, unit: item.unit, quantity: Number(item.quantity),
       is_excluded: item.is_excluded, frozen: status.get(item.job_id) === "applied", quantity_entered: item.quantity_entered_by !== null,
       inputs,
-      // A line read by the model belongs to the vector page of its file and page, when the job read one (scale rule).
-      page_key: stored?.page ?? (item.source_page ? pageOf.get(`${item.job_id}|${item.source_file_name ?? ""}|${item.source_page}`) ?? null : null),
+      // A line read by the model belongs to the vector page of its own document and page, when the job read one (scale rule).
+      page_key: stored?.page ?? ruleLinePage(item, candidates),
       geometry: stored ? { segments_m: stored.geometry.segments_m, polygon_m: stored.geometry.polygon_m, length_m: stored.geometry.length_m,
         area_m2: stored.geometry.area_m2 } : null,
     };
