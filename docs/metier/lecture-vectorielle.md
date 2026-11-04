@@ -417,3 +417,8 @@ facultatif), il appartient à la page que ses appels ont lue (`item_chunks`), pa
 pages lues : il n'est jamais recopié sur chaque page raster. Si ses appels ont lu
 plusieurs pages, on ne sait pas de laquelle il vient : ces pages ne sont pas lues,
 plutôt que de lui en donner une.
+
+## Règles fixes (L5)
+
+Les règles fixes qui lisent cette lecture (DN × réseau, doublons Z1/Z2 et recalage,
+aires, pièces, quantités à saisir) sont décrites dans [regles-metre.md](regles-metre.md).

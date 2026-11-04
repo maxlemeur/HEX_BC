@@ -14,7 +14,7 @@ import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner, type BenchArgs, type ChatGptBenchArgs } from "@/lib/takeoff/bench/args";
 import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
 import { remapBenchRunPages, selectBenchPages } from "@/lib/takeoff/bench/pages";
-import { buildBenchReport, renderBenchReportMarkdown, type BenchReport, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
+import { buildBenchReport, renderBenchReportMarkdown, rulesSection, type BenchReport, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import {
   classifyCallError,
   describeError,
@@ -329,7 +329,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   for (const { document, bytes } of dataset.selected) {
     const copy = new Uint8Array(bytes);
     documents.push({ id: document.id, lot: document.lot, role: document.role === "reserve" ? "reserve" as const : "truth" as const,
-      bytes: copy, sha256: document.sha256 as string, pages: await getPdfPageCount(copy.slice().buffer) });
+      bytes: copy, sha256: document.sha256 as string, pages: await getPdfPageCount(copy.slice().buffer), level: document.level ?? null,
+      zone: document.zone ?? null, page_ranges: document.page_ranges ?? [] });
   }
   const budget = args.maxDecisionsTokens === null ? null : createDecisionsTokenBudget(args.maxDecisionsTokens, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS);
   const capability = owner ? getOpenAiDecisionsCapability() : null;
@@ -373,10 +374,17 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   } : null;
   const full = {
     ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison,
-    baseline: baseline ? { file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256 } : null,
+    baseline: baseline ? {
+      file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256,
+      // The level C reading re-scored with the fixed rules of TI-664 (designations: DN × network, quantities to enter).
+      rules: baselineReport?.couples[0]?.passes.map((pass) => ({ pass: pass.pass, rules: pass.rules ?? null })) ?? [],
+    } : null,
   };
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
-  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`;
+  const baselineRules = (baselineReport?.couples[0]?.passes ?? []).flatMap((pass) => (pass.rules
+    ? [`## Lecture niveau C (baseline) : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
+  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`
+    + (baselineRules.length > 0 ? `\n${baselineRules.join("\n")}\n` : "");
   await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
   console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
   if (budget) console.log(`Decisions: ${budget.snapshot().calls} calls, ${budget.snapshot().spent_tokens} tokens.`);

@@ -471,6 +471,26 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(result.vector.passes[0].documents[0].pages[0].decisions?.stop).toEqual({ reason: "call_failed", message: "Fictional failure." });
   });
 
+  it("keeps the rules of the documents read before a Decisions stop (TI-664 Codex)", async () => {
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 1), benchDocument("a-plan-02", 1)], groups: new Map(), repeat: 1,
+      extract: async (_bytes, pageNumber) => plan(pageNumber, 1),
+      decisions: {
+        promptVersion: "fixture-groups-v1",
+        classify: async (document) => outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"]],
+          document.id === "a-plan-02" ? { reason: "call_failed", message: "Fictional failure." } : null),
+      },
+    });
+    expect(result.run.status).toBe("incomplete");
+    const [read, stopped] = result.run.couples[0].passes[0].documents;
+    expect([read.id, read.complete, stopped.id, stopped.complete]).toEqual(["a-plan-01", true, "a-plan-02", false]);
+    // The document read in full keeps its geometry rules, one list per line; the one the stop cut has none.
+    expect(read.items.length).toBeGreaterThan(0);
+    expect(read.item_rules?.length).toBe(read.items.length);
+    expect(read.item_rules?.[0]?.map((entry) => entry.rule)).toContain("dn_network");
+    expect(stopped.item_rules).toBeUndefined();
+  });
+
   it("goes on after a page whose images could not be drawn, its groups « à revoir »", async () => {
     const result = await runVectorBench({
       documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1, extract: async (_bytes, pageNumber) => plan(pageNumber, 2),

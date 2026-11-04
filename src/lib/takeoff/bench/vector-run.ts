@@ -16,6 +16,16 @@ import type { NetworkMeasure } from "@/lib/takeoff/vectors/measure";
 import { readVectorPage, VECTOR_READING_VERSION, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 import type { TakeoffItem } from "@/lib/takeoff/types";
+import {
+  assertRuleDataAligned,
+  benchPageAnchors,
+  benchRulePass,
+  vectorItemRuleData,
+  type BenchRuleData,
+  type BenchRuleDocument,
+  type BenchRulePage,
+} from "@/lib/takeoff/bench/vector-rules";
+import type { LevelRegistration } from "@/lib/takeoff/rules/evaluate";
 
 // The vector pipeline of the takeoff bench (TI-662 §6), next to the level C
 // baseline: per pass and document, each page is extracted (child process, 15 s,
@@ -38,7 +48,25 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 
 export const VECTOR_PIPELINE_LABEL = "vector";
 
-export type VectorBenchDocument = { id: string; lot: string; role: "truth" | "reserve"; bytes: Uint8Array; sha256: string; pages: number };
+export type VectorBenchDocument = {
+  id: string;
+  lot: string;
+  role: "truth" | "reserve";
+  bytes: Uint8Array;
+  sha256: string;
+  pages: number;
+  /** Level and zone of the manifest (TI-664 rules: plans of one level are compared for duplicates). */
+  level?: string | null;
+  zone?: string | null;
+  /** The manifest's page ranges, whose level and zone win over the document's (as the scorer reads them). */
+  page_ranges?: ReadonlyArray<{ from: number; to: number; level?: string | null; zone?: string | null }>;
+};
+
+/** Level and zone of a page: its range's, else the document's (score.ts locate). */
+function pageLocation(document: VectorBenchDocument, page: number) {
+  const range = document.page_ranges?.find((entry) => entry.from <= page && page <= entry.to);
+  return { level: range?.level ?? document.level ?? null, zone: range?.zone ?? document.zone ?? null };
+}
 
 export type VectorReadingSummary = Omit<VectorPageReading, "networks" | "groups" | "surfaces"> & {
   groups: Array<Pick<VectorPageReading["groups"][number], "id" | "layerName" | "colors" | "length_pt" | "nearWhite" | "grey" | "class" | "source"
@@ -81,7 +109,12 @@ export type VectorDecisionsHook = {
 };
 
 export type VectorDocumentSummary = { id: string; pages: VectorPageSummary[] };
-export type VectorBenchPass = { pass: number; documents: VectorDocumentSummary[] };
+export type VectorBenchPass = {
+  pass: number;
+  documents: VectorDocumentSummary[];
+  /** Registration of the pages of each level of a lot (TI-664), the first page of a level being its frame. */
+  registrations?: Array<LevelRegistration & { lot: string }>;
+};
 
 export type VectorBenchResult = { run: BenchRunResult; vector: { version: number; passes: VectorBenchPass[] } };
 
@@ -214,6 +247,18 @@ export async function runVectorBench(input: {
     const vectorPass: VectorBenchPass = { pass, documents: [] };
     passes.push(benchPass);
     vectorPasses.push(vectorPass);
+    const ruleDocuments: BenchRuleDocument[] = [];
+    const rulePages: BenchRulePage[] = [];
+    // The rules of TI-664 per lot, with the geometry and the other documents of the lot read in this pass: at the end
+    // of the pass, or at a Decisions stop for the documents read in full before it (the one it cut stays unscored).
+    const finishRules = () => {
+      const rules = benchRulePass(ruleDocuments.filter((entry) => entry.items.length === entry.data.length), rulePages);
+      for (const run of benchPass.documents) {
+        const results = rules.results.get(run.id);
+        if (results) run.item_rules = results;
+      }
+      vectorPass.registrations = rules.registrations;
+    };
     for (const document of input.documents) {
       const run: DocumentRun = {
         id: document.id, lot: document.lot, role: document.role, sha256: document.sha256, bytes: document.bytes.byteLength,
@@ -224,6 +269,7 @@ export async function runVectorBench(input: {
       benchPass.documents.push(run);
       vectorPass.documents.push(summary);
       const groups = input.groups.get(document.id);
+      const ruleData: Array<BenchRuleData | null> = [];
       for (let page = 1; page <= document.pages; page += 1) {
         const base: Omit<ChunkCall, "status" | "duration_ms" | "duration_per_page_ms" | "items" | "warnings" | "error"> = {
           chunk: page, chunks: document.pages, start_page: page, end_page: page, pages: 1, bytes: document.bytes.byteLength,
@@ -242,6 +288,12 @@ export async function runVectorBench(input: {
             if (answers.size > 0) reading = readVectorPage(extraction, { ...options, decisions: answers });
           }
           let items = reading.mode === "raster" ? [] : vectorItems(reading, document.id);
+          const data = reading.mode === "raster" ? [] : vectorItemRuleData(reading);
+          // vectorItemRuleData follows vectorItems item for item; a mismatch is the bench's own bug.
+          assertRuleDataAligned(items, data, `${document.id} p${page}`);
+          rulePages.push({ document: document.id, lot: document.lot, page, ...pageLocation(document, page),
+            scale: { status: reading.scale.status, reason: reading.scale.reason }, denominator: reading.scale.denominator,
+            anchors: benchPageAnchors(extraction, reading) });
           let fallback: number | null = null;
           if (reading.mode === "raster" && input.rasterFallback) {
             const baseline = input.rasterFallback(document.id, pass, page);
@@ -251,6 +303,7 @@ export async function runVectorBench(input: {
             items = baseline;
             fallback = items.length;
           }
+          ruleData.push(...(reading.mode === "raster" ? items.map(() => null) : data));
           const duration = Math.max(0, clock() - startedAt);
           done += 1;
           run.items.push(...items);
@@ -262,6 +315,7 @@ export async function runVectorBench(input: {
             + (decided ? `, Decisions ${decided.calls.length} calls${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
           if (decided?.stop && isDecisionsRunStop(decided.stop.reason)) {
             stop = decisionsStop(decided.stop, done, planned, { model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, pass, document: document.id, chunk: page });
+            finishRules();
             break bench;
           }
         } catch (error) {
@@ -278,7 +332,9 @@ export async function runVectorBench(input: {
         }
       }
       run.complete = true;
+      ruleDocuments.push({ id: document.id, lot: document.lot, order: ruleDocuments.length, items: run.items, data: ruleData });
     }
+    finishRules();
     benchPass.complete = true;
   }
   return {

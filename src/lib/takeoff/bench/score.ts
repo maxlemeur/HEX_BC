@@ -2,6 +2,7 @@ import { DEFAULT_TAKEOFF_BENCHMARK_THRESHOLDS, designationSimilarity } from "@/l
 import { findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries, type DiameterEntry } from "@/lib/takeoff/bench/diameters";
 import { readItemKey, scoredUnit, type BenchItemKey, type ScoredUnit, type UnreadableReason } from "@/lib/takeoff/bench/item-keys";
 import type { LineKind, MaterialCode, NetworkCode, OrganCode, PlanCause, TruthLot } from "@/lib/takeoff/bench/keys";
+import type { GuardTier, TierCounts } from "@/lib/takeoff/bench/rules";
 import type { ManifestDocument, TruthFile, TruthLine } from "@/lib/takeoff/bench/schemas";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 import { toUnitToken } from "@/lib/takeoff/units";
@@ -221,6 +222,26 @@ export type IndicativeCounts = {
   high_confidence_errors: number;
 };
 
+/**
+ * Confidence of a scope's keys as the apply guard sees its lines (TI-664), when the run gives each line its tier
+ * (bench/rules.ts). A key is at high confidence when it has lines and all of them are; a high-confidence key is in
+ * error when it is out of tolerance or invented (any false-positive group: a key the truth does not have, an
+ * unreadable line). Missed keys have no line; keys out of score are not counted.
+ */
+export type ConfidenceCounts = {
+  lines: TierCounts;
+  keys_high_confidence: number;
+  keys_high_confidence_error: number;
+  high_confidence_errors: Array<{
+    key: KeyLabel | null;
+    kind: "out_of_tolerance" | "invented";
+    items: number;
+    cause: string | null;
+    /** Why an unreadable line has no key (network_missing…); null for a key read. */
+    reason: FalsePositiveReason | null;
+  }>;
+};
+
 /** Pages of a document that ran but whose chunk got no usable answer. */
 export type ReadFailure = { start_page: number; end_page: number; status: string };
 
@@ -238,6 +259,8 @@ export type ScopeScore = {
   out_of_score_items: Array<{ document: string; page: number | null; unit: string; reason: "unit" | "key_out_of_score" }>;
   counts: ScopeCounts;
   indicative: IndicativeCounts;
+  /** Only when the run classed its lines (TI-664). */
+  confidence?: ConfidenceCounts;
 };
 
 type TruthKey = {
@@ -456,6 +479,8 @@ export type ScoreReadings = {
   failures?: ReadonlyMap<string, readonly ReadFailure[]>;
   /** Per document, the chunks (1-based) that read each of its items, in the order of its items. */
   chunks?: ReadonlyMap<string, ReadonlyArray<readonly number[]>>;
+  /** Per document, the guard tier of each of its items, in the order of its items (TI-664). */
+  tiers?: ReadonlyMap<string, readonly GuardTier[]>;
 };
 
 type MissedKey = { key: TruthKey; score: KeyScore; reviewed: PlanCause | undefined; paired: boolean };
@@ -500,6 +525,18 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
   // Item identity, never a copy of its entry: entries are spread into AttachedItem.
   const highConfidence = new Set<TakeoffItem>();
   const erroneous = new Set<TakeoffItem>();
+  const tierOf = new Map<TakeoffItem, GuardTier>();
+  const confidence: ConfidenceCounts | undefined = readings.tiers
+    ? { lines: { rejected: 0, uncertain: 0, high: 0 }, keys_high_confidence: 0, keys_high_confidence_error: 0, high_confidence_errors: [] }
+    : undefined;
+  /** Lines all at high confidence (at least one): the key or group would be applied without anybody's look. */
+  const allHigh = (lines: ReadonlyArray<{ item: TakeoffItem }>) => lines.length > 0 && lines.every(({ item }) => tierOf.get(item) === "high");
+  const highError = (key: KeyLabel | null, kind: "out_of_tolerance" | "invented", lines: ReadonlyArray<{ item: TakeoffItem }>, cause: BenchCause | null,
+    reason: FalsePositiveReason | null = null) => {
+    if (!confidence || !allHigh(lines)) return;
+    confidence.keys_high_confidence_error += 1;
+    confidence.high_confidence_errors.push({ key, kind, items: lines.length, cause: cause?.label ?? null, reason });
+  };
   const counts = result.counts;
   const indicative = result.indicative;
   const addUnreadable = (reason: FalsePositiveReason, entry: ScopedItem, key: LocatedKey | null, among: readonly string[] = []) =>
@@ -511,8 +548,14 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
 
   for (const document of scope.documents) {
     const chunks = readings.chunks?.get(document.id);
+    const tiers = readings.tiers?.get(document.id);
     for (const [index, item] of (items.get(document.id) ?? []).entries()) {
       const entry: ScopedItem = { document: document.id, item, chunks: chunks?.[index] ?? null };
+      if (confidence) {
+        const tier = tiers?.[index] ?? "rejected";
+        tierOf.set(item, tier);
+        confidence.lines[tier] += 1;
+      }
       counts.items += 1;
       indicative.items += 1;
       if (item.evidence?.trim() && typeof item.source_page === "number" && item.source_page >= 1) indicative.localized_items += 1;
@@ -587,6 +630,7 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       ...base, expected, actual: total, tolerance: round(toleranceOf(key.unit, expected)),
       relative_deviation: expected === 0 ? null : round((total - expected) / expected),
     };
+    if (confidence && allHigh(attached)) confidence.keys_high_confidence += 1;
     if (withinTolerance(key.unit, expected, total)) {
       counts.keys_ok += 1;
       indicative.matched_keys += 1;
@@ -610,6 +654,7 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       : above && hasIdenticalPair(attached) ? nous("compte_deux_fois")
         : { label: "indetermine", origin: "indetermine" as const, sign: above ? "+" as const : "-" as const, relative_deviation: scored.relative_deviation };
     result.keys.push({ ...scored, status: "out_of_tolerance", cause });
+    highError(key.label, "out_of_tolerance", attached, cause);
   }
 
   // One deviation per pair, one to one: a missed key and the unmatched group one network, one DN or one unit apart
@@ -648,6 +693,8 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
       pages: [...new Set(entries.map(pageOf))], designations: [...new Set(entries.map(({ item }) => item.designation))].slice(0, 5), cause,
       paired_with: pair ? pair.miss.key.label : null,
     });
+    if (confidence && allHigh(entries)) confidence.keys_high_confidence += 1;
+    highError(itemLabel(first), "invented", entries, cause);
   }
   const unreadableGroup = (reason: FalsePositiveReason, entries: readonly UnreadableItem[], pairedWith: KeyLabel | null): FalsePositiveGroup => ({
     key: null, reason, items: entries.length, quantity: sum(entries.map(({ item }) => item.quantity)),
@@ -664,6 +711,12 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
     }
     const rest = entries.filter((entry) => !itemPairs.has(entry));
     if (rest.length > 0) result.false_positives.push(unreadableGroup(reason, rest, null));
+    // An unreadable line is a key of its own for the confidence counter: the lines of one reason share nothing
+    // but it, so a rule rejecting one of them never hides another's error.
+    for (const entry of entries) {
+      if (confidence && allHigh([entry])) confidence.keys_high_confidence += 1;
+      highError(null, "invented", [entry], { label: "indetermine:illisible", origin: "indetermine", reason }, reason);
+    }
   }
 
   counts.unreadable = unreadable.length;
@@ -680,7 +733,7 @@ function scoreScope(scope: ScoreScope, keys: readonly TruthKey[], roleKeys: read
   indicative.candidates = indicative.matched_keys + result.false_positives.length;
   indicative.high_confidence_items = highConfidence.size;
   indicative.high_confidence_errors = [...highConfidence].filter((item) => erroneous.has(item)).length;
-  return result;
+  return confidence ? { ...result, confidence } : result;
 }
 
 /**
