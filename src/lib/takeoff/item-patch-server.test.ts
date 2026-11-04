@@ -130,6 +130,48 @@ describe("takeoff item patch persistence", () => {
     expect(fake.writesTo("takeoff_items")).toHaveLength(1);
   });
 
+  // TI-664 L5c: a saved line's rules read the other lines of its job (a run on two zone plans, two rooms of a page).
+  // Ways the review fails, written before the fix:
+  // - only the saved lines are read back: a partner line keeps, in the review, results the server just recomputed
+  //   (shown failed when settled, or settled when failed);
+  // - when the computation fails or is skipped, the partners made stale by the edit still read as evaluated;
+  // - lines no rule reads are sent too (a flag-off version pays for nothing it shows).
+  it("returns the rule state of the job's lines read after the rules, even when they could not run", async () => {
+    const evaluatedAt = "2026-01-01T00:03:00.000Z";
+    const failing = [{ rule: "zone_overlap", status: "fail", code: "ZONE_OVERLAP_DUPLICATE", version: 101, acceptable: true,
+      reason: "Tronçon compté aussi sur une autre page du niveau R+1 que Z1 : 1,00 m avec « EF » (Z2)." }];
+    const fake = createSupabaseFake({
+      tables: {
+        takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
+        takeoff_items: (query) => {
+          const id = filterValue(query, "id");
+          if (query.operation === "update") {
+            return { data: { ...takeoffItemRow({ id }), ...query.payload as object, rules_stale: true }, error: null };
+          }
+          if (id) return { data: takeoffItemRow({ id, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: false }), error: null };
+          return { data: [
+            { id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+            { id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+            { id: THIRD_ITEM_ID, rule_results: [], rules_evaluated_at: null, rules_stale: false },
+          ], error: null, count: 3 };
+        },
+        audit_logs: () => ({ data: null, error: null }),
+      },
+      rpc: { takeoff_rule_version_stamp: () => ({ data: null, error: { message: "verrou de version" } }) },
+    });
+    useFake(fake);
+
+    const response = await batchUpdateTakeoffItems(M3_JOB_ID, { items: [entry(M3_ITEM_ID)] });
+
+    expect(response.results).toMatchObject([{ item_id: M3_ITEM_ID, success: true, item: { quantity: 18 } }]);
+    expect(response.rule_states).toEqual([
+      { item_id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { item_id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+    ]);
+    const stateRead = fake.queries.find((query) => query.table === "takeoff_items" && query.operation === "select" && !filterValue(query, "id"));
+    expect(stateRead && [filterValue(stateRead, "tenant_id"), filterValue(stateRead, "job_id")]).toEqual([M3_TENANT_ID, M3_JOB_ID]);
+  });
+
   it.each(["viewer", "buyer"])('refuses the role "%s" before reading any job', async (role) => {
     const fake = createSupabaseFake({});
     useFake(fake, role);

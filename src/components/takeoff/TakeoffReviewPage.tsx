@@ -41,8 +41,10 @@ import {
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
-import { releaseEstimateDraftLock } from "@/lib/estimates/client";
-import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
+import {
+  useTakeoffApplyConfirm,
+  useTakeoffLowConfidenceThreshold,
+} from "@/components/takeoff/review/useTakeoffReviewSupport";
 
 const TakeoffApplyWizard = dynamic(
   () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
@@ -80,7 +82,6 @@ const LazyValidationReviewPanel = dynamic(
   }
 );
 import {
-  applyTakeoffJob,
   fetchTakeoffDpgfComparison,
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
@@ -90,13 +91,11 @@ import {
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
 import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
-import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
-import {
-  checkApplyGuard,
-  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
-} from "@/lib/takeoff/guards";
+import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
+import { checkApplyGuard } from "@/lib/takeoff/guards";
 import type {
+  TakeoffApplyResponse,
   TakeoffDpgfComparisonResponse,
   TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
@@ -106,7 +105,6 @@ import type {
   TakeoffJobSummary,
   TakeoffTable,
 } from "@/lib/takeoff/types";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -151,14 +149,6 @@ const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
 const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
 
-function parseLowConfidenceThreshold(value: string | null): number {
-  if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  return parsed;
-}
-
 // ---------------------------------------------------------------------------
 // Main orchestrator
 // ---------------------------------------------------------------------------
@@ -174,19 +164,7 @@ export default function TakeoffReviewPage({
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
   const { isSimplified } = useUiMode();
-  const {
-    enabled: isLowConfidenceThresholdEnabled,
-    value: lowConfidenceThresholdRaw,
-  } = useFeatureFlag(
-    TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY
-  );
-  const lowConfidenceThreshold = useMemo(
-    () =>
-      parseLowConfidenceThreshold(
-        isLowConfidenceThresholdEnabled ? lowConfidenceThresholdRaw : null
-      ),
-    [isLowConfidenceThresholdEnabled, lowConfidenceThresholdRaw]
-  );
+  const lowConfidenceThreshold = useTakeoffLowConfidenceThreshold();
 
   // ---- Review mode from URL (V3-012: Assisté / Production / Validation)
   const reviewModeParam = searchParams.get("reviewMode");
@@ -369,8 +347,6 @@ export default function TakeoffReviewPage({
 
   // ---- Apply wizard state
   const [applyWizardOpen, setApplyWizardOpen] = useState(false);
-  const [applySubmitting, setApplySubmitting] = useState(false);
-  const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<ApplySuccessSummary | null>(null);
 
   // ---- Auto-save
@@ -695,13 +671,22 @@ export default function TakeoffReviewPage({
     []
   );
 
+  // TI-664 L5c: PATCH answers carry the job's rule states; one that arrives after a later request's answer (autosave
+  // and cherry-pick race) is older and leaves them as they are.
+  const patchSequence = useRef({ sent: 0, applied: 0 });
+  const nextPatchSequence = useCallback(() => {
+    patchSequence.current.sent += 1;
+    return patchSequence.current.sent;
+  }, []);
   const applyPatchResults = useCallback(
-    (response: TakeoffItemBatchPatchResponse) => {
+    (response: TakeoffItemBatchPatchResponse, sequence: number) => {
+      const fresh = sequence > patchSequence.current.applied;
+      if (fresh) patchSequence.current.applied = sequence;
       const resultByItemId = new Map(
         response.results.map((entry) => [entry.item_id, entry] as const)
       );
       setItems((prev) =>
-        prev.map((item) => {
+        withRuleStates(prev.map((item) => {
           const result = resultByItemId.get(item.id);
           if (!result) return item;
 
@@ -720,7 +705,8 @@ export default function TakeoffReviewPage({
             _saving: false,
             _error: result.error ?? "Erreur inconnue.",
           };
-        })
+          // TI-664 L5c: the partners of the saved lines read again with them; a line still edited keeps its own.
+        }), fresh ? response.rule_states : undefined, (item) => item._dirty || item._saving)
       );
     },
     []
@@ -771,10 +757,11 @@ export default function TakeoffReviewPage({
         index += TAKEOFF_ITEM_PATCH_BATCH_MAX
       ) {
         const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+        const sequence = nextPatchSequence();
         const response = await patchTakeoffItems(jobId, { items: chunk });
         failedCount += response.failed;
         savedCount += response.succeeded;
-        applyPatchResults(response);
+        applyPatchResults(response, sequence);
       }
 
       if (failedCount > 0) {
@@ -808,7 +795,7 @@ export default function TakeoffReviewPage({
     } finally {
       savingRef.current = false;
     }
-  }, [applyPatchResults, items, jobId, toast]);
+  }, [applyPatchResults, items, jobId, nextPatchSequence, toast]);
 
   // Trigger auto-save debounce when items change
   const hasDirty = items.some((i) => i._dirty);
@@ -1012,8 +999,9 @@ export default function TakeoffReviewPage({
         let failedCount = 0;
         for (let index = 0; index < patchEntries.length; index += TAKEOFF_ITEM_PATCH_BATCH_MAX) {
           const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+          const sequence = nextPatchSequence();
           const response = await patchTakeoffItems(jobId, { items: chunk });
-          applyPatchResults(response);
+          applyPatchResults(response, sequence);
           failedCount += response.failed;
         }
 
@@ -1044,7 +1032,7 @@ export default function TakeoffReviewPage({
         setApplySelectionSubmitting(false);
       }
     },
-    [applyPatchResults, items, jobId, toast]
+    [applyPatchResults, items, jobId, nextPatchSequence, toast]
   );
 
   const handleExclusionConfirm = useCallback(
@@ -1146,68 +1134,41 @@ export default function TakeoffReviewPage({
     hasSaveErrors,
     isDpgfValidationPending,
   ]);
-  const handleOpenApplyWizard = useCallback(() => {
-    if (!isApplyReady) return;
-    setApplyWizardOpen(true);
-    setApplyError(null);
-  }, [isApplyReady]);
-
   // ---- Apply handler
-  const handleApplyConfirm = useCallback(
-    async (payload: TakeoffApplyWizardSubmitPayload) => {
-      setApplySubmitting(true);
-      setApplyError(null);
-      let shouldReleaseDraftLock = false;
-
-      try {
-        const lockResult = await ensureTakeoffApplyDraftLock(versionId);
-        if (!lockResult.acquired) {
-          setApplyError(
-            lockResult.errorMessage ??
-              "Impossible d'acquérir le verrou de brouillon de la version cible."
-          );
-          return;
-        }
-
-        shouldReleaseDraftLock = lockResult.shouldRelease;
-
-        const response = await applyTakeoffJob(jobId, {
-          strategy: payload.strategy,
-          target_section_id: payload.targetSectionId,
-          overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
-          override: payload.override,
-          override_justification: payload.overrideJustification,
-        }, versionId);
-        setApplyWizardOpen(false);
-        setApplySuccess({
-          appliedAt: new Date().toISOString(),
-          targetSectionLabel: payload.targetSectionLabel,
-          strategy: payload.strategy,
-          createdCount: response.summary.created_count,
-          updatedCount: response.summary.updated_count,
-          ignoredCount: response.summary.ignored_count,
-        });
-        setJobStatus("applied");
-        toast.success({
-          title: "Apply contrôlé terminé",
-          description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).`,
-        });
-        if (!isAffaireContext) {
-          router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
-        }
-      } catch (err) {
-        setApplyError(
-          isTakeoffApiError(err) ? err.message : "Erreur lors de l'application."
-        );
-      } finally {
-        if (shouldReleaseDraftLock) {
-          void releaseEstimateDraftLock(versionId).catch(() => false);
-        }
-        setApplySubmitting(false);
+  const handleApplied = useCallback(
+    (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => {
+      setApplyWizardOpen(false);
+      setApplySuccess({
+        appliedAt: new Date().toISOString(),
+        targetSectionLabel: payload.targetSectionLabel,
+        strategy: payload.strategy,
+        createdCount: response.summary.created_count,
+        updatedCount: response.summary.updated_count,
+        ignoredCount: response.summary.ignored_count,
+      });
+      setJobStatus("applied");
+      toast.success({
+        title: "Apply contrôlé terminé",
+        description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).`,
+      });
+      if (!isAffaireContext) {
+        router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
       }
     },
     [jobId, isAffaireContext, router, toast, versionId]
   );
+  const {
+    submitting: applySubmitting,
+    error: applyError,
+    setError: setApplyError,
+    confirm: handleApplyConfirm,
+  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+
+  const handleOpenApplyWizard = useCallback(() => {
+    if (!isApplyReady) return;
+    setApplyWizardOpen(true);
+    setApplyError(null);
+  }, [isApplyReady, setApplyError]);
 
   const reviewTitle = isAffaireContext
     ? "Revue des exceptions & preuves"
@@ -1218,6 +1179,11 @@ export default function TakeoffReviewPage({
   const backLabel = isAffaireContext
     ? "Centre d'activité métrés"
     : "Retour à l'extraction";
+  // TI-664 L5c: the lines the guard rejects or finds uncertain, settled one by one in the targeted review (affaire).
+  const targetedReviewCount = guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0;
+  const targetedReviewHref = isAffaireContext
+    ? `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`
+    : undefined;
 
   if (loading) {
     return <TakeoffReviewLoadingState title={reviewTitle} />;
@@ -1284,6 +1250,15 @@ export default function TakeoffReviewPage({
                 <Badge variant="neutral" size="sm">
                   {getBusinessLevelLabel(jobLevel)}
                 </Badge>
+              ) : null}
+              {/* Hidden while an edit is being saved: leaving would drop it. */}
+              {targetedReviewHref && targetedReviewCount > 0 && !hasAlreadyBeenApplied && !hasDirtyOrSaving ? (
+                <Link
+                  href={targetedReviewHref}
+                  className={buttonVariants({ variant: "secondary" })}
+                >
+                  Revue ciblée · {targetedReviewCount} ligne{targetedReviewCount > 1 ? "s" : ""}
+                </Link>
               ) : null}
               <Link
                 href={backHref}
@@ -1428,6 +1403,7 @@ export default function TakeoffReviewPage({
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
         onReturnToReview={() => setApplyWizardOpen(false)}
+        targetedReviewHref={targetedReviewHref}
       /> : null}
 
       {/* ---- Evidence panel ---- */}

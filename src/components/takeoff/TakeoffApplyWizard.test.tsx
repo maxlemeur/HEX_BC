@@ -63,6 +63,40 @@ const PREVIEW_RESPONSE = {
   ],
 };
 
+// TI-664 L5c: the wizard's guard counts the lines the server's guard counts. Ways it fails, written before the fix:
+// - a line the mapping plan skips (or folds into an assembly) still blocks in the wizard, never on the server;
+// - the guard panel names a failed rule only « Règle en échec », without its reason (the Z1/Z2 length, the other zone).
+const RULE_REASON = "Tronçon compté aussi sur une autre page du niveau R+1 que Z1 : 1,00 m avec « EF Inox 316L DN 22 » (Z2).";
+const RULE_ITEM = {
+  id: ITEM_ID, designation: "Tube PVC", quantity: 12, unit: "ml", confidence: 0.9, evidence: "Plan R+1 Z1",
+  source_file_name: "plan.pdf", source_page: 1, metadata: {}, is_excluded: false, exclusion_reason: null,
+  is_verified: false, verified_at: null, verified_by: null, created_at: "2026-11-04T10:00:00.000Z", updated_at: "2026-11-04T10:00:00.000Z",
+  rules_stale: false,
+  rule_results: [{ rule: "zone_overlap" as const, status: "fail" as const, code: "ZONE_OVERLAP_DUPLICATE" as const, version: 101,
+    acceptable: true, reason: RULE_REASON }],
+};
+
+function withAction(action: "skip" | "apply_assembly" | "set_price") {
+  return { ...PREVIEW_RESPONSE, items: [{ ...PREVIEW_RESPONSE.items[0], action,
+    transformed: { ...PREVIEW_RESPONSE.items[0].transformed, is_excluded: action === "skip" } }] };
+}
+
+async function reachConfirmation() {
+  await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
+  fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+  fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+}
+
+function renderRuleWizard() {
+  render(
+    <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+      submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn().mockResolvedValue(undefined)}
+      items={[RULE_ITEM]} jobLevel="C" />
+  );
+}
+
 describe("TakeoffApplyWizard", () => {
   afterEach(() => {
     cleanup();
@@ -120,5 +154,24 @@ describe("TakeoffApplyWizard", () => {
       expect(screen.queryByText(/Les ajustements ont changé/i)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled();
     });
+  });
+
+  it.each(["skip", "apply_assembly"] as const)("does not block a failed line the mapping plan leaves out (%s), as the server does not", async (action) => {
+    vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction(action));
+    renderRuleWizard();
+    await reachConfirmation();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled());
+    expect(screen.queryByText(RULE_REASON, { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("blocks a failed line the plan keeps and names its rule and reason", async () => {
+    vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("set_price"));
+    renderRuleWizard();
+    await reachConfirmation();
+
+    await waitFor(() => expect(screen.getByText(RULE_REASON, { exact: false })).toBeInTheDocument());
+    expect(screen.getByText(/Doublon entre zones/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeDisabled();
   });
 });

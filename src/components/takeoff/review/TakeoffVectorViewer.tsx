@@ -86,7 +86,14 @@ async function readJson(url: string) {
   return response.json() as Promise<{ data?: unknown }>;
 }
 
-export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planSetId: string | null }) {
+/**
+ * TI-664 L5c, the targeted review's use (two optional props, nothing else changes): `focusItemIds` turns to the page
+ * of the first of those lines and draws them over the others, dimmed; `fill` lets the viewer take the height of a
+ * tool layout panel instead of its fixed frame.
+ */
+export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = false }: {
+  jobId: string; planSetId: string | null; focusItemIds?: readonly string[]; fill?: boolean;
+}) {
   const [reading, setReading] = useState<TakeoffVectorReadingResponse | null>(null);
   const [error, setError] = useState("");
   /** Why the page's plan is not drawn under its geometry: no source PDF or a failed load (reset with the source), or a failed render (reset with each render). */
@@ -118,6 +125,16 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
       active = false;
     };
   }, [jobId]);
+
+  // The page of the first focused line that has geometry; a line without geometry leaves the page as it is.
+  const focusKey = (focusItemIds ?? []).join(",");
+  useEffect(() => {
+    if (!reading || focusKey === "") return;
+    const ids = focusKey.split(",");
+    const target = ids.map((id) => reading.pages.find((entry) => entry.items.some((item) => item.takeoff_item_id === id))).find(Boolean);
+    if (target) setPageId(target.id);
+  }, [focusKey, reading]);
+  const focus = useMemo(() => new Set(focusKey === "" ? [] : focusKey.split(",")), [focusKey]);
 
   const page = reading?.pages.find((entry) => entry.id === pageId) ?? null;
   const networks = useMemo(() => {
@@ -183,10 +200,19 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
     setOffset({ x: 0, y: 0 });
   }, [page]);
 
+  // `fill`: the frame follows its panel, and the page fits it again when the panel or the window changes width.
+  const [frameWidth, setFrameWidth] = useState(0);
+  useEffect(() => {
+    const element = frame.current;
+    if (!fill || !element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setFrameWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [fill, reading]);
   const fit = useMemo(() => {
-    const width = frame.current?.clientWidth ?? 0;
+    const width = (fill ? frameWidth : 0) || (frame.current?.clientWidth ?? 0);
     return base && width > 0 ? width / base.width : 0.25;
-  }, [base]);
+  }, [base, fill, frameWidth]);
   const scale = fit * zoom;
 
   useEffect(() => {
@@ -262,8 +288,10 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
   const reviewCount = page?.reading.to_review ?? 0;
 
   return (
-    <section aria-label="Lecture vectorielle du plan" className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[18rem_1fr]">
-      <div className="flex min-w-0 flex-col gap-3">
+    <section aria-label="Lecture vectorielle du plan" className={fill
+      ? "grid h-full min-h-0 grid-cols-[16rem_1fr] gap-3 bg-surface p-3"
+      : "grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[18rem_1fr]"}>
+      <div className={fill ? "flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto" : "flex min-w-0 flex-col gap-3"}>
         <label className="text-xs font-medium text-muted-foreground" htmlFor={`vector-page-${jobId}`}>Page lue</label>
         <NativeSelect id={`vector-page-${jobId}`} size="sm" value={pageId ?? ""} onChange={(event) => setPageId(event.target.value)}>
           {reading.pages.map((entry) => (
@@ -317,7 +345,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
           {(page?.items ?? []).filter((item) => !hidden.has(toggleOf(item))).length} / {page?.items.length ?? 0} éléments affichés
         </p>
       </div>
-      <div className="flex min-w-0 flex-col gap-2">
+      <div className={fill ? "flex min-h-0 min-w-0 flex-col gap-2" : "flex min-w-0 flex-col gap-2"}>
         <div className="flex items-center gap-1" role="toolbar" aria-label="Zoom du plan">
           <Button size="icon-sm" variant="outline" aria-label="Zoom arrière" onClick={() => setZoom((value) => Math.max(0.25, value / 1.25))}><Minus className="size-4" /></Button>
           <Button size="sm" variant="outline" onClick={() => setZoom(1)}>100 %</Button>
@@ -325,7 +353,7 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
           <Button size="sm" variant="ghost" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}><Maximize2 className="mr-1 size-4" />Ajuster</Button>
           {rendering ? <LoaderCircle aria-label="Rendu du plan" className="ml-2 size-4 animate-spin text-muted-foreground" /> : null}
         </div>
-        <div ref={frame} className="relative h-[32rem] cursor-grab overflow-hidden rounded-md border border-border-subtle bg-surface-subtle"
+        <div ref={frame} className={`relative ${fill ? "min-h-0 flex-1" : "h-[32rem]"} cursor-grab overflow-hidden rounded-md border border-border-subtle bg-surface-subtle`}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; }}
           onPointerLeave={() => { drag.current = null; }}>
           <div className="absolute left-0 top-0" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>
@@ -333,11 +361,18 @@ export function TakeoffVectorViewer({ jobId, planSetId }: { jobId: string; planS
             {base ? (
               <svg aria-label="Géométrie mesurée" role="img" className="absolute left-0 top-0" width={base.width * scale} height={base.height * scale}>
                 {hidden.has(SURFACES) ? null : surfaces.map((item) => item.geometry.polygon_m === null ? null : (
-                  <polygon key={item.takeoff_item_id} data-kind="surface" fill="none" stroke={SURFACE_COLOR} strokeWidth={2} strokeDasharray="6 3"
+                  <polygon key={item.takeoff_item_id} data-kind="surface" data-focus={focus.has(item.takeoff_item_id) || undefined}
+                    fill={focus.has(item.takeoff_item_id) ? SURFACE_COLOR : "none"} fillOpacity={0.15} stroke={SURFACE_COLOR}
+                    strokeWidth={focus.has(item.takeoff_item_id) ? 4 : 2} strokeDasharray="6 3"
+                    strokeOpacity={focus.size > 0 && !focus.has(item.takeoff_item_id) ? 0.35 : 1}
                     points={item.geometry.polygon_m.map(toScreen).join(" ")} />
                 ))}
-                {(page?.items ?? []).filter((item) => item.geometry.kind === "network" && !hidden.has(networkLabel(item))).map((item) => (
-                  <g key={item.takeoff_item_id} data-network={networkLabel(item)} stroke={colorOf.get(networkLabel(item)) ?? PALETTE[0]} strokeWidth={3} strokeLinecap="round">
+                {(page?.items ?? []).filter((item) => item.geometry.kind === "network" && !hidden.has(networkLabel(item)))
+                  // A focused line is drawn last, over the others.
+                  .sort((left, right) => Number(focus.has(left.takeoff_item_id)) - Number(focus.has(right.takeoff_item_id))).map((item) => (
+                  <g key={item.takeoff_item_id} data-network={networkLabel(item)} data-focus={focus.has(item.takeoff_item_id) || undefined}
+                    stroke={colorOf.get(networkLabel(item)) ?? PALETTE[0]} strokeWidth={focus.has(item.takeoff_item_id) ? 7 : 3} strokeLinecap="round"
+                    strokeOpacity={focus.size > 0 && !focus.has(item.takeoff_item_id) ? 0.35 : 1}>
                     {item.geometry.segments_m.map(([x0, y0, x1, y1], index) => (
                       <line key={index} x1={toScreen(x0)} y1={toScreen(y0)} x2={toScreen(x1)} y2={toScreen(y1)} />
                     ))}

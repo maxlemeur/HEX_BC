@@ -20,6 +20,8 @@ type ExclusionReasonDialogProps = {
   onOpenChange: (open: boolean) => void;
   count: number;
   onConfirm: (reason: string) => void;
+  /** A reason proposed when the dialog mounts (the targeted review's « Retirer la ligne »); the user may edit it. */
+  defaultReason?: string;
 };
 
 /** Asks for the mandatory exclusion reason before excluding takeoff items. */
@@ -28,9 +30,10 @@ export function ExclusionReasonDialog({
   onOpenChange,
   count,
   onConfirm,
+  defaultReason = "",
 }: ExclusionReasonDialogProps) {
   const reasonId = useId();
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(defaultReason);
   const canConfirm = reason.trim().length > 0;
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
