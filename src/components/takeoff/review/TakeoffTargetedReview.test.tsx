@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
@@ -168,5 +169,19 @@ describe("TakeoffTargetedReview", () => {
     const quantity = await screen.findByLabelText("Quantité");
     await waitFor(() => expect(quantity).toHaveFocus());
     expect(quantity).toHaveValue("5");
+  });
+
+  // Codex #162: the field's blur ended an unchanged entry before the click on « Enregistrer » landed.
+  it("confirms an unchanged quantity to enter with a click on Enregistrer", async () => {
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: ITEMS[0] }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const list = await open();
+    choose(list, "Soudures des réseaux");
+    await user.click(screen.getByRole("button", { name: /^Saisir/ }));
+    await waitFor(() => expect(screen.getByLabelText("Quantité à saisir")).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: /^Enregistrer/ }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter,
+      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entered: true } }] }));
   });
 });

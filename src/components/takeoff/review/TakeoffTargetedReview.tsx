@@ -598,7 +598,12 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                 if (event.key === "Escape") { event.preventDefault(); onCancelEntry(); }
               }} />
             <span className="text-muted-foreground">{item.unit}</span>
-            {draft !== null ? <Button size="xs" onClick={onCommit} disabled={disabled} aria-keyshortcuts="Enter">Enregistrer<Kbd>Entrée</Kbd></Button> : null}
+            {/* Pressing it keeps the focus in the field: its blur would end an unchanged entry before the click (Codex #162). */}
+            {draft !== null ? (
+              <Button size="xs" onMouseDown={(event) => event.preventDefault()} onClick={onCommit} disabled={disabled} aria-keyshortcuts="Enter">
+                Enregistrer<Kbd>Entrée</Kbd>
+              </Button>
+            ) : null}
           </div>
           <p id={`targeted-quantity-hint-${item.id}`} className="text-xs text-muted-foreground">
             {toEnter
