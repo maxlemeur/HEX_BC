@@ -293,6 +293,9 @@ reset role;
 -- The server computes the version: 307 passes, 308 is excluded.
 update public.takeoff_items set rules_stale = false, rules_evaluated_at = now()
 where id in ('9e000000-0000-4000-8000-000000000409', '9e000000-0000-4000-8000-000000000410');
+-- What that computation read of 307: its stale token, as a later, obsolete computation would pass it.
+select set_config('test.peer_stale_at', coalesce((select to_jsonb(item) ->> 'rules_stale_at' from public.takeoff_items as item
+  where item.id = '9e000000-0000-4000-8000-000000000409'), ''), true);
 set local role authenticated;
 select is(pg_temp.rules_exec('peer-2', 'update public.takeoff_items set is_excluded = false, exclusion_reason = null
   where id = ''9e000000-0000-4000-8000-000000000410'''), 'ok', 'the engineer includes the Z2 line again');
@@ -301,6 +304,22 @@ select is((select rules_stale from public.takeoff_items where id = '9e000000-000
 -- The computation fails: nothing is written. The Z1 job's application is refused.
 select is(pg_temp.rules_apply('peer-3', '9e000000-0000-4000-8000-000000000307'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
   'a line made stale by its partner''s edit blocks the application until the version is computed again');
+-- An obsolete computation never clears that stale state (Codex review of L5b): it read 307 before 308 came back, and
+-- the edit landed after its stamp check (no stamp below). The partner's invalidation did not move 307's updated_at;
+-- the writer must still see that 307 went stale again since it was read.
+reset role;
+set local role service_role;
+select is(
+  (select count(*)::integer from public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
+    '9e000000-0000-4000-8000-000000000107', jsonb_build_array(jsonb_build_object('id', '9e000000-0000-4000-8000-000000000409',
+      'results', '[{"rule":"zone_overlap","status":"pass","code":"ZONE_OVERLAP_NONE","version":101,"acceptable":true,"reason":"Aucun tronçon commun."}]'::jsonb,
+      'expected_updated_at', current_setting('test.peer_updated_at'),
+      'expected_stale_at', nullif(current_setting('test.peer_stale_at'), ''))), '[]'::jsonb, null)),
+  0, 'a computation that read a line before its partner''s edit never clears the stale state that edit set');
+reset role;
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000409'), true,
+  'the line stays stale until a computation that read it after the edit');
+set local role authenticated;
 
 reset role;
 
@@ -325,7 +344,8 @@ select is(
 select is(
   (select count(*)::integer from public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
     '9e000000-0000-4000-8000-000000000104', jsonb_build_array(jsonb_build_object('id', '9e000000-0000-4000-8000-000000000404',
-      'results', '[]'::jsonb, 'expected_updated_at', (select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'))),
+      'results', '[]'::jsonb, 'expected_updated_at', (select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'),
+      'expected_stale_at', (select rules_stale_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'))),
     '[]'::jsonb, 'a stamp read before an edit')),
   0, 'the writer writes nothing when the version changed since the computation read it');
 select is(
@@ -336,7 +356,8 @@ select is(
 select is(
   (select count(*)::integer from public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
     '9e000000-0000-4000-8000-000000000104', jsonb_build_array(jsonb_build_object('id', '9e000000-0000-4000-8000-000000000404',
-      'results', '[]'::jsonb, 'expected_updated_at', (select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'))))),
+      'results', '[]'::jsonb, 'expected_updated_at', (select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'),
+      'expected_stale_at', (select rules_stale_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'))))),
   1, 'the server computes the stale line again');
 reset role;
 

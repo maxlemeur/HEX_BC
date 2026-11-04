@@ -283,6 +283,11 @@ modification client) ou arrive périmée (les nouvelles lignes du worker), les l
 les bloque, dans le trigger comme dans `checkApplyGuard` : jamais un ancien « passe »
 appliqué. Seul ce drapeau bouge, `updated_at` reste le jeton de la revue.
 
+Chaque invalidation date la ligne (`rules_stale_at`), même déjà périmée. L'écrivain
+n'écrit une ligne que telle que le calcul l'a lue, `updated_at` et `rules_stale_at`
+compris : un calcul qui l'a lue avant l'édition d'un partenaire, même validée après
+son contrôle de l'empreinte de version, ne lève jamais cette invalidation.
+
 **Saisie d'une quantité à saisir** : `quantity_entered_by` et `quantity_entered_at`.
 
 - Ils sont attestés par leur auteur, comme `is_verified`.

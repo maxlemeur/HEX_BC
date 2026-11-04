@@ -44,6 +44,7 @@ type JobRow = { id: string; status: string; created_at: string };
 type ItemRow = {
   id: string; job_id: string; designation: string; unit: string; quantity: number; is_excluded: boolean; updated_at: string;
   metadata: unknown; source_file_name: string | null; source_page: number | null; rule_results: unknown; rules_stale: boolean;
+  rules_stale_at: string | null;
   rules_evaluated_at: string | null; quantity_entered_by: string | null;
 };
 type PageRow = { id: string; job_id: string; source_file_name: string | null; source_page: number; reading: unknown; rule_anchors: unknown };
@@ -110,7 +111,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
 
   const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
     .select(("id, job_id, designation, unit, quantity, is_excluded, updated_at, metadata, source_file_name, source_page, "
-      + "rule_results, rules_stale, rules_evaluated_at, quantity_entered_by") as never, { count: "exact" })
+      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entered_by") as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, jobIds as never));
   if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
   const items = ((itemData ?? []) as unknown as ItemRow[]).map((item) => ({ item, inputs: readRuleInputs(item.metadata) }));
@@ -156,13 +157,14 @@ export async function recomputeTakeoffRulesForVersion(input: {
   });
   const evaluation = evaluateTakeoffRules({ lines, pages });
 
-  const writes: Array<{ id: string; results: TakeoffRuleResult[]; expected_updated_at: string }> = [];
+  // Each line as read: its updated_at and when it was last made stale (a partner's later edit keeps it stale).
+  const writes: Array<{ id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null }> = [];
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
   for (const { item, inputs } of items) {
     if (inputs === null || status.get(item.job_id) !== "completed") continue;
     const results = boundRuleResults(evaluation.results.get(item.id) ?? []);
     if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, results)) {
-      writes.push({ id: item.id, results, expected_updated_at: item.updated_at });
+      writes.push({ id: item.id, results, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
     }
     const stored = geometries.get(item.id);
     if (stored) {

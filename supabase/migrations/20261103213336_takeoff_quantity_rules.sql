@@ -6,7 +6,10 @@
 -- - rules_evaluated_at: when they were computed (null: never, no rule reads it);
 -- - rules_stale: the line, or another line of its version, changed after its
 --   results (quantity, unit, exclusion or page edited by a client, new lines of
---   the worker): they no longer hold until the server computes them again.
+--   the worker): they no longer hold until the server computes them again;
+-- - rules_stale_at: when the line was last made stale (each invalidation moves
+--   it, a stale line's included): the writer clears a line only as it read it,
+--   so a computation that read it before an edit never clears that edit.
 -- The apply trigger counts a line « failed and not settled » as blocked, on
 -- every level (the existing reasons stay level C): stale results, or a failed
 -- rule while the line is not verified, or a failed rule that verifying never
@@ -27,6 +30,7 @@ alter table public.takeoff_items
   add column rule_results jsonb not null default '[]'::jsonb,
   add column rules_evaluated_at timestamptz,
   add column rules_stale boolean not null default false,
+  add column rules_stale_at timestamptz,
   add column quantity_entered_at timestamptz,
   add column quantity_entered_by uuid references public.profiles(id) on delete set null;
 
@@ -82,9 +86,9 @@ create trigger set_takeoff_items_updated_at
   before update on public.takeoff_items
   for each row
   when (
-    (to_jsonb(old) - array['rule_results', 'rules_evaluated_at', 'rules_stale'])
+    (to_jsonb(old) - array['rule_results', 'rules_evaluated_at', 'rules_stale', 'rules_stale_at'])
       is distinct from
-    (to_jsonb(new) - array['rule_results', 'rules_evaluated_at', 'rules_stale'])
+    (to_jsonb(new) - array['rule_results', 'rules_evaluated_at', 'rules_stale', 'rules_stale_at'])
   )
   execute procedure public.set_updated_at();
 
@@ -212,6 +216,7 @@ begin
     )
   then
     new.rules_stale := true;
+    new.rules_stale_at := pg_catalog.clock_timestamp();
   end if;
 
   return new;
@@ -222,9 +227,10 @@ revoke all on function public.enforce_authenticated_takeoff_item_fields()
   from public;
 
 -- The rules of one line read the other lines of its version (a run drawn on two
--- zone plans, two rooms of one page): when a line goes stale (a client edit) or
--- arrives stale (the worker's new lines), the evaluated lines of the version's
--- unapplied jobs go stale with it. If the server's computation then fails or is
+-- zone plans, two rooms of one page): when a line is made stale (a client edit,
+-- even of a line already stale) or arrives stale (the worker's new lines), the
+-- evaluated lines of the version's unapplied jobs are made stale with it, their
+-- rules_stale_at moved (a computation that read them before never clears it). If the server's computation then fails or is
 -- skipped, the stored state blocks them too, in the apply trigger as in
 -- checkApplyGuard (fail closed); the computation clears them. Only the stale
 -- flag moves (updated_at stays the review's token, set_takeoff_items_updated_at
@@ -243,13 +249,12 @@ begin
 
   if tg_op = 'INSERT' then
     update public.takeoff_items as item
-    set rules_stale = true
+    set rules_stale = true, rules_stale_at = pg_catalog.clock_timestamp()
     from public.takeoff_jobs as job
     where job.status = 'completed'::public.takeoff_job_status
       and item.job_id = job.id
       and item.tenant_id = job.tenant_id
       and item.rules_evaluated_at is not null
-      and not item.rules_stale
       and (job.tenant_id, job.estimate_version_id) in (
         select changed_job.tenant_id, changed_job.estimate_version_id
         from new_rows as changed
@@ -258,19 +263,18 @@ begin
       );
   else
     update public.takeoff_items as item
-    set rules_stale = true
+    set rules_stale = true, rules_stale_at = pg_catalog.clock_timestamp()
     from public.takeoff_jobs as job
     where job.status = 'completed'::public.takeoff_job_status
       and item.job_id = job.id
       and item.tenant_id = job.tenant_id
       and item.rules_evaluated_at is not null
-      and not item.rules_stale
       and (job.tenant_id, job.estimate_version_id) in (
         select changed_job.tenant_id, changed_job.estimate_version_id
         from new_rows as changed
         join old_rows as previous on previous.id = changed.id
         join public.takeoff_jobs as changed_job on changed_job.id = changed.job_id and changed_job.tenant_id = changed.tenant_id
-        where changed.rules_stale and not previous.rules_stale
+        where changed.rules_stale and changed.rules_stale_at is distinct from previous.rules_stale_at
       );
   end if;
   return null;
@@ -529,7 +533,8 @@ revoke all on function public.takeoff_rule_version_stamp(uuid, uuid) from public
 grant execute on function public.takeoff_rule_version_stamp(uuid, uuid) to service_role;
 
 -- The server's write of a version's rule results, service role only. A line
--- changed since the server read it (updated_at moved) keeps its stale results:
+-- changed since the server read it (updated_at moved), or made stale since
+-- (rules_stale_at moved, by a partner's edit), keeps its stale results:
 -- the computation that change triggers writes it. Nothing is written when the
 -- version changed since the computation read it (p_stamp, under a lock per
 -- version). Lines of a job no longer completed (applied, cancelled) are never
@@ -594,11 +599,14 @@ begin
   set rule_results = entry.results,
     rules_evaluated_at = pg_catalog.statement_timestamp(),
     rules_stale = false
-  from pg_catalog.jsonb_to_recordset(p_items) as entry(id uuid, results jsonb, expected_updated_at timestamptz)
+  from pg_catalog.jsonb_to_recordset(p_items) as entry(id uuid, results jsonb, expected_updated_at timestamptz,
+    expected_stale_at timestamptz)
   where item.id = entry.id
     and item.tenant_id = p_tenant_id
     and item.job_id = any(writable)
     and item.updated_at = entry.expected_updated_at
+    -- Made stale again since read (a partner's edit after the stamp check): left stale.
+    and item.rules_stale_at is not distinct from entry.expected_stale_at
   returning item.id;
 end;
 $$;
