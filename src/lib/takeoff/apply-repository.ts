@@ -13,6 +13,7 @@ import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/er
 import type { AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import type { TakeoffDpgfComparisonSummary, TakeoffMappingPreviewItem } from "@/lib/takeoff/types";
 import type { checkApplyGuard } from "@/lib/takeoff/guards";
+import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
 
 export async function invokeApplyTakeoffRpc(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
@@ -164,7 +165,7 @@ export async function listTakeoffApplyGuardItems(input: {
   const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_items" as never)
     .select(
-      "id, designation, confidence, evidence, source_page, is_verified, is_excluded" as never,
+      "id, designation, confidence, evidence, source_page, is_verified, is_excluded, rule_results, rules_stale" as never,
       { count: "exact" }
     )
     .eq("tenant_id" as never, input.tenantId as never)
@@ -177,7 +178,11 @@ export async function listTakeoffApplyGuardItems(input: {
     );
   }
 
-  return data as Parameters<typeof checkApplyGuard>[0];
+  // Rule results are written by the server (TI-664); one that no longer parses blocks as stale results would.
+  return (data as Array<Record<string, unknown>>).map((row) => {
+    const results = TakeoffRuleResultsSchema.safeParse(row.rule_results ?? []);
+    return { ...row, rule_results: results.success ? results.data : [], rules_stale: row.rules_stale === true || !results.success };
+  }) as unknown as Parameters<typeof checkApplyGuard>[0];
 }
 
 export async function logTakeoffMappingApplyAuditEvents(input: {

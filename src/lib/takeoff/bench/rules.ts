@@ -1,5 +1,4 @@
 import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING, checkApplyGuard } from "@/lib/takeoff/guards";
-import { isRuleBlocked } from "@/lib/takeoff/rules/blocking";
 import { evaluateTakeoffRules, type RuleLine } from "@/lib/takeoff/rules/evaluate";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
@@ -30,18 +29,19 @@ export function countTiers(tiers: readonly GuardTier[]): TierCounts {
   return counts;
 }
 
-/** Tiers of a document's lines, before (results null) or after the rules. */
+/** Tiers of a document's lines, before (results null) or after the rules: the apply guard's own reading (level C). */
 export function guardTiers(items: readonly TakeoffItem[], results: ReadonlyArray<readonly TakeoffRuleResult[] | null> | null,
   threshold = DEFAULT_LOW_CONFIDENCE_THRESHOLD): GuardTier[] {
   const rows = items.map((item, index) => ({
     id: String(index), designation: item.designation, confidence: item.confidence ?? null, evidence: item.evidence ?? null,
     source_page: item.source_page ?? null, is_verified: false, is_excluded: false,
+    rule_results: results === null ? null : results[index] ?? null, rules_stale: false,
   }));
-  const guard = checkApplyGuard(rows, threshold);
+  const guard = checkApplyGuard(rows, threshold, { level: "C" });
   const blocked = new Set(guard.blocked_items.map((entry) => entry.item_id));
   const medium = new Set(guard.medium_items.map((entry) => entry.item_id));
   return items.map((item, index) => {
-    if (blocked.has(String(index)) || (results !== null && isRuleBlocked(results[index], false, false))) return "rejected";
+    if (blocked.has(String(index))) return "rejected";
     if (medium.has(String(index))) return "uncertain";
     return typeof item.confidence === "number" && item.confidence >= MEDIUM_CONFIDENCE_CEILING ? "high" : "uncertain";
   });

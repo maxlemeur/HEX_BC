@@ -178,6 +178,8 @@ export type VectorItemRecord = {
   /** The item, as the worker inserts it into takeoff_items. */
   item: { designation: string; quantity: number; unit: string; confidence: number; evidence: string; category: string };
   geometry: VectorItemGeometry;
+  /** A room: the label and surface printed in it, carried to its rule inputs (TI-664), never persisted with the geometry. */
+  room?: { label: string; printed_m2: number };
 };
 
 const MATERIAL_LABELS: Record<string, string> = {
@@ -280,6 +282,7 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
       geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "surface", network: null, material: null, dn: null,
         zone: location.zone, level: location.level, groups: [surface.outline.group.slice(0, 120)], segments_m: [], polygon_m: polygon,
         length_m: null, area_m2: surface.polygon_m2, transform: null }),
+      room: { label: surface.room.slice(0, 120), printed_m2: surface.printed_m2 },
     });
   }
   return records;

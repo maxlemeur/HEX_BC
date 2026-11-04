@@ -71,7 +71,7 @@ export async function readWorkerDecisionsCalls(fixture: WorkerDecisions, from = 
 }
 
 export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
-  options: { vectors?: boolean; owner?: WorkerOwner; decisions?: WorkerDecisions } = {}) {
+  options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner; decisions?: WorkerDecisions } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
     throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
   }
@@ -81,6 +81,8 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
   const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
     // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
     ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
+    // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
+    ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
     // TI-662 L3d: Decisions for its vector groups, only with the vector reading, the takeoff opt-in and the fixture's key.
     ...(options.vectors && options.decisions ? { MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture",
       ARMY_DECISIONS_CONTROL: options.decisions.control, ARMY_CHATGPT_TRANSPORT_LOG: options.decisions.transportLog } : {}),

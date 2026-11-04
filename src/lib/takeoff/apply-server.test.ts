@@ -19,6 +19,7 @@ vi.mock("@/lib/takeoff/dpgf-comparison-repository", () => ({ hasTakeoffDpgfTarge
 vi.mock("@/lib/takeoff/dpgf-comparison-context-server", () => ({ loadTakeoffDpgfComparisonContext: vi.fn() }));
 vi.mock("@/lib/takeoff/dpgf-comparison-server", () => ({ fetchDpgfTakeoffComparisonForContext: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({ getTakeoffLowConfidenceThresholdForTenant: vi.fn() }));
+vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn() }));
 vi.mock("@/lib/takeoff/audit", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/audit")>(),
   logTakeoffAuditEvent: vi.fn(),
@@ -65,6 +66,8 @@ beforeEach(() => {
     items: [],
   } as never);
   vi.mocked(hasTakeoffDpgfTargetLines).mockResolvedValue(true);
+  // The guard runs on every level (TI-664): no line blocks here.
+  vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([]);
   vi.mocked(repository.loadTakeoffApplyConcurrencyToken).mockResolvedValue(TOKEN);
   vi.mocked(loadTakeoffDpgfComparisonContext).mockResolvedValue({ jobId: JOB_ID } as never);
   vi.mocked(fetchDpgfTakeoffComparisonForContext).mockResolvedValue({ summary } as never);
@@ -127,5 +130,24 @@ describe("takeoff apply orchestration", () => {
       metadata: expect.objectContaining({ threshold: 0.7, justification: "Contrôle manuel", blocked_item_ids: [SECTION_ID] }),
     }));
     calledBefore(vi.mocked(logTakeoffAuditEvent), vi.mocked(bulkUpdateEstimateItems));
+  });
+});
+
+// A partner's edit makes the other lines of the version stale in the database (TI-664 L5b, Codex): when the
+// computation before the application fails, the route keeps the stored state, and a line its partner's edit made
+// stale blocks it, as the trigger does, before any authorization or write.
+describe("takeoff apply when the rules computation fails", () => {
+  it("refuses a line left stale by its partner's edit, never applies its obsolete pass", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([{
+      id: "66666666-6666-4666-8666-666666666666", designation: "EF inox DN 22", confidence: 0.95, evidence: "Repère localisé",
+      source_page: 1, is_verified: false, is_excluded: false, rules_stale: true,
+      rule_results: [{ rule: "zone_overlap", status: "pass", code: "ZONE_OVERLAP_NONE", version: 101, acceptable: true, reason: "Aucun tronçon commun." }],
+    }] as never);
+    const { recomputeTakeoffRulesQuietly } = await import("@/lib/takeoff/rules/recompute-server");
+    vi.mocked(recomputeTakeoffRulesQuietly).mockResolvedValue(null);
+    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalled();
+    expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
+    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
   });
 });

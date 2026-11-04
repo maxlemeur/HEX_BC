@@ -1072,9 +1072,10 @@ export default function TakeoffReviewPage({
   const hasDirtyOrSaving = items.some((i) => i._dirty || i._saving);
   const hasSaveErrors = items.some((i) => i._error !== null);
   const hasBlockingAnomalies = includedItems.some(hasBlockingAnomaly);
+  // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C.
   const guardResult = useMemo(() => {
-    if (jobLevel !== "C") return null;
-    return checkApplyGuard(includedItems, lowConfidenceThreshold);
+    if (!jobLevel) return null;
+    return checkApplyGuard(includedItems, lowConfidenceThreshold, { level: jobLevel });
   }, [includedItems, jobLevel, lowConfidenceThreshold]);
   const hasGuardBlocks = guardResult !== null && !guardResult.passed;
   const hasDpgfBlocks = hasBlockingTakeoffDpgfExceptions(
@@ -1129,7 +1130,7 @@ export default function TakeoffReviewPage({
     }
 
     if (hasGuardBlocks) {
-      return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} item(s) reste incomplet : complétez les preuves localisées ou la validation humaine avant l'application.`;
+      return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} item(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`;
     }
 
     return "L'apply contrôlé est prêt. Choisissez une stratégie et vérifiez l'impact avant confirmation.";

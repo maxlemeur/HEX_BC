@@ -146,3 +146,21 @@ export function ruleInputsFromVector(line: VectorLine): TakeoffRuleInputs {
     ...(line.kind === "surface" ? { room: line.room ?? null, printed_m2: line.printed_m2 ?? null } : {}),
   };
 }
+
+/**
+ * Inputs of a line the vector reading persists (vectors/persistence.ts): its geometry's attributes; for a room, the
+ * label and surface printed in it, carried from its own surface (two rooms alike in label and area keep theirs).
+ */
+export function ruleInputsFromVectorRecord(record: {
+  item: { quantity: number };
+  geometry: { kind: VectorLine["kind"]; network: NetworkCode | null; material: MaterialCode | null; dn: number | null };
+  room?: { label: string; printed_m2: number };
+}): TakeoffRuleInputs {
+  const { item, geometry } = record;
+  if (geometry.kind !== "surface") {
+    return ruleInputsFromVector({ kind: geometry.kind, network: geometry.network, material: geometry.material, dn: geometry.dn,
+      quantity: item.quantity });
+  }
+  return ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null, quantity: item.quantity,
+    room: record.room?.label ?? null, printed_m2: record.room?.printed_m2 ?? null });
+}

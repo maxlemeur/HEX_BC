@@ -25,13 +25,22 @@ import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-
 import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-comparison-server";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
-import { checkApplyGuard } from "@/lib/takeoff/guards";
+import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
+import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import { parseWithSchema, TAKEOFF_TENANT_ADMIN_ROLE } from "@/lib/takeoff/server-helpers";
 import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
+
+/**
+ * A blocked item as the guard error carries it: the error details keep four levels (sanitizeUnknown), so the failed
+ * rules are flattened into their codes and reasons, in one order.
+ */
+function blockedItemDetails({ rule_failures: failures, ...item }: GuardBlockedItem) {
+  return failures ? { ...item, rule_codes: failures.map((failure) => failure.code), rule_reasons: failures.map((failure) => failure.reason) } : item;
+}
 
 function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
   if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
@@ -121,18 +130,23 @@ export async function applyTakeoffJob(
       request: payload,
     });
 
-    // Guard: Level C requires low-confidence items to be verified
-    if (jobRow.level === "C") {
+    // Guard, on every level (TI-664): the fixed rules' results, computed again first so that a line edited without
+    // the review holds its current results; on level C also low confidence, proof and page. The lines the mapping
+    // plan skips or folds into an assembly are excluded by the RPC before the trigger counts: here too.
+    await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "apply" });
+    {
       const lowConfidenceThreshold = await getTakeoffLowConfidenceThresholdForTenant(
         tenantId,
         { supabase }
       );
-      const guardItems = await listTakeoffApplyGuardItems({
+      const plannedExclusions = new Set(mappingPreview.items
+        .filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
+      const guardItems = (await listTakeoffApplyGuardItems({
         supabase,
         tenantId,
         jobId: normalizedJobId,
-      });
-      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold);
+      })).map((item) => (plannedExclusions.has(item.id) ? { ...item, is_excluded: true } : item));
+      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold, { level: jobRow.level });
 
       if (!guardResult.passed) {
         if (payload.override === true) {
@@ -171,7 +185,7 @@ export async function applyTakeoffJob(
             code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
             status: 422,
             details: {
-              blocked_items: guardResult.blocked_items,
+              blocked_items: guardResult.blocked_items.map(blockedItemDetails),
               medium_items: guardResult.medium_items,
               threshold: guardResult.threshold,
             },

@@ -18,6 +18,9 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   getTakeoffLowConfidenceThresholdForTenant: vi.fn(),
 }));
 
+// The rules' recomputation (TI-664) has its own SQL checks and journey; these cases count this client's RPC calls.
+vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn() }));
+
 import { bulkUpdateEstimateItems } from "@/lib/estimates/item-bulk-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";

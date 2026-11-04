@@ -106,6 +106,7 @@
     "e2e/army/takeoff/import-flow-carry-over.e2e.ts": 9,
     "e2e/army/takeoff/import-format-completion.e2e.ts": 14,
     "e2e/army/takeoff/intake-dossier.e2e.ts": 7,
+    "e2e/army/takeoff/quantity-rules.e2e.ts": 45,
     "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts": 24,
     "e2e/army/takeoff/team-b-user-stories.e2e.ts": 68,
     "e2e/army/takeoff/worker-lifecycle.e2e.ts": 52,

@@ -258,6 +258,22 @@ export function mapApplyTakeoffRpcError(
     });
   }
 
+  // The trigger's own count (TI-664: the same lines as checkApplyGuard) refused the application: a guard failure,
+  // never a generic conflict, so that the review shows what to settle.
+  if (normalized.includes("takeoff_apply_guard_failed")) {
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+      message: "Le contrôle d’application de la base refuse des lignes non tranchées. Rechargez la revue pour voir leurs raisons.",
+      details: {
+        ...details,
+        guard: "database",
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
   if (
     error.code === "PGRST116" ||
     normalized.includes("not found") ||

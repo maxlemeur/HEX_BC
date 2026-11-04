@@ -92,6 +92,7 @@
       "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
       "e2e/army/takeoff/import-format-completion.e2e.ts",
       "e2e/army/takeoff/intake-dossier.e2e.ts",
+      "e2e/army/takeoff/quantity-rules.e2e.ts",
       "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
       "e2e/army/takeoff/team-b-user-stories.e2e.ts",
       "e2e/army/takeoff/worker-lifecycle.e2e.ts"
@@ -695,6 +696,7 @@
         "e2e/army/local/chatgpt-local.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
+        "e2e/army/takeoff/quantity-rules.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
     },
@@ -974,6 +976,22 @@
       ],
       "journeys": [
         "e2e/army/critical/affaires-legacy-identifiers.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-quantity-rules",
+      "note": "Règles fixes du métré (TI-664) : entrées, résultats, garde d'application au même compte que la base, recalcul, doublons Z1/Z2 sur deux plans fictifs (TKR01).",
+      "paths": [
+        "src/lib/takeoff/rules/**",
+        "src/lib/takeoff/guards.ts",
+        "src/lib/takeoff/apply-*.ts",
+        "src/lib/takeoff/item-patch-*.ts",
+        "src/lib/takeoff/vectors/**",
+        "e2e/army/takeoff/zone-plans-fixture.ts",
+        "e2e/army/takeoff/worker-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/quantity-rules.e2e.ts"
       ]
     }
   ]

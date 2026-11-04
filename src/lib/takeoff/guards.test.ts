@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  getTakeoffVerificationReadiness,
 } from "@/lib/takeoff/guards";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -107,5 +108,60 @@ describe("checkApplyGuard", () => {
 
     expect(result.passed).toBe(false);
     expect(result.blocked_items[0].reasons).toEqual(["missing_source_page"]);
+  });
+});
+
+// TI-664: the fixed rules block a line exactly as the database trigger counts it (takeoff_item_rule_blocked,
+// supabase/tests/database/takeoff-quantity-rules.test.sql runs the same cases in SQL). Ways it could differ, written
+// before the code: a rule failure ignored on a level B job, or the existing reasons applied there; a verified line
+// still blocked by an acceptable failure, or a quantity to enter released by a verification; stale results ignored;
+// a passed rule blocking; an excluded line blocking; a job without level read otherwise than as level C.
+describe("checkApplyGuard with rule results", () => {
+  const duplicate = { rule: "zone_overlap" as const, status: "fail" as const, code: "ZONE_OVERLAP_DUPLICATE" as const, version: 101,
+    acceptable: true, reason: "Tronçon compté aussi en Z2." };
+  const toEnter = { rule: "non_observable" as const, status: "fail" as const, code: "NON_OBSERVABLE_TO_ENTER" as const, version: 1,
+    acceptable: false, reason: "Quantité à saisir." };
+  const entered = { ...toEnter, status: "pass" as const, code: "NON_OBSERVABLE_ENTERED" as const };
+
+  it("blocks a failed rule on a level B job, without the level C reasons", () => {
+    const result = checkApplyGuard([
+      makeItem("rule", "EF inox DN 22", { rule_results: [duplicate] }),
+      makeItem("low", "Vanne", { confidence: 0.2, evidence: null, source_page: null }),
+    ], DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" });
+    expect(result.blocked_items.map((item) => [item.item_id, item.reasons])).toEqual([["rule", ["rule_failed"]]]);
+    expect(result.blocked_items[0].rule_failures).toEqual([{ rule: "zone_overlap", code: "ZONE_OVERLAP_DUPLICATE",
+      reason: "Tronçon compté aussi en Z2.", acceptable: true }]);
+    expect(result.medium_items).toEqual([]);
+  });
+
+  it("lets a verification settle an acceptable failure only, and blocks stale results", () => {
+    const result = checkApplyGuard([
+      makeItem("verified", "EF inox DN 22", { is_verified: true, rule_results: [duplicate] }),
+      makeItem("enter", "Soudures", { is_verified: true, rule_results: [toEnter] }),
+      makeItem("entered", "Soudures", { rule_results: [entered] }),
+      makeItem("stale", "EF inox DN 22", { rule_results: [], rules_stale: true }),
+      makeItem("excluded", "EF inox DN 22", { is_excluded: true, rule_results: [duplicate], rules_stale: true }),
+    ], DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" });
+    expect(result.blocked_items.map((item) => [item.item_id, item.reasons])).toEqual([["enter", ["rule_failed"]], ["stale", ["rules_stale"]]]);
+  });
+
+  it("adds the rule reasons to the level C reasons, a job without level being read as level C", () => {
+    const items = [makeItem("both", "EF inox DN 22", { confidence: 0.2, rule_results: [duplicate] })];
+    expect(checkApplyGuard(items).blocked_items[0].reasons).toEqual(["low_confidence", "rule_failed"]);
+    expect(checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "C" }).blocked_items[0].reasons)
+      .toEqual(["low_confidence", "rule_failed"]);
+  });
+});
+
+// The apply trigger and the verification trigger read a blank proof with PostgreSQL btrim(), which strips spaces only;
+// JS trim() also strips tabs, line breaks and U+00A0, so a proof of « \t » blocked in TS and not in SQL (TI-664 L5b
+// review): both sides now read the same blank proof.
+describe("blank proof read as the database reads it", () => {
+  it("counts a proof of spaces as missing, and a proof of other whitespace as the database does", () => {
+    expect(getTakeoffVerificationReadiness({ evidence: "   ", source_page: 1 }).issues).toContain("missing_evidence");
+    expect(getTakeoffVerificationReadiness({ evidence: null, source_page: 1 }).issues).toContain("missing_evidence");
+    for (const evidence of ["\t", "\n", "   "]) {
+      expect(getTakeoffVerificationReadiness({ evidence, source_page: 1 }).issues, JSON.stringify(evidence)).not.toContain("missing_evidence");
+    }
   });
 });

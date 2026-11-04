@@ -7,6 +7,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { VECTOR_PERSISTENCE_SCHEMA_VERSION } from "@/lib/takeoff/vectors/persistence";
 import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
+import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
+import { ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
+import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 
 // Writes a job's vector reading with the worker's service role (TI-662): one
 // takeoff_vector_pages row per page read, then its measured items in
@@ -37,23 +40,31 @@ export async function persistTakeoffVectorReading(input: {
   for (const outcome of input.outcomes) {
     if (!outcome.record) continue;
     const planFileId = outcome.document.kind === "plan_file" ? outcome.document.plan_file_id : null;
+    // TI-664 (MERGEONE_TAKEOFF_RULES=1): the page's registration anchors, and each line's rule inputs, its results to compute.
+    const withRules = isTakeoffRulesEnabled();
     const { data: page, error: pageError } = await input.supabase.from("takeoff_vector_pages" as never).insert({
       tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId, plan_file_id: planFileId,
       source_file_name: outcome.fileName.slice(0, 255), source_page: outcome.page, reading: outcome.record,
-      schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION,
+      schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, ...(withRules && outcome.anchors ? { rule_anchors: outcome.anchors } : {}),
     } as never).select("id" as never).single();
     if (pageError || !page) failed("Impossible d’enregistrer la lecture vectorielle d’une page.", pageError);
     pages += 1;
     if (outcome.items.length === 0) continue;
     const keyed = outcome.items.map((record) => ({ key: randomUUID(), record }));
-    const { data: inserted, error: itemsError } = await input.supabase.from("takeoff_items" as never).insert(keyed.map(({ key, record }) => ({
-      tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId,
-      designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,
-      evidence: record.item.evidence, source_file_name: outcome.fileName, source_page: outcome.page,
-      is_excluded: true, exclusion_reason: VECTOR_ITEM_EXCLUSION_REASON,
-      metadata: { category: record.item.category, source_document: outcome.document,
-        vector: { schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, kind: record.geometry.kind, key } },
-    })) as never).select("id,metadata" as never);
+    const { data: inserted, error: itemsError } = await input.supabase.from("takeoff_items" as never).insert(keyed.map(({ key, record }) => {
+      // Only inputs the reader accepts are written: a line left stale with unreadable inputs is never computed.
+      const ruleInputs = withRules && outcome.record ? writableRuleInputs(ruleInputsFromVectorRecord(record)) : null;
+      return {
+        tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId,
+        designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,
+        evidence: record.item.evidence, source_file_name: outcome.fileName, source_page: outcome.page,
+        is_excluded: true, exclusion_reason: VECTOR_ITEM_EXCLUSION_REASON,
+        metadata: { category: record.item.category, source_document: outcome.document,
+          vector: { schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, kind: record.geometry.kind, key },
+          ...(ruleInputs ? { rule_inputs: ruleInputs } : {}) },
+        ...(ruleInputs ? { rules_stale: true } : {}),
+      };
+    }) as never).select("id,metadata" as never);
     if (itemsError || !inserted) failed("Impossible d’enregistrer les items de la lecture vectorielle.", itemsError);
     const ids = new Map((inserted as unknown as Array<{ id: string; metadata: { vector?: { key?: string } } }>)
       .map((row) => [row.metadata.vector?.key, row.id]));

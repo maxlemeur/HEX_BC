@@ -212,6 +212,8 @@ export type TakeoffItemPatchField = {
   exclusion_reason?: string | null;
   is_verified?: boolean;
   evidence?: string | null;
+  /** The user typed this quantity (TI-664): attested for a quantity to enter, even equal to the proposed one. */
+  quantity_entered?: true;
 };
 
 export type TakeoffItemPatchEntry = {

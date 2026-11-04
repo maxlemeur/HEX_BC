@@ -6,6 +6,7 @@ import {
   takeoffResponseMetadataSchema as metadata, takeoffResponseTimestampSchema as timestamp,
   takeoffResponseUuidSchema as uuid,
 } from "@/lib/takeoff/response-contracts";
+import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
 
 export const takeoffJobItemResponseSchema = z.object({
   id: uuid, designation: z.string(), quantity: z.number().finite().positive(), unit: z.string(),
@@ -13,6 +14,13 @@ export const takeoffJobItemResponseSchema = z.object({
   source_page: z.number().int().positive().nullable(), metadata,
   is_excluded: z.boolean(), exclusion_reason: z.string().nullable(), is_verified: z.boolean(),
   verified_at: timestamp.nullable(), verified_by: uuid.nullable(), created_at: timestamp, updated_at: timestamp,
+  // Fixed rules (TI-664): their results, when they ran, whether a later edit left them to compute again, and who
+  // typed the current quantity. Absent from an older answer: no rule read the line.
+  rule_results: TakeoffRuleResultsSchema.optional(),
+  rules_evaluated_at: timestamp.nullable().optional(),
+  rules_stale: z.boolean().optional(),
+  quantity_entered_at: timestamp.nullable().optional(),
+  quantity_entered_by: uuid.nullable().optional(),
 });
 
 export const takeoffItemPatchResultSchema = z.discriminatedUnion("success", [
