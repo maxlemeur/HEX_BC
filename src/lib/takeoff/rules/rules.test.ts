@@ -126,6 +126,8 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // ending in half a millimetre and a stretch just over the minimum at 1/150 changed
 // with the page taken as frame or were dropped; two pairs whose ids join alike
 // shared a cached coverage; a model quantity stored to the thousandth read as typed.
+// Fifth Codex round (written before its fix): « EF cuivre DN 22 / Ø 23 » passed the
+// DN rule, the reader keeping DN 22 and skipping the unknown Ø 23 beside it.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -312,6 +314,23 @@ describe("inputs read in a designation", () => {
       const { results } = evaluateTakeoffRules({ pages: [], lines: [line("x", { designation,
         inputs: ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 }) })] });
       expect(rule(results, "x", "dn_network")?.status, designation).toBe("fail");
+    }
+  });
+
+  it("fails a size the series lacks printed beside a known DN in any notation, and two sizes printed for one line (Codex round 5)", () => {
+    const dn = (designation: string) => rule(evaluateTakeoffRules({ pages: [], lines: [line("x", { designation,
+      inputs: ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 }) })] }).results, "x", "dn_network")?.code;
+    // The reader keeps « DN 22 » and skips the other notation: the unknown size still fails, in either order.
+    for (const designation of ["EF cuivre DN 22 / Ø 23", "EF cuivre Ø 23 / DN 22", "EF cuivre DN 22 / 23 mm", "EF cuivre DN 22 / 23x1"]) {
+      expect(dn(designation), designation).toBe("DN_NETWORK_DN_NOT_IN_SERIES");
+    }
+    // Two known sizes for one line are none (« aucun ou deux »), whatever their notations.
+    for (const designation of ["EF cuivre DN 22 / Ø 28", "EF cuivre Ø 28 / DN 22", "EF cuivre DN 22 / 28x1"]) {
+      expect(dn(designation), designation).toBe("DN_NETWORK_DN_MISSING");
+    }
+    // One size printed two ways stays one size: « DN 20 » is the 22 mm copper tube.
+    for (const designation of ["EF cuivre DN 20 / Ø 22", "EF cuivre DN 20 (22x1)", "EF Inox 316L DN 22"]) {
+      expect(dn(designation), designation).toBe("DN_NETWORK_COMPATIBLE");
     }
   });
 

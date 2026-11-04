@@ -23,7 +23,9 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   ([`item-keys.ts`](../../src/lib/takeoff/bench/item-keys.ts)).
   - Le DN passe par l'analyse de `price-reuse-matching.ts` et la table des diamètres de L0.
   - Un triplet incomplet le reste : pas de réseau, deux réseaux ou deux DN.
-  - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue.
+  - Toutes les tailles imprimées comptent, quelle que soit celle que garde le lecteur (il lit « DN 22 » et saute « Ø 23 » à côté).
+  - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue, même à côté d'une taille connue (« DN 22 / Ø 23 »).
+  - Deux tailles connues différentes, quelles que soient leurs notations (« DN 22 / Ø 28 »), sont deux DN. Une même taille écrite de deux façons (« DN 20 / Ø 22 » d'un tube cuivre) en est une.
   - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm ») n'est jamais un DN.
   - Une ligne de réseau en m² est une surface de calorifuge, jamais un tuyau.
 - **Quantité proposée** : la quantité du modèle ou de la lecture, avant toute
