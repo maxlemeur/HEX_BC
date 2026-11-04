@@ -184,17 +184,22 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }, [jobId, toast]);
 
   const focusList = () => listRef.current?.focus();
+  // The field takes the focus once the entry has rendered (an effect, never an animation frame: a page the browser
+  // does not paint would hold it). Until then, the keys typed on the list go to the entry (see onKeyDown).
+  const entryFocus = useRef<"select" | "end" | null>(null);
   const startEntry = useCallback((text: string | null) => {
     if (!current || readOnly) return;
+    entryFocus.current = text === null ? "select" : "end";
     setDraft({ itemId: current.item.id, text: text ?? String(current.item.quantity) });
-    requestAnimationFrame(() => {
-      const input = quantityRef.current;
-      if (!input) return;
-      input.focus();
-      if (text === null) input.select();
-      else input.setSelectionRange(input.value.length, input.value.length);
-    });
   }, [current, readOnly]);
+  useEffect(() => {
+    const input = quantityRef.current;
+    if (!draft || !entryFocus.current || !input) return;
+    input.focus();
+    if (entryFocus.current === "select") input.select();
+    else input.setSelectionRange(input.value.length, input.value.length);
+    entryFocus.current = null;
+  }, [draft]);
 
   const commitQuantity = useCallback(() => {
     if (!current || !draft || draft.itemId !== current.item.id) return;
@@ -235,6 +240,25 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     const target = event.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
     const key = event.key;
+    const entry = current && draft?.itemId === current.item.id ? draft : null;
+    if (entry) {
+      // An entry started from the list, whose field has not taken the focus yet: the keys are its own.
+      if (key === "Enter") {
+        event.preventDefault();
+        commitQuantity();
+        return;
+      }
+      if (key === "Escape") {
+        event.preventDefault();
+        setDraft(null);
+        return;
+      }
+      if (/^[0-9.,]$/.test(key)) {
+        event.preventDefault();
+        setDraft({ ...entry, text: entry.text + key });
+        return;
+      }
+    }
     if (key === "ArrowDown" || key === "ArrowUp") {
       event.preventDefault();
       move(key === "ArrowDown" ? 1 : -1);

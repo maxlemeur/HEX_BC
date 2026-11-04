@@ -106,6 +106,20 @@ describe("TakeoffTargetedReview", () => {
     expect(patchTakeoffItems).not.toHaveBeenCalled();
   });
 
+  // Found by TKR02: the browser delivered Enter to the list before the field had the focus, and the entry was lost.
+  it("keeps the keys of a direct entry typed faster than the field takes the focus", async () => {
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.z1, success: true, item: ITEMS[1] }], succeeded: 1, failed: 0 });
+    const list = await open();
+    choose(list, "EF Z1");
+    fireEvent.keyDown(list, { key: "4" });
+    fireEvent.keyDown(list, { key: "," });
+    fireEvent.keyDown(list, { key: "5" });
+    fireEvent.keyDown(list, { key: "Enter" });
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.z1,
+      updated_at: ITEMS[1].updated_at, fields: { quantity: 4.5 } }] }));
+  });
+
   it("reads the partner of a settled pair back with the saved line", async () => {
     const settledZ1 = { ...ITEMS[1], quantity: 4, rule_results: [resolved(ids.z2, "Z2")], updated_at: "2026-11-04T10:01:00.000Z" };
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.z1, success: true, item: settledZ1 }], succeeded: 1, failed: 0,
