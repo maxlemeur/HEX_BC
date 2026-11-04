@@ -134,7 +134,7 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
     groups: groups.map((group) => ({ id: group.id, layerName: group.layerName, colors: group.colors, length_pt: group.length_pt,
       nearWhite: group.nearWhite, grey: group.grey, class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates })),
     surfaces: surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, anchor: surface.anchor, polygon_m2: surface.polygon_m2,
-      polygon_points: surface.polygon_points, deviation: surface.deviation })),
+      polygon_points: surface.polygon_points, deviation: surface.deviation, method: surface.method, fill_rejected: surface.fill_rejected })),
     // As the detection badge and the measure count them: a Decisions proposal under 0.8 is neither.
     groups_classified: groups.filter((group) => isClassified(group)).length,
     groups_network: groups.filter((group) => isMeasuredNetwork(group)).length,

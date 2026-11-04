@@ -57,7 +57,7 @@ export type ZoneOverlapPartner = {
   zone: string | null;
   designation: string;
   overlap_m: number;
-  /** The pair is resolved: one of both lines was reduced by this length (or more). */
+  /** The pair is resolved: both lines' reductions remove this length (never in a group of three lines or more). */
   resolved: boolean;
 };
 
@@ -67,7 +67,10 @@ export type TakeoffRuleDetails = {
   dn?: string | null;
   allowed_materials?: MaterialCode[];
   partners?: ZoneOverlapPartner[];
+  /** A pair: the length still counted twice. A group: the length of the line other lines draw. */
   overlap_m?: number;
+  /** Lines of a group of duplicates (three or more): no correction settles it, each line is excluded or accepted. */
+  group_size?: number;
   level?: string | null;
   printed_m2?: number;
   measured_m2?: number;

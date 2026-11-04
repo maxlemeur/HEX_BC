@@ -7,10 +7,13 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 // lines of the same network and DN on two pages, brought into one frame,
 // whose centrelines run within ZONE_OVERLAP.distance_m of each other along a
 // common length of at least ZONE_OVERLAP.minLength_m. That common length is
-// counted twice by the version: the rule fails the lines until it is removed
-// (settleDuplicates: a group of duplicates is settled when the lines'
-// reductions cover what it counts k − 1 times too many), or a line excluded,
-// or the user accepts it.
+// counted twice by the version: the rule fails the lines until it is removed,
+// or a line excluded, or the user accepts it (V). A reduction (measured −
+// quantity) says how much a line removed, never where: it settles an isolated
+// pair only (settlePair, two lines joined by no other pair). Three lines or
+// more joined by pairs stay failed whatever their corrections, until each is
+// excluded or accepted: errors fall on the side of a block, never of a
+// double count.
 // - Common length: along each centreline of a line, the union of the
 //   stretches a centreline of the other line covers (parallel within
 //   ZONE_OVERLAP.angle_deg, within the distance at both ends of the stretch),
@@ -45,7 +48,7 @@ export const ZONE_OVERLAP = {
   /** Two centrelines more than this angle apart are not one run. */
   angle_deg: 2,
   /**
-   * A reduction this close to the common length settles it: quantities are rounded to the centimetre, so a group
+   * A reduction this close to the common length settles it: quantities are rounded to the centimetre, so a pair
    * settles within this much per line reduced.
    */
   settle_m: 0.01,
@@ -137,6 +140,14 @@ function union(intervals: Array<[number, number]>) {
 const EPSILON_M = 1e-9;
 
 /**
+ * A length rounded to the millimetre, a half millimetre always up: float noise of the frame a page is brought into
+ * never decides the rounding.
+ */
+function millimetres(value: number) {
+  return Math.round(value * 1000 + EPSILON_M * 1000) / 1000;
+}
+
+/**
  * Whether two covered stretches continue one another: an end of one within ZONE_OVERLAP.distance_m of an end of the
  * other (a corner of the run), or, up to `gap` apart, along the run: parallel within ZONE_OVERLAP.angle_deg and both
  * ends of the second within the distance of the first's line (the dashes of a dashed run). Two parallel pipes side
@@ -173,16 +184,20 @@ function continuous(covered: readonly Stretch[], minimum: number): Stretch[] {
     while (parent[index] !== index) index = parent[index] = parent[parent[index]];
     return index;
   };
-  const cell = 1;
-  const ends = new Map<string, number[]>();
-  const reach = Math.max(minimum, ZONE_OVERLAP.distance_m);
+  // Ends indexed in cells as wide as the reach: a candidate is an end within reach of one of the stretch's ends.
+  const reach = Math.max(minimum, ZONE_OVERLAP.distance_m) + EPSILON_M;
+  const cell = reach;
+  const ends = new Map<string, Array<[number, number, number]>>();
   stretches.forEach((stretch, index) => {
     const [x0, y0, x1, y1] = stretch;
     const near = new Set<number>();
     for (const [x, y] of [[x0, y0], [x1, y1]]) {
-      for (let cx = Math.floor((x - reach) / cell); cx <= Math.floor((x + reach) / cell); cx += 1) {
-        for (let cy = Math.floor((y - reach) / cell); cy <= Math.floor((y + reach) / cell); cy += 1) {
-          for (const other of ends.get(`${cx},${cy}`) ?? []) near.add(other);
+      const [cx, cy] = [Math.floor(x / cell), Math.floor(y / cell)];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (const [other, ox, oy] of ends.get(`${cx + dx},${cy + dy}`) ?? []) {
+            if (Math.abs(ox - x) <= reach && Math.abs(oy - y) <= reach && Math.hypot(ox - x, oy - y) <= reach) near.add(other);
+          }
         }
       }
     }
@@ -194,8 +209,8 @@ function continuous(covered: readonly Stretch[], minimum: number): Stretch[] {
     for (const [x, y] of [[x0, y0], [x1, y1]]) {
       const key = `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
       const list = ends.get(key);
-      if (!list) ends.set(key, [index]);
-      else if (list[list.length - 1] !== index) list.push(index);
+      if (!list) ends.set(key, [[index, x, y]]);
+      else list.push([index, x, y]);
     }
   });
   const totals = new Map<number, number>();
@@ -233,10 +248,11 @@ function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Stre
       const t0 = (ox0 - x0) * ux + (oy0 - y0) * uy, t1 = (ox1 - x0) * ux + (oy1 - y0) * uy;
       const d0 = (ox0 - x0) * uy - (oy0 - y0) * ux, d1 = (ox1 - x0) * uy - (oy1 - y0) * ux;
       const lo = Math.max(0, Math.min(t0, t1)), hi = Math.min(length, Math.max(t0, t1));
-      if (hi <= lo) continue;
-      // The other's distance to this line at both ends of the common stretch (linear along it).
+      // A touch end to end covers nothing, even when the frame leaves a sliver of float noise.
+      if (hi - lo <= EPSILON_M) continue;
+      // The other's distance to this line at both ends of the common stretch (linear along it), the distance included.
       const at = (t: number) => (t1 === t0 ? d0 : d0 + ((t - t0) / (t1 - t0)) * (d1 - d0));
-      if (Math.abs(at(lo)) > distance || Math.abs(at(hi)) > distance) continue;
+      if (Math.abs(at(lo)) > distance + EPSILON_M || Math.abs(at(hi)) > distance + EPSILON_M) continue;
       intervals.push([lo, hi]);
     }
     for (const [lo, hi] of union(intervals)) {
@@ -251,57 +267,58 @@ function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Stre
  * stretches of at least `minimum` (minCommonLength), the smaller of both directions.
  */
 export function commonLength(left: OverlapLine, leftTransform: TakeoffFrameTransform, right: OverlapLine,
-  rightTransform: TakeoffFrameTransform, minimum = 0): number {
-  const a = transformed(left.segments, leftTransform);
-  const b = transformed(right.segments, rightTransform);
-  if (a.length === 0 || b.length === 0) return 0;
-  const cell = 1;
-  const forward = unionLength(continuous(coveredStretches(a, new SegmentGrid(b, cell)), minimum));
+  rightTransform: TakeoffFrameTransform, minimum = 0, cache?: CoverageCache): number {
+  const coverage = cache ?? new CoverageCache();
+  const forward = unionLength(coverage.of(left, leftTransform, right, rightTransform, minimum));
   if (forward === 0) return 0;
-  const backward = unionLength(continuous(coveredStretches(b, new SegmentGrid(a, cell)), minimum));
-  return Math.round(Math.min(forward, backward) * 1000) / 1000;
+  const backward = unionLength(coverage.of(right, rightTransform, left, leftTransform, minimum));
+  return millimetres(Math.min(forward, backward));
+}
+
+/**
+ * What a partner covers of a line (its continuous stretches of at least the pair's minimum), computed once per line,
+ * partner and minimum within one evaluation (lines and their frames do not change during it): the pairs and the
+ * length a line of a group shares (coveredBy) read the same coverage.
+ */
+export class CoverageCache {
+  private readonly entries = new Map<string, Stretch[]>();
+
+  of(line: OverlapLine, transform: TakeoffFrameTransform, other: OverlapLine, otherTransform: TakeoffFrameTransform, minimum: number) {
+    const key = JSON.stringify([line.id, other.id, minimum]);
+    const cached = this.entries.get(key);
+    if (cached) return cached;
+    const own = transformed(line.segments, transform);
+    const segments = transformed(other.segments, otherTransform);
+    const kept = own.length === 0 || segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), minimum);
+    this.entries.set(key, kept);
+    return kept;
+  }
 }
 
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
 
 /**
- * Length of `line` covered by any of `others`, all brought into the common frame by their page transforms: for each
- * other line, the continuous stretches of at least its pair's `minimum` (minCommonLength of their two pages), then
- * their union. A coarser partner never raises the minimum of another pair.
+ * Length of `line` covered by any of `others`, each pair brought into one frame by `frames` (the line's transform,
+ * then the other's): for each other line, the continuous stretches of at least its pair's `minimum` (minCommonLength
+ * of their two pages), then their union along the line. A coarser partner never raises the minimum of another pair.
  */
-export function coveredBy(line: OverlapLine, transform: TakeoffFrameTransform,
-  others: ReadonlyArray<{ line: OverlapLine; transform: TakeoffFrameTransform; minimum?: number }>): number {
-  const own = transformed(line.segments, transform);
-  if (own.length === 0) return 0;
-  const kept = others.flatMap((other) => {
-    const segments = transformed(other.line.segments, other.transform);
-    return segments.length === 0 ? [] : continuous(coveredStretches(own, new SegmentGrid(segments, 1)), other.minimum ?? 0);
-  });
-  return Math.round(unionLength(kept) * 1000) / 1000;
+export function coveredBy(line: OverlapLine, others: ReadonlyArray<{ line: OverlapLine;
+  frames: readonly [TakeoffFrameTransform, TakeoffFrameTransform]; minimum?: number }>, cache?: CoverageCache): number {
+  const coverage = cache ?? new CoverageCache();
+  const kept = others.flatMap((other) => coverage.of(line, other.frames[0], other.line, other.frames[1], other.minimum ?? 0));
+  return millimetres(unionLength(kept));
 }
 
 /**
- * A line of a group of duplicates (the lines joined by pairs): its reduction (measured − quantity), the length of it
- * other lines of the group cover, and the length of it lines before it in the group's order cover (lines of applied
- * jobs first): the length it counts again.
+ * Whether an isolated pair of duplicates is counted once: both lines' reductions (measured − quantity, from 0), each
+ * up to the pair's common length, remove it, within a centimetre per line reduced (ZONE_OVERLAP.settle_m: quantities
+ * are rounded to the centimetre). A line of an applied job is never asked to change, but a reduction it carried when
+ * it was applied counts. `deficit_m`: what the version still counts twice.
  */
-export type SettleLine = { id: string; frozen: boolean; reduction_m: number; covered_m: number; duplicated_m: number };
-
-/**
- * Whether a group of duplicates is counted once: a stretch drawn on k pages is counted k − 1 times too many, the sum
- * of the lines' duplicated lengths. A line's reduction removes at most what other lines cover of it. The lines of
- * applied jobs (frozen) first pay what they count twice among themselves, which only they could remove; what their
- * reductions leave over, and the reductions of the lines that can still change, pay the rest. Each reduced line may
- * leave its centimetre of rounding (ZONE_OVERLAP.settle_m). `deficit_m`: what the version still counts twice.
- */
-export function settleDuplicates(lines: readonly SettleLine[]): { settled: boolean; deficit_m: number } {
-  const useful = (line: SettleLine) => Math.max(0, Math.min(line.reduction_m, line.covered_m));
-  const frozen = lines.filter((line) => line.frozen);
-  const current = lines.filter((line) => !line.frozen);
-  const spare = Math.max(0, frozen.reduce((sum, line) => sum + useful(line), 0) - frozen.reduce((sum, line) => sum + line.duplicated_m, 0));
-  const owed = current.reduce((sum, line) => sum + line.duplicated_m, 0);
-  const paid = current.reduce((sum, line) => sum + useful(line), 0) + spare;
-  const deficit = Math.max(0, Math.round((owed - paid) * 1000) / 1000);
-  const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, lines.filter((line) => useful(line) > 0).length);
-  return { settled: deficit <= tolerance + EPSILON_M, deficit_m: deficit <= tolerance + EPSILON_M ? 0 : deficit };
+export function settlePair(overlap_m: number, reductions: readonly [number, number]): { settled: boolean; deficit_m: number } {
+  const removed = reductions.reduce((sum, reduction) => sum + Math.min(overlap_m, Math.max(0, reduction)), 0);
+  const deficit = Math.max(0, millimetres(overlap_m - removed));
+  const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, reductions.filter((reduction) => reduction > EPSILON_M).length);
+  const settled = deficit <= tolerance + EPSILON_M;
+  return { settled, deficit_m: settled ? 0 : deficit };
 }

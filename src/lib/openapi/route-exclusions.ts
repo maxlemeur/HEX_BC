@@ -67,6 +67,11 @@ export const openApiRouteExclusions = [
     reason: LOCAL_TAKEOFF_LAB,
   },
   {
+    path: "/api/admin/takeoff/lab/vectors/{documentId}",
+    methods: ["GET"],
+    reason: LOCAL_TAKEOFF_LAB,
+  },
+  {
     path: "/api/admin/takeoff/lab/runs",
     methods: ["GET", "POST"],
     reason: LOCAL_TAKEOFF_LAB,

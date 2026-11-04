@@ -25,12 +25,14 @@ type Props = {
   onBoxChange?: (box: NormalizedBox | null) => void;
   /** Renders only this region (verdicts: the cropped zone). */
   region?: NormalizedBox | null;
+  /** Drawn over the whole rendered page (vectors: an SVG in page points), never with `region`. */
+  overlay?: React.ReactNode;
   label: string;
   className?: string;
 };
 
 /** Canvas of the lab: pan by dragging, zoom with the wheel or − / 100 % / + / Ajuster. */
-export function LabPdfCanvas({ url, page, onPageChange, onDocument, box = null, cropMode = false, onBoxChange, region = null, label, className }: Props) {
+export function LabPdfCanvas({ url, page, onPageChange, onDocument, box = null, cropMode = false, onBoxChange, region = null, overlay, label, className }: Props) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   /** Pixels per PDF point; null: fit the panel (« Ajuster »). */
   const [zoom, setZoom] = useState<number | null>(null);
@@ -192,6 +194,9 @@ export function LabPdfCanvas({ url, page, onPageChange, onDocument, box = null, 
         <div className="flex min-h-full min-w-full items-center justify-center p-3" style={{ width: rendered.width + 24 || undefined }}>
           <div className="relative shadow-sm">
             <canvas ref={canvas} className="block bg-white" aria-hidden="true" />
+            {overlay && !region && rendered.width > 0 && status !== "error" ? (
+              <div className="pointer-events-none absolute inset-0">{overlay}</div>
+            ) : null}
             {frame && status === "ready" ? (
               <div className="pointer-events-none absolute border-2 border-primary bg-primary/10"
                 style={{ left: `${frame.x * 100}%`, top: `${frame.y * 100}%`, width: `${frame.width * 100}%`, height: `${frame.height * 100}%` }} />

@@ -109,7 +109,7 @@ describe("vectorItemRecords, rooms (review of PR #147)", () => {
   function surface(room: string, printed_m2: number, polygon_m2: number | null, points = 5): RoomSurface {
     return { room, printed_m2, anchor: { x: 0, y: 0 }, polygon_m2, polygon_points: polygon_m2 === null ? null : points,
       outline: polygon_m2 === null ? null : { group: "oc:oc2", points: Array.from({ length: 2 * points }, (_, index) => index % 7) },
-      deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2 };
+      deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2, method: polygon_m2 === null ? null : "ring", fill_rejected: null };
   }
 
   it("keeps the area of a ring past the bound without its outline, and persists no open, unscaled or raster room", () => {
@@ -128,7 +128,7 @@ describe("vectorItemRecords, rooms (review of PR #147)", () => {
 
 describe("vector items within the review's read limits (review of PR #147)", () => {
   const room = (index: number): RoomSurface => ({ room: `Pièce ${index}`, printed_m2: 10, anchor: { x: index, y: 0 }, polygon_m2: 10, polygon_points: 5,
-    outline: { group: "oc:oc2", points: [0, 0, 10, 0, 10, 10, 0, 10, 0, 0] }, deviation: 0 });
+    outline: { group: "oc:oc2", points: [0, 0, 10, 0, 10, 10, 0, 10, 0, 0] }, deviation: 0, method: "ring", fill_rejected: null });
 
   it("persists the rooms its page record keeps, never more", () => {
     const rooms = Array.from({ length: VECTOR_PAGE_LIMITS.surfaces + 1 }, (_, index) => room(index));

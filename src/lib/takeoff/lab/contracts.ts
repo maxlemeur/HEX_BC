@@ -172,6 +172,8 @@ export type LabDocumentSummary = {
 export type LabTaskDescriptor = {
   id: string;
   kind: LabTaskKind;
+  /** The screen that launches it: the essai, or the vectors page (TI-662 « classe de calque »). */
+  screen: "essai" | "vectors";
   label: string;
   description: string;
   providers: LabProvider[];
@@ -179,6 +181,59 @@ export type LabTaskDescriptor = {
   promptBase: string | null;
   promptMax: number;
   question: { name: string; label: string; choices: Array<{ value: string; label: string; description?: string }> } | null;
+};
+
+/** Task of the vectors page (TI-662 L3c): one Decisions class per vector group of a document page. */
+export const LAB_VECTOR_TASK_ID = "classe-de-calque";
+/** Segments of a page's groups the vectors page draws at most; past it the geometry is cut and says so. */
+export const LAB_VECTOR_MAX_SEGMENTS = 20_000;
+
+export type LabVectorClassSource = "keyword" | "legend" | "label" | "document" | "user" | "decisions";
+
+/** One group of traces of the page (a layer, else a colour, width and dash), as the vectors page shows it. */
+export type LabVectorGroup = {
+  id: string;
+  /** Layer name, else « #rrggbb · 0,5 pt ». */
+  name: string;
+  layer: string | null;
+  colors: string[];
+  width: number;
+  dash: string | null;
+  /** False for a layer the document hides by default (OFF): never read, never drawn. */
+  visible: boolean;
+  near_white: boolean;
+  grey: boolean;
+  class: string | null;
+  source: LabVectorClassSource | null;
+  confidence: number | null;
+  /** Networks a shared legend colour hesitates between. */
+  candidates: string[];
+  /** classifyByKeywords alone (layer name, else legend colour). */
+  keyword: { class: string | null; source: "keyword" | "legend" | null };
+  length_pt: number;
+  /** Visible stroke length on site; null when the page scale is not measurable. */
+  length_m: number | null;
+  segments: number;
+  /** Flat x0, y0, x1, y1 … in page points (y down), one decimal; cut at LAB_VECTOR_MAX_SEGMENTS per page. */
+  geometry: number[];
+  geometry_capped: boolean;
+};
+
+export type LabVectorPage = {
+  document: { id: string; sha256: string; pages: number };
+  page: number;
+  mode: "layers" | "colours" | "raster";
+  size_pt: [number, number];
+  scale: { status: "verified" | "format" | "calibrated" | "unverified"; reason: string | null; denominator: number | null; cartouche: string | null;
+    cotes: number; consistent_cotes: number };
+  detection: number | null;
+  groups: LabVectorGroup[];
+  segments: { total: number; shown: number; cap: number; capped: boolean };
+  networks: Array<{ network: string; material: string | null; dn: number | null; runs: number; length_pt: number; length_m: number | null }>;
+  surfaces: Array<{ room: string; printed_m2: number; polygon_m2: number | null; deviation: number | null }>;
+  /** The « classe de calque » run whose answers this reading applies (readVectorPage's decisions), or null: keywords only. */
+  run: { id: string; campaign: string; created_at: string; answers: number; applied: number } | null;
+  timings: { extraction_ms: number; reading_ms: number };
 };
 
 export type LabDecisionsBudget = { cap: number | null; used: number; remaining: number | null; calls_without_usage: number };

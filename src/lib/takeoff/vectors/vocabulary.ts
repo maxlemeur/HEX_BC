@@ -85,6 +85,16 @@ export function classOfLayerName(name: string): VectorClass | null {
   return OTHER_PRIORITY.find((candidate) => others.has(candidate)) ?? null;
 }
 
+// Joinery and openings (doors, windows): no class of their own (the persisted
+// classes are a closed list), but their strokes close the rooms that walls
+// leave open at a doorway or a window (surfaces.ts, fill.ts).
+const OPENING_TOKENS = new Set(["MENUISERIE", "MENUISERIES", "PORTE", "PORTES", "DOOR", "DOORS", "FENETRE", "FENETRES", "WINDOW", "WINDOWS"]);
+
+/** Whether a layer name names joinery or openings (« FICTIF_MENUISERIES », « Portes »): a barrier of the room fill, never a class. */
+export function isOpeningLayerName(name: string) {
+  return layerSegments(name).some((segment) => OPENING_TOKENS.has(segment));
+}
+
 /**
  * The network a legend entry names: its code alone (« EU/EV », « EG VC »), spaces removed, with its direction
  * (« CHW-S », « EG-R »). Every part is a code or a direction: « EU - PVC » is a pipe label, not a legend code.

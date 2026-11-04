@@ -6,7 +6,7 @@ import { PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
 // layer with a 100 mm pipe (5.00 m at 1/50) labelled « EF - PER DN 16 », an
 // EU/EV layer with a 60 mm pipe (3.00 m) labelled « EU/EV - PVC DN 40 », and a
 // MURS layer with a closed 80 × 70 mm room (4.00 × 3.50 m = 14.00 m²) printed
-// « Infirmerie 13.62 m2 »: its measure is the polygon's area, the printed
+// « Local fictif 13.80 m2 »: its measure is the polygon's area, the printed
 // surface its control. No frame encloses the pipes (a dark rectangle around
 // networks alone is a detail frame and is not measured), and the room holds
 // none. Without its printed scale (TKW09), only a confirmed calibration gives
@@ -20,8 +20,8 @@ export const VECTOR_PLAN = {
     { layer: "RES_EU-EV", network: "EUV", designation: "EU/EV PVC DN 40", length_m: 3, sheet_mm: 60, y: 300, label: "EU/EV - PVC DN 40" },
   ],
   /** Lower-left corner (x, y) in PDF points, y up; the label inside, away from the walls. */
-  room: { layer: "MURS", room: "Infirmerie", designation: "Surface « Infirmerie »", area_m2: 14, printed_m2: 13.62, x: 650, y: 400,
-    width_mm: 80, height_mm: 70, label: "Infirmerie 13.62 m2" },
+  room: { layer: "MURS", room: "Local fictif", designation: "Surface « Local fictif »", area_m2: 14, printed_m2: 13.8, x: 650, y: 400,
+    width_mm: 80, height_mm: 70, label: "Local fictif 13.80 m2" },
 } as const;
 
 const POINTS_PER_MM = 72 / 25.4;
