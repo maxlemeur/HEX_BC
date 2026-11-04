@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -73,36 +73,39 @@ export function QuickInsertPicker({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen, onClose]);
 
-  // Close on Escape, keyboard navigation
+  // Close on Escape, keyboard navigation. An Effect Event runs the handlers of the last committed render:
+  // a listener registered again by a passive effect kept the previous items until that effect ran, so
+  // Entrée right after the search applied inserted the first template of the unfiltered list.
+  const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((prev) => {
+        if (items.length === 0) return prev;
+        return Math.min(prev + 1, items.length - 1);
+      });
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((prev) => {
+        if (items.length === 0) return prev;
+        const clampedPrev = Math.min(prev, items.length - 1);
+        return Math.max(clampedPrev - 1, 0);
+      });
+    } else if (event.key === "Enter" && items.length > 0) {
+      event.preventDefault();
+      const clampedIndex = Math.min(highlightedIndex, items.length - 1);
+      const item = items[clampedIndex];
+      if (item) onSelect(item.id);
+    }
+  });
   useEffect(() => {
     if (!isOpen) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      } else if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setHighlightedIndex((prev) => {
-          if (items.length === 0) return prev;
-          return Math.min(prev + 1, items.length - 1);
-        });
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setHighlightedIndex((prev) => {
-          if (items.length === 0) return prev;
-          const clampedPrev = Math.min(prev, items.length - 1);
-          return Math.max(clampedPrev - 1, 0);
-        });
-      } else if (event.key === "Enter" && items.length > 0) {
-        event.preventDefault();
-        const clampedIndex = Math.min(highlightedIndex, items.length - 1);
-        const item = items[clampedIndex];
-        if (item) onSelect(item.id);
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, items, highlightedIndex, onSelect, onClose]);
+    const onKeyDown = (event: KeyboardEvent) => handleKeyDown(event);
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen]);
 
   const clampedHighlightedIndex =
     items.length > 0 ? Math.min(highlightedIndex, items.length - 1) : -1;
