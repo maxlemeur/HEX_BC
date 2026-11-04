@@ -53,7 +53,10 @@ export function AffairePilotagePanel(props: Props) {
     .filter((item) => item.id !== "intake-review" && item.id !== "brief-confirm")
     .filter((item) => item.id !== "missing-pieces" || (registerSummary?.criticalOpenCount ?? 0) === 0);
   const cadrageExceptions = exceptions.filter((item) => /^(missing|register)/.test(item.id));
-  const studyExceptions = exceptions.filter((item) => /^(takeoff|dpgf)/.test(item.id));
+  // The hub hides the plan launch its dominant action outranks or already carries
+  // (getAffaireHubHiddenPilotageExceptionIds), e.g. behind a client clarification or a revalidation.
+  const hiddenExceptionIds = new Set(props.hiddenExceptionIds ?? []);
+  const studyExceptions = exceptions.filter((item) => /^(takeoff|dpgf)/.test(item.id) && !hiddenExceptionIds.has(item.id));
   const documents = intakeWorkspace?.documents ?? [];
   const validPlans = documents.filter((doc) => doc.uploadStatus === "uploaded" && doc.detectedCategory === "plans" && doc.classificationStatus === "classified" && !doc.isBeingDeleted).length;
 

@@ -15,6 +15,21 @@ async function openTeamADevHubScenario(ui: NativeUi, input: { projectId: string;
 function getTeamARegisterSection(ui: NativeUi) {
  return ui.locator("section").filter({ has: ui.getByRole("heading", { name: "Registre hypothèses & pièces manquantes" }) });
 }
+// Since f63d9cd6 the study panel (status, hero and dominant action) is folded in the current Étude stage.
+async function openTeamAStudyPanel(ui: NativeUi) {
+ const pilotage = ui.getByRole("region", { name: "Pilotage de l'affaire" });
+ await expect(pilotage.getByRole("button", { name: /Étude/ })).toHaveAttribute("aria-expanded", "true");
+ const studyPanel = ui.locator("details").filter({ has: ui.getByText("Choisir la base du devis et les métrés", { exact: true }) });
+ await studyPanel.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
+ await expect(studyPanel.getByText("Prochaine étape", { exact: true })).toBeVisible();
+ return studyPanel;
+}
+// f63d9cd6 also folds the register with the other dossier cards under « Détails du dossier et du devis ».
+async function openTeamARegisterSection(ui: NativeUi) {
+ await ui.getByText("Détails du dossier et du devis", { exact: true }).click();
+ await expect(ui.getByRole("heading", { name: "Registre hypothèses & pièces manquantes" })).toBeVisible();
+ return getTeamARegisterSection(ui);
+}
 
 
 
@@ -35,9 +50,13 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
       projectId,
       scenario: "accepted-with-hypothesis",
     });
-    const registerSection = getTeamARegisterSection(page);
+    const studyPanel = await openTeamAStudyPanel(page);
 
-    await expect(page.getByText("Analyse sous réserves")).toBeVisible();
+    // 1234d5db renamed the analysis status « Analyse sous réserves » to « Préparation à confirmer »;
+    // the reservations stay readable in the readiness badge.
+    await expect(studyPanel.getByText("Préparation à confirmer", { exact: true })).toBeVisible();
+    await expect(studyPanel.getByText("Avancer sous réserves", { exact: true })).toBeVisible();
+    const registerSection = await openTeamARegisterSection(page);
     await expect(
       registerSection.getByText(
         "Prix fournisseurs à confirmer après la première passe de chiffrage.",
@@ -61,12 +80,13 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
       projectId,
       scenario: "clarify-client",
     });
-    const registerSection = getTeamARegisterSection(page);
+    const studyPanel = await openTeamAStudyPanel(page);
 
-    await expect(page.getByText("Clarification client requise")).toBeVisible();
+    await expect(studyPanel.getByText("Clarification client requise")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Traiter 1 clarification client" }).last(),
     ).toBeVisible();
+    const registerSection = await openTeamARegisterSection(page);
     await expect(
       registerSection.getByText(
         "Le client doit confirmer le phasage et la variante retenue avant remise.",
@@ -89,12 +109,13 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
       projectId,
       scenario: "revalidation-required",
     });
-    const registerSection = getTeamARegisterSection(page);
+    const studyPanel = await openTeamAStudyPanel(page);
 
-    await expect(page.getByText("Revalidation requise").first()).toBeVisible();
+    await expect(studyPanel.getByText("Revalidation requise").first()).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Relancer 1 revalidation critique" }).last(),
     ).toBeVisible();
+    const registerSection = await openTeamARegisterSection(page);
     await expect(
       registerSection.getByText(
         "Le dossier a change; la revue documentaire et la pré-remise doivent être rejouees.",
