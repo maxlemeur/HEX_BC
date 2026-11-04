@@ -33,10 +33,13 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // - a pipe whose strokes fall in a parent network and one of its members (the
 //   outlines read as a supply by its labels, the tint as its parent by the
 //   legend) is one pipe: the part of a parent's run that lies along a member's
-//   run, its axis within the member's band (between its outlines, or within
-//   RUN_GAP_PT of a member drawn as one line), is the member's and is dropped
-//   from the parent's run; the rest stays the parent's. Pipes of unrelated
-//   networks side by side stay two pipes;
+//   run, its axis within the larger of half the member's band width and
+//   RUN_GAP_PT of the member's axis, is the member's and is dropped from the
+//   parent's run; the rest stays the parent's. Pipes of unrelated networks side
+//   by side stay two pipes. Limit: a label naming only the parent, printed on
+//   such a pipe, no longer attaches to it (a parent's label never fits a
+//   member's run): the pipe stays « à revoir », or that label goes to the
+//   nearest other run of the parent within its reach;
 // - strokes in the legend boxes or in a diagram frame (a dark closed rectangle,
 //   its four corners drawn, of 0.3 % to 40 % of the page holding network strokes but almost no
 //   background: grey or near-white length under 5 % of the network length)
@@ -344,9 +347,9 @@ export function dropCapsAndFittings(runs: Run[]): Run[] {
 /**
  * One pipe whose strokes fall in a parent network and one of its members (the outlines read as HW-S by its labels,
  * the tint as HW by the legend) is measured once, as the member. The part of a parent's run along a member's run,
- * parallel (within ANGLE_SPAN), its axis inside the member's band at both ends of their overlap (within half the
- * member's width, or RUN_GAP_PT of a member drawn as one line), is dropped from the parent's run; the pieces left
- * longer than RUN_GAP_PT stay the parent's. Members, other networks and shared colours are kept whole.
+ * parallel (within ANGLE_SPAN), its axis at both ends of their overlap within the larger of half the member's band
+ * width and RUN_GAP_PT of the member's axis, is dropped from the parent's run; the pieces left longer than RUN_GAP_PT
+ * stay the parent's. Members, other networks and shared colours are kept whole.
  */
 export function dropParentDoubles(runs: readonly Run[], width: number): Run[] {
   const parents = new Set<NetworkCode>(Object.values(PARENT_NETWORK));

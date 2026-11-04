@@ -189,6 +189,8 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   their parent's run;
 // - and a guard for the fix, green before and after it: a parent's pipe drawn
 //   1.5 pt beside a member's (two pipes) must not be merged into it.
+// Its limit, pinned (review of the fix): a label naming only the parent, printed
+// on such a pipe, gives no DN to it (« à revoir »), never one counted twice.
 // Decisions classes (TI-662 L3c, classify.ts applyDecisions, written before the code):
 // - a Decisions answer replaces a keyword, legend or label class, or decides a
 //   shared legend colour that the labels decide per run;
@@ -1232,6 +1234,17 @@ describe("one pipe drawn in a parent's and a member's colours (TI-662 L3d)", () 
     ]));
     expect(totals(reading)).toHaveLength(2);
     expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "HW-S", dn: 35, attached: "label" });
+  });
+
+  it("leaves « à revoir » a pipe whose only label names the parent: the label no longer fits it once merged", () => {
+    const reading = read(page([{
+      strokes: supply(100, 100 + FIVE_M, 300, 100 + FIVE_M + THREE_M),
+      texts: [centred("HW - cuivre DN 35", 200, 297)],
+    }], LAYERS));
+    expect(runAt(reading, { x: 200, y: 300 })).toEqual({ network: "HW-S", dn: null, attached: null });
+    expect(totals(reading).every((total) => total.dn === null)).toBe(true);
+    expect(metres(reading, "HW-S")).toBeCloseTo(5, 2);
+    expect(metres(reading, "HW")).toBeCloseTo(3, 2);
   });
 
   it("keeps a parent's pipe drawn 1.5 pt beside a member's as two pipes", () => {

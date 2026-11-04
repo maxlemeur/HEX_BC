@@ -160,11 +160,15 @@ est une constante nommée et versionnée dans le code.
      - un tuyau dont les traits tombent dans un réseau parent et un de ses membres
        (ses contours lus comme un départ par ses libellés, sa teinte comme son parent
        par la légende) ne compte qu'une fois, au membre. La partie d'un tronçon du
-       parent qui longe un tronçon du membre, parallèle (à 3° près), son axe dans la
-       bande du membre aux deux bouts de leur recouvrement (à moins de la demi-largeur
-       de cette bande, ou de 1 pt d'un membre tracé d'un seul trait), est retirée du
-       parent ; le reste du tronçon, au-delà de 1 pt, reste au parent. Deux tuyaux
-       côte à côte (à 1,5 pt par exemple) restent deux tuyaux.
+       parent qui longe un tronçon du membre, parallèle (à 3° près), est retirée du
+       parent quand son axe, aux deux bouts de leur recouvrement, reste à moins de la
+       demi-largeur de la bande du membre ou de 1 pt de son axe (la plus grande des
+       deux). Le reste du tronçon, au-delà de 1 pt, reste au parent. Deux tuyaux tracés
+       chacun d'un seul trait à 1,5 pt l'un de l'autre restent deux tuyaux.
+       Limite : un libellé qui ne nomme que le parent (« HW … DN 35 ») posé sur un tel
+       tuyau ne s'y rattache plus, puisqu'un libellé du parent ne va jamais sur un
+       tronçon du membre. Le tuyau reste alors « à revoir », ou ce libellé va au plus
+       proche autre tronçon du parent à sa portée.
    - Les embouts et les manchons posés en travers d'une bande de leur réseau ne comptent
      pas. Le tuyau court d'un autre réseau qui la croise compte.
    - Ne sont pas mesurés : les échantillons de la légende et les cadres de détail. Un
