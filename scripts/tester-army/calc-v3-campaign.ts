@@ -11,7 +11,7 @@ import { prepareCalcV3Fixtures, type CalcV3FixtureContext, type CalcV3Owner, typ
 import {
   CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, CALC_V3_PHASES, type CalcV3Phase,
 } from "./calc-v3-phases";
-import { assertLocalAppPortAvailable } from "./local-development";
+import { assertLocalAppPortAvailable } from "./app-port";
 import { buildSourceEvidence, prepareArmyTypeScriptConfig } from "./local-recipe-common.mjs";
 import { extractCollectedPdfTexts } from "./pdf-text";
 

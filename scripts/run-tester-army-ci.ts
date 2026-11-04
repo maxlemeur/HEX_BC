@@ -27,7 +27,8 @@ import {
   grepAlternativeProblems, listArmySelection, localJourneyCoverageProblems, selectionPreflightProblems,
 } from "./tester-army/journey-preflight.mjs";
 import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
-import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
+import { assertLocalAppPortAvailable, describeArmyRunFailure, outputTail, reserveAppPort } from "./tester-army/app-port";
+import { runLocalDevelopmentSession } from "./tester-army/local-development";
 import { assertInstalledDependencies } from "./tester-army/installed-dependencies.mjs";
 
 const suite = process.argv[2];
@@ -190,7 +191,13 @@ function redact(value: string) {
   return redactOutput(value, { NODE_ENV: "test", ...Object.fromEntries(knownSecrets.map((secret, index) => [`SECRET_${index}`, secret])) });
 }
 
-async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: string, context = mainContext) {
+/**
+ * Runs one step; a failure names its cause (TI-672): `failureCause` when the
+ * step recorded one, otherwise the last lines of its output. The full output
+ * stays in the step's retained log.
+ */
+async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: string, context = mainContext,
+  failureCause?: () => string | undefined) {
   console.log(`TesterArmy CI: ${name}`);
   const chunks: Buffer[] = [];
   const exitCode = await new Promise<number>((resolve, reject) => {
@@ -211,9 +218,17 @@ async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: str
     child.once("error", (error) => { removeHandlers(); reject(error); });
     child.once("close", (code, signal) => { removeHandlers(); resolve(code ?? (signal ? 130 : 3)); });
   });
-  fs.writeFileSync(path.join(context.evidence, `${name}.log`), redact(Buffer.concat(chunks).toString("utf8")));
+  const output = redact(Buffer.concat(chunks).toString("utf8"));
+  fs.writeFileSync(path.join(context.evidence, `${name}.log`), output);
   (context.manifest.steps as unknown[]).push({ name, command: [process.execPath, ...args], exitCode });
-  if (exitCode !== 0) throw new Error(`${name} failed with exit code ${exitCode}; see its retained log.`);
+  if (exitCode !== 0) {
+    let cause: string | undefined;
+    try { cause = failureCause?.(); } catch { /* An unreadable record falls back to the output. */ }
+    cause = redact(cause || `last output lines:\n    ${outputTail(output) || "(none)"}`);
+    // The public job log and manifest receive it: the same privacy check as the evidence.
+    if (failsPrivacyCheck(cause)) cause = "its cause failed the privacy check and stays in the retained log";
+    throw new Error(`${name} failed with exit code ${exitCode} (retained log ${name}.log): ${cause}`);
+  }
 }
 
 /** The app, build and journey environment of a backend, without the ARMY account. */
@@ -483,10 +498,11 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
         try {
           await runJourneys("critical", journeyEnvironment, context);
         } catch (error) {
-          retainCurrentJourney(true, context);
+          const retention = retainFailedJourney("critical", context);
+          const message = [redact(error instanceof Error ? error.message : String(error)), retention].filter(Boolean).join("; ");
           const phases = (context.manifest.phases ??= []) as unknown[];
-          phases.push({ phase: "critical", status: "failed", error: redact(error instanceof Error ? error.message : String(error)) });
-          throw error;
+          phases.push({ phase: "critical", status: "failed", error: message });
+          throw retention ? new Error(message, { cause: error }) : error;
         }
       },
       finalize: (context) => { writeRetainedManifest(context); },
@@ -515,11 +531,13 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
         ? { ...journeyEnvironment, E2E_ARMY_SERVER_MODE: "development" }
         : journeyEnvironment);
     } catch (error) {
-      retainCurrentJourney(true);
-      const message = redact(error instanceof Error ? error.message : String(error));
+      const retention = retainFailedJourney(phase);
+      const message = [redact(error instanceof Error ? error.message : String(error)), retention].filter(Boolean).join("; ");
       const phases = (manifest.phases ??= []) as unknown[];
       phases.push({ phase, status: "failed", error: message });
       failures.push(`${phase}: ${message}`);
+      // The next phase would overwrite the output this one could not retain.
+      if (retention) break;
     }
   }
   if (failures.length) throw new Error(failures.join("; "));
@@ -536,7 +554,8 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
   await assertLocalAppPortAvailable(appPort);
   manifest.phase = phase;
   manifest.campaignStartedAt = new Date().toISOString();
-  await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : []), ...files], environment, `journeys-${phase}`, context);
+  await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : []), ...files], environment, `journeys-${phase}`, context,
+    () => armyRunFailure(context));
   const report = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/report.json"), "utf8"));
   const run = report.run;
   type JourneyResult = { selected: boolean; status: string; kind: string; file: string;
@@ -576,6 +595,29 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
   const phases = (manifest.phases ??= []) as unknown[];
   phases.push({ phase, status: "passed", result: run.summary });
   retainCurrentJourney(true, context);
+}
+
+/** The run-level cause the army CLI recorded for this phase (an app that could not start), with the app port. */
+function armyRunFailure(context: RunContext) {
+  const file = path.join(root, ".e2e/army/critical/manifest.json");
+  if (!fs.existsSync(file) || fs.statSync(file).mtimeMs < Date.parse(String(context.manifest.campaignStartedAt))) return undefined;
+  const causes = describeArmyRunFailure(JSON.parse(fs.readFileSync(file, "utf8")));
+  return causes.length ? `app port ${appPort}; ${causes.join("; ")}` : undefined;
+}
+
+/**
+ * Retains a failed phase's journey output. A phase stopped before its journeys
+ * started (a busy port) has none. Returns the problem instead of throwing: it
+ * follows the phase's own error and never replaces it (TI-672).
+ */
+function retainFailedJourney(phase: string, context = mainContext) {
+  if (context.manifest.phase !== phase) return undefined;
+  try {
+    retainCurrentJourney(true, context);
+    return undefined;
+  } catch (error) {
+    return `its evidence was not retained: ${redact(error instanceof Error ? error.message : String(error))}`;
+  }
 }
 
 function retainCurrentJourney(required = false, context = mainContext) {
@@ -713,7 +755,11 @@ async function main() {
     if (fs.readdirSync(root).some((name) => /^\.env(?:\.(?:local|production|development|test)(?:\.local)?)?$/.test(name))) {
       throw new Error("CI refuses ambient .env files; use a clean checkout without shared backend credentials.");
     }
-    // It holds nothing once it returns, so it precedes the claim: a loop refused for a busy port leaves no state and keeps that cause.
+    // Before any stack (TI-672): a campaign binds its port only for its journeys, minutes from now, so a
+    // neighbour still in its database checks is seen by its lease alone, held until this process exits. The probe
+    // then refuses any other listener (a zombie `next start`). Both precede the claim: a loop refused for its port
+    // leaves no state and keeps that cause.
+    reserveAppPort({ port: appPort, label: `run-tester-army-ci.ts ${suite}` });
     await assertLocalAppPortAvailable(appPort);
     if (suite === "dev-loop") claimLoopState();
     manifest.source = await runSourceEvidence();
