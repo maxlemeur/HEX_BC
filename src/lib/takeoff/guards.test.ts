@@ -4,6 +4,7 @@ import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
   getTakeoffVerificationReadiness,
+  parseLowConfidenceThreshold,
 } from "@/lib/takeoff/guards";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -163,5 +164,32 @@ describe("blank proof read as the database reads it", () => {
     for (const evidence of ["\t", "\n", "   "]) {
       expect(getTakeoffVerificationReadiness({ evidence, source_page: 1 }).issues, JSON.stringify(evidence)).not.toContain("missing_evidence");
     }
+  });
+});
+
+// The low confidence threshold of a tenant (flag TAKEOFF_LOW_CONFIDENCE_THRESHOLD) read the same way in TS and in the
+// apply trigger (TI-677, review of L5b). Before: Number() read « 0x1 » as 1 where SQL fell back to 0.5, rounded
+// « 0.70000000000000001 » to 0.7 where SQL kept every digit (a 0.7 line blocked in SQL only, and an admin override
+// whose audit carried 0.7 never matched), and JS trimmed a tab SQL kept. Both now read one bounded decimal grammar,
+// trimmed like JS trim(), then the threshold rounded up to the 1e-4 confidences are stored at (numeric(5,4)): the same
+// lines block. The same cases run in pgTAP against takeoff_low_confidence_threshold (takeoff-rule-bounds.test.sql).
+const LOW_CONFIDENCE_THRESHOLD_CASES: Array<[string | null, number]> = [
+  [null, 0.5], ["", 0.5], ["   ", 0.5], ["0.7", 0.7], [" 0.7 ", 0.7], ["\t0.7\n", 0.7], ["\u00a00.7", 0.7],
+  ["0x1", 0.5], ["0b1", 0.5], ["0.70000000000000001", 0.7001], ["0.123456789012345678901", 0.1235], ["7e-1", 0.7],
+  ["7E-1", 0.7], ["1e-400", 0.0001], ["1e-1000", 0.5], [".5", 0.5], ["1.", 1], ["+0.65", 0.65], ["-0", 0],
+  ["-0.00001", 0.5], ["1", 1], ["1.00001", 0.5], ["Infinity", 0.5], ["NaN", 0.5], ["0,7", 0.5], ["1_0", 0.5],
+  ["0.6500", 0.65], ["0.00001", 0.0001], [`0.${"0".repeat(120)}1`, 0.5],
+];
+
+describe("low confidence threshold read as the apply trigger reads it", () => {
+  it.each(LOW_CONFIDENCE_THRESHOLD_CASES)("reads %j as %d", (raw, expected) => {
+    expect(parseLowConfidenceThreshold(raw)).toBe(expected);
+  });
+
+  it("blocks the lines the trigger blocks for a threshold of more than 17 digits, and none for a hexadecimal one", () => {
+    const items = [makeItem("at-0.7", "Vanne", { confidence: 0.7 }), makeItem("at-0.6", "Vanne", { confidence: 0.6 })];
+    expect(checkApplyGuard(items, parseLowConfidenceThreshold("0.70000000000000001")).blocked_items.map((item) => item.item_id))
+      .toEqual(["at-0.7", "at-0.6"]);
+    expect(checkApplyGuard(items, parseLowConfidenceThreshold("0x1")).blocked_items).toEqual([]);
   });
 });

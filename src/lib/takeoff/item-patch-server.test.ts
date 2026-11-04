@@ -172,6 +172,37 @@ describe("takeoff item patch persistence", () => {
     expect(stateRead && [filterValue(stateRead, "tenant_id"), filterValue(stateRead, "job_id")]).toEqual([M3_TENANT_ID, M3_JOB_ID]);
   });
 
+  // TI-677 (Codex #160, thread 4467587403): two saves of one version could deadlock. Each UPDATE locked its own line,
+  // then the peer invalidation of the rules locked every other line of the version: A held its line and waited for
+  // B's, B held its line and waited for A's, and one save failed (« Impossible de mettre à jour l'item. »). A line is
+  // now saved through update_takeoff_item_for_review, which takes the version's lock before the line's (pgTAP
+  // takeoff-rule-peers-race.test.sql shows the deadlock and its absence): the review never updates the table directly.
+  it("saves each line through the version's serialized write, with its expected timestamp, never a direct update", async () => {
+    const fake = createSupabaseFake({
+      tables: {
+        takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
+        takeoff_items: () => ({ data: takeoffItemRow(), error: null }),
+        audit_logs: () => ({ data: null, error: null }),
+      },
+      rpc: {
+        update_takeoff_item_for_review: (args) => ({
+          data: [{ ...takeoffItemRow(), ...(args as { p_fields: object }).p_fields, rule_results: [], rules_stale: false }], error: null,
+        }),
+      },
+    });
+    useFake(fake);
+
+    const response = await batchUpdateTakeoffItems(M3_JOB_ID, { items: [entry(M3_ITEM_ID)] });
+
+    expect(response.results).toMatchObject([{ item_id: M3_ITEM_ID, success: true, item: { quantity: 18 } }]);
+    expect(fake.writesTo("takeoff_items")).toEqual([]);
+    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toEqual([{
+      fn: "update_takeoff_item_for_review",
+      args: { p_tenant_id: M3_TENANT_ID, p_job_id: M3_JOB_ID, p_item_id: M3_ITEM_ID, p_expected_updated_at: UPDATED_AT,
+        p_fields: expect.objectContaining({ quantity: 18 }) },
+    }]);
+  });
+
   it.each(["viewer", "buyer"])('refuses the role "%s" before reading any job', async (role) => {
     const fake = createSupabaseFake({});
     useFake(fake, role);
