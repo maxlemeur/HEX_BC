@@ -48,7 +48,7 @@ describe("visionReport", () => {
     expect(report.reviewed_page_ms).toEqual({ p50: 8000, p95: 8000, raw: [8000] });
     // L1 on the same documents and pages only, both sides (b-plan-11 is not in this run).
     expect(report.l1).toEqual({ pages: 2, raster_pages_left_out: 0, multi_page_calls_left_out: 0,
-      run_ms: { p50: 1000, p95: 8000, raw: [8000, 1000] }, baseline_ms: { p50: 50_000, p95: 60_000, raw: [60_000, 50_000] }, regression: false });
+      run_ms: { p50: 1000, p95: 8000, raw: [8000, 1000] }, baseline_ms: { p50: 50_000, p95: 60_000, raw: [60_000, 50_000] }, regression: false, interrupted: false });
   });
 
   it("compares only the pages both sides timed alone, never a raster page read by L1", () => {
@@ -81,5 +81,19 @@ describe("visionReport", () => {
     const none = visionReport({ vector: [vectorPass(1, vision)], passes: [runPass(1, [["a-plan-01", 1, 2000]])], baseline: [] });
     expect([none.l1.pages, none.l1.regression]).toEqual([0, null]);
     expect(renderVisionSection(none).join("\n")).toContain("sans baseline L1");
+  });
+
+  // Codex #163: a pass stopped mid-way (quota) leaves later pages unreviewed at zero vision time; comparing them with
+  // L1 would state « sans régression » for reviews that never ran.
+  it("gives no L1 verdict for an interrupted vision pass, and keeps its partial cost", () => {
+    const stopped: VisionPassSummary = { ...vision, stop: { reason: "plan_limit", message: "Limite du forfait ChatGPT" } };
+    const report = visionReport({ vector: [vectorPass(1, stopped)],
+      passes: [runPass(1, [["a-plan-01", 1, 2000], ["a-plan-01", 2, 1000]])],
+      baseline: [runPass(1, [["a-plan-01", 1, 60_000], ["a-plan-01", 2, 60_000]])] });
+    expect([report.l1.regression, report.l1.interrupted]).toEqual([null, true]);
+    expect(report.tokens.total).toBe(2100);
+    const text = renderVisionSection(report).join("\n");
+    expect(text).toContain("passe vision interrompue");
+    expect(text).not.toContain("sans régression");
   });
 });

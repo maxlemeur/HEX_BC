@@ -12,6 +12,8 @@ import { visionPageTimings } from "@/lib/takeoff/bench/vision-review";
 //   call (a multi-page chunk has no time of its own per page) and the run read from its vectors (a raster page takes
 //   its items from L1, at the vector reading's time): « regression » when the run is slower at p50 or p95, null without
 //   such pages; the pages left out are counted;
+// - an interrupted vision pass (a stop, e.g. the plan limit) gives no L1 verdict: its later pages were never reviewed
+//   and carry no vision time. Its partial cost (tokens, latencies, timings) is still reported;
 // - the acceptance counter: per pass and role, the keys at high confidence and those in error after the rules and
 //   after vision; any rise of the errors is flagged.
 
@@ -54,7 +56,9 @@ export function visionReport(input: {
   const runCompared = percentiles(timings.filter((timing) => compared.has(key(timing.document, timing.page))).map((timing) => timing.total_ms));
   const baselineCompared = percentiles(baselineCalls.filter(({ document, call }) => call.start_page === call.end_page && compared.has(key(document, call.start_page)))
     .map(({ call }) => call.duration_per_page_ms));
-  const regression = baselineCompared.p50 === null || runCompared.p50 === null ? null
+  const stop = input.vector.map((pass) => pass.vision?.stop ?? null).find(Boolean) ?? null;
+  const interrupted = stop !== null;
+  const regression = interrupted || baselineCompared.p50 === null || runCompared.p50 === null ? null
     : runCompared.p50 > baselineCompared.p50 || (runCompared.p95 ?? 0) > (baselineCompared.p95 ?? 0);
   // Lines per document rejected / uncertain / high, after the rules and after vision (the « before the rules » of the
   // vision state is not shown: its lines are already corrected).
@@ -83,11 +87,11 @@ export function visionReport(input: {
     page_ms: percentiles(timings.map((timing) => timing.total_ms)),
     reviewed_page_ms: percentiles(timings.filter((timing) => timing.vision_ms > 0).map((timing) => timing.total_ms)),
     l1: { pages: compared.size, raster_pages_left_out: raster.size, multi_page_calls_left_out: multiPage,
-      run_ms: runCompared, baseline_ms: baselineCompared, regression },
+      run_ms: runCompared, baseline_ms: baselineCompared, regression, interrupted },
     tiers,
     keys,
     high_confidence_errors_increased: keys.some((entry) => entry.after_vision.errors > entry.after_rules.errors),
-    stop: input.vector.map((pass) => pass.vision?.stop ?? null).find(Boolean) ?? null,
+    stop,
   };
 }
 
@@ -104,7 +108,9 @@ export function renderVisionSection(report: VisionReport) {
     `- Jetons : ${report.tokens.input} en entrée, ${report.tokens.output} en sortie${"reasoning" in report.tokens ? `, ${report.tokens.reasoning} de raisonnement` : ""}, ${report.tokens.total} au total (appels avec usage).`,
     `- Latence des appels p50 / p95 : ${seconds(report.latency_ms.p50)} / ${seconds(report.latency_ms.p95)} s ; rendu des extraits : ${seconds(report.render_ms.p50)} / ${seconds(report.render_ms.p95)} s.`,
     `- Durée par page (vecteurs + vision) p50 / p95 : ${seconds(report.page_ms.p50)} / ${seconds(report.page_ms.p95)} s ; pages revues seules : ${seconds(report.reviewed_page_ms.p50)} / ${seconds(report.reviewed_page_ms.p95)} s.`,
-    report.l1.regression === null
+    report.l1.interrupted
+      ? `- L1 : passe vision interrompue (${report.stop?.reason ?? "arrêt"}), aucun verdict face à L1 ; les coûts partiels ci-dessus restent valables.`
+      : report.l1.regression === null
       ? "- L1 : sans baseline L1 sur ces pages, aucune comparaison."
       : `- Mêmes pages que L1 (${report.l1.pages} ; laissées de côté : ${report.l1.raster_pages_left_out} raster, ${report.l1.multi_page_calls_left_out} appels L1 de plusieurs pages) : run ${seconds(report.l1.run_ms.p50)} / ${seconds(report.l1.run_ms.p95)} s, L1 ${seconds(report.l1.baseline_ms.p50)} / ${seconds(report.l1.baseline_ms.p95)} s (p50 / p95) : ${report.l1.regression ? "**régression**" : "sans régression"}.`,
     ...(report.tiers.length > 0 ? ["", "| Passe | Document | Rôle | Après règles (rejetées / incertaines / haute) | Après vision |", "|---|---|---|---|---|",
