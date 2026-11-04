@@ -58,16 +58,24 @@ function clip(text: string, max: number) {
 /**
  * Bounds tried in turn until the results fit the column's byte budget (TI-677): the first is the schema's, which
  * keeps every result as written up to its field limits; the next ones clip the partners' designations and the reason,
- * then keep the partners with the largest common length first and the first overlapping rooms. Never touched: the
- * rule, status, code, version and « acceptable » (what blocks), the length counted twice, the group size, the
- * overlapping area (what guides the decision).
+ * then keep the partners with the largest common length first and the first overlapping rooms. The last keeps only
+ * what decides and guides: a short reason and the numbers of the details (16 results of it stay far under the
+ * budget). Never touched: the rule, status, code, version and « acceptable » (what blocks), the length counted twice,
+ * the group size, the overlapping area (what guides the decision).
  */
 const RESULT_BOUNDS = [
-  { reason: LIMITS.reason, designation: LIMITS.designation, partners: LIMITS.partners, rooms: Number.POSITIVE_INFINITY },
-  { reason: LIMITS.reason, designation: 120, partners: LIMITS.partners, rooms: 500 },
-  { reason: 300, designation: 40, partners: 20, rooms: 100 },
-  { reason: 120, designation: 16, partners: 5, rooms: 20 },
+  { reason: LIMITS.reason, designation: LIMITS.designation, partners: LIMITS.partners, rooms: Number.POSITIVE_INFINITY, numbersOnly: false },
+  { reason: LIMITS.reason, designation: 120, partners: LIMITS.partners, rooms: 500, numbersOnly: false },
+  { reason: 300, designation: 40, partners: 20, rooms: 100, numbersOnly: false },
+  { reason: 120, designation: 16, partners: 5, rooms: 20, numbersOnly: false },
+  { reason: 60, designation: 0, partners: 0, rooms: 0, numbersOnly: true },
 ] as const;
+
+/** The details' numbers (the length counted twice, the group size, the areas…) and the level, clipped. */
+function detailNumbers(details: NonNullable<TakeoffRuleResult["details"]>) {
+  const kept = Object.entries(details).filter(([, value]) => typeof value === "number" && Number.isFinite(value));
+  return Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]);
+}
 
 function withinBounds(results: readonly TakeoffRuleResult[], bounds: (typeof RESULT_BOUNDS)[number]) {
   return results.map((entry) => {
@@ -77,7 +85,7 @@ function withinBounds(results: readonly TakeoffRuleResult[], bounds: (typeof RES
       ...entry,
       reason: clip(entry.reason, bounds.reason),
       ...(entry.details ? {
-        details: {
+        details: bounds.numbersOnly ? detailNumbers(entry.details) : {
           ...entry.details,
           ...(partners ? { partners: partners.slice(0, bounds.partners).map((partner) => ({ ...partner,
             designation: clip(partner.designation, bounds.designation), zone: partner.zone === null ? null : clip(partner.zone, LIMITS.zone) })) } : {}),
@@ -92,8 +100,8 @@ function withinBounds(results: readonly TakeoffRuleResult[], bounds: (typeof RES
  * Results as every read accepts them and the column stores them: a reason or a partner's designation can quote user
  * text of any length (a designation of 500 multibyte characters, fifty partners), a room can overlap thousands of
  * rooms. Each bound is tried in turn until the jsonb text fits RULE_RESULTS_MAX_BYTES (jsonbTextBytes, the measure
- * of the check). Throws when results still do not parse or fit, so that nothing unreadable or unstorable is ever
- * written (the line then stays stale and blocks on both sides of the guard).
+ * of the check); the last bound always fits schema-valid results. Throws when results do not parse (or would still not
+ * fit), so that nothing unreadable or unstorable is ever written: the line then keeps its stored state.
  */
 export function boundRuleResults(results: readonly TakeoffRuleResult[]): TakeoffRuleResult[] {
   for (const bounds of RESULT_BOUNDS) {

@@ -172,7 +172,8 @@ export async function recomputeTakeoffRulesForVersion(input: {
       const transform = evaluation.transforms.get(stored.page) ?? null;
       if (!sameJson(stored.geometry.transform, transform)) transforms.push({ item_id: item.id, transform });
     }
-    // Results that cannot be bounded to the column (TI-677) leave this line stale, never the whole version.
+    // Results that cannot be bounded to the column (TI-677; schema-valid results always are) are not written: the line
+    // keeps its stored state, and the rest of the version is written.
     let results: TakeoffRuleResult[];
     try {
       results = boundRuleResults(evaluation.results.get(item.id) ?? []);

@@ -17,18 +17,23 @@
 --   saves through update_takeoff_item_for_review, which takes the version's
 --   lock (the writer's: takeoff-rules:<version>) before its line's. The peer
 --   invalidation, the worker's insertion and a job's completion take the same
---   lock before they lock lines, so the review, the writer and the worker
---   never hold lines of one version while waiting for each other.
--- - The writer leaves a line whose results exceed the column's bounds (16
---   results, 65,536 bytes) stale instead of failing its whole chunk: the
---   server bounds them before the write (boundRuleResults, measured as
---   jsonb text), this is the database's own guard.
+--   lock before they lock lines (when the rules read any), and so does a
+--   guarded application before its job's row: the review, the writer, the
+--   worker and an application never hold lines of one version while waiting
+--   for each other, and a save never invalidates a job being applied (it
+--   failed on TAKEOFF_ITEM_APPLIED_JOB_IMMUTABLE once the application
+--   committed).
+-- - The writer leaves out a line whose results exceed the column's bounds (16
+--   results, 65,536 bytes) instead of failing its whole chunk: the line keeps
+--   its stored state. The server bounds results before the write
+--   (boundRuleResults, measured as jsonb text, always within the bounds);
+--   this is the database's own guard.
 
 create or replace function public.takeoff_low_confidence_threshold(p_value text)
 returns numeric
 language plpgsql
 immutable
-set search_path = pg_catalog
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   -- The characters JS trim() removes (WhiteSpace and LineTerminator), at both ends.
@@ -253,7 +258,7 @@ create or replace function public.update_takeoff_item_for_review(
 returns setof public.takeoff_items
 language plpgsql
 security invoker
-set search_path = pg_catalog
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   version_id uuid;
@@ -308,7 +313,7 @@ create or replace function public.stale_takeoff_rule_peers()
 returns trigger
 language plpgsql
 security definer
-set search_path = pg_catalog
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   versions uuid[];
@@ -378,14 +383,26 @@ $$;
 
 revoke all on function public.stale_takeoff_rule_peers() from public, anon, authenticated;
 
--- A job's completion (20261103213336) takes its version's lock before it locks the version's lines.
+-- A job's completion (20261103213336) takes its version's lock before it locks the version's lines, when the rules
+-- read any of them (a version without rule inputs takes no lock).
 create or replace function public.stale_takeoff_rule_lines_on_completion()
 returns trigger
 language plpgsql
 security definer
-set search_path = pg_catalog
+set search_path = pg_catalog, pg_temp
 as $$
 begin
+  if not exists (
+    select 1
+    from public.takeoff_items as item
+    join public.takeoff_jobs as job on job.id = item.job_id and job.tenant_id = item.tenant_id
+    where job.tenant_id = new.tenant_id
+      and job.estimate_version_id = new.estimate_version_id
+      and job.status = 'completed'::public.takeoff_job_status
+      and (item.rules_evaluated_at is not null or item.rules_stale)
+  ) then
+    return null;
+  end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || new.estimate_version_id::text, 0));
   update public.takeoff_items as item
   set rules_stale = true, rules_stale_at = pg_catalog.clock_timestamp()
@@ -402,8 +419,8 @@ $$;
 
 revoke all on function public.stale_takeoff_rule_lines_on_completion() from public, anon, authenticated;
 
--- The writer of 20261103213336; a line whose results exceed the column's bounds is left stale, never written, and
--- the rest of its chunk is (before: the whole chunk failed on the check and every line stayed stale).
+-- The writer of 20261103213336; a line whose results exceed the column's bounds is never written (it keeps its
+-- stored state), and the rest of its chunk is (before: the whole chunk failed on the check).
 create or replace function public.write_takeoff_rule_results(
   p_tenant_id uuid,
   p_estimate_version_id uuid,
@@ -414,7 +431,7 @@ create or replace function public.write_takeoff_rule_results(
 returns table (item_id uuid)
 language plpgsql
 security invoker
-set search_path = pg_catalog
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   writable uuid[];
@@ -469,7 +486,7 @@ begin
     and item.updated_at = entry.expected_updated_at
     -- Made stale again since read (a partner's edit after the stamp check): left stale.
     and item.rules_stale_at is not distinct from entry.expected_stale_at
-    -- TI-677: results over the column's bounds leave their line stale; the rest of the chunk is written.
+    -- TI-677: results over the column's bounds are not written (the line keeps its state); the rest of the chunk is.
     and case when pg_catalog.jsonb_typeof(entry.results) = 'array'
       then pg_catalog.jsonb_array_length(entry.results) <= 16 and pg_catalog.octet_length(entry.results::text) <= 65536
       else false end
@@ -479,3 +496,186 @@ $$;
 
 revoke all on function public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb, text) from public, anon, authenticated;
 grant execute on function public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb, text) to service_role;
+
+-- The guarded applications of 20260813201300 take the version's lock before the job's row and lines (the inner
+-- apply_takeoff_job_atomic locks the job first): the review, the writer, the peer invalidation and a job's completion
+-- never hold lines of the version while an application waits for them, nor touch the lines of a job being applied.
+-- Their search_path stays exactly pg_catalog (pinned by security-invariants and takeoff-apply-security-definer).
+create or replace function public.apply_takeoff_job_guarded_atomic(
+  p_job_id uuid,
+  p_strategy text,
+  p_target_section_id uuid,
+  p_mapping_plan jsonb
+)
+returns table (
+  created_count integer,
+  updated_count integer,
+  ignored_count integer,
+  created_ids uuid[],
+  scope text,
+  item_links jsonb
+)
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  job_tenant_id uuid;
+  job_version_id uuid;
+begin
+  if lower(btrim(coalesce(p_strategy, ''))) = 'replace'
+    and p_target_section_id is null
+  then
+    raise exception 'TAKEOFF_ROOT_REPLACE_DISABLED' using errcode = '22023';
+  end if;
+
+  select job.tenant_id, job.estimate_version_id
+    into job_tenant_id, job_version_id
+  from public.takeoff_jobs as job
+  where job.id = p_job_id;
+
+  if job_tenant_id is null
+    or not coalesce(public.has_tenant_role(
+      job_tenant_id,
+      array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+    ), false)
+  then
+    raise exception 'TAKEOFF_APPLY_OPERATOR_REQUIRED' using errcode = '42501';
+  end if;
+
+  perform public.assert_takeoff_active_tenant(p_job_id, job_tenant_id);
+
+  if exists (
+    select 1
+    from public.estimate_items as item
+    where item.tenant_id = job_tenant_id
+      and item.version_id = job_version_id
+      and item.item_type = 'line'
+      and item.source_provider = 'dpgf'
+  ) then
+    raise exception 'TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED'
+      using errcode = '42501';
+  end if;
+
+  -- TI-677: the version's lock (the writer's and the review's) before any lock on the job or its lines: a save of
+  -- another job's line waits for the application instead of invalidating the job being applied.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || job_version_id::text, 0));
+  perform set_config('app.takeoff_apply_job', 'on', true);
+  perform set_config('app.takeoff_apply_atomic', 'on', true);
+  return query
+  select result.*
+  from public.apply_takeoff_job_atomic(
+    p_job_id,
+    p_strategy,
+    p_target_section_id,
+    p_mapping_plan
+  ) as result;
+end;
+$$;
+
+revoke all on function public.apply_takeoff_job_guarded_atomic(
+  uuid, text, uuid, jsonb
+) from public, anon;
+grant execute on function public.apply_takeoff_job_guarded_atomic(
+  uuid, text, uuid, jsonb
+) to authenticated;
+
+create or replace function public.apply_takeoff_job_guarded_atomic(
+  p_job_id uuid,
+  p_strategy text,
+  p_target_section_id uuid,
+  p_mapping_plan jsonb,
+  p_dpgf_authorization_token text
+)
+returns table (
+  created_count integer,
+  updated_count integer,
+  ignored_count integer,
+  created_ids uuid[],
+  scope text,
+  item_links jsonb
+)
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  caller_id uuid := (select auth.uid());
+  job_tenant_id uuid;
+  job_version_id uuid;
+  authorization_id uuid;
+begin
+  if caller_id is null then
+    raise exception 'TAKEOFF_APPLY_AUTH_REQUIRED' using errcode = '42501';
+  end if;
+
+  if lower(btrim(coalesce(p_strategy, ''))) = 'replace'
+    and p_target_section_id is null
+  then
+    raise exception 'TAKEOFF_ROOT_REPLACE_DISABLED' using errcode = '22023';
+  end if;
+
+  select job.tenant_id, job.estimate_version_id
+    into job_tenant_id, job_version_id
+  from public.takeoff_jobs as job
+  where job.id = p_job_id;
+
+  if job_tenant_id is null
+    or not coalesce(public.has_tenant_role(
+      job_tenant_id,
+      array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+    ), false)
+  then
+    raise exception 'TAKEOFF_APPLY_OPERATOR_REQUIRED' using errcode = '42501';
+  end if;
+
+  perform public.assert_takeoff_active_tenant(p_job_id, job_tenant_id);
+
+  select permit.id
+    into authorization_id
+  from public.takeoff_apply_authorizations as permit
+  where permit.authorization_token_hash = encode(
+      sha256(convert_to(p_dpgf_authorization_token, 'UTF8')),
+      'hex'
+    )
+    and permit.tenant_id = job_tenant_id
+    and permit.job_id = p_job_id
+    and permit.estimate_version_id = job_version_id
+    and permit.user_id = caller_id
+    and permit.consumed_at is null
+    and permit.expires_at > statement_timestamp()
+  for update;
+
+  if authorization_id is null then
+    raise exception 'TAKEOFF_DPGF_APPLY_AUTHORIZATION_INVALID'
+      using errcode = '42501';
+  end if;
+
+  update public.takeoff_apply_authorizations as permit
+  set
+    authorization_token_hash = null,
+    consumed_at = statement_timestamp()
+  where permit.id = authorization_id;
+
+  -- TI-677: the version's lock (the writer's and the review's) before any lock on the job or its lines: a save of
+  -- another job's line waits for the application instead of invalidating the job being applied.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || job_version_id::text, 0));
+  perform set_config('app.takeoff_apply_job', 'on', true);
+  perform set_config('app.takeoff_apply_atomic', 'on', true);
+  return query
+  select result.*
+  from public.apply_takeoff_job_atomic(
+    p_job_id,
+    p_strategy,
+    p_target_section_id,
+    p_mapping_plan
+  ) as result;
+end;
+$$;
+
+revoke all on function public.apply_takeoff_job_guarded_atomic(
+  uuid, text, uuid, jsonb, text
+) from public, anon;
+grant execute on function public.apply_takeoff_job_guarded_atomic(
+  uuid, text, uuid, jsonb, text
+) to authenticated;

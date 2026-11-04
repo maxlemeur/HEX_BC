@@ -89,6 +89,21 @@ describe("rule results within the column's byte budget", () => {
     expectSameDecision(bounded, original);
   });
 
+  // Review of TI-677: past seven rules at their caps the ladder ran out and threw; the line then kept its stored state,
+  // which is not stale when only the rules changed (a deploy). The last bound keeps what decides and guides only.
+  it("bounds sixteen results with every field at its cap and free text in their details, never throwing", () => {
+    const capped: TakeoffRuleResult = { ...GROUP_DUPLICATE, reason: "😀".repeat(500),
+      details: { level: "R+1", overlap_m: 3.2, group_size: 51, cause: "😀".repeat(2000), scale_reason: "管".repeat(3000),
+        partners: Array.from({ length: 50 }, (_, index) => ({ ...partner(index), designation: "😀".repeat(250), zone: "😀".repeat(8) })),
+        overlapping_item_ids: Array.from({ length: 3000 }, (_, index) => uuid(index)), overlap_m2: 12.5 } };
+    const original = Array.from({ length: 16 }, () => capped);
+    const bounded = boundRuleResults(original);
+    expect(jsonbTextBytes(bounded)).toBeLessThanOrEqual(RESULTS_MAX_BYTES);
+    expect(TakeoffRuleResultsSchema.parse(bounded)).toEqual(bounded);
+    expectSameDecision(bounded, original);
+    for (const entry of bounded) expect(entry.details).toMatchObject({ level: "R+1", overlap_m: 3.2, group_size: 51, overlap_m2: 12.5 });
+  });
+
   it("leaves results that already fit as they are", () => {
     const small = [DN_PASS, { ...GROUP_DUPLICATE, reason: "Tronçon compté aussi en Zone 2.",
       details: { level: "R+1", partners: [partner(1), partner(2)].map((entry) => ({ ...entry, designation: "EF cuivre 20/22" })),

@@ -300,6 +300,6 @@
     "20261029224500_estimate_v3_freeze_revision_effects.sql": "d4f7b9d02fba2e9c33165a5d41ea92de1ca29431fceaed8e1b585e2f719267f3",
     "20261103153311_takeoff_vector_geometry.sql": "1897ff9600aae452718af1ce91a407156e8cbe89ae7bc28ec0e82acb8a495947",
     "20261103213336_takeoff_quantity_rules.sql": "e844be8807f6793b979ce81c5ec11d13f2e555ae51ad063e7558bd926b9940b6",
-    "20261104215000_takeoff_rule_bounds_and_serialization.sql": "89f654631388c692c80172e67aea69e930318831ca1bf8a05fc86f7fe2e1b84c"
+    "20261104215000_takeoff_rule_bounds_and_serialization.sql": "a89759842f36ed5b8ca43a413c2077ab285ff621513588b15c03722cef2d9d53"
   }
 }

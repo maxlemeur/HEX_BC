@@ -3,6 +3,7 @@
 // write. jsonb writes ", " between elements and ": " after a key, a number in plain notation (its numeric text: 1e-7
 // is 0.0000001), a string escaped like JSON.stringify (\" \\ \b \f \n \r \t, \u00XX below 0x20) and every other
 // character as its UTF-8 bytes. A NUL or a lone surrogate cannot be stored: such a value measures Infinity.
+// For plain JSON data only (parsed or built from literals): toJSON, a Date or a boxed primitive is not measured.
 
 function stringBytes(text: string): number {
   let bytes = 2;

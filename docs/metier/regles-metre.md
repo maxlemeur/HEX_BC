@@ -321,11 +321,11 @@ Migration `20261104215000_takeoff_rule_bounds_and_serialization.sql`.
   demi-surrogate ne se stocke pas.
 - **Résultats ≤ 64 Kio** : `boundRuleResults` essaie des bornes de plus en plus
   courtes (désignations des partenaires, raison, partenaires gardés par longueur
-  commune décroissante, pièces recouvertes) jusqu'à tenir. Code, statut,
-  « acceptable », longueur comptée deux fois, taille du groupe et aire recouverte ne
-  changent jamais. Une ligne qui ne tiendrait toujours pas reste périmée, seule ;
-  l'écrivain SQL laisse aussi périmée une ligne hors bornes au lieu d'échouer tout
-  son lot.
+  commune décroissante, pièces recouvertes), puis, en dernier recours, une raison
+  courte et les seuls nombres des détails : des résultats valides tiennent toujours.
+  Code, statut, « acceptable », longueur comptée deux fois, taille du groupe et aire
+  recouverte ne changent jamais. L'écrivain SQL n'écrit pas une ligne hors bornes
+  (elle garde son état) au lieu d'échouer tout son lot.
 - **Ancres ≤ 256 Kio** : `pageAnchors` écarte les textes non stockables, puis les
   textes les plus courts (toutes les lignes de bâtiment sont gardées) ; le worker
   borne encore avant l'insertion de la page. Une page trop chargée n'écarte plus la
@@ -341,8 +341,11 @@ Migration `20261104215000_takeoff_rule_bounds_and_serialization.sql`.
   `update_takeoff_item_for_review`, qui prend le verrou de la version (celui de
   l'écrivain) avant celui de la ligne. L'invalidation des voisines, l'insertion du
   worker et la complétion d'un job prennent ce verrou avant de verrouiller des
-  lignes. Deux enregistrements d'une même version s'attendent au lieu de
-  s'interbloquer ; l'écrivain et le worker aussi.
+  lignes (quand les règles en lisent), et l'application d'un job aussi, avant la
+  ligne de son job. Deux enregistrements d'une même version s'attendent au lieu de
+  s'interbloquer ; l'écrivain, le worker et l'application aussi. Un enregistrement
+  pendant l'application d'un autre job de la version attend sa fin, au lieu d'échouer
+  sur les lignes du job appliqué (`TAKEOFF_ITEM_APPLIED_JOB_IMMUTABLE`).
 
 ## Revue ciblée (L5c)
 

@@ -7,7 +7,11 @@
 -- ligne que tient A : PostgreSQL annule l'un des deux enregistrements (« deadlock detected »). Une troisième session
 -- tient une ligne voisine le temps que les deux enregistrements démarrent, pour que leurs verrous s'entrelacent.
 -- Après la migration, la revue enregistre par update_takeoff_item_for_review, qui prend le verrou de la version avant
--- celui de la ligne : B attend A, puis passe.
+-- celui de la ligne : B attend A sur ce verrou (vérifié dans pg_locks, quel que soit l'ordre de parcours), puis passe.
+-- Cas écrit avant le correctif de la revue de TI-677 : une sauvegarde d'une ligne du job Z1 pendant l'application du
+-- job Z2 de la même version invalidait les lignes de Z2, attendait le verrou de ce job, puis échouait à la validation
+-- de l'application (TAKEOFF_ITEM_APPLIED_JOB_IMMUTABLE), ou s'interbloquait avec elle. L'application prend désormais le
+-- verrou de la version avant tout verrou de ligne : la sauvegarde l'attend, puis passe.
 begin;
 create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
@@ -51,10 +55,35 @@ from public.tenant_memberships m cross join (values
   ('9f100000-0000-4000-8000-000000000401'::uuid, '9f100000-0000-4000-8000-000000000301'::uuid, 1),
   ('9f100000-0000-4000-8000-000000000402'::uuid, '9f100000-0000-4000-8000-000000000302'::uuid, 2)
 ) as line(id, job_id, rank) where m.user_id = '9f100000-0000-4000-8000-000000000001' and m.is_default;
+-- The version's section and the engineer's draft lock, for an application of the Z2 job.
+insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
+select '9f100000-0000-4000-8000-000000000201', m.tenant_id, '9f100000-0000-4000-8000-000000000101', 'section', 0, 'Lot fictif'
+from public.tenant_memberships m where m.user_id = '9f100000-0000-4000-8000-000000000001' and m.is_default;
+insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+select '9f100000-0000-4000-8000-000000000101', m.user_id, m.tenant_id, now() + interval '30 minutes', gen_random_uuid()
+from public.tenant_memberships m where m.user_id = '9f100000-0000-4000-8000-000000000001' and m.is_default;
 commit;
 $setup$), 'COMMIT', 'fixtures committed');
 
+-- Whether a session waits for the version's lock (the writer's: takeoff-rules:<version>).
+create temp table peers_race_pids(label text primary key, pid integer);
+create or replace function pg_temp.waits_for_version_lock(p_label text)
+returns boolean
+language sql
+as $$
+  select exists (
+    select 1 from pg_catalog.pg_locks as held
+    where held.locktype = 'advisory' and not held.granted
+      and held.pid = (select pid from peers_race_pids where label = p_label)
+      and ((held.classid::bigint << 32) | held.objid::bigint)
+        = pg_catalog.hashtextextended('takeoff-rules:9f100000-0000-4000-8000-000000000101', 0)
+  )
+$$;
+
 -- The review's save of one line, as the engineer through the Data API (the call the server makes).
+insert into peers_race_pids
+select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
+from (values ('peers_a'), ('peers_b')) as session(name);
 select is(extensions.dblink_exec(session.name, 'set role authenticated'), 'SET', format('%s acts as the engineer', session.name))
 from (values ('peers_a'), ('peers_b')) as session(name);
 select is((select claims.sub from extensions.dblink(session.name, $claims$select set_config('request.jwt.claims',
@@ -84,6 +113,7 @@ select is(extensions.dblink_is_busy('peers_a'), 1, 'the first save waits for the
 select is(extensions.dblink_send_query('peers_b', (select query from peers_race_saves where label = 'b')), 1, 'the second save starts');
 select pg_sleep(0.3);
 select is(extensions.dblink_is_busy('peers_b'), 1, 'the second save waits too');
+select ok(pg_temp.waits_for_version_lock('peers_b'), 'the second save waits for the version''s lock, holding no line');
 select is(extensions.dblink_exec('peers_hold', 'rollback'), 'ROLLBACK', 'the neighbour is released');
 
 select is((select x.saved from extensions.dblink_get_result('peers_a', false) as x(saved integer)), 1, 'the first save is written');
@@ -97,20 +127,63 @@ select is((select array_agg(quantity::text || ':' || rules_stale::text order by 
   where id in ('9f100000-0000-4000-8000-000000000400', '9f100000-0000-4000-8000-000000000401', '9f100000-0000-4000-8000-000000000402')),
   array['5.000:true', '2.000:true', '3.000:true'], 'both quantities are saved, and every line of the version waits for the server');
 
--- Clean the committed synthetic fixtures of this disposable database.
+-- A save of a Z1 line while the Z2 job of the version is being applied --------------------------------------
+select is(extensions.dblink_exec('peers_setup', $computed$update public.takeoff_items set rules_stale = false
+  where job_id in ('9f100000-0000-4000-8000-000000000301', '9f100000-0000-4000-8000-000000000302')$computed$), 'UPDATE 3',
+  'the server computed the version: nothing blocks the Z2 job');
+select is(extensions.dblink_exec('peers_b', 'begin'), 'BEGIN', 'the application''s transaction starts');
+select is((select x.applied from extensions.dblink('peers_b', $apply$select count(*)::integer from public.apply_takeoff_job_guarded_atomic(
+  '9f100000-0000-4000-8000-000000000302', 'append', '9f100000-0000-4000-8000-000000000201',
+  (select jsonb_agg(jsonb_build_object('item_id', item.id, 'source_order', 0, 'rule_id', null, 'action', 'none',
+    'designation', btrim(item.designation), 'unit_price_cents', null, 'category_id', null, 'assembly_id', null))
+   from public.takeoff_items as item where item.job_id = '9f100000-0000-4000-8000-000000000302'))$apply$) as x(applied integer)), 1,
+  'the Z2 job is applied, not yet committed');
+select is(extensions.dblink_send_query('peers_a', format($save$select count(*)::integer from public.update_takeoff_item_for_review(
+  (select tenant_id from public.takeoff_items where id = %1$L), %2$L, %1$L,
+  (select updated_at from public.takeoff_items where id = %1$L), jsonb_build_object('quantity', 4))$save$,
+  '9f100000-0000-4000-8000-000000000401', '9f100000-0000-4000-8000-000000000301')), 1, 'a save of a Z1 line starts');
+select pg_sleep(0.3);
+select is(extensions.dblink_is_busy('peers_a'), 1, 'the save waits for the application');
+select ok(pg_temp.waits_for_version_lock('peers_a'), 'the save waits for the version''s lock, before any line of the applied job');
+select is(extensions.dblink_exec('peers_b', 'commit'), 'COMMIT', 'the application commits');
+select is((select x.saved from extensions.dblink_get_result('peers_a', false) as x(saved integer)), 1, 'the save is written');
+select is(extensions.dblink_error_message('peers_a'), 'OK', 'the save is never refused for the applied job''s lines');
+select is((select count(*)::integer from extensions.dblink_get_result('peers_a', false) as x(saved integer)), 0, 'the save is done');
+select is((select array_agg(quantity::text || ':' || rules_stale::text order by id) from public.takeoff_items
+  where id in ('9f100000-0000-4000-8000-000000000400', '9f100000-0000-4000-8000-000000000401', '9f100000-0000-4000-8000-000000000402')),
+  array['5.000:true', '4.000:true', '3.000:false'], 'the Z1 lines wait for the server, the applied Z2 line is frozen');
+
+-- Clean the committed synthetic fixtures of this disposable database. The applied job's lines and the estimate rows
+-- its application wrote are guarded against deletion: every tenant-scoped row of the fixture's own tenant is removed
+-- with triggers off, then the tenant, its profile and its user.
 select is(extensions.dblink_exec('peers_setup', $cleanup$
 begin;
-delete from public.takeoff_items where job_id in ('9f100000-0000-4000-8000-000000000301', '9f100000-0000-4000-8000-000000000302');
-delete from public.takeoff_jobs where id in ('9f100000-0000-4000-8000-000000000301', '9f100000-0000-4000-8000-000000000302');
-delete from public.estimate_versions where id = '9f100000-0000-4000-8000-000000000101';
-delete from public.estimate_projects where id = '9f100000-0000-4000-8000-000000000010';
-delete from public.estimate_rules where tenant_id = (select tenant_id from public.tenant_memberships where user_id = '9f100000-0000-4000-8000-000000000001' and is_default);
-delete from public.audit_logs where tenant_id = (select tenant_id from public.tenant_memberships where user_id = '9f100000-0000-4000-8000-000000000001' and is_default);
-delete from public.feature_flags where tenant_id = (select tenant_id from public.tenant_memberships where user_id = '9f100000-0000-4000-8000-000000000001' and is_default);
-delete from public.tenants where id = (select tenant_id from public.tenant_memberships where user_id = '9f100000-0000-4000-8000-000000000001' and is_default);
+set local session_replication_role = replica;
+do $clean$
+declare
+  target uuid := (select tenant_id from public.tenant_memberships
+    where user_id = '9f100000-0000-4000-8000-000000000001' and is_default);
+  entry record;
+begin
+  for entry in
+    select columns.table_schema, columns.table_name
+    from information_schema.columns as columns
+    join information_schema.tables as tables
+      on tables.table_schema = columns.table_schema and tables.table_name = columns.table_name
+    where columns.table_schema in ('public', 'private') and columns.column_name = 'tenant_id'
+      and tables.table_type = 'BASE TABLE' and not (columns.table_schema = 'public' and columns.table_name = 'tenants')
+  loop
+    execute format('delete from %I.%I where tenant_id = $1', entry.table_schema, entry.table_name) using target;
+  end loop;
+  delete from public.tenants where id = target;
+end
+$clean$;
+delete from public.profiles where id = '9f100000-0000-4000-8000-000000000001';
 delete from auth.users where id = '9f100000-0000-4000-8000-000000000001';
 commit;
 $cleanup$), 'COMMIT', 'synthetic fixtures cleaned');
+select is((select count(*)::integer from public.takeoff_jobs where id in ('9f100000-0000-4000-8000-000000000301', '9f100000-0000-4000-8000-000000000302')),
+  0, 'no fixture job is left');
 select is(extensions.dblink_disconnect('peers_setup'), 'OK', 'fixture session disconnected');
 select is(extensions.dblink_disconnect('peers_hold'), 'OK', 'holding session disconnected');
 select is(extensions.dblink_disconnect('peers_a'), 'OK', 'first review session disconnected');
