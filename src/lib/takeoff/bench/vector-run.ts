@@ -1,5 +1,5 @@
 import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
-import type { BenchPass, BenchRunResult, BenchStop, ChunkCall, DocumentRun } from "@/lib/takeoff/bench/run";
+import type { BenchPass, BenchRunResult, BenchStop, ChunkCall, DocumentRun, StopReason } from "@/lib/takeoff/bench/run";
 import { describeError } from "@/lib/takeoff/bench/run";
 import type { GroupTruthFile } from "@/lib/takeoff/bench/schemas";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
@@ -26,6 +26,16 @@ import {
   type BenchRulePage,
 } from "@/lib/takeoff/bench/vector-rules";
 import type { LevelRegistration } from "@/lib/takeoff/rules/evaluate";
+import {
+  applyVisionAnswers,
+  visionCandidates,
+  visionLineCounts,
+  type VisionAnswer,
+  type VisionLine,
+  type VisionPageOutcome,
+  type VisionPageSummary,
+  type VisionPassSummary,
+} from "@/lib/takeoff/bench/vision-review";
 
 // The vector pipeline of the takeoff bench (TI-662 §6), next to the level C
 // baseline: per pass and document, each page is extracted (child process, 15 s,
@@ -45,6 +55,10 @@ import type { LevelRegistration } from "@/lib/takeoff/rules/evaluate";
 // run there: the page keeps the answers it got, the document is not scored
 // (incomplete), later pages and passes are not run. A page whose images could
 // not be drawn keeps its groups « à revoir » and the run goes on.
+// With a vision hook (--vision-review, TI-664 L5c), once a pass is read and its rules computed, the lines the DN ×
+// network rule rejects are reviewed page by page (vision-review.ts); the corrected lines and their rules computed
+// again are the pass « after vision » (result.vision), the pass itself is left as read. A stop of the hook (quota,
+// rate limit, authorisation) ends the run there: that pass has no « after vision » state.
 
 export const VECTOR_PIPELINE_LABEL = "vector";
 
@@ -114,9 +128,22 @@ export type VectorBenchPass = {
   documents: VectorDocumentSummary[];
   /** Registration of the pages of each level of a lot (TI-664), the first page of a level being its frame. */
   registrations?: Array<LevelRegistration & { lot: string }>;
+  /** The vision pass on the rejected lines (TI-664 L5c), absent without a vision hook. */
+  vision?: VisionPassSummary;
 };
 
-export type VectorBenchResult = { run: BenchRunResult; vector: { version: number; passes: VectorBenchPass[] } };
+/** Reviews the rejected lines of one page (renders their crops, asks ChatGPT); `stop` ends the run. */
+export type VectorVisionHook = {
+  promptVersion: string;
+  review: (document: VectorBenchDocument, page: number, lines: VisionLine[]) => Promise<VisionPageOutcome>;
+};
+
+export type VectorBenchResult = {
+  run: BenchRunResult;
+  vector: { version: number; passes: VectorBenchPass[] };
+  /** Each pass after the vision pass: the corrected lines and their rules, scored apart (absent without a hook). */
+  vision?: { prompt_version: string; passes: BenchPass[] };
+};
 
 function correspondencesOf(groups: GroupTruthFile | undefined, page: number) {
   const map = new Map<string, VectorClass>();
@@ -202,8 +229,76 @@ function decisionsStop(stop: GroupDecisionsStop, done: number, planned: number, 
     calls_done: done, calls_remaining: planned - done, at };
 }
 
-function promptVersionOf(decisions: Pick<VectorDecisionsHook, "promptVersion"> | null | undefined) {
-  return `vector-v${VECTOR_READING_VERSION}${decisions ? `+${decisions.promptVersion}` : ""}`;
+function promptVersionOf(decisions: Pick<VectorDecisionsHook, "promptVersion"> | null | undefined, vision?: Pick<VectorVisionHook, "promptVersion">) {
+  return `vector-v${VECTOR_READING_VERSION}${decisions ? `+${decisions.promptVersion}` : ""}${vision ? `+${vision.promptVersion}` : ""}`;
+}
+
+const STOP_REASONS: readonly StopReason[] = ["quota", "rate_limit", "auth_required", "account_missing", "model_missing", "selection_changed", "other"];
+
+/**
+ * The vision pass of one read pass: per document, its pages with lines to review in order; the answers applied as a
+ * new state, the rules computed again on it per lot. Stops at the hook's first stop (no state then).
+ */
+async function reviewPass(input: { hook: VectorVisionHook; documents: readonly VectorBenchDocument[]; runs: readonly DocumentRun[];
+  ruleDocuments: readonly BenchRuleDocument[]; rulePages: readonly BenchRulePage[] }) {
+  const summary: VisionPassSummary = { documents: [], stop: null };
+  const reviewed: BenchRuleDocument[] = [];
+  for (const ruleDocument of input.ruleDocuments) {
+    const document = input.documents.find((entry) => entry.id === ruleDocument.id);
+    const run = input.runs.find((entry) => entry.id === ruleDocument.id);
+    if (!document || !run || ruleDocument.items.length !== ruleDocument.data.length) {
+      reviewed.push(ruleDocument);
+      continue;
+    }
+    const denominators = new Map(input.rulePages.filter((page) => page.document === document.id).map((page) => [page.page, page.denominator]));
+    const results = run.item_rules ?? ruleDocument.items.map(() => []);
+    const answers = new Map<number, VisionAnswer>();
+    const pages: VisionPageSummary[] = [];
+    for (const page of visionCandidates({ items: ruleDocument.items, data: ruleDocument.data, results, denominators })) {
+      const outcome: VisionPageOutcome = page.lines.length > 0 ? await input.hook.review(document, page.page, page.lines)
+        : { calls: [], render_ms: [], answers: [], stop: null };
+      const byAlias = new Map(page.lines.map((line) => [line.alias, line]));
+      const pageAnswers = outcome.answers.flatMap((answer) => {
+        const line = byAlias.get(answer.alias);
+        return line ? [{ ...answer, index: line.index, designation: line.designation }] : [];
+      });
+      // One answer per line, its first: a repeated alias never overwrites it.
+      for (const answer of pageAnswers) if (!answers.has(answer.index)) answers.set(answer.index, answer);
+      const counts = visionLineCounts(page.lines.length, outcome);
+      pages.push({ page: page.page, lines: counts.lines, ...(counts.unattempted > 0 ? { unattempted: counts.unattempted } : {}), not_drawn: counts.not_drawn,
+        too_spread: page.too_spread, left_out: page.left_out, corrected: 0, calls: outcome.calls, render_ms: outcome.render_ms, answers: pageAnswers });
+      if (outcome.stop) {
+        summary.stop = outcome.stop;
+        break;
+      }
+    }
+    const applied = applyVisionAnswers({ items: ruleDocument.items, data: ruleDocument.data, answers });
+    for (const page of pages) page.corrected = applied.corrected.filter((index) => ruleDocument.items[index]?.source_page === page.page).length;
+    summary.documents.push({ id: document.id, pages });
+    if (summary.stop) return { summary, pass: null };
+    reviewed.push({ ...ruleDocument, items: applied.items, data: applied.data });
+  }
+  const rules = benchRulePass(reviewed.filter((entry) => entry.items.length === entry.data.length), input.rulePages);
+  const items = new Map(reviewed.map((entry) => [entry.id, entry.items]));
+  const documents = input.runs.map((run) => ({ ...run, items: [...(items.get(run.id) ?? run.items)],
+    ...(rules.results.has(run.id) ? { item_rules: rules.results.get(run.id) } : {}) }));
+  return { summary, documents };
+}
+
+/** A run whose vision pass could not start (no ChatGPT account, model or token): no page read, every page left. */
+export function stoppedVisionBench(documents: readonly Pick<VectorBenchDocument, "pages">[], repeat: number, promptVersion: string,
+  stop: { reason: StopReason; message: string }): VectorBenchResult {
+  const planned = repeat * documents.reduce((total, document) => total + document.pages, 0);
+  return {
+    run: {
+      status: "incomplete", calls_planned: planned, calls_done: 0,
+      stop: { kind: "provider", reason: stop.reason, error: { name: "VisionStop", code: stop.reason, message: stop.message.slice(0, 300) },
+        calls_done: 0, calls_remaining: planned, at: null },
+      couples: [{ model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, override: null, prompt_version: promptVersionOf(null, { promptVersion }), passes: [] }],
+    },
+    vector: { version: VECTOR_READING_VERSION, passes: [] },
+    vision: { prompt_version: promptVersion, passes: [] },
+  };
 }
 
 /** A run stopped before its first page (Decisions unavailable): no page read, every page left. */
@@ -231,6 +326,8 @@ export async function runVectorBench(input: {
   extract?: (bytes: Uint8Array, page: number) => Promise<VectorPageExtraction>;
   /** Decisions classes of the groups the keywords leave (TI-662 L3c); absent: keywords only. */
   decisions?: VectorDecisionsHook;
+  /** The vision pass on the lines the rules reject (TI-664 L5c); absent: none. */
+  vision?: VectorVisionHook;
   clock?: () => number;
   log?: (line: string) => void;
 }): Promise<VectorBenchResult> {
@@ -241,7 +338,8 @@ export async function runVectorBench(input: {
   const vectorPasses: VectorBenchPass[] = [];
   let done = 0;
   let stop: BenchStop | null = null;
-  const promptVersion = promptVersionOf(input.decisions);
+  const promptVersion = promptVersionOf(input.decisions, input.vision);
+  const visionPasses: BenchPass[] = [];
   bench: for (let pass = 1; pass <= input.repeat; pass += 1) {
     const benchPass: BenchPass = { pass, complete: false, documents: [] };
     const vectorPass: VectorBenchPass = { pass, documents: [] };
@@ -336,6 +434,19 @@ export async function runVectorBench(input: {
     }
     finishRules();
     benchPass.complete = true;
+    if (input.vision) {
+      const vision = await reviewPass({ hook: input.vision, documents: input.documents, runs: benchPass.documents, ruleDocuments, rulePages });
+      vectorPass.vision = vision.summary;
+      if (vision.summary.stop) {
+        const reason = STOP_REASONS.find((entry) => entry === vision.summary.stop?.reason) ?? "other";
+        const last = vision.summary.documents.at(-1);
+        stop = { kind: "provider", reason, error: { name: "VisionStop", code: vision.summary.stop.reason, message: vision.summary.stop.message.slice(0, 300) },
+          calls_done: done, calls_remaining: planned - done,
+          at: { model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, pass, document: last?.id ?? "", chunk: last?.pages.at(-1)?.page ?? null } };
+        break bench;
+      }
+      visionPasses.push({ pass, complete: true, documents: vision.documents ?? [] });
+    }
   }
   return {
     run: {
@@ -343,5 +454,6 @@ export async function runVectorBench(input: {
       couples: [{ model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, override: null, prompt_version: promptVersion, passes }],
     },
     vector: { version: VECTOR_READING_VERSION, passes: vectorPasses },
+    ...(input.vision ? { vision: { prompt_version: input.vision.promptVersion, passes: visionPasses } } : {}),
   };
 }

@@ -18,7 +18,7 @@ export const BENCH_USAGE = "Usage: npm run takeoff:bench -- --dataset <dir> --do
   + `--efforts <auto|${CHATGPT_REASONING_EFFORTS.join("|")},...> [--repeat <n>] [--pages <list> | --pages-from <report.json>] --out <run_path>\n`
   + "       npm run takeoff:bench -- --mode triage --dataset <dir> --docs <ids|all> --max-decisions-tokens <n> --out <run_path>\n"
   + "       npm run takeoff:bench -- --pipeline vector --dataset <dir> --docs <ids|all> [--baseline <report.json>] [--repeat <n>] "
-  + "[--max-decisions-tokens <n>] --out <run_path>";
+  + "[--max-decisions-tokens <n>] [--vision-review rejected] --out <run_path>";
 
 export class BenchUsageError extends Error {
   constructor(message: string) {
@@ -52,12 +52,15 @@ export type BenchArgs =
   | (CommonArgs & {
     pipeline: "vector";
     baseline: string | null;
+    /** `--vision-review rejected` (TI-664 L5c): ChatGPT reviews the lines the rules reject, on their plan's crop. */
+    visionReview: boolean;
     /** Decisions token ceiling of the group classes (TI-662 L3c); null: keywords only, no model. */
     maxDecisionsTokens: number | null;
   });
 export type ChatGptBenchArgs = Extract<BenchArgs, { pipeline: "chatgpt" }>;
 
-const FLAGS = ["pipeline", "mode", "dataset", "docs", "models", "efforts", "baseline", "repeat", "out", "max-decisions-tokens", "pages", "pages-from"] as const;
+const FLAGS = ["pipeline", "mode", "dataset", "docs", "models", "efforts", "baseline", "repeat", "out", "max-decisions-tokens", "pages", "pages-from",
+  "vision-review"] as const;
 type Flag = (typeof FLAGS)[number];
 
 function list(flag: Flag, value: string) {
@@ -128,9 +131,13 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
     for (const flag of ["models", "efforts", "mode", "pages", "pages-from"] as const) {
       if (values.has(flag)) throw new BenchUsageError(`--${flag} is for the chatgpt pipeline: the vector pipeline calls no reading model and reads every page.`);
     }
-    return { pipeline, ...common, repeat: repeatOf(), baseline: values.get("baseline") ?? null, maxDecisionsTokens: ceilingOf() };
+    const vision = values.get("vision-review");
+    if (vision !== undefined && vision !== "rejected") throw new BenchUsageError("--vision-review takes « rejected » (the lines the rules reject).");
+    return { pipeline, ...common, repeat: repeatOf(), baseline: values.get("baseline") ?? null, maxDecisionsTokens: ceilingOf(),
+      visionReview: vision === "rejected" };
   }
   if (values.has("baseline")) throw new BenchUsageError("--baseline is for the vector pipeline.");
+  if (values.has("vision-review")) throw new BenchUsageError("--vision-review is for the vector pipeline.");
   const mode = values.get("mode") ?? "extract";
   if (mode !== "extract" && mode !== "triage") throw new BenchUsageError("--mode is extract or triage.");
   if (mode === "triage") {

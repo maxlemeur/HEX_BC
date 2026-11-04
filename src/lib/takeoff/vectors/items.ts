@@ -22,6 +22,15 @@ const MATERIAL_LABELS: Record<string, string> = {
   "acier-galvanise": "acier galvanisé", "acier-noir": "acier noir", acier: "acier",
 };
 
+/**
+ * The designation of a network line as vectorItems prints it (« EF cuivre DN 22 »): the network's code, its material
+ * and « DN n ». Shared with the bench's vision pass (TI-664), which rewrites a line it corrected.
+ */
+export function vectorNetworkDesignation(network: keyof typeof NETWORKS, material: string | null, dn: string | number | null) {
+  const label = material ? MATERIAL_LABELS[material] ?? material : null;
+  return [NETWORKS[network].aliases[0], label, dn === null ? null : `DN ${dn}`].filter(Boolean).join(" ");
+}
+
 function round(value: number, digits: number) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
@@ -33,8 +42,7 @@ export function vectorItems(reading: VectorPageReading, sourceFile: string): Tak
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;
     const code = NETWORKS[total.network].aliases[0];
-    const material = total.material ? MATERIAL_LABELS[total.material] ?? total.material : null;
-    const designation = [code, material, total.dn === null ? null : `DN ${total.dn}`].filter(Boolean).join(" ");
+    const designation = vectorNetworkDesignation(total.network, total.material, total.dn);
     items.push({
       designation, quantity: round(total.length_m, 2), unit: "ml", category: "réseau (lecture vectorielle)", source_page: reading.page,
       source_file: sourceFile,
