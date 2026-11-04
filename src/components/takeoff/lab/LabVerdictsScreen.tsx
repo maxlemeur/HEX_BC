@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, RefreshCw, SkipForward, Undo2, X } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -178,7 +178,9 @@ export function LabVerdictsScreen() {
     else if (key === "s") { event.preventDefault(); skip(); }
     else if (event.key === "Escape") { event.preventDefault(); void undo(); }
   });
-  useEffect(() => {
+  // Removed in the commit that closes the screen: a passive cleanup runs a task later, and a key pressed
+  // meanwhile, once the screen was gone, still sent a verdict or undid the campaign's last one.
+  useLayoutEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => onShortcut(event);
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
