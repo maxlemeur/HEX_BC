@@ -865,6 +865,18 @@ export function describeSafeFailure(error: unknown, status?: number) {
   return parts.length ? parts.join(" ") : "unidentified failure";
 }
 
+/**
+ * The end of a failed CLI command's stdout, then its stderr without the psql
+ * NOTICE/INFO/DEBUG/LOG lines: 6,000 characters at most. pg_prove names the
+ * failing file and test at the end of stdout, while psql writes one NOTICE
+ * per pgTAP file to stderr, which alone filled the end of the joined output.
+ */
+function cliFailureExcerpt({ streams }: SupabaseCliCommandError) {
+  const stderr = streams.stderr.split(/\r?\n/)
+    .filter((line) => !/\b(?:NOTICE|INFO|DEBUG\d?|LOG):\s/.test(line)).join("\n").trim().slice(-3_000);
+  return [streams.stdout.trim().slice(-(6_000 - stderr.length)), stderr].filter(Boolean).join("\n");
+}
+
 function createPhaseError(phase: string, error: unknown) {
   const cause = asError(error);
   let detail = SAFE_DIAGNOSTIC_PHASES.has(phase) || cause instanceof SafeDiagnosticError ? `: ${cause.message}` : "";
@@ -872,7 +884,7 @@ function createPhaseError(phase: string, error: unknown) {
     SAFE_DIAGNOSTIC_PHASES.has(phase) &&
     error instanceof SupabaseCliCommandError
   ) {
-    detail += `\n${redactRlsEnvironmentValues(error.capturedOutput, {}).slice(-6_000)}`;
+    detail += `\n${redactRlsEnvironmentValues(cliFailureExcerpt(error), {})}`;
   }
   return new Error(`Phase failed: ${phase}${detail}`, { cause });
 }
