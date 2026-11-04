@@ -980,7 +980,7 @@
     },
     {
       "id": "takeoff-quantity-rules",
-      "note": "Règles fixes du métré (TI-664) : entrées, résultats, garde d'application au même compte que la base, recalcul, doublons Z1/Z2 sur deux plans fictifs (TKR01).",
+      "note": "Règles fixes du métré (TI-664) : entrées, résultats, garde d'application au même compte que la base, recalcul, doublons Z1/Z2 sur deux plans fictifs (TKR01), revue ciblée et assistant d'application (TKR02).",
       "paths": [
         "src/lib/takeoff/rules/**",
         "src/lib/takeoff/guards.ts",
@@ -988,7 +988,13 @@
         "src/lib/takeoff/item-patch-*.ts",
         "src/lib/takeoff/vectors/**",
         "e2e/army/takeoff/zone-plans-fixture.ts",
-        "e2e/army/takeoff/worker-support.ts"
+        "e2e/army/takeoff/worker-support.ts",
+        "src/lib/takeoff/targeted-review.ts",
+        "src/components/takeoff/review/TakeoffTargetedReview.tsx",
+        "src/components/takeoff/review/useTakeoffReviewSupport.ts",
+        "src/components/takeoff/TakeoffApplyWizard.tsx",
+        "src/components/takeoff/takeoff-apply-wizard/GuardPanel.tsx",
+        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/targeted/**"
       ],
       "journeys": [
         "e2e/army/takeoff/quantity-rules.e2e.ts"

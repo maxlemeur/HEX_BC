@@ -153,7 +153,7 @@ describe("takeoff item patch persistence", () => {
             { id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
             { id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
             { id: THIRD_ITEM_ID, rule_results: [], rules_evaluated_at: null, rules_stale: false },
-          ], error: null };
+          ], error: null, count: 3 };
         },
         audit_logs: () => ({ data: null, error: null }),
       },

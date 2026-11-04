@@ -14,8 +14,9 @@ import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
 // TI-664 (métré L5): the fixed rules decide, the user settles what fails. Two zone plans of one level, read by the
 // real worker (vector reading and rules on) as two level C jobs of one estimate version, draw the same EF run over
 // 1.00 m. The duplicate blocks the application with its reason; the user removes that length from one line; the
-// choice is kept after a reload and the estimate counts the shared length once. Everything goes through the API the
-// review uses; the application is the review's own call, with its page lease. Fictional plans only.
+// choice is kept after a reload and the estimate counts the shared length once. TKR01 goes through the API the
+// review uses (the application is the review's own call, with its page lease); TKR02 through the targeted review
+// and the application wizard (TI-664 L5c). Fictional plans only.
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 240_000 };
 
@@ -56,10 +57,10 @@ async function patchItems(ui: WorkerUi, jobId: string, items: Array<{ item: Item
 const zoneCode = (item: Item | undefined) => item?.rule_results?.find((entry) => entry.rule === "zone_overlap")?.code ?? null;
 
 /** Z1 then Z2: two level C jobs of one estimate version, each read by the real worker with the vector reading and the rules. */
-async function seedZoneJobs(ui: WorkerUi, tag: string, title: string) {
+async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: string) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const owner = await signUpWorkerOwner(ui, tag);
-  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${tag}`, title }, ui.army);
+  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${journey}`, title }, ui.army);
   const target = await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} lot plomberie`);
   expect(target.parent_id).toMatch(/^[0-9a-f-]{36}$/i);
   const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
@@ -87,7 +88,7 @@ async function seedZoneJobs(ui: WorkerUi, tag: string, title: string) {
 armyTest("TKR01 a run drawn on two zone plans of one level blocks the application with its reason until one line removes it, then counts once", options,
   async (ui) => {
     // Z1 then Z2: two level C jobs of the version, each read by the real worker with the vector reading and the rules.
-    const { ids, target, client, jobs } = await seedZoneJobs(ui, "RUL", "Règles fixes Z1 Z2");
+    const { ids, target, client, jobs } = await seedZoneJobs(ui, "TKR01", "RUL", "Règles fixes Z1 Z2");
 
     // The vector EF line of each zone is excluded by default (TI-662); the provider's stub pipe names no network, so the
     // DN rule fails it (« Triplet absent : échec »): the user excludes it and includes the measured EF line.
@@ -169,7 +170,7 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
 // a reason (E) on Z1, accepted (V) on Z2.
 armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the user settles it by keyboard, kept after a reload, counted once", options,
   async (ui) => {
-    const { ids, target, jobs } = await seedZoneJobs(ui, "RUL2", "Revue ciblée Z1 Z2");
+    const { ids, target, jobs } = await seedZoneJobs(ui, "TKR02", "RUL2", "Revue ciblée Z1 Z2");
     // Setup only: the vector EF lines arrive excluded (TI-662); both included, the duplicate appears.
     for (const zone of ["Z1", "Z2"] as const) {
       const ef = (await readItems(ui, jobs[zone])).find((item) => item.designation === ZONE_PLANS.designation) as Item;
@@ -217,13 +218,23 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     for (const size of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }]) {
       await ui.browser.setViewport(size);
       await expect(screen.getByRole("listbox", "Lignes à trancher", { exact: true })).toBeVisible();
-      const [scrollHeight, innerHeight] = await ui.browser.evaluate(() => [document.scrollingElement!.scrollHeight, window.innerHeight]);
-      expect([size.width, scrollHeight <= innerHeight]).toEqual([size.width, true]);
+      // Never the page, and nothing the screen needs cut off at its bottom: the application and the decisions are in view,
+      // the plan has its height, the line is drawn in focus.
+      const layout = await ui.browser.evaluate(() => {
+        const bottom = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().bottom ?? Infinity;
+        return { scroll: document.scrollingElement!.scrollHeight <= window.innerHeight,
+          apply: [...document.querySelectorAll("button")].find((button) => button.textContent === "Appliquer au devis")!.getBoundingClientRect().bottom <= window.innerHeight,
+          decisions: bottom("[role='toolbar'][aria-label='Décisions']") <= window.innerHeight,
+          plan: (document.querySelector("svg[aria-label='Géométrie mesurée']")?.getBoundingClientRect().height ?? 0) > 100,
+          focus: document.querySelectorAll("[data-focus='true']").length > 0 };
+      });
+      expect([size.width, layout]).toEqual([size.width, { scroll: true, apply: true, decisions: true, plan: true, focus: true }]);
       screenshots.push(await ui.app.screenshot(`takeoff-targeted-review-duplicate-${size.width}`));
     }
     await recordEvidence(ui.army, "TKR02-blocked-in-review", { ids, jobs, reason: await decision.textContent(), screenshots });
 
-    // Settled by direct entry: 4 then Enter on the Z1 line (5.00 → 4.00 m); the answer carries the Z2 partner too.
+    // Settled by direct entry: 4 then Enter on the Z1 line (5.00 → 4.00 m); the answer carries the rule state of the
+    // job's lines (the Z1 job only: the Z2 line is read by its own review).
     await ui.browser.keyboard.press("4");
     await expect(decision.getByLabel("Quantité", { exact: true })).toHaveValue("4");
     const corrected = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
@@ -234,7 +245,11 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     expect(answer.status).toBe(200);
     expect(patched.data.results[0]?.item).toMatchObject({ quantity: 4, rules_stale: false });
     expect(zoneCode(patched.data.results[0]?.item)).toBe("ZONE_OVERLAP_RESOLVED");
-    expect(patched.data.rule_states?.map((state) => state.item_id)).toContain(patched.data.results[0]?.item.id);
+    const stateIds = patched.data.rule_states?.map((state) => state.item_id) ?? [];
+    const z1Lines = await readItems(ui, jobs.Z1);
+    expect(stateIds).toContain(patched.data.results[0]?.item.id);
+    expect(stateIds).toContain(z1Lines.find((item) => item.designation === "ARMY worker pipe")?.id);
+    expect(stateIds.filter((id) => !z1Lines.some((item) => item.id === id))).toEqual([]);
     await expect(list.getByRole("option")).toHaveCount(0);
     await expect(screen.getByText("Aucune ligne à trancher : le contrôle du métré est complet.", { exact: true })).toBeVisible();
     await expect(applyButton).toBeEnabled();

@@ -671,8 +671,17 @@ export default function TakeoffReviewPage({
     []
   );
 
+  // TI-664 L5c: PATCH answers carry the job's rule states; one that arrives after a later request's answer (autosave
+  // and cherry-pick race) is older and leaves them as they are.
+  const patchSequence = useRef({ sent: 0, applied: 0 });
+  const nextPatchSequence = useCallback(() => {
+    patchSequence.current.sent += 1;
+    return patchSequence.current.sent;
+  }, []);
   const applyPatchResults = useCallback(
-    (response: TakeoffItemBatchPatchResponse) => {
+    (response: TakeoffItemBatchPatchResponse, sequence: number) => {
+      const fresh = sequence > patchSequence.current.applied;
+      if (fresh) patchSequence.current.applied = sequence;
       const resultByItemId = new Map(
         response.results.map((entry) => [entry.item_id, entry] as const)
       );
@@ -697,7 +706,7 @@ export default function TakeoffReviewPage({
             _error: result.error ?? "Erreur inconnue.",
           };
           // TI-664 L5c: the partners of the saved lines read again with them; a line still edited keeps its own.
-        }), response.rule_states, (item) => item._dirty || item._saving)
+        }), fresh ? response.rule_states : undefined, (item) => item._dirty || item._saving)
       );
     },
     []
@@ -748,10 +757,11 @@ export default function TakeoffReviewPage({
         index += TAKEOFF_ITEM_PATCH_BATCH_MAX
       ) {
         const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+        const sequence = nextPatchSequence();
         const response = await patchTakeoffItems(jobId, { items: chunk });
         failedCount += response.failed;
         savedCount += response.succeeded;
-        applyPatchResults(response);
+        applyPatchResults(response, sequence);
       }
 
       if (failedCount > 0) {
@@ -785,7 +795,7 @@ export default function TakeoffReviewPage({
     } finally {
       savingRef.current = false;
     }
-  }, [applyPatchResults, items, jobId, toast]);
+  }, [applyPatchResults, items, jobId, nextPatchSequence, toast]);
 
   // Trigger auto-save debounce when items change
   const hasDirty = items.some((i) => i._dirty);
@@ -989,8 +999,9 @@ export default function TakeoffReviewPage({
         let failedCount = 0;
         for (let index = 0; index < patchEntries.length; index += TAKEOFF_ITEM_PATCH_BATCH_MAX) {
           const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+          const sequence = nextPatchSequence();
           const response = await patchTakeoffItems(jobId, { items: chunk });
-          applyPatchResults(response);
+          applyPatchResults(response, sequence);
           failedCount += response.failed;
         }
 
@@ -1021,7 +1032,7 @@ export default function TakeoffReviewPage({
         setApplySelectionSubmitting(false);
       }
     },
-    [applyPatchResults, items, jobId, toast]
+    [applyPatchResults, items, jobId, nextPatchSequence, toast]
   );
 
   const handleExclusionConfirm = useCallback(
@@ -1240,7 +1251,8 @@ export default function TakeoffReviewPage({
                   {getBusinessLevelLabel(jobLevel)}
                 </Badge>
               ) : null}
-              {targetedReviewHref && targetedReviewCount > 0 && !hasAlreadyBeenApplied ? (
+              {/* Hidden while an edit is being saved: leaving would drop it. */}
+              {targetedReviewHref && targetedReviewCount > 0 && !hasAlreadyBeenApplied && !hasDirtyOrSaving ? (
                 <Link
                   href={targetedReviewHref}
                   className={buttonVariants({ variant: "secondary" })}

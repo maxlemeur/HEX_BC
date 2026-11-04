@@ -36,9 +36,10 @@ export const takeoffItemPatchResultSchema = z.discriminatedUnion("success", [
 export const TAKEOFF_ITEM_RULE_STATES_MAX = 5000;
 
 /**
- * The fixed rules' state of one line of the job, read after the PATCH's computation (or its failure): its partners'
- * results move with the saved line (a run drawn on two zone plans, two rooms of one page), so the review reads them
- * again without reloading the job (TI-664 L5c).
+ * The fixed rules' state of one line of the job, read after the PATCH's computation (or its failure): the results of
+ * the job's other lines move with the saved one (two rooms of one page, a run on two zone pages of the same job, a
+ * group's lines), so the review reads them again without reloading the job (TI-664 L5c). The lines of the version's
+ * other jobs are not sent: each review reads its own job.
  */
 export const takeoffItemRuleStateSchema = z.object({
   item_id: uuid, rule_results: TakeoffRuleResultsSchema, rules_evaluated_at: timestamp.nullable(), rules_stale: z.boolean(),

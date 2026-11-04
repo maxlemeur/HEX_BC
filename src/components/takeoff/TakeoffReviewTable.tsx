@@ -496,6 +496,8 @@ export default function TakeoffReviewTable({
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key !== "e" && key !== "v" && key !== "p") return;
+      // Without a proof panel, P is a letter like any other.
+      if (key === "p" && !onOpenEvidencePanel) return;
       const target = e.target as HTMLElement;
       if (!target.matches?.("[data-cell-id]")) return;
 

@@ -200,10 +200,19 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     setOffset({ x: 0, y: 0 });
   }, [page]);
 
+  // `fill`: the frame follows its panel, and the page fits it again when the panel or the window changes width.
+  const [frameWidth, setFrameWidth] = useState(0);
+  useEffect(() => {
+    const element = frame.current;
+    if (!fill || !element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setFrameWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [fill, reading]);
   const fit = useMemo(() => {
-    const width = frame.current?.clientWidth ?? 0;
+    const width = (fill ? frameWidth : 0) || (frame.current?.clientWidth ?? 0);
     return base && width > 0 ? width / base.width : 0.25;
-  }, [base]);
+  }, [base, fill, frameWidth]);
   const scale = fit * zoom;
 
   useEffect(() => {

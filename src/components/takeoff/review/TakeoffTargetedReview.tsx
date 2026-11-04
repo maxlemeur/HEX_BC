@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
@@ -58,8 +58,14 @@ const RIGHT_MIN = 340;
 const metres = (value: number) => `${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(value)} m`;
 const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
 
+/** A shortcut shown on its button; the button names it with aria-keyshortcuts, so it is not read twice. */
 function Kbd({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <kbd className="ml-1.5 rounded border border-border bg-surface-subtle px-1 font-mono text-[10px] text-muted-foreground">{children}</kbd>;
+  return <kbd aria-hidden="true" className="ml-1.5 rounded border border-border bg-surface-subtle px-1 font-mono text-[10px] text-muted-foreground">{children}</kbd>;
+}
+
+/** A quantity as the field shows it: fr-FR decimal comma, no grouping. */
+function quantityInput(value: number) {
+  return String(value).replace(".", ",");
 }
 
 function hasToEnter(item: TakeoffJobItem) {
@@ -83,12 +89,15 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const [items, setItems] = useState<TakeoffJobItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dpgf, setDpgf] = useState<{ loading: boolean; error: string | null; blocking: boolean }>({ loading: true, error: null, blocking: false });
+  // Read again after each saved decision: a quantity or an exclusion can open or close a DPGF gap.
+  const [dpgfRead, setDpgfRead] = useState(0);
   const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
   const savingRef = useRef(new Set<string>());
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("line"));
   const lastIndex = useRef(0);
+  const nextId = useRef<string | null>(null);
   const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -96,6 +105,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const [rightOpen, setRightOpen] = useState(true);
   const [rightWidth, setRightWidth] = useState(420);
   const resize = useRef<{ x: number; width: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
 
@@ -107,6 +117,12 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     }, (error: unknown) => {
       if (!controller.signal.aborted) setLoadError(isTakeoffApiError(error) || error instanceof Error ? error.message : "Impossible de charger le métré.");
     });
+    return () => controller.abort();
+  }, [jobId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDpgf((previous) => ({ ...previous, loading: true }));
     // The application refuses DPGF links still to settle: read as the review reads them.
     void fetchTakeoffDpgfComparison(jobId, { version_id: versionId, page_size: 1, view: "all" }, { signal: controller.signal }).then((response) => {
       setDpgf({ loading: false, error: null, blocking: hasBlockingTakeoffDpgfExceptions(response.summary) });
@@ -116,7 +132,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       }
     });
     return () => controller.abort();
-  }, [jobId, versionId]);
+  }, [dpgfRead, jobId, versionId]);
 
   // The keys act from the list once the lines are there.
   const loaded = job !== null;
@@ -134,28 +150,35 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const visible = useMemo(() => review.lines.filter((line) => (filter === "all" ? true
     : filter === "uncertain" ? line.tier === "uncertain" : line.reasons.includes("rule_failed"))), [filter, review.lines]);
 
-  // A decided line leaves the list: the selection goes to the line that takes its place.
+  // A decided line leaves the list: the selection goes to the line that followed it (or, gone too, the one now at
+  // its place), and stays in view.
   const selectedIndex = visible.findIndex((line) => line.item.id === selectedId);
   useEffect(() => {
     if (!job) return;
     if (selectedIndex >= 0) {
       lastIndex.current = selectedIndex;
+      nextId.current = visible[selectedIndex + 1]?.item.id ?? visible[selectedIndex - 1]?.item.id ?? null;
       return;
     }
     if (selectedId && savingRef.current.has(selectedId)) return;
-    const next = visible[Math.min(lastIndex.current, visible.length - 1)]?.item.id ?? null;
+    const next = (visible.some((line) => line.item.id === nextId.current) ? nextId.current : null)
+      ?? visible[Math.min(lastIndex.current, visible.length - 1)]?.item.id ?? null;
     if (next !== selectedId) setSelectedId(next);
   }, [job, selectedId, selectedIndex, visible]);
+  useEffect(() => {
+    if (selectedId) document.getElementById(`targeted-line-${selectedId}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedId]);
   const current: Line | null = review.lines.find((line) => line.item.id === selectedId) ?? null;
   const guidance = current ? zoneOverlapGuidance(current.item) : null;
   const acceptance = current ? acceptanceOf(current.item, level) : null;
 
   const applied = job?.status === "applied";
   const readOnly = !job || job.status !== "completed";
-  const busy = current ? saving.has(current.item.id) : false;
+  // One decision at a time: a partner's guidance is read from the answer of the decision before it, never guessed.
+  const busy = saving.size > 0;
 
   const decide = useCallback(async (item: TakeoffJobItem, fields: TakeoffItemPatchField, done: string) => {
-    if (savingRef.current.has(item.id)) return;
+    if (savingRef.current.size > 0) return;
     savingRef.current.add(item.id);
     setSaving(new Set(savingRef.current));
     setLineErrors((previous) => {
@@ -166,14 +189,14 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     try {
       const response = await patchTakeoffItems(jobId, { items: [{ item_id: item.id, updated_at: item.updated_at, fields }] });
       const result = response.results[0];
-      // The saved line as the server holds it, its partners read again with it (another line being saved keeps its own).
+      // The saved line as the server holds it, its partners read again with it.
       setItems((previous) => withRuleStates(
-        previous.map((line) => (result?.success && line.id === result.item_id ? result.item : line)),
-        response.rule_states, (line) => line.id !== item.id && savingRef.current.has(line.id)));
+        previous.map((line) => (result?.success && line.id === result.item_id ? result.item : line)), response.rule_states));
       if (!result?.success) {
         setLineErrors((previous) => ({ ...previous, [item.id]: result?.error ?? "Enregistrement refusé." }));
       } else {
         toast.success({ title: done, durationMs: 2000 });
+        setDpgfRead((value) => value + 1);
       }
     } catch (error) {
       setLineErrors((previous) => ({ ...previous, [item.id]: isTakeoffApiError(error) ? error.message : "Échec de l’enregistrement." }));
@@ -184,14 +207,17 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }, [jobId, toast]);
 
   const focusList = () => listRef.current?.focus();
+  const requestFocusList = () => setTimeout(focusList, 0);
   // The field takes the focus once the entry has rendered (an effect, never an animation frame: a page the browser
-  // does not paint would hold it). Until then, the keys typed on the list go to the entry (see onKeyDown).
+  // does not paint would hold it). Until then (entryFocus set), the keys typed on the list go to the entry. The
+  // decision panel opens to show it.
   const entryFocus = useRef<"select" | "end" | null>(null);
   const startEntry = useCallback((text: string | null) => {
-    if (!current || readOnly) return;
+    if (!current || readOnly || busy) return;
     entryFocus.current = text === null ? "select" : "end";
-    setDraft({ itemId: current.item.id, text: text ?? String(current.item.quantity) });
-  }, [current, readOnly]);
+    setRightOpen(true);
+    setDraft({ itemId: current.item.id, text: text ?? quantityInput(current.item.quantity) });
+  }, [busy, current, readOnly]);
   useEffect(() => {
     const input = quantityRef.current;
     if (!draft || !entryFocus.current || !input) return;
@@ -211,7 +237,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     const toEnter = hasToEnter(current.item);
     setDraft(null);
     focusList();
-    if (value === current.item.quantity && !toEnter) return;
+    // An unchanged quantity is saved only to attest it, or to compute rules left to compute again (any save does).
+    if (value === current.item.quantity && !toEnter && !current.item.rules_stale) return;
     // A quantity the plan cannot show is entered: typed here, it is attested even when equal to the proposed one.
     void decide(current.item, { quantity: value, ...(toEnter ? { quantity_entered: true as const } : {}) },
       toEnter ? "Quantité saisie" : "Quantité corrigée");
@@ -234,15 +261,18 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     setDraft(null);
   };
 
-  // E, V, F2, a digit and the arrows act on the line in focus, from anywhere in the screen but a field or a dialog.
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+  // E, V, F2, a digit and the arrows act on the line in focus, from this screen (or a focus lost to the page after a
+  // decision removed its button), never from a field, a dialog or the dashboard's own bar.
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || wizardOpen) return;
     const target = event.target as HTMLElement;
+    if (target !== document.body && !rootRef.current?.contains(target)) return;
     if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
     const key = event.key;
-    const entry = current && draft?.itemId === current.item.id ? draft : null;
+    const entry = current && draft?.itemId === current.item.id && entryFocus.current !== null
+      && (target === listRef.current || target === document.body) ? draft : null;
     if (entry) {
-      // An entry started from the list, whose field has not taken the focus yet: the keys are its own.
+      // An entry started from the list whose field has not taken the focus yet: the keys typed meanwhile are its own.
       if (key === "Enter") {
         event.preventDefault();
         commitQuantity();
@@ -250,12 +280,15 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       }
       if (key === "Escape") {
         event.preventDefault();
+        entryFocus.current = null;
         setDraft(null);
         return;
       }
       if (/^[0-9.,]$/.test(key)) {
         event.preventDefault();
-        setDraft({ ...entry, text: entry.text + key });
+        // F2 selects the quantity: the first key replaces it, as in the field.
+        setDraft({ ...entry, text: entryFocus.current === "select" ? key : entry.text + key });
+        entryFocus.current = "end";
         return;
       }
     }
@@ -277,6 +310,14 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     }
   };
 
+  const keyHandler = useRef(onKeyDown);
+  keyHandler.current = onKeyDown;
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => keyHandler.current(event);
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, []);
+
   const handleApplied = useCallback((response: TakeoffApplyResponse) => {
     setWizardOpen(false);
     setJob((previous) => (previous ? { ...previous, status: "applied" } : previous));
@@ -291,6 +332,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       : job.status !== "completed" ? "Le métré doit être terminé avant l’application."
         : saving.size > 0 ? "Enregistrement en cours…"
           : included.length === 0 ? "Aucune ligne retenue : réintégrez au moins une ligne dans la revue complète."
+            // The review's blocking anomalies (hasBlockingAnomaly): the application refuses them too.
+            : included.some((item) => !item.designation.trim() || item.quantity <= 0) ? "Corrigez les anomalies bloquantes (désignation vide, quantité nulle) dans la revue complète."
             : !review.guard.passed ? `${review.guard.blocked_items.length} ligne${review.guard.blocked_items.length > 1 ? "s" : ""} à trancher avant l’application.`
               : dpgf.loading ? "Chargement du rapprochement DPGF…"
                 : dpgf.error ? "Rapprochement DPGF indisponible : rechargez la revue avant l’application."
@@ -312,7 +355,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface-subtle" onKeyDown={onKeyDown}>
+    <div ref={rootRef} tabIndex={-1} className="flex h-full min-h-0 flex-col bg-surface-subtle focus:outline-none">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
         <h1 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Target aria-hidden="true" className="size-4 text-primary" />
@@ -342,7 +385,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           <aside aria-label="Lignes à revoir" className="flex w-[340px] shrink-0 flex-col border-r border-border bg-surface">
             <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lignes à revoir</span>
-              <IconButton label="Replier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftClose />} onClick={() => setLeftOpen(false)} />
+              <IconButton label="Replier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftClose />} onClick={() => { setLeftOpen(false); rootRef.current?.focus(); }} />
             </div>
             <div role="group" aria-label="Filtrer les lignes" className="flex shrink-0 flex-wrap gap-1 border-b border-border px-3 py-2">
               {([["all", "À revoir"], ["rule_failed", "Règle en échec"], ["uncertain", "Incertaines"]] as const).map(([value, label]) => (
@@ -358,7 +401,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                 {counts.all === 0 ? "Aucune ligne à trancher : le contrôle du métré est complet." : "Aucune ligne pour ce filtre."}
               </p>
             ) : null}
-            <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0}
+            <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0} aria-keyshortcuts="ArrowUp ArrowDown E V F2"
               aria-activedescendant={current ? `targeted-line-${current.item.id}` : undefined}
               className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring">
               {visible.map((line) => {
@@ -400,7 +443,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           </aside>
         ) : (
           <div className="flex w-10 shrink-0 flex-col items-center border-r border-border bg-surface pt-1">
-            <IconButton label="Déplier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftOpen />} onClick={() => setLeftOpen(true)} />
+            <IconButton label="Déplier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftOpen />} onClick={() => { setLeftOpen(true); requestFocusList(); }} />
           </div>
         )}
 
@@ -443,19 +486,23 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
             <section aria-label="Décision sur la ligne" className="flex min-w-0 shrink-0 flex-col bg-surface" style={{ width: rightWidth }}>
               <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Décision</span>
-                <IconButton label="Replier le détail" size="icon-xs" variant="ghost" icon={<PanelRightClose />} className="ml-auto" onClick={() => setRightOpen(false)} />
+                <IconButton label="Replier le détail" size="icon-xs" variant="ghost" icon={<PanelRightClose />} className="ml-auto" onClick={() => { setRightOpen(false); focusList(); }} />
               </div>
               {current ? (
                 <LineDecision key={current.item.id} line={current} level={level} guidance={guidance} acceptance={acceptance}
                   busy={busy} readOnly={readOnly} error={lineErrors[current.item.id] ?? null} jobId={jobId}
                   draft={draft?.itemId === current.item.id ? draft.text : null} quantityRef={quantityRef}
                   onDraft={(text) => setDraft({ itemId: current.item.id, text })}
-                  onCancelEntry={() => { setDraft(null); focusList(); }}
+                  onCancelEntry={() => { entryFocus.current = null; setDraft(null); focusList(); }}
+                  onLeaveEntry={(text) => { if (text === quantityInput(current.item.quantity)) setDraft(null); }}
                   onCommit={commitQuantity} onStartEntry={() => startEntry(null)}
                   onExclude={() => openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "")}
-                  onAccept={accept}
-                  onReduce={(to) => void decide(current.item, { quantity: to, ...(hasToEnter(current.item) ? { quantity_entered: true as const } : {}) }, "Longueur retirée")}
-                  onSelectPartner={(itemId) => { setSelectedId(itemId); setFilter("all"); }}
+                  onAccept={() => { accept(); focusList(); }}
+                  onReduce={(to) => {
+                    focusList();
+                    void decide(current.item, { quantity: to, ...(hasToEnter(current.item) ? { quantity_entered: true as const } : {}) }, "Longueur retirée");
+                  }}
+                  onSelectPartner={(itemId) => { setSelectedId(itemId); setFilter("all"); focusList(); }}
                   partnerListed={(itemId) => review.lines.some((line) => line.item.id === itemId)}
                   partnerHref={targetedHref} />
               ) : (
@@ -465,14 +512,14 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           </>
         ) : (
           <div className="flex w-10 shrink-0 flex-col items-center border-l border-border bg-surface pt-1">
-            <IconButton label="Déplier le détail" size="icon-xs" variant="ghost" icon={<PanelRightOpen />} onClick={() => setRightOpen(true)} />
+            <IconButton label="Déplier le détail" size="icon-xs" variant="ghost" icon={<PanelRightOpen />} onClick={() => { setRightOpen(true); focusList(); }} />
           </div>
         )}
       </div>
 
       {exclusion ? (
         <ExclusionReasonDialog key={exclusion.key} open count={1} defaultReason={exclusion.reason}
-          onOpenChange={(open) => { if (!open) { setExclusion(null); focusList(); } }}
+          onOpenChange={(open) => { if (!open) { setExclusion(null); requestFocusList(); } }}
           onConfirm={(reason) => {
             const item = items.find((entry) => entry.id === exclusion.itemId);
             if (item) void decide(item, { is_excluded: true, exclusion_reason: reason }, "Ligne exclue");
@@ -505,6 +552,8 @@ type LineDecisionProps = {
   quantityRef: React.RefObject<HTMLInputElement | null>;
   onDraft: (text: string) => void;
   onCancelEntry: () => void;
+  /** The field lost the focus: an entry left unchanged ends (a field passed through by Tab keeps nothing). */
+  onLeaveEntry: (text: string) => void;
   onCommit: () => void;
   onStartEntry: () => void;
   onExclude: () => void;
@@ -516,7 +565,7 @@ type LineDecisionProps = {
 };
 
 function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
-  onCommit, onStartEntry, onExclude, onAccept, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
+  onLeaveEntry, onCommit, onStartEntry, onExclude, onAccept, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
   const { item } = line;
   const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable");
   const otherReasons = line.reasons.filter((reason) => reason !== "rule_failed");
@@ -540,20 +589,23 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
           </label>
           <div className="flex items-center gap-2">
             <Input id={`targeted-quantity-${item.id}`} ref={quantityRef} size="sm" inputMode="decimal" className="w-32 font-mono tabular-nums"
-              value={draft ?? quantityText(item.quantity)} readOnly={draft === null || disabled} aria-describedby={`targeted-quantity-hint-${item.id}`}
+              value={draft ?? quantityInput(item.quantity)} readOnly={draft === null || disabled} aria-describedby={`targeted-quantity-hint-${item.id}`}
               onFocus={() => { if (draft === null && !disabled) onStartEntry(); }}
               onChange={(event) => onDraft(event.target.value)}
+              onBlur={(event) => onLeaveEntry(event.currentTarget.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") { event.preventDefault(); onCommit(); }
                 if (event.key === "Escape") { event.preventDefault(); onCancelEntry(); }
               }} />
             <span className="text-muted-foreground">{item.unit}</span>
-            {draft !== null ? <Button size="xs" onClick={onCommit} disabled={disabled}>Enregistrer<Kbd>Entrée</Kbd></Button> : null}
+            {draft !== null ? <Button size="xs" onClick={onCommit} disabled={disabled} aria-keyshortcuts="Enter">Enregistrer<Kbd>Entrée</Kbd></Button> : null}
           </div>
           <p id={`targeted-quantity-hint-${item.id}`} className="text-xs text-muted-foreground">
             {toEnter
               ? "Le plan ne montre pas cette quantité : saisissez-la, ou confirmez celle-ci (Entrée). Accepter (V) ne la règle pas."
-              : "Saisie directe (un chiffre) ou F2, puis Entrée ; Échap annule. Les règles sont recalculées à l’enregistrement."}
+              : item.rules_stale
+                ? "Règles à recalculer : Entrée, même sans changer la quantité, relance le calcul."
+                : "Saisie directe (un chiffre) ou F2, puis Entrée ; Échap annule. Les règles sont recalculées à l’enregistrement."}
           </p>
         </div>
 
@@ -582,6 +634,11 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         {guidance && guidance.kind !== "resolved" ? (
           <section aria-label="Doublon entre zones" className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Doublon entre zones</h3>
+            {guidance.stale ? (
+              <p role="status" className="text-xs text-warning">
+                Règles à recalculer : ce doublon a peut-être déjà été réglé (longueur retirée, ligne exclue). Rien n’est proposé avant le nouveau calcul.
+              </p>
+            ) : null}
             {guidance.kind === "unregistered" ? (
               <p className="text-xs text-foreground-secondary">Les plans du niveau ne se superposent pas : aucun tronçon commun n’a pu être mesuré. Acceptez la ligne (V) une fois vérifiée, ou excluez-la.</p>
             ) : (
@@ -625,7 +682,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                 </Button>
               ) : null}
               {guidance.remove_line ? (
-                <Button size="sm" variant="secondary" disabled={disabled} onClick={onExclude}>Retirer la ligne<Kbd>E</Kbd></Button>
+                <Button size="sm" variant="secondary" disabled={disabled} onClick={onExclude} aria-keyshortcuts="E">Retirer la ligne<Kbd>E</Kbd></Button>
               ) : null}
             </div>
           </section>
@@ -643,9 +700,9 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         {error ? <Alert variant="danger" className="px-3 py-2 text-xs">{error}</Alert> : null}
         {readOnly ? <p className="text-xs text-muted-foreground">Métré appliqué ou non terminé : lecture seule.</p> : null}
         <div role="toolbar" aria-label="Décisions" className="flex flex-wrap gap-2">
-          <Button size="sm" variant="danger" disabled={disabled} onClick={onExclude}>Exclure<Kbd>E</Kbd></Button>
-          <Button size="sm" variant="outline" disabled={disabled} onClick={onStartEntry}>{toEnter ? "Saisir" : "Corriger"}<Kbd>F2</Kbd></Button>
-          <Button size="sm" variant="primary" disabled={disabled || !acceptance?.enabled} loading={busy} onClick={onAccept}>Accepter<Kbd>V</Kbd></Button>
+          <Button size="sm" variant="danger" disabled={disabled} onClick={onExclude} aria-keyshortcuts="E">Exclure<Kbd>E</Kbd></Button>
+          <Button size="sm" variant="outline" disabled={disabled} onClick={onStartEntry} aria-keyshortcuts="F2">{toEnter ? "Saisir" : "Corriger"}<Kbd>F2</Kbd></Button>
+          <Button size="sm" variant="primary" disabled={disabled || !acceptance?.enabled} onClick={onAccept} aria-keyshortcuts="V">Accepter<Kbd>V</Kbd></Button>
         </div>
         {acceptance && !acceptance.enabled && acceptance.reason && level !== null ? (
           <p className="text-xs text-muted-foreground">{acceptance.reason}</p>

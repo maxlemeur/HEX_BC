@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readAllRows } from "@/lib/supabase/read-all";
 import {
   logTakeoffAuditEvent,
   takeoffAuditMetadataBuilders,
@@ -37,7 +38,6 @@ import type {
 
 export { takeoffItemBatchPatchSchema } from "@/lib/takeoff/item-patch-preparation";
 
-const RULE_STATE_PAGE = 1000;
 
 /** The saved lines as they stand after the rules ran; a line that cannot be read back keeps its saved answer. */
 async function readTakeoffItemsAfterRules(input: {
@@ -63,23 +63,27 @@ async function readTakeoffRuleStates(input: {
   tenantId: string;
   jobId: string;
 }): Promise<TakeoffItemRuleState[] | null> {
-  const states: TakeoffItemRuleState[] = [];
-  for (let offset = 0; ; offset += RULE_STATE_PAGE) {
-    const { data, error } = await input.supabase.from("takeoff_items" as never)
-      .select("id, rule_results, rules_evaluated_at, rules_stale" as never)
-      .eq("tenant_id" as never, input.tenantId as never).eq("job_id" as never, input.jobId as never)
-      .order("id" as never, { ascending: true }).range(offset, offset + RULE_STATE_PAGE - 1);
+  type Row = { id: string; rule_results: unknown; rules_evaluated_at: string | null; rules_stale: boolean };
+  let rows: Row[];
+  try {
+    // Every page, checked against the exact count (a short page of the server's max_rows never ends the read).
+    const { data, error } = await readAllRows(() => input.supabase.from("takeoff_items" as never)
+      .select("id, rule_results, rules_evaluated_at, rules_stale" as never, { count: "exact" })
+      .eq("tenant_id" as never, input.tenantId as never).eq("job_id" as never, input.jobId as never) as never);
     if (error || !Array.isArray(data)) return null;
-    for (const row of data as Array<{ id: string; rule_results: unknown; rules_evaluated_at: string | null; rules_stale: boolean }>) {
-      if (row.rules_evaluated_at === null && row.rules_stale !== true) continue;
-      const state = takeoffItemRuleStateSchema.safeParse({ item_id: row.id, rule_results: row.rule_results,
-        rules_evaluated_at: row.rules_evaluated_at, rules_stale: row.rules_stale === true });
-      if (!state.success) return null;
-      states.push(state.data);
-    }
-    if (states.length > TAKEOFF_ITEM_RULE_STATES_MAX) return null;
-    if (data.length < RULE_STATE_PAGE) return states;
+    rows = data as Row[];
+  } catch {
+    return null;
   }
+  const states: TakeoffItemRuleState[] = [];
+  for (const row of rows) {
+    if (row.rules_evaluated_at === null && row.rules_stale !== true) continue;
+    const state = takeoffItemRuleStateSchema.safeParse({ item_id: row.id, rule_results: row.rule_results,
+      rules_evaluated_at: row.rules_evaluated_at, rules_stale: row.rules_stale === true });
+    if (!state.success) return null;
+    states.push(state.data);
+  }
+  return states.length > TAKEOFF_ITEM_RULE_STATES_MAX ? null : states;
 }
 
 export async function batchUpdateTakeoffItems(

@@ -1,6 +1,6 @@
 import type { TakeoffRuleId } from "@/lib/takeoff/rules/types";
 
-/** The rule a failure belongs to, as the review, the guard panel and the targeted review name it (TI-664). */
+/** The rule a failure belongs to, as the apply wizard's guard panel and the targeted review name it (TI-664). */
 export const TAKEOFF_RULE_LABELS: Record<TakeoffRuleId, string> = {
   dn_network: "DN et réseau",
   zone_overlap: "Doublon entre zones",

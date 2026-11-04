@@ -13,7 +13,10 @@ import type { TakeoffRuleResult, ZoneOverlapPartner } from "@/lib/takeoff/rules/
 // The targeted review of a takeoff job (TI-664 step 4, TI-658 « le modèle propose, les règles décident, une personne
 // tranche »): only the lines the apply guard rejects or finds uncertain, each with what may settle it.
 // - The lines are the guard's own (checkApplyGuard, same threshold and level as the application): nothing the guard
-//   lets through is shown, nothing it stops is hidden.
+//   lets through is shown, nothing it stops is hidden. Like the review's own gate, it reads every included line: a
+//   line the mapping plan will skip is still listed (the safe side; the wizard and the server leave it out).
+// - Results to compute again (rules_stale: a recomputation skipped or failed) guide nothing: what they say may no
+//   longer hold (a length already removed, a partner already excluded), so neither V nor a guided decision is offered.
 // - V (accept) settles a low or medium confidence and every acceptable failed rule; never a quantity to enter, never
 //   results to compute again; on level C only a line with its localized proof, as the database requires.
 // - A Z1/Z2 duplicate shows the length counted twice and the other zone's line. An isolated pair is settled by
@@ -46,9 +49,12 @@ export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[
 
 export type Acceptance = { enabled: boolean; reason: string | null };
 
+const STALE_REASON = "Règles à recalculer : ce qu’elles disaient peut ne plus tenir, V ne les lève pas. Enregistrez une correction pour relancer le calcul.";
+
 /** Whether V settles something on this line, and why not. */
 export function acceptanceOf(item: ApplyGuardItem, level: string | null): Acceptance {
   if (item.is_verified) return { enabled: false, reason: "Ligne déjà acceptée." };
+  if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
   const failures = blockingRules(item.rule_results, false);
   const settles = failures.some((failure) => failure.acceptable)
     || ((level ?? "C") === "C" && failures.length === 0 && !item.rules_stale);
@@ -57,7 +63,7 @@ export function acceptanceOf(item: ApplyGuardItem, level: string | null): Accept
       enabled: false,
       reason: failures.some((failure) => !failure.acceptable)
         ? "Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée)."
-        : "Règles à recalculer : V ne les lève pas. Enregistrez une correction pour relancer le calcul.",
+        : STALE_REASON,
     };
   }
   if ((level ?? "C") === "C") {
@@ -77,6 +83,8 @@ const SETTLE_M = 0.01;
 
 export type ZoneOverlapGuidance = {
   kind: "pair" | "group" | "unregistered" | "resolved";
+  /** The results are to compute again: shown, never acted on. */
+  stale: boolean;
   /** A pair: the length still counted twice. A group: what the other lines draw of this line. */
   overlap_m: number | null;
   group_size: number | null;
@@ -94,21 +102,23 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
   const result: TakeoffRuleResult | undefined = (item.rule_results ?? []).find((entry) => entry.rule === "zone_overlap");
   if (!result) return null;
   const partners = result.details?.partners ?? [];
-  const base = { overlap_m: null, group_size: null, partners, reduce_to: null, remove_line: false, own_m: null };
+  const stale = item.rules_stale === true;
+  const base = { stale, overlap_m: null, group_size: null, partners, reduce_to: null, remove_line: false, own_m: null };
   if (result.code === "ZONE_OVERLAP_RESOLVED") return { kind: "resolved", ...base };
   if (result.code === "ZONE_OVERLAP_UNREGISTERED") return { kind: "unregistered", ...base };
   if (result.code !== "ZONE_OVERLAP_DUPLICATE") return null;
   const overlap = result.details?.overlap_m ?? 0;
   const groupSize = result.details?.group_size ?? null;
+  // The line as measured: the rules read a reduction against it (evaluate.ts), never against a quantity raised above.
+  const measured = readRuleInputs(item.metadata)?.model_quantity ?? item.quantity;
   if (groupSize !== null && groupSize >= 3) {
-    // What the others draw of the line, against the line as measured (a quantity reduced by hand settles no group).
-    const measured = readRuleInputs(item.metadata)?.model_quantity ?? item.quantity;
+    // What the others draw of the line (a quantity reduced by hand settles no group).
     const own = Math.max(0, thousandths(measured - overlap));
-    return { ...base, kind: "group", overlap_m: overlap, group_size: groupSize, remove_line: own <= SETTLE_M, own_m: own };
+    return { ...base, kind: "group", overlap_m: overlap, group_size: groupSize, remove_line: !stale && own <= SETTLE_M, own_m: own };
   }
-  const reduced = thousandths(item.quantity - overlap);
+  const reduced = thousandths(Math.min(item.quantity, measured) - overlap);
   const entire = reduced <= SETTLE_M;
-  return { ...base, kind: "pair", overlap_m: overlap, reduce_to: entire ? null : reduced, remove_line: entire };
+  return { ...base, kind: "pair", overlap_m: overlap, reduce_to: entire || stale ? null : reduced, remove_line: entire && !stale };
 }
 
 /** The exclusion reason a guided « Retirer la ligne » proposes: the lines that draw it too, the user may edit it. */

@@ -314,14 +314,18 @@ pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
 L'utilisateur ne tranche que ce qui échoue : la revue ciblée d'un métré ne montre que
 les lignes que le garde d'application rejette (`blocked_items`) ou trouve incertaines
 (`medium_items`), avec le même seuil et le même niveau que l'application
-([`targeted-review.ts`](../../src/lib/takeoff/targeted-review.ts)).
+([`targeted-review.ts`](../../src/lib/takeoff/targeted-review.ts)). Comme la revue complète,
+elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera reste listée
+(sens sûr ; l'assistant et le serveur la laissent de côté).
 
 - **Écran** : `/dashboard/affaires/<affaire>/takeoff/<job>/review/targeted?versionId=…`,
   en mise en page outil (TI-658). À gauche les lignes, le filtre « Règle en échec » et
   l'application ; au centre le plan et sa lecture vectorielle, la ligne en évidence ; à
   droite ses raisons et ses décisions. La revue complète y renvoie (« Revue ciblée · N
   lignes »), comme le panneau des lignes bloquées de l'assistant d'application.
-- **Décisions**, enregistrées aussitôt sur la ligne, raccourcis affichés sur les boutons :
+- **Décisions**, enregistrées aussitôt sur la ligne, une à la fois (la suivante attend la
+  réponse de la précédente, qui porte l'état relu de ses partenaires), raccourcis affichés sur
+  les boutons :
   - **Exclure** (E) : motif obligatoire ;
   - **Corriger** : saisie directe (un chiffre) ou F2, puis Entrée ; Échap annule. Aucune
     nouvelle lettre ;
@@ -337,10 +341,19 @@ les lignes que le garde d'application rejette (`blocked_items`) ou trouve incert
   - Groupe de trois lignes ou plus : aucune correction n'est proposée. « Retirer la ligne »
     n'est offert que pour une ligne que les autres dessinent entièrement (à 1 cm près, sur
     la longueur mesurée) ; sinon la ligne s'accepte (V) une fois vérifiée.
+- **Règles à recalculer** (un recalcul sauté ou en échec) : la raison reste affichée, mais
+  rien n'est proposé (ni réduction, ni « Retirer la ligne », ni V) : elle peut ne plus tenir
+  (longueur déjà retirée, partenaire déjà exclu). Entrée sur la quantité, même inchangée,
+  relance le calcul.
 - **Relecture** : la réponse du PATCH porte l'état des règles de toutes les lignes du job
-  que les règles lisent (`rule_states`), lu après le recalcul, même en échec. La revue et
-  la revue ciblée l'appliquent aux lignes qu'elles ne sont pas en train de modifier : une
-  ligne partenaire réglée ou devenue « à recalculer » le montre sans rechargement.
+  que les règles lisent (`rule_states`), lu après le recalcul, même en échec ; celles des
+  autres jobs de la version se relisent dans leur propre revue. La revue et la revue ciblée
+  l'appliquent aux lignes qu'elles ne sont pas en train de modifier, et seulement depuis la
+  réponse la plus récente : une ligne partenaire réglée ou devenue « à recalculer » le montre
+  sans rechargement.
+- **Limite connue** : deux sessions qui tranchent une même paire en même temps (deux onglets,
+  deux utilisateurs) peuvent retirer deux fois la longueur commune ; c'est la
+  sous-comptabilisation déjà signalée plus haut, que les règles ne détectent pas.
 - **Assistant d'application** : le garde y laisse de côté les lignes que l'aperçu à jour
   saute (`skip`) ou replie dans un ouvrage (`apply_assembly`), comme le serveur ; sans
   aperçu à jour, il garde toutes les lignes retenues (sens sûr). Le panneau des lignes

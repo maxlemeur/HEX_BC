@@ -65,7 +65,6 @@ const PREVIEW_RESPONSE = {
 
 // TI-664 L5c: the wizard's guard counts the lines the server's guard counts. Ways it fails, written before the fix:
 // - a line the mapping plan skips (or folds into an assembly) still blocks in the wizard, never on the server;
-// - a preview computed for other overrides (stale) is read as the plan;
 // - the guard panel names a failed rule only « Règle en échec », without its reason (the Z1/Z2 length, the other zone).
 const RULE_REASON = "Tronçon compté aussi sur une autre page du niveau R+1 que Z1 : 1,00 m avec « EF Inox 316L DN 22 » (Z2).";
 const RULE_ITEM = {
@@ -77,7 +76,7 @@ const RULE_ITEM = {
     acceptable: true, reason: RULE_REASON }],
 };
 
-function withAction(action: "skip" | "set_price") {
+function withAction(action: "skip" | "apply_assembly" | "set_price") {
   return { ...PREVIEW_RESPONSE, items: [{ ...PREVIEW_RESPONSE.items[0], action,
     transformed: { ...PREVIEW_RESPONSE.items[0].transformed, is_excluded: action === "skip" } }] };
 }
@@ -157,8 +156,8 @@ describe("TakeoffApplyWizard", () => {
     });
   });
 
-  it("does not block a failed line the mapping plan skips, as the server does not", async () => {
-    vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("skip"));
+  it.each(["skip", "apply_assembly"] as const)("does not block a failed line the mapping plan leaves out (%s), as the server does not", async (action) => {
+    vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction(action));
     renderRuleWizard();
     await reachConfirmation();
 
