@@ -98,18 +98,18 @@ function fakeDecide(answer: (alias: string, kind: "batch" | "dedicated") => Answ
   return { decide, seen };
 }
 
+/** Renders that count their calls, the given ones in place of the default images. */
 function fakeRender(overrides: Partial<GroupDecisionsRender> = {}) {
   const calls = { legend: 0, sheets: 0 };
   const render: GroupDecisionsRender = {
-    legend: async () => {
+    legend: async (input) => {
       calls.legend += 1;
-      return { image: IMAGE, issue: null, duration_ms: 4 };
+      return overrides.legend ? overrides.legend(input) : { image: IMAGE, issue: null, duration_ms: 4 };
     },
     sheets: async (plans) => {
       calls.sheets += 1;
-      return { images: plans.map(() => IMAGE), issue: null, render_ms: plans.map(() => 7), duration_ms: 9 };
+      return overrides.sheets ? overrides.sheets(plans) : { images: plans.map(() => IMAGE), issue: null, render_ms: plans.map(() => 7), duration_ms: 9 };
     },
-    ...overrides,
   };
   return { render, calls };
 }

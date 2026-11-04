@@ -71,7 +71,8 @@ export function aliasOf(rank: number) {
   return `groupe_${String(rank).padStart(2, "0")}`;
 }
 
-export function selectDecisionCandidates(model: PageModel, reading: VectorPageReading, limits = GROUP_DECISIONS_LIMITS): CandidateSelection {
+export function selectDecisionCandidates(model: PageModel, reading: VectorPageReading,
+  limits: { batchSize: number; maxBatchCalls: number; minShare: number } = GROUP_DECISIONS_LIMITS): CandidateSelection {
   if (reading.mode === "raster" || model.visibleLength_pt <= 0) return { candidates: [], eligible: 0, left_out: 0 };
   const eligible = model.groups.flatMap((group, index) => {
     const entry = reading.groups[index];
