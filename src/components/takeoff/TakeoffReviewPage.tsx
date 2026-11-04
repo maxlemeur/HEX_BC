@@ -92,6 +92,7 @@ import {
 import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import {
   checkApplyGuard,
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
@@ -701,7 +702,7 @@ export default function TakeoffReviewPage({
         response.results.map((entry) => [entry.item_id, entry] as const)
       );
       setItems((prev) =>
-        prev.map((item) => {
+        withRuleStates(prev.map((item) => {
           const result = resultByItemId.get(item.id);
           if (!result) return item;
 
@@ -720,7 +721,8 @@ export default function TakeoffReviewPage({
             _saving: false,
             _error: result.error ?? "Erreur inconnue.",
           };
-        })
+          // TI-664 L5c: the partners of the saved lines read again with them; a line still edited keeps its own.
+        }), response.rule_states, (item) => item._dirty || item._saving)
       );
     },
     []

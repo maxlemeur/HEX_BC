@@ -8,6 +8,8 @@ import {
   type ApplyGuardResult,
 } from "@/lib/takeoff/guards";
 
+import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
+
 import { confidenceColor, formatConfidencePercent } from "./shared";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,6 +22,7 @@ export function GuardPanel({
   overrideJustification,
   onReturnToReview,
   reviewHref,
+  targetedReviewHref,
   onOverrideJustificationChange,
   onOverrideConfirm,
 }: {
@@ -29,6 +32,8 @@ export function GuardPanel({
   overrideJustification: string;
   onReturnToReview?: () => void;
   reviewHref?: string;
+  /** The targeted review of the job (TI-664 L5c), where each blocked line is settled. */
+  targetedReviewHref?: string;
   onOverrideJustificationChange: (value: string) => void;
   onOverrideConfirm: () => void;
 }) {
@@ -39,13 +44,14 @@ export function GuardPanel({
     <div className="space-y-4">
       <div className="rounded-xl border border-warning bg-warning-light p-4">
         <p className="flex items-center gap-2 text-sm font-semibold text-warning">
-          <span aria-hidden="true">&#9888;</span> Preuves à compléter
+          <span aria-hidden="true">&#9888;</span> Lignes à trancher
         </p>
         <p className="mt-2 text-sm text-foreground-secondary">
           {guardResult.blocked_items.length} item
           {guardResult.blocked_items.length > 1 ? "s sont bloqués" : " est bloqué"} :
-          confiance faible non validée, preuve absente ou page source introuvable.
-          Revenez à la revue pour contrôler chaque ligne avant application.
+          confiance faible non validée, preuve absente, page source introuvable,
+          règle en échec ou règles à recalculer.
+          Revenez à la revue pour trancher chaque ligne avant application.
         </p>
         {onReturnToReview ? (
           <button
@@ -58,6 +64,11 @@ export function GuardPanel({
         ) : reviewHref ? (
           <Link href={reviewHref} className={cn(buttonVariants({ variant: "outline" }), "mt-3 inline-flex")}>
             Ouvrir la revue des preuves
+          </Link>
+        ) : null}
+        {targetedReviewHref ? (
+          <Link href={targetedReviewHref} className={cn(buttonVariants({ variant: "outline" }), "ml-2 mt-3 inline-flex")}>
+            Trancher dans la revue ciblée
           </Link>
         ) : null}
       </div>
@@ -84,6 +95,17 @@ export function GuardPanel({
                   {blocked.reasons
                     .map((reason) => APPLY_GUARD_REASON_LABELS[reason])
                     .join(" · ")}
+                  {/* TI-664 L5c: each failed rule with its reason (the Z1/Z2 length and the other zone's line). */}
+                  {blocked.rule_failures?.length ? (
+                    <ul className="mt-1 space-y-0.5">
+                      {blocked.rule_failures.map((failure) => (
+                        <li key={failure.rule}>
+                          <span className="font-medium text-foreground-secondary">{TAKEOFF_RULE_LABELS[failure.rule]}</span>
+                          {" : "}{failure.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </td>
                 <td
                   className={`px-3 py-2 text-center font-semibold ${confidenceColor(blocked.confidence)}`}

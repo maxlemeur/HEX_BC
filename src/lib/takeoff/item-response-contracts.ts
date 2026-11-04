@@ -32,8 +32,23 @@ export const takeoffItemPatchResultSchema = z.discriminatedUnion("success", [
   }
 });
 
+/** Rule states a PATCH answer carries at most; a job with more rule lines answers without them (TI-664 L5c). */
+export const TAKEOFF_ITEM_RULE_STATES_MAX = 5000;
+
+/**
+ * The fixed rules' state of one line of the job, read after the PATCH's computation (or its failure): its partners'
+ * results move with the saved line (a run drawn on two zone plans, two rooms of one page), so the review reads them
+ * again without reloading the job (TI-664 L5c).
+ */
+export const takeoffItemRuleStateSchema = z.object({
+  item_id: uuid, rule_results: TakeoffRuleResultsSchema, rules_evaluated_at: timestamp.nullable(), rules_stale: z.boolean(),
+}).strict();
+
 export const takeoffItemBatchPatchResponseSchema = z.object({
   results: z.array(takeoffItemPatchResultSchema).min(1).max(100), succeeded: count, failed: count,
+  // Every line of the job the rules read (evaluated or stale), after the computation; absent when no rule reads the
+  // version, or beyond TAKEOFF_ITEM_RULE_STATES_MAX lines.
+  rule_states: z.array(takeoffItemRuleStateSchema).max(TAKEOFF_ITEM_RULE_STATES_MAX).optional(),
 }).superRefine((response, context) => {
   if (response.succeeded !== response.results.filter((result) => result.success).length
     || response.failed !== response.results.filter((result) => !result.success).length) {
@@ -44,6 +59,7 @@ export const takeoffItemBatchPatchResponseSchema = z.object({
 export type TakeoffItemPatchResult = z.infer<typeof takeoffItemPatchResultSchema>;
 export type TakeoffJobItem = z.infer<typeof takeoffJobItemResponseSchema>;
 export type TakeoffItemBatchPatchResponse = z.infer<typeof takeoffItemBatchPatchResponseSchema>;
+export type TakeoffItemRuleState = z.infer<typeof takeoffItemRuleStateSchema>;
 
 export function parseTakeoffItemBatchPatchResponse(payload: unknown, itemIds: string[]): TakeoffItemBatchPatchResponse {
   const response = parseTakeoffResponse(takeoffItemBatchPatchResponseSchema, payload);

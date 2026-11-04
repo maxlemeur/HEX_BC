@@ -67,6 +67,8 @@ type TakeoffApplyWizardProps = {
   isAdmin?: boolean;
   onReturnToReview?: () => void;
   reviewHref?: string;
+  /** The job's targeted review (TI-664 L5c), offered beside the blocked lines. */
+  targetedReviewHref?: string;
   presetStrategy?: TakeoffApplyStrategy;
 };
 
@@ -88,6 +90,7 @@ export function TakeoffApplyWizard({
   isAdmin = false,
   onReturnToReview,
   reviewHref,
+  targetedReviewHref,
   presetStrategy,
 }: TakeoffApplyWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
@@ -100,7 +103,6 @@ export function TakeoffApplyWizard({
   const [overridesByItemId, setOverridesByItemId] =
     useState<Record<string, TakeoffMappingOverride>>({});
   const overridesRef = useRef<Record<string, TakeoffMappingOverride>>({});
-  const [guardResult, setGuardResult] = useState<ApplyGuardResult | null>(null);
   const [overrideJustification, setOverrideJustification] = useState("");
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -121,16 +123,6 @@ export function TakeoffApplyWizard({
       bodyScrollRef.current.scrollTop = 0;
     }
   }, [open, step]);
-
-  // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C.
-  useEffect(() => {
-    if (!jobLevel || !hasGuardItems || step !== 4) {
-      setGuardResult(null);
-      return;
-    }
-    const result = checkApplyGuard(externalItems!, threshold, { level: jobLevel });
-    setGuardResult(result);
-  }, [externalItems, hasGuardItems, jobLevel, step, threshold]);
 
   const {
     previewData,
@@ -164,7 +156,6 @@ export function TakeoffApplyWizard({
       setIsLoadingSections(true);
       resetPreview();
       setOverridesByItemId({});
-      setGuardResult(null);
       setOverrideJustification("");
 
       try {
@@ -223,6 +214,18 @@ export function TakeoffApplyWizard({
     previewOverridesSignature === currentOverridesSignature;
   const isPreviewStale =
     previewData !== null && previewOverridesSignature !== currentOverridesSignature;
+  // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C. The lines the
+  // mapping plan skips or folds into an assembly are left out first, as the server's guard and the RPC leave them
+  // (TI-664 L5c): read from a preview of the current choices only. Without one (loading, or computed for other
+  // overrides) every included line is guarded, the safe side.
+  const guardResult = useMemo<ApplyGuardResult | null>(() => {
+    if (!jobLevel || !hasGuardItems || step !== 4) return null;
+    const planned = hasPreviewReady && previewData
+      ? new Set(previewData.items.filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id))
+      : null;
+    const guarded = planned ? externalItems!.map((item) => (planned.has(item.id) ? { ...item, is_excluded: true } : item)) : externalItems!;
+    return checkApplyGuard(guarded, threshold, { level: jobLevel });
+  }, [externalItems, hasGuardItems, hasPreviewReady, jobLevel, previewData, step, threshold]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
   const canGoBack = isPreset ? step === 4 : step > 1;
@@ -421,6 +424,7 @@ export function TakeoffApplyWizard({
                   overrideJustification={overrideJustification}
                   onReturnToReview={onReturnToReview}
                   reviewHref={reviewHref}
+                  targetedReviewHref={targetedReviewHref}
                   onOverrideJustificationChange={setOverrideJustification}
                   onOverrideConfirm={() => void handleOverrideConfirm()}
                   isLevelC={isLevelC}

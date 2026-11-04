@@ -228,7 +228,7 @@ export type TakeoffItemBatchPatchRequest = {
 
 export type { TakeoffItemPatchResult } from "@/lib/takeoff/item-response-contracts";
 
-export type { TakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
+export type { TakeoffItemBatchPatchResponse, TakeoffItemRuleState } from "@/lib/takeoff/item-response-contracts";
 
 export type { TakeoffJobDetailResponse } from "@/lib/takeoff/job-response-contracts";
 
