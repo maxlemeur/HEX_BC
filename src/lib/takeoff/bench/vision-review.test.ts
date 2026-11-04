@@ -8,6 +8,7 @@ import {
   VISION_REVIEW_LIMITS,
   visionAnswerSchema,
   visionCandidates,
+  visionLineCounts,
   visionPageTimings,
   type VisionAnswer,
   type VisionPageOutcome,
@@ -126,6 +127,33 @@ describe("visionCandidates", () => {
     const results = Array.from({ length: count }, () => [fail("dn_network", "DN_NETWORK_MATERIAL_MISSING")]);
     const [page] = visionCandidates({ items, data, results, denominators: new Map([[2, 50]]) });
     expect([page.page, page.lines.length, page.left_out]).toEqual([2, VISION_REVIEW_LIMITS.linesPerPage, 3]);
+  });
+
+  // Codex #163: spreading every coordinate into Math.min/max throws a RangeError past the argument limit, which escaped
+  // the review pass and aborted the bench without a report; a large total must be bounded like any other.
+  it("bounds a total of very many runs without exceeding the argument limit", () => {
+    const segments = Array.from({ length: 150_000 }, (_, index): [number, number, number, number] =>
+      [(index % 5) * 0.01, 1, (index % 5) * 0.01 + 0.01, 1]);
+    const [page] = visionCandidates({ items: [item("EF DN 22", 1)], data: [datum(segments)],
+      results: [[fail("dn_network", "DN_NETWORK_MATERIAL_MISSING")]], denominators: new Map([[1, 50]]) });
+    expect([page.lines.length, page.too_spread]).toEqual([1, 0]);
+  });
+});
+
+// Codex #163: a provider stop on the first call of a page leaves its later batch unsent; counting every candidate as
+// asked overstated the partial evidence. The lines sent are those of the calls made; the rest are unattempted.
+describe("visionLineCounts", () => {
+  const stopped = { calls: [{ lines: 6, status: "stopped" as const, latency_ms: 300, usage: null }], not_drawn: [],
+    stop: { reason: "quota", message: "Limite du forfait ChatGPT atteinte." } };
+
+  it("counts as asked only the lines of the calls made before a mid-page stop", () => {
+    expect(visionLineCounts(12, stopped)).toEqual({ lines: 6, not_drawn: 0, unattempted: 6 });
+  });
+
+  it("counts every drawn line as asked when the page ran to its end", () => {
+    const ok = { calls: [{ lines: 6, status: "ok" as const, latency_ms: 300, usage: null }, { lines: 5, status: "ok" as const, latency_ms: 300, usage: null }],
+      not_drawn: [{ alias: "L12", issue: "crop" }], stop: null };
+    expect(visionLineCounts(12, ok)).toEqual({ lines: 11, not_drawn: 1, unattempted: 0 });
   });
 });
 

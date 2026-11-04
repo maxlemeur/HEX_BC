@@ -29,6 +29,7 @@ import type { LevelRegistration } from "@/lib/takeoff/rules/evaluate";
 import {
   applyVisionAnswers,
   visionCandidates,
+  visionLineCounts,
   type VisionAnswer,
   type VisionLine,
   type VisionPageOutcome,
@@ -263,9 +264,9 @@ async function reviewPass(input: { hook: VectorVisionHook; documents: readonly V
       });
       // One answer per line, its first: a repeated alias never overwrites it.
       for (const answer of pageAnswers) if (!answers.has(answer.index)) answers.set(answer.index, answer);
-      const notDrawn = outcome.not_drawn?.length ?? 0;
-      pages.push({ page: page.page, lines: page.lines.length - notDrawn, not_drawn: notDrawn, too_spread: page.too_spread, left_out: page.left_out,
-        corrected: 0, calls: outcome.calls, render_ms: outcome.render_ms, answers: pageAnswers });
+      const counts = visionLineCounts(page.lines.length, outcome);
+      pages.push({ page: page.page, lines: counts.lines, ...(counts.unattempted > 0 ? { unattempted: counts.unattempted } : {}), not_drawn: counts.not_drawn,
+        too_spread: page.too_spread, left_out: page.left_out, corrected: 0, calls: outcome.calls, render_ms: outcome.render_ms, answers: pageAnswers });
       if (outcome.stop) {
         summary.stop = outcome.stop;
         break;

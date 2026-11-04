@@ -42,7 +42,7 @@ describe("visionReport", () => {
       baseline: [runPass(1, [["a-plan-01", 1, 60_000], ["a-plan-01", 2, 50_000], ["b-plan-11", 1, 1000]])] });
     expect(report.calls).toEqual({ total: 2, ok: 1, without_usage: 1, by_status: { ok: 1, schema_failure: 1 } });
     expect(report.tokens).toEqual({ input: 2000, output: 100, total: 2100 });
-    expect(report.lines).toEqual({ asked: 4, left_out: 0, not_drawn: 0, too_spread: 0, corrected: 2, verdicts: { corrige: 1, illisible: 1 } });
+    expect(report.lines).toEqual({ asked: 4, left_out: 0, not_drawn: 0, too_spread: 0, unattempted: 0, corrected: 2, verdicts: { corrige: 1, illisible: 1 } });
     // Page 1: 2 s of vectors + 2 s of renders + 4 s of calls; page 2 read without review.
     expect(report.page_ms).toEqual({ p50: 1000, p95: 8000, raw: [8000, 1000] });
     expect(report.reviewed_page_ms).toEqual({ p50: 8000, p95: 8000, raw: [8000] });
@@ -95,5 +95,14 @@ describe("visionReport", () => {
     const text = renderVisionSection(report).join("\n");
     expect(text).toContain("passe vision interrompue");
     expect(text).not.toContain("sans régression");
+  });
+
+  it("reports the lines a mid-page stop left unattempted, apart from those asked", () => {
+    const page = vision.documents[0].pages[0];
+    const stopped: VisionPassSummary = { stop: { reason: "plan_limit", message: "Limite du forfait ChatGPT" },
+      documents: [{ id: "a-plan-01", pages: [{ ...page, lines: 6, unattempted: 6 }] }] };
+    const report = visionReport({ vector: [vectorPass(1, stopped)], passes: [runPass(1, [["a-plan-01", 1, 2000]])], baseline: [] });
+    expect([report.lines.asked, report.lines.unattempted]).toEqual([6, 6]);
+    expect(renderVisionSection(report).join("\n")).toContain("non tentées après l'arrêt : 6");
   });
 });

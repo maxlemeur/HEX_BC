@@ -83,6 +83,7 @@ export function visionReport(input: {
     render_ms: percentiles(pages.flatMap((page) => page.render_ms)),
     lines: { asked: pages.reduce((total, page) => total + page.lines, 0), left_out: pages.reduce((total, page) => total + page.left_out, 0),
       not_drawn: pages.reduce((total, page) => total + (page.not_drawn ?? 0), 0), too_spread: pages.reduce((total, page) => total + (page.too_spread ?? 0), 0),
+      unattempted: pages.reduce((total, page) => total + (page.unattempted ?? 0), 0),
       corrected: pages.reduce((total, page) => total + page.corrected, 0), verdicts },
     page_ms: percentiles(timings.map((timing) => timing.total_ms)),
     reviewed_page_ms: percentiles(timings.filter((timing) => timing.vision_ms > 0).map((timing) => timing.total_ms)),
@@ -103,7 +104,7 @@ export function renderVisionSection(report: VisionReport) {
   return [
     "## Passe vision ciblée (lignes rejetées par la règle DN × réseau)",
     "",
-    `- Lignes demandées : ${report.lines.asked} (laissées de côté : ${report.lines.left_out}, trop étalées : ${report.lines.too_spread}, extrait non dessiné : ${report.lines.not_drawn}) ; corrigées : ${report.lines.corrected} ; réponses : ${verdicts}.`,
+    `- Lignes demandées : ${report.lines.asked} (laissées de côté : ${report.lines.left_out}, trop étalées : ${report.lines.too_spread}, extrait non dessiné : ${report.lines.not_drawn}${report.lines.unattempted > 0 ? `, non tentées après l'arrêt : ${report.lines.unattempted}` : ""}) ; corrigées : ${report.lines.corrected} ; réponses : ${verdicts}.`,
     `- Appels : ${report.calls.total} (${Object.entries(report.calls.by_status).map(([status, count]) => `${status} ${count}`).join(", ") || "aucun"}), dont ${report.calls.without_usage} sans usage.`,
     `- Jetons : ${report.tokens.input} en entrée, ${report.tokens.output} en sortie${"reasoning" in report.tokens ? `, ${report.tokens.reasoning} de raisonnement` : ""}, ${report.tokens.total} au total (appels avec usage).`,
     `- Latence des appels p50 / p95 : ${seconds(report.latency_ms.p50)} / ${seconds(report.latency_ms.p95)} s ; rendu des extraits : ${seconds(report.render_ms.p50)} / ${seconds(report.render_ms.p95)} s.`,

@@ -87,11 +87,22 @@ export function visionCandidates(input: {
     if (segments.length === 0) return;
     // Page metres back to sheet points (vector-rules.ts writes metres = points × mm/pt × denominator / 1000).
     const points = (metres: number) => (metres * 1000) / denominator / MM_PER_POINT;
-    const xs = segments.flatMap(([x0, , x1]) => [points(x0), points(x1)]);
-    const ys = segments.flatMap(([, y0, , y1]) => [points(y0), points(y1)]);
+    // Bounds accumulated one point at a time: a total can hold far more runs than Math.min/max accept as arguments.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const [x0, y0, x1, y1] of segments) {
+      for (const [x, y] of [[points(x0), points(y0)], [points(x1), points(y1)]]) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
     const entry = pages.get(page) ?? { page, lines: [], left_out: 0, too_spread: 0 };
     pages.set(page, entry);
-    if (Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) > VISION_REVIEW_LIMITS.maxSpanPt) {
+    if (Math.max(maxX - minX, maxY - minY) > VISION_REVIEW_LIMITS.maxSpanPt) {
       entry.too_spread += 1;
       return;
     }
@@ -104,7 +115,7 @@ export function visionCandidates(input: {
       alias: `L${entry.lines.length + 1}`, index, designation: item.designation, quantity: item.quantity, unit: item.unit,
       failures: failures.map(({ code, reason }) => ({ code, reason })),
       read: { network: datum.inputs.network, material: datum.inputs.material, dn: datum.inputs.dn },
-      box_pt: { x0: Math.min(...xs) - margin, y0: Math.min(...ys) - margin, x1: Math.max(...xs) + margin, y1: Math.max(...ys) + margin },
+      box_pt: { x0: minX - margin, y0: minY - margin, x1: maxX + margin, y1: maxY + margin },
     });
   });
   return [...pages.values()].sort((left, right) => left.page - right.page);
@@ -213,10 +224,23 @@ export type VisionPageOutcome = {
   stop: { reason: string; message: string } | null;
 };
 
+/**
+ * A reviewed page's line counts. The lines asked are those actually sent: with a crop drawn, and, after a provider stop
+ * mid-page, only those of the calls made. Lines whose batch was never sent because of the stop are counted unattempted.
+ */
+export function visionLineCounts(candidates: number, outcome: Pick<VisionPageOutcome, "calls" | "not_drawn" | "stop">) {
+  const notDrawn = outcome.not_drawn?.length ?? 0;
+  const drawn = Math.max(0, candidates - notDrawn);
+  const sent = outcome.stop ? Math.min(drawn, outcome.calls.reduce((total, call) => total + call.lines, 0)) : drawn;
+  return { lines: sent, not_drawn: notDrawn, unattempted: drawn - sent };
+}
+
 export type VisionPageSummary = {
   page: number;
-  /** Lines sent (a crop drawn); not_drawn and too_spread are not. */
+  /** Lines sent (a crop drawn, and a call made); not_drawn, too_spread and unattempted are not. */
   lines: number;
+  /** Lines never sent because the provider stopped mid-page. */
+  unattempted?: number;
   not_drawn: number;
   too_spread: number;
   left_out: number;
