@@ -187,7 +187,8 @@ import { classOfLayerName, type VectorClass } from "@/lib/takeoff/vectors/vocabu
 //   pipes on one axis, both given the label's DN: the pipe counts twice;
 // - a return's DN reaches another return through the tint of a supply both end on, read as
 //   their parent's run;
-// - a parent's pipe drawn 1.5 pt beside a member's (two pipes) is merged into it.
+// - and a guard for the fix, green before and after it: a parent's pipe drawn
+//   1.5 pt beside a member's (two pipes) must not be merged into it.
 // Decisions classes (TI-662 L3c, classify.ts applyDecisions, written before the code):
 // - a Decisions answer replaces a keyword, legend or label class, or decides a
 //   shared legend colour that the labels decide per run;
