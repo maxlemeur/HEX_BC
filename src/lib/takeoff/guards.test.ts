@@ -165,3 +165,48 @@ describe("blank proof read as the database reads it", () => {
     }
   });
 });
+
+// A line whose cross-line failure (a duplicate, an overlapping room) is due to partners the mapping plan skips was
+// still blocked (TI-677, Codex #160, thread 4467409538): the application leaves those partners out, the rules would
+// pass it. A failure that names all its partners (their count stored beside them) no longer blocks once every one of
+// them is left out: the job's own lines as given (the plan's exclusions included), the others from the context.
+// Written before the fix; the SQL trigger counts the same (pgTAP takeoff-rule-cross-exclusions).
+describe("checkApplyGuard with cross-line failures whose partners are left out", () => {
+  const P = "aaaaaaaa-0000-4000-8000-000000000001";
+  const Q = "aaaaaaaa-0000-4000-8000-000000000002";
+  const duplicate = (partners: string[], count = partners.length) => ({ rule: "zone_overlap" as const, status: "fail" as const,
+    code: "ZONE_OVERLAP_DUPLICATE" as const, version: 101, acceptable: true, reason: "Tronçon compté aussi en Z2.",
+    details: { partner_count: count, partners: partners.map((item_id) => ({ item_id, job_id: "job", zone: "Z2", designation: "EF", overlap_m: 1, resolved: false })) } });
+  const rooms = (ids: string[], count = ids.length) => ({ rule: "room_overlap" as const, status: "fail" as const, code: "ROOM_OVERLAP" as const,
+    version: 1, acceptable: true, reason: "Ce contour recouvre une autre pièce.", details: { overlapping_item_ids: ids, overlap_count: count, overlap_m2: 2 } });
+  const blocked = (items: TakeoffJobItem[], partnerExclusions?: ReadonlyMap<string, boolean>) =>
+    checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B", ...(partnerExclusions ? { partnerExclusions } : {}) })
+      .blocked_items.map((item) => item.item_id);
+
+  it("lets a duplicate pass when its only partner, in the job, is left out, and blocks it while the partner counts", () => {
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { is_excluded: true, rule_results: [duplicate(["L"])] })]))
+      .toEqual([]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { rule_results: [duplicate(["L"])] })]))
+      .toEqual(["L", P]);
+  });
+
+  it("reads a partner of another job from the context, and blocks when its state is unknown", () => {
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })], new Map([[Q, true]]))).toEqual([]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })], new Map([[Q, false]]))).toEqual(["L"]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })])).toEqual(["L"]);
+  });
+
+  it("blocks while one partner counts, when the list is cut, and for zones never registered", () => {
+    const left = makeItem(P, "EF", { is_excluded: true });
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P, Q])] }), left], new Map([[Q, false]]))).toEqual(["L"]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P], 2)] }), left])).toEqual(["L"]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [{ ...duplicate([P]), code: "ZONE_OVERLAP_UNREGISTERED" as never }] }), left])).toEqual(["L"]);
+  });
+
+  it("lets a room pass when every room it overlaps is left out", () => {
+    expect(blocked([makeItem("R", "Hall", { rule_results: [rooms([P, Q])] }), makeItem(P, "Bureau", { is_excluded: true }),
+      makeItem(Q, "Réserve", { is_excluded: true })])).toEqual([]);
+    expect(blocked([makeItem("R", "Hall", { rule_results: [rooms([P, Q], 3)] }), makeItem(P, "Bureau", { is_excluded: true }),
+      makeItem(Q, "Réserve", { is_excluded: true })])).toEqual(["R"]);
+  });
+});
