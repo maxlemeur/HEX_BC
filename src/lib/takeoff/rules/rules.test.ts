@@ -119,6 +119,13 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // only; a group of three lines or more stays failed until each line is excluded
 // or accepted (V). The pair is checked against an exact oracle on random
 // geometry, scales, applied and excluded lines, reductions and orders.
+// Adversarial review of that decision (written before their fix): two pages were
+// compared through a path of registrations by a third page that did not close,
+// and a 3 m duplicate passed when that page came first; a touch end to end left a
+// float sliver that chained two short stretches; a copy 5 cm away, a common length
+// ending in half a millimetre and a stretch just over the minimum at 1/150 changed
+// with the page taken as frame or were dropped; two pairs whose ids join alike
+// shared a cached coverage; a model quantity stored to the thousandth read as typed.
 
 const TEXTS: Array<[string, number]> = [
   ["Bureau 101", 0], ["Salle de réunion", 1], ["EF - Inox 316L DN 22", 2], ["Local technique", 3], ["Circulation C2", 4],
@@ -161,6 +168,23 @@ function line(id: string, overrides: Partial<RuleLine> = {}): RuleLine {
 
 function rule(results: Map<string, TakeoffRuleResult[]>, id: string, ruleId: TakeoffRuleResult["rule"]) {
   return results.get(id)?.find((entry) => entry.rule === ruleId);
+}
+
+/** Two zone plans of one level, Z2's sheet showing the building 40 m further: Z1's run 0–5 m and Z2's 4–7 m share 1 m. */
+function zones(overrides: { z1?: Partial<RuleLine>; z2?: Partial<RuleLine>; z2Anchors?: PageAnchors | null; z2Level?: string;
+  pages?: RulePage[]; lines?: RuleLine[]; denominator?: number } = {}) {
+  const pages = [
+    page("job-z1#1", { order: 0, zone: "Z1", anchors: sheet(0, 0, { titleBlock: 10 }), denominator: overrides.denominator ?? 50 }),
+    page("job-z2#1", { order: 10_000, zone: "Z2", level: overrides.z2Level ?? "R+1", denominator: overrides.denominator ?? 50,
+      anchors: overrides.z2Anchors === undefined ? sheet(-40, 0, { titleBlock: 10 }) : overrides.z2Anchors }),
+    ...(overrides.pages ?? []),
+  ];
+  const lines = [...(overrides.lines ?? []),
+    line("z1", { geometry: { segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null }, ...overrides.z1 }),
+    line("z2", { job_id: "job-z2", page_key: "job-z2#1", designation: "EF Inox 316L DN 22", quantity: 3,
+      geometry: { segments_m: [[-36, 1, -33, 1]], polygon_m: null, length_m: 3, area_m2: null }, inputs: inputs({ model_quantity: 3 }), ...overrides.z2 }),
+  ];
+  return evaluateTakeoffRules({ pages, lines });
 }
 
 /** Every order of `items`. */
@@ -298,6 +322,20 @@ describe("inputs read in a designation", () => {
     const entered = rule(evaluateTakeoffRules({ pages: [], lines: [service(true)] }).results, "service", "non_observable");
     expect(entered).toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED", acceptable: false });
     expect(isRuleBlocked([entered as TakeoffRuleResult], false, false)).toBe(false);
+  });
+
+  it("never takes the model's quantity stored to the millimetre for a typed one (numeric(12,3), L5b review)", () => {
+    // The model proposes 12.3456 u of supports; the column keeps 12.346. Nobody typed anything: still to enter.
+    const supports = (quantity: number) => line("supports", { designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity,
+      inputs: ruleInputsFromDesignation({ designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12.3456 }) });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [supports(12.346)] }).results, "supports", "non_observable"))
+      .toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER" });
+    // 12.3455 is stored 12.346 (a half rounded up), whatever the float noise of the model's number.
+    const half = line("half", { designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12.346,
+      inputs: ruleInputsFromDesignation({ designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12.3455 }) });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [half] }).results, "half", "non_observable")).toMatchObject({ status: "fail" });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [supports(12.347)] }).results, "supports", "non_observable"))
+      .toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED" });
   });
 
   it("keeps an unknown DN as printed, so that the DN rule fails it", () => {
@@ -653,23 +691,6 @@ describe("duplicate runs between zones", () => {
     expect(minCommonLength([50, 200])).toBeGreaterThan(0.49);
   });
 
-  /** Two zone plans of one level, Z2's sheet showing the building 40 m further: Z1's run 0–5 m and Z2's 4–7 m share 1 m. */
-  function zones(overrides: { z1?: Partial<RuleLine>; z2?: Partial<RuleLine>; z2Anchors?: PageAnchors | null; z2Level?: string;
-    pages?: RulePage[]; lines?: RuleLine[]; denominator?: number } = {}) {
-    const pages = [
-      page("job-z1#1", { order: 0, zone: "Z1", anchors: sheet(0, 0, { titleBlock: 10 }), denominator: overrides.denominator ?? 50 }),
-      page("job-z2#1", { order: 10_000, zone: "Z2", level: overrides.z2Level ?? "R+1", denominator: overrides.denominator ?? 50,
-        anchors: overrides.z2Anchors === undefined ? sheet(-40, 0, { titleBlock: 10 }) : overrides.z2Anchors }),
-      ...(overrides.pages ?? []),
-    ];
-    const lines = [...(overrides.lines ?? []),
-      line("z1", { geometry: { segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null }, ...overrides.z1 }),
-      line("z2", { job_id: "job-z2", page_key: "job-z2#1", designation: "EF Inox 316L DN 22", quantity: 3,
-        geometry: { segments_m: [[-36, 1, -33, 1]], polygon_m: null, length_m: 3, area_m2: null }, inputs: inputs({ model_quantity: 3 }), ...overrides.z2 }),
-    ];
-    return evaluateTakeoffRules({ pages, lines });
-  }
-
   it("fails both lines with the common length and the other line, until one is reduced by it", () => {
     const first = zones();
     expect(rule(first.results, "z1", "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE", acceptable: true,
@@ -735,6 +756,136 @@ describe("duplicate runs between zones", () => {
     expect(unregistered.transforms.get("job-z2#1")).toBeNull();
     expect(rule(zones({ z2Anchors: null, z2: { inputs: inputs({ network: "EU", material: "pvc", dn: "DN 100" }) } }).results, "z1", "zone_overlap"))
       .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+});
+
+describe("duplicates whatever the frame: registration cycles, float noise and rounding", () => {
+  type Seg = [number, number, number, number];
+  const round4 = (value: number) => Math.round(value * 10_000) / 10_000;
+  /**
+   * Lines on pages of one level, each page at a sheet shift (sx, sy) of its slot; segments given in the building's frame
+   * are persisted in page metres on the 0.1 mm grid, as the vector reading stores them.
+   */
+  function scene(pages: Array<{ slot: number; order: number; denominator?: number | null; shift?: [number, number] }>,
+    lines: Array<{ id: string; slot: number; segments: Seg[]; quantity?: number; dn?: string }>, reverse = false) {
+    const shiftOf = (slot: number) => pages.find((entry) => entry.slot === slot)?.shift ?? [-40 * slot, 0];
+    const built = {
+      pages: pages.map(({ slot, order, denominator }) => page(`job-${slot}#1`, { order, zone: `Z${slot + 1}`, denominator: denominator ?? null,
+        anchors: sheet(shiftOf(slot)[0], shiftOf(slot)[1], { titleBlock: 10 }) })),
+      lines: lines.map(({ id, slot, segments, quantity, dn }) => {
+        const [sx, sy] = shiftOf(slot);
+        const length = segments.reduce((sum, [x0, y0, x1, y1]) => sum + Math.hypot(x1 - x0, y1 - y0), 0);
+        return line(id, { job_id: `job-${slot}`, page_key: `job-${slot}#1`, quantity: quantity ?? Math.round(length * 1000) / 1000,
+          ...(dn ? { inputs: inputs({ dn }) } : {}),
+          geometry: { segments_m: segments.map(([x0, y0, x1, y1]): Seg => [round4(x0 + sx), round4(y0 + sy), round4(x1 + sx), round4(y1 + sy)]),
+            polygon_m: null, length_m: Math.round(length * 1000) / 1000, area_m2: null } });
+      }),
+    };
+    return evaluateTakeoffRules(reverse ? { pages: built.pages.reverse(), lines: built.lines.reverse() } : built);
+  }
+  const outcome = (results: Map<string, TakeoffRuleResult[]>, ids: string[]) => ids.map((id) => {
+    const entry = rule(results, id, "zone_overlap");
+    return `${id}:${entry?.code}:${entry?.details?.overlap_m ?? "-"}:${(entry?.details?.partners ?? []).map((partner) => `${partner.item_id}=${partner.overlap_m}`).join(",")}${entry?.details?.group_size ? `:${entry.details.group_size}` : ""}`;
+  });
+
+  it("compares two pages through their own registration, never through a third page whose registrations do not close", () => {
+    // A, B and C register pairwise on three parts of one building (A–B on part 1, A–C on part 2, B–C on part 3); B's copy of
+    // part 1 is drawn 2.5 cm off, so each registration is exact but the cycle does not close. A run of A and its copy on C,
+    // 3 cm apart: with B first, C was brought into A's frame through B, 5.5 cm away, and the duplicate passed unseen.
+    const region = (x0: number) => Array.from({ length: 22 }, (_, index): Seg => [x0, index * 0.7, x0 + 3 + (index % 5), index * 0.7]);
+    const texts = (names: string[], x0: number) => names.map((name, index): [string, number, number] => [name, x0 + 1 + index * 1.1, 3.3 + index * 2.1]);
+    const anchors = (sx: number, sets: Array<{ lines: Seg[]; dy?: number }>, labels: Array<[string, number, number]>): PageAnchors => ({ version: 1,
+      lines: sets.flatMap(({ lines, dy = 0 }) => lines.map(([a, b, c, d]): Seg => [a + sx, b + dy, c + sx, d + dy])),
+      texts: labels.map(([text, x, y]) => [text, x + sx, y]) });
+    const sheets = [
+      anchors(0, [{ lines: region(0) }, { lines: region(20) }], [...texts(["T1", "T2", "T3"], 0), ...texts(["T4", "T5", "T6"], 20)]),
+      anchors(-100, [{ lines: region(0), dy: 0.025 }, { lines: region(40) }], [...texts(["T1", "T2", "T3"], 0), ...texts(["T7", "T8", "T9"], 40)]),
+      anchors(-200, [{ lines: region(20) }, { lines: region(40) }], [...texts(["T4", "T5", "T6"], 20), ...texts(["T7", "T8", "T9"], 40)]),
+    ];
+    const geometry = (segments: Seg[], length: number) => ({ segments_m: segments, polygon_m: null, length_m: length, area_m2: null });
+    for (const orders of permutations([0, 1, 2])) {
+      const { results } = evaluateTakeoffRules({
+        pages: [0, 1, 2].map((slot) => page(`job-${slot}#1`, { order: orders[slot], zone: `Z${slot + 1}`, anchors: sheets[slot], denominator: 50 })),
+        lines: [
+          line("a", { job_id: "job-0", page_key: "job-0#1", quantity: 4, geometry: geometry([[5, 30, 9, 30]], 4) }),
+          line("b", { job_id: "job-1", page_key: "job-1#1", quantity: 2, geometry: geometry([[-50, 40, -48, 40]], 2) }),
+          line("c", { job_id: "job-2", page_key: "job-2#1", quantity: 4, geometry: geometry([[-194, 29.97, -190, 29.97]], 4) }),
+        ],
+      });
+      expect(outcome(results, ["a", "b", "c"]), String(orders)).toEqual(["a:ZONE_OVERLAP_DUPLICATE:3:c=3", "b:ZONE_OVERLAP_NONE:-:", "c:ZONE_OVERLAP_DUPLICATE:3:a=3"]);
+    }
+  });
+
+  it("never turns a touch into a sliver of float noise that chains two short stretches, whichever page is the frame", () => {
+    // Dashes of A (1/50) and B (no scale) meet end to start at 1.49 m: 0.27 m in common, then 0.09 m 0.33 m further,
+    // each under the 0.30 m minimum. With A's page first, a 7e-15 m sliver at 1.49 m chained them into a duplicate.
+    const A: Seg[] = [[0.39, 1, 0.59, 1], [0.64, 1, 0.84, 1], [0.89, 1, 1.09, 1], [1.14, 1, 1.21, 1], [1.49, 1, 1.69, 1], [1.74, 1, 1.91, 1]];
+    const B: Seg[] = [[0.79, 1, 0.99, 1], [1.04, 1, 1.24, 1], [1.29, 1, 1.49, 1], [1.54, 1, 1.61, 1], [1.89, 1, 2.09, 1], [2.14, 1, 2.31, 1]];
+    for (const orders of [[0, 1], [1, 0]]) {
+      const { results } = scene([{ slot: 1, order: orders[0], denominator: 50 }, { slot: 4, order: orders[1], denominator: null }],
+        [{ id: "A", slot: 1, segments: A }, { id: "B", slot: 4, segments: B }]);
+      expect(outcome(results, ["A", "B"]), String(orders)).toEqual(["A:ZONE_OVERLAP_NONE:-:", "B:ZONE_OVERLAP_NONE:-:"]);
+    }
+  });
+
+  it("takes a run 5 cm from its copy as a duplicate, never one 5.1 cm away", () => {
+    expect(rule(zones({ z2: { geometry: { segments_m: [[-36, 1.05, -33, 1.05]], polygon_m: null, length_m: 3, area_m2: null } } }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+    expect(rule(zones({ z2: { geometry: { segments_m: [[-36, 1.051, -33, 1.051]], polygon_m: null, length_m: 3, area_m2: null } } }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
+  it("keeps a pair whose stretch reaches the minimum, whatever its rounding to the millimetre (1/150)", () => {
+    // Minimum at 1/150: 0.380417 m. A common stretch of 0.38045 m is a duplicate; its length reads 0.38 m once rounded.
+    const pair = zones({ denominator: 150, z2: { geometry: { segments_m: [[4.61955 - 40, 1, -33, 1]], polygon_m: null, length_m: 2.38045, area_m2: null } } });
+    expect(rule(pair.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  it("never mixes the coverage of two pairs whose line ids join alike (« a|b » with « c », « a » with « b|c »)", () => {
+    const geometry = (segments: Seg[]) => ({ segments_m: segments, polygon_m: null, length_m: 3, area_m2: null });
+    const { results } = evaluateTakeoffRules({
+      pages: [page("job-0#1", { order: 0, anchors: sheet(0, 0, { titleBlock: 10 }), denominator: 50 }),
+        page("job-1#1", { order: 1, zone: "Z2", anchors: sheet(-40, 0, { titleBlock: 10 }), denominator: 50 })],
+      lines: [
+        line("a|b", { job_id: "job-0", page_key: "job-0#1", quantity: 3, geometry: geometry([[20, 1, 23, 1]]) }),
+        line("a", { job_id: "job-0", page_key: "job-0#1", quantity: 3, geometry: geometry([[0, 1, 3, 1]]) }),
+        line("c", { job_id: "job-1", page_key: "job-1#1", quantity: 3, geometry: geometry([[-40, 5, -37, 5]]) }),
+        line("b|c", { job_id: "job-1", page_key: "job-1#1", quantity: 3, geometry: geometry([[-40, 1, -37, 1]]) }),
+      ],
+    });
+    expect(outcome(results, ["a", "b|c"])).toEqual(["a:ZONE_OVERLAP_DUPLICATE:3:b|c=3", "b|c:ZONE_OVERLAP_DUPLICATE:3:a=3"]);
+  });
+
+  it("gives the same results in every page order on the 0.1 mm grid of persisted drawings (pairs and groups, sheets shifted off the metre)", () => {
+    // Seeded scenes: two or three pages shifted by any 0.1 mm, runs 0 to 6 cm apart (5 cm included), ends and lengths on
+    // the 0.1 mm grid, quantities on the millimetre. Every page order and both list orders must give one outcome.
+    let state = 2026;
+    const next = () => { state = (state * 1_103_515_245 + 12_345) % 2_147_483_648; return state / 2_147_483_648; };
+    const int = (lo: number, hi: number) => lo + Math.floor(next() * (hi - lo + 1));
+    const flips: string[] = [];
+    for (let index = 0; index < 150; index += 1) {
+      const count = int(2, 3);
+      const pages = Array.from({ length: count }, (_, slot) => ({ slot, order: 0, denominator: [50, 100, 150, 200, null][int(0, 4)],
+        shift: [-(37 + int(0, 99_999) / 10_000) * slot, (int(-5_000, 5_000) / 10_000) * slot] as [number, number] }));
+      const lines = pages.flatMap(({ slot }) => Array.from({ length: int(1, 2) }, (_, k) => {
+        const y = 1 + int(0, 6) / 100;
+        const segments = Array.from({ length: int(1, 2) }, (): Seg => {
+          const x0 = int(0, 60_000) / 10_000;
+          return [x0, y, x0 + int(2_000, 40_000) / 10_000, y];
+        });
+        const length = segments.reduce((sum, [x0, , x1]) => sum + (x1 - x0), 0);
+        return { id: `l${slot}${k}`, slot, segments, quantity: Math.max(0, Math.round((length - [0, 0, int(0, 3_000) / 1000][int(0, 2)]) * 1000) / 1000) };
+      }));
+      const ids = lines.map((entry) => entry.id);
+      const seen = new Set<string>();
+      for (const orders of permutations(pages.map((_, slot) => slot))) {
+        for (const reverse of [false, true]) {
+          seen.add(JSON.stringify(outcome(scene(pages.map((entry, slot) => ({ ...entry, order: orders[slot] })), lines, reverse).results, ids)));
+        }
+      }
+      if (seen.size > 1) flips.push(`#${index}: ${[...seen].join(" ≠ ")}`);
+    }
+    expect(flips).toEqual([]);
   });
 });
 
