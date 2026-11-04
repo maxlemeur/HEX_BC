@@ -70,6 +70,21 @@ export function boundRuleResults(results: readonly TakeoffRuleResult[]): Takeoff
   return TakeoffRuleResultsSchema.parse(bounded);
 }
 
+/**
+ * Rule inputs as the worker may write them: what the reader accepts. A printed size longer than the bound is no size
+ * (the DN rule then fails the line, never skips it); a room label is clipped. Null when they still do not parse: the
+ * line then carries no inputs and is not left stale forever.
+ */
+export function writableRuleInputs(inputs: TakeoffRuleInputs): TakeoffRuleInputs | null {
+  const bounded = {
+    ...inputs,
+    dn: inputs.dn !== null && inputs.dn.length > 40 ? null : inputs.dn,
+    ...(typeof inputs.room === "string" ? { room: clip(inputs.room, 120) } : {}),
+  };
+  const parsed = TakeoffRuleInputsSchema.safeParse(bounded);
+  return parsed.success ? parsed.data : null;
+}
+
 /** Rule inputs of a line's metadata, or null when it has none (or they no longer parse). */
 export function readRuleInputs(metadata: unknown): TakeoffRuleInputs | null {
   if (typeof metadata !== "object" || metadata === null) return null;

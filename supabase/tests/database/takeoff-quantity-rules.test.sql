@@ -266,6 +266,12 @@ select is(pg_temp.rules_apply('guard-5', '9e000000-0000-4000-8000-000000000304')
 select is(pg_temp.rules_exec('update-11', 'update public.takeoff_items set updated_at = ''2001-01-01T00:00:00Z'' where id = ''9e000000-0000-4000-8000-000000000408'''), 'ok', 'a client update of updated_at alone');
 select isnt((select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000408'), '2001-01-01T00:00:00Z'::timestamptz,
   'a client never sets updated_at itself: the trigger writes now()');
+-- The scale rule reads the line's page: a client edit of the page makes evaluated results stale too (L5b review).
+select is(pg_temp.rules_exec('update-12', 'update public.takeoff_items set source_page = 2 where id = ''9e000000-0000-4000-8000-000000000402'''), 'ok', 'the engineer moves an evaluated line to another page');
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000402'), true,
+  'a page edit makes the evaluated results stale');
+-- The rule inputs live in metadata, written by the worker only.
+select is(pg_temp.rules_exec('update-13', 'update public.takeoff_items set metadata = jsonb_set(coalesce(metadata, ''{}''::jsonb), ''{rule_inputs}'', ''{"version":1}''::jsonb) where id = ''9e000000-0000-4000-8000-000000000408'''), '42501 TAKEOFF_ITEM_TRUSTED_FIELDS_IMMUTABLE', 'authenticated cannot rewrite the rule inputs');
 
 reset role;
 

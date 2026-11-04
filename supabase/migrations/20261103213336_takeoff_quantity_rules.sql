@@ -5,7 +5,8 @@
 --   version, acceptable, reason, details), see docs/metier/regles-metre.md;
 -- - rules_evaluated_at: when they were computed (null: never, no rule reads it);
 -- - rules_stale: the line changed after its results (quantity, unit, exclusion
---   edited by a client): they no longer hold until the server computes them again.
+--   or page edited by a client): they no longer hold until the server computes
+--   them again.
 -- The apply trigger counts a line « failed and not settled » as blocked, on
 -- every level (the existing reasons stay level C): stale results, or a failed
 -- rule while the line is not verified, or a failed rule that verifying never
@@ -198,14 +199,16 @@ begin
     end if;
   end if;
 
-  -- TI-664: the rules read the quantity, its entry, the unit and the exclusion
-  -- as they are now; after a client edit their results wait for the server.
+  -- TI-664: the rules read the quantity, its entry, the unit, the exclusion
+  -- and the page (the scale rule) as they are now; after a client edit their
+  -- results wait for the server.
   if old.rules_evaluated_at is not null
     and (
       new.quantity is distinct from old.quantity
       or new.quantity_entered_by is distinct from old.quantity_entered_by
       or new.unit is distinct from old.unit
       or new.is_excluded is distinct from old.is_excluded
+      or new.source_page is distinct from old.source_page
     )
   then
     new.rules_stale := true;

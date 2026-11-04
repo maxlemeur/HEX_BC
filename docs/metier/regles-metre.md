@@ -268,9 +268,10 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 - après chaque correction ou exclusion (PATCH des lignes) ;
 - avant chaque application.
 
-Un client qui modifie la quantité, son attestation de saisie, l'unité ou l'exclusion
-d'une ligne évaluée périme ses résultats (trigger) : la ligne bloque jusqu'au recalcul
-serveur.
+Un client qui modifie la quantité, son attestation de saisie, l'unité, l'exclusion
+ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses résultats
+(trigger) : la ligne bloque jusqu'au recalcul serveur. Une désignation modifiée ne
+change pas les entrées des règles, lues une fois par le worker.
 
 **Saisie d'une quantité à saisir** : `quantity_entered_by` et `quantity_entered_at`.
 

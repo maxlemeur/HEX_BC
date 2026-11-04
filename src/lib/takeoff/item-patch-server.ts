@@ -160,7 +160,7 @@ export async function batchUpdateTakeoffItems(
     }
   }
 
-  // The fixed rules read the quantity, its entry and the exclusion (TI-664): computed again for the version, then
+  // The fixed rules read the quantity, its entry, the exclusion and the page (TI-664): computed again for the version, then
   // the saved lines read back with their results (writing them never moves updated_at).
   const saved = results.flatMap((result) => (result.success ? [result.item_id] : []));
   if (saved.length > 0) {

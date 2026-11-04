@@ -80,6 +80,7 @@ import {
   type TakeoffSourceDocumentRef,
 } from "@/lib/takeoff/source-loader";
 import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
+import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { isTakeoffVectorReadingEnabled, readTakeoffVectorPages, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
@@ -1624,26 +1625,27 @@ async function persistTakeoffResultAndItems(input: {
       const { error: insertItemsError } = await input.supabase
         .from("takeoff_items" as never)
         .insert(
-          input.itemsForInsert.map((item) => ({
-            tenant_id: input.job.tenant_id,
-            job_id: input.job.id,
-            result_id: resultId,
-            designation: item.designation,
-            quantity: item.quantity,
-            unit: item.unit,
-            confidence: item.confidence,
-            evidence: item.evidence,
-            source_file_name: item.source_file_name,
-            source_page: item.source_page,
-            metadata: withRules ? {
-              ...item.metadata,
-              rule_inputs: ruleInputsFromDesignation({
-                designation: item.designation, unit: item.unit, quantity: item.quantity, evidence: item.evidence,
-                category: typeof item.metadata.category === "string" ? item.metadata.category : null,
-              }),
-            } : item.metadata,
-            ...(withRules ? { rules_stale: true } : {}),
-          })) as never
+          input.itemsForInsert.map((item) => {
+            // Only inputs the reader accepts are written: a line left stale with unreadable inputs is never computed.
+            const ruleInputs = withRules ? writableRuleInputs(ruleInputsFromDesignation({
+              designation: item.designation, unit: item.unit, quantity: item.quantity, evidence: item.evidence,
+              category: typeof item.metadata.category === "string" ? item.metadata.category : null,
+            })) : null;
+            return {
+              tenant_id: input.job.tenant_id,
+              job_id: input.job.id,
+              result_id: resultId,
+              designation: item.designation,
+              quantity: item.quantity,
+              unit: item.unit,
+              confidence: item.confidence,
+              evidence: item.evidence,
+              source_file_name: item.source_file_name,
+              source_page: item.source_page,
+              metadata: ruleInputs ? { ...item.metadata, rule_inputs: ruleInputs } : item.metadata,
+              ...(ruleInputs ? { rules_stale: true } : {}),
+            };
+          }) as never
         );
 
       if (insertItemsError) {
