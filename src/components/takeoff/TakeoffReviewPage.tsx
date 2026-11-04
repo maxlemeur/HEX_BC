@@ -41,8 +41,10 @@ import {
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
-import { releaseEstimateDraftLock } from "@/lib/estimates/client";
-import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
+import {
+  useTakeoffApplyConfirm,
+  useTakeoffLowConfidenceThreshold,
+} from "@/components/takeoff/review/useTakeoffReviewSupport";
 
 const TakeoffApplyWizard = dynamic(
   () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
@@ -80,7 +82,6 @@ const LazyValidationReviewPanel = dynamic(
   }
 );
 import {
-  applyTakeoffJob,
   fetchTakeoffDpgfComparison,
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
@@ -90,14 +91,11 @@ import {
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
 import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
-import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
-import {
-  checkApplyGuard,
-  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
-} from "@/lib/takeoff/guards";
+import { checkApplyGuard } from "@/lib/takeoff/guards";
 import type {
+  TakeoffApplyResponse,
   TakeoffDpgfComparisonResponse,
   TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
@@ -107,7 +105,6 @@ import type {
   TakeoffJobSummary,
   TakeoffTable,
 } from "@/lib/takeoff/types";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -152,14 +149,6 @@ const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
 const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
 
-function parseLowConfidenceThreshold(value: string | null): number {
-  if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  return parsed;
-}
-
 // ---------------------------------------------------------------------------
 // Main orchestrator
 // ---------------------------------------------------------------------------
@@ -175,19 +164,7 @@ export default function TakeoffReviewPage({
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
   const { isSimplified } = useUiMode();
-  const {
-    enabled: isLowConfidenceThresholdEnabled,
-    value: lowConfidenceThresholdRaw,
-  } = useFeatureFlag(
-    TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY
-  );
-  const lowConfidenceThreshold = useMemo(
-    () =>
-      parseLowConfidenceThreshold(
-        isLowConfidenceThresholdEnabled ? lowConfidenceThresholdRaw : null
-      ),
-    [isLowConfidenceThresholdEnabled, lowConfidenceThresholdRaw]
-  );
+  const lowConfidenceThreshold = useTakeoffLowConfidenceThreshold();
 
   // ---- Review mode from URL (V3-012: Assisté / Production / Validation)
   const reviewModeParam = searchParams.get("reviewMode");
@@ -370,8 +347,6 @@ export default function TakeoffReviewPage({
 
   // ---- Apply wizard state
   const [applyWizardOpen, setApplyWizardOpen] = useState(false);
-  const [applySubmitting, setApplySubmitting] = useState(false);
-  const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<ApplySuccessSummary | null>(null);
 
   // ---- Auto-save
@@ -1148,68 +1123,41 @@ export default function TakeoffReviewPage({
     hasSaveErrors,
     isDpgfValidationPending,
   ]);
-  const handleOpenApplyWizard = useCallback(() => {
-    if (!isApplyReady) return;
-    setApplyWizardOpen(true);
-    setApplyError(null);
-  }, [isApplyReady]);
-
   // ---- Apply handler
-  const handleApplyConfirm = useCallback(
-    async (payload: TakeoffApplyWizardSubmitPayload) => {
-      setApplySubmitting(true);
-      setApplyError(null);
-      let shouldReleaseDraftLock = false;
-
-      try {
-        const lockResult = await ensureTakeoffApplyDraftLock(versionId);
-        if (!lockResult.acquired) {
-          setApplyError(
-            lockResult.errorMessage ??
-              "Impossible d'acquérir le verrou de brouillon de la version cible."
-          );
-          return;
-        }
-
-        shouldReleaseDraftLock = lockResult.shouldRelease;
-
-        const response = await applyTakeoffJob(jobId, {
-          strategy: payload.strategy,
-          target_section_id: payload.targetSectionId,
-          overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
-          override: payload.override,
-          override_justification: payload.overrideJustification,
-        }, versionId);
-        setApplyWizardOpen(false);
-        setApplySuccess({
-          appliedAt: new Date().toISOString(),
-          targetSectionLabel: payload.targetSectionLabel,
-          strategy: payload.strategy,
-          createdCount: response.summary.created_count,
-          updatedCount: response.summary.updated_count,
-          ignoredCount: response.summary.ignored_count,
-        });
-        setJobStatus("applied");
-        toast.success({
-          title: "Apply contrôlé terminé",
-          description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).`,
-        });
-        if (!isAffaireContext) {
-          router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
-        }
-      } catch (err) {
-        setApplyError(
-          isTakeoffApiError(err) ? err.message : "Erreur lors de l'application."
-        );
-      } finally {
-        if (shouldReleaseDraftLock) {
-          void releaseEstimateDraftLock(versionId).catch(() => false);
-        }
-        setApplySubmitting(false);
+  const handleApplied = useCallback(
+    (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => {
+      setApplyWizardOpen(false);
+      setApplySuccess({
+        appliedAt: new Date().toISOString(),
+        targetSectionLabel: payload.targetSectionLabel,
+        strategy: payload.strategy,
+        createdCount: response.summary.created_count,
+        updatedCount: response.summary.updated_count,
+        ignoredCount: response.summary.ignored_count,
+      });
+      setJobStatus("applied");
+      toast.success({
+        title: "Apply contrôlé terminé",
+        description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).`,
+      });
+      if (!isAffaireContext) {
+        router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
       }
     },
     [jobId, isAffaireContext, router, toast, versionId]
   );
+  const {
+    submitting: applySubmitting,
+    error: applyError,
+    setError: setApplyError,
+    confirm: handleApplyConfirm,
+  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+
+  const handleOpenApplyWizard = useCallback(() => {
+    if (!isApplyReady) return;
+    setApplyWizardOpen(true);
+    setApplyError(null);
+  }, [isApplyReady, setApplyError]);
 
   const reviewTitle = isAffaireContext
     ? "Revue des exceptions & preuves"
