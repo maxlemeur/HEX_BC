@@ -78,34 +78,36 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
 
   useEffect(() => {
     if (!draft) return;
-    if (draft.processing.level === null) {
-      const initialLevel = recommendedLevel && compatibleLevels.includes(recommendedLevel) ? recommendedLevel : compatibleLevels[0];
-      if (initialLevel) updateDraft({ ...draft, processing: { ...draft.processing, level: initialLevel } });
-      return;
-    }
-    const target = estimateVersionId;
-    const targetIntent = `${targetSelectionKey}:${renewTargetIntent}`;
-    const explicitlyChangedTarget = previousTargetIntent.current !== targetIntent;
-    previousTargetIntent.current = targetIntent;
-    const shouldBindTarget = explicitlyChangedTarget || draft.destination.estimate_version_id === null || record?.revision === null;
-    if (draft.destination.estimate_version_id !== target && shouldBindTarget) {
-      updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: target, confirmed: false } });
-      return;
-    }
-    const candidates = uploadSource ? [uploadSource] : availableSources;
-    const selection = uploadSource?.document_id ?? planSetId;
-    const didSwitch = (previousSelection.current !== undefined && previousSelection.current !== selection) || (previousSelection.current === undefined && record?.revision === null && !draft.sources.some((source) => source.active));
-    previousSelection.current = selection;
-    const currentIds = new Set(draft.sources.map((source) => source.document_id));
-    const newSources = candidates.filter((source) => !currentIds.has(source.document_id));
-    const changedSelection = draft.sources.some((source) => source.active && (
-      uploadSource ? source.document_id !== uploadSource.document_id : (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId))
-    ));
-    if (newSources.length === 0 && !changedSelection && !didSwitch) return;
-    updateDraft({ ...draft, sources: [
-      ...draft.sources.map((source) => ({ ...source, ...(didSwitch ? { active: uploadSource ? source.document_id === uploadSource.document_id : source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && (uploadSource ? source.document_id !== uploadSource.document_id : (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId))) ? { active: false, confirmed: false } : {}) })),
-      ...newSources.map((source) => ({ ...source, revision: source.revision ?? null, pages: [], active: uploadSource ? source.document_id === uploadSource.document_id : Boolean(planSetId && source.plan_set_id === planSetId), confirmed: false })),
-    ] });
+    // Completes the hook's latest draft, not `draft`: an edit made after the commit that showed `draft`, before
+    // this effect ran, is already in it, and a draft rebuilt from `draft` would replace that edit.
+    updateDraft((latest) => {
+      if (latest.processing.level === null) {
+        const initialLevel = recommendedLevel && compatibleLevels.includes(recommendedLevel) ? recommendedLevel : compatibleLevels[0];
+        return initialLevel ? { ...latest, processing: { ...latest.processing, level: initialLevel } } : latest;
+      }
+      const target = estimateVersionId;
+      const targetIntent = `${targetSelectionKey}:${renewTargetIntent}`;
+      const explicitlyChangedTarget = previousTargetIntent.current !== targetIntent;
+      previousTargetIntent.current = targetIntent;
+      const shouldBindTarget = explicitlyChangedTarget || latest.destination.estimate_version_id === null || record?.revision === null;
+      if (latest.destination.estimate_version_id !== target && shouldBindTarget) {
+        return { ...latest, destination: { ...latest.destination, estimate_version_id: target, confirmed: false } };
+      }
+      const candidates = uploadSource ? [uploadSource] : availableSources;
+      const selection = uploadSource?.document_id ?? planSetId;
+      const didSwitch = (previousSelection.current !== undefined && previousSelection.current !== selection) || (previousSelection.current === undefined && record?.revision === null && !latest.sources.some((source) => source.active));
+      previousSelection.current = selection;
+      const currentIds = new Set(latest.sources.map((source) => source.document_id));
+      const newSources = candidates.filter((source) => !currentIds.has(source.document_id));
+      const changedSelection = latest.sources.some((source) => source.active && (
+        uploadSource ? source.document_id !== uploadSource.document_id : (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId))
+      ));
+      if (newSources.length === 0 && !changedSelection && !didSwitch) return latest;
+      return { ...latest, sources: [
+        ...latest.sources.map((source) => ({ ...source, ...(didSwitch ? { active: uploadSource ? source.document_id === uploadSource.document_id : source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && (uploadSource ? source.document_id !== uploadSource.document_id : (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId))) ? { active: false, confirmed: false } : {}) })),
+        ...newSources.map((source) => ({ ...source, revision: source.revision ?? null, pages: [], active: uploadSource ? source.document_id === uploadSource.document_id : Boolean(planSetId && source.plan_set_id === planSetId), confirmed: false })),
+      ] };
+    });
   }, [availableSources, compatibleLevels, draft, estimateVersionId, planSetId, recommendedLevel, record?.revision, renewTargetIntent, targetSelectionKey, updateDraft, uploadSource]);
 
   async function launch() {
