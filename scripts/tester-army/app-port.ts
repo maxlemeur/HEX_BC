@@ -94,9 +94,15 @@ export function defaultAppPortLeaseDirectory() {
   return path.join(os.homedir(), ".supabase", "army-app-ports");
 }
 
-/** The process's start time as `ps` prints it, or undefined where `ps` cannot tell. */
+/**
+ * The process's start time as `ps` prints it, or undefined where `ps` cannot
+ * tell. `lstart` is formatted in the caller's time zone and locale: fixed
+ * here, so launchers with other TZ or LC_* settings read the same value.
+ */
 function processStartTime(pid: number) {
-  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 });
+  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    encoding: "utf8", timeout: 5_000, env: { ...process.env, TZ: "UTC", LC_ALL: "C", LANG: "C", LC_TIME: "C" },
+  });
   const value = result.status === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
   return value || undefined;
 }

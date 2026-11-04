@@ -59,8 +59,8 @@ async function freePort() {
 }
 
 /** Another process, started with `args`, until it prints `marker`. */
-async function startProcess(args: string[], marker: string) {
-  const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+async function startProcess(args: string[], marker: string, environment: NodeJS.ProcessEnv = process.env) {
+  const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"], env: environment });
   children.push(child);
   let output = "";
   await new Promise<void>((resolve, reject) => {
@@ -72,13 +72,13 @@ async function startProcess(args: string[], marker: string) {
 }
 
 /** A launcher of another checkout: it leases `port` in `directory`, then lives until killed. */
-function startLeaseHolder(port: number, directory: string) {
+function startLeaseHolder(port: number, directory: string, environment: NodeJS.ProcessEnv = process.env) {
   return startProcess(["--import", "tsx", "--input-type=module", "-e", `
     const { reserveAppPort } = await import(${JSON.stringify(MODULE)});
     reserveAppPort({ port: ${port}, label: "run-tester-army-ci.ts critical", directory: ${JSON.stringify(directory)} });
     console.log("leased");
     setInterval(() => {}, 60_000);
-  `], "leased");
+  `], "leased", environment);
 }
 
 function exited(child: ChildProcess) {
@@ -154,6 +154,21 @@ describe("Army application port lease", () => {
     reserveAppPort({ port: 4112, label: "next", directory }).release();
     expect(fs.readdirSync(directory)).toEqual([]);
   });
+
+  // Codex review of 05128fa0: `ps -o lstart` prints the start time in the
+  // caller's time zone and locale, so a launcher with another TZ took a live
+  // lease for a reused PID, deleted it and reserved the same port.
+  it("keeps a live lease whatever the time zone and locale of either launcher", async () => {
+    const directory = leaseDirectory();
+    await startLeaseHolder(4114, directory, { ...process.env, TZ: "America/New_York", LC_ALL: "fr_FR.UTF-8" });
+    const second = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+      const { reserveAppPort } = await import(${JSON.stringify(MODULE)});
+      try { reserveAppPort({ port: 4114, label: "second", directory: ${JSON.stringify(directory)} }); console.log("reserved"); }
+      catch (error) { console.log(error.name); }
+    `], { encoding: "utf8", timeout: 30_000, env: { ...process.env, TZ: "Asia/Tokyo", LC_ALL: "C" } });
+    expect(second.stdout.trim(), second.stderr).toBe("AppPortReservedError");
+    expect(fs.readdirSync(directory)).toHaveLength(1);
+  }, 30_000);
 
   it("keeps a lease whose process is alive but unreadable as held (still being written)", () => {
     const directory = leaseDirectory();
