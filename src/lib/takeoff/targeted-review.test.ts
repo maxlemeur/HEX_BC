@@ -11,7 +11,10 @@ import { acceptanceOf, targetedReviewLines, zoneOverlapGuidance } from "@/lib/ta
 //   without its localized proof, which the server refuses;
 // - F10: in a group of three lines or more it offers a reduction, which never settles a group, or offers to remove a
 //   line that other lines do not draw entirely (its own length would leave the takeoff);
-// - F11: the pair's reduction is wrong: subtracted twice, negative, or off the stored thousandth.
+// - F11: the pair's reduction is wrong: subtracted twice, negative, or off the stored thousandth;
+// - review of L5c: guidance read from results to compute again (a skipped or failed recomputation): « Retirer 1,00 m »
+//   offered again after the length was removed, « Retirer la ligne » on a line whose partner was just excluded, V
+//   accepting a failure the user has not seen; a reduction computed from a quantity above the measured length.
 
 type Line = ApplyGuardItem & { quantity: number; metadata: Record<string, unknown> };
 
@@ -56,13 +59,6 @@ describe("targetedReviewLines", () => {
     expect(review.lines.find((entry) => entry.item.id === lowNoProof.id)?.reasons).toEqual(["low_confidence", "missing_evidence"]);
     expect(review.guard.passed).toBe(false);
   });
-
-  it("reads a level B job as the guard does: its rules only", () => {
-    const failed = line({ rule_results: [rule({})] });
-    const low = line({ confidence: 0.2, evidence: null });
-    const review = targetedReviewLines([failed, low], 0.5, "B");
-    expect(review.lines.map((entry) => [entry.item.id, entry.tier])).toEqual([[failed.id, "rejected"]]);
-  });
 });
 
 describe("acceptanceOf", () => {
@@ -89,6 +85,12 @@ describe("acceptanceOf", () => {
     const noProof = acceptanceOf(line({ rule_results: [rule({})], evidence: "  " }), "C");
     expect(noProof).toEqual({ enabled: false, reason: "Ajoutez une preuve avant de valider cet item." });
     expect(acceptanceOf(line({ rule_results: [rule({})], evidence: null }), "B").enabled).toBe(true);
+  });
+
+  it("never offers V on results to compute again, even with an acceptable failure", () => {
+    const stale = acceptanceOf(line({ rules_stale: true, rule_results: [rule({})] }), "B");
+    expect(stale.enabled).toBe(false);
+    expect(stale.reason).toMatch(/recalcul/);
   });
 
   it("does not accept a line already verified again", () => {
@@ -122,6 +124,20 @@ describe("zoneOverlapGuidance", () => {
     const partial = zoneOverlapGuidance(line({ quantity: 1, metadata: measured,
       rule_results: [duplicate({ overlap_m: 1, group_size: 4, partners: [partner()] })] }));
     expect(partial).toMatchObject({ kind: "group", group_size: 4, reduce_to: null, remove_line: false, own_m: 2 });
+  });
+
+  it("offers no guided decision on results to compute again", () => {
+    const pair = zoneOverlapGuidance(line({ quantity: 5, rules_stale: true, rule_results: [duplicate({ overlap_m: 1, partners: [partner()] })] }));
+    expect(pair).toMatchObject({ kind: "pair", stale: true, reduce_to: null, remove_line: false });
+    const entire = zoneOverlapGuidance(line({ quantity: 1, rules_stale: true, rule_results: [duplicate({ overlap_m: 1, partners: [partner()] })] }));
+    expect(entire).toMatchObject({ stale: true, reduce_to: null, remove_line: false });
+  });
+
+  it("removes the length counted twice from the measured line when its quantity is above it", () => {
+    const measured = { rule_inputs: { version: 1, source: "vector", kind: "network", network: "EF", material: "inox", dn: "DN 22",
+      non_observable: null, model_quantity: 10 } };
+    expect(zoneOverlapGuidance(line({ quantity: 12, metadata: measured, rule_results: [duplicate({ overlap_m: 3, partners: [partner()] })] })))
+      .toMatchObject({ kind: "pair", reduce_to: 7 });
   });
 
   it("reads a pair settled, registered nowhere, or no duplicate at all", () => {

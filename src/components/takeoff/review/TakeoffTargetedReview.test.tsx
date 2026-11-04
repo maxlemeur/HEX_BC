@@ -24,7 +24,10 @@ import type { TakeoffJobItem } from "@/lib/takeoff/types";
 // - F5: V offered on it, though verifying never settles it;
 // - F3: E typed while the quantity is being entered opens the exclusion instead of staying in the field;
 // - F7: after a pair is settled from one line, its partner of the same job still shows failed (only the saved line
-//   was read back).
+//   was read back);
+// - review of L5c: a decision on a partner while the first one is saved acts on its pre-save guidance (the length
+//   removed twice); a quantity field reached by Tab keeps an entry that swallows Enter on any later button (and
+//   attests a quantity to enter); F2 with the decision panel folded starts an entry nobody sees.
 
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -138,5 +141,46 @@ describe("TakeoffTargetedReview", () => {
     await waitFor(() => expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual([
       expect.stringContaining("Soudures des réseaux"),
     ]));
+  });
+
+  it("takes one decision at a time: the partner waits for the first one's answer", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    vi.mocked(patchTakeoffItems).mockReturnValue(new Promise((resolve) => { answer = resolve; }) as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    fireEvent.click(screen.getByRole("button", { name: /^Retirer 1,00 m/ }));
+    choose(list, "EF Z2");
+    fireEvent.keyDown(list, { key: "v" });
+    fireEvent.keyDown(list, { key: "e" });
+
+    expect(screen.getByRole("button", { name: /^Retirer 1,00 m/ })).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(patchTakeoffItems).toHaveBeenCalledTimes(1);
+    await act(async () => answer({ results: [{ item_id: ids.z1, success: true, item: ITEMS[1] }], succeeded: 1, failed: 0 }));
+  });
+
+  it("lets Enter act on a button after the quantity field was only passed through", async () => {
+    const list = await open();
+    choose(list, "Soudures des réseaux");
+    const quantity = screen.getByLabelText("Quantité à saisir");
+    act(() => quantity.focus());
+    const exclude = screen.getByRole("button", { name: /^Exclure/ });
+    act(() => exclude.focus());
+    fireEvent.keyDown(exclude, { key: "Enter" });
+
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+  });
+
+  it("opens the folded decision panel to show an entry started with F2", async () => {
+    const list = await open();
+    choose(list, "EF Z1");
+    fireEvent.click(screen.getByRole("button", { name: "Replier le détail" }));
+    expect(screen.queryByLabelText("Quantité")).not.toBeInTheDocument();
+    act(() => list.focus());
+    fireEvent.keyDown(list, { key: "F2" });
+
+    const quantity = await screen.findByLabelText("Quantité");
+    await waitFor(() => expect(quantity).toHaveFocus());
+    expect(quantity).toHaveValue("5");
   });
 });
