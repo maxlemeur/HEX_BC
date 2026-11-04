@@ -9,6 +9,7 @@ import { VECTOR_PERSISTENCE_SCHEMA_VERSION } from "@/lib/takeoff/vectors/persist
 import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
+import { boundPageAnchors } from "@/lib/takeoff/rules/registration";
 import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 
 // Writes a job's vector reading with the worker's service role (TI-662): one
@@ -41,11 +42,14 @@ export async function persistTakeoffVectorReading(input: {
     if (!outcome.record) continue;
     const planFileId = outcome.document.kind === "plan_file" ? outcome.document.plan_file_id : null;
     // TI-664 (MERGEONE_TAKEOFF_RULES=1): the page's registration anchors, and each line's rule inputs, its results to compute.
+    // The anchors are bounded to their column first (TI-677): a page over the check would fail its insert, and the
+    // job's whole vector reading would be discarded.
     const withRules = isTakeoffRulesEnabled();
+    const anchors = withRules && outcome.anchors ? boundPageAnchors(outcome.anchors) : null;
     const { data: page, error: pageError } = await input.supabase.from("takeoff_vector_pages" as never).insert({
       tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId, plan_file_id: planFileId,
       source_file_name: outcome.fileName.slice(0, 255), source_page: outcome.page, reading: outcome.record,
-      schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, ...(withRules && outcome.anchors ? { rule_anchors: outcome.anchors } : {}),
+      schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, ...(anchors ? { rule_anchors: anchors } : {}),
     } as never).select("id" as never).single();
     if (pageError || !page) failed("Impossible d’enregistrer la lecture vectorielle d’une page.", pageError);
     pages += 1;

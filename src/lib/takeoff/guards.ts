@@ -9,6 +9,36 @@ import type { TakeoffJobItem } from "@/lib/takeoff/types";
 export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.5;
 export const MEDIUM_CONFIDENCE_CEILING = 0.8;
 
+/** The grammar the apply trigger accepts too (takeoff_low_confidence_threshold): a decimal, an exponent of 3 digits. */
+const THRESHOLD_GRAMMAR = /^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?[0-9]{1,3}))?$/;
+const THRESHOLD_MAX_LENGTH = 100;
+
+/**
+ * The tenant's low confidence threshold (flag TAKEOFF_LOW_CONFIDENCE_THRESHOLD) exactly as the apply trigger reads it
+ * (TI-677): trimmed like JS trim(), a decimal of at most 100 characters (no hexadecimal, no « Infinity »), between 0
+ * and 1, else the default; then rounded up to the 1e-4 the confidences are stored at (numeric(5,4)), which blocks
+ * exactly the lines the exact value blocks, and keeps every digit of the flag (TS used to round past 17 digits). The
+ * value an admin override's audit carries is this one, which the trigger compares exactly.
+ */
+export function parseLowConfidenceThreshold(raw: string | null | undefined): number {
+  if (typeof raw !== "string") return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const text = raw.trim();
+  const match = text.length <= THRESHOLD_MAX_LENGTH ? THRESHOLD_GRAMMAR.exec(text) : null;
+  if (!match || `${match[2]}${match[3] ?? ""}`.length === 0) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const [, sign, whole, fraction = "", exponent = "0"] = match;
+  // value = digits × 10^power; in ten-thousandths: digits × 10^(power + 4), rounded up.
+  const digits = `${whole}${fraction}`;
+  const shift = Number(exponent) - fraction.length + 4;
+  const kept = shift >= 0 ? `${digits}${"0".repeat(shift)}` : digits.slice(0, Math.max(0, digits.length + shift));
+  const dropped = shift >= 0 ? "" : digits.slice(Math.max(0, digits.length + shift));
+  let units = BigInt(kept.length > 0 ? kept : "0");
+  const remainder = /[1-9]/.test(dropped);
+  if (sign === "-" && (units > BigInt(0) || remainder)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  if (remainder) units += BigInt(1);
+  if (units > BigInt(10_000)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  return Number(units) / 10_000;
+}
+
 export type TakeoffVerificationIssue =
   | "missing_evidence"
   | "missing_source_page";

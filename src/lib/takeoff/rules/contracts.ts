@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 import { MATERIAL_CODES, NETWORK_CODES } from "@/lib/takeoff/bench/keys";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { TAKEOFF_RULE_IDS, type TakeoffRuleInputs, type TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 // Wire shapes of the fixed rules (TI-664): the inputs the worker writes in
 // takeoff_items.metadata.rule_inputs, the results the server writes in
-// takeoff_items.rule_results (bounded like the column: 16 results, 64 KiB) and
-// returns with each line.
+// takeoff_items.rule_results (bounded like the column: 16 results, 64 KiB of
+// jsonb text, measured before the write: TI-677) and returns with each line.
 
 const finite = z.number().finite();
 
@@ -42,32 +43,72 @@ export const TakeoffRuleResultSchema: z.ZodType<TakeoffRuleResult> = z.object({
 
 export const TakeoffRuleResultsSchema = z.array(TakeoffRuleResultSchema).max(16);
 
+/** The check of takeoff_items.rule_results: octet_length(rule_results::text) <= 65536. */
+export const RULE_RESULTS_MAX_BYTES = 65_536;
+
+/** A text cut to `max` UTF-16 units, an ellipsis last; never between the two halves of a surrogate pair (unstorable). */
 function clip(text: string, max: number) {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  if (text.length <= max) return text;
+  let end = max - 1;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${text.slice(0, end)}…`;
 }
 
 /**
- * Results as every read accepts them: a reason or a partner's designation can quote user text of any length (a
- * designation of 500 characters, several partners), clipped here; the list of partners is cut at its bound. Throws
- * when results still do not parse, so that nothing unreadable is ever written (the line then stays stale and blocks
- * on both sides of the guard).
+ * Bounds tried in turn until the results fit the column's byte budget (TI-677): the first is the schema's, which
+ * keeps every result as written up to its field limits; the next ones clip the partners' designations and the reason,
+ * then keep the partners with the largest common length first and the first overlapping rooms. The last keeps only
+ * what decides and guides: a short reason and the numbers of the details (16 results of it stay far under the
+ * budget). Never touched: the rule, status, code, version and « acceptable » (what blocks), the length counted twice,
+ * the group size, the overlapping area (what guides the decision).
  */
-export function boundRuleResults(results: readonly TakeoffRuleResult[]): TakeoffRuleResult[] {
-  const bounded = results.map((entry) => {
+const RESULT_BOUNDS = [
+  { reason: LIMITS.reason, designation: LIMITS.designation, partners: LIMITS.partners, rooms: Number.POSITIVE_INFINITY, numbersOnly: false },
+  { reason: LIMITS.reason, designation: 120, partners: LIMITS.partners, rooms: 500, numbersOnly: false },
+  { reason: 300, designation: 40, partners: 20, rooms: 100, numbersOnly: false },
+  { reason: 120, designation: 16, partners: 5, rooms: 20, numbersOnly: false },
+  { reason: 60, designation: 0, partners: 0, rooms: 0, numbersOnly: true },
+] as const;
+
+/** The details' numbers (the length counted twice, the group size, the areas…) and the level, clipped. */
+function detailNumbers(details: NonNullable<TakeoffRuleResult["details"]>) {
+  const kept = Object.entries(details).filter(([, value]) => typeof value === "number" && Number.isFinite(value));
+  return Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]);
+}
+
+function withinBounds(results: readonly TakeoffRuleResult[], bounds: (typeof RESULT_BOUNDS)[number]) {
+  return results.map((entry) => {
     const partners = entry.details?.partners;
+    const rooms = entry.details?.overlapping_item_ids;
     return {
       ...entry,
-      reason: clip(entry.reason, LIMITS.reason),
+      reason: clip(entry.reason, bounds.reason),
       ...(entry.details ? {
-        details: {
+        details: bounds.numbersOnly ? detailNumbers(entry.details) : {
           ...entry.details,
-          ...(partners ? { partners: partners.slice(0, LIMITS.partners).map((partner) => ({ ...partner,
-            designation: clip(partner.designation, LIMITS.designation), zone: partner.zone === null ? null : clip(partner.zone, LIMITS.zone) })) } : {}),
+          ...(partners ? { partners: partners.slice(0, bounds.partners).map((partner) => ({ ...partner,
+            designation: clip(partner.designation, bounds.designation), zone: partner.zone === null ? null : clip(partner.zone, LIMITS.zone) })) } : {}),
+          ...(rooms ? { overlapping_item_ids: rooms.slice(0, bounds.rooms) } : {}),
         },
       } : {}),
     };
   });
-  return TakeoffRuleResultsSchema.parse(bounded);
+}
+
+/**
+ * Results as every read accepts them and the column stores them: a reason or a partner's designation can quote user
+ * text of any length (a designation of 500 multibyte characters, fifty partners), a room can overlap thousands of
+ * rooms. Each bound is tried in turn until the jsonb text fits RULE_RESULTS_MAX_BYTES (jsonbTextBytes, the measure
+ * of the check); the last bound always fits schema-valid results. Throws when results do not parse (or would still not
+ * fit), so that nothing unreadable or unstorable is ever written: the line then keeps its stored state.
+ */
+export function boundRuleResults(results: readonly TakeoffRuleResult[]): TakeoffRuleResult[] {
+  for (const bounds of RESULT_BOUNDS) {
+    const bounded = TakeoffRuleResultsSchema.parse(withinBounds(results, bounds));
+    if (jsonbTextBytes(bounded) <= RULE_RESULTS_MAX_BYTES) return bounded;
+  }
+  throw new Error(`Résultats de règles au-delà de ${RULE_RESULTS_MAX_BYTES} octets après réduction.`);
 }
 
 /**

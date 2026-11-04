@@ -202,6 +202,15 @@ describe("takeoff feature flags", () => {
     ).resolves.toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
   });
 
+  // TI-677: the server's guard reads the threshold as the apply trigger does (see guards.test.ts for every case).
+  it("reads the low-confidence threshold as the apply trigger does: no hexadecimal, every digit", async () => {
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("0x1");
+    await expect(getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)).resolves.toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("0.70000000000000001");
+    await expect(getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)).resolves.toBe(0.7001);
+  });
+
   it("reads Gemini batch delivery mode from env or tenant flags", async () => {
     process.env[BATCH_MODE_ENV_KEY] = "true";
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);

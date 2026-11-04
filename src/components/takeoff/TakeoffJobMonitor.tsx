@@ -28,7 +28,7 @@ import {
   fetchTakeoffJobWithAllItems,
 } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
-import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
+import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import { useTakeoffJobPolling } from "@/lib/takeoff/use-takeoff-job-polling";
 import {
   TAKEOFF_JOB_MAX_RETRY_COUNT,
@@ -142,14 +142,6 @@ function resolveErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
-}
-
-function parseLowConfidenceThreshold(value: string | null): number {
-  if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  return parsed;
 }
 
 function LiveDuration({ startedAt }: { startedAt: string | null }) {
