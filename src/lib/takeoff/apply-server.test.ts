@@ -122,7 +122,8 @@ describe("takeoff apply orchestration", () => {
     vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.7);
     // TI-677 (PR D): the override records each blocked line's state; the trigger refuses it once a line changed.
     const state = { item_id: SECTION_ID, quantity: 4, unit: "ml", updated_at: "2026-10-28T09:00:00.123456+00:00",
-      rule_failures: [], rules_stale: false };
+      rule_failures: [], rules_stale: false, designation: "Canalisation", evidence: "Plan A", source_page: 1, is_verified: false,
+      quantity_entered_by: null };
     const included = { id: "66666666-6666-4666-8666-666666666666", designation: "Vanne", confidence: 0.9, evidence: "Plan A",
       source_page: 1, is_verified: true, is_excluded: false,
       override_state: { ...state, item_id: "66666666-6666-4666-8666-666666666666" } };

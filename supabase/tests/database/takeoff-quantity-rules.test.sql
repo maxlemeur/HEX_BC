@@ -445,7 +445,9 @@ values (current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000
       'blocked_items_count', 2, 'justification', 'Vérifié sur le plan fictif',
       -- TI-677 (PR D): each lifted line's state, as the route records it (apply-override-state.ts).
       'blocked_items_state', (select jsonb_agg(jsonb_build_object('item_id', ti.id, 'quantity', ti.quantity, 'unit', ti.unit,
-        'updated_at', ti.updated_at, 'rule_failures', public.takeoff_rule_failure_keys(ti.rule_results), 'rules_stale', ti.rules_stale))
+        'updated_at', ti.updated_at, 'rule_failures', public.takeoff_rule_failure_keys(ti.rule_results), 'rules_stale', ti.rules_stale,
+        'designation', ti.designation, 'evidence', ti.evidence, 'source_page', ti.source_page, 'is_verified', ti.is_verified,
+        'quantity_entered_by', ti.quantity_entered_by))
         from public.takeoff_items ti
         where ti.id in ('9e000000-0000-4000-8000-000000000405', '9e000000-0000-4000-8000-000000000406')))),
   statement_timestamp() + interval '1 second');

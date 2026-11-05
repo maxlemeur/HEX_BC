@@ -25,6 +25,15 @@ const SECOND_ITEM_ID = "88888888-8888-4888-8888-888888888888";
 const THIRD_ITEM_ID = "99999999-9999-4999-8999-999999999999";
 const FOURTH_ITEM_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+/** A line's state as the rule states read it (TI-677 PR D): what the review shows and saves, and its save. */
+function lineState(id: string) {
+  return {
+    id, designation: "EF cuivre 20/22", quantity: 4, unit: "ml", source_page: 2, is_excluded: false, exclusion_reason: null,
+    is_verified: false, verified_at: null, verified_by: null, evidence: "Repère localisé", updated_at: "2026-01-01T00:04:00.000Z",
+    quantity_entered_at: null, quantity_entered_by: null,
+  };
+}
+
 function entry(itemId: string, updatedAt = UPDATED_AT) {
   return { item_id: itemId, updated_at: updatedAt, fields: { quantity: 18 } };
 }
@@ -134,9 +143,9 @@ describe("takeoff item patch persistence", () => {
           const id = filterValue(query, "id");
           if (id) return { data: takeoffItemRow({ id, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: false }), error: null };
           return { data: [
-            { id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
-            { id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
-            { id: THIRD_ITEM_ID, rule_results: [], rules_evaluated_at: null, rules_stale: false },
+            { ...lineState(M3_ITEM_ID), rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+            { ...lineState(SECOND_ITEM_ID), rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+            { ...lineState(THIRD_ITEM_ID), rule_results: [], rules_evaluated_at: null, rules_stale: false },
           ], error: null, count: 3 };
         },
         audit_logs: () => ({ data: null, error: null }),
@@ -154,9 +163,14 @@ describe("takeoff item patch persistence", () => {
     const response = await batchUpdateTakeoffItems(M3_JOB_ID, { items: [entry(M3_ITEM_ID)] });
 
     expect(response.results).toMatchObject([{ item_id: M3_ITEM_ID, success: true, item: { quantity: 18 } }]);
+    // TI-677 (PR D): with each line's state as stored, its verification and its save (updated_at), which the server
+    // may have moved: a partner the computation reopened, or whose failures grew, shows it without a reload, and the
+    // review saves it from the state it now shows.
+    const { id: _first, ...firstState } = lineState(M3_ITEM_ID);
+    const { id: _second, ...secondState } = lineState(SECOND_ITEM_ID);
     expect(response.rule_states).toEqual([
-      { item_id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
-      { item_id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { item_id: M3_ITEM_ID, ...firstState, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { item_id: SECOND_ITEM_ID, ...secondState, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
     ]);
     const stateRead = fake.queries.find((query) => query.table === "takeoff_items" && query.operation === "select" && !filterValue(query, "id"));
     expect(stateRead && [filterValue(stateRead, "tenant_id"), filterValue(stateRead, "job_id")]).toEqual([M3_TENANT_ID, M3_JOB_ID]);

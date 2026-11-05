@@ -47,24 +47,24 @@ insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
 values ('9d000000-0000-4000-8000-000000000010', current_setting('test.tenant_id')::uuid,
   '9d000000-0000-4000-8000-000000000001', 'Décisions sur les règles (fictif)', false);
 
--- Versions ...101 to ...108, one job each (...301 to ...308), and a section to apply into.
+-- Versions ...101 to ...109, one job each (...301 to ...309), and a section to apply into.
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version, margin_multiplier, tax_rate_bp)
 select ('9d000000-0000-4000-8000-00000000010' || n)::uuid, current_setting('test.tenant_id')::uuid,
   '9d000000-0000-4000-8000-000000000010', n, 'draft', 2, 1, 0
-from generate_series(1, 8) as n;
+from generate_series(1, 9) as n;
 
 insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
 select ('9d000000-0000-4000-8000-0000000002' || right(version.id::text, 2))::uuid, version.tenant_id, version.id, 'section', 0, 'Lot fictif'
 from public.estimate_versions version
 where version.project_id = '9d000000-0000-4000-8000-000000000010';
 
--- ...301 the verified line and its partner (level A); ...302 the user's decisions; ...303 to ...308 one override each
+-- ...301 the verified line and its partner (level A); ...302 the user's decisions; ...303 to ...309 one override each
 -- (...304 level C: its line blocks on a low confidence, no rule reads it).
 insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
 select ('9d000000-0000-4000-8000-00000000030' || n)::uuid, current_setting('test.tenant_id')::uuid,
   ('9d000000-0000-4000-8000-00000000010' || n)::uuid, case when n = 4 then 'C' else 'A' end::public.takeoff_job_level,
   'completed', 'plan-fictif.pdf', '9d000000-0000-4000-8000-000000000001'
-from generate_series(1, 8) as n;
+from generate_series(1, 9) as n;
 
 -- Every line was last saved on 1 Nov. 2026: a save in this test moves updated_at to now(). ...404 was excluded before
 -- reasons were required (none).
@@ -100,7 +100,9 @@ from (values
   ('9d000000-0000-4000-8000-000000000410'::uuid, '9d000000-0000-4000-8000-000000000307'::uuid, 'Hall R+4', 0.95,
     false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 10),
   ('9d000000-0000-4000-8000-000000000411'::uuid, '9d000000-0000-4000-8000-000000000308'::uuid, 'Hall R+5', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 11)
+    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 11),
+  ('9d000000-0000-4000-8000-000000000412'::uuid, '9d000000-0000-4000-8000-000000000309'::uuid, 'Hall R+6', 0.95,
+    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 12)
 ) as fixture(id, job_id, designation, confidence, verified, excluded, results, rank);
 
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
@@ -211,7 +213,9 @@ returns jsonb
 language sql
 as $$
   select jsonb_build_object('item_id', item.id, 'quantity', item.quantity, 'unit', item.unit, 'updated_at', item.updated_at,
-    'rule_failures', p_rule_failures, 'rules_stale', item.rules_stale)
+    'rule_failures', p_rule_failures, 'rules_stale', item.rules_stale, 'designation', item.designation,
+    'evidence', item.evidence, 'source_page', item.source_page, 'is_verified', item.is_verified,
+    'quantity_entered_by', item.quantity_entered_by)
   from public.takeoff_items item where item.id = p_item_id
 $$;
 
@@ -428,6 +432,86 @@ select is(pg_temp.decisions_apply('override-saved-renamed', '9d000000-0000-4000-
   'a line saved after the override needs a new one, even renamed by the application');
 reset role;
 select pg_temp.decisions_clear();
+
+-- Review findings (TI-677 PR D) ---------------------------------------------------------------------------
+
+-- A change no decision journals (another transaction's, here the owner's) after the override: the application's own
+-- renaming does not hide it, every field the override recorded is compared.
+select pg_temp.decisions_override('9d000000-0000-4000-8000-000000000412',
+  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000412', '["area_printed|AREA_PRINTED_MISMATCH|1|"]'::jsonb));
+update public.takeoff_items set evidence = 'Repère changé hors revue' where id = '9d000000-0000-4000-8000-000000000412';
+set local role authenticated;
+select pg_temp.as_user('9d000000-0000-4000-8000-000000000002');
+select is(pg_temp.decisions_apply('override-unjournaled-renamed', '9d000000-0000-4000-8000-000000000309',
+  '9d000000-0000-4000-8000-000000000412'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
+  'a change made after the override is seen even when no decision journals it and the application renames the line');
+reset role;
+select pg_temp.decisions_clear();
+
+-- A failure that reaches a line before anyone verifies it: a review that read the line before cannot verify it.
+set local role service_role;
+select is(pg_temp.decisions_write('9d000000-0000-4000-8000-000000000405', '[]'::jsonb), 1,
+  'the writer computes a line with no failure');
+reset role;
+select is((select updated_at from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000405'),
+  timestamptz '2026-11-01 08:00:00+00', 'results that bring no failure leave the line''s save as it was');
+set local role service_role;
+select is(pg_temp.decisions_write('9d000000-0000-4000-8000-000000000405',
+  '[{"rule":"room_overlap","status":"fail","code":"ROOM_OVERLAP","version":1,"acceptable":true,"reason":"Fictif.","details":{"overlapping_item_ids":["9d000000-0000-4000-8000-000000000403"]}}]'::jsonb),
+  1, 'a partner brings the unverified line a failure');
+reset role;
+select ok((select updated_at > timestamptz '2026-11-01 08:00:00+00' from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000405'),
+  'the line whose failures grew moved');
+set local role authenticated;
+select pg_temp.as_user('9d000000-0000-4000-8000-000000000001');
+select is((select count(*)::integer from public.update_takeoff_item_for_review(current_setting('test.tenant_id')::uuid,
+  '9d000000-0000-4000-8000-000000000302', '9d000000-0000-4000-8000-000000000405', timestamptz '2026-11-01 08:00:00+00',
+  jsonb_build_object('is_verified', true, 'verified_at', now(), 'verified_by', '9d000000-0000-4000-8000-000000000001'))), 0,
+  'a review that read the line before the failure cannot verify it: it reads it again first');
+reset role;
+
+-- One computation in several chunks: a chunk that reopens a line moves the version's stamp, the next chunk writes with
+-- the stamp the previous one returned (each line of the version is written, none is left with stale results).
+select set_config('test.stamp', public.takeoff_rule_version_stamp(current_setting('test.tenant_id')::uuid,
+  '9d000000-0000-4000-8000-000000000101'), true);
+set local role service_role;
+select set_config('test.next_stamp', (select written.version_stamp from public.write_takeoff_rule_results(
+  current_setting('test.tenant_id')::uuid, '9d000000-0000-4000-8000-000000000101',
+  jsonb_build_array(jsonb_build_object('id', '9d000000-0000-4000-8000-000000000401',
+    'results', '[{"rule":"closed_box","status":"fail","code":"CLOSED_BOX_SHAPE","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb,
+    'expected_updated_at', (select updated_at from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000401'),
+    'expected_stale_at', (select rules_stale_at from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000401'))),
+  '[]'::jsonb, current_setting('test.stamp')) as written limit 1), true);
+reset role;
+select ok((select not is_verified from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000401'),
+  'the first chunk reopens a verified line');
+select is(current_setting('test.next_stamp'), public.takeoff_rule_version_stamp(current_setting('test.tenant_id')::uuid,
+  '9d000000-0000-4000-8000-000000000101'), 'the first chunk returns the version''s stamp after its own writes');
+set local role service_role;
+select is((select count(*)::integer from public.write_takeoff_rule_results(
+  current_setting('test.tenant_id')::uuid, '9d000000-0000-4000-8000-000000000101',
+  jsonb_build_array(jsonb_build_object('id', '9d000000-0000-4000-8000-000000000402', 'results', '[]'::jsonb,
+    'expected_updated_at', (select updated_at from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000402'),
+    'expected_stale_at', (select rules_stale_at from public.takeoff_items where id = '9d000000-0000-4000-8000-000000000402'))),
+  '[]'::jsonb, current_setting('test.next_stamp'))), 1, 'the next chunk, with that stamp, is written');
+reset role;
+
+-- Another user takes over a verification: journaled as theirs.
+set local role authenticated;
+select pg_temp.as_user('9d000000-0000-4000-8000-000000000001');
+select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000401', jsonb_build_object('is_verified', true,
+  'verified_at', now(), 'verified_by', '9d000000-0000-4000-8000-000000000001')), 1, 'the engineer verifies the line again');
+select pg_temp.as_user('9d000000-0000-4000-8000-000000000002');
+select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000401', jsonb_build_object('is_verified', true,
+  'verified_at', now(), 'verified_by', '9d000000-0000-4000-8000-000000000002')), 1, 'the admin verifies it in turn');
+reset role;
+select is((select count(*)::integer from public.audit_logs log
+  where log.user_id = '9d000000-0000-4000-8000-000000000002'
+    and log.after_data -> 'metadata' ->> 'item_id' = '9d000000-0000-4000-8000-000000000401'
+    and log.after_data -> 'metadata' ->> 'field' = 'is_verified'
+    and log.after_data -> 'metadata' -> 'previous_value' = 'true'::jsonb
+    and log.after_data -> 'metadata' -> 'next_value' = 'true'::jsonb), 1,
+  'a verification another user takes over is journaled as theirs');
 
 -- Keys of the failed rules and reopening: the TS table (failure-keys.test.ts) ----------------------------
 
