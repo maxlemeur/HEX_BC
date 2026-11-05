@@ -28,30 +28,29 @@ export function isLineId(value: unknown): value is string {
   return typeof value === "string" && LINE_ID.test(value);
 }
 
+/** Where a cross-line failure names its partners and stores their count. */
+const NAMED: Partial<Record<string, readonly [string, string]>> = {
+  ZONE_OVERLAP_DUPLICATE: ["partners", "partner_count"],
+  ROOM_OVERLAP: ["overlapping_item_ids", "overlap_count"],
+};
+
 /** The partners a cross-line failure names, with their stored count; null for any other result. */
 export function failurePartners(result: TakeoffRuleResult): { ids: unknown[]; count: unknown } | null {
-  if (result.code === "ZONE_OVERLAP_DUPLICATE") {
-    const partners = result.details?.partners;
-    return Array.isArray(partners) ? { ids: partners.map((partner) => partner?.item_id), count: result.details?.partner_count } : null;
-  }
-  if (result.code === "ROOM_OVERLAP") {
-    const rooms = result.details?.overlapping_item_ids;
-    return Array.isArray(rooms) ? { ids: rooms, count: result.details?.overlap_count } : null;
-  }
-  return null;
+  const named = NAMED[result.code];
+  const details = result.details as Record<string, unknown> | undefined;
+  const list = named ? details?.[named[0]] : undefined;
+  if (!named || !Array.isArray(list)) return null;
+  return { ids: named[0] === "partners" ? list.map((partner) => (partner as { item_id?: unknown } | null)?.item_id) : list,
+    count: details?.[named[1]] };
 }
 
 /** A cross-line failure whose partners, all named, are all left out: the rules would pass the line. */
 export function leftOutByPartners(result: TakeoffRuleResult, excluded: PartnerExclusion | undefined) {
   const named = excluded ? failurePartners(result) : null;
-  if (!named || !excluded) return false;
-  const { ids, count } = named;
-  if (ids.length === 0 || typeof count !== "number" || !Number.isInteger(count) || count < 0 || count > 999_999 || count !== ids.length) return false;
-  if (!ids.every((id): id is string => typeof id === "string" && LINE_ID.test(id))) return false;
-  // An id whatever its case is one line (the database reads it as a uuid): never two partners.
-  const lines = ids.map((id) => id.toLowerCase());
-  if (new Set(lines).size !== lines.length) return false;
-  return lines.every((id) => excluded(id) === true);
+  // As many named line ids as the stored count (a number), each one line whatever its case, all left out.
+  if (!excluded || !named || named.count !== named.ids.length || named.ids.length === 0 || !named.ids.every(isLineId)) return false;
+  const lines = named.ids.map((id) => id.toLowerCase());
+  return new Set(lines).size === lines.length && lines.every((id) => excluded(id) === true);
 }
 
 /** The failed rules that still block this line (empty when none does). */

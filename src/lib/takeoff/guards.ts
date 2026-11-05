@@ -21,22 +21,16 @@ const THRESHOLD_MAX_LENGTH = 100;
  * value an admin override's audit carries is this one, which the trigger compares exactly.
  */
 export function parseLowConfidenceThreshold(raw: string | null | undefined): number {
-  if (typeof raw !== "string") return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const text = raw.trim();
+  const text = typeof raw === "string" ? raw.trim() : "";
   const match = text.length <= THRESHOLD_MAX_LENGTH ? THRESHOLD_GRAMMAR.exec(text) : null;
-  if (!match || `${match[2]}${match[3] ?? ""}`.length === 0) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const [, sign, whole, fraction = "", exponent = "0"] = match;
-  // value = digits × 10^power; in ten-thousandths: digits × 10^(power + 4), rounded up.
-  const digits = `${whole}${fraction}`;
-  const shift = Number(exponent) - fraction.length + 4;
-  const kept = shift >= 0 ? `${digits}${"0".repeat(shift)}` : digits.slice(0, Math.max(0, digits.length + shift));
-  const dropped = shift >= 0 ? "" : digits.slice(Math.max(0, digits.length + shift));
-  let units = BigInt(kept.length > 0 ? kept : "0");
-  const remainder = /[1-9]/.test(dropped);
-  if (sign === "-" && (units > BigInt(0) || remainder)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  if (remainder) units += BigInt(1);
-  if (units > BigInt(10_000)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  return Number(units) / 10_000;
+  const digits = match ? match[2] + (match[3] ?? "") : "";
+  if (!match || !digits) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  // value × 10^4 = digits × 10^shift, rounded up: past five digits it is over 1 (the default).
+  const shift = Number(match[4] ?? 0) - (match[3] ?? "").length + 4;
+  const whole = (shift >= 0 ? digits + "0".repeat(shift) : digits.slice(0, shift)).replace(/^0+/, "");
+  if (whole.length > 5) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const units = Number(whole) + (shift < 0 && /[1-9]/.test(digits.slice(shift)) ? 1 : 0);
+  return (match[1] === "-" && units > 0) || units > 10_000 ? DEFAULT_LOW_CONFIDENCE_THRESHOLD : units / 10_000;
 }
 
 export type TakeoffVerificationIssue =
