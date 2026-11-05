@@ -170,7 +170,7 @@ export async function listTakeoffApplyGuardItems(input: {
     .from("takeoff_items" as never)
     .select(
       ("id, designation, confidence, evidence, source_page, is_verified, is_excluded, rule_results, rules_stale, quantity, unit, "
-        + "updated_at") as never,
+        + "updated_at, quantity_entered_by") as never,
       { count: "exact" }
     )
     .eq("tenant_id" as never, input.tenantId as never)

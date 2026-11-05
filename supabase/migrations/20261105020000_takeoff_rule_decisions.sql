@@ -10,6 +10,9 @@
 --   partner); a failure or a partner that disappears closes by itself. The reopening moves updated_at (a review that
 --   read the line before reads it again before saving it) and is journaled by the system in the same transaction,
 --   with who had verified it. The predicate itself does not change: both sides read the verification it leaves.
+--   An unverified line whose failures grow moves too: a review that read it before cannot verify it on what it showed
+--   (a failure nobody saw, verified the other way round). The writer returns the version's stamp after its own writes:
+--   the next chunk of the same computation writes with it.
 -- - The user's decisions are journaled in the save's transaction (Q4): verification, exclusion and its reason,
 --   quantity and its entry, designation, unit, page, evidence, by the signed-in user at the database's time. The
 --   route wrote them after the save, in a mode that let a save succeed without its trace; it writes none now. An
@@ -18,9 +21,10 @@
 --   excluded line's reason, without a reason that is not blank. Lines excluded before keep their state.
 -- - An admin override is bound to each lifted line's state (Q2): its audit records, per blocked line, the quantity,
 --   unit, updated_at, failed rules' keys and stale flag (src/lib/takeoff/apply-override-state.ts), and the apply
---   trigger refuses it once one of them changed, or when it records none (an override written before). The
---   application renames lines of its mapping plan before the trigger counts (updated_at moves): a line it renamed
---   holds when no decision was journaled on it since the recorded state.
+--   trigger refuses it once one of them changed, or when it records none (an override written before). It also
+--   records what proves the line (designation, evidence, page, verification, entry). The application renames lines of
+--   its mapping plan before the trigger counts (updated_at moves in its own transaction): a line it renamed holds when
+--   every recorded field but its designation is unchanged.
 -- Nothing here redefines a function of 20261104224500 (TI-677 PR B); this migration comes after it.
 
 create or replace function public.takeoff_rule_failure_keys(p_rule_results jsonb)
@@ -96,24 +100,30 @@ revoke all on function public.takeoff_rule_failures_reopen(jsonb, jsonb) from pu
 grant execute on function public.takeoff_rule_failures_reopen(jsonb, jsonb) to service_role;
 
 -- The writer of 20261104215000, which also reopens the verified lines its results bring a failure they did not have,
--- and journals it (system: no user) in the same transaction.
-create or replace function public.write_takeoff_rule_results(
+-- and journals it (system: no user) in the same transaction; moves every line whose failures grow; and returns, with
+-- each line written, the version's stamp after its writes (p_stamp when no line moved). Its result changes: dropped
+-- and created again.
+drop function if exists public.write_takeoff_rule_results(uuid, uuid, jsonb, jsonb, text);
+
+create function public.write_takeoff_rule_results(
   p_tenant_id uuid,
   p_estimate_version_id uuid,
   p_items jsonb,
   p_transforms jsonb default '[]'::jsonb,
   p_stamp text default null
 )
-returns table (item_id uuid)
+returns table (item_id uuid, version_stamp text)
 language plpgsql
 security invoker
 set search_path = pg_catalog, pg_temp
 as $$
 declare
   writable uuid[];
-  reopening jsonb;
+  growing jsonb;
+  grown_ids uuid[];
   reopened_ids uuid[];
   written uuid[];
+  stamp_after text := p_stamp;
 begin
   if pg_catalog.jsonb_typeof(p_items) is distinct from 'array'
     or pg_catalog.jsonb_typeof(coalesce(p_transforms, '[]'::jsonb)) is distinct from 'array'
@@ -152,13 +162,15 @@ begin
       or (pg_catalog.jsonb_typeof(entry.transform) = 'array' and pg_catalog.jsonb_array_length(entry.transform) = 6)
     );
 
-  -- TI-677 (PR D): the verified lines this write reopens, locked as read, with who had verified them.
+  -- TI-677 (PR D): the lines whose failures this write grows, locked as read; the verified ones with who had verified
+  -- them.
   select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', line.id, 'job_id', line.job_id,
-      'verified_at', line.verified_at, 'verified_by', line.verified_by, 'previous', line.rule_results, 'results', line.results)),
+      'is_verified', line.is_verified, 'verified_at', line.verified_at, 'verified_by', line.verified_by,
+      'previous', line.rule_results, 'results', line.results)),
       '[]'::jsonb)
-    into reopening
+    into growing
   from (
-    select item.id, item.job_id, item.verified_at, item.verified_by, item.rule_results, entry.results
+    select item.id, item.job_id, item.is_verified, item.verified_at, item.verified_by, item.rule_results, entry.results
     from public.takeoff_items as item
     join pg_catalog.jsonb_to_recordset(p_items) as entry(id uuid, results jsonb, expected_updated_at timestamptz,
       expected_stale_at timestamptz)
@@ -170,24 +182,26 @@ begin
       and case when pg_catalog.jsonb_typeof(entry.results) = 'array'
         then pg_catalog.jsonb_array_length(entry.results) <= 16 and pg_catalog.octet_length(entry.results::text) <= 65536
         else false end
-      and item.is_verified
       and public.takeoff_rule_failures_reopen(item.rule_results, entry.results)
     for update of item
   ) as line;
 
-  select coalesce(pg_catalog.array_agg((line.value ->> 'id')::uuid), '{}'::uuid[])
-    into reopened_ids
-  from pg_catalog.jsonb_array_elements(reopening) as line(value);
+  select coalesce(pg_catalog.array_agg((line.value ->> 'id')::uuid), '{}'::uuid[]),
+      coalesce(pg_catalog.array_agg((line.value ->> 'id')::uuid) filter (where (line.value ->> 'is_verified')::boolean), '{}'::uuid[])
+    into grown_ids, reopened_ids
+  from pg_catalog.jsonb_array_elements(growing) as line(value);
 
   with saved as (
     update public.takeoff_items as item
     set rule_results = entry.results,
       rules_evaluated_at = pg_catalog.statement_timestamp(),
       rules_stale = false,
-      -- A failure nobody saw is not settled: the line waits for a user's verification (updated_at moves with it).
+      -- A failure nobody saw is not settled: the line waits for a user's verification, and a review that read it
+      -- before reads it again (its save moves).
       is_verified = case when item.id = any(reopened_ids) then false else item.is_verified end,
       verified_at = case when item.id = any(reopened_ids) then null else item.verified_at end,
-      verified_by = case when item.id = any(reopened_ids) then null else item.verified_by end
+      verified_by = case when item.id = any(reopened_ids) then null else item.verified_by end,
+      updated_at = case when item.id = any(grown_ids) then pg_catalog.now() else item.updated_at end
     from pg_catalog.jsonb_to_recordset(p_items) as entry(id uuid, results jsonb, expected_updated_at timestamptz,
       expected_stale_at timestamptz)
     where item.id = entry.id
@@ -216,18 +230,24 @@ begin
       'metadata', pg_catalog.jsonb_build_object('item_id', line.id, 'field', 'is_verified', 'previous_value', true,
         'next_value', false, 'reason', pg_catalog.left(
           'Règles recalculées : nouvel échec à vérifier (' || coalesce(fresh.codes, '?') || ').', 500)))
-  from pg_catalog.jsonb_to_recordset(reopening) as line(id uuid, job_id uuid, verified_at timestamptz, verified_by uuid,
-    previous jsonb, results jsonb)
+  from pg_catalog.jsonb_to_recordset(growing) as line(id uuid, job_id uuid, is_verified boolean, verified_at timestamptz,
+    verified_by uuid, previous jsonb, results jsonb)
   cross join lateral (
     select pg_catalog.string_agg(distinct pg_catalog.split_part(keyed.value, '|', 2), ', '
       order by pg_catalog.split_part(keyed.value, '|', 2)) as codes
     from pg_catalog.jsonb_array_elements_text(public.takeoff_rule_failure_keys(line.results)) as keyed(value)
     where not (public.takeoff_rule_failure_keys(line.previous) ? keyed.value)
   ) as fresh
-  where line.id = any(written)
+  where line.is_verified
+    and line.id = any(written)
   order by line.id;
 
-  return query select pg_catalog.unnest(written);
+  -- The stamp the next chunk of the same computation checks: its own moves are not another writer's.
+  if written && grown_ids then
+    stamp_after := public.takeoff_rule_version_stamp(p_tenant_id, p_estimate_version_id);
+  end if;
+
+  return query select written_id, stamp_after from pg_catalog.unnest(written) as written_id;
 end;
 $$;
 
@@ -280,6 +300,8 @@ begin
       (9, 'is_verified', pg_catalog.to_jsonb(old.is_verified), pg_catalog.to_jsonb(new.is_verified))
     ) as field(position, name, previous, next)
     where field.previous is distinct from field.next
+      -- A verification another user takes over is theirs (true to true, in their name).
+      or (field.name = 'is_verified' and new.is_verified and old.verified_by is distinct from new.verified_by)
   ) as change
   left join public.takeoff_jobs as job on job.id = new.job_id and job.tenant_id = new.tenant_id
   order by change.position;
@@ -304,6 +326,7 @@ create trigger audit_takeoff_item_decisions
     or old.is_excluded is distinct from new.is_excluded
     or old.exclusion_reason is distinct from new.exclusion_reason
     or old.is_verified is distinct from new.is_verified
+    or old.verified_by is distinct from new.verified_by
   )
   execute procedure public.audit_takeoff_item_decisions();
 
@@ -336,17 +359,15 @@ create trigger require_takeoff_item_exclusion_reason
   execute procedure public.require_takeoff_item_exclusion_reason();
 
 -- Whether a blocked line still is as an override recorded it (src/lib/takeoff/apply-override-state.ts): same quantity,
--- unit, failed rules' keys and stale flag, and no save since (updated_at); a line the application renamed (its
--- updated_at moved in this transaction) holds when no decision was journaled on it since the recorded state. A state
--- that cannot be read never holds.
+-- unit, failed rules' keys, stale flag, evidence, page, verification and entry, and no save since (updated_at, and the
+-- designation); a line the application renamed (its updated_at moved in this very transaction) holds with every
+-- recorded field but its designation unchanged. A state that cannot be read never holds.
 create or replace function public.takeoff_apply_override_state_holds(p_state jsonb, p_item public.takeoff_items)
 returns boolean
 language plpgsql
 stable
 set search_path = pg_catalog
 as $$
-declare
-  recorded timestamptz;
 begin
   if pg_catalog.jsonb_typeof(p_state) is distinct from 'object'
     or p_state ->> 'item_id' is distinct from p_item.id::text
@@ -355,6 +376,9 @@ begin
     or pg_catalog.jsonb_typeof(p_state -> 'updated_at') is distinct from 'string'
     or pg_catalog.jsonb_typeof(p_state -> 'rule_failures') is distinct from 'array'
     or pg_catalog.jsonb_typeof(p_state -> 'rules_stale') is distinct from 'boolean'
+    or pg_catalog.jsonb_typeof(p_state -> 'designation') is distinct from 'string'
+    or pg_catalog.jsonb_typeof(p_state -> 'is_verified') is distinct from 'boolean'
+    or not (p_state ? 'evidence' and p_state ? 'source_page' and p_state ? 'quantity_entered_by')
   then
     return false;
   end if;
@@ -363,26 +387,17 @@ begin
     or p_state ->> 'unit' is distinct from p_item.unit
     or p_state -> 'rule_failures' is distinct from public.takeoff_rule_failure_keys(p_item.rule_results)
     or p_state -> 'rules_stale' is distinct from pg_catalog.to_jsonb(coalesce(p_item.rules_stale, false))
+    or p_state -> 'evidence' is distinct from coalesce(pg_catalog.to_jsonb(p_item.evidence), 'null'::jsonb)
+    or p_state -> 'source_page' is distinct from coalesce(pg_catalog.to_jsonb(p_item.source_page), 'null'::jsonb)
+    or p_state -> 'is_verified' is distinct from pg_catalog.to_jsonb(p_item.is_verified)
+    or p_state -> 'quantity_entered_by' is distinct from coalesce(pg_catalog.to_jsonb(p_item.quantity_entered_by), 'null'::jsonb)
   then
     return false;
   end if;
 
-  recorded := (p_state ->> 'updated_at')::timestamptz;
-  if recorded = p_item.updated_at then
-    return true;
-  end if;
-
-  return p_item.updated_at = pg_catalog.now()
-    and not exists (
-      select 1
-      from public.audit_logs as log
-      where log.tenant_id = p_item.tenant_id
-        and log.table_name = 'takeoff_items'
-        and log.record_id = p_item.job_id
-        and log.action in ('takeoff.item.modified', 'takeoff.item.excluded')
-        and log.after_data -> 'metadata' ->> 'item_id' = p_item.id::text
-        and log.created_at > recorded
-    );
+  -- Unchanged since recorded, or changed in this transaction only (the application's own renaming).
+  return ((p_state ->> 'updated_at')::timestamptz = p_item.updated_at and p_state ->> 'designation' = p_item.designation)
+    or p_item.updated_at = pg_catalog.now();
 exception
   when others then
     return false;

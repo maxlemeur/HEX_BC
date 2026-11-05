@@ -410,8 +410,10 @@ reset role;
 
 select is((select rule_results from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
   current_setting('test.duplicate')::jsonb, 'the written results are stored');
-select is((select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
-  '2001-02-03T04:05:06Z'::timestamptz, 'writing rule results does not move updated_at');
+-- TI-677 (PR D): results that bring a line a failure it did not have move it (a review that read it before reads it
+-- again); results that bring none never do (takeoff-rule-decisions.test.sql).
+select ok((select updated_at > '2001-02-03T04:05:06Z'::timestamptz from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
+  'writing results that bring the line a new failure moves updated_at');
 select ok((select rules_evaluated_at is not null and not rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'),
   'a computation clears the stale state');
 

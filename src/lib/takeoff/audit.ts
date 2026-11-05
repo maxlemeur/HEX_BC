@@ -68,6 +68,11 @@ const takeoffApplyOverrideItemStateSchema = z
     updated_at: z.string().min(1),
     rule_failures: z.array(z.string()),
     rules_stale: z.boolean(),
+    designation: z.string(),
+    evidence: z.string().nullable(),
+    source_page: z.number().int().nullable(),
+    is_verified: z.boolean(),
+    quantity_entered_by: z.string().uuid().nullable(),
   })
   .strict();
 

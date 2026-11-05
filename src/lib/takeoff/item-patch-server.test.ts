@@ -166,11 +166,10 @@ describe("takeoff item patch persistence", () => {
     // TI-677 (PR D): with each line's state as stored, its verification and its save (updated_at), which the server
     // may have moved: a partner the computation reopened, or whose failures grew, shows it without a reload, and the
     // review saves it from the state it now shows.
-    const { id: _first, ...firstState } = lineState(M3_ITEM_ID);
-    const { id: _second, ...secondState } = lineState(SECOND_ITEM_ID);
     expect(response.rule_states).toEqual([
-      { item_id: M3_ITEM_ID, ...firstState, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
-      { item_id: SECOND_ITEM_ID, ...secondState, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { ...lineState(M3_ITEM_ID), id: undefined, item_id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { ...lineState(SECOND_ITEM_ID), id: undefined, item_id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt,
+        rules_stale: true },
     ]);
     const stateRead = fake.queries.find((query) => query.table === "takeoff_items" && query.operation === "select" && !filterValue(query, "id"));
     expect(stateRead && [filterValue(stateRead, "tenant_id"), filterValue(stateRead, "job_id")]).toEqual([M3_TENANT_ID, M3_JOB_ID]);

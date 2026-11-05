@@ -168,7 +168,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   const evaluation = evaluateTakeoffRules({ lines, pages });
 
   // Each line as read: its updated_at and when it was last made stale (a partner's later edit keeps it stale).
-  const writes: Array<{ id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null }> = [];
+  const writes: RuleResultWrite[] = [];
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
   let unbounded = 0;
   let reopened = 0;
@@ -196,20 +196,45 @@ export async function recomputeTakeoffRulesForVersion(input: {
   if (unbounded > 0) {
     console.error("takeoff.rules.results_unbounded", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: unbounded });
   }
-  let written = 0;
-  for (let offset = 0; offset < Math.max(writes.length, transforms.length); offset += TAKEOFF_RULES_WRITE_CHUNK) {
-    const { data, error } = await supabase.rpc("write_takeoff_rule_results" as never, {
-      p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
-      p_items: writes.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK),
-      p_transforms: transforms.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK), p_stamp: stamp,
-    } as never);
-    if (error) failed("Impossible d’enregistrer les résultats des règles.", error);
-    written += Array.isArray(data) ? (data as unknown[]).length : 0;
-  }
+  const written = await writeTakeoffRuleResultChunks({ supabase, tenantId: input.tenantId,
+    estimateVersionId: input.estimateVersionId, writes, transforms, stamp });
   if (reopened > 0) {
     console.info("takeoff.rules.reopened", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: reopened });
   }
   return { lines: lines.length, written, skipped: writes.length - written, reopened };
+}
+
+type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null };
+
+/**
+ * Writes a computation's results by chunks. A chunk whose write moves a line (a verified line reopened, failures that
+ * grow: TI-677 PR D) moves the version's stamp: the writer returns the stamp after its own writes, and the next chunk
+ * checks that one (with the stamp read before the computation it would write nothing). Returns the lines written.
+ */
+export async function writeTakeoffRuleResultChunks(input: {
+  supabase: ServiceClient;
+  tenantId: string;
+  estimateVersionId: string;
+  writes: readonly RuleResultWrite[];
+  transforms: ReadonlyArray<{ item_id: string; transform: TakeoffFrameTransform | null }>;
+  stamp: string;
+  chunk?: number;
+}) {
+  const size = input.chunk ?? TAKEOFF_RULES_WRITE_CHUNK;
+  let stamp = input.stamp;
+  let written = 0;
+  for (let offset = 0; offset < Math.max(input.writes.length, input.transforms.length); offset += size) {
+    const { data, error } = await input.supabase.rpc("write_takeoff_rule_results" as never, {
+      p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
+      p_items: input.writes.slice(offset, offset + size), p_transforms: input.transforms.slice(offset, offset + size), p_stamp: stamp,
+    } as never);
+    if (error) failed("Impossible d’enregistrer les résultats des règles.", error);
+    const rows = Array.isArray(data) ? (data as Array<{ version_stamp?: unknown }>) : [];
+    written += rows.length;
+    const next = rows[0]?.version_stamp;
+    if (typeof next === "string") stamp = next;
+  }
+  return written;
 }
 
 /** The same computation, never throwing: logged, for callers that go on without it (the stored state still blocks). */
