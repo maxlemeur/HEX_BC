@@ -21,7 +21,14 @@
 //    shortcuts were not: a key there judged that element again.
 // The army journey cannot press a key between a commit and its effects either;
 // beforePassiveEffectsOf replays that ordering on every run.
+//
+// Failure case written before the TI-675 fix:
+// 7. The listener is removed by a passive cleanup. A navigation away from the
+//    screen commits outside a discrete event, so for one task the screen is gone
+//    but a key still runs its last handlers: G sent a verdict for an element no
+//    longer shown, Échap undid the campaign's last verdict.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LabCampaign, LabCampaignElement, LabState } from "@/lib/takeoff/lab/contracts";
@@ -151,5 +158,27 @@ describe("LabVerdictsScreen", () => {
 
     await screen.findAllByText(/Second élément/);
     expect(judgeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends nothing for a key pressed right after the screen closed", async () => {
+    campaignMock.mockResolvedValue({ campaign: "campagne-a", elements: [element(ID_A, "Élément de A")] });
+    const navigated = deferred<void>();
+    // The lab shell changes screens in a navigation, which React renders outside a discrete event.
+    function Navigation() {
+      const [screenOpen, setScreenOpen] = useState(true);
+      useEffect(() => { void navigated.promise.then(() => setScreenOpen(false)); }, []);
+      return screenOpen ? <LabVerdictsScreen /> : <p>Statistiques du labo</p>;
+    }
+
+    render(<Navigation />);
+    await screen.findAllByText(/Élément de A/);
+    const pressed = beforePassiveEffectsOf(() => screen.queryByText("Statistiques du labo") !== null, () => {
+      fireEvent.keyDown(document.body, { key: "g" });
+      fireEvent.keyDown(document.body, { key: "Escape" });
+    });
+    navigated.resolve();
+    await pressed.done();
+    expect(judgeMock).not.toHaveBeenCalled();
+    expect(undoMock).not.toHaveBeenCalled();
   });
 });
