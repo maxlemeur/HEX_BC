@@ -28,6 +28,8 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   - Deux tailles connues différentes, quelles que soient leurs notations (« DN 22 / Ø 28 »), sont deux DN. Une même taille écrite de deux façons (« DN 20 / Ø 22 » d'un tube cuivre) en est une.
   - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm », « ép. 2,20 mm ») n'est jamais un DN, et aucune taille ne commence à l'intérieur d'un nombre (« 20 mm » de « 2,20 mm »).
   - « 1"1/4 » et « 1 1/4" » sont une même taille.
+  - Les tailles se lisent après les guillemets d'un texte cité, retirés comme le fait le lecteur : le guillemet fermant de « "EF cuivre 20/22" » termine le texte, ce n'est pas le pouce d'un 22" (TI-677). Un pouce à l'intérieur du texte cité reste un pouce (« "EF acier noir 3/4" fileté" »), et aucun pouce ne commence après une barre (le 22 de « 20/22" »). Comme le lecteur, un nombre entier qui ferme un texte cité n'est pas un pouce (« "EF acier galvanisé 2" DN 32 » se lit DN 32).
+  - Une quantité non observable se lit aussi dans un texte cité (« "Soudures acier DN 50" » est à saisir).
   - Une ligne de réseau en m² est une surface de calorifuge, jamais un tuyau.
 - **Quantité proposée** : la quantité du modèle ou de la lecture, avant toute
   correction.
@@ -118,6 +120,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - Elle est ensuite affinée sur ces extrémités. Son erreur résiduelle (RMS) doit rester sous 2 cm.
 - **Pourquoi jamais le cartouche** : il est au même endroit des deux feuilles, loin du dessin. Il propose la translation nulle, que les traits du bâtiment refusent dès que le dessin a bougé ; et ses textes, hors du bâtiment, ne la rendent jamais candidate seuls, même quand deux ailes identiques sont tracées au même endroit de la feuille.
 - **Composantes** : les pages d'un niveau sont recalées deux à deux. Les pages reliées forment une composante, dans le repère de sa première page. Deux pages de deux composantes n'ont pas de repère commun.
+- **Pages sans réseau** (TI-677) : quand deux pages à lignes restent dans des composantes séparées, les pages du niveau sans ligne de réseau (une page d'ensemble qui relie deux zones ; au plus 8, dans l'ordre des pages) proposent une translation entre elles, composée à travers elles. Elle n'est retenue que si les traits du bâtiment des deux pages elles-mêmes tombent l'un sur l'autre (20 traits, extrémités à 5 cm, résidu sous 2 cm après affinage) : la translation affinée sert alors à comparer ces deux pages. Une page d'ensemble légèrement hors d'échelle ne transmet donc jamais son erreur (deux sauts de 1,7 cm chacun décalaient une zone lointaine de plus de 5 cm), et les pages déjà reliées gardent leur propre repère.
 - **Comparaison de deux pages** : par leur propre recalage quand elles en ont un, jamais par un chemin qui passe par une troisième page. Trois recalages exacts chacun peuvent ne pas se refermer (une page dessinée 2,5 cm à côté sur une partie du bâtiment) : le chemin dépendrait alors de la première page et pourrait écarter un doublon. Deux pages sans recalage direct se comparent dans le repère de leur composante (limite connue : un cycle qui ne se referme pas peut encore les décaler).
 - **Translations seulement** : une vue tournée ou à une autre échelle n'est pas recalée.
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
@@ -196,6 +199,14 @@ L'aire commune de deux pièces d'une même page est échantillonnée sur une gri
 Deux pièces qui partagent un mur se touchent sans aire commune. Valeur provisoire,
 comme l'aire.
 
+**Pièce à trous** (TI-677) : le sol d'une pièce remplie (L3c) laisse de côté ce qu'il
+entoure (une autre pièce, un noyau). Son contour extérieur vient avec ces trous
+(`holes_m` de sa géométrie, au plus 16 de 200 points), et l'aire commune ne compte que
+le sol de chaque pièce : un hall de 10 × 10 m autour d'un bureau de 2 × 2 m n'est plus
+lu en chevauchement. Une pièce dessinée sur le sol du hall, hors du trou, échoue
+toujours. Changement minimal dans le périmètre de TI-662 (`vectors/fill.ts`,
+`surfaces.ts`, `persistence.ts`) : le contour lui-même ne change pas.
+
 ### Baignoires, placards et gaines en boîtes fermées
 
 Échoue :
@@ -255,6 +266,16 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 
 - Les items mesurés par L3 sont créés dans le job de niveau C qui a lu le plan.
 - Les lignes que le plan de mapping exclut (`skip`, ouvrage) ne comptent pas, des deux côtés.
+- **Règles croisées et exclusions du plan** (TI-677, migration `20261104224500_takeoff_rule_cross_exclusions.sql`) :
+  un doublon (`ZONE_OVERLAP_DUPLICATE`) ou une pièce recouverte (`ROOM_OVERLAP`) qui nomme
+  tous ses partenaires (leur nombre est stocké : `partner_count`, `overlap_count`) ne
+  bloque plus quand ils sont tous laissés de côté. C'est le cas d'un partenaire que le plan
+  saute ou replie dans un ouvrage (l'ouvrage est inséré à la quantité 1, jamais depuis la
+  ligne) : la RPC l'exclut avant que le trigger compte. Même test dans `blocking.ts`
+  (`leftOutByPartners`) et en SQL (`takeoff_rule_failure_left_out`) ; la route lit les
+  partenaires des autres jobs tels que la base les tient. Continuent de bloquer : un
+  partenaire inclus ou inconnu, une liste coupée, des zones non recalées, des résultats
+  calculés avant cette version (sans compte).
 
 **Refus** : 422 `TAKEOFF_APPLY_GUARD_FAILED`.
 

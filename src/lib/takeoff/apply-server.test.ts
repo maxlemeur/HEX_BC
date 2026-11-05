@@ -11,6 +11,7 @@ vi.mock("@/lib/takeoff/apply-repository", () => ({
   invokeApplyTakeoffRpc: vi.fn(),
   issueTakeoffDpgfApplyAuthorization: vi.fn(),
   listTakeoffApplyGuardItems: vi.fn(),
+  listTakeoffRulePartnerExclusions: vi.fn(),
   loadTakeoffApplyConcurrencyToken: vi.fn(),
   logTakeoffMappingApplyAuditEvents: vi.fn(),
   revokeTakeoffDpgfApplyAuthorization: vi.fn(),
@@ -149,5 +150,51 @@ describe("takeoff apply when the rules computation fails", () => {
     expect(recomputeTakeoffRulesQuietly).toHaveBeenCalled();
     expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
     expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  });
+});
+
+// The mapping plan skips the duplicate of a retained line (TI-677, Codex #160, thread 4467409538): the stored
+// results fail both lines, the application leaves the skipped one out, so the retained one is applied. A partner of
+// another job counts as the database holds it now. Written before the fix.
+describe("takeoff apply with a duplicate the mapping plan skips", () => {
+  const RETAINED = "77777777-7777-4777-8777-777777777771";
+  const SKIPPED = "77777777-7777-4777-8777-777777777772";
+  const OTHER_JOB_LINE = "77777777-7777-4777-8777-777777777773";
+  const duplicateOf = (partners: string[]) => [{ rule: "zone_overlap", status: "fail", code: "ZONE_OVERLAP_DUPLICATE", version: 101, acceptable: true,
+    reason: "Tronçon compté aussi sur une autre page.", details: { partner_count: partners.length,
+      partners: partners.map((item_id) => ({ item_id, job_id: JOB_ID, zone: "Z2", designation: "EF", overlap_m: 1, resolved: false })) } }];
+  const guardLine = (id: string, partners: string[]) => ({ id, designation: "EF cuivre 20/22", confidence: 0.95, evidence: "Repère localisé",
+    source_page: 1, is_verified: false, is_excluded: false, rules_stale: false, rule_results: duplicateOf(partners) });
+  const previewItem = (id: string, action: string, order: number) => ({ item_id: id, source_order: order, rule_id: null, action,
+    original: { is_excluded: false }, transformed: { designation: "EF cuivre 20/22", unit_price_cents: null, category_id: null, assembly_id: null } });
+
+  it("applies the retained line once the plan leaves its only partner out", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, [SKIPPED]), guardLine(SKIPPED, [RETAINED])] as never);
+    vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map());
+    vi.mocked(buildTakeoffMappingPreviewForJob).mockResolvedValue({ job_id: JOB_ID, strategy: "merge", target_section_id: SECTION_ID,
+      summary: { included_count: 1 }, items: [previewItem(RETAINED, "none", 0), previewItem(SKIPPED, "skip", 1)] } as never);
+    await applyTakeoffJob(JOB_ID, request);
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalled();
+  });
+
+  // Review of PR B: a stored partner id that is no line id never reaches the query (PostgREST would fail the route).
+  it("never asks the database about a partner id that is no line id", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, ["not-a-line", OTHER_JOB_LINE.toUpperCase()])] as never);
+    vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));
+    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [OTHER_JOB_LINE] }));
+  });
+
+  it("reads a partner of another job as the database holds it", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, [OTHER_JOB_LINE])] as never);
+    vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, false]]));
+    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_ID,
+      itemIds: [OTHER_JOB_LINE] }));
+    vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));
+    vi.mocked(getTakeoffJobDetailByIdOrThrow).mockReset().mockResolvedValueOnce(completedJob as never)
+      .mockResolvedValue({ ...completedJob, status: "applied" } as never);
+    await applyTakeoffJob(JOB_ID, request);
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalled();
   });
 });

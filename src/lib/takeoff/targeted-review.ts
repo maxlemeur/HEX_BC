@@ -7,6 +7,7 @@ import {
   type GuardBlockedItem,
 } from "@/lib/takeoff/guards";
 import { blockingRules } from "@/lib/takeoff/rules/blocking";
+import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import type { TakeoffRuleResult, ZoneOverlapPartner } from "@/lib/takeoff/rules/types";
 
@@ -36,7 +37,7 @@ export type TargetedReviewLine<T extends ApplyGuardItem> = {
 
 /** The lines to review, rejected then uncertain, each in the job's order, and the guard they come from. */
 export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[], threshold: number, level: string | null) {
-  const guard: ApplyGuardResult = checkApplyGuard([...items], threshold, { level });
+  const guard: ApplyGuardResult = checkApplyGuard([...items], threshold, { level, leftOut: leftOutByPartners });
   const byId = new Map(items.map((item) => [item.id, item]));
   const lines: TargetedReviewLine<T>[] = [
     ...guard.blocked_items.map((blocked) => ({ item: byId.get(blocked.item_id) as T, tier: "rejected" as const,

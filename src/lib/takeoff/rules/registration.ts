@@ -36,6 +36,9 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   text, TI-677): past it, the shortest texts are left out first (every
 //   building line is kept), and a text the database cannot store (a NUL, a
 //   lone surrogate) is never kept. The bench reads the same anchors.
+// - Two pages that share no text may be joined through a third page (an
+//   overview): the translation composed through it is only a proposal, kept
+//   when the two pages' own building lines land on it (confirmTranslation).
 
 export const REGISTRATION_VERSION = 1;
 
@@ -309,23 +312,42 @@ export function registerPages(reference: PageAnchors, other: PageAnchors): Regis
   if (best.landing.lines < REGISTRATION.dominance * runnerUp) {
     return { status: "unregistered", reason: "ambiguous", lines: best.landing.lines, runner_up_lines: runnerUp };
   }
+  return refine(reference, other, index, best.landing, best.proposal.texts, runnerUp);
+}
+
+/**
+ * A landing refined once on its matched ends (a proposal is only a starting point), then measured on the lines it
+ * lands: registered when its residual stays under REGISTRATION.maxResidual_m.
+ */
+function refine(reference: PageAnchors, other: PageAnchors, index: EndIndex, landing: Landing, texts: number, runnerUp: number): Registration {
   const mean = (offsets: ReadonlyArray<[number, number]>) => [
     offsets.reduce((sum, [x]) => sum + x, 0) / offsets.length,
     offsets.reduce((sum, [, y]) => sum + y, 0) / offsets.length,
   ] as const;
-  // Refined once on the matched ends (the texts' offset is only a proposal), then measured on the lines it lands.
-  const [firstDx, firstDy] = mean(best.landing.offsets);
+  const [firstDx, firstDy] = mean(landing.offsets);
   const refined = land(reference, other, index, firstDx, firstDy);
-  const used = refined.lines >= best.landing.lines ? refined : best.landing;
+  const used = refined.lines >= landing.lines ? refined : landing;
   const [dx, dy] = mean(used.offsets);
   const residual = Math.sqrt(used.offsets.reduce((sum, [x, y]) => sum + (x - dx) ** 2 + (y - dy) ** 2, 0) / used.offsets.length);
   if (residual > REGISTRATION.maxResidual_m) {
     return { status: "unregistered", reason: "residual", residual_m: round(residual, 4), lines: used.lines, runner_up_lines: runnerUp };
   }
-  return {
-    status: "registered", dx: round(dx, 4), dy: round(dy, 4), residual_m: round(residual, 4), texts: best.proposal.texts,
-    lines: used.lines, runner_up_lines: runnerUp,
-  };
+  return { status: "registered", dx: round(dx, 4), dy: round(dy, 4), residual_m: round(residual, 4), texts, lines: used.lines, runner_up_lines: runnerUp };
+}
+
+/**
+ * Whether a translation proposed from elsewhere (two pages composed through a third: TI-677) holds between these two
+ * pages themselves: their own building lines must land, as for a registration (REGISTRATION.minLines, both ends within
+ * lineTolerance_m), and the refined translation keep its residual under maxResidual_m. The answer is that refined
+ * translation, never the proposal: an error composed through the third page (one off scale) is never carried over.
+ */
+export function confirmTranslation(reference: PageAnchors, other: PageAnchors, dx: number, dy: number): Registration {
+  if (reference.lines.length === 0 || other.lines.length === 0) return { status: "unregistered", reason: "no_anchor" };
+  const ends = reference.lines.flatMap(([x0, y0, x1, y1]) => [[x0, y0], [x1, y1]] as Array<readonly [number, number]>);
+  const index = new EndIndex(ends, Math.max(REGISTRATION.lineTolerance_m * 4, 0.2));
+  const landing = land(reference, other, index, dx, dy);
+  if (landing.lines < REGISTRATION.minLines) return { status: "unregistered", reason: "too_few_lines", lines: landing.lines, runner_up_lines: 0 };
+  return refine(reference, other, index, landing, 0, 0);
 }
 
 export function translation(dx: number, dy: number): TakeoffFrameTransform {

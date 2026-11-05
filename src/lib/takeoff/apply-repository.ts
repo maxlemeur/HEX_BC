@@ -157,6 +157,30 @@ export async function loadTakeoffApplyConcurrencyToken(input: {
   return concurrencyToken;
 }
 
+/**
+ * Whether lines of other jobs are excluded now (TI-677): the partners a cross-line failure of the job names. A line
+ * the read does not return stays unknown, and its failure keeps blocking.
+ */
+export async function listTakeoffRulePartnerExclusions(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  itemIds: readonly string[];
+}): Promise<Map<string, boolean>> {
+  const states = new Map<string, boolean>();
+  for (let offset = 0; offset < input.itemIds.length; offset += 200) {
+    const { data, error } = await input.supabase
+      .from("takeoff_items" as never)
+      .select("id, is_excluded" as never)
+      .eq("tenant_id" as never, input.tenantId as never)
+      .in("id" as never, input.itemIds.slice(offset, offset + 200) as never);
+    if (error) {
+      throw toTakeoffError(mapSupabaseError(error, "Impossible de vérifier les lignes partenaires pour le guard."), {});
+    }
+    for (const row of (data ?? []) as Array<{ id: string; is_excluded: boolean }>) states.set(row.id, row.is_excluded === true);
+  }
+  return states;
+}
+
 export async function listTakeoffApplyGuardItems(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
