@@ -21,6 +21,7 @@ import {
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
   type ApplyGuardResult,
 } from "@/lib/takeoff/guards";
+import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
 import { TakeoffApplyWizardConfirmationStep } from "./takeoff-apply-wizard/TakeoffApplyWizardConfirmationStep";
@@ -224,7 +225,8 @@ export function TakeoffApplyWizard({
       ? new Set(previewData.items.filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id))
       : null;
     const guarded = planned ? externalItems!.map((item) => (planned.has(item.id) ? { ...item, is_excluded: true } : item)) : externalItems!;
-    return checkApplyGuard(guarded, threshold, { level: jobLevel });
+    // A duplicate whose partners the plan all leaves out no longer blocks, as on the server (TI-677).
+    return checkApplyGuard(guarded, threshold, { level: jobLevel, leftOut: leftOutByPartners });
   }, [externalItems, hasGuardItems, hasPreviewReady, jobLevel, previewData, step, threshold]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;

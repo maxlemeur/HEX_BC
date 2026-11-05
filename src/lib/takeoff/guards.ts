@@ -1,4 +1,4 @@
-import { blockingRules } from "@/lib/takeoff/rules/blocking";
+import { blockingRules, type LeftOut, type PartnerExclusion } from "@/lib/takeoff/rules/blocking";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -21,22 +21,16 @@ const THRESHOLD_MAX_LENGTH = 100;
  * value an admin override's audit carries is this one, which the trigger compares exactly.
  */
 export function parseLowConfidenceThreshold(raw: string | null | undefined): number {
-  if (typeof raw !== "string") return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const text = raw.trim();
+  const text = typeof raw === "string" ? raw.trim() : "";
   const match = text.length <= THRESHOLD_MAX_LENGTH ? THRESHOLD_GRAMMAR.exec(text) : null;
-  if (!match || `${match[2]}${match[3] ?? ""}`.length === 0) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  const [, sign, whole, fraction = "", exponent = "0"] = match;
-  // value = digits × 10^power; in ten-thousandths: digits × 10^(power + 4), rounded up.
-  const digits = `${whole}${fraction}`;
-  const shift = Number(exponent) - fraction.length + 4;
-  const kept = shift >= 0 ? `${digits}${"0".repeat(shift)}` : digits.slice(0, Math.max(0, digits.length + shift));
-  const dropped = shift >= 0 ? "" : digits.slice(Math.max(0, digits.length + shift));
-  let units = BigInt(kept.length > 0 ? kept : "0");
-  const remainder = /[1-9]/.test(dropped);
-  if (sign === "-" && (units > BigInt(0) || remainder)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  if (remainder) units += BigInt(1);
-  if (units > BigInt(10_000)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
-  return Number(units) / 10_000;
+  const digits = match ? match[2] + (match[3] ?? "") : "";
+  if (!match || !digits) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  // value × 10^4 = digits × 10^shift, rounded up: past five digits it is over 1 (the default).
+  const shift = Number(match[4] ?? 0) - (match[3] ?? "").length + 4;
+  const whole = (shift >= 0 ? digits + "0".repeat(shift) : digits.slice(0, shift)).replace(/^0+/, "");
+  if (whole.length > 5) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const units = Number(whole) + (shift < 0 && /[1-9]/.test(digits.slice(shift)) ? 1 : 0);
+  return (match[1] === "-" && units > 0) || units > 10_000 ? DEFAULT_LOW_CONFIDENCE_THRESHOLD : units / 10_000;
 }
 
 export type TakeoffVerificationIssue =
@@ -148,7 +142,8 @@ export type ApplyGuardItem = Pick<
  *
  * - Level C (the existing reasons): missing proof/source, or confidence < threshold while unverified.
  * - Every level (TI-664): stale rule results, or a failed rule while unverified, or a failed rule verifying never
- *   settles (a quantity to enter) — rules/blocking.ts, mirrored by takeoff_item_rule_blocked in SQL.
+ *   settles (a quantity to enter) — rules/blocking.ts, mirrored by takeoff_item_rule_blocked in SQL. A cross-line
+ *   failure whose partners, all named, are all left out (here or in `partnerExclusions`) does not block (TI-677).
  * - Medium  = level C, threshold ≤ confidence < MEDIUM_CONFIDENCE_CEILING AND is_verified === false, not blocked.
  * - `passed` is true when no blocked items exist. Without a level, the job is read as level C (the only level the
  *   guard ran on before TI-664).
@@ -156,11 +151,22 @@ export type ApplyGuardItem = Pick<
 export function checkApplyGuard(
   items: ApplyGuardItem[],
   threshold: number = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
-  context: { level?: string | null } = {}
+  context: {
+    level?: string | null;
+    /** Lines of other jobs a cross-line failure names, as the database holds them (excluded or not). */
+    partnerExclusions?: ReadonlyMap<string, boolean>;
+    /** The test of a failure whose partners are all left out (partner-exclusions.ts leftOutByPartners); none: it blocks. */
+    leftOut?: (result: TakeoffRuleResult, excluded: PartnerExclusion) => boolean;
+  } = {}
 ): ApplyGuardResult {
   const blocked_items: GuardBlockedItem[] = [];
   const medium_items: GuardMediumItem[] = [];
   const levelC = (context.level ?? "C") === "C";
+  // The job's own lines as given (the plan's exclusions included), the others from the context; unknown: counted.
+  const test = context.leftOut;
+  const own = test ? new Map(items.map((item) => [item.id.toLowerCase(), item.is_excluded])) : null;
+  const leftOut: LeftOut | undefined = test && own
+    ? (entry) => test(entry, (id) => own.get(id) ?? context.partnerExclusions?.get(id)) : undefined;
 
   for (const item of items) {
     // Only consider included items
@@ -172,7 +178,7 @@ export function checkApplyGuard(
     if (levelC && !item.is_verified && (conf === null || conf < threshold)) {
       reasons.unshift("low_confidence");
     }
-    const failures = blockingRules(item.rule_results, item.is_verified);
+    const failures = blockingRules(item.rule_results, item.is_verified, leftOut);
     if (failures.length > 0) reasons.push("rule_failed");
     if (item.rules_stale) reasons.push("rules_stale");
 

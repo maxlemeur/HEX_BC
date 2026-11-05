@@ -53,7 +53,9 @@ import { isOpeningLayerName } from "@/lib/takeoff/vectors/vocabulary";
 //   strokes as the area counts them, in page space: it encloses the measured
 //   area (a core left out of the floor stays inside it, the outline has no
 //   hole). Simplified to at most FILL_OUTLINE_MAX_POINTS points (the persisted
-//   polygon limit), its group FILL_GROUP_ID.
+//   polygon limit), its group FILL_GROUP_ID. TI-677: what the floor leaves
+//   out inside it (another room, a core) comes with it as holes, so that a
+//   room around another room is not read as overlapping it.
 
 /** Side of a raster cell on site: a room's floor is counted within a fraction of the surface tolerance (max(2 %, 0.5 m²)). */
 export const FILL_CELL_M = 0.035;
@@ -71,6 +73,9 @@ export const FILL_SEED_REACH_HEIGHTS = 2;
 export const FILL_FRAME_SHARE = 0.9;
 /** Most points of a fill outline (VECTOR_GEOMETRY_LIMITS.polygon of persistence.ts). */
 export const FILL_OUTLINE_MAX_POINTS = 2000;
+/** Holes of a floor kept with its outline (the largest first), and the most points of each (TI-677, room overlap rule). */
+export const FILL_HOLES_MAX = 16;
+export const FILL_HOLE_MAX_POINTS = 200;
 /** Group id of a fill outline (no group of the page draws it). */
 export const FILL_GROUP_ID = "fill:mur";
 /**
@@ -86,7 +91,8 @@ export const ISLAND_CIRCLE = { minSweepDeg: 300, maxRadiusM: 1 } as const;
 export type FillRejection = "seed" | "border" | "rooms" | "ratio" | "frame" | "resolution";
 /** A printed room: its area's centre, printed surface, text height, and whether it needs a fill (no ring). */
 export type FillRoom = { anchor: Point; printed_m2: number; height: number; fill: boolean };
-export type FillResult = { area_m2: number; outline: number[] } | { rejected: FillRejection };
+/** A floor: its area, its outer outline and the outlines of what it leaves out inside it (TI-677: another room, a core). */
+export type FillResult = { area_m2: number; outline: number[]; holes: number[][] } | { rejected: FillRejection };
 
 /** Side of the raster cells of a page, in points: FILL_CELL_M on site, larger when the page would pass FILL_MAX_CELLS. */
 export function fillCellPt(denominator: number, width: number, height: number) {
@@ -471,9 +477,11 @@ function simplifyChain(chain: number[], epsilon: number): number[] {
 
 /**
  * The floor's outer boundary in page space, its cell corners moved half a cell out (onto the strokes, as the area
- * counts half a cell along them), simplified to at most FILL_OUTLINE_MAX_POINTS points, closed.
+ * counts half a cell along them), simplified to at most FILL_OUTLINE_MAX_POINTS points, closed. TI-677: also the
+ * boundaries of what the floor leaves out inside it (another room, a core), moved half a cell out of the floor the
+ * same way, the FILL_HOLES_MAX largest, each simplified to at most FILL_HOLE_MAX_POINTS points.
  */
-function traceOutline(raster: Raster, window: Window): number[] {
+function traceOutline(raster: Raster, window: Window): { outline: number[]; holes: number[][] } {
   const { w, h, mask } = window;
   const stride = w + 1;
   // Boundary edges between corners, clockwise around the floor (y down); several out of a corner where the floor pinches.
@@ -491,7 +499,8 @@ function traceOutline(raster: Raster, window: Window): number[] {
     if (mask[index + w] !== 1) add((y + 1) * stride + x + 1, (y + 1) * stride + x);
     if (mask[index - 1] !== 1) add((y + 1) * stride + x, y * stride + x);
   }
-  let best: number[] = [], bestArea = 0;
+  const loops: Array<{ loop: number[]; twice: number }> = [];
+  let best: { loop: number[]; twice: number } | null = null;
   for (const [start, targets] of out) {
     while (targets.length > 0) {
       const loop = [start];
@@ -507,17 +516,27 @@ function traceOutline(raster: Raster, window: Window): number[] {
         const [p, q] = [loop[k], loop[(k + 1) % loop.length]];
         twice += (p % stride) * Math.floor(q / stride) - (q % stride) * Math.floor(p / stride);
       }
-      if (Math.abs(twice) > bestArea) {
-        bestArea = Math.abs(twice);
-        best = loop;
-      }
+      const traced = { loop, twice };
+      loops.push(traced);
+      if (Math.abs(twice) > Math.abs(best?.twice ?? 0)) best = traced;
     }
   }
-  if (best.length < 3) return [];
+  if (!best || best.loop.length < 3) return { outline: [], holes: [] };
+  const outer = best;
+  // The boundaries around the floor's other side: loops turning the other way round.
+  const holes = loops.filter((entry) => entry !== outer && entry.loop.length >= 3 && Math.sign(entry.twice) === -Math.sign(outer.twice))
+    .sort((left, right) => Math.abs(right.twice) - Math.abs(left.twice)).slice(0, FILL_HOLES_MAX)
+    .map((entry) => ringOf(raster, window, entry.loop, FILL_HOLE_MAX_POINTS)).filter((points) => points.length >= 6);
+  return { outline: ringOf(raster, window, outer.loop, FILL_OUTLINE_MAX_POINTS), holes };
+}
+
+/** A boundary loop of cell corners as a page-space ring, half a cell out of the floor, at most `maxPoints` points. */
+function ringOf(raster: Raster, window: Window, loop: readonly number[], maxPoints: number): number[] {
+  const stride = window.w + 1;
   const { cell } = raster;
   const corners: number[] = [];
-  for (let k = 0; k < best.length; k += 1) {
-    const [previous, current, next] = [best[(k + best.length - 1) % best.length], best[k], best[(k + 1) % best.length]];
+  for (let k = 0; k < loop.length; k += 1) {
+    const [previous, current, next] = [loop[(k + loop.length - 1) % loop.length], loop[k], loop[(k + 1) % loop.length]];
     // Corners only: a straight run of cell edges is one side.
     const dx0 = (current % stride) - (previous % stride), dy0 = Math.floor(current / stride) - Math.floor(previous / stride);
     const dx1 = (next % stride) - (current % stride), dy1 = Math.floor(next / stride) - Math.floor(current / stride);
@@ -540,7 +559,7 @@ function traceOutline(raster: Raster, window: Window): number[] {
     const first = simplifyChain(corners.slice(0, 2 * far + 2), epsilon);
     const second = simplifyChain([...corners.slice(2 * far), corners[0], corners[1]], epsilon);
     simplified = [...first, ...second.slice(2)];
-    if (simplified.length / 2 <= FILL_OUTLINE_MAX_POINTS) break;
+    if (simplified.length / 2 <= maxPoints) break;
   }
   return simplified.map((value) => Math.round(value * 100) / 100);
 }
@@ -620,8 +639,8 @@ export function fillRooms(input: {
     const { cells, edges } = floorCount(window);
     const area = (cells + edges / 2) * cellM2;
     if (area > FILL_SANITY_RATIO * room.printed_m2 || area < room.printed_m2 / FILL_SANITY_RATIO) return { rejected: "ratio" };
-    const outline = traceOutline(raster, bridged(raster, window, flood.joinery, pockets));
-    return outline.length >= 8 ? { area_m2: area, outline } : { rejected: "seed" };
+    const { outline, holes } = traceOutline(raster, bridged(raster, window, flood.joinery, pockets));
+    return outline.length >= 8 ? { area_m2: area, outline, holes } : { rejected: "seed" };
   });
 }
 

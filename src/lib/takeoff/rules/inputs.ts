@@ -1,5 +1,5 @@
 import { findDiameterEntries } from "@/lib/takeoff/bench/diameters";
-import { readItemKey } from "@/lib/takeoff/bench/item-keys";
+import { readItemKey, unquote } from "@/lib/takeoff/bench/item-keys";
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
 
@@ -55,9 +55,9 @@ export function designationHead(designation: string) {
   return head.replace(/^(?:(?:fourniture|f)\s*(?:et|&)\s*pose|pose(?!\s+seule)|realisation|mise\s+en\s+(?:oeuvre|œuvre))\s+(?:de\s+la\s+|de\s+l['’]\s*|des\s+|du\s+|de\s+|d['’]\s*)?/i, "").trim();
 }
 
-/** The cause the head of a designation opens on, in pattern order, or null. */
+/** The cause the head of a designation opens on, in pattern order, or null; a quoted plan text read unquoted (TI-677). */
 export function nonObservableCause(designation: string): NonObservableCause | null {
-  const head = designationHead(designation);
+  const head = designationHead(unquote(designation));
   return NON_OBSERVABLE_PATTERNS.find(({ pattern }) => pattern.test(head))?.cause ?? null;
 }
 
@@ -65,9 +65,10 @@ export type DesignationLine = { designation: string; category?: string | null; e
 
 /**
  * Sizes printed in a designation (« DN 23 », « Ø 23 », « 23 mm », « 22x1,2 », « 3/4" », « 1"1/4 »); a thickness
- * (« ép. 20 mm », « ép. 2,20 mm ») is none. A size never starts inside a number (« 20 mm » of « 2,20 mm »).
+ * (« ép. 20 mm », « ép. 2,20 mm ») is none. A size never starts inside a number (« 20 mm » of « 2,20 mm »), and an inch
+ * size never after a slash or a dot (the 22 of « 20/22" » closes an ID/OD pair, as the reader reads it: TI-677).
  */
-const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|(?<!\d[.,])\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|(?<!(?:^|[^A-Za-zÀ-ÿ])[ÉéEe]p(?:aisseur)?\.?\s*)(?<!\d[.,])\b\d+(?:[.,]\d+)?\s*mm\b|(?<!\d[.,])\b\d+\s*(?:"|”)\s*\d\/\d\b|(?<!\d[.,])\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|(?<!\d[.,])\b\d\/\d\s*(?:"|”|pouces?)/gi;
+const PRINTED_SIZE = /\bDN\s*-?\s*\d+(?:[.,]\d+)?\b|[Øø⌀]\s*\d+(?:[.,]\d+)?|(?<!\d[.,])\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b|(?<!(?:^|[^A-Za-zÀ-ÿ])[ÉéEe]p(?:aisseur)?\.?\s*)(?<!\d[.,])\b\d+(?:[.,]\d+)?\s*mm\b|(?<![\d./][.,]?)\b\d+\s*(?:"|”)\s*\d\/\d\b|(?<![\d./][.,]?)\b\d+(?:\s*\d\/\d)?\s*(?:"|”|pouces?)|(?<![\d./][.,]?)\b\d\/\d\s*(?:"|”|pouces?)/gi;
 
 /**
  * Inputs of a line the model proposed (levels B and C): read in its text, never in its quantity.
@@ -100,8 +101,12 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn };
 }
 
+/**
+ * Sizes printed in a designation, read after the reader drops the quotes around a quoted plan text (unquote): the
+ * quote closing « "EF cuivre 20/22" » is the end of the text, never the inch mark of a 22" (TI-677).
+ */
 function printedSizes(designation: string) {
-  return [...designation.matchAll(PRINTED_SIZE)].map((match) => printedSize(match[0]));
+  return [...unquote(designation).matchAll(PRINTED_SIZE)].map((match) => printedSize(match[0]));
 }
 
 /** A printed size as the diameter table prints it: « DN 15 », « Ø 22 », « 20 mm » (decimal point), others as printed. */

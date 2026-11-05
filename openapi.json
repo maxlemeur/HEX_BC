@@ -72418,6 +72418,17 @@
                                   }
                                 ]
                               },
+                              "holes_m": {
+                                "maxItems": 16,
+                                "type": "array",
+                                "items": {
+                                  "maxItems": 400,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "number"
+                                  }
+                                }
+                              },
                               "length_m": {
                                 "anyOf": [
                                   {

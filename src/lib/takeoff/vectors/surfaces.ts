@@ -40,7 +40,8 @@ export type RoomSurface = {
   polygon_m2: number | null;
   polygon_points: number | null;
   /** That polygon: its group id and its x, y pairs in page space (sheet points, y down; the closing point repeats the first). */
-  outline: { group: string; points: number[] } | null;
+  /** Holes (TI-677): what a filled floor leaves out inside its outline (another room, a core), page space. */
+  outline: { group: string; points: number[]; holes?: number[][] } | null;
   deviation: number | null;
   /** How the polygon was found: the smallest ring around the label, or the floor filled between walls (null: none). */
   method: "ring" | "fill" | null;
@@ -129,7 +130,7 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     const outline = best !== null ? {
       group: groupId(extraction.groups[best.path.group]),
       points: Array.from(extraction.points.subarray(2 * best.path.start, 2 * (best.path.start + best.path.count)), (value) => Math.round(value * 100) / 100),
-    } : filled ? { group: FILL_GROUP_ID, points: filled.outline } : null;
+    } : filled ? { group: FILL_GROUP_ID, points: filled.outline, ...(filled.holes.length > 0 ? { holes: filled.holes } : {}) } : null;
     surfaces.push({ room, printed_m2: printed, anchor, polygon_m2: polygon, polygon_points: best ? best.path.count : filled ? filled.outline.length / 2 : null,
       outline, deviation: polygon === null ? null : Math.round(((polygon - printed) / printed) * 10000) / 10000,
       method: best ? "ring" : filled ? "fill" : null, fill_rejected: fill !== null && "rejected" in fill ? fill.rejected : null });

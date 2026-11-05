@@ -4,7 +4,8 @@
 // - Area: |area − printed| ≤ max(AREA_PRINTED.relative × printed,
 //   AREA_PRINTED.absolute_m2). The line's quantity is read as it is now: a
 //   quantity the user corrected to the printed surface settles it.
-// - Overlap: the area two room polygons share, sampled on a grid over their
+// - Overlap: the area two room floors share (a polygon less its holes:
+//   TI-677), sampled on a grid over their
 //   common box: ROOM_OVERLAP.step_m, finer when that box is narrow (a twentieth
 //   of its smaller side, so that a sliver of a few centimetres is measured),
 //   coarser only when it would take more than ROOM_OVERLAP.maxSamples points;
@@ -99,8 +100,14 @@ function bounds(points: ReadonlyArray<[number, number]>) {
   return { x0, y0, x1, y1 };
 }
 
-/** Area two polygons share, sampled at the centres of a grid over their common box (m²). */
-export function sharedArea(left: ReadonlyArray<[number, number]>, right: ReadonlyArray<[number, number]>) {
+/**
+ * Area two floors share, sampled at the centres of a grid over the common box of their polygons (m²); a point in a
+ * hole of either (what a filled floor leaves out inside its polygon, TI-677) is on neither's floor.
+ */
+export function sharedArea(left: ReadonlyArray<[number, number]>, right: ReadonlyArray<[number, number]>,
+  leftHoles: ReadonlyArray<ReadonlyArray<[number, number]>> = [], rightHoles: ReadonlyArray<ReadonlyArray<[number, number]>> = []) {
+  const onFloor = (points: ReadonlyArray<[number, number]>, holes: ReadonlyArray<ReadonlyArray<[number, number]>>, x: number, y: number) =>
+    inside(points, x, y) && !holes.some((hole) => inside(hole, x, y));
   if (left.length < 3 || right.length < 3) return 0;
   const a = bounds(left), b = bounds(right);
   const box = { x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) };
@@ -111,7 +118,7 @@ export function sharedArea(left: ReadonlyArray<[number, number]>, right: Readonl
   let count = 0;
   for (let y = box.y0 + step / 2; y < box.y1; y += step) {
     for (let x = box.x0 + step / 2; x < box.x1; x += step) {
-      if (inside(left, x, y) && inside(right, x, y)) count += 1;
+      if (onFloor(left, leftHoles, x, y) && onFloor(right, rightHoles, x, y)) count += 1;
     }
   }
   return Math.round(count * step * step * 1000) / 1000;

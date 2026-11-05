@@ -67,6 +67,8 @@ export type TakeoffRuleDetails = {
   dn?: string | null;
   allowed_materials?: MaterialCode[];
   partners?: ZoneOverlapPartner[];
+  /** Every partner of a duplicate (the list may be cut when stored): with it, a guard knows the list is whole (TI-677). */
+  partner_count?: number;
   /** A pair: the length still counted twice. A group: the length of the line other lines draw. */
   overlap_m?: number;
   /** Lines of a group of duplicates (three or more): no correction settles it, each line is excluded or accepted. */
@@ -76,6 +78,8 @@ export type TakeoffRuleDetails = {
   measured_m2?: number;
   deviation?: number;
   overlapping_item_ids?: string[];
+  /** Every room an outline overlaps (the list may be cut when stored). */
+  overlap_count?: number;
   overlap_m2?: number;
   cause?: string;
   model_quantity?: number;
