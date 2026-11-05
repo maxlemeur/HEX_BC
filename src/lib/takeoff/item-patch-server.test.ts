@@ -86,21 +86,20 @@ describe("takeoff item patch persistence", () => {
       expect(filterValue(query, "tenant_id")).toBe(M3_TENANT_ID);
       expect(filterValue(query, "job_id")).toBe(M3_JOB_ID);
     }
-    expect(fake.writesTo("audit_logs")).toHaveLength(1);
+    expect(fake.writesTo("audit_logs")).toHaveLength(0);
     expect(response.results[3]?.item?.metadata).toMatchObject({ original_unit: "m.l" });
   });
 
-  it("awaits non-blocking audit completion before processing the next item", async () => {
-    let releaseAudit: (value: { data: null; error: { code: string; message: string } }) => void = () => {};
-    const pendingAudit = new Promise<{ data: null; error: { code: string; message: string } }>((resolve) => {
-      releaseAudit = resolve;
-    });
+  // TI-677 (PR D): the journal of a decision (verification, exclusion, quantity) is written by the database in the
+  // save's own transaction (audit_takeoff_item_decisions). The route used to write it afterwards, in a mode that let a
+  // save succeed without its trace; it writes nothing now, whatever the audit table would answer.
+  it("never writes the journal of a save itself: the database writes it with the save", async () => {
     let item = takeoffItemRow();
     const fake = createSupabaseFake({
       tables: {
         takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
         takeoff_items: () => ({ data: item, error: null }),
-        audit_logs: () => pendingAudit,
+        audit_logs: () => ({ data: null, error: { code: "42501", message: "audit refused" } }),
       },
       rpc: {
         update_takeoff_item_for_review: (args) => {
@@ -111,29 +110,11 @@ describe("takeoff item patch persistence", () => {
     });
     useFake(fake);
 
-    let settled = false;
-    const operation = batchUpdateTakeoffItems(M3_JOB_ID, {
-      items: [entry(M3_ITEM_ID), entry(M3_ITEM_ID)],
-    }).then((response) => {
-      settled = true;
-      return response;
+    const response = await batchUpdateTakeoffItems(M3_JOB_ID, {
+      items: [{ item_id: M3_ITEM_ID, updated_at: UPDATED_AT, fields: { quantity: 18, is_excluded: true, exclusion_reason: "Hors lot" } }],
     });
-    await vi.waitFor(() => expect(fake.writesTo("audit_logs")).toHaveLength(1));
-    expect(settled).toBe(false);
-    expect(fake.queries.filter((query) => query.table === "takeoff_items")).toHaveLength(1);
-    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toHaveLength(1);
-    releaseAudit({ data: null, error: { code: "42501", message: "audit refused" } });
-
-    const response = await operation;
-    expect(response).toMatchObject({
-      succeeded: 1,
-      failed: 1,
-      results: [
-        { success: true, item: { quantity: 18 } },
-        { success: false, error: expect.stringContaining("Conflit de concurrence") },
-      ],
-    });
-    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toHaveLength(1);
+    expect(response).toMatchObject({ succeeded: 1, failed: 0, results: [{ success: true, item: { quantity: 18 } }] });
+    expect(fake.writesTo("audit_logs")).toHaveLength(0);
   });
 
   // TI-664 L5c: a saved line's rules read the other lines of its job (a run on two zone plans, two rooms of a page).

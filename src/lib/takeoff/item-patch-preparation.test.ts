@@ -88,16 +88,14 @@ describe("takeoff item patch preparation", () => {
     });
   });
 
-  it("preserves explicit reverification and records the content before and after", () => {
+  // TI-677 (PR D): the database journals each decision with the save (audit_takeoff_item_decisions), never the route.
+  it("preserves explicit reverification and leaves the journal to the database", () => {
     const result = patch({ quantity: 18, is_verified: true });
     expect(result).toMatchObject({
       success: true,
       updatePayload: { quantity: 18, is_verified: true, verified_by: USER_ID },
-      auditFields: [
-        { field: "quantity", previous: 12, next: 18 },
-        { field: "is_verified", previous: true, next: true },
-      ],
     });
+    expect(result).not.toHaveProperty("auditFields");
   });
 
   it("clears the exclusion reason on inclusion without modifying provenance", () => {
@@ -115,6 +113,37 @@ describe("takeoff item patch preparation", () => {
     expect(result.updatePayload).not.toHaveProperty("metadata");
     expect(result.updatePayload).not.toHaveProperty("source_file_name");
     expect(currentItem.metadata).toEqual({ original_unit: "m.l", normalized_unit: "ml" });
+  });
+});
+
+// TI-677 (PR D): an excluded line always keeps a reason (the database refuses it too,
+// require_takeoff_item_exclusion_reason).
+describe("exclusion reason", () => {
+  const excluded = { is_excluded: true, exclusion_reason: "Hors lot" } as const;
+
+  it("refuses to clear the reason of a line that stays excluded", () => {
+    expect(patch({ exclusion_reason: null }, excluded)).toEqual({
+      success: false,
+      error: "Le motif d’exclusion est obligatoire pour une ligne exclue.",
+    });
+  });
+
+  it("changes the reason of an excluded line, and clears it with the inclusion", () => {
+    expect(patch({ exclusion_reason: "Lot plomberie" }, excluded)).toMatchObject({
+      success: true, updatePayload: { exclusion_reason: "Lot plomberie" },
+    });
+    expect(patch({ is_excluded: false, exclusion_reason: null }, excluded)).toMatchObject({
+      success: true, updatePayload: { is_excluded: false, exclusion_reason: null },
+    });
+  });
+
+  it("refuses an exclusion whose reason is blank", () => {
+    const body = (fields: Record<string, unknown>) =>
+      takeoffItemBatchPatchSchema.safeParse({ items: [{ item_id: ITEM_ID, updated_at: PREVIOUS_TIMESTAMP, fields }] });
+    for (const reason of ["", "   ", "\t\n", null]) {
+      expect(body({ is_excluded: true, exclusion_reason: reason }).success).toBe(false);
+    }
+    expect(body({ is_excluded: true, exclusion_reason: "Hors lot" }).success).toBe(true);
   });
 });
 
