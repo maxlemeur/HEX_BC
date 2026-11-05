@@ -3978,7 +3978,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         contents: [{ contentType: "application/pdf" }],
         headers: [
           sourceReferenceCacheControlHeader,
-          responseHeader({ name: "Content-Length", description: "Nombre exact d'octets émis.", schemaName: "SourceReferenceContentLengthHeader", schema: z.string().regex(/^[0-9]+$/), required: true }),
+          responseHeader({ name: "Content-Length", description: "Nombre exact d'octets émis, lorsqu'il est transmis : Next.js 16.4.5 le retire des réponses des route handlers (vercel/next.js#101120). La taille et le SHA-256 du corps restent la preuve.", schemaName: "SourceReferenceContentLengthHeader", schema: z.string().regex(/^[0-9]+$/), required: false }),
           responseHeader({ name: "X-Source-Reference-Sha256", description: "SHA-256 des octets vérifiés, en hexadécimal minuscule.", schemaName: "SourceReferenceHashHeader", schema: z.string().regex(/^[0-9a-f]{64}$/), required: true }),
           responseHeader({ name: "Content-Disposition", description: "Disposition inline avec filename ASCII borné et filename* RFC5987 encodé, sans caractères de contrôle.", schemaName: "SourceReferenceDispositionHeader", schema: z.string(), required: true }),
           responseHeader({ name: "X-Content-Type-Options", description: "Empêche l'interprétation sous un autre type.", schemaName: "SourceReferenceNosniffHeader", schema: z.literal("nosniff"), required: true }),
