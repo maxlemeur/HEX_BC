@@ -8125,8 +8125,8 @@
                 }
               },
               "Content-Length": {
-                "description": "Nombre exact d'octets émis.",
-                "required": true,
+                "description": "Nombre exact d'octets émis, lorsqu'il est transmis : Next.js 16.4.5 le retire des réponses des route handlers (vercel/next.js#101120). La taille et le SHA-256 du corps restent la preuve.",
+                "required": false,
                 "schema": {
                   "$ref": "#/components/schemas/SourceReferenceContentLengthHeader"
                 }

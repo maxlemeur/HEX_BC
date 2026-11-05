@@ -40,8 +40,11 @@ export async function readSourceReferencePdf(
     if (failure.success) throw new SourceReferenceRequestError(failure.data.error.code, failure.data.error.message);
     throw new Error("Source indisponible. La copie conservée n’a pas pu être consultée.");
   }
+  // Next 16.4.5 removes the Content-Length a route handler sets (vercel/next.js#101120): the body's length and
+  // digest below are the proof, and a header that does arrive must still announce the copy's size.
+  const contentLength = response.headers.get("Content-Length");
   if (response.status !== 200 || response.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase() !== "application/pdf" ||
-    response.headers.get("Content-Length") !== String(copy.byteSize) || response.headers.get("X-Source-Reference-Sha256") !== copy.sha256) {
+    (contentLength !== null && contentLength !== String(copy.byteSize)) || response.headers.get("X-Source-Reference-Sha256") !== copy.sha256) {
     throw new Error("Source indisponible. Les informations du document reçu ne correspondent pas à la copie conservée.");
   }
   const bytes = await response.arrayBuffer();

@@ -110,7 +110,9 @@ async function preservePdf(value: PdfRead, copy: Copy, corpus: Corpus, prefix: s
   expect(value.disposition?.startsWith("inline;")).toBe(true);
   expect(value.disposition).toContain(corpus.fileName);
   const bytes = Buffer.from(value.bytes);
-  expect([hash(bytes), value.sha256, value.length, bytes.length]).toEqual([corpus.sha256, corpus.sha256, String(corpus.byteSize), corpus.byteSize]);
+  expect([hash(bytes), value.sha256, bytes.length]).toEqual([corpus.sha256, corpus.sha256, corpus.byteSize]);
+  // Next 16.4.5 removes the Content-Length the route sets (vercel/next.js#101120); when it arrives, it is exact.
+  if (value.length !== null) expect(value.length).toBe(String(corpus.byteSize));
   expect(bytes.equals(await readFile(path.resolve(requiredFixturePath("E2E_SOURCE_REFERENCE_CORPUS_DIRECTORY"), corpus.path)))).toBe(true);
   expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
   const directory = path.resolve(".e2e/army/critical/artifacts/business");
