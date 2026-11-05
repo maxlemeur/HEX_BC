@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-05",
+  "sourceCommits": ["53fd4937", "cd474ca4"],
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande"
+  },
+  "authorization": "Owner's go of 2026-11-05 for the merged TI-658-family migrations (« Je te donne le feu vert pour les migrations tu es autonome maintenant dessus »); every apply_migration call confirmed by the owner; no deployment.",
+  "migrations": [
+    {
+      "repositoryFile": "supabase/migrations/20261103213336_takeoff_quantity_rules.sql",
+      "pullRequest": 160,
+      "bytes": 26594,
+      "lines": 653,
+      "sha256": "e844be8807f6793b979ce81c5ec11d13f2e555ae51ad063e7558bd926b9940b6",
+      "appliedVersion": "20261105013210",
+      "appliedName": "20261103213336_takeoff_quantity_rules",
+      "appliedAtUtc": "2026-11-05T01:32:10Z",
+      "storedStatements": 1,
+      "storedStatementSha256": "26b740c053cdd1f5b8c8f78e37afa627c7de83beeb3c43b812c0443fded80c7d",
+      "storedStatementEqualsFileWithoutFinalNewline": true,
+      "appliedBy": "MCP apply_migration with the file SQL, confirmed by the owner"
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261104215000_takeoff_rule_bounds_and_serialization.sql",
+      "pullRequest": 166,
+      "bytes": 25888,
+      "lines": 681,
+      "sha256": "a89759842f36ed5b8ca43a413c2077ab285ff621513588b15c03722cef2d9d53",
+      "appliedVersion": "20261105013334",
+      "appliedName": "20261104215000_takeoff_rule_bounds_and_serialization",
+      "appliedAtUtc": "2026-11-05T01:33:34Z",
+      "storedStatements": 1,
+      "storedStatementSha256": "d67e66e1d7efb93e54dd70d666c1e37f8bfeadb40e890e01a05c4af55e169447",
+      "storedStatementEqualsFileWithoutFinalNewline": false,
+      "fileWithoutFinalNewlineSha256": "bbf8b1d600ec5a3089d2e1c75ecad018ab6f73398f9d470ae9dafdd4fcf4bcc4",
+      "deviation": {
+        "where": "line 41, public.takeoff_low_confidence_threshold(text), the JavaScript-trim character class",
+        "what": "the MCP transport decoded the 11 \\uXXXX sequences 0020, 00a0, 1680, 2000, 200a, 2028, 2029, 202f, 205f, 3000 and feff into the characters they denote, in both copies of the class; \\u0009 and \\u000d stayed escaped; 72 bytes, the whole difference",
+        "proof": "the stored statement rebuilt with the file's literal line 41 (backslash via chr(92)) is 25887 bytes with the file's sha256 without its final newline",
+        "behaviour": "same code points and ranges as the file; read-only tests: the 17 JavaScript trim whitespaces trimmed, NEL, U+180E, U+200B-U+200D, U+2060, U+2030 not trimmed, 0x1 -> 0.5, 0.12341 -> 0.1235, 7e-0001 -> 0.5, null -> 0.5",
+        "corrected": false
+      },
+      "appliedBy": "MCP apply_migration with the file SQL, confirmed by the owner"
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261104224500_takeoff_rule_cross_exclusions.sql",
+      "pullRequest": 170,
+      "bytes": 4818,
+      "lines": 113,
+      "sha256": "1fbf6321dfdbc28f83534ecfe85c5f04ff91b891e170e29b68c5aaf533289554",
+      "appliedVersion": "20261105021448",
+      "appliedName": "20261104224500_takeoff_rule_cross_exclusions",
+      "appliedAtUtc": "2026-11-05T02:14:48Z",
+      "storedStatements": 1,
+      "storedStatementSha256": "453b83db9735d8b65cc58ce9984c282dc46626113bcb1ec4bdd76299ae0d1c7e",
+      "storedStatementEqualsFileWithoutFinalNewline": true,
+      "appliedBy": "MCP apply_migration with the file SQL, confirmed by the owner"
+    }
+  ],
+  "preflight": {
+    "previous": "20261103153311_takeoff_vector_geometry (20261103194236)",
+    "missingFromMain": [
+      "20261103213336_takeoff_quantity_rules.sql",
+      "20261104215000_takeoff_rule_bounds_and_serialization.sql",
+      "20261104224500_takeoff_rule_cross_exclusions.sql"
+    ],
+    "objectsAbsent": true,
+    "prerequisitesPresent": ["public.profiles", "public.takeoff_items", "public.takeoff_jobs", "public.takeoff_vector_pages"],
+    "rowCounts": { "public.takeoff_items": 0, "public.takeoff_jobs": 0, "public.takeoff_vector_pages": 0 },
+    "localValidation": "npm run db:ci:local and npm run supabase:types (full pgTAP, RLS matrix), TKR01/TKR02 and npm run verify:pr on each exact head before merge"
+  },
+  "history": {
+    "rowsBefore": 352,
+    "rowsAfter": 355,
+    "rowsPerNewName": 1,
+    "last": true
+  },
+  "replacedFunctionsMd5": {
+    "enforce_takeoff_apply_security": { "before": "c376e320", "after": "4dfdd3ab" },
+    "enforce_authenticated_takeoff_item_fields": { "before": "116a7079", "after": "e1e1d33d" },
+    "apply_takeoff_job_guarded_atomic(4 args)": { "before": "81596fd3", "after": "8b72d974" },
+    "apply_takeoff_job_guarded_atomic(5 args)": { "before": "b5793cbd", "after": "5339bd5e" },
+    "takeoff_item_rule_blocked": { "afterFirstTwo": "8c4a7bdd", "afterThird": "5f46ed2b" }
+  },
+  "objects": {
+    "serviceRoleOnly": ["takeoff_item_rule_blocked", "takeoff_low_confidence_threshold", "takeoff_rule_version_stamp", "write_takeoff_rule_results", "takeoff_rule_failure_left_out"],
+    "securityDefinerNotExecutableByAuthenticated": ["stale_takeoff_rule_peers", "stale_takeoff_rule_lines_on_completion"],
+    "executableByAuthenticatedAsGranted": ["update_takeoff_item_for_review", "apply_takeoff_job_guarded_atomic"],
+    "triggers": ["stale_takeoff_rule_peers_after_insert", "stale_takeoff_rule_peers_after_update", "stale_takeoff_rule_lines_on_completion", "set_takeoff_items_updated_at"],
+    "rlsForced": ["public.takeoff_items", "public.takeoff_jobs", "public.takeoff_vector_pages"]
+  },
+  "securityAdvisors": {
+    "checkedAtUtc": ["2026-11-05T01:33:54Z", "2026-11-05T02:15:06Z"],
+    "newFindings": 0,
+    "unchanged": ["INFO 24 rls_enabled_no_policy on server-only tables", "WARN 70 SECURITY DEFINER functions executable by authenticated", "WARN leaked password protection disabled"]
+  },
+  "deployment": false,
+  "flagsEnabled": false,
+  "dataWritten": false
+}
