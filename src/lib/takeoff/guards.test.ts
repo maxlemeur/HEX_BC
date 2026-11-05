@@ -6,6 +6,7 @@ import {
   getTakeoffVerificationReadiness,
   parseLowConfidenceThreshold,
 } from "@/lib/takeoff/guards";
+import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
 function makeItem(
@@ -181,8 +182,14 @@ describe("checkApplyGuard with cross-line failures whose partners are left out",
   const rooms = (ids: string[], count = ids.length) => ({ rule: "room_overlap" as const, status: "fail" as const, code: "ROOM_OVERLAP" as const,
     version: 1, acceptable: true, reason: "Ce contour recouvre une autre pièce.", details: { overlapping_item_ids: ids, overlap_count: count, overlap_m2: 2 } });
   const blocked = (items: TakeoffJobItem[], partnerExclusions?: ReadonlyMap<string, boolean>) =>
-    checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B", ...(partnerExclusions ? { partnerExclusions } : {}) })
-      .blocked_items.map((item) => item.item_id);
+    checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B", leftOut: leftOutByPartners,
+      ...(partnerExclusions ? { partnerExclusions } : {}) }).blocked_items.map((item) => item.item_id);
+
+  // The review page guards its included lines only and passes no test: there, such a failure keeps blocking.
+  it("keeps a cross-line failure blocking when the caller passes no partner test", () => {
+    expect(checkApplyGuard([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { is_excluded: true })],
+      DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" }).blocked_items.map((item) => item.item_id)).toEqual(["L"]);
+  });
 
   it("lets a duplicate pass when its only partner, in the job, is left out, and blocks it while the partner counts", () => {
     expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { is_excluded: true, rule_results: [duplicate(["L"])] })]))

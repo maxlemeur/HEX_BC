@@ -27,7 +27,7 @@ import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-compari
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
-import { failurePartners, isLineId } from "@/lib/takeoff/rules/blocking";
+import { failurePartners, isLineId, leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -157,7 +157,8 @@ export async function applyTakeoffJob(
         .filter(isLineId).map((id) => id.toLowerCase()).filter((id) => !ownIds.has(id))))];
       const partnerExclusions = outsidePartners.length > 0
         ? await listTakeoffRulePartnerExclusions({ supabase, tenantId, itemIds: outsidePartners }) : undefined;
-      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold, { level: jobRow.level, partnerExclusions });
+      const guardResult = checkApplyGuard(guardItems, lowConfidenceThreshold,
+        { level: jobRow.level, partnerExclusions, leftOut: leftOutByPartners });
 
       if (!guardResult.passed) {
         if (payload.override === true) {

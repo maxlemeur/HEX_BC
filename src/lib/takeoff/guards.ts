@@ -1,4 +1,4 @@
-import { blockingRules } from "@/lib/takeoff/rules/blocking";
+import { blockingRules, type LeftOut, type PartnerExclusion } from "@/lib/takeoff/rules/blocking";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -155,14 +155,18 @@ export function checkApplyGuard(
     level?: string | null;
     /** Lines of other jobs a cross-line failure names, as the database holds them (excluded or not). */
     partnerExclusions?: ReadonlyMap<string, boolean>;
+    /** The test of a failure whose partners are all left out (partner-exclusions.ts leftOutByPartners); none: it blocks. */
+    leftOut?: (result: TakeoffRuleResult, excluded: PartnerExclusion) => boolean;
   } = {}
 ): ApplyGuardResult {
   const blocked_items: GuardBlockedItem[] = [];
   const medium_items: GuardMediumItem[] = [];
   const levelC = (context.level ?? "C") === "C";
   // The job's own lines as given (the plan's exclusions included), the others from the context; unknown: counted.
-  const own = new Map(items.map((item) => [item.id.toLowerCase(), item.is_excluded]));
-  const excluded = (id: string) => own.get(id) ?? context.partnerExclusions?.get(id);
+  const test = context.leftOut;
+  const own = test ? new Map(items.map((item) => [item.id.toLowerCase(), item.is_excluded])) : null;
+  const leftOut: LeftOut | undefined = test && own
+    ? (entry) => test(entry, (id) => own.get(id) ?? context.partnerExclusions?.get(id)) : undefined;
 
   for (const item of items) {
     // Only consider included items
@@ -174,7 +178,7 @@ export function checkApplyGuard(
     if (levelC && !item.is_verified && (conf === null || conf < threshold)) {
       reasons.unshift("low_confidence");
     }
-    const failures = blockingRules(item.rule_results, item.is_verified, excluded);
+    const failures = blockingRules(item.rule_results, item.is_verified, leftOut);
     if (failures.length > 0) reasons.push("rule_failed");
     if (item.rules_stale) reasons.push("rules_stale");
 
