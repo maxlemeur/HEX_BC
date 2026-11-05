@@ -148,7 +148,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - Chaque modèle essayé a laissé passer un double compte : somme par groupe (une réduction réglait un tronçon que sa ligne ne dessine pas), flot sur des tronçons communs, payeurs d'une couverture minimale (une ligne figée supposée payer ce qu'elle n'a jamais retiré ; des lignes qui sortent d'un tronçon commun, 1,5 m compté deux fois et réglé).
   - Le parcours d'acceptation du ticket porte sur une paire Z1/Z2 de deux jobs d'une version, qui se règle toujours par correction. Trois zones en enfilade, ou un plan d'ensemble au-dessus de deux zones, forment un groupe : il faut exclure ou accepter. L'erreur tombe du côté d'un blocage, jamais d'un double compte.
 - Une ligne exclue ne bloque jamais. Elle est montrée telle qu'elle serait si elle revenait, avec ses partenaires et leurs groupes.
-- « Accepter » (V) lève l'échec de la ligne vérifiée seulement.
+- « Accepter » (V) lève l'échec de la ligne vérifiée seulement. Un recalcul qui lui apporte un échec qu'elle n'avait pas (un nouveau partenaire, une autre règle, un autre code, une autre version) lui retire sa vérification : voir « Décisions ».
 - **Limites connues** :
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
@@ -244,7 +244,7 @@ L'écrivain `write_takeoff_rule_results`, réservé au service :
 - n'écrit jamais une ligne modifiée depuis sa lecture, ni une ligne d'un job appliqué ;
 - n'écrit rien si la version a changé depuis que le calcul l'a lue (`takeoff_rule_version_stamp`, sous un verrou par version) : un calcul plus ancien n'écrase jamais un plus récent ;
 - laisse de côté, sans l'attendre, un job qu'une application tient ;
-- ne déplace jamais `updated_at`, qu'un client ne fixe jamais lui-même.
+- ne déplace `updated_at`, qu'un client ne fixe jamais lui-même, que lorsqu'il rouvre une ligne vérifiée (voir « Décisions »).
 
 Les résultats sont bornés avant écriture (raison de 1 000 caractères, 50 partenaires, puis 64 Kio de texte jsonb, voir
 « Bornes, seuil et sérialisation ») : toute lecture les accepte et la colonne les stocke.
@@ -266,6 +266,35 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
 - Il consomme l'audit une seule fois.
+- Il est lié à l'état de chaque ligne levée (TI-677 PR D, voir « Décisions »).
+
+**Décisions** (TI-677 PR D, migration `20261105020000_takeoff_rule_decisions.sql`, décisions
+validées par Thanh le 5 nov. 2026) :
+
+- **Clés des échecs** : une par règle en échec, code, version et partenaire,
+  « règle|code|version|partenaire ». Le TS ([`failure-keys.ts`](../../src/lib/takeoff/rules/failure-keys.ts))
+  et le SQL (`takeoff_rule_failure_keys`) les lisent de la même façon dans le JSON stocké ;
+  vitest et pgTAP partagent la même table de cas.
+- **Vérification rouverte** : l'écrivain retire la vérification d'une ligne dont les nouveaux
+  résultats portent une clé qu'elle n'avait pas. Un échec qu'un partenaire apporte après le V ne
+  passe plus pour réglé sans que personne ne l'ait vu. Un échec ou un partenaire qui disparaît se
+  ferme seul. `updated_at` bouge : une revue qui avait lu la ligne la relit avant de l'enregistrer.
+  Le système l'inscrit au journal dans la même transaction, avec l'auteur de la vérification
+  retirée (`before_data`). Le prédicat de blocage ne change pas.
+- **Journal** : les décisions d'un utilisateur (vérification, exclusion et motif, quantité et
+  saisie, désignation, unité, page, preuve) sont écrites par trigger dans la transaction de
+  l'enregistrement, au nom de la session et à l'heure du serveur. Un enregistrement ne réussit
+  plus sans sa trace. Les changements propres à une application restent journalisés par la route
+  (`takeoff.mapping.applied`).
+- **Motif d'exclusion** : exigé par la base pour un client connecté (exclure, ou garder exclue
+  une ligne en changeant son motif) et par l'API (le motif d'une ligne exclue ne s'efface pas).
+  Les lignes exclues avant gardent leur état.
+- **Override lié à l'état** : l'audit enregistre, pour chaque ligne levée, sa quantité, son unité,
+  son `updated_at`, les clés de ses échecs et sa péremption
+  ([`apply-override-state.ts`](../../src/lib/takeoff/apply-override-state.ts)). Une ligne qui change
+  ensuite demande un nouvel override, comme un audit qui n'enregistre aucun état. Une ligne que
+  l'application renomme elle-même (règle de mapping) garde l'override si aucune décision n'a été
+  journalisée sur elle depuis.
 
 **Recalcul** (`recompute-server.ts`), pour toute la version :
 

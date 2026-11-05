@@ -164,7 +164,8 @@ export async function batchUpdateTakeoffItems(
   }
 
   // The fixed rules read the quantity, its entry, the exclusion and the page (TI-664): computed again for the version, then
-  // the saved lines read back with their results (writing them never moves updated_at).
+  // the saved lines read back with their results and verification (writing them moves updated_at only when it reopens a
+  // verified line, TI-677 PR D).
   const saved = results.flatMap((result) => (result.success ? [result.item_id] : []));
   let ruleStates: TakeoffItemRuleState[] | null = null;
   if (saved.length > 0) {
