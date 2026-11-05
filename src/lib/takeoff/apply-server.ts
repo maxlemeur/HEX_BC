@@ -164,6 +164,8 @@ export async function applyTakeoffJob(
             });
           }
 
+          // Bound to each lifted line's state (TI-677 PR D): the trigger refuses the override once one of them changed.
+          const states = new Map(guardItems.map((item) => [item.id, item.override_state]));
           await logTakeoffAuditEvent({
             supabase,
             tenantId,
@@ -176,6 +178,10 @@ export async function applyTakeoffJob(
               threshold: guardResult.threshold,
               blocked_item_ids: guardResult.blocked_items.map((i) => i.item_id),
               blocked_items_count: guardResult.blocked_items.length,
+              blocked_items_state: guardResult.blocked_items.flatMap((i) => {
+                const state = states.get(i.item_id);
+                return state ? [state] : [];
+              }),
               justification: overrideJustification,
             }),
             mode: "fail-hard",

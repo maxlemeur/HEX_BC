@@ -1,4 +1,4 @@
--- TI-677 (métré L5, PR D) : décisions sur les règles fixes (migration 20261105030000_takeoff_rule_decisions.sql).
+-- TI-677 (métré L5, PR D) : décisions sur les règles fixes (migration 20261105020000_takeoff_rule_decisions.sql).
 -- Mémo de pratique validé le 5 nov. 2026 (Q2 à Q4). Isolation justifiée : chaque cas exige l'écrivain du serveur, le
 -- trigger d'application et des audits fabriqués ; aucun parcours ne fait apparaître un nouveau partenaire entre deux
 -- calculs, ni ne modifie une ligne entre l'audit d'un override et l'application.

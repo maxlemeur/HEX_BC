@@ -62,18 +62,11 @@ export type TakeoffItemPatchUpdate = Omit<TakeoffItemPatchField, "quantity_enter
   quantity_entered_by?: string;
 };
 
-export type TakeoffItemPatchAuditField = {
-  field: Exclude<keyof TakeoffItemPatchField, "quantity_entered">;
-  previous: string | number | boolean | null;
-  next: string | number | boolean | null;
-};
-
 export type TakeoffItemPatchPreparation =
   | { success: false; error: string }
   | {
       success: true;
       updatePayload: TakeoffItemPatchUpdate;
-      auditFields: TakeoffItemPatchAuditField[];
     };
 
 export function prepareTakeoffItemPatch(input: {
@@ -104,23 +97,22 @@ export function prepareTakeoffItemPatch(input: {
     }
   }
 
+  // TI-677 (PR D): an excluded line always keeps a reason (require_takeoff_item_exclusion_reason refuses it too).
+  if (fields.is_excluded === undefined && fields.exclusion_reason === null && currentItem.is_excluded) {
+    return { success: false, error: "Le motif d’exclusion est obligatoire pour une ligne exclue." };
+  }
+
+  // Each change is journaled by the database in the save's transaction (audit_takeoff_item_decisions, TI-677 PR D).
   const updatePayload: TakeoffItemPatchUpdate = { updated_at: input.updatedAt };
-  const auditFields: TakeoffItemPatchAuditField[] = [];
 
   for (const field of ["designation", "quantity", "unit", "source_page"] as const) {
     const next = fields[field];
     if (next !== undefined) {
-      auditFields.push({ field, previous: currentItem[field], next });
       Object.assign(updatePayload, { [field]: next });
     }
   }
 
   if (fields.is_excluded !== undefined) {
-    auditFields.push({
-      field: "is_excluded",
-      previous: currentItem.is_excluded,
-      next: fields.is_excluded,
-    });
     updatePayload.is_excluded = fields.is_excluded;
     updatePayload.exclusion_reason = fields.is_excluded
       ? fields.exclusion_reason ?? null
@@ -130,11 +122,6 @@ export function prepareTakeoffItemPatch(input: {
   }
 
   if (fields.is_verified !== undefined) {
-    auditFields.push({
-      field: "is_verified",
-      previous: currentItem.is_verified,
-      next: fields.is_verified,
-    });
     updatePayload.is_verified = fields.is_verified;
     updatePayload.verified_at = fields.is_verified ? input.updatedAt : null;
     updatePayload.verified_by = fields.is_verified ? input.userId : null;
@@ -147,11 +134,6 @@ export function prepareTakeoffItemPatch(input: {
   }
 
   if (fields.evidence !== undefined) {
-    auditFields.push({
-      field: "evidence",
-      previous: currentItem.evidence,
-      next: fields.evidence,
-    });
     updatePayload.evidence = fields.evidence;
   }
 
@@ -167,11 +149,10 @@ export function prepareTakeoffItemPatch(input: {
     ] as const
   ).some((field) => fields[field] !== undefined);
   if (currentItem.is_verified && editsVerifiedContent && fields.is_verified === undefined) {
-    auditFields.push({ field: "is_verified", previous: true, next: false });
     updatePayload.is_verified = false;
     updatePayload.verified_at = null;
     updatePayload.verified_by = null;
   }
 
-  return { success: true, updatePayload, auditFields };
+  return { success: true, updatePayload };
 }

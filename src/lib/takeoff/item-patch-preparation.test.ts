@@ -82,9 +82,6 @@ describe("takeoff item patch preparation", () => {
     expect(patch(fields)).toMatchObject({
       success: true,
       updatePayload: { is_verified: false, verified_at: null, verified_by: null },
-      auditFields: expect.arrayContaining([
-        { field: "is_verified", previous: true, next: false },
-      ]),
     });
   });
 
