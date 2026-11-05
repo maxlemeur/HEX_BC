@@ -78,8 +78,10 @@ La [reprise locale](tester-army-local-development.md#arrêt-et-reprise) traite
 les interruptions brutales et ressources orphelines.
 
 Pour diagnostiquer un échec, lire d'abord le manifeste de campagne, la phase
-échouée, son rapport exact et son journal. Une installation/build interrompu
-n'est pas un résultat métier. Conserver le premier échec avant correction ; ne
+échouée, son rapport exact et son journal ; l'erreur finale du lanceur en cite
+déjà la cause ([port applicatif et cause d'un
+échec](tester-army-local-development.md#port-applicatif-et-cause-dun-échec)).
+Une installation/build interrompu n'est pas un résultat métier. Conserver le premier échec avant correction ; ne
 pas le masquer par un retry ou un timeout augmenté. Les workflows fixent les
 artefacts, délais et durées de rétention actuels.
 

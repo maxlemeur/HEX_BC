@@ -23,6 +23,7 @@ import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,
   PINNED_SUPABASE_CLI_VERSION,
+  SupabaseCliCommandError,
 } from "@/test/supabase-cli";
 
 function localJwt(role: "anon" | "service_role") {
@@ -140,6 +141,47 @@ describe("local Supabase CI", () => {
       args.map((value) => value === "public" ? "private" : value),
       [...args.slice(0, -1), process.cwd()],
     ]) expect(() => assertLocalOnlySupabaseArgs(bad)).toThrow("not allowlisted");
+  });
+
+  // TI-672: pg_prove names the failing file and test at the end of its stdout,
+  // while psql writes one NOTICE per file to stderr, captured after it. The
+  // phase message kept the last 6,000 characters: NOTICE lines only.
+  it("names the failing pgTAP file and test, not the psql NOTICE lines captured after them", async () => {
+    const { dependencies } = createDependencies();
+    const file = (name: string) => `/tmp/miaouffrage-supabase-ci-x/supabase/tests/database/${name}.test.sql`;
+    const stdout = [
+      ...Array.from({ length: 49 }, (_, index) => `${file(`passing-${index}`)} ${".".repeat(40)} ok`),
+      `${file("retire-empty-accepted-legacy-race")} ..... `,
+      "# Failed test 7: \"the concurrent writer waits for the retirement\"",
+      "Failed 1/9 subtests",
+      "Test Summary Report",
+      "-------------------",
+      `${file("retire-empty-accepted-legacy-race")} (Wstat: 0 Tests: 9 Failed: 1)`,
+      "  Failed test:  7",
+      "Files=50, Tests=2853, 28 wallclock secs",
+      "Result: FAIL",
+    ].join("\n");
+    const stderr = [
+      ...Array.from({ length: 200 }, (_, index) => `.psql-wrapped:${file(`passing-${index % 49}`)}:3: NOTICE:  extension "pgtap" already exists, skipping`),
+      "error running pg_prove: exit 1",
+    ].join("\n");
+    const supabase = dependencies.supabase.getMockImplementation()!;
+    dependencies.supabase.mockImplementation((args: string[], capture = false) => {
+      if (args.join(" ").startsWith("test db --local")) {
+        throw new SupabaseCliCommandError("test db", 1, [stdout, stderr].join("\n"), { stdout, stderr });
+      }
+      return supabase(args, capture);
+    });
+    const failure = await runLocalSupabaseCi(dependencies).then(
+      () => { throw new Error("The pgTAP phase must fail."); },
+      (error: unknown) => error as Error,
+    );
+    expect(failure.message).toMatch(/^Phase failed: run pgTAP: Supabase CLI command failed with exit code 1: test db\n/);
+    expect(failure.message).toContain("# Failed test 7: \"the concurrent writer waits for the retirement\"");
+    expect(failure.message).toContain(`${file("retire-empty-accepted-legacy-race")} (Wstat: 0 Tests: 9 Failed: 1)\n  Failed test:  7`);
+    expect(failure.message).toContain("Result: FAIL\nerror running pg_prove: exit 1");
+    expect(failure.message).not.toContain("NOTICE");
+    expect(failure.message.length).toBeLessThan(6_200);
   });
 
   it("rejects a zero-exit NOTESTS report before provisioning users and still cleans up", async () => {

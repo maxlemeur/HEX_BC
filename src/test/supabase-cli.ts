@@ -13,12 +13,15 @@ export type SupabaseEnvironment = Readonly<
 
 export class SupabaseCliCommandError extends Error {
   readonly capturedOutput: string;
+  /** Each stream apart: a long stderr (one psql NOTICE per pgTAP file) would bury the end of stdout. */
+  readonly streams: { stdout: string; stderr: string };
 
-  constructor(command: string, status: number | null, capturedOutput: string) {
+  constructor(command: string, status: number | null, capturedOutput: string, streams?: { stdout: string; stderr: string }) {
     super(
       `Supabase CLI command failed with exit code ${status ?? "unknown"}: ${command}`
     );
     this.capturedOutput = capturedOutput;
+    this.streams = streams ?? { stdout: capturedOutput, stderr: "" };
   }
 }
 
@@ -355,7 +358,8 @@ export function runSupabaseCli(
     throw new SupabaseCliCommandError(
       args.slice(0, 2).join(" "),
       result.status,
-      [result.stdout, result.stderr].filter(Boolean).join("\n")
+      [result.stdout, result.stderr].filter(Boolean).join("\n"),
+      { stdout: result.stdout ?? "", stderr: result.stderr ?? "" }
     );
   }
 

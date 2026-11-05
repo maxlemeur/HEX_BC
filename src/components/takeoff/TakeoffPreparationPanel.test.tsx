@@ -7,6 +7,11 @@
 // 3. A `*Once` mock left unused by a test that failed early answered the next
 //    test's first call: `clearAllMocks` keeps the once-queue, so one failure
 //    became two (the leaked save refusal kept the next test's level change unsaved).
+// Failure cases written before the TI-675 fix:
+// 4. A passive effect completes the loaded preparation (legacy unset level, unbound
+//    destination, new document of the affaire) from the draft of the render that showed it.
+//    An edit made after that render, before the effect ran, was replaced by the completed
+//    draft and never saved.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -40,6 +45,7 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const PLAN_SET_ID = "33333333-3333-4333-8333-333333333333";
 const SOURCE = takeoffPreparationSourceSchema.parse({ document_id: "plan-1", document_name: "Plan plomberie R+1.pdf", kind: "plan", revision: "A", source_version: "version-a", pages: [1], active: true, confirmed: true, plan_set_id: PLAN_SET_ID, page_count: 1 });
+const NEW_SOURCE = takeoffPreparationSourceSchema.parse({ document_id: "plan-2", document_name: "Plan chauffage R+1.pdf", kind: "plan", revision: "B", source_version: "version-b", pages: [], active: false, confirmed: false, plan_set_id: "55555555-5555-4555-8555-555555555555", page_count: 2 });
 
 function completePreparation(): TakeoffPreparation {
   const draft = createEmptyTakeoffPreparation({ estimateVersionId: VERSION_ID });
@@ -51,8 +57,9 @@ function success<T>(data: T) { return { ok: true as const, data }; }
 let stored: TakeoffPreparation;
 let storedRevision: number;
 let storedConfirmedAt: string | null;
+let availableSources: TakeoffPreparation["sources"];
 function state() {
-  return { draft: structuredClone(stored), revision: storedRevision, availableSources: [SOURCE], changedSourceIds: [], confirmedAt: storedConfirmedAt, confirmedBy: storedConfirmedAt ? "user" : null, sourceFingerprint: "files-a", readiness: evaluateTakeoffPreparation(stored) };
+  return { draft: structuredClone(stored), revision: storedRevision, availableSources, changedSourceIds: [], confirmedAt: storedConfirmedAt, confirmedBy: storedConfirmedAt ? "user" : null, sourceFingerprint: "files-a", readiness: evaluateTakeoffPreparation(stored) };
 }
 
 beforeEach(() => {
@@ -61,6 +68,7 @@ beforeEach(() => {
   stored = completePreparation();
   storedRevision = 5;
   storedConfirmedAt = null;
+  availableSources = [SOURCE];
   loadChatGptConnectionMock.mockResolvedValue(null);
   actions.load.mockImplementation(async () => success(state()));
   actions.save.mockImplementation(async ({ draft, expectedRevision }) => {
@@ -134,6 +142,25 @@ describe("TakeoffPreparationPanel", () => {
     expect(screen.getByLabelText("Exclusions")).toHaveValue("RDC, Zone 3");
     expect(screen.getByText(/modifiée pendant le chargement/)).toBeInTheDocument();
     expect(actions.save).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { completion: "a legacy unset level", setUp: () => { stored.processing = { level: null, provider: "auto" }; }, completed: (draft: TakeoffPreparation) => expect(draft.processing.level).toBe("C") },
+    { completion: "an unbound destination", setUp: () => { stored.destination = { ...stored.destination, estimate_version_id: null }; }, completed: (draft: TakeoffPreparation) => expect(draft.destination.estimate_version_id).toBe(VERSION_ID) },
+    { completion: "a new document of the affaire", setUp: () => { availableSources = [SOURCE, NEW_SOURCE]; }, completed: (draft: TakeoffPreparation) => expect(draft.sources.map((source) => source.document_id)).toEqual([SOURCE.document_id, NEW_SOURCE.document_id]) },
+  ])("keeps an edit made right after load while the panel completes $completion", async ({ setUp, completed }) => {
+    stored.scope = { ...stored.scope, confirmed: false };
+    setUp();
+    const exclusions = () => screen.queryByRole("textbox", { name: "Exclusions" });
+    const edited = beforePassiveEffectsOf(() => exclusions() !== null, () => fireEvent.change(exclusions()!, { target: { value: "RDC, Zone 2" } }));
+    render(<TakeoffPreparationPanel {...props} recommendedLevel="C" onLaunch={vi.fn()} />);
+    await edited.done();
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await waitFor(() => expect(actions.save).toHaveBeenCalledTimes(1));
+    await screen.findByText(/Préparation enregistrée · révision 6/);
+    expect(stored.scope.exclusions).toEqual(["RDC", "Zone 2"]);
+    completed(stored);
+    expect(exclusions()).toHaveValue("RDC, Zone 2");
   });
 
   it("preserves incompatible saved settings until an explicit repair rather than using the new source recommendation", async () => {

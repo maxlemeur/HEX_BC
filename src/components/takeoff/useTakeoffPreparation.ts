@@ -57,7 +57,21 @@ export function useTakeoffPreparation(projectId: string) {
     return () => { mounted.current = false; sequence.current++; };
   }, [reload]);
 
-  const updateDraft = useCallback((next: TakeoffPreparation) => {
+  /**
+   * A function is applied to the latest draft, which may hold an edit made since the last render: an effect
+   * that completes the draft must not rebuild it from its render's copy. Returning that draft changes nothing.
+   * The function is called once, synchronously, and not before a draft is loaded: it may update refs.
+   */
+  const updateDraft = useCallback((update: TakeoffPreparation | ((latest: TakeoffPreparation) => TakeoffPreparation)) => {
+    let next: TakeoffPreparation;
+    if (typeof update === "function") {
+      const latest = currentDraft.current;
+      if (!latest) return;
+      next = update(latest);
+      if (next === latest) return;
+    } else {
+      next = update;
+    }
     currentDraft.current = next;
     setDraft(next);
     setSaveState("pending");

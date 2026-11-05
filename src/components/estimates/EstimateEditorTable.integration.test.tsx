@@ -1,15 +1,26 @@
+// Failure cases written before the TI-675 fix:
+// 1. The window keydown listener of the editor shortcuts is registered again by a
+//    passive effect after every render. Lines that arrive outside a discrete event
+//    (a server answer) are shown one task before that effect runs: Ctrl+A pressed
+//    then selected the previous lines and left the new one unselected.
+// 2. In the same window, Ctrl+C copied the selected line as it was before the
+//    update now shown.
+// A browser journey cannot press a key between that commit and its effects;
+// beforePassiveEffectsOf replays that ordering on every run.
 import {
   cleanup,
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UserProvider } from "@/components/UserContext";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { useEstimateEditorRowActions } from "@/components/estimates/context/EstimateEditorRowActionsContext";
+import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -121,7 +132,7 @@ function createItem(partial: Partial<EditorEstimateItem>): EditorEstimateItem {
   } as EstimateItem;
 }
 
-function renderEstimateEditorTable(options: { items: EstimateItem[] }) {
+function renderEstimateEditorTable(options: { items: EstimateItem[]; serverItems?: Promise<EstimateItem[]> }) {
   const onPatchItem = vi.fn();
   const createNode = (nextItems: EstimateItem[]) => {
     const lineCount = nextItems.filter((item) => item.item_type === "line").length;
@@ -216,7 +227,13 @@ function renderEstimateEditorTable(options: { items: EstimateItem[] }) {
       </UserProvider>
     );
   };
-  const renderResult = render(createNode(options.items));
+  // Lines a server answer replaces, rendered outside any discrete event like the editor page does.
+  function ServerItems({ answer }: { answer: Promise<EstimateItem[]> }) {
+    const [items, setItems] = useState(options.items);
+    useEffect(() => { void answer.then(setItems); }, [answer]);
+    return createNode(items);
+  }
+  const renderResult = render(options.serverItems ? <ServerItems answer={options.serverItems} /> : createNode(options.items));
 
   return {
     onPatchItem,
@@ -278,5 +295,46 @@ describe("EstimateEditorTable integration", () => {
 
     expect(unitInput).toHaveValue("u");
     expect(onPatchItem).toHaveBeenCalledWith("line-real", { description: "u" }, { persist: true });
+  });
+
+  it("selects every line shown when Ctrl+A follows a line added by the server", async () => {
+    const lines = [createItem({ id: "line-a", title: "Ligne A" }), createItem({ id: "line-b", title: "Ligne B", position: 1 })];
+    let answer!: (items: EstimateItem[]) => void;
+    renderEstimateEditorTable({ items: lines, serverItems: new Promise((resolve) => { answer = resolve; }) });
+    await screen.findByRole("textbox", { name: "Title line-b" });
+
+    const pressed = beforePassiveEffectsOf(
+      () => screen.queryByRole("textbox", { name: "Title line-c" }) !== null,
+      () => fireEvent.keyDown(screen.getByTestId("editor-body"), { key: "a", ctrlKey: true }),
+    );
+    answer([...lines, createItem({ id: "line-c", title: "Ligne C", position: 2 })]);
+    await pressed.done();
+
+    expect(screen.getByText(/^\d+ lignes? sélectionnées?$/)).toHaveTextContent("3 lignes sélectionnées");
+  });
+
+  it("copies the selected line as shown when Ctrl+C follows its update by the server", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      const line = createItem({ id: "line-a", title: "Titre saisi" });
+      let answer!: (items: EstimateItem[]) => void;
+      renderEstimateEditorTable({ items: [line], serverItems: new Promise((resolve) => { answer = resolve; }) });
+      const title = await screen.findByRole("textbox", { name: "Title line-a" });
+      fireEvent.keyDown(screen.getByTestId("editor-body"), { key: "a", ctrlKey: true });
+      expect(screen.getByText(/^\d+ lignes? sélectionnées?$/)).toHaveTextContent("1 ligne sélectionnée");
+
+      const pressed = beforePassiveEffectsOf(
+        () => title.getAttribute("value") === "Titre enregistré",
+        () => fireEvent.keyDown(screen.getByTestId("editor-body"), { key: "c", ctrlKey: true }),
+      );
+      answer([{ ...line, title: "Titre enregistré" }]);
+      await pressed.done();
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(writeText.mock.calls[0][0]).toContain("Titre enregistré");
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 });
