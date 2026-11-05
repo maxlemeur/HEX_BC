@@ -12,8 +12,12 @@ import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeof
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import type { AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import type { TakeoffDpgfComparisonSummary, TakeoffMappingPreviewItem } from "@/lib/takeoff/types";
-import type { checkApplyGuard } from "@/lib/takeoff/guards";
+import type { ApplyGuardItem } from "@/lib/takeoff/guards";
+import { takeoffApplyOverrideItemState, type TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
 import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
+
+/** A line the apply guard reads, with the state an admin override records when it lifts it (TI-677 PR D). */
+export type TakeoffApplyGuardRow = ApplyGuardItem & { override_state: TakeoffApplyOverrideItemState };
 
 export async function invokeApplyTakeoffRpc(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
@@ -185,11 +189,12 @@ export async function listTakeoffApplyGuardItems(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   jobId: string;
-}): Promise<Parameters<typeof checkApplyGuard>[0]> {
+}): Promise<TakeoffApplyGuardRow[]> {
   const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_items" as never)
     .select(
-      "id, designation, confidence, evidence, source_page, is_verified, is_excluded, rule_results, rules_stale" as never,
+      ("id, designation, confidence, evidence, source_page, is_verified, is_excluded, rule_results, rules_stale, quantity, unit, "
+        + "updated_at, quantity_entered_by") as never,
       { count: "exact" }
     )
     .eq("tenant_id" as never, input.tenantId as never)
@@ -202,11 +207,13 @@ export async function listTakeoffApplyGuardItems(input: {
     );
   }
 
-  // Rule results are written by the server (TI-664); one that no longer parses blocks as stale results would.
-  return (data as Array<Record<string, unknown>>).map((row) => {
+  // Rule results are written by the server (TI-664); one that no longer parses blocks as stale results would. The
+  // override's state is read from the stored row, as the apply trigger reads it.
+  return (data as Array<Record<string, unknown> & { id: string }>).map((row) => {
     const results = TakeoffRuleResultsSchema.safeParse(row.rule_results ?? []);
-    return { ...row, rule_results: results.success ? results.data : [], rules_stale: row.rules_stale === true || !results.success };
-  }) as unknown as Parameters<typeof checkApplyGuard>[0];
+    return { ...row, rule_results: results.success ? results.data : [], rules_stale: row.rules_stale === true || !results.success,
+      override_state: takeoffApplyOverrideItemState(row as Parameters<typeof takeoffApplyOverrideItemState>[0]) };
+  }) as unknown as TakeoffApplyGuardRow[];
 }
 
 export async function logTakeoffMappingApplyAuditEvents(input: {

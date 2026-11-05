@@ -1,10 +1,6 @@
 import "server-only";
 
 import { readAllRows } from "@/lib/supabase/read-all";
-import {
-  logTakeoffAuditEvent,
-  takeoffAuditMetadataBuilders,
-} from "@/lib/takeoff/audit";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -52,9 +48,15 @@ async function readTakeoffItemsAfterRules(input: {
   return new Map(((data ?? []) as Array<{ id: string }>).map((row) => [row.id, row as unknown]));
 }
 
+/** A line's state the review shows and saves from, read with its rule state (TI-677 PR D). */
+const TAKEOFF_RULE_STATE_LINE = ["designation", "quantity", "unit", "source_page", "is_excluded", "exclusion_reason", "is_verified",
+  "verified_at", "verified_by", "evidence", "updated_at", "quantity_entered_at", "quantity_entered_by"] as const;
+
 /**
  * The rule state of every line of the job the rules read (evaluated, or stale awaiting the server), read after the
- * computation: the lines whose rules read the saved ones moved with them (TI-664 L5c). Null when it cannot be read
+ * computation: the lines whose rules read the saved ones moved with them (TI-664 L5c). With each line's state and its
+ * save (updated_at) as stored (TI-677 PR D): the computation may have reopened a partner (its verification withdrawn)
+ * or moved one whose failures grew, and the review saves it from the state it now shows. Null when it cannot be read
  * whole (an error, an unreadable result, more than TAKEOFF_ITEM_RULE_STATES_MAX lines): the review then keeps what
  * it has, and the apply guard still decides on the stored state.
  */
@@ -63,12 +65,12 @@ async function readTakeoffRuleStates(input: {
   tenantId: string;
   jobId: string;
 }): Promise<TakeoffItemRuleState[] | null> {
-  type Row = { id: string; rule_results: unknown; rules_evaluated_at: string | null; rules_stale: boolean };
+  type Row = Record<string, unknown> & { id: string; rule_results: unknown; rules_evaluated_at: string | null; rules_stale: boolean };
   let rows: Row[];
   try {
     // Every page, checked against the exact count (a short page of the server's max_rows never ends the read).
     const { data, error } = await readAllRows(() => input.supabase.from("takeoff_items" as never)
-      .select("id, rule_results, rules_evaluated_at, rules_stale" as never, { count: "exact" })
+      .select(["id", "rule_results", "rules_evaluated_at", "rules_stale", ...TAKEOFF_RULE_STATE_LINE].join(", ") as never, { count: "exact" })
       .eq("tenant_id" as never, input.tenantId as never).eq("job_id" as never, input.jobId as never) as never);
     if (error || !Array.isArray(data)) return null;
     rows = data as Row[];
@@ -79,7 +81,8 @@ async function readTakeoffRuleStates(input: {
   for (const row of rows) {
     if (row.rules_evaluated_at === null && row.rules_stale !== true) continue;
     const state = takeoffItemRuleStateSchema.safeParse({ item_id: row.id, rule_results: row.rule_results,
-      rules_evaluated_at: row.rules_evaluated_at, rules_stale: row.rules_stale === true });
+      rules_evaluated_at: row.rules_evaluated_at, rules_stale: row.rules_stale === true,
+      ...Object.fromEntries(TAKEOFF_RULE_STATE_LINE.map((field) => [field, row[field]])) });
     if (!state.success) return null;
     states.push(state.data);
   }
@@ -154,43 +157,9 @@ export async function batchUpdateTakeoffItems(
         results.push({ item_id: entry.item_id, success: false, error: updated.error });
         continue;
       }
+      // The database journaled each change with the save (audit_takeoff_item_decisions, TI-677 PR D): a save never
+      // succeeds without its trace.
       const updatedItem = normalizeTakeoffItemRow(updated.item);
-
-      await Promise.all(
-        plan.auditFields.map((audit) => {
-          const context = {
-            supabase,
-            tenantId,
-            userId,
-            jobId: normalizedJobId,
-            estimateVersionId: jobRow.estimate_version_id,
-            tableName: "takeoff_items",
-            mode: "non-blocking" as const,
-          };
-          if (audit.field === "is_excluded" && audit.next === true) {
-            return logTakeoffAuditEvent({
-              ...context,
-              action: "takeoff.item.excluded",
-              metadata: takeoffAuditMetadataBuilders["takeoff.item.excluded"]({
-                item_id: entry.item_id,
-                reason: entry.fields.exclusion_reason ?? null,
-              }),
-            });
-          }
-
-          return logTakeoffAuditEvent({
-            ...context,
-            action: "takeoff.item.modified",
-            metadata: takeoffAuditMetadataBuilders["takeoff.item.modified"]({
-              item_id: entry.item_id,
-              field: audit.field,
-              previous_value: audit.previous,
-              next_value: audit.next,
-            }),
-          });
-        })
-      );
-
       results.push({ item_id: entry.item_id, success: true, item: updatedItem });
     } catch {
       results.push({
@@ -202,7 +171,8 @@ export async function batchUpdateTakeoffItems(
   }
 
   // The fixed rules read the quantity, its entry, the exclusion and the page (TI-664): computed again for the version, then
-  // the saved lines read back with their results (writing them never moves updated_at).
+  // the saved lines read back with their results and verification (writing them moves updated_at only when it reopens a
+  // verified line, TI-677 PR D).
   const saved = results.flatMap((result) => (result.success ? [result.item_id] : []));
   let ruleStates: TakeoffItemRuleState[] | null = null;
   if (saved.length > 0) {

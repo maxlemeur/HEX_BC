@@ -410,8 +410,10 @@ reset role;
 
 select is((select rule_results from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
   current_setting('test.duplicate')::jsonb, 'the written results are stored');
-select is((select updated_at from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
-  '2001-02-03T04:05:06Z'::timestamptz, 'writing rule results does not move updated_at');
+-- TI-677 (PR D): results that bring a line a failure it did not have move it (a review that read it before reads it
+-- again); results that bring none never do (takeoff-rule-decisions.test.sql).
+select ok((select updated_at > '2001-02-03T04:05:06Z'::timestamptz from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000407'),
+  'writing results that bring the line a new failure moves updated_at');
 select ok((select rules_evaluated_at is not null and not rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000404'),
   'a computation clears the stale state');
 
@@ -442,7 +444,14 @@ values (current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000
     'tenant_id', current_setting('test.tenant_id'), 'user_id', '9e000000-0000-4000-8000-000000000002',
     'metadata', jsonb_build_object('estimate_version_id', '9e000000-0000-4000-8000-000000000105', 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array('9e000000-0000-4000-8000-000000000405', '9e000000-0000-4000-8000-000000000406'),
-      'blocked_items_count', 2, 'justification', 'Vérifié sur le plan fictif')),
+      'blocked_items_count', 2, 'justification', 'Vérifié sur le plan fictif',
+      -- TI-677 (PR D): each lifted line's state, as the route records it (apply-override-state.ts).
+      'blocked_items_state', (select jsonb_agg(jsonb_build_object('item_id', ti.id, 'quantity', ti.quantity, 'unit', ti.unit,
+        'updated_at', ti.updated_at, 'rule_failures', public.takeoff_rule_failure_keys(ti.rule_results), 'rules_stale', ti.rules_stale,
+        'designation', ti.designation, 'evidence', ti.evidence, 'source_page', ti.source_page, 'is_verified', ti.is_verified,
+        'quantity_entered_by', ti.quantity_entered_by))
+        from public.takeoff_items ti
+        where ti.id in ('9e000000-0000-4000-8000-000000000405', '9e000000-0000-4000-8000-000000000406')))),
   statement_timestamp() + interval '1 second');
 
 set local role authenticated;

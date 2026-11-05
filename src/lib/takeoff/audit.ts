@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import type { TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -58,6 +59,22 @@ const takeoffRecommendationWarningCodeSchema = z.enum([
   "unsupported_override",
   "mixed_pdf_signals",
 ]);
+
+const takeoffApplyOverrideItemStateSchema = z
+  .object({
+    item_id: z.string().uuid(),
+    quantity: z.number().finite(),
+    unit: z.string(),
+    updated_at: z.string().min(1),
+    rule_failures: z.array(z.string()),
+    rules_stale: z.boolean(),
+    designation: z.string(),
+    evidence: z.string().nullable(),
+    source_page: z.number().int().nullable(),
+    is_verified: z.boolean(),
+    quantity_entered_by: z.string().uuid().nullable(),
+  })
+  .strict();
 
 const jsonSchema: z.ZodType<Json> = z.lazy(() =>
   z.union([
@@ -211,6 +228,8 @@ const takeoffAuditMetadataSchemas = {
       threshold: z.number().min(0).max(1),
       blocked_item_ids: z.array(z.string().uuid()),
       blocked_items_count: nonNegativeIntSchema.default(0),
+      // TI-677 (PR D): each lifted line's state; the apply trigger refuses the override once one of them changed.
+      blocked_items_state: z.array(takeoffApplyOverrideItemStateSchema),
       justification: z.string().trim().min(10).max(500),
     })
     .strict(),
@@ -337,6 +356,7 @@ export type BuildTakeoffAuditMetadataInputByAction = {
     threshold: number;
     blocked_item_ids: string[];
     blocked_items_count?: number;
+    blocked_items_state: TakeoffApplyOverrideItemState[];
     justification: string;
   };
   "takeoff.apply.completed": {
@@ -500,6 +520,7 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
       blocked_item_ids: input.blocked_item_ids,
       blocked_items_count:
         input.blocked_items_count ?? input.blocked_item_ids.length,
+      blocked_items_state: input.blocked_items_state,
       justification: input.justification,
     }),
   "takeoff.apply.completed": (input) =>

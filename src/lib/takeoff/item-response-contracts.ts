@@ -38,10 +38,14 @@ export const TAKEOFF_ITEM_RULE_STATES_MAX = 5000;
 /**
  * The fixed rules' state of one line of the job, read after the PATCH's computation (or its failure): the results of
  * the job's other lines move with the saved one (two rooms of one page, a run on two zone pages of the same job, a
- * group's lines), so the review reads them again without reloading the job (TI-664 L5c). The lines of the version's
- * other jobs are not sent: each review reads its own job.
+ * group's lines), so the review reads them again without reloading the job (TI-664 L5c). With the line's state and
+ * its save as stored (TI-677 PR D: a partner the computation reopened, or whose failures grew, moved). The lines of the
+ * version's other jobs are not sent: each review reads its own job.
  */
-export const takeoffItemRuleStateSchema = z.object({
+export const takeoffItemRuleStateSchema = takeoffJobItemResponseSchema.pick({
+  designation: true, quantity: true, unit: true, source_page: true, is_excluded: true, exclusion_reason: true, is_verified: true,
+  verified_at: true, verified_by: true, evidence: true, updated_at: true, quantity_entered_at: true, quantity_entered_by: true,
+}).partial().extend({
   item_id: uuid, rule_results: TakeoffRuleResultsSchema, rules_evaluated_at: timestamp.nullable(), rules_stale: z.boolean(),
 }).strict();
 

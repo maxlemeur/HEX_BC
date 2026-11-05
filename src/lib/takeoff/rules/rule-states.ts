@@ -5,8 +5,9 @@ type RuleLine = Pick<TakeoffJobItem, "id" | "rule_results" | "rules_evaluated_at
 /**
  * The lines with the rule state a PATCH read after its computation (TI-664 L5c): a saved line's partners (a run on
  * two zone plans, two rooms of one page) show what the server now holds, settled or failed, and a failed computation
- * leaves them « à recalculer ». A line `keep` names (one the user is still editing or saving) keeps its own: its save
- * reads it again. Lines the answer does not name are left as they are.
+ * leaves them « à recalculer ». A reopened partner shows it, and is saved from its current updated_at (TI-677 PR D). A
+ * line `keep` names (one the user is still editing or saving) keeps its own: its save reads it again. Lines the answer
+ * does not name are left as they are.
  */
 export function withRuleStates<T extends RuleLine>(items: readonly T[], states: readonly TakeoffItemRuleState[] | undefined,
   keep: (item: T) => boolean = () => false): T[] {
@@ -15,6 +16,10 @@ export function withRuleStates<T extends RuleLine>(items: readonly T[], states: 
   return items.map((item) => {
     const state = byId.get(item.id);
     if (!state || keep(item)) return item;
-    return { ...item, rule_results: state.rule_results, rules_evaluated_at: state.rules_evaluated_at, rules_stale: state.rules_stale };
+    // The line as the server read it, with its save (TI-677 PR D: a partner it reopened or moved); an older answer
+    // carries the rule fields only.
+    const read: Partial<TakeoffItemRuleState> = { ...state };
+    delete read.item_id;
+    return { ...item, ...read };
   });
 }

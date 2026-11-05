@@ -7,6 +7,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { boundRuleResults, readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
+import { ruleFailuresReopen } from "@/lib/takeoff/rules/failure-keys";
 import type { PageAnchors } from "@/lib/takeoff/rules/registration";
 import { ruleLinePage, type RulePageCandidate } from "@/lib/takeoff/rules/recompute-pages";
 import type { TakeoffFrameTransform, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
@@ -47,7 +48,7 @@ type ItemRow = {
   id: string; job_id: string; designation: string; unit: string; quantity: number; is_excluded: boolean; updated_at: string;
   metadata: unknown; source_file_name: string | null; source_page: number | null; rule_results: unknown; rules_stale: boolean;
   rules_stale_at: string | null;
-  rules_evaluated_at: string | null; quantity_entered_by: string | null;
+  rules_evaluated_at: string | null; quantity_entered_by: string | null; is_verified: boolean;
 };
 type PageRow = { id: string; job_id: string; plan_file_id: string | null; source_file_name: string | null; source_page: number; reading: unknown;
   rule_anchors: unknown };
@@ -85,7 +86,12 @@ function sameJson(left: unknown, right: unknown) {
   return canonical(left) === canonical(right);
 }
 
-export type TakeoffRulesRecomputation = { lines: number; written: number; skipped: number };
+/**
+ * lines: the lines the rules read; written: the lines whose results were written; skipped: the lines the writer left
+ * (changed since read); reopened: the verified lines among the writes whose new results bring a failure they did not
+ * have (TI-677 PR D) — the writer withdraws their verification, by the same keys (takeoff_rule_failures_reopen).
+ */
+export type TakeoffRulesRecomputation = { lines: number; written: number; skipped: number; reopened: number };
 
 /**
  * Computes and writes the rules of a version. Never throws for a version without rule inputs; any read or write
@@ -109,16 +115,16 @@ export async function recomputeTakeoffRulesForVersion(input: {
     .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
   if (jobError) failed("Impossible de lire les jobs de la version pour les règles.", jobError);
   const jobs = (jobData ?? []) as unknown as JobRow[];
-  if (jobs.length === 0) return { lines: 0, written: 0, skipped: 0 };
+  if (jobs.length === 0) return { lines: 0, written: 0, skipped: 0, reopened: 0 };
   const jobIds = jobs.map((job) => job.id);
 
   const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
     .select(("id, job_id, designation, unit, quantity, is_excluded, updated_at, metadata, source_file_name, source_page, "
-      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entered_by") as never, { count: "exact" })
+      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entered_by, is_verified") as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, jobIds as never));
   if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
   const items = ((itemData ?? []) as unknown as ItemRow[]).map((item) => ({ item, inputs: readRuleInputs(item.metadata) }));
-  if (!items.some(({ inputs }) => inputs !== null)) return { lines: 0, written: 0, skipped: 0 };
+  if (!items.some(({ inputs }) => inputs !== null)) return { lines: 0, written: 0, skipped: 0, reopened: 0 };
 
   const jobOrder = new Map(jobs.map((job, index) => [job.id, index]));
   const status = new Map(jobs.map((job) => [job.id, job.status]));
@@ -162,9 +168,10 @@ export async function recomputeTakeoffRulesForVersion(input: {
   const evaluation = evaluateTakeoffRules({ lines, pages });
 
   // Each line as read: its updated_at and when it was last made stale (a partner's later edit keeps it stale).
-  const writes: Array<{ id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null }> = [];
+  const writes: RuleResultWrite[] = [];
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
   let unbounded = 0;
+  let reopened = 0;
   for (const { item, inputs } of items) {
     if (inputs === null || status.get(item.job_id) !== "completed") continue;
     const stored = geometries.get(item.id);
@@ -183,22 +190,51 @@ export async function recomputeTakeoffRulesForVersion(input: {
     }
     if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, results)) {
       writes.push({ id: item.id, results, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
+      if (item.is_verified && ruleFailuresReopen(item.rule_results, results)) reopened += 1;
     }
   }
   if (unbounded > 0) {
     console.error("takeoff.rules.results_unbounded", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: unbounded });
   }
+  const written = await writeTakeoffRuleResultChunks({ supabase, tenantId: input.tenantId,
+    estimateVersionId: input.estimateVersionId, writes, transforms, stamp });
+  if (reopened > 0) {
+    console.info("takeoff.rules.reopened", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: reopened });
+  }
+  return { lines: lines.length, written, skipped: writes.length - written, reopened };
+}
+
+type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null };
+
+/**
+ * Writes a computation's results by chunks. A chunk whose write moves a line (a verified line reopened, failures that
+ * grow: TI-677 PR D) moves the version's stamp: the writer returns the stamp after its own writes, and the next chunk
+ * checks that one (with the stamp read before the computation it would write nothing). Returns the lines written.
+ */
+export async function writeTakeoffRuleResultChunks(input: {
+  supabase: ServiceClient;
+  tenantId: string;
+  estimateVersionId: string;
+  writes: readonly RuleResultWrite[];
+  transforms: ReadonlyArray<{ item_id: string; transform: TakeoffFrameTransform | null }>;
+  stamp: string;
+  chunk?: number;
+}) {
+  const size = input.chunk ?? TAKEOFF_RULES_WRITE_CHUNK;
+  let stamp = input.stamp;
   let written = 0;
-  for (let offset = 0; offset < Math.max(writes.length, transforms.length); offset += TAKEOFF_RULES_WRITE_CHUNK) {
-    const { data, error } = await supabase.rpc("write_takeoff_rule_results" as never, {
+  for (let offset = 0; offset < Math.max(input.writes.length, input.transforms.length); offset += size) {
+    const { data, error } = await input.supabase.rpc("write_takeoff_rule_results" as never, {
       p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
-      p_items: writes.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK),
-      p_transforms: transforms.slice(offset, offset + TAKEOFF_RULES_WRITE_CHUNK), p_stamp: stamp,
+      p_items: input.writes.slice(offset, offset + size), p_transforms: input.transforms.slice(offset, offset + size), p_stamp: stamp,
     } as never);
     if (error) failed("Impossible d’enregistrer les résultats des règles.", error);
-    written += Array.isArray(data) ? (data as unknown[]).length : 0;
+    const rows = Array.isArray(data) ? (data as Array<{ version_stamp?: unknown }>) : [];
+    written += rows.length;
+    const next = rows[0]?.version_stamp;
+    if (typeof next === "string") stamp = next;
   }
-  return { lines: lines.length, written, skipped: writes.length - written };
+  return written;
 }
 
 /** The same computation, never throwing: logged, for callers that go on without it (the stored state still blocks). */

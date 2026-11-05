@@ -25,6 +25,15 @@ const SECOND_ITEM_ID = "88888888-8888-4888-8888-888888888888";
 const THIRD_ITEM_ID = "99999999-9999-4999-8999-999999999999";
 const FOURTH_ITEM_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+/** A line's state as the rule states read it (TI-677 PR D): what the review shows and saves, and its save. */
+function lineState(id: string) {
+  return {
+    id, designation: "EF cuivre 20/22", quantity: 4, unit: "ml", source_page: 2, is_excluded: false, exclusion_reason: null,
+    is_verified: false, verified_at: null, verified_by: null, evidence: "Repère localisé", updated_at: "2026-01-01T00:04:00.000Z",
+    quantity_entered_at: null, quantity_entered_by: null,
+  };
+}
+
 function entry(itemId: string, updatedAt = UPDATED_AT) {
   return { item_id: itemId, updated_at: updatedAt, fields: { quantity: 18 } };
 }
@@ -86,21 +95,20 @@ describe("takeoff item patch persistence", () => {
       expect(filterValue(query, "tenant_id")).toBe(M3_TENANT_ID);
       expect(filterValue(query, "job_id")).toBe(M3_JOB_ID);
     }
-    expect(fake.writesTo("audit_logs")).toHaveLength(1);
+    expect(fake.writesTo("audit_logs")).toHaveLength(0);
     expect(response.results[3]?.item?.metadata).toMatchObject({ original_unit: "m.l" });
   });
 
-  it("awaits non-blocking audit completion before processing the next item", async () => {
-    let releaseAudit: (value: { data: null; error: { code: string; message: string } }) => void = () => {};
-    const pendingAudit = new Promise<{ data: null; error: { code: string; message: string } }>((resolve) => {
-      releaseAudit = resolve;
-    });
+  // TI-677 (PR D): the journal of a decision (verification, exclusion, quantity) is written by the database in the
+  // save's own transaction (audit_takeoff_item_decisions). The route used to write it afterwards, in a mode that let a
+  // save succeed without its trace; it writes nothing now, whatever the audit table would answer.
+  it("never writes the journal of a save itself: the database writes it with the save", async () => {
     let item = takeoffItemRow();
     const fake = createSupabaseFake({
       tables: {
         takeoff_jobs: () => ({ data: takeoffJobRow({ status: "completed" }), error: null }),
         takeoff_items: () => ({ data: item, error: null }),
-        audit_logs: () => pendingAudit,
+        audit_logs: () => ({ data: null, error: { code: "42501", message: "audit refused" } }),
       },
       rpc: {
         update_takeoff_item_for_review: (args) => {
@@ -111,29 +119,11 @@ describe("takeoff item patch persistence", () => {
     });
     useFake(fake);
 
-    let settled = false;
-    const operation = batchUpdateTakeoffItems(M3_JOB_ID, {
-      items: [entry(M3_ITEM_ID), entry(M3_ITEM_ID)],
-    }).then((response) => {
-      settled = true;
-      return response;
+    const response = await batchUpdateTakeoffItems(M3_JOB_ID, {
+      items: [{ item_id: M3_ITEM_ID, updated_at: UPDATED_AT, fields: { quantity: 18, is_excluded: true, exclusion_reason: "Hors lot" } }],
     });
-    await vi.waitFor(() => expect(fake.writesTo("audit_logs")).toHaveLength(1));
-    expect(settled).toBe(false);
-    expect(fake.queries.filter((query) => query.table === "takeoff_items")).toHaveLength(1);
-    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toHaveLength(1);
-    releaseAudit({ data: null, error: { code: "42501", message: "audit refused" } });
-
-    const response = await operation;
-    expect(response).toMatchObject({
-      succeeded: 1,
-      failed: 1,
-      results: [
-        { success: true, item: { quantity: 18 } },
-        { success: false, error: expect.stringContaining("Conflit de concurrence") },
-      ],
-    });
-    expect(fake.rpcCalls.filter((call) => call.fn === "update_takeoff_item_for_review")).toHaveLength(1);
+    expect(response).toMatchObject({ succeeded: 1, failed: 0, results: [{ success: true, item: { quantity: 18 } }] });
+    expect(fake.writesTo("audit_logs")).toHaveLength(0);
   });
 
   // TI-664 L5c: a saved line's rules read the other lines of its job (a run on two zone plans, two rooms of a page).
@@ -153,9 +143,9 @@ describe("takeoff item patch persistence", () => {
           const id = filterValue(query, "id");
           if (id) return { data: takeoffItemRow({ id, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: false }), error: null };
           return { data: [
-            { id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
-            { id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
-            { id: THIRD_ITEM_ID, rule_results: [], rules_evaluated_at: null, rules_stale: false },
+            { ...lineState(M3_ITEM_ID), rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+            { ...lineState(SECOND_ITEM_ID), rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+            { ...lineState(THIRD_ITEM_ID), rule_results: [], rules_evaluated_at: null, rules_stale: false },
           ], error: null, count: 3 };
         },
         audit_logs: () => ({ data: null, error: null }),
@@ -173,9 +163,13 @@ describe("takeoff item patch persistence", () => {
     const response = await batchUpdateTakeoffItems(M3_JOB_ID, { items: [entry(M3_ITEM_ID)] });
 
     expect(response.results).toMatchObject([{ item_id: M3_ITEM_ID, success: true, item: { quantity: 18 } }]);
+    // TI-677 (PR D): with each line's state as stored, its verification and its save (updated_at), which the server
+    // may have moved: a partner the computation reopened, or whose failures grew, shows it without a reload, and the
+    // review saves it from the state it now shows.
     expect(response.rule_states).toEqual([
-      { item_id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
-      { item_id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { ...lineState(M3_ITEM_ID), id: undefined, item_id: M3_ITEM_ID, rule_results: [], rules_evaluated_at: evaluatedAt, rules_stale: true },
+      { ...lineState(SECOND_ITEM_ID), id: undefined, item_id: SECOND_ITEM_ID, rule_results: failing, rules_evaluated_at: evaluatedAt,
+        rules_stale: true },
     ]);
     const stateRead = fake.queries.find((query) => query.table === "takeoff_items" && query.operation === "select" && !filterValue(query, "id"));
     expect(stateRead && [filterValue(stateRead, "tenant_id"), filterValue(stateRead, "job_id")]).toEqual([M3_TENANT_ID, M3_JOB_ID]);

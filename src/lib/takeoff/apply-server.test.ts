@@ -121,14 +121,23 @@ describe("takeoff apply orchestration", () => {
       .mockResolvedValueOnce({ ...completedJob, level: "C" } as never)
       .mockResolvedValue({ ...completedJob, level: "C", status: "applied" } as never);
     vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.7);
+    // TI-677 (PR D): the override records each blocked line's state; the trigger refuses it once a line changed.
+    const state = { item_id: SECTION_ID, quantity: 4, unit: "ml", updated_at: "2026-10-28T09:00:00.123456+00:00",
+      rule_failures: [], rules_stale: false, designation: "Canalisation", evidence: "Plan A", source_page: 1, is_verified: false,
+      quantity_entered_by: null };
+    const included = { id: "66666666-6666-4666-8666-666666666666", designation: "Vanne", confidence: 0.9, evidence: "Plan A",
+      source_page: 1, is_verified: true, is_excluded: false,
+      override_state: { ...state, item_id: "66666666-6666-4666-8666-666666666666" } };
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([{
       id: SECTION_ID, designation: "Canalisation", confidence: 0.6, evidence: "Plan A", source_page: 1, is_verified: false, is_excluded: false,
-    }]);
+      override_state: state,
+    }, included] as never);
     await applyTakeoffJob(JOB_ID, { ...request, override: true, override_justification: "  Contrôle manuel  " });
     expect(getTakeoffLowConfidenceThresholdForTenant).toHaveBeenCalledWith(TENANT_ID, { supabase: auth.supabase });
     expect(logTakeoffAuditEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
       action: "takeoff.apply.override", mode: "fail-hard",
-      metadata: expect.objectContaining({ threshold: 0.7, justification: "Contrôle manuel", blocked_item_ids: [SECTION_ID] }),
+      metadata: expect.objectContaining({ threshold: 0.7, justification: "Contrôle manuel", blocked_item_ids: [SECTION_ID],
+        blocked_items_state: [state] }),
     }));
     calledBefore(vi.mocked(logTakeoffAuditEvent), vi.mocked(bulkUpdateEstimateItems));
   });
