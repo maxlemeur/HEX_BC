@@ -8,6 +8,7 @@ import { test } from "@e2e-dev/web";
 import { credentials, expect } from "e2e";
 
 import { recordEvidence } from "../critical/fixtures";
+import { hydratedUi } from "../critical/hydration-support";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
 
 test("PFL01 profile preserves saved details, AI preferences and accessible account management", {
@@ -106,7 +107,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       await route.abort();
       throw new Error(`Profile campaign blocked ${method} ${url.hostname}; unexpected origin or mutation.`);
     });
-    const open = (pathname = "/dashboard/profile") => app.open(new URL(pathname, origin).href);
+    const open = (pathname = "/dashboard/profile") => hydratedUi({ app, screen, browser }, origin).app.open(pathname);
     const account = { ...credentials.user("army"), username: email };
     await open("/login");
     await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
