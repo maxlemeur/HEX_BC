@@ -7,7 +7,7 @@ import type {
   EstimateReviewCommentScope,
   EstimateReviewCorrectionStatus,
   EstimateReviewDecision,
-} from "@/lib/estimates/rules-engine";
+} from "@/lib/estimates/approval-types";
 
 export type DraftComment = EstimateApprovalDecisionCommentInput & {
   id: string;

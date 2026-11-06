@@ -1,10 +1,10 @@
+import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
 import { z } from "zod";
 
 import {
   badRequest,
   forbidden,
   mapSupabaseError,
-  notFound,
 } from "@/lib/estimates/errors";
 import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
@@ -15,18 +15,6 @@ import type { Database } from "@/types/database";
 
 type Supabase = ServerSupabaseClient;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-
-type EmbeddedProjectAccess = Pick<
-  Database["public"]["Tables"]["estimate_projects"]["Row"],
-  "id" | "tenant_id" | "user_id"
->;
-
-type VersionAccessRow = Pick<
-  Database["public"]["Tables"]["estimate_versions"]["Row"],
-  "id" | "tenant_id" | "status"
-> & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
 
 type AuthenticatedContext = {
   supabase: Supabase;
@@ -120,27 +108,11 @@ export type TrackCorrectionsResult = SuggestionLearningState & {
 
 export type ReviewLearningAction = "approve" | "reject" | "reset";
 
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
-
 function isTenantAdmin(tenantRole: TenantRole) {
   return tenantRole === TENANT_ADMIN_ROLE;
 }
 
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    isTenantAdmin(input.context.tenantRole)
-  );
-}
-
-function assertDraftStatus(status: VersionAccessRow["status"]) {
+function assertDraftStatus(status: Database["public"]["Enums"]["estimate_status"]) {
   if (status === "draft") return;
   throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
 }
@@ -334,41 +306,6 @@ export function applyLearningBoost(input: {
   return result;
 }
 
-async function getVersionAccessOrThrow(
-  context: AuthenticatedContext,
-  versionId: string
-): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
-  const { data, error } = await context.supabase
-    .from("estimate_versions")
-    .select("id, tenant_id, status, estimate_projects!inner(id, tenant_id, user_id)")
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== context.tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  return {
-    version,
-    project,
-  };
-}
-
 async function getLearningConfig(
   context: Pick<AuthenticatedContext, "supabase" | "tenantId">
 ): Promise<SuggestionLearningConfig> {
@@ -516,7 +453,7 @@ export async function getLearnings(input: {
   let scopedRuleIds: string[] | undefined;
 
   if (input.versionId) {
-    const { project } = await getVersionAccessOrThrow(context, input.versionId);
+    const { project } = await getOwnedEstimateVersion(context, input.versionId);
     scopedRuleIds = await loadRuleIdsForVersion({
       context,
       ownerUserId: project.user_id,
@@ -582,7 +519,7 @@ export async function trackCorrection(input: {
     };
   }
 
-  const { version, project } = await getVersionAccessOrThrow(context, input.versionId);
+  const { version, project } = await getOwnedEstimateVersion(context, input.versionId);
   assertDraftStatus(version.status);
 
   await assertDraftLockOwnedByCurrentUser({

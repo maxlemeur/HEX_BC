@@ -8,7 +8,7 @@ import { fetchApi } from "@/components/catalogue/api";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 
 type BulkJsonPanelProps = {
   onCompleted: () => Promise<void> | void;

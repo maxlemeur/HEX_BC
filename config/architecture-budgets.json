@@ -18,7 +18,7 @@
     "src/components/estimates/components/EstimateEditorToolbar.tsx": 1500,
     "src/components/estimates/components/estimate-editor-row/LineRow.tsx": 1200,
     "src/components/takeoff/TakeoffReviewPage.tsx": 1600,
-    "src/hooks/useEstimateEditorState.impl.tsx": 3100,
+    "src/hooks/useEstimateEditorState.tsx": 3100,
     "src/hooks/useEstimateEditorSuggestionsController.ts": 1400,
     "src/lib/affaires/hub-dev-scenarios.ts": 1500,
     "src/lib/affaires/intake-server.ts": 3400,

@@ -1,6 +1,12 @@
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  clampConfidence,
+  normalizeRiskSignals,
+  readJsonStringArray,
+  toNullableText,
+} from "@/lib/estimates/generated-ouvrage-evidence";
 import type { Database, Json } from "@/types/database";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
 
@@ -21,14 +27,6 @@ type GeneratedOuvrageFragmentKind =
   | "internal_note"
   | "history"
   | "library";
-type GeneratedOuvrageEvidenceKind = "fact" | "hypothesis" | "inference";
-type GeneratedOuvrageRiskSignalSeverity = "info" | "warning" | "critical";
-type GeneratedOuvrageRiskSignal = {
-  label: string;
-  severity: GeneratedOuvrageRiskSignalSeverity;
-  basis: GeneratedOuvrageEvidenceKind;
-};
-
 type GeneratedOuvrageSourceFragmentRow = {
   id: string;
   draft_id: string;
@@ -75,17 +73,6 @@ type GeneratedOuvrageWorkSnapshotRow = {
   metadata: Json;
 };
 
-function toNullableText(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function clampConfidence(value: number | null | undefined) {
-  if (!Number.isFinite(value)) return 0.5;
-  return Math.max(0, Math.min(1, Number(value)));
-}
-
 function toJson(
   value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null
 ) {
@@ -99,52 +86,6 @@ function mapFragmentKindToCandidateSourceType(
   if (kind === "history") return "history";
   if (kind === "library") return "library";
   return "text";
-}
-
-function readJsonStringArray(value: Json | unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => toNullableText(entry))
-    .filter((entry): entry is string => Boolean(entry))
-    .slice(0, 8);
-}
-
-function normalizeRiskSignals(value: unknown): GeneratedOuvrageRiskSignal[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => {
-      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-        return null;
-      }
-
-      const label = toNullableText(
-        typeof entry.label === "string" ? entry.label : null
-      );
-      const severity =
-        typeof entry.severity === "string" &&
-        ["info", "warning", "critical"].includes(entry.severity)
-          ? (entry.severity as GeneratedOuvrageRiskSignalSeverity)
-          : null;
-      const basis =
-        typeof entry.basis === "string" &&
-        ["fact", "hypothesis", "inference"].includes(entry.basis)
-          ? (entry.basis as GeneratedOuvrageEvidenceKind)
-          : null;
-
-      if (!label || !severity || !basis) {
-        return null;
-      }
-
-      return { label, severity, basis } satisfies GeneratedOuvrageRiskSignal;
-    })
-    .filter((entry): entry is GeneratedOuvrageRiskSignal => entry !== null)
-    .slice(0, 8);
 }
 
 /** A version's generated-ouvrage applications. It needs only the version id, so the editor read starts it with the items. */

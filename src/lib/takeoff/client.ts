@@ -10,7 +10,7 @@ import {
 } from "@/lib/takeoff/price-suggestion-contracts";
 import { parseTakeoffDpgfComparisonResponse } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { parseTakeoffLineEvidencePanelResponse } from "@/lib/takeoff/line-evidence-contracts";
-import { getEstimateDraftLockSessionId } from "@/lib/estimates/client";
+import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type {
   CreatePlanSetInput as SharedCreatePlanSetInput,

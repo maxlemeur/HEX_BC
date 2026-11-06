@@ -45,7 +45,7 @@ import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";

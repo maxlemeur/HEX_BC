@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useRef, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { EstimateEditorTable } from "../../src/components/estimates/EstimateEditorTable";
-import { ToastProvider, useToast } from "../../src/components/ui-legacy/Toast";
+import { ToastProvider, useToast } from "../../src/components/feedback/toast-provider";
 
 type TableProps = ComponentProps<typeof EstimateEditorTable>;
 const noop = () => {};

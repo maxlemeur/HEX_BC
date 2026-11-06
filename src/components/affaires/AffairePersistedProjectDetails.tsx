@@ -10,7 +10,7 @@ import {
 } from "@/components/affaires/AffaireProjectDetailsCard";
 import { ProjectIconPicker, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 
 type AffairePersistedProjectDetailsProps = {
   projectId: string;

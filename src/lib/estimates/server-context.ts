@@ -9,7 +9,6 @@ import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
-import { linkTakeoffJobsFromSourceVersionToTargetVersion } from "@/lib/takeoff/version-links";
 import type { Database } from "@/types/database";
 
 import { conflict, forbidden, mapSupabaseError, notFound } from "./errors";
@@ -278,39 +277,4 @@ export async function assertDraftLockOwnedByCurrentUser(input: {
       is_current_session: false,
     },
   });
-}
-
-export async function tryCarryOverTakeoffJobsToNewVersion(input: {
-  supabase: Supabase;
-  tenantId: string;
-  userId: string;
-  sourceVersionId: string | null;
-  targetVersionId: string;
-}) {
-  if (!input.sourceVersionId) {
-    return;
-  }
-
-  try {
-    await linkTakeoffJobsFromSourceVersionToTargetVersion({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      userId: input.userId,
-      sourceVersionId: input.sourceVersionId,
-      targetVersionId: input.targetVersionId,
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("Unexpected table:")
-    ) {
-      return;
-    }
-
-    console.warn("takeoff carry-over skipped", {
-      sourceVersionId: input.sourceVersionId,
-      targetVersionId: input.targetVersionId,
-      error,
-    });
-  }
 }

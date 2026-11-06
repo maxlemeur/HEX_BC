@@ -23,6 +23,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 import {
+  fetchGeneratedOuvrageSubdetailDraft,
   generateOuvragesFromText,
   insertGeneratedOuvrages,
 } from "@/lib/estimates/generated-ouvrages";
@@ -453,7 +454,7 @@ describe("generateOuvragesFromText", () => {
   });
 });
 
-describe("insertGeneratedOuvrages", () => {
+describe("lecture et insertion d’un ouvrage généré", () => {
   // Retained regressions adapted before the atomic implementation. RPC stubs
   // exercise preparation/output handling; native WFC02 proves transactionality.
   const OPERATION_KEY = "13131313-1313-4313-8313-131313131313";
@@ -543,6 +544,37 @@ describe("insertGeneratedOuvrages", () => {
     const args = commit![1] as Record<string, unknown>;
     return (args.p_prepared_candidates as Array<Record<string, unknown>>)[0];
   }
+
+  it("relit les huit premières preuves valides du sous-détail dans leur ordre d’origine", async () => {
+    const { snapshot } = setup();
+    const longLabel = "x".repeat(221);
+    const risk = { label: " À revoir ", severity: "warning", basis: "hypothesis" };
+    const following = ["B", "C", "D", "E", "F", "G", "H"].map((label) => ({
+      label, severity: "critical", basis: "fact",
+    }));
+    Object.assign(snapshot.items[0], {
+      confidence: -2,
+      facts: ["", " A ", "A", "B", "C", "D", "E", "F", "G", "H"],
+      metadata: { risk_signals: [
+        null, [], { ...risk, label: " " }, { ...risk, severity: "unknown" },
+        { ...risk, basis: "unknown" }, risk, risk, { ...risk, label: longLabel }, ...following,
+      ] },
+    });
+    Object.assign(snapshot.items[1], { confidence: 2 });
+
+    const result = await fetchGeneratedOuvrageSubdetailDraft({
+      versionId: VERSION_ID, draftId: DRAFT_ID, candidateId: CANDIDATE_ID,
+    });
+    const first = result.components[0];
+    expect(first.facts).toEqual(["A", "A", "B", "C", "D", "E", "F", "G"]);
+    expect(first.riskSignals).toEqual([
+      { label: "À revoir", severity: "warning", basis: "hypothesis" },
+      { label: "À revoir", severity: "warning", basis: "hypothesis" },
+      { label: longLabel, severity: "warning", basis: "hypothesis" },
+      ...["B", "C", "D", "E", "F"].map((label) => ({ label, severity: "critical", basis: "fact" })),
+    ]);
+    expect(result.components.map(({ confidence }) => confidence)).toEqual([0, 1]);
+  });
 
   it("derives inserted labor hours from a manual reviewed quantity even when yield metadata is still present", async () => {
     const { supabase } = setup({ existingFallback: true, manualLaborQuantity: 36 });

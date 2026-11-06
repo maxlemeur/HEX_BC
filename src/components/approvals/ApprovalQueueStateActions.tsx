@@ -13,7 +13,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import type { ReviewerState } from "@/lib/approvals/server";
 
 const STATE_OPTIONS: { value: ReviewerState; label: string }[] = [

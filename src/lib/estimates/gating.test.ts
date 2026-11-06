@@ -234,6 +234,36 @@ describe("estimate send gating", () => {
     expect(result.warningFlags.map((flag) => flag.key)).toContain("missing_price");
   });
 
+  it("keeps conflicting tenant flags blocking, including explicitly recorded zero split hours", async () => {
+    const tenantFlags: Record<string, string> = {
+      ESTIMATE_GATING_BLOCKING_FLAGS: "unknown_key; MISSING_LABOR_TIME",
+      ESTIMATE_GATING_WARNING_FLAGS: "missing_labor_time, MISSING_PRICE\nmissing_price",
+    };
+    vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (tenantId, key) =>
+      tenantId === TENANT_ID ? tenantFlags[key] ?? null : null
+    );
+    const supabase = createSupabaseGatingMock({
+      items: [{ ...createLineItem({ id: "line-1", quantity: 1, unitPriceHtCents: 0 }), h_mo_atelier: 0 }],
+      marginTiers: [],
+      documents: [{ id: "doc-1" }],
+    });
+
+    const result = await evaluateEstimateSendGating({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+      version: { id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 10000, project_id: "project-1" },
+      project: { id: "project-1", client_name: null, notes: null },
+    });
+
+    expect(result.canSend).toBe(false);
+    expect(result.blockingFlags.map(({ key, label }) => [key, label])).toEqual([
+      ["missing_labor_time", "Temps de main-d’œuvre manquant"],
+    ]);
+    expect(result.warningFlags.map(({ key, label }) => [key, label])).toEqual([
+      ["missing_price", "Prix manquant"],
+    ]);
+  });
+
   it("blocks publication when the selected line nature hides entered labor", async () => {
     const supabase = createSupabaseGatingMock({
       items: [

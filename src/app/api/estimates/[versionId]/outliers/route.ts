@@ -1,31 +1,17 @@
+import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
 import { readAllRows } from "@/lib/supabase/read-all";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { getAuthenticatedTenantContext as getAuthenticatedContext, type AuthenticatedTenantContext as AuthenticatedContext } from "@/lib/auth/tenant-context";
 import type { EstimateOutlierFlagKey } from "@/lib/estimates/outlier-detection";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import {
   badRequest,
   forbidden,
   mapSupabaseError,
-  notFound,
   ok,
   toErrorResponse,
 } from "@/lib/estimates/errors";
-import type { Database } from "@/types/database";
-
-type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type EmbeddedProjectAccess = Pick<
-  Database["public"]["Tables"]["estimate_projects"]["Row"],
-  "id" | "tenant_id" | "user_id"
->;
-type VersionAccessRow = Pick<
-  Database["public"]["Tables"]["estimate_versions"]["Row"],
-  "id" | "tenant_id" | "status"
-> & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
 
 type OutlierDismissalRow = {
   id: string;
@@ -47,32 +33,6 @@ type OutlierDismissalInsert = {
   dismissed_by: string;
   dismissed_at: string;
 };
-
-type OutlierDismissalsTable = {
-  Row: OutlierDismissalRow;
-  Insert: OutlierDismissalInsert;
-  Update: Partial<OutlierDismissalInsert>;
-  Relationships: [];
-};
-
-type DatabaseWithOutlierDismissals = Omit<Database, "public"> & {
-  public: Omit<Database["public"], "Tables"> & {
-    Tables: Database["public"]["Tables"] & {
-      estimate_item_outlier_dismissals: OutlierDismissalsTable;
-    };
-  };
-};
-
-type Supabase = SupabaseClient<DatabaseWithOutlierDismissals>;
-
-type AuthenticatedContext = {
-  supabase: Supabase;
-  userId: string;
-  tenantId: string;
-  tenantRole: TenantRole;
-};
-
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const paramsSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
 });
@@ -91,75 +51,9 @@ async function parseJsonBody(request: Request): Promise<unknown> {
   }
 }
 
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
-
-function isTenantAdmin(tenantRole: TenantRole) {
-  return tenantRole === TENANT_ADMIN_ROLE;
-}
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    isTenantAdmin(input.context.tenantRole)
-  );
-}
-
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return paramsSchema.parse(params).versionId;
-}
-
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const context = await getAuthenticatedTenantContext();
-
-  return {
-    supabase: context.supabase as unknown as Supabase,
-    userId: context.userId,
-    tenantId: context.tenantId,
-    tenantRole: context.tenantRole,
-  };
-}
-
-async function getVersionAccessOrThrow(
-  context: AuthenticatedContext,
-  versionId: string
-): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
-  const { data, error } = await context.supabase
-    .from("estimate_versions")
-    .select("id, tenant_id, status, estimate_projects!inner(id, tenant_id, user_id)")
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== context.tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  return {
-    version,
-    project,
-  };
 }
 
 function buildDismissedMap(
@@ -226,7 +120,7 @@ export async function GET(
     const versionId = await getVersionId(params);
     const context = await getAuthenticatedContext();
 
-    await getVersionAccessOrThrow(context, versionId);
+    await getOwnedEstimateVersion(context, versionId);
 
     return ok({
       dismissed_by_item_id: await loadDismissedByItemId({
@@ -248,7 +142,7 @@ export async function POST(
     const body = toggleDismissSchema.parse(await parseJsonBody(request));
     const context = await getAuthenticatedContext();
 
-    const { version } = await getVersionAccessOrThrow(context, versionId);
+    const { version } = await getOwnedEstimateVersion(context, versionId);
 
     if (version.status !== "draft") {
       throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");

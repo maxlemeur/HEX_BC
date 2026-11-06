@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 

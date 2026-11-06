@@ -68,8 +68,10 @@ Sources : [rules-engine.ts](../../src/lib/estimates/rules-engine.ts),
 ## Émission et PDF contractuel
 
 Le contrôle d'envoi rassemble qualité des lignes, règles métier, documents et
-questions du registre affaire. La liste et les sévérités effectives vivent dans
-[gating.ts](../../src/lib/estimates/gating.ts). Un forçage administrateur ne
+questions du registre affaire. L’envoi et l’historique utilisent la même politique
+pour déterminer la sévérité de chaque anomalie selon les réglages du tenant.
+[Politique de sévérité](../../src/lib/estimates/gating-policy.ts) et
+[contrôle d’envoi](../../src/lib/estimates/gating.ts). Un forçage administrateur ne
 supprime pas les frontières de révision, d'accès ou d'intégrité contractuelle.
 
 La préparation fige les montants avec le moteur épinglé, génère un document lié

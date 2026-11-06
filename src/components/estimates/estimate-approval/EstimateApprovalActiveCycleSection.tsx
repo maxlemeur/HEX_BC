@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { EstimateApprovalChangesSinceLastCycle, EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalChangesSinceLastCycle, EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 
 import { ChangesSummarySection } from "./ChangesSummarySection";
 import { formatDateTime } from "./shared";

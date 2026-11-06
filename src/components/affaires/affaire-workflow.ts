@@ -1,4 +1,4 @@
-import type { EstimateVersionApprovalStatus } from "@/lib/estimates/rules-engine";
+import type { EstimateVersionApprovalStatus } from "@/lib/estimates/approval-types";
 
 export type WorkflowStepStatus = "done" | "current" | "upcoming";
 

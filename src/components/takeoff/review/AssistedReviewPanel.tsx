@@ -6,7 +6,7 @@ import { useCallback, useMemo, useTransition } from "react";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { ReviewItemCard } from "@/components/takeoff/ReviewItemCard";
 import { ReviewProgressBar } from "@/components/takeoff/ReviewProgressBar";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   fetchEstimateSendGating: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
-vi.mock("@/components/ui-legacy/Toast", () => ({ useToast: () => mocks.toast }));
+vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => mocks.toast }));
 vi.mock("@/hooks/useDraftLock", () => ({
   useDraftLock: () => ({ isOwnedByCurrentUser: true, isLockedByOther: false, error: null }),
 }));

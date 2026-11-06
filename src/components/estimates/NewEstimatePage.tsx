@@ -8,7 +8,7 @@ import {
 } from "@/components/estimates/EstimateCreationWizard";
 import type { EstimateCreationEngine } from "@/components/estimates/estimate-creation-wizard/shared";
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/client";
 
 const HOURS_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });

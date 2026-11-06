@@ -1,22 +1,16 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   OfferContractError,
   parseClientContractSnapshot,
   parseOfferDocumentProof,
 } from "@/lib/estimates/offer-contract";
+import { parseClientContract2Snapshot } from "@/lib/estimates/offer-contract-v2";
 
 // Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7.md §11, F27-V01 à F27-V12).
 // Isolation justifiée (parseur strict, intégrité du document émis) : une copie commerciale v3
 // altérée d'un centime, d'une clé ou d'un type ne peut pas être fabriquée par un parcours E2E
 // (l'application n'écrit que des copies cohérentes) ; seul le parseur la refuse avant le sceau.
-// Le module `offer-contract-v2.ts` n'existe pas encore : il est chargé par une variable pour que
-// le build de production (qui vérifie aussi les tests) reste vert et que le rouge porte sur le
-// contrat absent. Le type ci-dessous recopie le contrat attendu (D14) ; l'implémentation le
-// remplace par `import type { ClientContract2 } from "@/lib/estimates/offer-contract-v2"`.
-const MODULE = path.resolve(process.cwd(), "src/lib/estimates/offer-contract-v2.ts");
 const MAX_CENTS = 2_147_483_647;
 const PDF_HASH = "a".repeat(64);
 const ID = {
@@ -74,8 +68,6 @@ type Contract2 = {
   };
   exclusions: string | null;
 };
-type V2API = { parseClientContract2Snapshot: (value: unknown) => Contract2 };
-let api: V2API;
 
 const copy = <T,>(value: T): T => structuredClone(value);
 type JsonObject = Record<string, unknown>;
@@ -299,14 +291,6 @@ function proof(captured: unknown = contract(), clientContractVersion: number = 2
 }
 
 describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
-  // Chaque cas échoue seul (et non « ignoré ») tant que le module manque.
-  beforeAll(async () => {
-    if (existsSync(MODULE)) api = await import(/* @vite-ignore */ MODULE) as V2API;
-  });
-  beforeEach(() => {
-    if (!api) throw new Error("MISSING_PRECONDITION: src/lib/estimates/offer-contract-v2.ts absent (contrat client 2 non livré).");
-    expect(typeof api.parseClientContract2Snapshot).toBe("function");
-  });
 
   describe("F27-V01 copies valides, rendues à l'identique", () => {
     const valid: Array<[string, () => Contract2]> = [
@@ -329,7 +313,7 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       const source = build();
       const before = copy(source);
       expect(recompute(copy(source)), "fixture cohérente selon l'oracle du test").toEqual(source);
-      const parsed = api.parseClientContract2Snapshot(source);
+      const parsed = parseClientContract2Snapshot(source);
       expect(parsed).toEqual(before);
       expect(parsed).not.toBe(source);
       expect(source).toEqual(before);
@@ -348,15 +332,15 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       "totals.reverseCharge", "exclusions",
     ])("refuse l'absence de %s", (target) => {
       const changed = contract(); removeAt(changed, target);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un taux de remise sans `rateBp`", () => {
       const changed = s3(); removeAt(changed, "totals.discountIntent.rateBp");
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une part FO sans part MO", () => {
       const changed = withPortions(); removeAt(changed, "rows.1.moSaleHtCents");
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
@@ -370,7 +354,7 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       "version.calcSnapshotContext", "project.extra", "issuer.ownerId", "company.legal.extra", "layoutOptions", "sealHash",
     ])("refuse la clé %s", (target) => {
       const changed = contract(); setAt(changed, target, target.endsWith("rateBp") ? 1000 : "forbidden-field");
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
@@ -407,129 +391,129 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
     ];
     it.each(badValues)("refuse %s", (_name, target, value) => {
       const changed = contract(); setAt(changed, target, value);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it.each([0, 10_001, 1.5, "1000"])("refuse un taux de remise %s", (rateBp) => {
       const changed = s3(); setAt(changed, "totals.discountIntent.rateBp", rateBp);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
   describe("F27-V05 brut : Σ lignes et sous-totaux de section", () => {
     it("refuse un brut décalé d'1 c de la somme des lignes (pied par ailleurs cohérent)", () => {
       const changed = contract(); changed.totals.grossHtCents += 1; refooter(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un sous-total de section décalé d'1 c", () => {
       const changed = contract(); row(changed, ID.sectionA).saleHtCents += 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
       const nested = contract(); row(nested, ID.sectionB).saleHtCents -= 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(nested));
+      expectInvalid(() => parseClientContract2Snapshot(nested));
     });
     it("refuse une part FO de section décalée d'1 c, même si FO + MO = total", () => {
       const changed = withPortions(); const section = row(changed, ID.sectionB1);
       section.foSaleHtCents! += 1; section.moSaleHtCents! -= 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une ligne dont FO + MO ≠ brut", () => {
       const changed = withPortions(); lineRow(changed, 1).foSaleHtCents! += 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un brut qui dépasse l'int32 par addition", () => {
       const changed = contract(); const root = lineRow(changed, 7);
       root.quantity = 1; root.unitSaleHtCents = MAX_CENTS; root.saleHtCents = MAX_CENTS; recompute(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
   describe("F27-V06 ligne : PT = ⌈Q × PU⌋ (A4) et statuts", () => {
     it.each([16_664, 16_662])("refuse un PU de %s c avec le PT de 16 663 c", (unitSaleHtCents) => {
       const changed = contract(); lineRow(changed, 1).unitSaleHtCents = unitSaleHtCents;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse T-HALF3 tronqué ou calculé en flottant (100 c au lieu de 101 c)", () => {
       const changed = tHalf3(); lineRow(changed, 1).saleHtCents = 100; recompute(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un montant sur une ligne non chiffrée, même reporté au pied", () => {
       const changed = contract(); lineRow(changed, 8).saleHtCents = 5; recompute(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un PU sur une ligne non chiffrée", () => {
       const changed = contract(); lineRow(changed, 8).unitSaleHtCents = 0;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une ligne chiffrée sans PU, sans unité ou avec une unité sans libellé", () => {
       const noPrice = contract(); lineRow(noPrice, 1).unitSaleHtCents = null;
-      expectInvalid(() => api.parseClientContract2Snapshot(noPrice));
+      expectInvalid(() => parseClientContract2Snapshot(noPrice));
       const noUnit = contract(); Object.assign(lineRow(noUnit, 1), { unitCode: null, unitLabel: null });
-      expectInvalid(() => api.parseClientContract2Snapshot(noUnit));
+      expectInvalid(() => parseClientContract2Snapshot(noUnit));
       const noLabel = contract(); lineRow(noLabel, 1).unitLabel = null;
-      expectInvalid(() => api.parseClientContract2Snapshot(noLabel));
+      expectInvalid(() => parseClientContract2Snapshot(noLabel));
     });
     it("refuse un libellé d'unité sans code d'unité", () => {
       const changed = contract(); lineRow(changed, 8).unitLabel = "u";
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
   describe("F27-V07 pied : net = brut − remise − arrondi, remise conforme à l'intention", () => {
     it("refuse une remise ou un arrondi décalé d'1 c à net inchangé", () => {
       const discount = contract(); discount.totals.commercialDiscountCents += 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(discount));
+      expectInvalid(() => parseClientContract2Snapshot(discount));
       const rounding = s4(); rounding.totals.commercialRoundingCents += 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(rounding));
+      expectInvalid(() => parseClientContract2Snapshot(rounding));
     });
     it("refuse un net décalé d'1 c, bases, TVA et TTC réalignées", () => {
       const changed = contract(); changed.totals.netHtCents -= 1; rebase(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une remise sans intention", () => {
       const changed = s1(); changed.totals.commercialDiscountCents = 1; refooter(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it.each([690_545, 690_547])("refuse une remise de 10 %% appliquée à %s c (attendu ⌈G × 10 %%⌋ = 690 546)", (applied) => {
       const changed = s3(); changed.totals.commercialDiscountCents = applied; refooter(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un taux de remise qui ne produit pas la remise appliquée", () => {
       const changed = s3(); changed.totals.discountIntent = { kind: "rate", rateBp: 999 };
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une remise supérieure au brut", () => {
       const changed = single(1, 101); changed.totals.discountIntent = { kind: "amount" };
       changed.totals.commercialDiscountCents = 102; refooter(changed);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
   describe("F27-V08 TVA par taux sur la base nette (A5)", () => {
     it("refuse une TVA totale ≠ Σ TVA par taux (TTC réaligné)", () => {
       const changed = contract(); changed.totals.taxCents += 1; changed.totals.payableTtcCents += 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une TVA de taux ≠ ⌈base × taux⌋ (Σ et TTC réalignés)", () => {
       const changed = contract(); changed.totals.taxByRate[0].taxCents += 1;
       changed.totals.taxCents += 1; changed.totals.payableTtcCents += 1;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une TVA tronquée (19 c pour 99 c à 20 %) et une TVA arrondie au pair (16 c pour 300 c à 5,5 %)", () => {
       for (const [changed, tax] of [[single(1, 99), 19], [single(1, 300, 550), 16]] as const) {
         changed.totals.taxByRate[0].taxCents = tax; changed.totals.taxCents = tax;
         changed.totals.payableTtcCents = changed.totals.netHtCents + tax;
-        expectInvalid(() => api.parseClientContract2Snapshot(changed));
+        expectInvalid(() => parseClientContract2Snapshot(changed));
       }
     });
     it("refuse un TTC ≠ net + TVA", () => {
       for (const delta of [1, -1]) {
         const changed = contract(); changed.totals.payableTtcCents += delta;
-        expectInvalid(() => api.parseClientContract2Snapshot(changed));
+        expectInvalid(() => parseClientContract2Snapshot(changed));
       }
     });
     it("refuse Σ bases ≠ HT net (S5, TVA inchangée)", () => {
       const changed = s5(); changed.totals.taxByRate[0].baseHtCents -= 1;
       expect(rateTax(555_452, 1000, false)).toBe(55_545);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse une base de taux supérieure au brut chiffré de ce taux (S5, Σ et TVA inchangées)", () => {
       const changed = s5();
@@ -538,7 +522,7 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
         { rateBp: 2000, baseHtCents: 6_349_893, taxCents: 1_269_979 },
       ];
       expect(changed.totals.taxByRate.reduce((sum, entry) => sum + entry.taxCents, 0)).toBe(changed.totals.taxCents);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un récapitulatif dont les taux ne sont pas ceux des lignes chiffrées", () => {
       const lineRate = contract(); lineRow(lineRate, 7).taxRateBp = 1000;
@@ -549,7 +533,7 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       const empty = contract(); empty.totals.taxByRate = []; empty.totals.taxCents = 0;
       empty.totals.payableTtcCents = empty.totals.netHtCents;
       for (const changed of [lineRate, absentRate, duplicated, unsorted, notPriced, empty]) {
-        expectInvalid(() => api.parseClientContract2Snapshot(changed));
+        expectInvalid(() => parseClientContract2Snapshot(changed));
       }
     });
     it("refuse une TVA en autoliquidation, ou un indicateur contraire au rôle d'entreprise", () => {
@@ -557,7 +541,7 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       taxed.totals.taxCents = 1_381_071; taxed.totals.payableTtcCents = 8_286_426;
       const flagOnly = contract(); flagOnly.totals.reverseCharge = true; rebase(flagOnly);
       const roleOnly = contract(); roleOnly.version.contractorRole = "subcontractor";
-      for (const changed of [taxed, flagOnly, roleOnly]) expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      for (const changed of [taxed, flagOnly, roleOnly]) expectInvalid(() => parseClientContract2Snapshot(changed));
     });
   });
 
@@ -569,13 +553,13 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       ["genre inconnu", "rows.1.kind", "article"], ["identifiant non uuid", "rows.1.id", "line-1"],
     ] as Array<[string, string, unknown]>)("refuse %s", (_name, target, value) => {
       const changed = contract(); setAt(changed, target, value);
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse un cycle de deux sections sans boucler", () => {
       const changed = contract();
       changed.rows.push({ ...row(changed, ID.sectionA), id: ID.other, parentId: ID.sectionA, depth: 1 } as Section2);
       row(changed, ID.sectionA).parentId = ID.other;
-      expectInvalid(() => api.parseClientContract2Snapshot(changed));
+      expectInvalid(() => parseClientContract2Snapshot(changed));
     });
     it("refuse les objets non simples, les tableaux creux, les accesseurs et les prototypes hérités", () => {
       const sparse = contract(); delete (sparse.rows as unknown[])[3];
@@ -583,13 +567,13 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
       Object.defineProperty(accessor.totals, "taxCents", { enumerable: true, get: () => 1_381_071 });
       const inherited = Object.assign(Object.create({ inherited: true }), contract());
       for (const candidate of [null, [], new Date(), "contract", sparse, accessor, inherited]) {
-        expectInvalid(() => api.parseClientContract2Snapshot(candidate));
+        expectInvalid(() => parseClientContract2Snapshot(candidate));
       }
     });
     it("n'expose jamais la valeur d'une entrée hostile", () => {
       const hostile = new Proxy(contract(), { ownKeys() { throw new Error("SECRET-VALUE-42"); } });
       let failure: unknown;
-      try { api.parseClientContract2Snapshot(hostile); } catch (error) { failure = error; }
+      try { parseClientContract2Snapshot(hostile); } catch (error) { failure = error; }
       expect(failure).toBeInstanceOf(OfferContractError);
       expect((failure as Error).message).not.toContain("SECRET-VALUE-42");
     });
@@ -598,10 +582,10 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
   describe("F27-V10 appariement : v3 ⇔ contrat 2, v1/v2 ⇔ contrat 1", () => {
     it("le parseur 2 refuse une copie de contrat 1 valide", () => {
       expect(parseClientContractSnapshot(contract1())).toEqual(contract1());
-      expectInvalid(() => api.parseClientContract2Snapshot(contract1()));
+      expectInvalid(() => parseClientContract2Snapshot(contract1()));
     });
     it("le parseur 1 refuse une copie de contrat 2 valide (validateurs du contrat 1 inchangés)", () => {
-      expect(api.parseClientContract2Snapshot(contract())).toEqual(contract());
+      expect(parseClientContract2Snapshot(contract())).toEqual(contract());
       expectInvalid(() => parseClientContractSnapshot(contract()));
     });
   });

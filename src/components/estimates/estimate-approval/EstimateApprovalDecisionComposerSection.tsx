@@ -12,7 +12,7 @@ import type {
   EstimateApprovalSummary,
   EstimateReviewCommentScope,
   EstimateReviewDecision,
-} from "@/lib/estimates/rules-engine";
+} from "@/lib/estimates/approval-types";
 
 import type { DraftComment } from "./shared";
 import { DECISION_META, SCOPE_LABELS } from "./shared";

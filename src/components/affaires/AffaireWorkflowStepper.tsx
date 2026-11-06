@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import type { AffaireHubDpgfSourceResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import { buildAffaireWorkflowSteps, type WorkflowStep } from "./affaire-workflow";
 import { CheckIcon } from "lucide-react";
 

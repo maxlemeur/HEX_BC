@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { computeEstimateV3Breakdown, projectEstimateV3Snapshot } from "@/lib/estimates/engine-v3";
 import { fixtureLineId, ORACLE_LINES, oracleInput } from "@/lib/estimates/engine-v3/oracle.fixtures";
@@ -13,6 +13,7 @@ import {
   type EstimateSealVersionFields,
 } from "@/lib/estimates/estimate-seal";
 import { computeOfferSealHash } from "@/lib/estimates/offer-contract";
+import { computeOfferSealHashV2 } from "@/lib/estimates/offer-contract-v2";
 import type { Database, Json } from "@/types/database";
 import {
   FROZEN_CORPUS_COLUMNS,
@@ -461,21 +462,7 @@ describe("F27-S07 marqueur 5 du contrat 1 inchangé", () => {
   });
 });
 
-type SealV2API = {
-  computeOfferSealHashV2: (input: { calculationHash: string; snapshot: unknown; documentProof: unknown }, options?: { allowDevelopmentTerms?: boolean }) => string;
-};
-const MODULE = path.resolve(process.cwd(), "src/lib/estimates/offer-contract-v2.ts");
-let v2: SealV2API;
-
 describe("F27-S08 marqueur 5 d'une v3 : contrat 2 lié à la charge 6 (F1, F2)", () => {
-  // Chaque cas échoue seul (et non « ignoré ») tant que le module manque.
-  beforeAll(async () => {
-    if (existsSync(MODULE)) v2 = await import(/* @vite-ignore */ MODULE) as SealV2API;
-  });
-  beforeEach(() => {
-    if (!v2) throw new Error("MISSING_PRECONDITION: src/lib/estimates/offer-contract-v2.ts absent (contrat client 2 non livré).");
-    expect(typeof v2.computeOfferSealHashV2).toBe("function");
-  });
 
   it("enveloppe exacte : marqueur 5, moteur 3, calcul en charge 6, copie de contrat 2", () => {
     const captured = contract2();
@@ -489,14 +476,14 @@ describe("F27-S08 marqueur 5 d'une v3 : contrat 2 lié à la charge 6 (F1, F2)",
     const reversed = (value: unknown): unknown => Array.isArray(value) ? value.map(reversed)
       : value !== null && typeof value === "object" ? Object.fromEntries(Object.entries(value).reverse().map(([key, child]) => [key, reversed(child)])) : value;
     const expected = sha(JSON.stringify(canonical(envelope)));
-    expect(v2.computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: captured, documentProof: published })).toBe(expected);
-    expect(v2.computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: reversed(captured), documentProof: reversed(published) })).toBe(expected);
+    expect(computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: captured, documentProof: published })).toBe(expected);
+    expect(computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: reversed(captured), documentProof: reversed(published) })).toBe(expected);
   });
 
   it("le sceau d'offre suit la charge 6 : changer une colonne v3 de ligne change le sceau final", () => {
     const { version, items } = frozenV3();
     const captured = contract2();
-    const sealOf = (rows: ItemRow[]) => v2.computeOfferSealHashV2({
+    const sealOf = (rows: ItemRow[]) => computeOfferSealHashV2({
       calculationHash: seal6(version, rows), snapshot: captured, documentProof: proof(captured, 2),
     });
     const changed = copy(items);
@@ -506,15 +493,15 @@ describe("F27-S08 marqueur 5 d'une v3 : contrat 2 lié à la charge 6 (F1, F2)",
 
   it("lie la copie : titre, unité, TVA d'un taux ou PDF changés changent le sceau", () => {
     const captured = contract2();
-    const original = v2.computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: captured, documentProof: proof(captured, 2) });
+    const original = computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: captured, documentProof: proof(captured, 2) });
     const title = contract2(); setAt(title, "rows.1.title", "ARMY O1 bis");
     const unit = contract2(); setAt(unit, "rows.1.unitLabel", "mètre linéaire");
     for (const changed of [title, unit]) {
-      expect(v2.computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: changed, documentProof: proof(changed, 2) })).not.toBe(original);
+      expect(computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: changed, documentProof: proof(changed, 2) })).not.toBe(original);
     }
     const pdf = proof(captured, 2); pdf.sha256Hash = "b".repeat(64);
     pdf.filePath = `${ID.tenant}/${ID.project}/${ID.version}/${pdf.sha256Hash}.pdf`;
-    expect(v2.computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: captured, documentProof: pdf })).not.toBe(original);
+    expect(computeOfferSealHashV2({ calculationHash: CALCULATION_HASH, snapshot: captured, documentProof: pdf })).not.toBe(original);
   });
 
   it("refuse une copie différente de la preuve, un contrat 1, une preuve au marqueur 1 et un calcul mal formé", () => {
@@ -528,7 +515,7 @@ describe("F27-S08 marqueur 5 d'une v3 : contrat 2 lié à la charge 6 (F1, F2)",
       { calculationHash: "0".repeat(63), snapshot: captured, documentProof: proof(captured, 2) },
     ];
     for (const input of cases) {
-      expect(thrown(() => v2.computeOfferSealHashV2(input))).toMatchObject({ code: "OFFER_SEAL_INPUT_INVALID" });
+      expect(thrown(() => computeOfferSealHashV2(input))).toMatchObject({ code: "OFFER_SEAL_INPUT_INVALID" });
     }
   });
 });
