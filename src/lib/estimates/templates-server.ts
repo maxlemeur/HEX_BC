@@ -26,7 +26,7 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/estimates/errors";
-import { linkTakeoffJobsFromSourceVersionToTargetVersion } from "@/lib/takeoff/version-links";
+import { tryCarryOverTakeoffJobsToNewVersion } from "@/lib/takeoff/carry-over";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type {
   CreateEstimateTemplateFromVersionInput,
@@ -269,41 +269,6 @@ export async function duplicateEstimateTemplate(
       lineCountByTemplateId.get(duplicatedTemplate.id) ?? 0
     ),
   };
-}
-
-async function tryCarryOverTakeoffJobsToNewVersion(input: {
-  supabase: Supabase;
-  tenantId: string;
-  userId: string;
-  sourceVersionId: string | null;
-  targetVersionId: string;
-}) {
-  if (!input.sourceVersionId) {
-    return;
-  }
-
-  try {
-    await linkTakeoffJobsFromSourceVersionToTargetVersion({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      userId: input.userId,
-      sourceVersionId: input.sourceVersionId,
-      targetVersionId: input.targetVersionId,
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("Unexpected table:")
-    ) {
-      return;
-    }
-
-    console.warn("takeoff carry-over skipped", {
-      sourceVersionId: input.sourceVersionId,
-      targetVersionId: input.targetVersionId,
-      error,
-    });
-  }
 }
 
 async function resolveLatestProjectVersionId(input: {
