@@ -4,10 +4,14 @@ const acquireEstimateDraftLockMock = vi.hoisted(() => vi.fn());
 const isEstimateApiErrorMock = vi.hoisted(() => vi.fn());
 const renewEstimateDraftLockMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/client-locks", () => ({
   acquireEstimateDraftLock: acquireEstimateDraftLockMock,
   isEstimateApiError: isEstimateApiErrorMock,
   renewEstimateDraftLock: renewEstimateDraftLockMock,
+}));
+
+vi.mock("@/lib/estimates/client-errors", () => ({
+  isEstimateApiError: isEstimateApiErrorMock,
 }));
 
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";

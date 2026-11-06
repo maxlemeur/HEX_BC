@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
+import { fetchEstimateItemsForVersion } from "@/lib/estimates/editor-read-client";
 import type {
   TakeoffMappingOverride,
   TakeoffPreviewConversionResponse,

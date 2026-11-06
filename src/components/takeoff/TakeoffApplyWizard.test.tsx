@@ -1,7 +1,7 @@
 import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/editor-read-client", () => ({
   fetchEstimateItemsForVersion: vi.fn(),
 }));
 
@@ -10,7 +10,7 @@ vi.mock("@/lib/takeoff/client", () => ({
 }));
 
 import { TakeoffApplyWizard } from "@/components/takeoff/TakeoffApplyWizard";
-import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
+import { fetchEstimateItemsForVersion } from "@/lib/estimates/editor-read-client";
 import { previewTakeoffConversion } from "@/lib/takeoff/client";
 
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
