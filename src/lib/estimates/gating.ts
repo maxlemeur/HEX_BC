@@ -8,8 +8,6 @@ import {
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
 import {
-  ESTIMATE_QUALITY_FLAG_KEYS,
-  ESTIMATE_QUALITY_FLAG_META,
   computeEstimateQualityFlagsByItemId,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
@@ -21,6 +19,17 @@ import {
   type EstimateReadinessCategory,
 } from "@/lib/estimates/readiness";
 
+import {
+  ESTIMATE_GATING_FLAG_KEYS,
+  ESTIMATE_GATING_FLAG_META,
+  GATING_BLOCKING_FLAGS_KEY,
+  GATING_WARNING_FLAGS_KEY,
+  hasStoredLaborSplit,
+  resolveSeverityByFlag,
+  type EstimateGatingFlagKey,
+  type EstimateGatingSeverity,
+} from "@/lib/estimates/gating-policy";
+
 import { mapSupabaseError } from "./errors";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
 import { readAllEstimateItems } from "./read-all-items-server";
@@ -31,128 +40,20 @@ import {
 } from "./rules-engine";
 import { fetchVersionZeroDraftSummary } from "./version-zero-drafts";
 
+export {
+  ESTIMATE_GATING_FLAG_KEYS,
+  ESTIMATE_GATING_FLAG_META,
+  type EstimateGatingFlagKey,
+  type EstimateGatingFlagMeta,
+  type EstimateGatingSeverity,
+} from "@/lib/estimates/gating-policy";
+
 type Supabase = SupabaseClient<Database>;
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
-type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SupplierPriceRow = Database["public"]["Tables"]["supplier_pricebook"]["Row"];
 type EstimateDocumentRow = Database["public"]["Tables"]["estimate_documents"]["Row"];
-
-const GATING_BLOCKING_FLAGS_KEY = "ESTIMATE_GATING_BLOCKING_FLAGS";
-const GATING_WARNING_FLAGS_KEY = "ESTIMATE_GATING_WARNING_FLAGS";
-
-export const ESTIMATE_GATING_FLAG_KEYS = [
-  ...ESTIMATE_QUALITY_FLAG_KEYS,
-  "margin_not_configured",
-  "total_exceeds_budget",
-  "no_pdf_generated",
-  "rule_violation",
-  "critical_missing_pieces",
-  "critical_open_questions",
-  "client_missing_documents_required",
-  "client_clarification_required",
-  "missing_pieces_pending",
-  "open_questions_pending",
-  "version_zero_review_pending",
-] as const;
-
-export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
-
-export type EstimateGatingSeverity = "blocking" | "warning";
-
-export type EstimateGatingFlagMeta = {
-  label: string;
-  description: string;
-};
-
-export const ESTIMATE_GATING_FLAG_META: Record<
-  EstimateGatingFlagKey,
-  EstimateGatingFlagMeta
-> = {
-  ...ESTIMATE_QUALITY_FLAG_META,
-  margin_not_configured: {
-    label: "Marge par tranches non configurée",
-    description:
-      "Le mode de marge par tranches est actif mais aucune tranche n'est configurée pour cette organisation.",
-  },
-  total_exceeds_budget: {
-    label: "Budget dépassé",
-    description:
-      "Le total HT du devis dépasse le plafond budgétaire configuré pour le projet.",
-  },
-  no_pdf_generated: {
-    label: "PDF absent",
-    description:
-      "Aucun document PDF n'est généré pour cette version. Lancez une génération avant l'envoi.",
-  },
-  rule_violation: {
-    label: "Règles métier non respectées",
-    description:
-      "Des règles métier (marge, remise, approbation) ne sont pas satisfaites.",
-  },
-  critical_missing_pieces: {
-    label: "Documents critiques manquants",
-    description:
-      "Le registre affaire contient des pièces manquantes critiques encore ouvertes.",
-  },
-  critical_open_questions: {
-    label: "Questions critiques ouvertes",
-    description:
-      "Le registre affaire contient des hypothèses ou pièces manquantes critiques encore ouvertes.",
-  },
-  client_missing_documents_required: {
-    label: "Documents attendus du client",
-    description:
-      "Le registre affaire contient des pièces attendues du client avant l'envoi.",
-  },
-  client_clarification_required: {
-    label: "Clarification client requise",
-    description:
-      "Le registre affaire contient des points à clarifier avec le client avant l'envoi.",
-  },
-  missing_pieces_pending: {
-    label: "Documents manquants à traiter",
-    description:
-      "Des pièces manquantes non critiques restent ouvertes dans le registre affaire.",
-  },
-  open_questions_pending: {
-    label: "Questions ouvertes à traiter",
-    description:
-      "Des hypothèses ou pièces manquantes non critiques restent ouvertes dans le registre affaire.",
-  },
-  version_zero_review_pending: {
-    label: "V0 IA à revoir",
-    description:
-      "Une V0 assistée est encore active sur cette version. La revue humaine explicite doit être finalisée avant envoi.",
-  },
-};
-
-const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
-  EstimateGatingFlagKey,
-  EstimateGatingSeverity
-> = {
-  missing_price: "blocking",
-  missing_quantity: "blocking",
-  missing_labor_time: "warning",
-  missing_labor_role: "warning",
-  line_nature_mismatch: "blocking",
-  price_outlier: "warning",
-  quantity_outlier: "warning",
-  supplier_price_outdated: "warning",
-  labor_split_incomplete: "warning",
-  margin_not_configured: "blocking",
-  total_exceeds_budget: "blocking",
-  no_pdf_generated: "blocking",
-  rule_violation: "blocking",
-  critical_missing_pieces: "blocking",
-  critical_open_questions: "blocking",
-  client_missing_documents_required: "blocking",
-  client_clarification_required: "blocking",
-  missing_pieces_pending: "warning",
-  open_questions_pending: "warning",
-  version_zero_review_pending: "blocking",
-};
 
 export type EstimateGatingFlag = {
   key: EstimateGatingFlagKey;
@@ -204,63 +105,6 @@ type EvaluateEstimateSendGatingInput = {
   version: EstimateGatingVersion;
   project: EstimateGatingProject;
 };
-
-function parseCsvFlagList(value: string | null): Set<EstimateGatingFlagKey> {
-  if (!value) return new Set();
-
-  const normalized = value
-    .split(/[,\n;\s]+/g)
-    .map((token) => token.trim().toLowerCase())
-    .filter((token) => token.length > 0);
-
-  const allowed = new Set<string>(ESTIMATE_GATING_FLAG_KEYS);
-  const parsed = new Set<EstimateGatingFlagKey>();
-
-  normalized.forEach((token) => {
-    if (allowed.has(token)) {
-      parsed.add(token as EstimateGatingFlagKey);
-    }
-  });
-
-  return parsed;
-}
-
-function resolveSeverityByFlag(input: {
-  blockingOverride: string | null;
-  warningOverride: string | null;
-}) {
-  const blockingOverrideSet = parseCsvFlagList(input.blockingOverride);
-  const warningOverrideSet = parseCsvFlagList(input.warningOverride);
-
-  return ESTIMATE_GATING_FLAG_KEYS.reduce(
-    (acc, key) => {
-      if (blockingOverrideSet.has(key)) {
-        acc[key] = "blocking";
-        return acc;
-      }
-      if (warningOverrideSet.has(key)) {
-        acc[key] = "warning";
-        return acc;
-      }
-      acc[key] = DEFAULT_GATING_SEVERITY_BY_FLAG[key];
-      return acc;
-    },
-    {} as Record<EstimateGatingFlagKey, EstimateGatingSeverity>
-  );
-}
-
-function hasLaborSplitPayload(item: EstimateItemRow) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    ((item.k_mo_atelier ?? 1) !== 1) ||
-    ((item.k_mo_chantier ?? 1) !== 1)
-  );
-}
 
 function parseProjectBudgetCeilingHtCents(notes: string | null) {
   if (!notes) return null;
@@ -506,7 +350,7 @@ export async function evaluateEstimateSendGating(
   });
 
   const hasAtLeastOneSplitLine = items.some(
-    (item) => item.item_type === "line" && hasLaborSplitPayload(item)
+    (item) => item.item_type === "line" && hasStoredLaborSplit(item)
   );
 
   const qualityFlagsByItemId = computeEstimateQualityFlagsByItemId(items, {

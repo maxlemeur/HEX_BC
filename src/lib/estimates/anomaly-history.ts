@@ -8,11 +8,14 @@ import {
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
 import {
-  ESTIMATE_GATING_FLAG_KEYS,
   ESTIMATE_GATING_FLAG_META,
+  GATING_BLOCKING_FLAGS_KEY,
+  GATING_WARNING_FLAGS_KEY,
+  hasStoredLaborSplit,
+  resolveSeverityByFlag,
   type EstimateGatingFlagKey,
   type EstimateGatingSeverity,
-} from "@/lib/estimates/gating";
+} from "@/lib/estimates/gating-policy";
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
 import type { EstimateOutlierFlagKey } from "@/lib/estimates/outlier-detection";
 import {
@@ -26,10 +29,6 @@ import { mapSupabaseError } from "./errors";
 type Supabase = SupabaseClient<Database>;
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 type AuditLogRow = Database["public"]["Tables"]["audit_logs"]["Row"];
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type AnomalyFilters = {
   flag_types?: string[];
@@ -90,108 +89,6 @@ export type CurrentAnomalySummaryResult = {
   currentAnomalies: CurrentAnomalyRow[];
   ownerOptions: AnomalyOwnerOption[];
 };
-
-// ---------------------------------------------------------------------------
-// Severity resolution (mirrors gating.ts:135 pattern)
-// ---------------------------------------------------------------------------
-
-const GATING_BLOCKING_FLAGS_KEY = "ESTIMATE_GATING_BLOCKING_FLAGS";
-const GATING_WARNING_FLAGS_KEY = "ESTIMATE_GATING_WARNING_FLAGS";
-
-const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
-  EstimateGatingFlagKey,
-  EstimateGatingSeverity
-> = {
-  missing_price: "blocking",
-  missing_quantity: "blocking",
-  missing_labor_time: "warning",
-  missing_labor_role: "warning",
-  line_nature_mismatch: "blocking",
-  price_outlier: "warning",
-  quantity_outlier: "warning",
-  supplier_price_outdated: "warning",
-  labor_split_incomplete: "warning",
-  margin_not_configured: "blocking",
-  total_exceeds_budget: "blocking",
-  no_pdf_generated: "blocking",
-  rule_violation: "blocking",
-  critical_missing_pieces: "blocking",
-  critical_open_questions: "blocking",
-  client_missing_documents_required: "blocking",
-  client_clarification_required: "blocking",
-  missing_pieces_pending: "warning",
-  open_questions_pending: "warning",
-  version_zero_review_pending: "blocking",
-};
-
-function parseCsvFlagList(value: string | null): Set<EstimateGatingFlagKey> {
-  if (!value) return new Set();
-  const normalized = value
-    .split(/[,\n;\s]+/g)
-    .map((token) => token.trim().toLowerCase())
-    .filter((token) => token.length > 0);
-
-  const allowed = new Set<string>(ESTIMATE_GATING_FLAG_KEYS);
-  const parsed = new Set<EstimateGatingFlagKey>();
-  normalized.forEach((token) => {
-    if (allowed.has(token)) {
-      parsed.add(token as EstimateGatingFlagKey);
-    }
-  });
-  return parsed;
-}
-
-function resolveSeverityByFlag(input: {
-  blockingOverride: string | null;
-  warningOverride: string | null;
-}): Record<EstimateGatingFlagKey, EstimateGatingSeverity> {
-  const blockingOverrideSet = parseCsvFlagList(input.blockingOverride);
-  const warningOverrideSet = parseCsvFlagList(input.warningOverride);
-
-  return ESTIMATE_GATING_FLAG_KEYS.reduce(
-    (acc, key) => {
-      if (blockingOverrideSet.has(key)) {
-        acc[key] = "blocking";
-        return acc;
-      }
-      if (warningOverrideSet.has(key)) {
-        acc[key] = "warning";
-        return acc;
-      }
-      acc[key] = DEFAULT_GATING_SEVERITY_BY_FLAG[key];
-      return acc;
-    },
-    {} as Record<EstimateGatingFlagKey, EstimateGatingSeverity>
-  );
-}
-
-function getFlagLabel(key: EstimateGatingFlagKey): string {
-  return (
-    (ESTIMATE_GATING_FLAG_META as Record<string, { label: string }>)[key]
-      ?.label ?? key
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Helpers for labor split detection
-// ---------------------------------------------------------------------------
-
-function hasLaborSplitPayload(item: EstimateItemRow) {
-  return (
-    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined) ||
-    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined) ||
-    (item.k_mo_atelier ?? 1) !== 1 ||
-    (item.k_mo_chantier ?? 1) !== 1
-  );
-}
-
-// ---------------------------------------------------------------------------
-// getCurrentAnomalySummary
-// ---------------------------------------------------------------------------
 
 type VersionMeta = {
   versionId: string;
@@ -443,7 +340,6 @@ export async function getCurrentAnomalySummary(
     dismissedByVersion.set(row.version_id, vMap);
   }
 
-  // Resolve severity
   const severityByFlag = resolveSeverityByFlag({
     blockingOverride,
     warningOverride,
@@ -460,7 +356,6 @@ export async function getCurrentAnomalySummary(
     const meta = versionMetaMap.get(versionId);
     if (!meta) continue;
 
-    // Detect outliers for this version
     const outlierFlagsByItemId = detectEstimateOutliers({ items });
     const dismissedOutlierFlagsByItemId =
       dismissedByVersion.get(versionId) ?? {};
@@ -476,10 +371,9 @@ export async function getCurrentAnomalySummary(
 
     // Check if any line has labor split
     const hasAtLeastOneSplitLine = items.some(
-      (item) => item.item_type === "line" && hasLaborSplitPayload(item)
+      (item) => item.item_type === "line" && hasStoredLaborSplit(item)
     );
 
-    // Compute quality flags
     const flagsByItemId = computeEstimateQualityFlagsByItemId(items, {
       outlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
@@ -487,7 +381,6 @@ export async function getCurrentAnomalySummary(
       isLaborSplitEnabled: hasAtLeastOneSplitLine,
     });
 
-    // Aggregate per flag key
     const countByFlag = new Map<EstimateQualityFlagKey, number>();
     for (const flags of Object.values(flagsByItemId)) {
       for (const flag of flags) {
@@ -496,7 +389,6 @@ export async function getCurrentAnomalySummary(
     }
 
     for (const [flagKey, itemCount] of countByFlag) {
-      // Apply flag_types filter
       if (
         filters.flag_types &&
         filters.flag_types.length > 0 &&
@@ -515,7 +407,7 @@ export async function getCurrentAnomalySummary(
         ownerUserId: meta.ownerUserId,
         ownerName: meta.ownerName,
         flagKey: gatingKey,
-        flagLabel: getFlagLabel(gatingKey),
+        flagLabel: ESTIMATE_GATING_FLAG_META[gatingKey]?.label ?? gatingKey,
         severity,
         itemCount,
       });
@@ -574,10 +466,6 @@ export async function getCurrentAnomalySummary(
     ownerOptions,
   };
 }
-
-// ---------------------------------------------------------------------------
-// getAnomalyTrend
-// ---------------------------------------------------------------------------
 
 // Simple flags derivable from audit_logs before/after JSONB
 const SIMPLE_FLAG_CHECKS: {

@@ -334,7 +334,7 @@ export function resolveLatestApprovalByRule(input: {
 /** Evaluate already-authorized evidence; no database, authentication, or notification work. */
 export function evaluateLoadedRules(input: {
   rules: EstimateRuleRow[];
-  approvals: EstimateApprovalRow[];
+  latestApprovalByRule: ReadonlyMap<string, EstimateApprovalRow>;
   version: RulesEngineVersion;
   project: RulesEngineProject;
   items: RulesEngineItemAccess[];
@@ -344,10 +344,9 @@ export function evaluateLoadedRules(input: {
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
   v3MarginEvidence?: V3MarginEvidence | null;
 }): EvaluateRulesResult {
-  const { rules, signalContext, currentContentRevision } = input;
+  const { rules, latestApprovalByRule, signalContext, currentContentRevision } = input;
   const categoryIdSet = new Set(input.items.map(item => item.category_id)
     .filter((id): id is string => typeof id === "string" && id.length > 0));
-  const latestApprovalByRule = resolveLatestApprovalByRule({ approvals: input.approvals });
   const violations: EstimateRuleViolation[] = [];
   const unavailableSignals: EstimateRuleUnavailableSignal[] = [];
 

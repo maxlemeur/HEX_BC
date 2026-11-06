@@ -16,8 +16,10 @@ import {
   UNASSIGNED_SUPPLY_TYPE_KEY,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
-  type EstimateTotals,
 } from "@/lib/estimate-calculations";
+import { computeDraftBreakdown } from "@/hooks/useEstimateEditorCalculation";
+import { buildEditorSettingsFromVersion, buildHistoricalSettingsPayload } from "@/lib/estimates/editor-settings-state";
+import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 import { type MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   buildLegacyDocumentBreakdown,
@@ -1054,78 +1056,48 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
  * ------------------------------------------------------------------------- */
 
 
-// ---------------------------------------------------------------------------
-// COUVERTURE PARTIELLE — surface "editeur".
-// useEstimateEditorState n'est pas montable sans next/navigation + UserContext
-// + 15 controllers reseau. On rejoue ici la SEULE chaine de calcul, adaptee de
-// useEstimateEditorState.tsx:959-1019 (buildLineCalculationInput) puis
-// :1075-1092 (filtre item_type === "line" + computeEstimateTotals).
-//
-// COPIE REDUITE, PAS COPIE CONFORME : buildEditorLineInput ci-dessous omet le
-// spread `...readLaborSplitFields(item)` et la resolution des taux
-// labor_role_atelier/chantier_hourly_rate_cents du hook reel. C'est inerte
-// AUJOURD'HUI, parce que le hook cable isLaborSplitEnabled = false (:290) et
-// que computeEstimateLineValues ne lit ces champs que si le split est actif
-// (estimate-calculations.ts:215-219). Le jour ou EST_031_LABOR_SPLIT passera a
-// true cote editeur, cette recomposition devra etre reprise.
-//
-// SONT COUVERTS : l'arithmetique de la chaine, le flag isLaborSplitEnabled tel
-// qu'il arrive au moteur (cable en dur a false, :290), la derivation
-// discount_bp = Math.round(discountCents / saleSubtotalCents * 10000)
-// (:1281-1286) et l'aplatissement discount_steps -> [] (:1292-1293) /
-// global_coefficient -> 1 (:1309-1310) en mode simple.
-//
-// NE SONT PAS COUVERTS : le cycle de vie React, totalsOutOfSync,
-// persistedTotals, grandTotals (src/components/estimates/EstimateEditorTable.tsx:1981,
-// non exporte), le filtre rapide quickFilteredItems (meme fichier, :850, non
-// exporte), les 15 controllers et leurs fetch au montage. Aujourd'hui aucun
-// test n'execute le corps du hook : EstimateEditorPage.test.tsx le remplace
-// integralement par un vi.fn().
-//
-// NOTE : la surface "sous-totaux de section visibles" (useEstimateVisibility)
-// est testable sans mock via renderHook, mais dans le projet vitest JSDOM.
-// Elle n'a donc rien a faire ici et n'y est pas forcee.
-// ---------------------------------------------------------------------------
-function buildEditorLineInput(
-  item: EstimateItemRecord,
-  laborRateById: Map<string, number>
-): EstimateItemRecord {
-  return {
-    ...item,
-    tax_rate_bp: item.tax_rate_bp ?? 0,
-    k_fo: item.k_fo ?? 1,
-    h_mo: item.h_mo ?? 0,
-    h_mo_majoration: item.h_mo_majoration ?? 1,
-    k_mo: item.k_mo ?? 1,
-    labor_role_hourly_rate_cents: item.labor_role_id
-      ? (laborRateById.get(item.labor_role_id) ?? 0)
-      : 0,
-  };
-}
-
-describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
-  function runEditorTotals(
+describe("Éditeur du devis historique [surface 2]", () => {
+  function editorCase(
     items: EstimateItemRecord[],
-    engine: Omit<
-      Parameters<typeof computeEstimateTotals>[0],
-      "lineItems" | "isLaborSplitEnabled"
-    >
-  ): EstimateTotals {
-    const lineItems = items
-      .filter((item) => item.item_type === "line")
-      .map((item) => buildEditorLineInput(item, LABOR_RATES));
-    return computeEstimateTotals({
-      ...engine,
-      lineItems,
-      // POST-ETAPE 5 (EST-E26) : l'editeur derive isLaborSplitEnabled du flag
-      // tenant reel (useEstimateEditorState.tsx:290, desormais
-      // useFeatureFlag). Ce harnais fige le cas flag OFF.
-      isLaborSplitEnabled: false,
+    engine: typeof FIXTURE_A_ENGINE,
+    options: {
+      isLaborSplitEnabled?: boolean;
+      discountAmountCents?: number | null;
+      discountBp?: number;
+    } = {}
+  ) {
+    const version = {
+      ...createEstimateEditorResponseFixture().version,
+      calc_engine_version: 1,
+      margin_multiplier: engine.marginMultiplier,
+      margin_mode: engine.marginMode,
+      discount_amount_cents: options.discountAmountCents === undefined
+        ? engine.discountCents
+        : options.discountAmountCents,
+      discount_bp: options.discountBp ?? 0,
+      global_coefficient: engine.globalCoefficient,
+      tax_rate_bp: engine.taxRateBp,
+      rounding_mode: engine.roundingMode,
+      rounding_step_cents: engine.roundingStepCents,
+    };
+    const settings = buildEditorSettingsFromVersion(version, {
+      marginTiers: engine.marginTiers,
+      discountCents: engine.discountCents,
     });
+    const { totals } = computeDraftBreakdown({
+      items: asDocumentItems(items),
+      settings,
+      calcEngineVersion: 1,
+      isLaborSplitEnabled: options.isLaborSplitEnabled ?? false,
+      laborRateById: LABOR_RATES,
+      laborRateAtelierById: LABOR_RATES,
+      laborRateChantierById: LABOR_RATES,
+    });
+    return { version, settings, totals };
   }
 
-  it("fige la chaine editeur sur la fixture A", () => {
-    expect(runEditorTotals(FIXTURE_A_ITEMS, FIXTURE_A_ENGINE)).toEqual({
+  it("fige les totaux affichés par l’éditeur sur la fixture A", () => {
+    expect(editorCase(FIXTURE_A_ITEMS, FIXTURE_A_ENGINE).totals).toEqual({
         "adjustedTaxCents": 19576,
         "appliedMarginMultiplier": 1.6,
         "costSubtotalCents": 64299,
@@ -1153,81 +1125,46 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
       });
   });
 
-  it("fige la coincidence editeur / moteur sur un item a payload de split", () => {
-    // POST-ETAPE 5 (EST-E26) : l'appel nu a computeEstimateTotals ne peut plus
-    //   auto-detecter le payload (isLaborSplitEnabled est requis). Avec le meme
-    //   flag OFF que l'editeur, editeur et moteur coincident (9 600 c) : ecart 0.
-    //   Avant : editeur 9 600 (force false) vs moteur 93 824 (auto-detection),
-    //   ecart 84 224.
-    const editeur = runEditorTotals(FIXTURE_F_ITEMS, FIXTURE_F_ENGINE);
-    const moteurNu = computeEstimateTotals({
-      isLaborSplitEnabled: false,
-      lineItems: FIXTURE_F_ITEMS.filter((i) => i.item_type === "line"),
-      ...FIXTURE_F_ENGINE,
-    });
-    expect({
-      editeurSaleSubtotalCents: editeur.saleSubtotalCents,
-      moteurNuSaleSubtotalCents: moteurNu.saleSubtotalCents,
-      ecartCents: moteurNu.saleSubtotalCents - editeur.saleSubtotalCents,
-    }).toEqual({
-        "ecartCents": 0,
-        "editeurSaleSubtotalCents": 9600,
-        "moteurNuSaleSubtotalCents": 9600,
-      });
+  it("applique le réglage de ventilation de la main-d’œuvre à la même ligne", () => {
+    const withoutSplit = editorCase(FIXTURE_F_ITEMS, FIXTURE_F_ENGINE);
+    const withSplit = editorCase(FIXTURE_F_ITEMS, FIXTURE_F_ENGINE, { isLaborSplitEnabled: true });
+
+    expect(withoutSplit.totals.saleSubtotalCents).toBe(9_600);
+    expect(withSplit.totals.saleSubtotalCents).toBe(93_824);
   });
 
-  it("fige la derivation discount_bp et l'aplatissement du payload persiste", () => {
-    // DIVERGENCE : discount_bp est derive par Math.round sur un ratio
-    //   (useEstimateEditorState.tsx:1281-1286), alors que le moteur
-    //   recalcule la remise par bankersRound (estimate-calculations.ts:268).
-    //   La base du ratio est saleSubtotalCents, donc POST-coefficient.
-    // DIVERGENCE : en mode "simple", discount_steps est ecrase par []
-    //   (useEstimateEditorState.tsx:1292-1293) et global_coefficient par 1
-    //   (:1309-1310) : le coefficient reellement utilise pour le calcul n'est
-    //   pas persiste.
-    const totals = runEditorTotals(FIXTURE_A_ITEMS, FIXTURE_B_ENGINE);
-    const discountBase = totals.saleSubtotalCents;
-    const discountBp =
-      discountBase > 0
-        ? Math.round((totals.discountCents / discountBase) * 10000)
-        : 0;
-    expect({
-      saleSubtotalCents: totals.saleSubtotalCents,
-      discountCents: totals.discountCents,
-      discountBp,
-      remiseReconstruiteDepuisBp: Math.round(
-        (totals.saleSubtotalCents * discountBp) / 10000
-      ),
-      // Payload persiste en mode "simple" : discount_steps ecrase par [] et
-      // global_coefficient ecrase par 1, alors que la fixture B calcule bien
-      // avec un coefficient de 1.1 (useEstimateEditorState.tsx:1292-1293
-      // et :1309-1310).
-      payloadPersiste: {
-        discount_bp: discountBp,
-        discount_mode: "simple",
-        discount_steps: [] as number[],
-        global_coefficient: 1,
-        coefficientReellementCalcule: FIXTURE_B_ENGINE.globalCoefficient,
-        margin_multiplier: totals.appliedMarginMultiplier,
-        total_ht_cents: totals.saleTotalCents,
-        total_tax_cents: totals.adjustedTaxCents,
-      },
-    }).toEqual({
-        "discountBp": 442,
-        "discountCents": 5000,
-        "payloadPersiste": {
-          "coefficientReellementCalcule": 1.1,
-          "discount_bp": 442,
-          "discount_mode": "simple",
-          "discount_steps": [],
-          "global_coefficient": 1,
-          "margin_multiplier": 1.6,
-          "total_ht_cents": 108166,
-          "total_tax_cents": 21633,
-        },
-        "remiseReconstruiteDepuisBp": 5002,
-        "saleSubtotalCents": 113166,
-      });
+  it("persiste le coefficient du devis et distingue la remise fixe de la remise en points de base", () => {
+    const fixed = editorCase(FIXTURE_A_ITEMS, FIXTURE_B_ENGINE);
+    const byRate = editorCase(FIXTURE_A_ITEMS, FIXTURE_B_ENGINE, {
+      discountAmountCents: null,
+      discountBp: 442,
+    });
+
+    const fixedPayload = buildHistoricalSettingsPayload(
+      { ...fixed.settings, discount_steps: [750] },
+      fixed.version,
+      fixed.totals
+    ).payload;
+    const ratePayload = buildHistoricalSettingsPayload(byRate.settings, byRate.version, byRate.totals).payload;
+
+    expect(fixed.totals.saleSubtotalCents).toBe(113_166);
+    expect(fixed.totals.discountCents).toBe(5_000);
+    expect(fixedPayload).toMatchObject({
+      discount_amount_cents: 5_000,
+      discount_bp: 442,
+      discount_mode: "simple",
+      discount_steps: [],
+      global_coefficient: 1.1,
+      margin_multiplier: 1.6,
+      total_ht_cents: 108_166,
+      total_tax_cents: 21_633,
+    });
+    expect(byRate.totals.discountCents).toBe(5_002);
+    expect(ratePayload).toMatchObject({
+      discount_amount_cents: null,
+      discount_bp: 442,
+      global_coefficient: 1.1,
+    });
   });
 });
 

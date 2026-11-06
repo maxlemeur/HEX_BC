@@ -3,6 +3,14 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import {
+  GENERATED_OUVRAGE_EVIDENCE_KINDS,
+  GENERATED_OUVRAGE_RISK_SEVERITIES,
+  clampConfidence,
+  normalizeRiskSignals,
+  readJsonStringArray,
+  toNullableText,
+} from "@/lib/estimates/generated-ouvrage-evidence";
 import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
 import {
   assertDraftStatus,
@@ -159,8 +167,7 @@ type GeneratedOuvrageSubdetailCostType =
   | "labor"
   | "equipment"
   | "subcontract";
-type GeneratedOuvrageEvidenceKind = "fact" | "hypothesis" | "inference";
-type GeneratedOuvrageRiskSignalSeverity = "info" | "warning" | "critical";
+type GeneratedOuvrageEvidenceKind = (typeof GENERATED_OUVRAGE_EVIDENCE_KINDS)[number];
 type GeneratedOuvrageReviewedCandidateSnapshot = {
   designation: string;
   unit: string | null;
@@ -335,16 +342,8 @@ export const generatedOuvrageSubdetailCostTypeSchema = z.enum([
   "equipment",
   "subcontract",
 ]);
-export const generatedOuvrageEvidenceKindSchema = z.enum([
-  "fact",
-  "hypothesis",
-  "inference",
-]);
-export const generatedOuvrageRiskSignalSeveritySchema = z.enum([
-  "info",
-  "warning",
-  "critical",
-]);
+export const generatedOuvrageEvidenceKindSchema = z.enum(GENERATED_OUVRAGE_EVIDENCE_KINDS);
+export const generatedOuvrageRiskSignalSeveritySchema = z.enum(GENERATED_OUVRAGE_RISK_SEVERITIES);
 
 const generatedOuvrageGenerateInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
@@ -720,12 +719,6 @@ export type RejectGeneratedOuvrageDraftResult = {
   versionId: string;
 };
 
-function toNullableText(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function normalizeText(value: string, maxLength?: number) {
   const trimmed = value.trim().replace(/\s+/g, " ");
   if (typeof maxLength === "number" && trimmed.length > maxLength) {
@@ -799,11 +792,6 @@ function normalizeSectionTitle(value: string | null | undefined) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-}
-
-function clampConfidence(value: number | null | undefined) {
-  if (!Number.isFinite(value)) return 0.5;
-  return Math.max(0, Math.min(1, Number(value)));
 }
 
 function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean): NonNullable<Json>;
@@ -1744,52 +1732,6 @@ function buildGeneratedOuvrageEstimateItemMapping(input: {
     costBreakdown,
     laborTrace,
   };
-}
-
-function readJsonStringArray(value: Json | unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => toNullableText(entry))
-    .filter((entry): entry is string => Boolean(entry))
-    .slice(0, 8);
-}
-
-function normalizeRiskSignals(value: unknown): GeneratedOuvrageRiskSignal[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => {
-      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-        return null;
-      }
-
-      const label = toNullableText(
-        typeof entry.label === "string" ? entry.label : null
-      );
-      const severity =
-        typeof entry.severity === "string" &&
-        ["info", "warning", "critical"].includes(entry.severity)
-          ? (entry.severity as GeneratedOuvrageRiskSignalSeverity)
-          : null;
-      const basis =
-        typeof entry.basis === "string" &&
-        ["fact", "hypothesis", "inference"].includes(entry.basis)
-          ? (entry.basis as GeneratedOuvrageEvidenceKind)
-          : null;
-
-      if (!label || !severity || !basis) {
-        return null;
-      }
-
-      return { label, severity, basis } satisfies GeneratedOuvrageRiskSignal;
-    })
-    .filter((entry): entry is GeneratedOuvrageRiskSignal => entry !== null)
-    .slice(0, 8);
 }
 
 function formatConfidenceLabel(value: number) {

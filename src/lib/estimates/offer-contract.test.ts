@@ -1,18 +1,16 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import * as api from "@/lib/estimates/offer-contract";
 import {
   buildCanonicalEstimateSealPayload,
   computeEstimateSealHash,
 } from "@/lib/estimates/estimate-seal";
 
-// PRECODE: synthetic contract fixtures only. No DB/auth/server.ts/PDF/provider.
-// Review api-contract.md and the exact schema BEFORE creating the future module.
 const ROOT = process.cwd();
 const VECTORS = path.resolve(ROOT, "src/test/fixtures/offer-contract-legacy-vectors.json");
-const FUTURE_MODULE = path.resolve(ROOT, "src/lib/estimates/offer-contract.ts");
 const ID = {
   version: "44444444-4444-4444-8444-444444444444",
   tenant: "22222222-2222-4222-8222-222222222222",
@@ -32,15 +30,6 @@ const PDF_HASH = "a".repeat(64);
 const MAX_CENTS = 2_147_483_647;
 
 type JsonObject = Record<string, unknown>;
-type Options = { allowDevelopmentTerms?: boolean };
-type PureAPI = {
-  parseClientContractSnapshot: (value: unknown) => JsonObject;
-  parseOfferDocumentProof: (value: unknown, options?: Options) => JsonObject;
-  computeOfferSealHash: (input: {
-    calculationHash: string; snapshot: unknown; documentProof: unknown;
-  }, options?: Options) => string;
-};
-let api: PureAPI;
 const copy = <T,>(value: T): T => structuredClone(value);
 
 function setAt(value: unknown, dottedPath: string, replacement: unknown): void {
@@ -177,18 +166,7 @@ describe("C8 actual legacy builders preserve frozen serializer bytes", () => {
   });
 });
 
-describe("new Client1/Proof1/Seal5 precode contracts", () => {
-  beforeAll(async () => {
-    if (!existsSync(FUTURE_MODULE)) {
-      throw new Error("MISSING_PRECONDITION: future offer-contract.ts absent; prepared tests are not exploit REDs.");
-    }
-    // Dynamic variable: C8 collection/runs remain independent of absent future module.
-    api = await import(/* @vite-ignore */ FUTURE_MODULE) as PureAPI;
-    expect(typeof api.parseClientContractSnapshot).toBe("function");
-    expect(typeof api.parseOfferDocumentProof).toBe("function");
-    expect(typeof api.computeOfferSealHash).toBe("function");
-  });
-
+describe("Client1/Proof1/Seal5 contracts", () => {
   describe("C1 strict snapshot integrity", () => {
     const badValues: Array<[string, string, unknown]> = [
       ["future schema", "schemaVersion", 2], ["coerced schema", "schemaVersion", "1"],

@@ -484,7 +484,7 @@ export async function evaluateRules(input: {
     : null;
 
   return evaluateLoadedRules({
-    rules, approvals, version: input.version, project: input.project, items: input.items,
+    rules, latestApprovalByRule, version: input.version, project: input.project, items: input.items,
     signalContext, currentContentRevision,
     preserveApprovedRequiresApproval: input.preserveApprovedRequiresApproval,
     fixedDiscountEvidence: input.fixedDiscountEvidence,
