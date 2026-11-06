@@ -319,66 +319,9 @@ function evaluatePreview(
   }
 }
 
-function buildCreatePayload(
+function buildMappingRulePayload(
   state: MappingRuleEditorFormState
 ): CreateTakeoffMappingRuleInput {
-  const common = {
-    name: state.name.trim(),
-    match_pattern: state.matchPattern.trim(),
-    match_type: state.matchType,
-    priority: parsePriorityOrNull(state.priority) ?? 0,
-    is_active: state.isActive,
-  };
-
-  switch (state.action) {
-    case "rename":
-      return {
-        ...common,
-        action: "rename",
-        action_params: {
-          designation: state.renameDesignation.trim(),
-        },
-      };
-    case "set_price":
-      return {
-        ...common,
-        action: "set_price",
-        action_params: {
-          unit_price_cents: parsePriorityOrNull(state.setPriceCents) ?? 0,
-        },
-      };
-    case "set_category":
-      return {
-        ...common,
-        action: "set_category",
-        action_params: {
-          category_id: state.setCategoryId.trim(),
-        },
-      };
-    case "apply_assembly":
-      return {
-        ...common,
-        action: "apply_assembly",
-        action_params: {
-          assembly_id: state.applyAssemblyId.trim(),
-        },
-      };
-    case "skip":
-      return {
-        ...common,
-        action: "skip",
-        action_params: {},
-      };
-    default: {
-      const exhaustiveCheck: never = state.action;
-      return exhaustiveCheck;
-    }
-  }
-}
-
-function buildUpdatePayload(
-  state: MappingRuleEditorFormState
-): UpdateTakeoffMappingRuleInput {
   const common = {
     name: state.name.trim(),
     match_pattern: state.matchPattern.trim(),
@@ -484,7 +427,7 @@ export function MappingRuleEditor({
     }
 
     const payload =
-      mode === "edit" ? buildUpdatePayload(state) : buildCreatePayload(state);
+      buildMappingRulePayload(state);
     await Promise.resolve(onSubmit(payload));
   }
 
