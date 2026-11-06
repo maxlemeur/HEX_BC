@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 
-import { neutralizeCsvFormulaRows } from "@/lib/csv-security";
+import { serializeSpreadsheetCsv } from "@/lib/csv-security";
 import { getSupplierComparisonsForExport } from "@/lib/estimates/bdc-export";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
@@ -127,11 +127,7 @@ export function buildEstimateV3CsvRows(input: {
 
 /** Texte CSV : même écriture que le CSV v1/v2 de l'éditeur (`exportToCSV` : SheetJS, séparateur « ; », BOM UTF-8). */
 export function writeEstimateV3Csv(rows: CsvCell[][]): string {
-  const safeRows = neutralizeCsvFormulaRows(rows);
-  // SheetJS quotes LF but not bare CR with the default row separator. Keep CR
-  // inside a quoted cell so a spreadsheet cannot interpret a new formula row.
-  const forceQuotes = safeRows.some((row) => row.some((cell) => typeof cell === "string" && cell.includes("\r")));
-  return `﻿${XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(safeRows), { FS: ";", forceQuotes })}`;
+  return `\ufeff${serializeSpreadsheetCsv(rows, XLSX.utils)}`;
 }
 
 /** CSV de l'export standard d'une v3 (GET …/export?format=csv) ; une v1/v2 reçoit un 409 nommé. */

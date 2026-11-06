@@ -729,6 +729,8 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const lineTitle = `${army.runPrefix} V3X06 tube`;
       // 2 ml × 15,00 € × K FO 1,2 = 36,00 € (marge 1, sans main-d'oeuvre) ; TVA 20 % 7,20 ; TTC 43,20.
       const line = await createLineViaApi(browser, versionId, lineTitle, { description: "ml", quantity: 2, unit_price_ht_cents: 1500, k_fo: 1.2 });
+      const multilineTitle = "Raccord\r=1+1";
+      await createLineViaApi(browser, versionId, multilineTitle, { description: "u", quantity: 1, unit_price_ht_cents: 0 });
       const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
       expect(released.status).toBe(200);
       const state = await readEstimate(browser, versionId);
@@ -747,6 +749,8 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const csvPath = await resolveDownload(csvFile);
       const csvBytes = await readFile(csvPath);
       const csvRows = readCsv(csvBytes);
+      expect(csvBytes.toString("utf8")).toContain(`"${multilineTitle}"`);
+      expect(csvRows.filter((row) => row[1] === multilineTitle)).toHaveLength(1);
       const more = screen.getByTestId("estimate-page-toolbar-more-actions-button");
       await more.tap();
       const bdc = await downloadFrom(browser, new RegExp(`/api/estimates/${versionId}/export\\?format=xlsx&mode=bdc$`),

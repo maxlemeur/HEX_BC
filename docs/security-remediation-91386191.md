@@ -375,6 +375,14 @@ Preuves canoniques : `.e2e/patch-integration-20261023/ci/2026-10-23T09-26-25-366
 la révision testée et les assertions d'export y sont conservées. Le worktree de vérification
 a été retiré. Aucune migration distante ni publication n'a été effectuée pour ce lot.
 
+### Revue des exports CSV du 7 novembre 2026
+
+Dans le CSV des devis v1/v2 et des bons de commande, une désignation contenant
+un retour chariot isolé pouvait créer un nouvel enregistrement commençant par
+une formule. La protection déjà utilisée en v3 s'applique désormais aux deux
+écrivains. La régression vérifie les octets téléchargés, conserve le libellé
+dans une cellule et contrôle la valeur d'un montant négatif.
+
 ## Audit des dépendances — minimatch, 31/10/2026
 
 - GHSA-g3hv-75wg-m249 (npm 1244012, modérée) vise toutes les versions avant 11.0.1 : au

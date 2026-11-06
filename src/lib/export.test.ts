@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 
 vi.mock("@/lib/browser-download", () => ({ downloadBlob: vi.fn() }));
 
@@ -44,5 +45,22 @@ describe("CSV spreadsheet boundaries", () => {
     expect(csv).toContain("' +CMD|'/C calc'!A0;12.5");
     expect(csv).toContain("'-1+2;0");
     expect(csv).toContain("Ordinaire;7");
+  });
+
+  it("keeps a bare carriage return within an order or legacy estimate cell", async () => {
+    const title = "Tube\r=1+1";
+    await exportToCSV(
+      [{ title, amount: -25 }, { title: "Forfait", amount: 0 }],
+      [{ key: "title", header: "Désignation" }, { key: "amount", header: "Montant" }],
+      { filename: "bordereau" },
+    );
+
+    const [blob] = vi.mocked(downloadBlob).mock.calls[0];
+    const csv = await blob.text();
+    expect(csv).toContain('"Tube\r=1+1"');
+    const workbook = XLSX.read(csv, { type: "string", raw: true, FS: ";" });
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 })).toEqual([
+      ["Désignation", "Montant"], [title, "-25"], ["Forfait", "0"],
+    ]);
   });
 });

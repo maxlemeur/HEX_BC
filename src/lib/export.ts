@@ -1,5 +1,5 @@
 import { downloadBlob } from "@/lib/browser-download";
-import { neutralizeCsvFormulaRows } from "@/lib/csv-security";
+import { serializeSpreadsheetCsv } from "@/lib/csv-security";
 
 export type ExportColumn<T> = {
   key: keyof T | string;
@@ -92,8 +92,7 @@ export async function exportToCSV<T extends Record<string, unknown>>(
 ): Promise<void> {
   const xlsx = await import("xlsx");
   const exportData = prepareExportData(data, columns);
-  const worksheet = xlsx.utils.aoa_to_sheet(neutralizeCsvFormulaRows(exportData));
-  const csvContent = xlsx.utils.sheet_to_csv(worksheet, { FS: ";" });
+  const csvContent = serializeSpreadsheetCsv(exportData, xlsx.utils);
 
   const blob = new Blob(["\ufeff" + csvContent], {
     type: "text/csv;charset=utf-8;",
