@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 
 type MembershipRecord = {
   id: string;

@@ -15,7 +15,7 @@ import { useUiMode } from "@/hooks/useUiMode";
 import { useIsWideViewport } from "@/hooks/useIsTablet";
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { cn } from "@/lib/utils";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";

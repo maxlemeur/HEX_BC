@@ -29,10 +29,10 @@ import type {
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
 import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { IntakeDpgfCandidate } from "./unified-import-flow/types";
 import type {
@@ -49,7 +49,7 @@ import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { AffairePersistedProjectDetails } from "./AffairePersistedProjectDetails";
-import { AffairePilotagePanel } from "./AffairePilotagePanel";
+import { AffairePilotagePanel } from "./AffaireJourneyPanel";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {

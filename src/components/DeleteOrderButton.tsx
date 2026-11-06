@@ -6,7 +6,7 @@ import { Trash2Icon } from "lucide-react";
 
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 
 type DeleteOrderButtonProps = {
   orderId: string;

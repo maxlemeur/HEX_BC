@@ -11,7 +11,7 @@ vi.mock("@/components/catalogue/api", () => ({
   fetchApi: mocks.fetchApi,
 }));
 
-vi.mock("@/components/ui-legacy/Toast", () => ({
+vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({ success: mocks.toastSuccess }),
 }));
 

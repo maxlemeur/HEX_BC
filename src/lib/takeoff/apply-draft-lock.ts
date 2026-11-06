@@ -1,8 +1,5 @@
-import {
-  acquireEstimateDraftLock,
-  isEstimateApiError,
-  renewEstimateDraftLock,
-} from "@/lib/estimates/client";
+import { acquireEstimateDraftLock, renewEstimateDraftLock } from "@/lib/estimates/client-locks";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 
 export type EnsureTakeoffApplyDraftLockResult = {
   acquired: boolean;

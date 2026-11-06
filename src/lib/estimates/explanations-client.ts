@@ -4,7 +4,7 @@ import {
   estimateExplanationResponseSchema,
   type EstimateExplanationSnapshot,
 } from "@/lib/estimates/explanation-schemas";
-import { EstimateApiError } from "@/lib/estimates/client";
+import { EstimateApiError } from "@/lib/estimates/client-errors";
 
 type JsonRecord = Record<string, unknown>;
 

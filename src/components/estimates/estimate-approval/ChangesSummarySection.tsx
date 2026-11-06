@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { EstimateApprovalChangesSinceLastCycle } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalChangesSinceLastCycle } from "@/lib/estimates/approval-types";
 
 import { formatCurrencyDelta, formatDateTime } from "./shared";
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { UserProvider } from "../../src/components/UserContext";
-import { ToastProvider } from "../../src/components/ui-legacy/Toast";
+import { ToastProvider } from "../../src/components/feedback/toast-provider";
 import { SupplierOfferFormModal } from "../../src/components/catalogue/prices-manager/SupplierOfferFormModal";
 
 const offer = {

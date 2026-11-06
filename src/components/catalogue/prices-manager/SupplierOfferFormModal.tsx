@@ -24,7 +24,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { parseEuroToCents } from "@/lib/money";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { maxPriceValidTo, resolvePriceValidity } from "@/lib/catalogue/price-validity";

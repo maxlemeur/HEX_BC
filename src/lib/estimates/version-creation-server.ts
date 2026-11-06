@@ -7,10 +7,8 @@ import {
 } from "@/lib/estimates/canonical-v2-creation";
 import { badRequest } from "@/lib/estimates/errors";
 import type { CreateEstimateInput } from "@/lib/estimates/schemas";
-import {
-  getAuthenticatedContext,
-  tryCarryOverTakeoffJobsToNewVersion,
-} from "@/lib/estimates/server-context";
+import { getAuthenticatedContext } from "@/lib/estimates/server-context";
+import { tryCarryOverTakeoffJobsToNewVersion } from "@/lib/takeoff/carry-over";
 import { buildEstimateCreationVersionPlan } from "@/lib/estimates/version-creation-plan";
 import {
   ensureDefaultEstimateCategories,

@@ -1058,7 +1058,7 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
 // COUVERTURE PARTIELLE — surface "editeur".
 // useEstimateEditorState n'est pas montable sans next/navigation + UserContext
 // + 15 controllers reseau. On rejoue ici la SEULE chaine de calcul, adaptee de
-// useEstimateEditorState.impl.tsx:959-1019 (buildLineCalculationInput) puis
+// useEstimateEditorState.tsx:959-1019 (buildLineCalculationInput) puis
 // :1075-1092 (filtre item_type === "line" + computeEstimateTotals).
 //
 // COPIE REDUITE, PAS COPIE CONFORME : buildEditorLineInput ci-dessous omet le
@@ -1118,7 +1118,7 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
       ...engine,
       lineItems,
       // POST-ETAPE 5 (EST-E26) : l'editeur derive isLaborSplitEnabled du flag
-      // tenant reel (useEstimateEditorState.impl.tsx:290, desormais
+      // tenant reel (useEstimateEditorState.tsx:290, desormais
       // useFeatureFlag). Ce harnais fige le cas flag OFF.
       isLaborSplitEnabled: false,
     });
@@ -1178,11 +1178,11 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
 
   it("fige la derivation discount_bp et l'aplatissement du payload persiste", () => {
     // DIVERGENCE : discount_bp est derive par Math.round sur un ratio
-    //   (useEstimateEditorState.impl.tsx:1281-1286), alors que le moteur
+    //   (useEstimateEditorState.tsx:1281-1286), alors que le moteur
     //   recalcule la remise par bankersRound (estimate-calculations.ts:268).
     //   La base du ratio est saleSubtotalCents, donc POST-coefficient.
     // DIVERGENCE : en mode "simple", discount_steps est ecrase par []
-    //   (useEstimateEditorState.impl.tsx:1292-1293) et global_coefficient par 1
+    //   (useEstimateEditorState.tsx:1292-1293) et global_coefficient par 1
     //   (:1309-1310) : le coefficient reellement utilise pour le calcul n'est
     //   pas persiste.
     const totals = runEditorTotals(FIXTURE_A_ITEMS, FIXTURE_B_ENGINE);
@@ -1200,7 +1200,7 @@ describe("Surface editeur (COUVERTURE PARTIELLE) [surface 2]", () => {
       ),
       // Payload persiste en mode "simple" : discount_steps ecrase par [] et
       // global_coefficient ecrase par 1, alors que la fixture B calcule bien
-      // avec un coefficient de 1.1 (useEstimateEditorState.impl.tsx:1292-1293
+      // avec un coefficient de 1.1 (useEstimateEditorState.tsx:1292-1293
       // et :1309-1310).
       payloadPersiste: {
         discount_bp: discountBp,

@@ -124,7 +124,6 @@ const eslintConfig = defineConfig([
               // gitignore syntax: listing the folder itself would forbid re-including its files.
               group: [
                 "@/components/ui-legacy/*",
-                "!@/components/ui-legacy/Toast",
                 "!@/components/ui-legacy/NumberInput",
                 "!@/components/ui-legacy/KeyboardShortcutsModal",
                 "!@/components/ui-legacy/CommandPaletteLoader",

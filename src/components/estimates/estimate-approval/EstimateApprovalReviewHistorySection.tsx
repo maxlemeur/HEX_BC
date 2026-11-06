@@ -1,4 +1,4 @@
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 
 import { DecisionBadge, formatDateTime, REVIEW_SCOPE_ORDER, SCOPE_LABELS } from "./shared";
 

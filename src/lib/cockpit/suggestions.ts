@@ -9,7 +9,7 @@ import {
   type AffaireRegisterSummary,
 } from "@/lib/affaires/register";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";

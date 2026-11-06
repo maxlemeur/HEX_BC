@@ -17,7 +17,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 
 import { OrderExpandedDetails } from "./_components/OrderExpandedDetails";
 import { OrderRowMenu } from "./_components/OrderRowMenu";
