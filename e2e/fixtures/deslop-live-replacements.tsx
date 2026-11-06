@@ -7,7 +7,7 @@ import {
 } from "../../src/components/estimates/AssemblyEditorDialog";
 import { AssistedReviewPanel } from "../../src/components/takeoff/review/AssistedReviewPanel";
 import type { ReviewItem } from "../../src/components/takeoff/TakeoffReviewPage";
-import { ToastProvider } from "../../src/components/ui-legacy/Toast";
+import { ToastProvider } from "../../src/components/feedback/toast-provider";
 
 async function captureEvent(event: unknown) {
   const response = await fetch("/fixture-events", {

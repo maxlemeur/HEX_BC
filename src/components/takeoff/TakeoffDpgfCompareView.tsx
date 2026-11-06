@@ -12,7 +12,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { DpgfRowList } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfRowList";
 import { ManualLinkModal } from "@/components/takeoff/takeoff-dpgf-compare-view/ManualLinkModal";
 import { RiskRadarSummary } from "@/components/takeoff/takeoff-dpgf-compare-view/RiskRadarSummary";

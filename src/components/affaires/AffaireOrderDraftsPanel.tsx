@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PurchaseOrderDraftLinesTable } from "@/components/affaires/PurchaseOrderDraftLinesTable";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import {
   createEstimatePurchaseOrderDrafts,
   fetchEstimatePurchaseOrderDraftPreparation,

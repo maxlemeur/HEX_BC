@@ -27,7 +27,7 @@ vi.mock("@/components/takeoff/TakeoffPreparationPanel", async () => {
 });
 vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
 
-vi.mock("@/components/ui-legacy/Toast", () => ({
+vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({
     success: toastSuccessMock,
     warning: toastWarningMock,

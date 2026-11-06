@@ -3,7 +3,7 @@
 import { type ChangeEvent, useId, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";

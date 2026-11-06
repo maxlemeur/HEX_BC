@@ -1,6 +1,6 @@
 /**
  * Lot 2, sous-lot 2.6 - aiguillage moteur de l'éditeur (conception §9 : aiguillage exhaustif,
- * `assertNever`). Les fichiers saturés de l'éditeur (`useEstimateEditorState.impl.tsx`,
+ * `assertNever`). Les fichiers saturés de l'éditeur (`useEstimateEditorState.tsx`,
  * `useEstimateEditorSyncController.ts`) délèguent ici chaque choix qui dépend du moteur : une v1/v2
  * garde exactement son chemin historique (mêmes appels, mêmes arguments), une v3 n'est jamais
  * relue par le moteur historique ni normalisée en v2 (D1, D2).

@@ -2,7 +2,7 @@ import { render,screen,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach,describe,expect,it,vi } from "vitest";
 
-import { ToastProvider } from "@/components/ui-legacy/Toast";
+import { ToastProvider } from "@/components/feedback/toast-provider";
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { AffaireFinishLineActions } from "./AffaireFinishLineActions";
 

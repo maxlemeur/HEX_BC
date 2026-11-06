@@ -35,7 +35,7 @@ import {
 } from "@/components/estimates/components/estimate-editor-table/MobileEstimateList";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
 import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";

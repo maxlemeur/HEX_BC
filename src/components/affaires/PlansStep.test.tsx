@@ -28,7 +28,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchPreparedTakeoffFromSourceVersionPlanSetAction: vi.fn(),
 }));
 
-vi.mock("@/components/ui-legacy/Toast", () => ({
+vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import type { TakeoffRiskStatus } from "@/lib/takeoff/types";
 import { cn } from "@/lib/utils";

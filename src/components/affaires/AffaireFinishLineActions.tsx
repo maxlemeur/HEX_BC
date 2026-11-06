@@ -10,7 +10,7 @@ import type { EstimateStatus } from "@/lib/estimates/status";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import {
   describeSubmissionReadinessGroup,
   isPdfFinishLineFlag,

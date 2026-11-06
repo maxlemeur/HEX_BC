@@ -6,7 +6,7 @@ import {
   submitEstimateForReviewAction,
   updateEstimateReviewCorrectionItemStatusAction,
 } from "@/app/dashboard/_actions/estimate-approval";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import {
   COCKPIT_OPEN_SURFACE_EVENT,
   type CockpitOpenSurfaceEventDetail,

@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { BookmarkPlusIcon } from "lucide-react";
 
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

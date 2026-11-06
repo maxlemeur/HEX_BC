@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { fetchAffaireRegisterReviewExportAction } from "@/app/dashboard/affaires/_actions/register";
-import { useToast } from "@/components/ui-legacy/Toast";
+import { useToast } from "@/components/feedback/toast-provider";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
