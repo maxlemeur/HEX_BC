@@ -1,128 +1,124 @@
 # Repository guidelines
 
-Shared working contract for Codex and Claude Code. The owner's current request
-and the current product contract take precedence over historical reports and
-procedures. Prefer useful outcomes and proportionate verification to rigid scripts.
+Shared contract for Codex and Claude Code. The owner's current request and product
+contract take precedence over historical reports and procedures.
 
-## Work and delivery
+## Scope and autonomy
 
-- Start with Git status, relevant code, tests, configuration and recent history.
-  Use the canonical checkout on `main`; create or switch branches only when asked.
-  A temporary detached verification worktree is fine when isolation is necessary.
+- Start with Git status and affected code, tests and configuration. Read history,
+  skills and installed API docs when relevant; reuse unchanged references.
+- Work in the canonical checkout on `main`; create or switch branches only when
+  asked. Use a detached verification worktree when credentials or concurrent work
+  require isolation; an uncommitted task diff alone does not require one.
 - Preserve unrelated changes, untracked files and personal data. Never stage
   `.env`, `CLAUDE.local.md`, `settings.local.json`, `design-qa.md` or `outputs/`.
-- Complete authorized changes, tests, review, commit and push without asking again.
-  Ask only for a concrete missing decision or an action outside the authorized scope.
+- Complete requested changes through verification, review, commit and push without
+  repeated approval. Keep implementation focused. Analysis-only requests end with
+  findings. Ask only for a missing decision or an action outside the authorized scope.
   PRs, deployment, shared/remote migrations, access changes and destructive actions
   require explicit authorization. Tool permissions alone do not provide it.
-- Before delivery, review the scoped diff, stage only task-owned files, run
-  `git diff --cached --check`, fetch and reconcile with `origin/main` without
-  force or loss of work. Use Conventional Commits. Push a finished review round;
-  avoid cancelling running CI with intermediate pushes.
-- Keep implementation simple and focused. Use relevant skills and current installed
-  API docs. An independent read-only reviewer should inspect substantial changes
-  on a stable diff; give it the contract, consumers and actual test evidence.
-- Explain outcomes, evidence, limitations and blockers concisely. Discuss Figma
-  only when explicitly requested. Use visuals only when they clarify the subject.
-
-## Verification
-
-- Never write unit tests after you write code.
-- Highly prefer E2E army tests as the sole testing mechanism. Use them to verify
-  complex features work.
-- If you must test a system in isolation, first write down all the ways it could
-  fail, then write the code. Such a test must catch a real bug the E2E army
-  journeys miss; delete one that would not.
-- Define the observable failure and affected journey before changing behavior.
-  Reproduce a regression first when practical. TesterArmy (`e2e`, `@e2e-dev/web`)
-  is the primary browser runner; deterministic journeys need no model.
-- Assert real business values, persistence, authorization and downloaded files.
-  Keep justified SQL/RLS, parser, race, recovery and calculation checks where a
-  browser cannot expose the failure reliably. Avoid tests of source text or mocks
-  that merely mirror the implementation. Do not remove useful coverage to get green.
-- Run affected journeys locally with `npm run e2e:army:local -- --grep '<pattern>'`.
-  Use `npm run db:ci:local` for SQL changes and `npm run verify:pr` once on the
-  final code. Do not duplicate unchanged checks or the full suites CI already runs.
-  A failure requires diagnosis before another run; never hide it with retries or
-  higher timeouts. Documentation-only changes need consistency and diff checks.
-- Keep the existing CI quality, smoke, critical, takeoff, SQL/RLS and calc-v3
-  protections. Their impact selection and schedules live in the workflows and
-  [CI guide](docs/testing/tester-army-ci.md), not in a frozen list here.
-- Record command, source/build identity, environment, fixture identity, expected
-  and actual result, and primary evidence paths. Preserve failed/skipped cases;
-  neither a setup failure nor a skipped test is a pass. Sources stay fixed during
-  qualification. Never include credentials or session tokens in evidence.
-- For performance, use the real repository input and largest supported volume.
-  Measure comparable statements on the same available native host (macOS or Linux),
-  median of seven runs, with raw samples and host load. WSL is an option, not a
-  prerequisite. Keep SQL timings separate from HTTP/UI timings and CI/production.
-  Local budgets: bulk import/creation/settings 1,000 ms at 2,031 items; interactive
-  operations 400 ms; v3 copy up to 1,000 operations 875 ms. Its CI/production target
-  is 3,500 ms, which a local median alone cannot prove. Fix an over-budget write
-  instead of changing the budget. See [statement budgets](docs/testing/large-estimate-statement-budget.md).
-
-## Runtime and workspaces
-
-- Use the Node version in `.nvmrc`, `npm ci` for installation and `package.json`
-  for current commands. `verify:pr` includes audits, architecture, OpenAPI,
-  typecheck, lint and retained tests. `check:release` adds production-build checks
-  when preparing publication; a successful build is not deployment evidence.
-- The native Supabase runner owns and destroys an ephemeral local stack; do not
-  point it at shared credentials or bypass its guards. For browser campaigns use
-  a clean checkout without ambient `.env` files and dependencies inside its root.
-- Journeys keep the affaires they create. The shared Supabase is also production's:
-  run writing campaigns on an owned stack. A check that must write there uses only
-  the designated E2E account and its tenant « ARMY TesterArmy QA »; never sign up
-  another account or tenant there, ask the owner for the credentials instead.
-  `run-tester-army.mjs` refuses writing modes on a remote host unless the shell sets
-  `E2E_ARMY_SHARED_WRITE_HOST` to it for that run. Drafts of the tenants listed in
-  `private.test_data_tenants` are purged weekly after their retention (7 days);
-  list an affaire to keep in `private.test_data_retained_projects`.
-- Keep persistent task workspaces under `~/Projects/.workspaces/mergeone/`, reuse
-  compatible package caches and keep canonical artifacts under `outputs/`.
-  Reference native run artifacts rather than duplicating media. Before retiring
-  a workspace, check active use, preserve unique work/evidence and write a compact
-  recovery receipt. Clean up temporary verification workspaces on success or failure.
 
 ## Product and data contracts
 
-- HEX/MergeOne is a multi-tenant estimating product: affaire, DPGF/plans/CCTP,
-  import/takeoff, estimate, approval, PDF/sending, client portal and purchase orders.
-  Domain logic belongs in `src/lib/`, thin routes in `src/app/api/`, journeys in
-  `e2e/`, database history in `supabase/migrations/`.
-- Money stays in integer cents and rates in basis points. Reuse `src/lib/money.ts`.
-  Before changing calculations or lifecycle, read `docs/metier/regles-de-calcul.md`,
-  `docs/metier/cycle-de-vie.md` and the current implementation. Preserve the engine
-  pinned on each version, fresh snapshots and issued/sealed amounts. New versions
-  use engine 3 unless the tenant explicitly has policy 2; historical versions
-  retain their engine. Never roll an application with v3 data back below its
-  compatible creation/snapshot code.
-- Keep tenant membership, active-tenant authorization and RLS at the existing
-  server boundaries. A redirect is not authorization. Service-role credentials
-  never enter browser code. Treat Storage paths, portal tokens, email side effects
-  and takeoff workers as sensitive boundaries.
-- Preserve `dpgf_rows_raw -> mappings -> confirmUnifiedImportFlow`, including
-  CSV/XLS/XLSX/PDF compatibility and provenance. Public fixtures are fictional;
-  private originals and formative feedback must not be published.
-- Use strict TypeScript, two spaces, semicolons, double quotes and `@/` imports
-  from `src/`. Follow the existing component, hook and route naming conventions.
-  Keep OpenAPI source and artifact synchronized when its contract changes.
+- HEX/MergeOne covers affaires, DPGF/plans/CCTP, import/takeoff, estimates,
+  approval, PDF/sending, client portal and purchase orders. Domain logic lives in
+  `src/lib/`, thin API routes in `src/app/api/`, journeys in `e2e/`.
+- Money stays in integer cents and rates in basis points; reuse `src/lib/money.ts`.
+  For calculation or lifecycle changes, read [calculation rules](docs/metier/regles-de-calcul.md),
+  [lifecycle](docs/metier/cycle-de-vie.md) and the affected implementation.
+  Preserve pinned engines, fresh snapshots and issued/sealed amounts. New versions
+  use engine 3 unless tenant policy explicitly selects 2; historical versions keep
+  their engine. Never roll an application with v3 data back below compatible
+  creation/snapshot code.
+- Preserve tenant membership, active-tenant authorization and RLS at server
+  boundaries; redirects are not authorization. Service-role credentials never
+  enter browser code. Storage paths, portal tokens, email side effects and takeoff
+  workers are sensitive boundaries.
+- Preserve `dpgf_rows_raw -> mappings -> confirmUnifiedImportFlow`, CSV/XLS/XLSX/PDF
+  compatibility and provenance. Public fixtures are fictional; private originals
+  and formative feedback must not be published.
+- Use strict TypeScript, two spaces, semicolons, double quotes, `@/` imports from
+  `src/` and existing naming conventions. Synchronize OpenAPI source and artifact
+  when its contract changes.
+- Ordered `supabase/migrations/` are schema truth; `supabase/schema.sql` is a pointer.
+  Never rewrite applied migrations. For schema changes, follow the
+  [Supabase runbook](supabase/README.md): timestamped migrations, manifest and Git
+  guards, restamping only unapplied changes when needed. Regenerate types with
+  `npm run supabase:types`; `database.generated.ts` is generated and `database.ts`
+  holds explicit refinements.
 
-## Database and publication
+## Verification
 
-- Schema truth is the ordered migrations; `supabase/schema.sql` is only a pointer.
-  Never rewrite an applied migration. Add and validate a new timestamped migration
-  when needed; use the manifest and Git guards, and restamp only unapplied changes
-  when required by current `main`. See [Supabase runbook](supabase/README.md).
-- Validate database changes on an owned local stack with relevant SQL/RLS and
-  app journeys. Regenerate types with `npm run supabase:types` after schema changes;
-  `database.generated.ts` is generated, `database.ts` holds explicit refinements.
-- Remote migration and deployment are separate authorized actions. Vercel Git
-  deployment is disabled in `vercel.json`; a push does not deploy. Before an
-  authorized deployment, confirm its required shared migrations have been applied.
-- For the security scan, update dispositions in `docs/security-remediation-91386191.md`;
-  preserve canonical scan evidence and never treat a provisional report as current
-  exploitability proof. Load environment-specific guides only in that environment.
+- Define the observable failure and affected journey before changing behavior;
+  reproduce regressions first when practical. Prefer TesterArmy (`e2e`,
+  `@e2e-dev/web`) as the sole test mechanism where it covers the risk. Deterministic
+  journeys need no model; assert business values, persistence, rights and downloads.
+- Use isolated tests only for real failures E2E cannot expose reliably (SQL/RLS,
+  parsers, races, recovery, calculations). Identify relevant failure modes and
+  write new isolated tests before implementation changes, never afterwards.
+  Avoid source-text tests and mocks that mirror implementation. Preserve useful
+  existing coverage; do not remove it to get green.
+
+| Scope | Required checks |
+| --- | --- |
+| Documentation only | Content consistency, links and `git diff --check`; no application suites. |
+| Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
+| Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
+| SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
+| Final code | `npm run verify:pr` once; retain required CI protections. |
+| Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
+| Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
+
+- Diagnose failures before rerunning affected checks; never mask them with retries
+  or higher timeouts. Broaden only for a failure or material risk. Once required
+  checks pass, stop testing unchanged inputs; do not duplicate full CI suites.
+- Keep CI quality, smoke, critical, takeoff, SQL/RLS and calc-v3 protections.
+  Selection and schedules belong to workflows and the [CI guide](docs/testing/tester-army-ci.md).
+- Record command, source/build and fixture identities, environment, expected/actual
+  results and primary evidence paths. Preserve failures and skips; setup failure,
+  skips or changing sources cannot qualify a journey. Never put secrets in evidence.
+
+## Runtime and workspaces
+
+- Use `.nvmrc` and [package.json](package.json) for runtime and commands. Reuse
+  conforming dependencies; use `npm ci` when installation is needed, inside the
+  checkout root. See the [test guide](e2e/README.md) for setup and suite contents.
+- Browser campaigns require no ambient `.env` files or inherited DB/Supabase
+  credentials, matching dependencies and sources frozen during qualification;
+  task changes may be uncommitted. Isolate when needed without moving personal
+  secrets. The runner owns and destroys its ephemeral stack; never bypass guards
+  or point it at shared credentials.
+- The shared Supabase is also production's. Run writing campaigns on owned stacks.
+  An authorized shared check uses only the designated E2E account and tenant
+  « ARMY TesterArmy QA »; never create another account/tenant. Use existing authorized
+  credentials or ask the owner if missing. Before a shared run, read the
+  [write acknowledgement](e2e/README.md#démarrer-un-parcours-local) and
+  [retention/exemptions](supabase/README.md#données-de-test); journeys do not delete
+  their affaires, but shared test drafts have scheduled retention.
+- Keep persistent workspaces under `~/Projects/.workspaces/mergeone/`, reuse
+  compatible caches and keep project artifacts in `outputs/`, referencing native
+  evidence without copying media. Before cleanup, check active use, preserve unique
+  work/evidence and write a compact recovery receipt. Clean up temporary verification
+  workspaces on success or failure.
+
+## Review and delivery
+
+- Use an independent read-only reviewer for substantial changes, especially money,
+  authorization, migrations, concurrency, public contracts or cross-module behavior.
+  Give it a stable diff, the contract, consumers and actual check results.
+- A change is complete when the requested outcome works, required checks pass,
+  the scoped diff is reviewed and task-owned files are committed and pushed.
+  Before committing, fetch and reconcile with `origin/main` without force or loss
+  of work, stage only scoped files and run `git diff --cached --check`. Use
+  Conventional Commits and push the finished review round, avoiding intermediate
+  pushes that cancel CI. Report any blocker instead of claiming completion.
+- Pushes do not deploy: Vercel Git deployment is disabled in `vercel.json`.
+  Before a separately authorized deployment, confirm required shared migrations
+  are applied. For security-scan work, update [dispositions](docs/security-remediation-91386191.md),
+  preserve canonical evidence and never treat provisional reports as current
+  exploitability proof. Load guides only for the environment involved.
+- Report outcomes, checks, limitations and blockers concisely. Discuss Figma only
+  when requested; use visuals only when they clarify the subject.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
