@@ -38,6 +38,36 @@ const matchOne = (line: PriceReuseTargetLine, references: PriceReuseReferenceLin
   matchPriceReuseLines({ targets: [line], references })[0];
 
 describe("price reuse designation matching", () => {
+
+  // Controlled plumbing corpus, fixed before correcting the matcher. No human equivalence labels.
+  it.each([
+    ["same DN", "Vanne DN 32", "Vanne DN32", "identical"],
+    ["different DN", "Vanne DN40", "Vanne DN32", "new"],
+    ["same grade", "Tube inox 316L DN20", "DN20 Tube inox 316 L", "identical"],
+    ["different grade", "Tube inox 316L DN20", "Tube inox 304L DN20", "new"],
+    ["missing grade", "Tube inox DN20", "Tube inox 304L DN20", "to_review"],
+    ["different wall", "Tube inox 304L 22x1,5", "Tube inox 304L 22x1,2", "new"],
+    ["missing article", "DN 20", "DN20", "to_review"],
+    ["swapped ends", "Raccord réduit 1/2 M x 3/4 F", "Raccord réduit 3/4 M x 1/2 F", "new"],
+    ["mixed inch tails", "Raccord 1 1/2 M x 1/2 F", "Raccord 1/2 M x 1 1/2 F", "new"],
+    ["quoted mixed inches", 'Raccord 1"1/2 M x 1/2 F', "Raccord 1/2 M x 1 1/2 F", "new"],
+    ["vulgar fractions", "Raccord 1½ M x ¾ F", 'Raccord 3/4 F x 1"1/2 M', "identical"],
+    ["metric m", "Flexible 1/2 m", 'Flexible mâle 1/2"', "to_review"],
+    ["only DN with separator", "DN 20 x DN 32", "DN20 x DN32", "to_review"],
+    ["only unit suffix", "DN32 mm", "DN 32 mm", "to_review"],
+    ["only numeric suffix", "DN 20/32", "DN20/32", "to_review"],
+    ["tee count", "Té réduit M1/2 x F3/4 x F3/4", "Té réduit M1/2 x M1/2 x F3/4", "new"],
+    ["tee branch assignment", "Té réduit M1/2 x F3/4 x F1/4", "Té réduit M1/2 x F1/4 x F3/4", "to_review"],
+    ["only fractions", "1/2 x 3/4", "3/4 x 1/2", "to_review"],
+    ["grade before tube size", "Tube inox 316 L 22x1,2", "Tube inox 316L 22x1,2", "identical"],
+    ["compact grade", "Tube INOX316L DN20", "Tube inox 316L DN20", "identical"],
+    ["grade after DN", "Tube inox DN20 316L", "Tube inox 316L DN20", "identical"],
+    ["same ends reversed", "Raccord réduit 1/2 M x 3/4 F", "Raccord réduit 3/4 F x 1/2 M", "identical"],
+    ["incomplete ends", "Raccord réduit 1/2 x 3/4", "Raccord réduit 1/2 M x 3/4 F", "to_review"],
+  ])("%s: %s vs %s", (_label, line, source, expected) => {
+    expect(matchOne(target(line), [reference("r1", source)]).status).toBe(expected);
+  });
+
   it.each([
     ["Vanne d'arret RBS DN 32", "Vanne d'arrêt RBS DN32"],
     ["DN20 - Tube inox 304L serti 22x1,2", "Tube inox 304L serti DN20 22x1.2"],

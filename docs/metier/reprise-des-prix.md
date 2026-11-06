@@ -42,6 +42,14 @@ changent l'article.
 | À vérifier | Aucune cote contraire, même unité, mots proches (coefficient de Dice d'au moins 0,5) ou cote absente d'un côté ; ou plusieurs prix différents pour le même article |
 | Sans correspondance | Aucun candidat ; la note signale le même article dans une autre unité |
 
+Deux nuances inox explicites différentes (304, 304L, 316, 316L) s’excluent.
+Sur un raccord, chaque taille de filetage en pouces reste associée à son extrémité
+mâle ou femelle. Deux extrémités peuvent être énumérées dans l’ordre inverse
+si leurs tailles et genres correspondent. Dès trois extrémités, une autre
+formulation demande une revue pour confirmer la position des sorties.
+Une désignation constituée uniquement de cotes demande une vérification humaine,
+même lorsque les nombres sont identiques.
+
 Une cote différente exclut l'article : un DN32 n'est jamais proposé pour un DN40,
 un isolant de 30 mm pour un isolant de 40 mm. Une unité différente l'exclut aussi.
 Une ligne sans unité ne reçoit pas de prix. Une ligne de référence non chiffrée
@@ -108,10 +116,9 @@ sans IA) et PRX02 ([`chatgpt-local.e2e.ts`](../../e2e/army/local/chatgpt-local.e
 Decisions et forfait ChatGPT simulés) vérifient les statuts affichés, les prix
 écrits, les quantités conservées, la ligne déjà chiffrée intacte, la référence
 inchangée, le refus d'une référence modifiée après la comparaison et les totaux
-recalculés. Dans PRX02, les arbitres choisissent un autre candidat que la
-proposition du rapprochement : c'est ce choix qui est écrit. Ne sont pas couverts
-par un parcours : la reprise entre affaires de propriétaires différents (rôles
-repris par leur nom, testés isolément) et le résumé des PU différents de la
-référence (coefficients ou taux horaires différents). Les réponses simulées ne prouvent ni l'accès
+recalculés. PRX01 vérifie aussi les PU du résumé quand le coefficient fourniture
+du devis cible diffère de celui du devis de référence. Dans PRX02, les arbitres choisissent un autre candidat que la
+proposition du rapprochement : c'est ce choix qui est écrit. La reprise entre propriétaires différents
+reste couverte isolément pour le rapprochement des rôles par nom. Les réponses simulées ne prouvent ni l'accès
 réel aux fournisseurs ni la justesse de leurs choix : celle-ci se mesure sur une
 affaire réelle, contre un rapprochement fait par un chiffreur.

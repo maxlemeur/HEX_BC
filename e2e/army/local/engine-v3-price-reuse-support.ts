@@ -29,8 +29,8 @@ export type PriceReuseFixture = {
   target: { projectId: string; versionId: string };
   reference: { projectId: string; versionId: string };
   tuyauteurId: string;
-  /** T1-T3 et T6 : reprises possibles ; T4, T5 : sans correspondance (prix non chiffré, autre unité). */
-  lines: Record<"T1" | "T2" | "T3" | "T4" | "T5" | "T6", ArmyItem>;
+  /** T1-T3 et T6 : reprises possibles ; T4, T5, T7, T8 : sans correspondance (prix absent, unité, filetage ou nuance). */
+  lines: Record<"T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "T8", ArmyItem>;
   /** R3 (RBS) et R6 (papillon) : les deux candidats de T3, R3 proposé par le rapprochement. */
   references: Record<"R1" | "R2" | "R3" | "R4" | "R5" | "R6", ArmyItem>;
 };
@@ -67,7 +67,8 @@ export async function preparePriceReuseFixture(ui: Ui, army: ArmyState, owner: V
   let referenceVersionId: string;
   try {
     targetVersionId = await createV3Version(ui, army, target.projectId, `${army.runPrefix} ${label} consultation plomberie`);
-    referenceVersionId = await createV3Version(ui, army, reference.projectId, `${army.runPrefix} ${label} contrat hydraulique`);
+    referenceVersionId = await createV3Version(ui, army, reference.projectId, `${army.runPrefix} ${label} contrat hydraulique`,
+      label === "PRX01" ? { sale_coefficient_fo: 1 } : {});
   } finally {
     await closePolicy(owner, army, label);
   }
@@ -78,19 +79,23 @@ export async function preparePriceReuseFixture(ui: Ui, army: ArmyState, owner: V
     withLabor("Calorifuge laine nu 54x30mm - DN50", "m2", 1, 2812, 0.61, tuyauteurId),
     supply("Pompe de relevage", "u", 1, 0, { pricing_status: "included" }),
     withLabor("Vanne d'arrêt papillon DN40", "u", 1, 3600, 0.9, tuyauteurId),
+    supply("Raccord réduit 1/2 M x 3/4 F", "u", 2, 1720),
+    supply("Tube inox 304L DN20", "ml", 3, 1900),
   ], `${label.toLowerCase()}-reference`);
-  const [T1, T2, T3, T4, T5, T6] = await seedSection(ui, army, targetVersionId, TARGET_SECTION, [
+  const [T1, T2, T3, T4, T5, T6, T7, T8] = await seedSection(ui, army, targetVersionId, TARGET_SECTION, [
     supply("Tube cuivre diam. 22 x 1 calorifuge epaisseur 13mm", "ml", 40, 0),
     supply("Vanne d'arret RBS DN 32", "u", 6, 0),
     supply("Vanne d'arrêt DN40", "u", 4, 0),
     supply("Pompe de relevage", "u", 2, 0),
     supply("Calorifuge laine nu 54x30mm - DN50", "ml", 12, 0),
     withLabor("Vanne d'arrêt RBS DN32", "u", 2, 2500, 0.5, tuyauteurId),
+    supply("Raccord réduit 3/4 M x 1/2 F", "u", 8, 0),
+    supply("Tube inox 316L DN20", "ml", 9, 0),
   ], `${label.toLowerCase()}-target`);
   return {
     target: { projectId: target.projectId, versionId: targetVersionId },
     reference: { projectId: reference.projectId, versionId: referenceVersionId },
-    tuyauteurId, lines: { T1, T2, T3, T4, T5, T6 }, references: { R1, R2, R3, R4, R5, R6 },
+    tuyauteurId, lines: { T1, T2, T3, T4, T5, T6, T7, T8 }, references: { R1, R2, R3, R4, R5, R6 },
   };
 }
 
@@ -194,8 +199,17 @@ export async function verifyAppliedPrices(ui: Ui, army: ArmyState, fixture: Pric
   t3 = { prFo: 4100, hPerUnit: 0.7, pu: 8743, net: 34972 }) {
   const summary = ui.screen.getByTestId("estimate-editor-alert-import-summary");
   await expect(summary).toBeVisible({ timeout: 60_000 });
-  expect(normalized(await summary.textContent())).toBe("3 prix repris depuis le devis de référence.");
-  const { T1, T2, T3, T4, T5, T6 } = fixture.lines;
+  const { T1, T2, T3, T4, T5, T6, T7, T8 } = fixture.lines;
+  const message = normalized(await summary.textContent());
+  expect(message).toContain("3 prix repris depuis le devis de référence.");
+  if (label === "prx01") {
+    expect(message).toContain("PU de vente différent de la référence");
+    for (const [line, targetPu, sourcePu] of [[T1, 3321, 2943], [T2, 6928, 6049], [T3, 8743, 7501]] as const) {
+      expect(message).toContain(`« ${line.title} » ${eur(targetPu)} au lieu de ${eur(sourcePu)}`);
+    }
+  } else {
+    expect(message).toBe("3 prix repris depuis le devis de référence.");
+  }
   const role = fixture.tuyauteurId;
   const after = await readConsistent(ui, fixture.target.versionId);
   const view = (item: ArmyItem) => priceView(lineView(after.items.find((candidate) => candidate.id === item.id)!));
@@ -209,6 +223,9 @@ export async function verifyAppliedPrices(ui: Ui, army: ArmyState, fixture: Pric
     T5: { title: T5.title, unit: "ml", quantity: 12, prFo: 0, hPerUnit: 0, roleId: null, pu: 0, net: 0 },
     T6: { title: T6.title, unit: "u", quantity: 2, prFo: 2500, hPerUnit: 0.5, roleId: role, pu: 5683, net: 11366 },
   });
+  for (const [line, quantity] of [[T7, 8], [T8, 9]] as const) {
+    expect(view(line)).toMatchObject({ quantity, prFo: 0, pu: 0, net: 0 });
+  }
   const referenceAfter = await readEstimate(ui.browser, fixture.reference.versionId);
   expect({ token: referenceAfter.version.updated_at, lines: referenceAfter.items.map((item) => [item.id, item.unit_price_ht_cents]) })
     .toEqual({ token: referenceBefore.version.updated_at, lines: referenceBefore.items.map((item) => [item.id, item.unit_price_ht_cents]) });

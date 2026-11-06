@@ -40,9 +40,11 @@ export const PRICE_REUSE_MAX_CANDIDATES = 5;
 const SIMILARITY_THRESHOLD = 0.5;
 
 export type DimensionKind = "size" | "fraction" | "dn" | "pn" | "labeled" | "diameter" | "mm";
-const DIMENSION_LABELS: Record<DimensionKind, string> = {
+type PriceCharacteristic = DimensionKind | "inox_grade" | "male_thread" | "female_thread";
+const DIMENSION_LABELS: Record<PriceCharacteristic, string> = {
   size: "dimension", fraction: "fraction", dn: "DN", pn: "classe de pression", labeled: "cote repérée",
-  diameter: "diamètre", mm: "cote en mm",
+  diameter: "diamètre", mm: "cote en mm", inox_grade: "nuance inox",
+  male_thread: "filetage mâle", female_thread: "filetage femelle",
 };
 
 const NUMBER = "(\\d+(?:\\.\\d+)?)";
@@ -67,7 +69,7 @@ export const DIMENSION_PATTERNS: ReadonlyArray<{ kind: DimensionKind; pattern: R
 // classe A, courbe C, 304L) do; elided articles (d', l') are removed before tokenizing.
 const STOPWORDS = new Set(["au", "aux", "de", "des", "du", "en", "et", "la", "le", "les", "par", "pour", "un", "une"]);
 
-type Signature = { dimensions: Map<DimensionKind, string[]>; words: string[]; empty: boolean };
+type Signature = { dimensions: Map<PriceCharacteristic, string[]>; words: string[]; multiEndTitle: string | null; empty: boolean };
 
 function number(value: string) {
   return String(Number(value));
@@ -96,20 +98,72 @@ function wordsOf(text: string) {
     .filter((word) => word.length > 0 && !STOPWORDS.has(word)).map(singular))].sort();
 }
 
+// A fraction may start with whole inches (1 1/2 or 1"1/2). A standalone inch mark also identifies an integer size.
+const INCHES = String.raw`(?:(?:\d+(?:\s*["″”]\s*|\s+))?\d+\s*\/\s*\d+(?:\s*["″”])?|\d+(?:[.,]\d+)?\s*["″”])`;
+const GENDER = "(?:M|F|[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Ee][Ll][Ll][Ee])";
+
+function threadSize(raw: string) {
+  const fraction = /^(?:(\d+)(?:\s*["″”]\s*|\s+))?(\d+)\s*\/\s*(\d+)/.exec(raw);
+  if (!fraction) return number(raw.replace(/[\s"″”]/g, "").replace(",", ".")) + '"';
+  const whole = fraction[1] ? number(fraction[1]) + " " : "";
+  return whole + number(fraction[2]) + "/" + number(fraction[3]);
+}
+
 function signatureOf(title: string): Signature {
-  let text = normalize(title);
-  const dimensions = new Map<DimensionKind, string[]>();
+  const dimensions = new Map<PriceCharacteristic, string[]>();
+  function add(kind: PriceCharacteristic, value: string) {
+    const values = dimensions.get(kind);
+    if (values) values.push(value);
+    else dimensions.set(kind, [value]);
+  }
+  // Preserve M/m here: "1/2 m" can mean half a metre, while "1/2 M" labels a male end.
+  let raw = title.normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[¼½¾]/g, (glyph) => ({ "¼": " 1/4", "½": " 1/2", "¾": " 3/4" })[glyph]!);
+  if (/\b(?:inox(?:ydable)?|aisi)(?=\b|\d)/i.test(raw)) {
+    raw = raw.replace(/\b(inox(?:ydable)?|aisi)(?=\d)/gi, "$1 ");
+    raw = raw.replace(/\b(304|316)(\s*l)?\b/gi, (match, grade: string, suffix: string | undefined, index: number) => {
+      const followsMaterial = /\b(?:inox(?:ydable)?|aisi)\s*$/i.test(raw.slice(0, index));
+      if (!followsMaterial && !suffix) return match;
+      const next = raw.slice(index + match.length);
+      // A separated "L 600" labels a length; "316 L 22x1,2" names a grade then a tube size.
+      const lengthLabel = suffix?.startsWith(" ") && /^\s*\d/.test(next) && !/^\s*\d+(?:[.,]\d+)?\s*[x×]\s*\d/i.test(next);
+      if (lengthLabel && !followsMaterial) return match;
+      add("inox_grade", grade + (suffix && !lengthLabel ? "L" : ""));
+      return lengthLabel ? suffix! : " ";
+    });
+  }
+  // Consume labelled DN/PN before bare inches: in "DN 20 1/2 M", 20 belongs to DN.
+  raw = raw.replace(/\b(dn|pn)\s*-?\s*(\d+(?:[.,]\d+)?)\b/gi, (_match, label: string, value: string) => {
+    const kind = label.toLowerCase() as "dn" | "pn";
+    add(kind, kind + number(value.replace(",", ".")));
+    return " ";
+  });
+  function bindThread(rawSize: string, gender?: string) {
+    const size = threadSize(rawSize);
+    add("fraction", size);
+    if (gender) add(gender[0].toLowerCase() === "m" ? "male_thread" : "female_thread", size);
+    return " ";
+  }
+  raw = raw
+    .replace(new RegExp(String.raw`\b(${INCHES})\s*(${GENDER})\b(?!\s*\/\s*[MF]\b)`, "g"),
+      (_match, size: string, gender: string) => bindThread(size, gender))
+    .replace(new RegExp(String.raw`\b(${GENDER})\s*(${INCHES})`, "g"),
+      (_match, gender: string, size: string) => bindThread(size, gender))
+    .replace(new RegExp(String.raw`\b(${INCHES})`, "g"), (_match, size: string) => bindThread(size));
+  let text = normalize(raw);
   for (const { kind, pattern, value } of DIMENSION_PATTERNS) {
     text = text.replace(pattern, (...match: string[]) => {
-      const values = dimensions.get(kind) ?? [];
-      values.push(value(match));
-      dimensions.set(kind, values);
+      add(kind, value(match));
       return " ";
     });
   }
-  for (const [kind, values] of dimensions) dimensions.set(kind, [...new Set(values)].sort());
+  const endCount = (dimensions.get("male_thread")?.length ?? 0) + (dimensions.get("female_thread")?.length ?? 0);
+  for (const [kind, values] of dimensions) {
+    const countMatters = kind === "male_thread" || kind === "female_thread";
+    dimensions.set(kind, (countMatters ? values : [...new Set(values)]).sort());
+  }
   const words = wordsOf(text);
-  return { dimensions, words, empty: words.length === 0 && dimensions.size === 0 };
+  return { dimensions, words, multiEndTitle: endCount > 2 ? normalize(title) : null, empty: words.length === 0 && dimensions.size === 0 };
 }
 
 function dice(left: readonly string[], right: readonly string[]) {
@@ -136,6 +190,12 @@ function displayDimension(value: string) {
 
 type Comparison = { conflict: boolean; exact: boolean; score: number; differences: string[] };
 
+// Leftover units, separators and numbers cannot give dimensions a service name ("DN20/32", "Ø32 mm").
+const DIMENSION_WORDS = new Set(["x", "a", "mm", "cm", "m", "ml", "pouce", "dn", "pn"]);
+function onlyDimensions(signature: Signature) {
+  return signature.dimensions.size > 0 && signature.words.every((word) => !/[a-z]/.test(word) || DIMENSION_WORDS.has(word));
+}
+
 function compare(target: Signature, reference: Signature): Comparison {
   const differences: string[] = [];
   let conflict = false;
@@ -160,6 +220,12 @@ function compare(target: Signature, reference: Signature): Comparison {
   const onlyReference = reference.words.filter((word) => !targetWords.has(word));
   if (onlyReference.length > 0) differences.push(`Mots en plus dans la référence : ${onlyReference.join(", ")}`);
   if (onlyTarget.length > 0) differences.push(`Mots absents de la référence : ${onlyTarget.join(", ")}`);
+  if (onlyDimensions(target) && onlyDimensions(reference)) {
+    differences.push("Les cotes seules ne désignent pas une prestation.");
+  }
+  if (target.multiEndTitle && reference.multiEndTitle && target.multiEndTitle !== reference.multiEndTitle) {
+    differences.push("Vérifiez la position des sorties de ce raccord.");
+  }
   const similarity = dice(target.words, reference.words);
   const exact = !conflict && differences.length === 0;
   return { conflict, exact, score: exact ? 1 : Math.max(0, similarity - 0.05 * missing), differences };

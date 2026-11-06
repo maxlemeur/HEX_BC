@@ -10,14 +10,14 @@ import {
 // Reprise des prix d'un devis de référence (docs/metier/reprise-des-prix.md), sans IA : l'application ne fait
 // aucun appel Decisions ni ChatGPT sans l'activation du serveur ; le rapprochement et l'écriture restent disponibles.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
-const SUMMARY = "Identiques : 3 · À vérifier : 1 · Sans correspondance : 2";
+const SUMMARY = "Identiques : 3 · À vérifier : 1 · Sans correspondance : 4";
 
 armyTest("PRX01 reference prices are reused on identical articles after review, never on another diameter, unit or a manual price",
   options(480_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
     const fixture = await preparePriceReuseFixture(ui, army, owner, "PRX01");
-    const { T1, T2, T3, T4, T5, T6 } = fixture.lines;
+    const { T1, T2, T3, T4, T5, T6, T7, T8 } = fixture.lines;
     const { R1, R2, R3, R5 } = fixture.references;
     const dialog = await openAndCompare(ui, army, fixture, "prx01");
 
@@ -35,6 +35,8 @@ armyTest("PRX01 reference prices are reused on identical articles after review, 
         // La pompe de la référence est « compris » (sans prix) ; le calorifuge y est au m², la ligne en ml.
         [T4.id]: { status: "new", checked: null, reference: null, origin: "" },
         [T5.id]: { status: "new", checked: null, reference: null, origin: "" },
+        [T7.id]: { status: "new", checked: null, reference: null, origin: "" },
+        [T8.id]: { status: "new", checked: null, reference: null, origin: "" },
       },
     });
     // Sans activation serveur, les arbitres IA sont présentés mais inaccessibles : aucun appel facturé possible.
