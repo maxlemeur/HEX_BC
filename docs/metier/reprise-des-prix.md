@@ -43,6 +43,11 @@ changent l'article.
 | Sans correspondance | Aucun candidat ; la note signale le même article dans une autre unité |
 
 Deux nuances inox explicites différentes (304, 304L, 316, 316L) s’excluent.
+Les mentions 304L et 316L sont également lues sans préfixe « inox » sur les tubes.
+Sur une cuve ou un ballon, un « L » isolé peut désigner la capacité en litres.
+Sur une réduction, « DN20x32 » et « DN 20 × DN 32 » donnent les mêmes cotes
+dans le même ordre. Une indication groupée M/F, F/M, MF ou FM exige une
+vérification pour attribuer le filetage à la bonne extrémité.
 Sur un raccord, chaque taille de filetage en pouces reste associée à son extrémité
 mâle ou femelle. Deux extrémités peuvent être énumérées dans l’ordre inverse
 si leurs tailles et genres correspondent. Dès trois extrémités, une autre

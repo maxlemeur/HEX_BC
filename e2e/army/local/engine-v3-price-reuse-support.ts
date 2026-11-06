@@ -29,10 +29,10 @@ export type PriceReuseFixture = {
   target: { projectId: string; versionId: string };
   reference: { projectId: string; versionId: string };
   tuyauteurId: string;
-  /** T1-T3 et T6 : reprises possibles ; T4, T5, T7, T8 : sans correspondance (prix absent, unité, filetage ou nuance). */
+  /** T1-T3 et T6 : reprises possibles ; T7 : raccord à vérifier (PRX01) ou incompatible (PRX02) ; T4, T5, T8 : sans correspondance. */
   lines: Record<"T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "T8", ArmyItem>;
   /** R3 (RBS) et R6 (papillon) : les deux candidats de T3, R3 proposé par le rapprochement. */
-  references: Record<"R1" | "R2" | "R3" | "R4" | "R5" | "R6", ArmyItem>;
+  references: Record<"R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7", ArmyItem>;
 };
 
 async function seedSection(ui: Ui, army: ArmyState, versionId: string, title: string, lines: Array<Record<string, unknown>>, label: string) {
@@ -72,30 +72,30 @@ export async function preparePriceReuseFixture(ui: Ui, army: ArmyState, owner: V
   } finally {
     await closePolicy(owner, army, label);
   }
-  const [R1, R2, R3, R4, R5, R6] = await seedSection(ui, army, referenceVersionId, REFERENCE_SECTION, [
+  const [R1, R2, R3, R4, R5, R6, R7] = await seedSection(ui, army, referenceVersionId, REFERENCE_SECTION, [
     withLabor("Tube cuivre Ø22x1 calorifugé ép. 13 mm", "ml", 1, 1250, 0.35, tuyauteurId),
-    withLabor("Vanne d'arrêt RBS DN32", "u", 1, 2900, 0.65, tuyauteurId),
+    withLabor("Vanne d'arrêt RBS DN32x25", "u", 1, 2900, 0.65, tuyauteurId),
     withLabor("Vanne d'arrêt RBS DN40", "u", 1, 4100, 0.7, tuyauteurId),
     withLabor("Calorifuge laine nu 54x30mm - DN50", "m2", 1, 2812, 0.61, tuyauteurId),
     supply("Pompe de relevage", "u", 1, 0, { pricing_status: "included" }),
     withLabor("Vanne d'arrêt papillon DN40", "u", 1, 3600, 0.9, tuyauteurId),
-    supply("Raccord réduit 1/2 M x 3/4 F", "u", 2, 1720),
-    supply("Tube inox 304L DN20", "ml", 3, 1900),
+    supply(label === "PRX01" ? "Raccord réduit 1/2 x 3/4 M/F" : "Raccord réduit 1/2 M x 3/4 F", "u", 2, 1720),
+    supply("Tube 304L DN20", "ml", 3, 1900),
   ], `${label.toLowerCase()}-reference`);
   const [T1, T2, T3, T4, T5, T6, T7, T8] = await seedSection(ui, army, targetVersionId, TARGET_SECTION, [
     supply("Tube cuivre diam. 22 x 1 calorifuge epaisseur 13mm", "ml", 40, 0),
-    supply("Vanne d'arret RBS DN 32", "u", 6, 0),
+    supply("Vanne d'arret RBS DN 32 × DN 25", "u", 6, 0),
     supply("Vanne d'arrêt DN40", "u", 4, 0),
     supply("Pompe de relevage", "u", 2, 0),
     supply("Calorifuge laine nu 54x30mm - DN50", "ml", 12, 0),
-    withLabor("Vanne d'arrêt RBS DN32", "u", 2, 2500, 0.5, tuyauteurId),
-    supply("Raccord réduit 3/4 M x 1/2 F", "u", 8, 0),
-    supply("Tube inox 316L DN20", "ml", 9, 0),
+    withLabor("Vanne d'arrêt RBS DN 32 x 25", "u", 2, 2500, 0.5, tuyauteurId),
+    supply(label === "PRX01" ? "Raccord réduit 1/2 x 3/4 F/M" : "Raccord réduit 3/4 M x 1/2 F", "u", 8, 0),
+    supply("Tube 316L DN20", "ml", 9, 0),
   ], `${label.toLowerCase()}-target`);
   return {
     target: { projectId: target.projectId, versionId: targetVersionId },
     reference: { projectId: reference.projectId, versionId: referenceVersionId },
-    tuyauteurId, lines: { T1, T2, T3, T4, T5, T6, T7, T8 }, references: { R1, R2, R3, R4, R5, R6 },
+    tuyauteurId, lines: { T1, T2, T3, T4, T5, T6, T7, T8 }, references: { R1, R2, R3, R4, R5, R6, R7 },
   };
 }
 

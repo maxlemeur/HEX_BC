@@ -40,11 +40,11 @@ export const PRICE_REUSE_MAX_CANDIDATES = 5;
 const SIMILARITY_THRESHOLD = 0.5;
 
 export type DimensionKind = "size" | "fraction" | "dn" | "pn" | "labeled" | "diameter" | "mm";
-type PriceCharacteristic = DimensionKind | "inox_grade" | "male_thread" | "female_thread";
+type PriceCharacteristic = DimensionKind | "inox_grade" | "dn_sequence" | "male_thread" | "female_thread";
 const DIMENSION_LABELS: Record<PriceCharacteristic, string> = {
   size: "dimension", fraction: "fraction", dn: "DN", pn: "classe de pression", labeled: "cote repérée",
   diameter: "diamètre", mm: "cote en mm", inox_grade: "nuance inox",
-  male_thread: "filetage mâle", female_thread: "filetage femelle",
+  dn_sequence: "suite de DN", male_thread: "filetage mâle", female_thread: "filetage femelle",
 };
 
 const NUMBER = "(\\d+(?:\\.\\d+)?)";
@@ -69,7 +69,7 @@ export const DIMENSION_PATTERNS: ReadonlyArray<{ kind: DimensionKind; pattern: R
 // classe A, courbe C, 304L) do; elided articles (d', l') are removed before tokenizing.
 const STOPWORDS = new Set(["au", "aux", "de", "des", "du", "en", "et", "la", "le", "les", "par", "pour", "un", "une"]);
 
-type Signature = { dimensions: Map<PriceCharacteristic, string[]>; words: string[]; multiEndTitle: string | null; empty: boolean };
+type Signature = { dimensions: Map<PriceCharacteristic, string[]>; words: string[]; multiEndTitle: string | null; combinedGenders: boolean; empty: boolean };
 
 function number(value: string) {
   return String(Number(value));
@@ -119,19 +119,30 @@ function signatureOf(title: string): Signature {
   // Preserve M/m here: "1/2 m" can mean half a metre, while "1/2 M" labels a male end.
   let raw = title.normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[¼½¾]/g, (glyph) => ({ "¼": " 1/4", "½": " 1/2", "¾": " 3/4" })[glyph]!);
-  if (/\b(?:inox(?:ydable)?|aisi)(?=\b|\d)/i.test(raw)) {
-    raw = raw.replace(/\b(inox(?:ydable)?|aisi)(?=\d)/gi, "$1 ");
-    raw = raw.replace(/\b(304|316)(\s*l)?\b/gi, (match, grade: string, suffix: string | undefined, index: number) => {
-      const followsMaterial = /\b(?:inox(?:ydable)?|aisi)\s*$/i.test(raw.slice(0, index));
-      if (!followsMaterial && !suffix) return match;
-      const next = raw.slice(index + match.length);
-      // A separated "L 600" labels a length; "316 L 22x1,2" names a grade then a tube size.
-      const lengthLabel = suffix?.startsWith(" ") && /^\s*\d/.test(next) && !/^\s*\d+(?:[.,]\d+)?\s*[x×]\s*\d/i.test(next);
-      if (lengthLabel && !followsMaterial) return match;
-      add("inox_grade", grade + (suffix && !lengthLabel ? "L" : ""));
-      return lengthLabel ? suffix! : " ";
+  const describesVessel = /\b(?:ballons?|cuves?|reservoirs?|citernes?|chauffe[- ]eau)\b/i.test(raw);
+  raw = raw.replace(/\b(inox(?:ydable)?|aisi)(?=\d)/gi, "$1 ");
+  raw = raw.replace(/\b(304|316)(\s*l)?\b/gi, (match, grade: string, suffix: string | undefined, index: number) => {
+    const prefix = raw.slice(0, index);
+    const next = raw.slice(index + match.length);
+    const followsMaterial = /\b(?:inox(?:ydable)?|aisi)\s*$/i.test(prefix);
+    if (/[ø⌀]\s*$|\b(?:dn|pn|diam(?:etre)?|[hlp])\s*[.=:-]?\s*$/i.test(prefix) || /^\s*mm\b/i.test(next)) return match;
+    // On a vessel, 304 L and 316 L can specify capacity; only a material prefix establishes the grade.
+    if (!followsMaterial && (!suffix || describesVessel)) return match;
+    // A separated "L 600" labels a length; "316 L 22x1,2" names a grade then a tube size.
+    const lengthLabel = /^\s/.test(suffix ?? "") && /^\s*\d/.test(next) && !/^\s*\d+(?:[.,]\d+)?\s*[x×]\s*\d/i.test(next);
+    if (lengthLabel && !followsMaterial) return match;
+    add("inox_grade", grade + (suffix && !lengthLabel ? "L" : ""));
+    return lengthLabel ? suffix! : " ";
+  });
+  // DN20x32, DN 20 × 32 and DN20 × DN32 all name the same ordered ports.
+  // The first DN stays available for the index; the sequence distinguishes a different second or third port.
+  raw = raw.replace(/\bdn\s*-?\s*(\d+(?:[.,]\d+)?(?:\s*[x×]\s*(?:dn\s*-?\s*)?\d+(?:[.,]\d+)?)+)(?:\s*mm)?(?![\w/"″”]|[.,]\d|\s+\d+\s*\/)/gi,
+    (_match, sequence: string) => {
+      const sizes = sequence.split(/\s*[x×]\s*(?:dn\s*-?\s*)?/i).map((value) => number(value.replace(",", ".")));
+      add("dn", "dn" + sizes[0]);
+      add("dn_sequence", sizes.join("x"));
+      return " ";
     });
-  }
   // Consume labelled DN/PN before bare inches: in "DN 20 1/2 M", 20 belongs to DN.
   raw = raw.replace(/\b(dn|pn)\s*-?\s*(\d+(?:[.,]\d+)?)\b/gi, (_match, label: string, value: string) => {
     const kind = label.toLowerCase() as "dn" | "pn";
@@ -144,6 +155,12 @@ function signatureOf(title: string): Signature {
     if (gender) add(gender[0].toLowerCase() === "m" ? "male_thread" : "female_thread", size);
     return " ";
   }
+  // A grouped MF or F/M never says which size is male without an established notation convention.
+  let combinedGenders = false;
+  raw = raw.replace(/(?<![a-z])(?:m\s*[/.-]?\s*f|f\s*[/.-]?\s*m)(?![a-z])/gi, () => {
+    combinedGenders = true;
+    return " ";
+  });
   raw = raw
     .replace(new RegExp(String.raw`\b(${INCHES})\s*(${GENDER})\b(?!\s*\/\s*[MF]\b)`, "g"),
       (_match, size: string, gender: string) => bindThread(size, gender))
@@ -163,7 +180,7 @@ function signatureOf(title: string): Signature {
     dimensions.set(kind, (countMatters ? values : [...new Set(values)]).sort());
   }
   const words = wordsOf(text);
-  return { dimensions, words, multiEndTitle: endCount > 2 ? normalize(title) : null, empty: words.length === 0 && dimensions.size === 0 };
+  return { dimensions, words, combinedGenders, multiEndTitle: endCount > 2 ? normalize(title) : null, empty: words.length === 0 && dimensions.size === 0 };
 }
 
 function dice(left: readonly string[], right: readonly string[]) {
@@ -220,6 +237,9 @@ function compare(target: Signature, reference: Signature): Comparison {
   const onlyReference = reference.words.filter((word) => !targetWords.has(word));
   if (onlyReference.length > 0) differences.push(`Mots en plus dans la référence : ${onlyReference.join(", ")}`);
   if (onlyTarget.length > 0) differences.push(`Mots absents de la référence : ${onlyTarget.join(", ")}`);
+  if (target.combinedGenders || reference.combinedGenders) {
+    differences.push("Confirmez à quelle extrémité correspond chaque filetage mâle ou femelle.");
+  }
   if (onlyDimensions(target) && onlyDimensions(reference)) {
     differences.push("Les cotes seules ne désignent pas une prestation.");
   }

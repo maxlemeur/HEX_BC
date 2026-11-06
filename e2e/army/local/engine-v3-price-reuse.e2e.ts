@@ -10,7 +10,7 @@ import {
 // Reprise des prix d'un devis de référence (docs/metier/reprise-des-prix.md), sans IA : l'application ne fait
 // aucun appel Decisions ni ChatGPT sans l'activation du serveur ; le rapprochement et l'écriture restent disponibles.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
-const SUMMARY = "Identiques : 3 · À vérifier : 1 · Sans correspondance : 4";
+const SUMMARY = "Identiques : 3 · À vérifier : 2 · Sans correspondance : 3";
 
 armyTest("PRX01 reference prices are reused on identical articles after review, never on another diameter, unit or a manual price",
   options(480_000), async ({ app, screen, browser, army }) => {
@@ -18,7 +18,7 @@ armyTest("PRX01 reference prices are reused on identical articles after review, 
     const owner = await signUpCreatorOwner(ui, army);
     const fixture = await preparePriceReuseFixture(ui, army, owner, "PRX01");
     const { T1, T2, T3, T4, T5, T6, T7, T8 } = fixture.lines;
-    const { R1, R2, R3, R5 } = fixture.references;
+    const { R1, R2, R3, R5, R7 } = fixture.references;
     const dialog = await openAndCompare(ui, army, fixture, "prx01");
 
     const compared = { summary: normalized(await dialog.getByTestId("price-reuse-summary").textContent()), rows: await readRows(ui) };
@@ -35,7 +35,7 @@ armyTest("PRX01 reference prices are reused on identical articles after review, 
         // La pompe de la référence est « compris » (sans prix) ; le calorifuge y est au m², la ligne en ml.
         [T4.id]: { status: "new", checked: null, reference: null, origin: "" },
         [T5.id]: { status: "new", checked: null, reference: null, origin: "" },
-        [T7.id]: { status: "new", checked: null, reference: null, origin: "" },
+        [T7.id]: { status: "to_review", checked: false, reference: R7.id, origin: "À confirmer" },
         [T8.id]: { status: "new", checked: null, reference: null, origin: "" },
       },
     });
