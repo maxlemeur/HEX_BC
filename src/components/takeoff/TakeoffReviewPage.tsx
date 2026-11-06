@@ -18,13 +18,11 @@ import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
-import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
+import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
   TakeoffReviewModeSwitch,
   type ReviewMode,
 } from "@/components/takeoff/review/TakeoffReviewModeSwitch";
-import { AssistedReviewPanel } from "@/components/takeoff/review/AssistedReviewPanel";
-import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import {
   TakeoffApplyReadinessBar,
   TakeoffApplySuccessBanner,
@@ -32,9 +30,6 @@ import {
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
 import { useUiMode } from "@/hooks/useUiMode";
-import {
-  hasBlockingAnomaly,
-} from "@/components/takeoff/TakeoffReviewTable";
 import {
   getBusinessLevelLabel,
   getStatusCss,
@@ -45,6 +40,21 @@ import {
   useTakeoffApplyConfirm,
   useTakeoffLowConfidenceThreshold,
 } from "@/components/takeoff/review/useTakeoffReviewSupport";
+
+const AssistedReviewPanel = dynamic(
+  () => import("@/components/takeoff/review/AssistedReviewPanel").then((mod) => mod.AssistedReviewPanel),
+  { ssr: false, loading: () => <LoadingState label="Chargement de la revue assistée…" /> }
+);
+
+const ExclusionReasonDialog = dynamic(
+  () => import("@/components/takeoff/review/ExclusionReasonDialog").then((mod) => mod.ExclusionReasonDialog),
+  { ssr: false }
+);
+
+const EvidencePanel = dynamic(
+  () => import("@/components/takeoff/EvidencePanel").then((mod) => mod.EvidencePanel),
+  { ssr: false, loading: () => <LoadingState label="Chargement de la preuve…" /> }
+);
 
 const TakeoffApplyWizard = dynamic(
   () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
@@ -93,7 +103,7 @@ import {
 import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
-import { checkApplyGuard } from "@/lib/takeoff/guards";
+import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import type {
   TakeoffApplyResponse,
   TakeoffDpgfComparisonResponse,
@@ -110,11 +120,7 @@ import type {
 // Exported types
 // ---------------------------------------------------------------------------
 
-export type ReviewItem = TakeoffJobItem & {
-  _dirty: boolean;
-  _saving: boolean;
-  _error: string | null;
-};
+export type { ReviewItem } from "@/lib/takeoff/review-item-edits";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -639,32 +645,7 @@ export default function TakeoffReviewPage({
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== itemId) return item;
-          const invalidatesVerification =
-            item.is_verified &&
-            [
-              "designation",
-              "quantity",
-              "unit",
-              "source_page",
-              "is_excluded",
-              "exclusion_reason",
-              "evidence",
-            ].includes(field) &&
-            item[field as keyof ReviewItem] !== value;
-
-          return {
-            ...item,
-            [field]: value,
-            ...(invalidatesVerification
-              ? {
-                  is_verified: false,
-                  verified_at: null,
-                  verified_by: null,
-                }
-              : {}),
-            _dirty: true,
-            _error: null,
-          };
+          return editReviewItem(item, { [field]: value });
         })
       );
     },
@@ -679,7 +660,7 @@ export default function TakeoffReviewPage({
     return patchSequence.current.sent;
   }, []);
   const applyPatchResults = useCallback(
-    (response: TakeoffItemBatchPatchResponse, sequence: number) => {
+    (response: TakeoffItemBatchPatchResponse, sequence: number, submitted?: Map<string, ReviewItem>) => {
       const fresh = sequence > patchSequence.current.applied;
       if (fresh) patchSequence.current.applied = sequence;
       const resultByItemId = new Map(
@@ -691,12 +672,7 @@ export default function TakeoffReviewPage({
           if (!result) return item;
 
           if (result.success && result.item) {
-            return {
-              ...result.item,
-              _dirty: false,
-              _saving: false,
-              _error: null,
-            };
+            return afterReviewSave(result.item, submitted?.get(item.id), item);
           }
 
           return {
@@ -728,25 +704,10 @@ export default function TakeoffReviewPage({
       )
     );
 
-    const patchEntries: TakeoffItemPatchEntry[] = dirtyItems.map((item) => {
-      const fields: TakeoffItemPatchEntry["fields"] = {};
-      fields.designation = item.designation;
-      fields.quantity = item.quantity;
-      fields.unit = item.unit;
-      fields.source_page = item.source_page;
-      fields.is_excluded = item.is_excluded;
-      if (item.is_excluded) {
-        fields.exclusion_reason = item.exclusion_reason;
-      }
-      fields.is_verified = item.is_verified;
-      fields.evidence = item.evidence;
-
-      return {
-        item_id: item.id,
-        updated_at: item.updated_at,
-        fields,
-      };
-    });
+    const submitted = new Map(dirtyItems.map((item) => [item.id, item]));
+    const patchEntries: TakeoffItemPatchEntry[] = dirtyItems.map((item) => ({
+      item_id: item.id, updated_at: item.updated_at, fields: reviewPatch(item),
+    }));
 
     try {
       let failedCount = 0;
@@ -761,7 +722,7 @@ export default function TakeoffReviewPage({
         const response = await patchTakeoffItems(jobId, { items: chunk });
         failedCount += response.failed;
         savedCount += response.succeeded;
-        applyPatchResults(response, sequence);
+        applyPatchResults(response, sequence, submitted);
       }
 
       if (failedCount > 0) {
@@ -781,9 +742,9 @@ export default function TakeoffReviewPage({
           item._saving
             ? {
                 ...item,
-                _dirty: true,
+                _dirty: false,
                 _saving: false,
-                _error: "Échec de sauvegarde.",
+                _error: "Sauvegarde non confirmée. Rechargez la revue pour vérifier la valeur enregistrée.",
               }
             : item
         )
@@ -800,7 +761,7 @@ export default function TakeoffReviewPage({
   // Trigger auto-save debounce when items change
   const hasDirty = items.some((i) => i._dirty);
   useEffect(() => {
-    if (!hasDirty) return;
+    if (!hasDirty || applySelectionSubmitting) return;
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
     }
@@ -813,7 +774,7 @@ export default function TakeoffReviewPage({
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [hasDirty, performSave]);
+  }, [applySelectionSubmitting, hasDirty, performSave]);
 
   useEffect(() => {
     const validItemIds = new Set(items.map((item) => item.id));
@@ -878,13 +839,7 @@ export default function TakeoffReviewPage({
       setItems((prev) =>
         prev.map((item) => {
           if (!itemIds.includes(item.id) || !item.is_excluded) return item;
-          return {
-            ...item,
-            is_excluded: false,
-            exclusion_reason: null,
-            _dirty: true,
-            _error: null,
-          };
+          return editReviewItem(item, { is_excluded: false, exclusion_reason: null });
         })
       );
     },
@@ -951,7 +906,7 @@ export default function TakeoffReviewPage({
       setApplySelectionError(null);
 
       const hasPendingSave = items.some((item) => item._dirty || item._saving);
-      if (hasPendingSave) {
+      if (hasPendingSave || savingRef.current) {
         setApplySelectionError(
           "Finalisez d'abord les modifications en cours avant d'appliquer un cherry-pick."
         );
@@ -994,6 +949,8 @@ export default function TakeoffReviewPage({
         return;
       }
 
+      const submitted = new Map(items.map((item) => [item.id, item]));
+      savingRef.current = true;
       setApplySelectionSubmitting(true);
       try {
         let failedCount = 0;
@@ -1001,7 +958,7 @@ export default function TakeoffReviewPage({
           const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
           const sequence = nextPatchSequence();
           const response = await patchTakeoffItems(jobId, { items: chunk });
-          applyPatchResults(response, sequence);
+          applyPatchResults(response, sequence, submitted);
           failedCount += response.failed;
         }
 
@@ -1029,6 +986,7 @@ export default function TakeoffReviewPage({
           description: message,
         });
       } finally {
+        savingRef.current = false;
         setApplySelectionSubmitting(false);
       }
     },
@@ -1040,13 +998,7 @@ export default function TakeoffReviewPage({
       setItems((prev) =>
         prev.map((item) => {
           if (!exclusionTargetIds.includes(item.id)) return item;
-          return {
-            ...item,
-            is_excluded: true,
-            exclusion_reason: reason,
-            _dirty: true,
-            _error: null,
-          };
+          return editReviewItem(item, { is_excluded: true, exclusion_reason: reason });
         })
       );
       setExclusionTargetIds([]);
@@ -1059,7 +1011,7 @@ export default function TakeoffReviewPage({
   const hasIncluded = includedItems.length > 0;
   const hasDirtyOrSaving = items.some((i) => i._dirty || i._saving);
   const hasSaveErrors = items.some((i) => i._error !== null);
-  const hasBlockingAnomalies = includedItems.some(hasBlockingAnomaly);
+  const hasBlockingAnomalies = includedItems.some(hasBlockingTakeoffAnomaly);
   // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C.
   const guardResult = useMemo(() => {
     if (!jobLevel) return null;
@@ -1376,12 +1328,12 @@ export default function TakeoffReviewPage({
       </div>
 
       {/* ---- Exclusion modal ---- */}
-      <ExclusionReasonDialog
-        open={exclusionModalOpen}
+      {exclusionModalOpen ? <ExclusionReasonDialog
+        open
         onOpenChange={setExclusionModalOpen}
         count={exclusionTargetIds.length}
         onConfirm={handleExclusionConfirm}
-      />
+      /> : null}
 
       {/* ---- Apply wizard ---- */}
       {applyWizardOpen ? <TakeoffApplyWizard

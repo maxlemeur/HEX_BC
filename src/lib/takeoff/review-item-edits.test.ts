@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+
+import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
+
+const signed = { id: "weld", designation: "Soudure", unit: "u", quantity: 2, source_page: 1,
+  is_verified: true, verified_by: "A", verified_at: "signed-at", is_excluded: false, exclusion_reason: null,
+  evidence: "Fiche atelier", _dirty: false, _saving: false, _error: null } as ReviewItem;
+
+describe("decisions while an earlier patch is in flight", () => {
+  it("keeps B's explicit withdrawal when a quantity is changed and restored during its save", () => {
+    const sent = editReviewItem(signed, { is_verified: false });
+    const changed = editReviewItem({ ...sent, _saving: true }, { quantity: 3 });
+    const restored = editReviewItem(changed, { quantity: 2 });
+    expect(restored.is_verified).toBe(false);
+    const result = afterReviewSave({ ...signed, is_verified: false, verified_by: null, verified_at: null }, sent, restored);
+    expect(result.is_verified).toBe(false);
+    expect(reviewPatch(result)).toEqual({});
+  });
+
+  it("keeps a second explicit V for the changed quantity after an earlier V was sent", () => {
+    const unsigned = { ...signed, is_verified: false, verified_by: null, verified_at: null };
+    const sent = editReviewItem(unsigned, { is_verified: true });
+    const changed = editReviewItem({ ...sent, _saving: true }, { quantity: 3 });
+    const rechecked = editReviewItem(changed, { is_verified: true });
+    const result = afterReviewSave(signed, sent, rechecked);
+    expect(reviewPatch(result)).toEqual({ quantity: 3, is_verified: true });
+  });
+
+  it("keeps an in-flight edit but never signs an exclusion B had not seen", () => {
+    const sent = { ...signed, is_verified: false, verified_at: null, verified_by: null };
+    const corrected = editReviewItem(sent, { quantity: 3 });
+    const verified = editReviewItem(corrected, { is_verified: true });
+    const saved = { ...sent, is_excluded: true, exclusion_reason: "Autre zone" };
+    const result = afterReviewSave(saved, sent, verified);
+    expect(result.is_verified).toBe(false);
+    expect(reviewPatch(result)).toEqual({ quantity: 3 });
+  });
+
+  it("requires a fresh decision when the previous save discovers a new failed rule", () => {
+    const sent = { ...signed, is_verified: false, verified_at: null, verified_by: null };
+    const checked = editReviewItem(sent, { is_verified: true });
+    const result = afterReviewSave({ ...sent, rule_results: [{ rule: "dn_network", status: "fail",
+      code: "DN_NETWORK_DN_MISSING", reason: "DN manquant", acceptable: true, version: 1 }] }, sent, checked);
+    expect(result.is_verified).toBe(false);
+    expect(reviewPatch(result)).toEqual({});
+  });
+});

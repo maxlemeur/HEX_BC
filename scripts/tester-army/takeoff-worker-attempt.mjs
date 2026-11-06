@@ -105,6 +105,9 @@ const callGemini = async (options) => {
   });
   const data = options.schema.parse({
     items: [
+      ...(current.source_file_name === "revue-A-R+1-Z1.pdf" ? [
+        { designation: "Soudures atelier", quantity: 2, unit: "kg", source_page: 1, confidence: 0.99, evidence: "Fiche atelier A-07" },
+      ] : []),
       { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.99, evidence: "Pipe row, page 1" },
       { designation: "ARMY worker valve", quantity: 3, unit: "u", source_page: 1, confidence: 0.99, evidence: "Valve row, page 1" },
     ],

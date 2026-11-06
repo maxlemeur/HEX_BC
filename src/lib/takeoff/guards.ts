@@ -214,3 +214,7 @@ export function checkApplyGuard(
     threshold,
   };
 }
+
+export function hasBlockingTakeoffAnomaly(item: { designation: string; quantity: number }): boolean {
+  return !item.designation.trim() || item.quantity <= 0;
+}

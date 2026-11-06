@@ -31,7 +31,7 @@ const POINTS_PER_MM = 72 / 25.4;
 const POINTS_PER_M = (1000 / ZONE_PLANS.denominator) * POINTS_PER_MM;
 const MARGIN_PT = 60;
 
-export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones) {
+export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revision?: "A" | "B") {
   const doc = await PDFDocument.create();
   doc.setTitle(`ARMY fictional zone plan ${zone}`);
   doc.setCreationDate(new Date("2026-01-01T00:00:00Z"));
@@ -44,7 +44,7 @@ export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones) {
   const y = (metres: number) => (MARGIN_PT + metres * POINTS_PER_M).toFixed(3);
   const text = (str: string, px: string | number, py: string | number, size: number) => `BT /F1 ${size} Tf ${px} ${py} Td (${str}) Tj ET`;
   const content = ["0 g"];
-  const { run } = ZONE_PLANS.zones[zone];
+  const run = zone === "Z2" && revision === "A" ? [11, 13] : ZONE_PLANS.zones[zone].run;
   content.push("/OC /oc0 BDC", "0 0 1 RG 1 w", `${x(run[0])} ${y(9)} m ${x(run[1])} ${y(9)} l S`,
     text(ZONE_PLANS.label, (Number(x(run[0])) + 20).toFixed(3), (Number(y(9)) + 3).toFixed(3), 6), "EMC");
   // The building, inside what both sheets show (4 m to 12 m): walls of 1 to 6 m, every 25 cm from 1 m to 6.75 m high.
@@ -56,6 +56,8 @@ export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones) {
   content.push("/OC /oc1 BDC", "0.5 G 0.5 w", ...walls,
     ...ZONE_PLANS.rooms.map((room, index) => text(room, x(5 + index * 1.5), y(2 + index * 1.2), 6)), "EMC");
   content.push(text("Echelle 1/50", 950, 80, 10), text("Format A3", 950, 62, 10), text(`Plan R+1 ${zone}`, 950, 44, 10));
+  if (revision) content.push(text(`Indice ${revision}`, 950, 26, 10));
+  if (zone === "Z1" && revision) content.push(text("Fiche atelier A-07 : 2 soudures (u)", 700, 26, 8));
   const page = doc.addPage(ZONE_PLANS.pageSize);
   page.node.set(PDFName.of("Resources"), doc.context.obj({
     Font: doc.context.obj({ F1: font.ref }),

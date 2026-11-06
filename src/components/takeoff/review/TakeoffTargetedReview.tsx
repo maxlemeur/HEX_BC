@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
+import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -20,7 +21,7 @@ import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, isTakeoffApiError, patchTakeoffItems } from "@/lib/takeoff/client";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
-import { APPLY_GUARD_REASON_LABELS } from "@/lib/takeoff/guards";
+import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import {
@@ -178,7 +179,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const busy = saving.size > 0;
 
   const decide = useCallback(async (item: TakeoffJobItem, fields: TakeoffItemPatchField, done: string) => {
-    if (savingRef.current.size > 0) return;
+    if (savingRef.current.size > 0) return false;
     savingRef.current.add(item.id);
     setSaving(new Set(savingRef.current));
     setLineErrors((previous) => {
@@ -198,8 +199,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         toast.success({ title: done, durationMs: 2000 });
         setDpgfRead((value) => value + 1);
       }
+      return result?.success === true;
     } catch (error) {
       setLineErrors((previous) => ({ ...previous, [item.id]: isTakeoffApiError(error) ? error.message : "Échec de l’enregistrement." }));
+      return false;
     } finally {
       savingRef.current.delete(item.id);
       setSaving(new Set(savingRef.current));
@@ -332,8 +335,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       : job.status !== "completed" ? "Le métré doit être terminé avant l’application."
         : saving.size > 0 ? "Enregistrement en cours…"
           : included.length === 0 ? "Aucune ligne retenue : réintégrez au moins une ligne dans la revue complète."
-            // The review's blocking anomalies (hasBlockingAnomaly): the application refuses them too.
-            : included.some((item) => !item.designation.trim() || item.quantity <= 0) ? "Corrigez les anomalies bloquantes (désignation vide, quantité nulle) dans la revue complète."
+            : included.some(hasBlockingTakeoffAnomaly) ? "Corrigez les anomalies bloquantes (désignation vide, quantité nulle) dans la revue complète."
             : !review.guard.passed ? `${review.guard.blocked_items.length} ligne${review.guard.blocked_items.length > 1 ? "s" : ""} à trancher avant l’application.`
               : dpgf.loading ? "Chargement du rapprochement DPGF…"
                 : dpgf.error ? "Rapprochement DPGF indisponible : rechargez la revue avant l’application."
@@ -495,6 +497,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                   onDraft={(text) => setDraft({ itemId: current.item.id, text })}
                   onCancelEntry={() => { entryFocus.current = null; setDraft(null); focusList(); }}
                   onLeaveEntry={(text) => { if (text === quantityInput(current.item.quantity)) setDraft(null); }}
+                  onSaveUnit={(unit) => decide(current.item, { unit }, "Unité corrigée")}
                   onCommit={commitQuantity} onStartEntry={() => startEntry(null)}
                   onExclude={() => openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "")}
                   onAccept={() => { accept(); focusList(); }}
@@ -554,6 +557,7 @@ type LineDecisionProps = {
   onCancelEntry: () => void;
   /** The field lost the focus: an entry left unchanged ends (a field passed through by Tab keeps nothing). */
   onLeaveEntry: (text: string) => void;
+  onSaveUnit: (unit: string) => Promise<boolean>;
   onCommit: () => void;
   onStartEntry: () => void;
   onExclude: () => void;
@@ -565,7 +569,7 @@ type LineDecisionProps = {
 };
 
 function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
-  onLeaveEntry, onCommit, onStartEntry, onExclude, onAccept, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
+  onLeaveEntry, onSaveUnit, onCommit, onStartEntry, onExclude, onAccept, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
   const { item } = line;
   const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable");
   const otherReasons = line.reasons.filter((reason) => reason !== "rule_failed");
@@ -597,7 +601,8 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                 if (event.key === "Enter") { event.preventDefault(); onCommit(); }
                 if (event.key === "Escape") { event.preventDefault(); onCancelEntry(); }
               }} />
-            <span className="text-muted-foreground">{item.unit}</span>
+            <TargetedReviewUnit designation={item.designation} unit={item.unit} busy={busy} error={error} save={onSaveUnit}
+              disabled={disabled || (draft !== null && draft !== quantityInput(item.quantity))} />
             {/* Pressing it keeps the focus in the field: its blur would end an unchanged entry before the click (Codex #162). */}
             {draft !== null ? (
               <Button size="xs" onMouseDown={(event) => event.preventDefault()} onClick={onCommit} disabled={disabled} aria-keyshortcuts="Enter">

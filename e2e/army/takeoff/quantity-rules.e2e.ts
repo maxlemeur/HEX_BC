@@ -6,6 +6,7 @@ import type { Browser } from "@e2e-dev/web";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 
 import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
+import { querySql } from "../local/calculation-gate-support";
 import { ownedTakeoffJobs } from "../critical/plans-support";
 import { localTakeoffWorkerClient } from "./fixtures";
 import { signUpWorkerOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
@@ -57,7 +58,7 @@ async function patchItems(ui: WorkerUi, jobId: string, items: Array<{ item: Item
 const zoneCode = (item: Item | undefined) => item?.rule_results?.find((entry) => entry.rule === "zone_overlap")?.code ?? null;
 
 /** Z1 then Z2: two level C jobs of one estimate version, each read by the real worker with the vector reading and the rules. */
-async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: string) {
+async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: string, revision?: "A") {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const owner = await signUpWorkerOwner(ui, tag);
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${journey}`, title }, ui.army);
@@ -66,9 +67,9 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
   const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
   expect(tenantId).toBe(owner.tenantId);
   const jobs: Record<"Z1" | "Z2", string> = { Z1: "", Z2: "" };
-  for (const zone of ["Z1", "Z2"] as const) {
-    const { fileName } = ZONE_PLANS.zones[zone];
-    const bytes = Buffer.from(await buildZonePlanPdf(zone));
+  async function addZone(zone: "Z1" | "Z2", revision?: "A" | "B") {
+    const fileName = revision ? `revue-${revision}-R+1-${zone}.pdf` : ZONE_PLANS.zones[zone].fileName;
+    const bytes = Buffer.from(await buildZonePlanPdf(zone, revision));
     const jobId = randomUUID();
     const sourcePath = `${tenantId}/${jobId}/${fileName}`;
     (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId });
@@ -79,10 +80,11 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
     expect(inserted.error).toBeNull();
     const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, rules: true, owner }).done;
     expect(completed.job).toMatchObject({ status: "completed", level: "C" });
-    jobs[zone] = jobId;
+    return jobId;
   }
+  for (const zone of ["Z1", "Z2"] as const) jobs[zone] = await addZone(zone, revision);
   expect((await ownedTakeoffJobs(ui.browser, ids).list()).map((job) => job.status)).toEqual(["completed", "completed"]);
-  return { owner, ids, target, client, jobs };
+  return { owner, ids, target, client, jobs, addZone };
 }
 
 armyTest("TKR01 a run drawn on two zone plans of one level blocks the application with its reason until one line removes it, then counts once", options,
@@ -299,4 +301,163 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     expect(runs.reduce((sum, quantity) => sum + quantity, 0)).toBe(ZONE_PLANS.zones.Z1.length_m + ZONE_PLANS.zones.Z2.length_m - ZONE_PLANS.overlap_m);
     expect(estimate.items.filter((item) => item.title === "ARMY worker pipe").map((item) => Number(item.quantity))).toEqual([12.5]);
     await recordEvidence(ui.army, "TKR02-applied-once", { ids, jobs, estimateRuns: runs, target: target.parent_id });
+  });
+
+armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens a verified run on the revised zone plan", options,
+  async (ui) => {
+    const { ids, jobs, addZone } = await seedZoneJobs(ui, "TKR03", "REV", "Revue détail unité", "A");
+    const { screen } = ui;
+    const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
+    const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
+    const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
+    expect(weld).toMatchObject({ quantity: 2, unit: "kg" });
+    const target = `/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review/targeted?versionId=${ids.versionId}&line=${weld.id}`;
+    await ui.app.open(target);
+    await expect(panel).toContainText("NON_OBSERVABLE_TO_ENTER");
+    const actions: string[] = [];
+    const start = performance.now();
+    const act = async (name: string, action: () => Promise<unknown>) => { await action(); actions.push(name); };
+
+    await act("Ouvrir la correction d’unité", () => panel.getByRole("button", "Corriger l’unité (kg)", { exact: true }).click());
+    const unitDialog = screen.getByRole("dialog", "Corriger l’unité", { exact: true });
+    await act("Saisir l’unité", () => unitDialog.getByLabel("Unité", { exact: true }).fill("u"));
+    await act("Enregistrer", () => unitDialog.getByRole("button", "Enregistrer", { exact: true }).click());
+    await expect(unitDialog).toBeHidden();
+
+    await expect(panel).toContainText("NON_OBSERVABLE_TO_ENTER");
+    await expect(panel.getByRole("button", /^Accepter/)).toBeDisabled();
+    const saved = (await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)!;
+    expect(saved).toMatchObject({ quantity: 2, unit: "u", is_verified: false });
+    await recordEvidence(ui.army, "TKR03-unit", { actions, durationMs: Math.round(performance.now() - start),
+      line: weld.id, file: saved.source_file_name, result: [saved.quantity, saved.unit], boundary: "Actions automatisées, fiche atelier A-07, aucun chronométrage humain." });
+
+    // The workshop sheet confirms the proposed count. Only the quantity entry attests it.
+    await panel.getByLabel("Quantité à saisir", { exact: true }).click();
+    const attested = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
+    await ui.browser.keyboard.press("Enter");
+    expect((await attested).status).toBe(200);
+    await expect(list.getByRole("option", /^Soudures atelier/)).toHaveCount(0);
+
+    await list.getByRole("option", /^ARMY worker pipe/).click();
+    await panel.getByRole("button", /^Exclure/).click();
+    const dialog = screen.getByRole("dialog", "Exclure 1 item", { exact: true });
+    const exclude = dialog.getByRole("button", "Exclure", { exact: true });
+    await expect(exclude).toBeDisabled();
+    const motif = "Aucune canalisation supplémentaire sur le plan Z1.";
+    await dialog.getByLabel("Motif d'exclusion (obligatoire)", { exact: true }).fill(motif);
+    await exclude.click();
+    await expect(list.getByRole("option", /^ARMY worker pipe/)).toHaveCount(0);
+
+    const ef = async (jobId: string) => (await readItems(ui, jobId)).find((item) => item.designation === ZONE_PLANS.designation)!;
+    const first = await ef(jobs.Z1);
+    await patchItems(ui, jobs.Z1, [{ item: first, fields: { is_excluded: false } }]);
+    await patchItems(ui, jobs.Z2, [{ item: await ef(jobs.Z2), fields: { is_excluded: false } }]);
+    expect(zoneCode(await ef(jobs.Z1))).toBe("ZONE_OVERLAP_NONE");
+    await patchItems(ui, jobs.Z1, [{ item: await ef(jobs.Z1), fields: { is_verified: true } }]);
+    expect((await ef(jobs.Z1)).is_verified).toBe(true);
+
+    // Z2/A ends at the joint. Z2/B replaces it and extends one metre into Z1.
+    await patchItems(ui, jobs.Z2, [{ item: await ef(jobs.Z2), fields: { is_excluded: true, exclusion_reason: "Indice A remplacé par B." } }]);
+    const revised = await addZone("Z2", "B");
+    await patchItems(ui, revised, [{ item: await ef(revised), fields: { is_excluded: false } }]);
+    await ui.browser.reload();
+    await list.getByRole("option", new RegExp(`^${ZONE_PLANS.designation}`)).click();
+    await expect(panel).toContainText("ZONE_OVERLAP_DUPLICATE");
+    expect(await ef(jobs.Z1)).toMatchObject({ is_verified: false });
+    await panel.getByRole("button", /^Retirer 1,00 m/).click();
+    await expect(list.getByRole("option")).toHaveCount(0);
+    await ui.browser.reload();
+    await expect(list.getByRole("option")).toHaveCount(0);
+    await expect(screen.getByText("Aucune ligne à trancher : le contrôle du métré est complet.", { exact: true })).toBeVisible();
+    const final = await readItems(ui, jobs.Z1);
+    expect(final.find((item) => item.id === weld.id)).toMatchObject({ unit: "u", quantity: 2,
+      rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
+    expect(final.find((item) => item.designation === "ARMY worker pipe")).toMatchObject({ is_excluded: true, exclusion_reason: motif });
+    expect(await ef(jobs.Z1)).toMatchObject({ quantity: 4 });
+    expect(await ef(revised)).toMatchObject({ quantity: 3 });
+    expect(zoneCode(await ef(jobs.Z1))).toBe("ZONE_OVERLAP_RESOLVED");
+    await recordEvidence(ui.army, "TKR03-reopened", { ids, jobs, revised, motif, lengths: [4, 3] });
+  });
+
+armyTest("TKR04 complete review preserves an unchanged verification and never reattests on exclusion or inclusion", options,
+  async (ui) => {
+    const { ids, jobs, owner, client } = await seedZoneJobs(ui, "TKR04", "VRF", "Auteurs de la revue");
+    const job = jobs.Z1;
+    const readPipe = async () => (await readItems(ui, job)).find((item) => item.designation === "ARMY worker pipe")!;
+    const pipe = await readPipe();
+    await patchItems(ui, job, [{ item: pipe, fields: { is_verified: true } }]);
+    const original = await readPipe();
+    expect(original).toMatchObject({ is_verified: true, verified_by: owner.userId });
+    const path = `/dashboard/affaires/${ids.projectId}/takeoff/${job}/review`;
+    const full = `${path}?versionId=${ids.versionId}&reviewMode=production`;
+    const targeted = `${path}/targeted?versionId=${ids.versionId}&line=${pipe.id}`;
+    // Only the three fictional accounts and memberships of this owned stack participate.
+    const asReviewer = async (tag: string) => {
+      const reviewer = await signUpWorkerOwner(ui, tag);
+      await querySql(`begin;
+        update public.tenant_memberships set is_default=false where user_id='${reviewer.userId}' and tenant_id='${reviewer.tenantId}';
+        insert into public.tenant_memberships (user_id,tenant_id,role,is_default)
+          values ('${reviewer.userId}','${owner.tenantId}','admin',true);
+        commit;`);
+      await ui.app.open(full);
+      return reviewer.userId;
+    };
+    const b = await asReviewer("VRFB");
+    await ui.screen.getByRole("tab", /^Assisté/).click();
+    await expect(ui.screen.getByText(/^Parcourez chaque item/)).toBeVisible();
+    await ui.screen.getByRole("tab", /^Production/).click();
+    const row = ui.screen.getByRole("row").filter({ hasText: "ARMY worker pipe" });
+    // Commit an unchanged cell as B. Saving another actual edit later must not transfer A's signature.
+    await row.getByText("m", { exact: true }).click();
+    await ui.browser.keyboard.press("F2");
+    await ui.browser.keyboard.press("Enter");
+    const valve = ui.screen.getByRole("row").filter({ hasText: "ARMY worker valve" });
+    await valve.getByText("u", { exact: true }).click();
+    await ui.browser.keyboard.press("F2");
+    const otherSaved = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
+    await valve.getByLabel("Unité", { exact: true }).fill("pièce");
+    await ui.browser.keyboard.press("Enter");
+    expect((await otherSaved).status).toBe(200);
+    await ui.browser.reload();
+    expect(await readPipe()).toMatchObject({ is_verified: true, verified_by: owner.userId, verified_at: original.verified_at });
+    await expect(row.getByRole("button", "Exclure ARMY worker pipe", { exact: true })).toBeEnabled();
+    await row.getByRole("button", "Exclure ARMY worker pipe", { exact: true }).click();
+    const dialog = ui.screen.getByRole("dialog", "Exclure 1 item", { exact: true });
+    const reason = "Absent du plan Z1.";
+    await dialog.getByLabel("Motif d'exclusion (obligatoire)", { exact: true }).fill(reason);
+    const saved = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
+    await dialog.getByRole("button", "Exclure", { exact: true }).click();
+    expect((await saved).status).toBe(200);
+    await ui.browser.reload();
+    expect(await readPipe()).toMatchObject({ is_excluded: true, exclusion_reason: reason,
+      is_verified: false, verified_by: null, verified_at: null });
+    const c = await asReviewer("VRFC");
+    const included = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
+    await row.getByRole("button", "Inclure ARMY worker pipe", { exact: true }).click();
+    expect((await included).status).toBe(200);
+    await ui.browser.reload();
+    expect(await readPipe()).toMatchObject({ is_excluded: false, exclusion_reason: null, is_verified: false, verified_by: null });
+    await ui.app.open(targeted);
+    const line = ui.screen.getByRole("region", "Décision sur la ligne", { exact: true });
+    await expect(line).toContainText("DN_NETWORK_NETWORK_MISSING");
+    const applyButton = ui.screen.getByRole("button", "Appliquer au devis", { exact: true });
+    await expect(applyButton).toBeDisabled();
+    const accepted = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
+    await line.getByRole("button", /^Accepter/).click();
+    expect((await accepted).status).toBe(200);
+    await ui.browser.reload();
+    await expect(applyButton).toBeEnabled();
+    expect(await readPipe()).toMatchObject({ is_verified: true, verified_by: c });
+    const rows = await client.from("audit_logs").select("user_id,action,after_data").eq("record_id", job)
+      .in("action", ["takeoff.item.modified", "takeoff.item.excluded"]).order("created_at");
+    expect(rows.error).toBeNull();
+    const events = (rows.data ?? []).map((event) => ({ actor: event.user_id, action: event.action,
+      data: event.after_data.metadata })).filter((event) => event.data.item_id === pipe.id);
+    expect(events.filter((event) => event.data.field === "is_verified").map((event) => [event.actor, event.data.previous_value, event.data.next_value]))
+      .toEqual([[owner.userId, false, true], [b, true, false], [c, false, true]]);
+    expect(events.filter((event) => event.action === "takeoff.item.excluded").map((event) => [event.actor, event.data.reason]))
+      .toEqual([[b, reason]]);
+    expect(events.filter((event) => event.data.field === "is_excluded").map((event) => [event.actor, event.data.next_value]))
+      .toEqual([[c, false]]);
+    await recordEvidence(ui.army, "TKR04-verifications", { ids, job, pipe: pipe.id, events });
   });

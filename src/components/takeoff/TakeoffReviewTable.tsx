@@ -100,10 +100,6 @@ export function detectAnomalies(item: ReviewItem): AnomalyType[] {
   return anomalies;
 }
 
-export function hasBlockingAnomaly(item: ReviewItem): boolean {
-  return !item.designation.trim() || item.quantity <= 0;
-}
-
 function matchesFilters(item: ReviewItem, filters: ReviewTableFilters): boolean {
   const query = filters.search.trim().toLowerCase();
   if (query && !item.designation.toLowerCase().includes(query)) return false;

@@ -427,6 +427,11 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   - **Exclure** (E) : motif obligatoire ;
   - **Corriger** : saisie directe (un chiffre) ou F2, puis Entrée ; Échap annule. Aucune
     nouvelle lettre ;
+  - La revue complète enregistre les champs modifiés. Exclure ou réintégrer une ligne
+    vérifiée retire la vérification ; seul un geste explicite peut la redonner. Une
+    cellule quittée sans changement conserve la vérification et son auteur.
+  - **Unité** : cliquer sur l’unité de la ligne, la corriger puis enregistrer. La quantité
+    est conservée et une quantité à saisir attend toujours sa confirmation ;
   - **Accepter** (V) : lève une confiance faible ou moyenne et toute règle acceptable ;
     jamais une quantité à saisir ni des règles à recalculer. En niveau C, seulement une
     ligne qui a sa preuve et sa page, comme la base l'exige ;
