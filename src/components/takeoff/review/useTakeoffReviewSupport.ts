@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
+import { releaseEstimateDraftLock } from "@/lib/estimates/client";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import { applyTakeoffJob, isTakeoffApiError } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";

@@ -14,7 +14,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { EstimateApiError, isEstimateApiError } from "@/lib/estimates/client-errors";
+import { EstimateApiError, isEstimateApiError } from "@/lib/estimates/client";
 import {
   fetchEstimateDeltaExplanation,
   fetchEstimateLineExplanation,

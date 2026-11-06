@@ -1,4 +1,4 @@
-import { isEstimateApiError } from "@/lib/estimates/client-errors";
+import { isEstimateApiError } from "@/lib/estimates/client";
 
 /** Une sauvegarde refusée parce que la version a changé depuis la lecture. */
 export function isVersionConflictError(error: unknown) {

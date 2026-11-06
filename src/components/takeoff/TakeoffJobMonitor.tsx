@@ -14,8 +14,10 @@ import {
   type TakeoffApplyStrategy,
   type TakeoffApplyWizardSubmitPayload,
 } from "@/components/takeoff/TakeoffApplyWizard";
-import { isEstimateApiError } from "@/lib/estimates/client-errors";
-import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
+import {
+  isEstimateApiError,
+  releaseEstimateDraftLock,
+} from "@/lib/estimates/client";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import {
   applyTakeoffJob,

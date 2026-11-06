@@ -35,11 +35,6 @@ vi.mock("@/lib/estimates/client", () => ({
   isEstimateApiError: mocks.isEstimateApiError,
 }));
 
-// The API error guard now belongs to the transport boundary.
-vi.mock("@/lib/estimates/client-errors", () => ({
-  isEstimateApiError: mocks.isEstimateApiError,
-}));
-
 vi.mock("@/hooks/useAutoSave", () => ({
   resolveAutoSaveStatusLabel: (status: string) => status,
   isSaveShortcutKey: (event: KeyboardEvent) =>

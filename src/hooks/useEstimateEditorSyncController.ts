@@ -21,7 +21,7 @@ import {
 } from "@/lib/estimates/bulk-buffer";
 import {
   isEstimateApiError,
-} from "@/lib/estimates/client-errors";
+} from "@/lib/estimates/client";
 import {
   clearDocumentAutoSaveDraft,
   clearDocumentConflictDraft,

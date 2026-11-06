@@ -1,4 +1,4 @@
-import { isEstimateApiError } from "@/lib/estimates/client-errors";
+import { isEstimateApiError } from "@/lib/estimates/client";
 
 /** Retry only a lock refusal; the caller retains ownership of settings and receipt publication. */
 export async function persistEstimateSettingsWithLockRecovery<T>(input: {
