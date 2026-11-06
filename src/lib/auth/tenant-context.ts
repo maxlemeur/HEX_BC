@@ -49,8 +49,10 @@ type ActiveTenantMembershipLookup = {
  */
 // React clears this memoization for every server request. Repeated RSC readers
 // share the authenticated lookup; there is no process-wide user/tenant cache.
-export const readAuthenticatedUser = cache(async (): Promise<AuthenticatedUserLookup> => {
-  const supabase = await createSupabaseServerClient();
+export const readAuthenticatedUser = cache(async (cookieMode?: "route"): Promise<AuthenticatedUserLookup> => {
+  const supabase = cookieMode
+    ? await createSupabaseServerClient(cookieMode)
+    : await createSupabaseServerClient();
   const {
     data: { user },
     error,

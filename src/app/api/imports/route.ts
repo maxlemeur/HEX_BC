@@ -1,5 +1,5 @@
 import {
-  badRequest,
+  requireImportWriteAccess,
   createImportFromJsonBody,
   createImportFromMultipartFormData,
   listUserImports,
@@ -8,21 +8,7 @@ import {
   unsupportedMediaType,
 } from "@/lib/imports/server";
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
-async function parseMultipartFormData(request: Request): Promise<FormData> {
-  try {
-    return await request.formData();
-  } catch {
-    throw badRequest("Payload multipart invalide.");
-  }
-}
+import { readImportFormData, readImportJson } from "@/lib/imports/request-body";
 
 export async function GET(request: Request) {
   try {
@@ -43,14 +29,16 @@ export async function POST(request: Request) {
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
 
     if (contentType.includes("application/json")) {
-      const body = await parseJsonBody(request);
-      const data = await createImportFromJsonBody(body);
+      const context = await requireImportWriteAccess("route");
+      const body = await readImportJson(request);
+      const data = await createImportFromJsonBody(body, context);
       return ok(data, 201);
     }
 
     if (contentType.includes("multipart/form-data")) {
-      const formData = await parseMultipartFormData(request);
-      const data = await createImportFromMultipartFormData(formData);
+      const context = await requireImportWriteAccess("route");
+      const formData = await readImportFormData(request);
+      const data = await createImportFromMultipartFormData(formData, { context });
       return ok(data, 201);
     }
 

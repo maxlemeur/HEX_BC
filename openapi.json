@@ -14362,6 +14362,16 @@
               }
             }
           },
+          "413": {
+            "description": "Corps JSON superieur a 50 Mio ou multipart superieur a 51 Mio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
           "415": {
             "description": "Content-Type non supporte.",
             "content": {
@@ -14464,6 +14474,16 @@
               }
             }
           },
+          "413": {
+            "description": "Corps JSON superieur a 10 Mio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Erreur interne serveur.",
             "content": {
@@ -14552,6 +14572,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Corps multipart superieur a 51 Mio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
                 }
               }
             }

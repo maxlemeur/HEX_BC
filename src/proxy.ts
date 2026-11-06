@@ -80,5 +80,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Next clones a matched POST body before invoking proxy. These handlers own authentication,
+  // cookie refresh and bounded reads of the original upload stream.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/imports(?:/tabular-pdf/review(?:-file)?)?/?$).*)"],
 };

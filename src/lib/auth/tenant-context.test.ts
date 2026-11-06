@@ -10,6 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   getAuthenticatedTenantContext,
   readActiveTenantMembership,
+  readAuthenticatedUser,
 } from "./tenant-context";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -113,6 +114,15 @@ describe("authenticated tenant context", () => {
       membership: { id: "membership-id" },
     });
     expect(context.supabase).toBe(supabase);
+  });
+
+  it("validates the user against Auth with the cookie-writing client in an import handler", async () => {
+    const { supabase } = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    expect((await readAuthenticatedUser("route")).user?.id).toBe(USER_ID);
+    expect(createSupabaseServerClient).toHaveBeenCalledWith("route");
+    expect(supabase.auth.getUser).toHaveBeenCalledOnce();
   });
 
   it("fails closed when authentication fails", async () => {

@@ -808,7 +808,8 @@ const importAndMembershipContracts: RouteContract[] = [
       ],
     },
     success: [{ status: "201", description: "Import cree." }],
-    extraErrors: [{ status: "415", description: "Content-Type non supporte." }],
+    extraErrors: [{ status: "413", description: "Corps JSON superieur a 50 Mio ou multipart superieur a 51 Mio." },
+      { status: "415", description: "Content-Type non supporte." }],
   },
   {
     id: "review-tabular-pdf",
@@ -818,11 +819,13 @@ const importAndMembershipContracts: RouteContract[] = [
     description: "Construit la revue tabulaire sans persistance depuis les tables extraites.",
     tags: ["Imports"],
     body: { schema: tabularPdfReviewSchema, description: "Tables PDF et provenance source." },
+    extraErrors: [{ status: "413", description: "Corps JSON superieur a 10 Mio." }],
   },
   {
     id: "review-tabular-pdf-file",
     method: "post",
     path: "/api/imports/tabular-pdf/review-file",
+    extraErrors: [{ status: "413", description: "Corps multipart superieur a 51 Mio." }],
     summary: "Extraire et revoir un fichier PDF tabulaire",
     description: "Extrait les tables d'un PDF fourni puis retourne une revue sans persistance.",
     tags: ["Imports"],

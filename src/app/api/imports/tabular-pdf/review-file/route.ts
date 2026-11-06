@@ -7,19 +7,13 @@ import {
   validateTabularPdfReviewFile,
 } from "@/lib/imports/server";
 
-async function parseMultipartFormData(request: Request): Promise<FormData> {
-  try {
-    return await request.formData();
-  } catch {
-    throw badRequest("Payload multipart invalide.");
-  }
-}
+import { readImportFormData } from "@/lib/imports/request-body";
 
 export async function POST(request: Request) {
   try {
     await requireTabularPdfReviewAccess();
 
-    const formData = await parseMultipartFormData(request);
+    const formData = await readImportFormData(request);
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw badRequest("Aucun fichier PDF fourni.");

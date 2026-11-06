@@ -79,7 +79,7 @@ export async function POST(
     const form = new FormData();
     form.append("file", file);
     form.append("projectId", projectId);
-    return noStore(ok(await createImportFromMultipartFormData(form, documentId, body.approvedTables), 201));
+    return noStore(ok(await createImportFromMultipartFormData(form, { trustedIntakeDocumentId: documentId, approvedIntakePdfTables: body.approvedTables }), 201));
   } catch (error) {
     return noStore(error instanceof ImportsApiError ? toImportsErrorResponse(error) : toErrorResponse(error));
   }

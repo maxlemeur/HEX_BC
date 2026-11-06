@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { request as httpRequest, type ClientRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -12,6 +14,36 @@ type AccessCase = {
   payloadKind: "none" | "json" | "csv-import" | "csv-takeoff";
   jsonBody: string | null;
 };
+
+// Browser fetch completes the body before exposing the response. Keep a raw chunked
+// upload open to detect any buffering by Next before the authentication handler.
+async function probeIncompleteImport(origin: string, progress: string[]) {
+  const url = new URL("/api/imports?probe=incomplete", origin);
+  const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+  let upload: ClientRequest | undefined;
+  try {
+    return await new Promise<{ status: number | null; uploadEnded: boolean }>((resolve, reject) => {
+      upload = send(url, {
+        method: "POST", agent: false, signal: AbortSignal.timeout(15_000),
+        headers: { "Content-Type": "multipart/form-data; boundary=army", "Transfer-Encoding": "chunked" },
+      });
+      const active = upload;
+      active.once("error", reject);
+      active.once("response", (response) => {
+        progress.push("response-headers");
+        response.resume();
+        resolve({ status: response.statusCode ?? null, uploadEnded: active.writableEnded });
+      });
+      progress.push("sending-incomplete-part");
+      active.write("--army\r\nContent-Disposition: form-data; name=\"file\"; filename=\"probe.csv\"\r\n\r\n", () => {
+        progress.push("part-flushed");
+      });
+      // No end() or closing boundary until the response. finally closes the socket on every path.
+    });
+  } finally {
+    upload?.destroy();
+  }
+}
 
 test(
   "anonymous requests cannot read or create estimates, imports or takeoff jobs",
@@ -67,6 +99,7 @@ test(
         fileName: `ARMY-access-${runId}.csv`,
         csvSha256: createHash("sha256").update(csv).digest("hex"),
       },
+      incompleteUpload: { progress: [] as string[], result: null as { status: number | null; uploadEnded: boolean } | null },
       persistence: { verified: false, reason: "No database observer; HTTP refusal is not a row-count assertion." },
       cases: cases.map((entry) => ({
         ...entry,
@@ -183,6 +216,9 @@ test(
         expect(actual.publicMetadataMatches, entry.id).toBe(true);
         entry.result = "passed";
       }
+      evidence.incompleteUpload.result = await probeIncompleteImport(origin, evidence.incompleteUpload.progress);
+      expect(evidence.incompleteUpload.result).toEqual({ status: 401, uploadEnded: false });
+      expect(evidence.incompleteUpload.progress).toContain("part-flushed");
       evidence.status = "passed";
     } finally {
       if (evidence.status !== "passed") evidence.status = "failed";

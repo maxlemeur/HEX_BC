@@ -17,7 +17,7 @@ function getSupabasePublicEnv() {
   return { supabaseUrl, supabaseAnonKey };
 }
 
-export const createSupabaseServerClient = cache(async () => {
+export const createSupabaseServerClient = cache(async (cookieMode?: "route") => {
   const cookieStore = await cookies();
   const { supabaseUrl, supabaseAnonKey } = getSupabasePublicEnv();
 
@@ -27,8 +27,11 @@ export const createSupabaseServerClient = cache(async () => {
       getAll() {
         return cookieStore.getAll();
       },
-      setAll() {
-        // Server Components are read-only: session refresh happens in src/proxy.ts.
+      setAll(cookiesToSet) {
+        // A route outside the streaming proxy owns its refresh. Components leave it to the proxy.
+        if (cookieMode === "route") {
+          for (const { name, value, options } of cookiesToSet) cookieStore.set(name, value, options);
+        }
       },
     },
   });

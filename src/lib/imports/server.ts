@@ -31,7 +31,7 @@ import { extractTabularPdfTablesFromFile } from "./tabular-pdf-extraction";
 import { normalizeHeaderRowNumber } from "./header-row";
 
 const DPGF_IMPORTS_BUCKET = "dpgf-imports";
-const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+export const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const IMPORT_ROWS_BATCH_SIZE = 500;
 
 type Supabase = SupabaseClient<Database>;
@@ -96,7 +96,7 @@ const IMPORT_SELECT_COLUMNS = [
 ].join(", ");
 
 export class ImportsApiError extends Error {
-  readonly status: 400 | 401 | 403 | 404 | 409 | 415 | 500;
+  readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 500;
   readonly code: ApiErrorCode | string;
   readonly details?: unknown;
 
@@ -106,7 +106,7 @@ export class ImportsApiError extends Error {
     message,
     details,
   }: {
-    status: 400 | 401 | 403 | 404 | 409 | 415 | 500;
+    status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 500;
     code: ApiErrorCode | string;
     message: string;
     details?: unknown;
@@ -119,13 +119,20 @@ export class ImportsApiError extends Error {
   }
 }
 
+// These responses can carry renewed session cookies even on an auth error.
+const importResponseHeaders = {
+  "Cache-Control": "private, no-cache, no-store, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
 export function ok<T>(data: T, status: 200 | 201 = 200) {
   return NextResponse.json<ApiSuccessResponse<T>>(
     {
       ok: true,
       data,
     },
-    { status }
+    { status, headers: importResponseHeaders }
   );
 }
 
@@ -218,13 +225,15 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Impor
 }
 
 export function toErrorResponse(error: unknown) {
-  return toSharedErrorResponse(error, {
+  const response = toSharedErrorResponse(error, {
     isApiError: (value): value is ImportsApiError => value instanceof ImportsApiError,
     createInternalError: () => internalError(),
     unexpectedLogMessage: "Unexpected imports API error",
     detailsMode: "never",
     detailsLogScope: "imports",
   });
+  for (const [name, value] of Object.entries(importResponseHeaders)) response.headers.set(name, value);
+  return response;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -686,7 +695,7 @@ function validateImportFile(file: File) {
 }
 
 export async function requireTabularPdfReviewAccess() {
-  await getAuthenticatedContext();
+  await getAuthenticatedContext("route");
 }
 
 export async function validateTabularPdfReviewFile(file: File) {
@@ -702,8 +711,10 @@ export async function validateTabularPdfReviewFile(file: File) {
   }
 }
 
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const { supabase, user, error: userError } = await readAuthenticatedUser();
+async function getAuthenticatedContext(cookieMode?: "route"): Promise<AuthenticatedContext> {
+  const { supabase, user, error: userError } = cookieMode
+    ? await readAuthenticatedUser(cookieMode)
+    : await readAuthenticatedUser();
 
   if (userError || !user) {
     throw unauthorized();
@@ -738,6 +749,12 @@ function requireImportWriteRole(context: AuthenticatedContext) {
       "Seuls les ingenieurs et administrateurs peuvent créer ou modifier un import DPGF."
     );
   }
+}
+
+export async function requireImportWriteAccess(cookieMode?: "route") {
+  const context = await getAuthenticatedContext(cookieMode);
+  requireImportWriteRole(context);
+  return context;
 }
 
 async function ensureProjectCanBeLinked(params: {
@@ -864,8 +881,8 @@ function formatUnexpectedImportError(error: unknown): ImportsApiError {
 }
 
 export async function listUserImports(options?: ListUserImportsOptions) {
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext("route");
   const projectId = parseOptionalProjectId(options?.projectId ?? null);
-  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
 
   let query = supabase
     .from("dpgf_imports")
@@ -890,7 +907,7 @@ export async function listUserImports(options?: ListUserImportsOptions) {
   return data ?? [];
 }
 
-export async function createImportFromJsonBody(body: unknown) {
+export async function createImportFromJsonBody(body: unknown, admittedContext?: AuthenticatedContext) {
   const input = asRecord(body);
   if (!input) {
     throw badRequest("Payload JSON invalide.");
@@ -924,7 +941,7 @@ export async function createImportFromJsonBody(body: unknown) {
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
   const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
-  const context = await getAuthenticatedContext();
+  const context = admittedContext ?? await getAuthenticatedContext();
   requireImportWriteRole(context);
   const { supabase, userId, tenantId, isTenantAdmin } = context;
 
@@ -1049,9 +1066,13 @@ export async function reviewTabularPdfImportFile(input: {
 
 export async function createImportFromMultipartFormData(
   formData: FormData,
-  trustedIntakeDocumentId?: string,
-  approvedIntakePdfTables?: Array<{ sourcePage: number; tableIndex: number }>
+  options: {
+    trustedIntakeDocumentId?: string;
+    approvedIntakePdfTables?: Array<{ sourcePage: number; tableIndex: number }>;
+    context?: AuthenticatedContext;
+  } = {}
 ) {
+  const { trustedIntakeDocumentId, approvedIntakePdfTables } = options;
   const fileEntry = formData.get("file");
   if (!(fileEntry instanceof File)) {
     throw badRequest("Aucun fichier fourni.");
@@ -1066,7 +1087,7 @@ export async function createImportFromMultipartFormData(
 
   validateImportFile(fileEntry);
 
-  const context = await getAuthenticatedContext();
+  const context = options.context ?? await getAuthenticatedContext();
   requireImportWriteRole(context);
   const { supabase, userId, tenantId, isTenantAdmin } = context;
   const filename = sanitizeFilename(

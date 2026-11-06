@@ -495,3 +495,30 @@ dans une cellule et contrôle la valeur d'un montant négatif.
   prétraitement de niveau 2 et hors de ce lot : « aucun minimatch avant 11.0.1 » vaut pour
   le graphe npm. Ce complément ne modifie ni les dispositions historiques ni les artefacts
   canoniques du scan.
+
+
+## Admission HTTP des imports DPGF — 7 novembre 2026
+
+Sur la base `bfa02421`, un appel anonyme à `POST /api/imports` déclenchait la
+lecture du multipart ou du JSON avant le contrôle de session. La route de revue
+des tables JSON lisait aussi le corps sans session. La revue du fichier PDF
+authentifiait le demandeur mais contrôlait sa taille après le décodage du
+multipart. Le proxy Next englobait ces trois chemins et clonait leurs corps,
+avec un plafond de 10 Mio, avant l’exécution des handlers.
+
+Le correctif local confie le flux d’origine et le renouvellement des cookies aux
+trois routes. La création demande le rôle ingénieur ou administrateur. La revue
+du fichier PDF demande une session avec un tenant actif. Le calcul de revue des
+tables JSON reste accessible anonymement. Les handlers comptent les octets reçus
+et rendent HTTP 413 au-delà de 50 Mio de JSON de création, 51 Mio de multipart
+ou 10 Mio de JSON pour le calcul public. La limite de fichier reste de 50 Mio. Les tests du matcher Next
+couvrent aussi les routes voisines, qui continuent à utiliser le proxy.
+
+La reproduction et les contrôles relèvent de ce complément local. Les
+dispositions historiques de juillet sur les budgets du décodeur PDF et le
+correctif d’octobre sur l’admission des jobs de métré portent sur des chemins
+distincts. Commande ciblée depuis la racine du dépôt :
+
+```sh
+npm exec -- vitest run --project node src/app/api/imports src/lib/imports/server.test.ts src/proxy.test.ts
+```

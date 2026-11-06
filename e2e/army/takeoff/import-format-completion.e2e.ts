@@ -30,6 +30,9 @@ export async function tabularPdfBytes() {
   [headers, ...rows].forEach((row, index) => row.forEach((cell, column) => {
     page.drawText(cell, { x: columns[column], y: 740 - index * 20, font, size: 9 });
   }));
+  // An uncompressed PDF stream keeps this synthetic, one-page file just above
+  // Next's 10 MiB proxy ceiling. Its three business rows stay the same.
+  document.context.register(document.context.stream(new Uint8Array(10 * 1024 * 1024)));
   return Buffer.from(await document.save());
 }
 
@@ -44,8 +47,10 @@ for (const format of ["pdf", "xls"] as const) {
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures");
     await mkdir(directory, { recursive: true });
     let bytes: Buffer;
-    if (format === "pdf") bytes = await tabularPdfBytes();
-    else {
+    if (format === "pdf") {
+      bytes = await tabularPdfBytes();
+      expect(bytes.length).toBeGreaterThan(10 * 1024 * 1024);
+    } else {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...rows]), "DPGF");
       bytes = Buffer.from(XLSX.write(workbook, { bookType: "biff8", type: "buffer" }));
@@ -53,11 +58,13 @@ for (const format of ["pdf", "xls"] as const) {
     }
     const filePath = path.join(directory, filename);
     await writeFile(filePath, bytes);
-    await recordEvidence(army, `IFC-${format}-input`, { filename, format, sha256: createHash("sha256").update(bytes).digest("hex"), headers, rows, expected });
+    await recordEvidence(army, `IFC-${format}-input`, { filename, format, byteLength: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), headers, rows, expected });
     await app.open(`/dashboard/affaires/${ids.projectId}?created=1`);
     await screen.getByRole("button", "Importer la DPGF", { exact: true }).click();
-    await browser.locator('input[type="file"]').setInputFiles(filePath);
+    const upload = () => browser.locator('input[type="file"]').setInputFiles(filePath);
     if (format === "pdf") {
+      const [review] = await Promise.all([browser.waitForResponse("**/api/imports/tabular-pdf/review-file"), upload()]);
+      expect(review.status).toBe(200);
       const confirmTables = screen.getByRole("button", "Valider les tableaux et lancer l'import", { exact: true });
       await expect(confirmTables).toBeEnabled();
       const importsBeforeApproval = await apiRequest<{ data: unknown[] }>(browser, "GET", `/api/imports?project_id=${ids.projectId}`);
@@ -68,7 +75,10 @@ for (const format of ["pdf", "xls"] as const) {
       await expect(confirmTables).toBeDisabled();
       await table.check();
       await confirmTables.click();
-    } else await screen.getByRole("button", "Lancer l'import", { exact: true }).click();
+    } else {
+      await upload();
+      await screen.getByRole("button", "Lancer l'import", { exact: true }).click();
+    }
     const next = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
     const edit = screen.getByRole("button", "Modifier le mapping", { exact: true });
     await expect.poll(async () => await next.isVisible() || await edit.isVisible()).toBe(true);
