@@ -16,7 +16,7 @@ import type {
   EstimateReviewCommentScope,
   EstimateReviewCorrectionStatus,
   EstimateReviewDecision,
-} from "@/lib/estimates/rules-engine";
+} from "@/lib/estimates/approval-types";
 
 import {
   type DraftComment,

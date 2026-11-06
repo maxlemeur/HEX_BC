@@ -1,6 +1,6 @@
 "use client";
 
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 
 import { EstimateApprovalActiveCycleSection } from "./estimate-approval/EstimateApprovalActiveCycleSection";
 import { EstimateApprovalCorrectionChecklistSection } from "./estimate-approval/EstimateApprovalCorrectionChecklistSection";

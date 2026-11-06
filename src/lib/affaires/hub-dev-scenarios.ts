@@ -20,7 +20,7 @@ import type {
   AffaireHubSummaryResult,
 } from "@/lib/affaires/server";
 import { buildAffaireHubReadinessSnapshot } from "@/lib/affaires/server";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import type { TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 

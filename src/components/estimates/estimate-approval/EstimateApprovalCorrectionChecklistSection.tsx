@@ -6,7 +6,7 @@ import type {
   EstimateApprovalChangesSinceLastCycle,
   EstimateApprovalSummary,
   EstimateReviewCorrectionStatus,
-} from "@/lib/estimates/rules-engine";
+} from "@/lib/estimates/approval-types";
 
 import { ChangesSummarySection } from "./ChangesSummarySection";
 import {

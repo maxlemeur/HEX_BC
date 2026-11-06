@@ -29,7 +29,7 @@ import type {
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
 import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
 import { useToast } from "@/components/ui-legacy/Toast";

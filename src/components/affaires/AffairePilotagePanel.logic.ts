@@ -13,7 +13,7 @@ import type {
   AffaireHubDpgfSourceResult,
   AffaireHubFinishLineSummaryResult,
 } from "@/lib/affaires/server";
-import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import {
   ESTIMATE_READINESS_CATEGORY_LABELS,
   type EstimateReadinessCategory,
