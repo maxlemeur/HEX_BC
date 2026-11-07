@@ -124,6 +124,7 @@ function createSupabaseMock(options?: {
   activeExplanationRows?: Array<Record<string, unknown> | null>;
   insertSingleResponses?: Array<{ data: Record<string, unknown> | null; error: unknown }>;
   sourceRowsByExplanationId?: Record<string, Array<Record<string, unknown>>>;
+  riskAlertRows?: Array<Record<string, unknown>>;
 }) {
   let lastInsertedFingerprint: string | null = null;
   const sourceRowsByExplanationId = {
@@ -283,11 +284,13 @@ function createSupabaseMock(options?: {
         };
       }
       if (table === "estimate_line_evidences") {
+        // Read through readAllRows: ordered pages with an exact count.
         return {
           select: vi.fn(() => ({
             eq: vi.fn().mockReturnThis(),
             is: vi.fn().mockReturnThis(),
-            order: vi.fn().mockResolvedValue({ data: [], error: null }),
+            order: vi.fn().mockReturnThis(),
+            range: vi.fn().mockResolvedValue({ data: [], count: 0, error: null }),
           })),
         };
       }
@@ -296,6 +299,8 @@ function createSupabaseMock(options?: {
           select: vi.fn(() => ({
             eq: vi.fn().mockReturnThis(),
             order: vi.fn().mockResolvedValue({ data: [], error: null }),
+            then: (resolve: (value: unknown) => unknown) =>
+              Promise.resolve({ data: options?.riskAlertRows ?? [], error: null }).then(resolve),
           })),
         };
       }
@@ -724,6 +729,32 @@ describe("estimate explanations service", () => {
     expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
     expect(explanation.summary_short).toBe("Resume concurrent.");
     expect(explanation.provenance).toHaveLength(1);
+  });
+
+  it("explains a takeoff line carrying radar alerts with the severities the database stores", async () => {
+    // estimate_risk_alerts.severity is checked in ('info', 'warning', 'critical').
+    const supabase = createSupabaseMock({
+      riskAlertRows: [
+        { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", severity: "critical", cause_code: "dpgf_takeoff_gap", scope_label: "Mur beton", reason_labels: ["Écart DPGF de 40 %"], metadata: {} },
+        { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", severity: "warning", cause_code: "missing_proof", scope_label: "Mur beton", reason_labels: null, metadata: {} },
+        { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", severity: "info", cause_code: "missing_piece", scope_label: "Mur beton", reason_labels: [], metadata: {} },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const details = buildVersionDetails();
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails({
+      items: details.items.map((item) => ({ ...item, source_job_id: "99999999-9999-4999-8999-999999999999" })),
+    }) as never);
+    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+
+    const explanation = await getEstimateLineExplanation({ versionId: VERSION_ID, lineId: LINE_ID, includeDetail: true });
+
+    // The explanation's signals keep their own low/medium/high scale.
+    expect(explanation.risk_signals.map((signal) => [signal.severity, signal.source_label])).toEqual([
+      ["high", "Radar risque"], ["medium", "Radar risque"], ["low", "Radar risque"],
+    ]);
+    expect(explanation.provenance.filter((source) => source.source_kind === "estimate_risk_alert").map((source) => source.source_ref))
+      .toEqual(["dpgf_takeoff_gap", "missing_proof", "missing_piece"]);
   });
 
   it("rehydrates missing provenance on an active snapshot reuse", async () => {
