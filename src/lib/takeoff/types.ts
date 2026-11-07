@@ -219,6 +219,8 @@ export type TakeoffItemPatchField = {
 export type TakeoffItemPatchEntry = {
   item_id: string;
   updated_at: string;
+  /** Guided decisions depend on the displayed computation, including its partners. */
+  expected_rules_evaluated_at?: string;
   fields: TakeoffItemPatchField;
 };
 

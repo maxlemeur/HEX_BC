@@ -54,6 +54,7 @@ export const takeoffItemBatchPatchResponseSchema = z.object({
   // Every line of the job the rules read (evaluated or stale), after the computation; absent when no rule reads the
   // version, or beyond TAKEOFF_ITEM_RULE_STATES_MAX lines.
   rule_states: z.array(takeoffItemRuleStateSchema).max(TAKEOFF_ITEM_RULE_STATES_MAX).optional(),
+  rule_states_refresh_required: z.boolean().optional(),
 }).superRefine((response, context) => {
   if (response.succeeded !== response.results.filter((result) => result.success).length
     || response.failed !== response.results.filter((result) => !result.success).length) {

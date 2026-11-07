@@ -353,6 +353,10 @@ export async function applyTakeoffJob(
       });
     }
 
+    // Mapping exclusions invalidated the other completed jobs in the transaction. Refresh them after commit,
+    // before another review opens; an interrupted computation leaves their stored stale guard intact.
+    await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "applied" });
+
     await logTakeoffAuditEvent({
       supabase,
       tenantId,

@@ -55,6 +55,12 @@ historiques. `--tenant-calc-engine 3` ou `--tenant-calc-engine absent` permet un
 contrôle explicite de la création actuelle (moteur 3 en l'absence de politique).
 Cela ne remplace pas la [campagne calc-v3](tester-army-calc-v3.md).
 
+`E2E_ARMY_SERIAL_BUILD=1` attend la fin des contrôles de base avant de compiler
+l'application. Cette option isole les sondes SQL qui exigent un verrou de table
+immédiat (`NOWAIT`) des lectures d'une compilation simultanée. Elle ne saute aucun
+contrôle SQL/RLS, de compilation ou de parcours ; le comportement parallèle reste
+le défaut.
+
 `E2E_ARMY_WORKERS` accepte 1 à 4 et vaut 1 par défaut. Plus d'un worker est
 réservé aux parcours critical sur la pile éphémère possédée. La CI critical
 utilise 2 ; les autres valeurs ne sont pas une garantie de fiabilité. Les

@@ -134,11 +134,29 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
       .toEqual([[lines.Z1.ef.id, ["rule_failed"], ["ZONE_OVERLAP_DUPLICATE"]]]);
     expect(blockedItems[0]?.rule_reasons?.[0]).toContain("1,00 m");
 
+    // A second session still shows Z2 before Z1's decision. Its guided reduction must not deduct the same metre.
+    const z2BeforeDecision = (await readItems(ui, jobs.Z2)).find((item) => item.id === lines.Z2.ef.id) as Item;
     // The user settles it: the Z1 line loses the shared length (5.00 → 4.00 m). Both lines are settled.
     const corrected = (await patchItems(ui, jobs.Z1, [{ item: duplicate, fields: { quantity: ZONE_PLANS.zones.Z1.length_m - ZONE_PLANS.overlap_m } }]))
       .get(duplicate.id) as Item;
     expect(corrected).toMatchObject({ quantity: 4, rules_stale: false });
     expect(zoneCode(corrected)).toBe("ZONE_OVERLAP_RESOLVED");
+
+    const staleDecision = await apiRequest<{ ok: boolean; data: { results: Array<{ success: boolean }> } }>(ui.browser,
+      "PATCH", `/api/takeoff/jobs/${jobs.Z2}/items`, { items: [{ item_id: z2BeforeDecision.id,
+        updated_at: z2BeforeDecision.updated_at, expected_rules_evaluated_at: z2BeforeDecision.rules_evaluated_at,
+        fields: { quantity: 2 } }] });
+    expect([staleDecision.status, staleDecision.body.data.results[0]?.success]).toEqual([200, false]);
+    expect((await readItems(ui, jobs.Z2)).find((item) => item.id === z2BeforeDecision.id)?.quantity).toBe(3);
+
+    // An interrupted recomputation has an explicit recovery action; it changes no quantity, even with the worker
+    // flag off on the web server (the existing rule inputs still have to be protected).
+    expect((await client.from("takeoff_items").update({ rules_stale: true, rules_stale_at: new Date().toISOString() } as never)
+      .eq("id", duplicate.id)).error).toBeNull();
+    const recovered = await apiRequest<{ ok: boolean; data: { pending: boolean } }>(ui.browser,
+      "POST", `/api/takeoff/jobs/${jobs.Z1}/rules/recompute`, {});
+    expect([recovered.status, recovered.body.data.pending]).toEqual([200, false]);
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.id === duplicate.id)).toMatchObject({ quantity: 4, rules_stale: false });
 
     // Kept after a reload: both lines read back settled, the correction persisted.
     await ui.browser.reload();
@@ -172,7 +190,7 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
 // a reason (E) on Z1, accepted (V) on Z2.
 armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the user settles it by keyboard, kept after a reload, counted once", options,
   async (ui) => {
-    const { ids, target, jobs } = await seedZoneJobs(ui, "TKR02", "RUL2", "Revue ciblée Z1 Z2");
+    const { ids, target, jobs, client } = await seedZoneJobs(ui, "TKR02", "RUL2", "Revue ciblée Z1 Z2");
     // Setup only: the vector EF lines arrive excluded (TI-662); both included, the duplicate appears.
     for (const zone of ["Z1", "Z2"] as const) {
       const ef = (await readItems(ui, jobs[zone])).find((item) => item.designation === ZONE_PLANS.designation) as Item;
@@ -183,9 +201,16 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     const screen = ui.screen;
     const targeted = (jobId: string) => `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review/targeted?versionId=${ids.versionId}`;
 
+    // Recover an interrupted computation through the UI without changing a business quantity.
+    expect((await client.from("takeoff_items").update({ rules_stale: true, rules_stale_at: new Date().toISOString() } as never)
+      .eq("job_id", jobs.Z1)).error).toBeNull();
     await ui.browser.setViewport({ width: 1440, height: 900 });
     await ui.app.open(targeted(jobs.Z1));
     await expect(screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible();
+    await screen.getByRole("button", "Recalculer les règles", { exact: true }).click();
+    await expect(screen.getByRole("button", "Recalculer les règles", { exact: true })).toHaveCount(0);
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.designation === ZONE_PLANS.designation))
+      .toMatchObject({ quantity: 5, rules_stale: false });
     const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
     await expect(list.getByRole("option")).toHaveCount(2);
     await expect(screen.getByRole("button", /^Règle en échec 2$/)).toBeVisible();

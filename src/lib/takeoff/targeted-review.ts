@@ -50,7 +50,7 @@ export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[
 
 export type Acceptance = { enabled: boolean; reason: string | null };
 
-const STALE_REASON = "Règles à recalculer : ce qu’elles disaient peut ne plus tenir, V ne les lève pas. Enregistrez une correction pour relancer le calcul.";
+const STALE_REASON = "Règles à recalculer : ce qu’elles disaient peut ne plus tenir, V ne les lève pas. Utilisez « Recalculer les règles ».";
 
 /** Whether V settles something on this line, and why not. */
 export function acceptanceOf(item: ApplyGuardItem, level: string | null): Acceptance {

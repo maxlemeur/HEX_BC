@@ -8,6 +8,7 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target 
 
 import { LoadingState } from "@/components/layout/loading-state";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
+import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -94,12 +95,13 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const [dpgfRead, setDpgfRead] = useState(0);
   const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
   const savingRef = useRef(new Set<string>());
+  const mutationRevision = useRef(0);
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("line"));
   const lastIndex = useRef(0);
   const nextId = useRef<string | null>(null);
-  const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number } | null>(null);
+  const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number; expectedEvaluation?: string | null } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
@@ -178,8 +180,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   // One decision at a time: a partner's guidance is read from the answer of the decision before it, never guessed.
   const busy = saving.size > 0;
 
-  const decide = useCallback(async (item: TakeoffJobItem, fields: TakeoffItemPatchField, done: string) => {
+  const decide = useCallback(async (item: TakeoffJobItem, fields: TakeoffItemPatchField, done: string, expectedEvaluation?: string | null) => {
     if (savingRef.current.size > 0) return false;
+    mutationRevision.current += 1;
     savingRef.current.add(item.id);
     setSaving(new Set(savingRef.current));
     setLineErrors((previous) => {
@@ -188,11 +191,18 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       return next;
     });
     try {
-      const response = await patchTakeoffItems(jobId, { items: [{ item_id: item.id, updated_at: item.updated_at, fields }] });
+      if (expectedEvaluation === null) throw new Error("Rechargez les règles avant cette décision.");
+      const response = await patchTakeoffItems(jobId, { items: [{ item_id: item.id, updated_at: item.updated_at, fields,
+        ...(expectedEvaluation ? { expected_rules_evaluated_at: expectedEvaluation } : {}) }] });
       const result = response.results[0];
+      if (response.rule_states_refresh_required) {
+        const detail = await fetchTakeoffJobWithAllItems(jobId);
+        setItems(detail.items.data);
+      } else {
       // The saved line as the server holds it, its partners read again with it.
       setItems((previous) => withRuleStates(
         previous.map((line) => (result?.success && line.id === result.item_id ? result.item : line)), response.rule_states));
+      }
       if (!result?.success) {
         setLineErrors((previous) => ({ ...previous, [item.id]: result?.error ?? "Enregistrement refusé." }));
       } else {
@@ -201,7 +211,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       }
       return result?.success === true;
     } catch (error) {
-      setLineErrors((previous) => ({ ...previous, [item.id]: isTakeoffApiError(error) ? error.message : "Échec de l’enregistrement." }));
+      setLineErrors((previous) => ({ ...previous, [item.id]: isTakeoffApiError(error) ? error.message : "Échec de l’enregistrement ou de sa relecture. Rechargez la revue." }));
+      setItems((previous) => previous.map((line) => line.rules_evaluated_at ? { ...line, rules_stale: true } : line));
       return false;
     } finally {
       savingRef.current.delete(item.id);
@@ -247,9 +258,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       toEnter ? "Quantité saisie" : "Quantité corrigée");
   }, [current, decide, draft]);
 
-  const openExclusion = useCallback((reason = "") => {
+  const openExclusion = useCallback((reason = "", guided = false) => {
     if (!current || readOnly || busy) return;
-    setExclusion({ itemId: current.item.id, reason, key: Date.now() });
+    setExclusion({ itemId: current.item.id, reason, key: Date.now(),
+      ...(guided ? { expectedEvaluation: current.item.rules_evaluated_at ?? null } : {}) });
   }, [busy, current, readOnly]);
 
   const accept = useCallback(() => {
@@ -300,7 +312,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       move(key === "ArrowDown" ? 1 : -1);
     } else if (key === "e" || key === "E") {
       event.preventDefault();
-      openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "");
+      openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "", guidance?.remove_line === true);
     } else if (key === "v" || key === "V") {
       event.preventDefault();
       accept();
@@ -381,6 +393,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           <Link href={`/dashboard/affaires/${projectId}/takeoff`} className={buttonVariants({ variant: "ghost", size: "xs" })}>Métrés</Link>
         </nav>
       </header>
+      <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)} disabled={readOnly || busy}
+        beginRevision={() => ++mutationRevision.current}
+        getRevision={() => mutationRevision.current}
+        onRefreshed={(detail) => { setItems(detail.items.data); setDpgfRead((value) => value + 1); }} />
 
       <div className="flex min-h-0 flex-1">
         {leftOpen ? (
@@ -499,11 +515,11 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                   onLeaveEntry={(text) => { if (text === quantityInput(current.item.quantity)) setDraft(null); }}
                   onSaveUnit={(unit) => decide(current.item, { unit }, "Unité corrigée")}
                   onCommit={commitQuantity} onStartEntry={() => startEntry(null)}
-                  onExclude={() => openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "")}
+                  onExclude={() => openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "", guidance?.remove_line === true)}
                   onAccept={() => { accept(); focusList(); }}
                   onReduce={(to) => {
                     focusList();
-                    void decide(current.item, { quantity: to, ...(hasToEnter(current.item) ? { quantity_entered: true as const } : {}) }, "Longueur retirée");
+                    void decide(current.item, { quantity: to, ...(hasToEnter(current.item) ? { quantity_entered: true as const } : {}) }, "Longueur retirée", current.item.rules_evaluated_at ?? null);
                   }}
                   onSelectPartner={(itemId) => { setSelectedId(itemId); setFilter("all"); focusList(); }}
                   partnerListed={(itemId) => review.lines.some((line) => line.item.id === itemId)}
@@ -525,7 +541,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           onOpenChange={(open) => { if (!open) { setExclusion(null); requestFocusList(); } }}
           onConfirm={(reason) => {
             const item = items.find((entry) => entry.id === exclusion.itemId);
-            if (item) void decide(item, { is_excluded: true, exclusion_reason: reason }, "Ligne exclue");
+            if (item) void decide(item, { is_excluded: true, exclusion_reason: reason }, "Ligne exclue", exclusion.expectedEvaluation);
           }} />
       ) : null}
 

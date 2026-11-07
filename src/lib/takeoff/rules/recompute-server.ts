@@ -104,6 +104,12 @@ export async function recomputeTakeoffRulesForVersion(input: {
   supabase?: ServiceClient;
 }): Promise<TakeoffRulesRecomputation> {
   const supabase = input.supabase ?? createServiceRoleClient();
+  // Independent of the worker flag: existing rule inputs stay protected after it is off.
+  const { data: hasInputs, error: presenceError } = await supabase.rpc("takeoff_rule_version_has_inputs" as never, {
+    p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
+  } as never);
+  if (presenceError || typeof hasInputs !== "boolean") failed("Impossible de vérifier la présence de règles.", presenceError);
+  if (!hasInputs) return { lines: 0, written: 0, skipped: 0, reopened: 0 };
   // The version as this computation reads it: the writer writes nothing if it changed meanwhile.
   const { data: stamp, error: stampError } = await supabase.rpc("takeoff_rule_version_stamp" as never, {
     p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
@@ -254,13 +260,16 @@ export async function writeTakeoffRuleResultChunks(input: {
 /** The same computation, never throwing: logged, for callers that go on without it (the stored state still blocks). */
 export async function recomputeTakeoffRulesQuietly(input: { tenantId: string; estimateVersionId: string; context: string;
   supabase?: ServiceClient }) {
-  try {
-    return await recomputeTakeoffRulesForVersion(input);
-  } catch (error) {
-    console.error("takeoff.rules.recompute_failed", {
-      tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, context: input.context,
-      message: (error instanceof Error ? error.message : String(error)).slice(0, 500),
-    });
-    return null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const outcome = await recomputeTakeoffRulesForVersion(input);
+      if (outcome.skipped === 0 || attempt === 2) return outcome;
+    } catch (error) {
+      console.error("takeoff.rules.recompute_failed", {
+        tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, context: input.context, attempt,
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+      });
+    }
   }
+  return null;
 }

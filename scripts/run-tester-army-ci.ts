@@ -254,8 +254,11 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
 // origin and keys (it never receives the ARMY account or the SQL transport): it
 // starts as soon as the stack runs, while the snapshot, pgTAP and the RLS matrix
 // check the database. runApplication, which runs only after they pass, awaits it.
-const buildsEarly = suite === "critical" || (suite === "full" && !fullPhases.every((phase) => phase === "development")) ||
-  (suite === "calc-v3" && (calcV3Phase ? [calcV3Phase] : CALC_V3_PHASES).some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
+// Some SQL maintenance probes require NOWAIT table locks. An explicit serial campaign keeps the build's reads
+// away from that qualification window; every database, build and browser check still runs unchanged.
+const buildsEarly = process.env.E2E_ARMY_SERIAL_BUILD !== "1" && (suite === "critical" ||
+  (suite === "full" && !fullPhases.every((phase) => phase === "development")) ||
+  (suite === "calc-v3" && (calcV3Phase ? [calcV3Phase] : CALC_V3_PHASES).some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production")));
 let earlyBuild: { origin: string; anonKey: string; done: Promise<void> } | undefined;
 
 function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {

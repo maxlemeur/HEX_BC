@@ -604,6 +604,18 @@ const takeoffOperationsContracts: RouteContract[] = [
     body: { schema: takeoffItemsPatchSchema, description: "Items, jetons updated_at et champs a modifier." },
   },
   {
+    id: "recompute-takeoff-rules",
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/rules/recompute",
+    summary: "Recalculer les règles d'un métré terminé",
+    description: "Relance le calcul de la version sous autorisation tenant/opérateur. Les lignes encore périmées restent bloquées.",
+    tags: ["Takeoff"],
+    pathParameters: [jobIdParameter],
+    success: [{ status: "200", description: "État persistant après récupération.", schema: {
+      schemaName: "ApiTakeoffRulesRecomputeResponse", schema: z.object({ ok: z.literal(true), data: z.object({ pending: z.boolean() }) }), io: "output",
+    } }],
+  },
+  {
     id: "reconcile-takeoff-job",
     method: "post",
     path: "/api/takeoff/jobs/{jobId}/reconcile",

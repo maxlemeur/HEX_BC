@@ -47,6 +47,7 @@ const TAKEOFF_ITEM_COLUMNS = TAKEOFF_ITEMS_SELECT.split(",").map((column) => col
 export async function updateTakeoffItemWithExpectedTimestamp(
   input: TakeoffItemPatchScope & {
     expectedUpdatedAt: string;
+    expectedRulesEvaluatedAt?: string;
     updatePayload: TakeoffItemPatchUpdate;
   }
 ): Promise<TakeoffItemPatchRowResult> {
@@ -56,6 +57,7 @@ export async function updateTakeoffItemWithExpectedTimestamp(
     p_item_id: input.itemId,
     p_expected_updated_at: input.expectedUpdatedAt,
     p_fields: input.updatePayload,
+    ...(input.expectedRulesEvaluatedAt ? { p_expected_rules_evaluated_at: input.expectedRulesEvaluatedAt } : {}),
   } as never);
 
   if (error) return { success: false, error: "Impossible de mettre à jour l'item." };

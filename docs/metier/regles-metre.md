@@ -333,6 +333,32 @@ validées par Thanh le 5 nov. 2026) :
 - après chaque correction ou exclusion (PATCH des lignes) ;
 - avant chaque application.
 
+TI-677 : une tentative interrompue, ou dont des écritures ont été sautées après
+une modification concurrente, est reprise une fois depuis une nouvelle lecture.
+Après ces deux tentatives au plus, les lignes encore périmées restent bloquées.
+Les deux revues affichent « Règles à recalculer » et l'action « Recalculer les
+règles » au niveau du job. Cette action exige le même tenant, un rôle opérateur
+et un job terminé ; elle ne modifie aucune quantité. Le chargement de son résultat
+n'écrase jamais une sauvegarde commencée depuis son lancement.
+
+Une version sans entrées de règles passe par une seule sonde d'existence, sans
+charger ses lignes ni sa géométrie. Cette sonde ne dépend pas du drapeau du worker :
+des entrées déjà écrites continuent de protéger la version quand il est éteint.
+L'application périme les règles des autres jobs terminés de la version : le calcul
+suivant tient compte des lignes sautées ou repliées dans un ouvrage.
+
+Le PATCH renvoie les états de règles seulement si la lecture est complète, à
+100 lignes et 256 Kio au plus. Sinon, `rule_states_refresh_required` exige une
+relecture paginée ; la revue conserve les saisies en cours et marque les anciennes
+règles comme périmées jusqu'à cette relecture. Aucun préfixe incomplet ne passe
+pour l'état de tout le job.
+
+Les actions guidées « Retirer » (réduction ou exclusion complète, clic comme E)
+transmettent le `rules_evaluated_at` affiché. La base le compare sous le verrou
+de version et refuse aussi une ligne périmée. Une décision sur un partenaire
+rend donc l'ancienne proposition inutilisable, même si `updated_at` de cette ligne
+n'a pas bougé. Le dialogue d'exclusion conserve le calcul vu à son ouverture.
+
 Un client qui modifie la quantité, son attestation de saisie, l'unité, l'exclusion
 ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses résultats
 (trigger) : la ligne bloque jusqu'au recalcul serveur. Une désignation modifiée ne

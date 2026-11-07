@@ -38,6 +38,7 @@ export const takeoffItemBatchPatchSchema = z
         z.object({
           item_id: z.string().uuid("item_id invalide."),
           updated_at: z.string().min(1, "updated_at est requis."),
+          expected_rules_evaluated_at: z.string().datetime({ offset: true }).optional(),
           fields: takeoffItemPatchFieldSchema,
         })
       )

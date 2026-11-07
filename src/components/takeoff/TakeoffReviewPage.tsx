@@ -18,6 +18,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
+import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
   TakeoffReviewModeSwitch,
@@ -96,6 +97,7 @@ import {
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
   fetchTakeoffJob,
+  fetchTakeoffJobWithAllItems,
   isTakeoffApiError,
   listTakeoffJobs,
   patchTakeoffItems,
@@ -661,6 +663,7 @@ export default function TakeoffReviewPage({
   }, []);
   const applyPatchResults = useCallback(
     (response: TakeoffItemBatchPatchResponse, sequence: number, submitted?: Map<string, ReviewItem>) => {
+      if (sequence < patchSequence.current.applied) return;
       const fresh = sequence > patchSequence.current.applied;
       if (fresh) patchSequence.current.applied = sequence;
       const resultByItemId = new Map(
@@ -684,8 +687,18 @@ export default function TakeoffReviewPage({
           // TI-664 L5c: the partners of the saved lines read again with them; a line still edited keeps its own.
         }), fresh ? response.rule_states : undefined, (item) => item._dirty || item._saving)
       );
+      if (fresh && response.rule_states_refresh_required) {
+        // Until the whole paginated refresh succeeds, no evaluated partner is displayed as settled.
+        setItems((previous) => previous.map((item) => item.rules_evaluated_at ? { ...item, rules_stale: true } : item));
+        void fetchTakeoffJobWithAllItems(jobId).then((detail) => {
+          if (patchSequence.current.sent !== sequence) return;
+          const byId = new Map(detail.items.data.map((item) => [item.id, item]));
+          setItems((previous) => previous.map((item) => item._dirty || item._saving || !byId.has(item.id) ? item
+            : { ...item, ...byId.get(item.id) }));
+        }, () => { /* Stored results still block; the recovery action remains visible. */ });
+      }
     },
-    []
+    [jobId]
   );
 
   // ---- Auto-save logic
@@ -1193,6 +1206,16 @@ export default function TakeoffReviewPage({
           }
           actions={
             <>
+              <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)}
+                beginRevision={nextPatchSequence}
+                getRevision={() => patchSequence.current.sent}
+                disabled={hasAlreadyBeenApplied || hasDirtyOrSaving}
+                onRefreshed={(detail) => {
+                  patchSequence.current.applied = patchSequence.current.sent;
+                  const byId = new Map(detail.items.data.map((item) => [item.id, item]));
+                  setItems((previous) => previous.map((item) => item._dirty || item._saving || !byId.has(item.id) ? item
+                    : { ...item, ...byId.get(item.id) }));
+                }} />
               {jobStatus ? (
                 <span className={`status-badge ${getStatusCss(jobStatus)}`}>
                   {getStatusLabel(jobStatus)}

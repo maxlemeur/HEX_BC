@@ -1,6 +1,5 @@
 import "server-only";
 
-import { readAllRows } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -9,6 +8,7 @@ import {
   TAKEOFF_ITEMS_SELECT,
 } from "@/lib/takeoff/job-read-server";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
+import { boundedRuleStates, RULE_STATE_INLINE_MAX } from "@/lib/takeoff/rules/patch-state-budget";
 import {
   prepareTakeoffItemPatch,
   takeoffItemBatchPatchSchema,
@@ -18,7 +18,6 @@ import {
   updateTakeoffItemWithExpectedTimestamp,
 } from "@/lib/takeoff/item-patch-repository";
 import {
-  TAKEOFF_ITEM_RULE_STATES_MAX,
   takeoffItemRuleStateSchema,
   type TakeoffItemRuleState,
 } from "@/lib/takeoff/item-response-contracts";
@@ -69,10 +68,12 @@ async function readTakeoffRuleStates(input: {
   let rows: Row[];
   try {
     // Every page, checked against the exact count (a short page of the server's max_rows never ends the read).
-    const { data, error } = await readAllRows(() => input.supabase.from("takeoff_items" as never)
+    const { data, error, count } = await input.supabase.from("takeoff_items" as never)
       .select(["id", "rule_results", "rules_evaluated_at", "rules_stale", ...TAKEOFF_RULE_STATE_LINE].join(", ") as never, { count: "exact" })
-      .eq("tenant_id" as never, input.tenantId as never).eq("job_id" as never, input.jobId as never) as never);
+      .eq("tenant_id" as never, input.tenantId as never).eq("job_id" as never, input.jobId as never)
+      .range(0, RULE_STATE_INLINE_MAX);
     if (error || !Array.isArray(data)) return null;
+    if (typeof count !== "number" || count !== data.length || data.length > RULE_STATE_INLINE_MAX) return null;
     rows = data as Row[];
   } catch {
     return null;
@@ -86,7 +87,7 @@ async function readTakeoffRuleStates(input: {
     if (!state.success) return null;
     states.push(state.data);
   }
-  return states.length > TAKEOFF_ITEM_RULE_STATES_MAX ? null : states;
+  return boundedRuleStates(states);
 }
 
 export async function batchUpdateTakeoffItems(
@@ -151,6 +152,7 @@ export async function batchUpdateTakeoffItems(
       const updated = await updateTakeoffItemWithExpectedTimestamp({
         ...scope,
         expectedUpdatedAt: entry.updated_at,
+        expectedRulesEvaluatedAt: entry.expected_rules_evaluated_at,
         updatePayload: plan.updatePayload,
       });
       if (!updated.success) {
@@ -175,6 +177,7 @@ export async function batchUpdateTakeoffItems(
   // verified line, TI-677 PR D).
   const saved = results.flatMap((result) => (result.success ? [result.item_id] : []));
   let ruleStates: TakeoffItemRuleState[] | null = null;
+  let ruleStatesRefresh = false;
   if (saved.length > 0) {
     const outcome = await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "item_patch" });
     if (outcome && outcome.lines > 0) {
@@ -188,6 +191,7 @@ export async function batchUpdateTakeoffItems(
     // version no rule reads (outcome.lines 0) has no rule state to read.
     if (!outcome || outcome.lines > 0) {
       ruleStates = await readTakeoffRuleStates({ supabase, tenantId, jobId: normalizedJobId });
+      ruleStatesRefresh = ruleStates === null;
     }
   }
 
@@ -196,5 +200,6 @@ export async function batchUpdateTakeoffItems(
     succeeded: results.filter((result) => result.success).length,
     failed: results.filter((result) => !result.success).length,
     ...(ruleStates ? { rule_states: ruleStates } : {}),
+    ...(ruleStatesRefresh ? { rule_states_refresh_required: true } : {}),
   };
 }

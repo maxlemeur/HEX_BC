@@ -124,7 +124,8 @@ describe("TakeoffTargetedReview", () => {
       fireEvent.click(screen.getByRole("button", { name: /^Retirer 1,00 m/ }));
     });
 
-    expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.z1, updated_at: ITEMS[1].updated_at, fields: { quantity: 4 } }] });
+    expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.z1, updated_at: ITEMS[1].updated_at,
+      expected_rules_evaluated_at: ITEMS[1].rules_evaluated_at, fields: { quantity: 4 } }] });
     await waitFor(() => expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual([
       expect.stringContaining("Soudures des réseaux"),
     ]));

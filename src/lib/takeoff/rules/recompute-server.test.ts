@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 
-import { writeTakeoffRuleResultChunks } from "@/lib/takeoff/rules/recompute-server";
+import { recomputeTakeoffRulesQuietly, writeTakeoffRuleResultChunks } from "@/lib/takeoff/rules/recompute-server";
 
 // TI-677 (PR D, review): a chunk whose write reopens a verified line moves that line's updated_at, hence the version's
 // stamp. The next chunks were sent with the stamp read before the computation, and the writer wrote none of them: their
@@ -49,5 +49,45 @@ describe("writing a version's rule results in chunks", () => {
     const writes = Array.from({length:3}, (_,i) => ({ id:String(i), results:[], expected_updated_at:"t", expected_stale_at:null }));
     await expect(writeTakeoffRuleResultChunks({ supabase:{rpc} as never, tenantId:"t", estimateVersionId:"v", writes, transforms:[], stamp:"s" }))
       .resolves.toEqual({written:2,reopened:1});
+  });
+});
+
+// Recovery failures a normal browser journey cannot inject reliably: a failed service read, and a version without
+// inputs while the worker flag is off. Never gate existing inputs on that flag; a later worker configuration must
+// not turn off the protection of already evaluated lines.
+describe("recovering a rule computation", () => {
+  it("does not load a version with no rule inputs", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: false, error: null });
+    const from = vi.fn(() => { throw new Error("Unnecessary version read"); });
+    await expect(recomputeTakeoffRulesQuietly({ tenantId: "t", estimateVersionId: "v", context: "test",
+      supabase: { rpc, from } as never })).resolves.toEqual({ lines: 0, written: 0, skipped: 0, reopened: 0 });
+    expect(from).not.toHaveBeenCalled();
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual(["takeoff_rule_version_has_inputs"]);
+  });
+
+  it("recovers one failed read, with a fresh attempt, then stops", async () => {
+    let reads = 0;
+    const rpc = vi.fn(async (name: string) => name === "takeoff_rule_version_has_inputs"
+      ? { data: true, error: null }
+      : ++reads === 1 ? { data: null, error: { message: "Connection interrupted" } } : { data: "fresh-stamp", error: null });
+    const query: Record<string, unknown> = {};
+    for (const method of ["select", "eq", "in"]) query[method] = () => query;
+    query.order = async () => ({ data: [], error: null });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await expect(recomputeTakeoffRulesQuietly({ tenantId: "t", estimateVersionId: "v", context: "test",
+        supabase: { rpc, from: () => query } as never })).resolves.toEqual({ lines: 0, written: 0, skipped: 0, reopened: 0 });
+      expect(reads).toBe(2);
+    } finally { log.mockRestore(); }
+  });
+
+  it("leaves a persistent failure blocked after two attempts", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "Unavailable" } });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await expect(recomputeTakeoffRulesQuietly({ tenantId: "t", estimateVersionId: "v", context: "test",
+        supabase: { rpc } as never })).resolves.toBeNull();
+      expect(rpc).toHaveBeenCalledTimes(2);
+    } finally { log.mockRestore(); }
   });
 });
