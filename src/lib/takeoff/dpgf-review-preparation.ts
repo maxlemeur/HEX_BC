@@ -143,8 +143,8 @@ export function buildTakeoffDpgfManualLinkPlan(input: {
 }
 
 export function buildTakeoffDpgfReviewTargetReference(input: {
-  estimateItem: TakeoffDpgfReviewDecisionTarget;
-  unitByRowIndex: Map<number, string | null>;
+  estimateItem: Pick<TakeoffDpgfReviewDecisionTarget, "source_file_name" | "source_page" | "position" | "title">;
+  unit: string | null;
 }): string {
   const item = input.estimateItem;
   return buildTakeoffDpgfReviewReference({
@@ -152,9 +152,7 @@ export function buildTakeoffDpgfReviewTargetReference(input: {
     sourcePage: item.source_page,
     position: item.position,
     title: item.title,
-    unit: typeof item.source_page === "number"
-      ? input.unitByRowIndex.get(item.source_page) ?? null
-      : null,
+    unit: input.unit,
   });
 }
 

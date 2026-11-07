@@ -1,5 +1,7 @@
 import "server-only";
 
+import { parseQuantity } from "@/lib/numeric-input/parsers";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -9,6 +11,8 @@ import {
   normalizeTakeoffDpgfEstimateItemRow,
   normalizeTakeoffDpgfManualLinkRows,
   normalizeTakeoffDpgfMappedRows,
+  resolveMappedRowPayload,
+  extractDpgfMappedRowUnit,
   buildTakeoffDpgfReviewDecisionRecords,
   buildDpgfUnitByRowIndex,
   getCarriedOverVersionIds,
@@ -207,6 +211,28 @@ export async function listTakeoffDpgfReviewDecisions(input: {
     rows,
     carriedOverVersionNumberById,
   });
+}
+
+export async function readDpgfMappedFacts(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  projectId: string;
+  mappedIds: string[];
+}) {
+  const facts = new Map<string, { quantity: number | null; unit: string | null }>();
+  const { data, error } = await selectInChunks([...new Set(input.mappedIds)], ids =>
+    input.supabase.from("dpgf_rows_mapped")
+      .select("id, payload, dpgf_imports!inner(project_id)")
+      .eq("tenant_id", input.tenantId)
+      .eq("dpgf_imports.project_id", input.projectId)
+      .in("id", ids)
+  );
+  if (error) throw mapSupabaseError(error, "Impossible de vérifier les quantités source du DPGF.");
+  for (const row of normalizeTakeoffDpgfMappedRows(data)) {
+    facts.set(row.id, { quantity: parseQuantity(resolveMappedRowPayload(row.payload).quantity),
+      unit: extractDpgfMappedRowUnit(row.payload) });
+  }
+  return facts;
 }
 
 export async function resolveDpgfUnitByRowIndex(input: {

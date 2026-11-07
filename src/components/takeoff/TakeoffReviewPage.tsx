@@ -101,7 +101,7 @@ import {
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
 import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
-import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import type {

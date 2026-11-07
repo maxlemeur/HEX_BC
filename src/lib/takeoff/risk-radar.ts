@@ -606,11 +606,11 @@ export function buildTakeoffRiskCandidates(
       );
     }
 
-    if (
-      row.delta_percent !== null &&
-      Number.isFinite(row.delta_percent) &&
-      Math.abs(row.delta_percent) > 20
-    ) {
+    const gapReason = row.dpgf_quantity === 0 && row.takeoff_quantity !== null && row.takeoff_quantity > 0
+      ? `Quantité DPGF nulle, métré de ${row.takeoff_quantity} ${row.quantity_unit ?? ""}.`.trim()
+      : row.delta_percent !== null && Math.abs(row.delta_percent) > 20
+        ? `Écart de ${row.delta_percent.toFixed(1)}% entre la quantité DPGF et le métré.` : null;
+    if (gapReason) {
       candidates.push(
         createCandidate({
           scope_type: "line",
@@ -621,9 +621,7 @@ export function buildTakeoffRiskCandidates(
           lot_id: lotContext.lotId,
           cause_code: "dpgf_takeoff_gap",
           margin_bucket: marginBucket,
-          reason_labels: [
-            `Écart de ${row.delta_percent.toFixed(1)}% entre la quantité DPGF et le métré.`,
-          ],
+          reason_labels: [gapReason],
           provenance: buildProofProvenance(
             row,
             buildInferenceEntry(

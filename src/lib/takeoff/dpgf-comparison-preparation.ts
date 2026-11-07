@@ -144,21 +144,13 @@ function toNullableText(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function toPositiveNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-
-  return value;
-}
-
-function resolveMappedRowPayload(payload: Record<string, unknown>) {
+export function resolveMappedRowPayload(payload: Record<string, unknown>) {
   const embedded = payload.mapped_row;
   return isRecord(embedded) ? embedded : payload;
 }
 
 function extractDpgfMappedRowIndex(payload: Record<string, unknown>) {
-  const candidate = resolveMappedRowPayload(payload).row_index;
+  const candidate = payload.row_index ?? resolveMappedRowPayload(payload).row_index;
   if (typeof candidate === "number" && Number.isFinite(candidate)) {
     return Math.max(0, Math.trunc(candidate));
   }
@@ -166,7 +158,7 @@ function extractDpgfMappedRowIndex(payload: Record<string, unknown>) {
   return null;
 }
 
-function extractDpgfMappedRowUnit(payload: Record<string, unknown>) {
+export function extractDpgfMappedRowUnit(payload: Record<string, unknown>) {
   const mappedRow = resolveMappedRowPayload(payload);
   return (
     toNullableText(mappedRow.unit) ??
@@ -191,34 +183,48 @@ export function buildDpgfUnitByRowIndex(rows: Array<{ payload: Record<string, un
   return unitByRowIndex;
 }
 
+// Legacy imports reference their exact mapping. An edited estimate quantity cannot
+// stand in for the original cell when that mapped row no longer exists.
+export function legacyMappedRowId(row: TakeoffDpgfEstimateItem): string | null {
+  if (row.item_type !== "line" || row.source_provider !== "dpgf" ||
+      (row.source_metadata?.dpgf_source_unit !== undefined && row.source_metadata?.dpgf_source_quantity !== undefined)) return null;
+  const parsed = z.string().uuid().safeParse(row.source_metadata?.mapped_row_id);
+  return parsed.success ? parsed.data : null;
+}
+
 export function normalizeDpgfComparisonEstimateItems(input: {
-  rows: Array<z.infer<typeof takeoffDpgfCompareEstimateItemRowSchema>>;
-  unitByRowIndex: Map<number, string | null>;
+  rows: TakeoffDpgfEstimateItem[];
+  legacyUnits: ReadonlyMap<string | null, Map<number, string | null>>;
+  mappedFacts: ReadonlyMap<string, { quantity: number | null; unit: string | null }>;
 }): TakeoffDpgfComparisonDpgfLine[] {
   return input.rows
-    .filter((row) => {
-      if (row.item_type !== "line") return false;
-      if (toPositiveNumber(row.quantity) === null) return false;
-
-      return row.source_provider === "dpgf";
-    })
-    .map((row) => ({
-      estimate_item_id: row.id,
-      title: row.title,
-      description: row.description,
-      quantity: row.quantity as number,
-      unit:
-        typeof row.source_page === "number"
-          ? input.unitByRowIndex.get(row.source_page) ?? null
-          : null,
-      source_page: row.source_page,
-      source_file_name: row.source_file_name,
-      position: row.position,
-    }));
+    .filter(row => row.item_type === "line" && row.source_provider === "dpgf")
+    .map(row => {
+      const facts = input.mappedFacts.get(legacyMappedRowId(row) ?? "");
+      const metadata = row.source_metadata;
+      const original = metadata?.dpgf_source_quantity;
+      const quantity = original === undefined ? facts?.quantity ?? null :
+        typeof original === "number" && Number.isFinite(original) && original >= 0 ? original : null;
+      // A PDF page can contain many rows, and is never an index into a DPGF mapping.
+      const legacyUnit = typeof row.source_page === "number" && !row.source_file_name?.toLowerCase().endsWith(".pdf")
+        ? input.legacyUnits.get(row.source_file_name)?.get(row.source_page) ?? null : null;
+      const unit = metadata?.dpgf_source_unit !== undefined
+        ? toNullableText(metadata.dpgf_source_unit) : facts ? facts.unit : legacyUnit;
+      return {
+        estimate_item_id: row.id,
+        title: row.title,
+        description: row.description,
+        quantity,
+        unit,
+        source_page: row.source_page,
+        source_file_name: row.source_file_name,
+        position: row.position,
+      };
+    });
 }
 
 export function normalizeTakeoffComparisonItems(items: TakeoffJobItem[]): TakeoffDpgfComparisonTakeoffLine[] {
-  return items.map((item) => ({
+  return items.filter(item => !item.is_excluded).map((item) => ({
     item_id: item.id,
     designation: item.designation,
     quantity: item.quantity,
@@ -243,10 +249,21 @@ export function getCarriedOverVersionIds(rows: unknown[]): string[] {
 
 export function carryTakeoffDpgfReviewDecisions(input: {
   decisions: TakeoffDpgfReviewDecisionRecord[];
+  sourceItems: TakeoffDpgfEstimateItem[];
   linkedFromVersionId: string;
   linkedFromVersionNumber: number | null;
 }): TakeoffDpgfReviewDecisionRecord[] {
-  return input.decisions.map((decision) => ({
+  const identity = (file: string | null, page: number | null, title: string, position: number) =>
+    JSON.stringify([file, page, title, position]);
+  const unique = new Map<string, string | null>();
+  for (const line of input.sourceItems) {
+    if (line.item_type !== "line" || line.source_provider !== "dpgf") continue;
+    const key = identity(line.source_file_name, line.source_page, line.title, line.position);
+    unique.set(key, unique.has(key) ? null : line.id);
+  }
+  return input.decisions.filter(d =>
+    unique.get(identity(d.source_file_name, d.source_page, d.line_label, d.line_position)) === d.estimate_item_id
+  ).map((decision) => ({
     ...decision,
     source: "carried_over",
     carried_over_from_version_id:

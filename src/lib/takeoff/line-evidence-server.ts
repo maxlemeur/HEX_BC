@@ -8,7 +8,7 @@ import type { TakeoffDpgfComparisonResponse, TakeoffLineEvidencePanelResponse } 
 import type { SupplierPriceEvidenceRow } from "@/lib/takeoff/evidence-preparation";
 import { type TakeoffDpgfEstimateItem } from "@/lib/takeoff/dpgf-comparison-preparation";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
-import { buildTakeoffDpgfComparison } from "@/lib/takeoff/dpgf-compare";
+import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
 import {
   listSupplierPriceEvidenceRows,
   listTakeoffLineEvidenceRows,
@@ -115,11 +115,8 @@ export async function refreshTakeoffLineEvidenceSnapshot(input: {
     jobId: input.jobId,
     estimateItemIds: input.estimateItemIds,
   });
-  const comparison = buildTakeoffDpgfComparison({
-    ...context.comparisonInput,
-    pageSize: context.comparisonInput.dpgfLines.length,
-    view: "all",
-  });
+  const selected = new Set(input.estimateItemIds);
+  const rows = computeTakeoffDpgfRows(context.comparisonInput).rows.filter(row => selected.has(row.line_id));
   const supplierPriceByEstimateItemId = await buildSupplierPriceEvidenceByEstimateItemId({
     supabase: context.supabase,
     tenantId: context.tenantId,
@@ -132,7 +129,7 @@ export async function refreshTakeoffLineEvidenceSnapshot(input: {
     projectId: context.projectId,
     versionId: context.comparisonInput.versionId,
     jobId: context.comparisonInput.jobId,
-    rows: comparison.rows,
+    rows,
     supplierPriceByEstimateItemId,
   });
 }

@@ -102,6 +102,7 @@ type StoredEstimateItem = {
   title: string;
   description: string | null;
   quantity: number | null;
+  source_metadata?: { dpgf_source_quantity: number | null };
   pricing_status?: string;
   unit_price_ht_cents?: number;
   selected_supplier_price_id: string | null;
@@ -324,6 +325,7 @@ function createSupabaseMock() {
         title: "Faux plafond acoustique",
         description: null,
         quantity: 100,
+        source_metadata: { dpgf_source_quantity: 100 },
         selected_supplier_price_id: null,
         source_file_name: "dpgf.xlsx",
         source_page: 12,
@@ -969,6 +971,10 @@ describe("takeoff DPGF comparison server helpers", () => {
 
   it("excludes carried review decisions from forced-manual blockers in the hub summary", async () => {
     const mock = createSupabaseMock();
+    // Carry-over now establishes uniqueness against the actual source rows.
+    mock.state.estimateItems.push({
+      ...mock.state.estimateItems[0]!, version_id: SOURCE_VERSION_ID, id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    });
     mock.state.reviewDecisions = [
       {
         id: "99999999-9999-4999-8999-999999999999",
@@ -1078,7 +1084,7 @@ describe("takeoff DPGF comparison server helpers", () => {
     expect(response.pagination.total).toBe(2);
   });
 
-  it("resolves panel units from the selected line's source before the version's first source", async () => {
+  it("uses each source for global matching and refreshes only the selected line's evidence", async () => {
     const mock = createSupabaseMock();
     const lineId = "88888888-8888-4888-8888-888888888888";
     mock.state.estimateItems.push({
@@ -1096,11 +1102,9 @@ describe("takeoff DPGF comparison server helpers", () => {
       version_id: VERSION_ID, line_id: lineId,
     });
 
-    expect(mock.state.importFilters).toEqual([{
-      tenant_id: TENANT_ID,
-      project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      filename: "annexe.xlsx",
-    }]);
+    expect(mock.state.importFilters).toEqual(["dpgf.xlsx", "annexe.xlsx"].map(filename => ({
+      tenant_id: TENANT_ID, project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", filename,
+    })));
     expect(panel.evidences.find((evidence) => evidence.type === "dpgf")).toMatchObject({
       source_file_name: "annexe.xlsx",
     });
@@ -1311,10 +1315,14 @@ describe("takeoff DPGF comparison server helpers", () => {
       tenantRole: "admin",
     } as never);
 
-    await saveTakeoffReviewDecision(JOB_ID, {
+    await expect(saveTakeoffReviewDecision(JOB_ID, {
       version_id: VERSION_ID,
       estimate_item_id: ESTIMATE_ITEM_ID,
       decision: "keep_takeoff",
+    })).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
+    expect(mock.state.reviewDecisions).toHaveLength(0);
+    await saveTakeoffReviewDecision(JOB_ID, {
+      version_id: VERSION_ID, estimate_item_id: ESTIMATE_ITEM_ID, decision: "keep_dpgf",
     });
 
     expect(mock.state.reviewDecisions[0]?.review_reference).toBe(

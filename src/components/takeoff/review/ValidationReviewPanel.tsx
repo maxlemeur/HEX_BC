@@ -9,7 +9,7 @@ import {
   detectAnomalies,
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
-import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
 import { CircleCheckIcon } from "lucide-react";

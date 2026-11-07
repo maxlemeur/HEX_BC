@@ -19,10 +19,12 @@ import {
   listTakeoffDpgfManualLinks,
   listTakeoffDpgfReviewDecisions,
   resolveDpgfUnitByRowIndex,
+  readDpgfMappedFacts,
 } from "@/lib/takeoff/dpgf-comparison-repository";
 import {
   carryTakeoffDpgfReviewDecisions,
   normalizeDpgfComparisonEstimateItems,
+  legacyMappedRowId,
   normalizeTakeoffComparisonItems,
 } from "@/lib/takeoff/dpgf-comparison-preparation";
 
@@ -64,9 +66,10 @@ export async function loadTakeoffDpgfComparisonContext(input: {
         tenantId,
         versionId: linkedFromVersionId,
         jobId,
-      }).then((decisions) =>
+      }).then(async (decisions) => decisions.length === 0 ? [] :
         carryTakeoffDpgfReviewDecisions({
           decisions,
+          sourceItems: await listTakeoffDpgfEstimateItems({ supabase, tenantId, versionId: linkedFromVersionId }),
           linkedFromVersionId,
           linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
         })
@@ -83,8 +86,7 @@ export async function loadTakeoffDpgfComparisonContext(input: {
       input.projectId ?? getEstimateVersionProjectIdOrThrow({ supabase, tenantId, versionId }),
     ]);
 
-  // A line panel must resolve its own source file, even if another DPGF file
-  // appears first in the version. Validate the selection before reading its import.
+  // Validate the selected lines before resolving their documentary provenance.
   const selectedIds = input.estimateItemIds ? new Set(input.estimateItemIds) : null;
   const estimateItems = selectedIds
     ? allEstimateItems.filter((item) => selectedIds.has(item.id))
@@ -105,17 +107,19 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     }
   };
   assertSelectedLinesExist(new Set(estimateItems.map((item) => item.id)));
-  const dominantSourceFileName =
-    estimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
-  const unitByRowIndex = estimateItems.length > 0
-    ? await resolveDpgfUnitByRowIndex({
-        supabase,
-        tenantId,
-        projectId,
-        sourceFileName: dominantSourceFileName,
-      })
-    : new Map<number, string | null>();
-  const dpgfLines = normalizeDpgfComparisonEstimateItems({ rows: estimateItems, unitByRowIndex });
+  // Match against the entire version even when refreshing a single line's
+  // evidence: a second row can own the same takeoff candidate or source page.
+  const legacyFiles = new Set(allEstimateItems.filter(item => item.source_provider === "dpgf" &&
+    item.source_metadata?.dpgf_source_unit === undefined && !legacyMappedRowId(item) &&
+    item.source_page !== null && !item.source_file_name?.toLowerCase().endsWith(".pdf"))
+    .map(item => item.source_file_name));
+  const legacyUnits = new Map<string | null, Map<number, string | null>>();
+  for (const sourceFileName of legacyFiles) {
+    legacyUnits.set(sourceFileName, await resolveDpgfUnitByRowIndex({ supabase, tenantId, projectId, sourceFileName }));
+  }
+  const mappedIds = allEstimateItems.map(legacyMappedRowId).filter((id): id is string => id !== null);
+  const mappedFacts = await readDpgfMappedFacts({ supabase, tenantId, projectId, mappedIds });
+  const dpgfLines = normalizeDpgfComparisonEstimateItems({ rows: allEstimateItems, legacyUnits, mappedFacts });
   assertSelectedLinesExist(new Set(dpgfLines.map((line) => line.estimate_item_id)));
 
   return {

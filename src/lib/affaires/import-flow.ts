@@ -567,6 +567,13 @@ export function normalizeMappedRowsForEstimateCreation(
     }
 
     const roundedQuantity = quantityField.value ?? 0;
+    // The estimate stores a numeric zero for unquantified lines. Keep the original
+    // distinction for the DPGF review, even if the source mapping is replaced.
+    const lineSourceMetadata = {
+      ...sourceMetadata,
+      dpgf_source_quantity: quantityField.value,
+      dpgf_source_unit: normalizeOptionalText(row.mappedRow.unit),
+    };
     const unitPriceField = readNumericField(row.mappedRow.unit_price_ht, parseAmountCents);
     const totalHtField = readNumericField(row.mappedRow.total_ht, parseAmountCents);
     if (unitPriceField.status === "invalid" || totalHtField.status === "invalid") {
@@ -678,7 +685,7 @@ export function normalizeMappedRowsForEstimateCreation(
         description: normalizeOptionalText(row.mappedRow.unit),
         notes,
         sourcePage,
-        sourceMetadata,
+        sourceMetadata: lineSourceMetadata,
         quantity: roundedQuantity,
         unitPriceHtCents,
         taxRateBp,
@@ -741,7 +748,7 @@ export function normalizeMappedRowsForEstimateCreation(
       description: normalizeOptionalText(row.mappedRow.unit),
       notes,
       sourcePage,
-      sourceMetadata,
+      sourceMetadata: lineSourceMetadata,
       quantity: roundedQuantity,
       unitPriceHtCents,
       taxRateBp,

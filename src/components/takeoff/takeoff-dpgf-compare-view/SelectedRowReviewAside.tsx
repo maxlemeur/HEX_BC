@@ -1,5 +1,6 @@
 "use client";
 
+import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -100,10 +101,12 @@ function ProofList({
 }
 
 function DecisionPill({
+  disabled,
   active,
   decision,
   onClick,
 }: {
+  disabled: boolean;
   active: boolean;
   decision: TakeoffDpgfReviewDecision;
   onClick: (decision: TakeoffDpgfReviewDecision) => void;
@@ -112,6 +115,7 @@ function DecisionPill({
     <Button
       type="button"
       size="sm"
+      disabled={disabled}
       variant={active ? "primary" : DECISION_VARIANT[decision]}
       className={!active ? "justify-start" : undefined}
       onClick={() => onClick(decision)}
@@ -437,6 +441,7 @@ export function SelectedRowReviewAside({
               {(Object.keys(DECISION_LABELS) as TakeoffDpgfReviewDecision[]).map((decision) => (
                 <DecisionPill
                   key={decision}
+                  disabled={!canRetainDpgfQuantity(decision, selectedRow.dpgf_quantity, selectedRow.takeoff_quantity)}
                   active={draftDecision === decision}
                   decision={decision}
                   onClick={onDecisionSelect}

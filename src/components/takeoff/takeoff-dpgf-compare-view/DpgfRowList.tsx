@@ -101,7 +101,7 @@ export function DpgfRowList({
               <div className="rounded-2xl border border-border-subtle bg-surface p-3">
                 <p className="text-xs text-muted-foreground">DPGF</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">
-                  {formatNumber(row.dpgf_quantity)} {row.dpgf.unit ?? ""}
+                  {row.dpgf_quantity === null ? "Non renseignée" : `${formatNumber(row.dpgf_quantity)} ${row.dpgf.unit ?? ""}`.trim()}
                 </p>
               </div>
               <div className="rounded-2xl border border-border-subtle bg-surface p-3">

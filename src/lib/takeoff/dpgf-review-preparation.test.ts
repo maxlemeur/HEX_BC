@@ -113,21 +113,21 @@ describe("DPGF review reference preparation", () => {
   it("identifies a source row by file and row even when its title changes", () => {
     expect(buildTakeoffDpgfReviewTargetReference({
       estimateItem: target({ title: "Libellé corrigé après import" }),
-      unitByRowIndex: new Map([[12, "m2"]]),
+      unit: "m2",
     })).toBe("dpgf ventilation xlsx row 12");
   });
 
   it("uses the resolved row unit rather than the description without a source file", () => {
     expect(buildTakeoffDpgfReviewTargetReference({
       estimateItem: target({ source_file_name: null }),
-      unitByRowIndex: new Map([[11, "h"], [12, "m2"]]),
+      unit: "m2",
     })).toBe("3 faux plafond acoustique m2");
   });
 
   it("omits the unit when the target has no mapped row", () => {
     expect(buildTakeoffDpgfReviewTargetReference({
       estimateItem: target({ source_file_name: null, source_page: null }),
-      unitByRowIndex: new Map([[12, "m2"]]),
+      unit: null,
     })).toBe("3 faux plafond acoustique");
   });
 });

@@ -14,6 +14,7 @@ type SeededEstimateLine = {
   sourceFileName: string;
   description?: string | null;
   unitPriceHtCents?: number | null;
+  mappedRowId?: string;
 };
 
 type SeededTakeoffItem = {
@@ -140,7 +141,7 @@ async function seedDpgfImport(input: {
   projectId: string;
   userId: string;
   filename: string;
-  rows: Array<{ rowIndex: number; unit: string }>;
+  rows: Array<{ rowIndex: number; unit: string; id?: string; quantity?: number }>;
 }) {
   const sb = await getAuthenticatedSupabaseClient();
   const importId = randomUUID();
@@ -150,7 +151,7 @@ async function seedDpgfImport(input: {
     tenant_id: input.tenantId,
     user_id: input.userId,
     filename: input.filename,
-    source_format: "xlsx",
+    source_format: input.filename.endsWith(".pdf") ? "pdf" : "xlsx",
     status: "completed",
     row_count: input.rows.length,
     parse_mode: "server",
@@ -167,12 +168,13 @@ async function seedDpgfImport(input: {
 
   const { error: rowsError } = await sb.from("dpgf_rows_mapped").insert(
     input.rows.map((row) => ({
-      id: randomUUID(),
+      id: row.id ?? randomUUID(),
       tenant_id: input.tenantId,
       import_id: importId,
       payload: {
         row_index: row.rowIndex,
         unit: row.unit,
+        ...(row.quantity === undefined ? {} : { quantity: row.quantity }),
       },
       status: "mapped",
     })) as never
@@ -201,6 +203,7 @@ async function seedEstimateLines(input: {
         item_type: "section",
         position: 0,
         title: "DPGF seed",
+        source_metadata: {},
         description: null,
         quantity: null,
         unit_price_ht_cents: null,
@@ -255,6 +258,7 @@ async function seedEstimateLines(input: {
           : 0,
       source_provider: "dpgf",
       source_file_name: line.sourceFileName,
+      source_metadata: line.mappedRowId ? { mapped_row_id: line.mappedRowId } : { dpgf_source_quantity: line.quantity },
       source_page: line.sourcePage,
       })),
     ] as never
@@ -840,7 +844,7 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
   });
 
   test("keeps carried-over provenance visible while allowing a new explicit decision", async ({ ui: page }) => {
-    const dpgfFileName = `dpgf-carry-${Date.now()}.xlsx`;
+    const dpgfFileName = `dpgf-carry-${Date.now()}.pdf`;
     const takeoffFileName = `plans-carry-${Date.now()}.pdf`;
     const { versionId: sourceVersionId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("V3010-CARRY"),
@@ -854,6 +858,7 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     const sourcePeintureLine: SeededEstimateLine = {
       id: randomUUID(),
       title: "Peinture",
+      mappedRowId: randomUUID(),
       quantity: 20,
       position: 1,
       sourcePage: 3,
@@ -862,12 +867,14 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     const sourceMoquetteLine: SeededEstimateLine = {
       id: randomUUID(),
       title: "Moquette",
-      quantity: 5,
+      mappedRowId: randomUUID(),
+      quantity: 0,
       position: 2,
-      sourcePage: 2,
+      sourcePage: 3,
       sourceFileName: dpgfFileName,
     };
     const targetPeintureLine: SeededEstimateLine = {
+      mappedRowId: sourcePeintureLine.mappedRowId,
       id: randomUUID(),
       title: "Peinture",
       quantity: 20,
@@ -876,11 +883,12 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       sourceFileName: dpgfFileName,
     };
     const targetMoquetteLine: SeededEstimateLine = {
+      mappedRowId: sourceMoquetteLine.mappedRowId,
       id: randomUUID(),
       title: "Moquette",
-      quantity: 5,
+      quantity: 0,
       position: 2,
-      sourcePage: 2,
+      sourcePage: 3,
       sourceFileName: dpgfFileName,
     };
 
@@ -890,8 +898,8 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       userId,
       filename: dpgfFileName,
       rows: [
-        { rowIndex: sourcePeintureLine.sourcePage, unit: "m2" },
-        { rowIndex: sourceMoquetteLine.sourcePage, unit: "m2" },
+        { id: sourcePeintureLine.mappedRowId, rowIndex: 2, quantity: 20, unit: "m2" },
+        { id: sourceMoquetteLine.mappedRowId, rowIndex: 3, quantity: 0, unit: "m2" },
       ],
     });
 
@@ -958,6 +966,11 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     );
     await waitForDpgfComparison(page);
 
+    const compare = await page.request.get(`/api/takeoff/jobs/${seededJob.jobId}/dpgf-compare?version_id=${targetVersionId}&view=all`);
+    const { data } = await compare.json() as unknown as { data: TakeoffDpgfComparisonResponse };
+    expect(data.rows.find(row => row.line_label === "Moquette")).toMatchObject({
+      applied_decision: null, dpgf_quantity: 0, takeoff_quantity: 5, dpgf: { unit: "m2" }, review_status: "significant_gap",
+    });
     const peintureRow = page.getByRole("button", { name: /Peinture/i });
     await expect(peintureRow).toBeVisible();
     await peintureRow.click();

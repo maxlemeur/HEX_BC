@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { TakeoffDpgfComparisonResponse } from "@/lib/takeoff/types";
+import { localTakeoffFixture } from "./fixtures";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as XLSX from "xlsx";
 import { expect } from "e2e";
@@ -9,13 +11,13 @@ import { expect } from "e2e";
 import { apiRequest, armyTest, createEstimateViaWizard, ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures";
 
 const headers = ["N°", "Designation des ouvrages", "Unité", "Qte", "P.U. HT", "Total HT"];
-const rows = [
+const sourceRows = [
   ["A-001", "Tube cuivre", "m", "2,5", "12,50", "31,25"],
   ["A-002", "Vanne laiton", "u", "1", "65,00", "65,00"],
   ["A-003", "Reserve zero", "u", "0", "7,25", "0,00"],
 ];
 const mapping = Object.fromEntries(headers.map((header, index) => [header, ["hex_code", "designation", "unit", "quantity", "unit_price_ht", "total_ht"][index]]));
-const expected = [
+const commonExpected = [
   { title: "Tube cuivre", quantity: 2.5, price: 1250, total: 3125 },
   { title: "Vanne laiton", quantity: 1, price: 6500, total: 6500 },
   { title: "Reserve zero", quantity: 0, price: 725, total: 0 },
@@ -27,7 +29,7 @@ export async function tabularPdfBytes() {
   const page = document.addPage([595, 842]);
   page.drawText("ARMY - DPGF lot plomberie", { x: 40, y: 780, font, size: 12 });
   const columns = [40, 100, 300, 360, 420, 500];
-  [headers, ...rows].forEach((row, index) => row.forEach((cell, column) => {
+  [headers, ...sourceRows].forEach((row, index) => row.forEach((cell, column) => {
     page.drawText(cell, { x: columns[column], y: 740 - index * 20, font, size: 9 });
   }));
   // An uncompressed PDF stream keeps this synthetic, one-page file just above
@@ -42,6 +44,12 @@ for (const format of ["pdf", "xls"] as const) {
   }, async (ui) => {
     const { army, app, screen, browser } = ui;
     const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-IFC-${format}`, title: "Import format source" }, army);
+    const rows = [...sourceRows];
+    const expected = [...commonExpected];
+    if (format === "xls") {
+      rows.push(["A-004", "Manchette en attente", "u", "", "3,50", ""]);
+      expected.push({ title: "Manchette en attente", quantity: 0, price: 350, total: 0 });
+    }
     const before = await readEstimate(browser, ids.versionId);
     const filename = `${army.runPrefix}-dpgf.${format}`;
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures");
@@ -95,7 +103,7 @@ for (const format of ["pdf", "xls"] as const) {
       browser, "GET", `/api/imports?project_id=${ids.projectId}`);
     expect(imported.body.data).toHaveLength(1);
     const source = imported.body.data[0];
-    expect(source).toMatchObject({ filename, project_id: ids.projectId, row_count: 3 });
+    expect(source).toMatchObject({ filename, project_id: ids.projectId, row_count: rows.length });
     await screen.getByRole("button", "Suivant : Confirmation", { exact: true }).click();
     await screen.getByRole("button", "Créer le chiffrage", { exact: true }).click();
     await expect(screen.getByRole("heading", "Devis créé", { exact: true })).toBeVisible({ timeout: 45_000 });
@@ -110,7 +118,7 @@ for (const format of ["pdf", "xls"] as const) {
     const saved = await readEstimate(browser, versionId);
     expect(saved.version).toMatchObject({ total_ht_cents: 9625, total_tax_cents: 1925, total_ttc_cents: 11550 });
     const lines = saved.items.filter((item) => item.item_type === "line");
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(expected.length);
     for (const entry of expected) {
       const line = lines.find((item) => item.title === entry.title);
       expect(line).toMatchObject({ quantity: entry.quantity, unit_price_ht_cents: entry.price, line_total_ht_cents: entry.total,
@@ -127,6 +135,72 @@ for (const format of ["pdf", "xls"] as const) {
     expect(reloaded.items).toEqual(saved.items);
     expect([reloaded.version.total_ht_cents, reloaded.version.total_tax_cents, reloaded.version.total_ttc_cents]).toEqual([9625, 1925, 11550]);
     for (const entry of expected) await expect(screen.getByLabel(`Quantité pour ${entry.title}`, { exact: true })).toBeVisible();
+    if (format === "xls") {
+      const editedQuantities = [
+        { title: "Manchette en attente", quantity: 7 },
+        { title: "Reserve zero", quantity: 7 },
+        { title: "Tube cuivre", quantity: 4 },
+      ];
+      for (const { title, quantity } of editedQuantities) {
+        const line = lines.find(item => item.title === title)!;
+        await browser.locator(`[data-cell-id="${line.id}::quantity"]`).click();
+        const field = screen.getByLabel(`Quantité pour ${title}`, { exact: true });
+        await field.fill(String(quantity));
+        await field.press("Tab");
+      }
+      await browser.keyboard.press("Control+s");
+      const readQuantities = async () => {
+        const value = await readEstimate(browser, versionId);
+        return editedQuantities.map(({ title }) => value.items.find(item => item.title === title)?.quantity);
+      };
+      await expect.poll(readQuantities, { timeout: 45_000 }).toEqual([7, 7, 4]);
+      await browser.reload();
+      await expect.poll(readQuantities).toEqual([7, 7, 4]);
+      const edited = await readEstimate(browser, versionId);
+      const worker = await localTakeoffFixture(army, { projectId: ids.projectId, versionId });
+      const { jobId } = await worker.seed("A", [
+        { designation: "Manchette en attente", quantity: 1, unit: "u", confidence: 1 },
+        { designation: "Reserve zero", quantity: 1, unit: "u", confidence: 1 },
+        { designation: "Tube cuivre", quantity: 7, unit: "m²", confidence: 1 },
+        { designation: "Vanne laiton", quantity: 9, unit: "u", confidence: 1, is_excluded: true },
+      ]);
+      const compare = () => apiRequest<{ data: TakeoffDpgfComparisonResponse }>(browser, "GET",
+        `/api/takeoff/jobs/${jobId}/dpgf-compare?version_id=${versionId}&view=all&page_size=50`);
+      await app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${versionId}&reviewMode=production&view=dpgf`);
+      for (const reload of [false, true]) {
+        if (reload) await browser.reload();
+        for (const label of ["Manchette en attente", "Reserve zero"]) {
+          await expect(screen.getByRole("button", new RegExp(label))).toBeVisible();
+        }
+        const report = await compare();
+        expect(report.status).toBe(200);
+        expect(report.body.data.rows.find(row => row.line_label === "Manchette en attente")).toMatchObject({
+          dpgf_quantity: null, takeoff_quantity: 1, delta_absolute: null, review_status: "to_confirm", is_exception: true,
+        });
+        expect(report.body.data.rows.find(row => row.line_label === "Reserve zero")).toMatchObject({
+          dpgf_quantity: 0, takeoff_quantity: 1, delta_absolute: 1, review_status: "significant_gap", is_exception: true,
+        });
+        expect(report.body.data.rows.find(row => row.line_label === "Vanne laiton")).toMatchObject({
+          dpgf_quantity: 1, takeoff_quantity: null, review_status: "unlinked",
+        });
+        expect(report.body.data.rows.find(row => row.line_label === "Tube cuivre")).toMatchObject({
+          dpgf: { unit: "m" }, dpgf_quantity: 2.5, takeoff_quantity: null, review_status: "unlinked",
+        });
+        const unknown = report.body.data.rows.find(row => row.line_label === "Manchette en attente")!;
+        await screen.getByRole("button", /Manchette en attente/).click();
+        await expect(screen.getByRole("button", "Garder DPGF", { exact: true })).toBeDisabled();
+        const refused = await apiRequest(browser, "PATCH", `/api/takeoff/jobs/${jobId}/review-decision`, {
+          version_id: versionId, estimate_item_id: unknown.line_id, decision: "keep_dpgf",
+        });
+        expect(refused.status).toBe(409);
+        expect(unknown.applied_decision).toBeNull();
+        expect(report.body.data.manual_link_candidates.some(item => item.designation === "Vanne laiton")).toBe(false);
+        const estimate = await readEstimate(browser, versionId);
+        expect(await readQuantities()).toEqual([7, 7, 4]);
+        expect(estimate.version.total_ttc_cents).toBe(edited.version.total_ttc_cents);
+        await recordEvidence(army, reload ? "IFC-coverage-reopened" : "IFC-coverage-opened", report.body.data);
+      }
+    }
     await recordEvidence(army, `IFC-${format}-persisted`, { ids, versionId, importId: source.id, lines,
       totals: [9625, 1925, 11550], originalVersionUnchanged: true, unchangedAfterReload: true });
   });

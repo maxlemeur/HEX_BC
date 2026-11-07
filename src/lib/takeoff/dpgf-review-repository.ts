@@ -60,6 +60,7 @@ export async function loadTakeoffDpgfManualLinkTargets(
           .from("takeoff_items" as never)
           .select("id, tenant_id, job_id" as never)
           .eq("tenant_id" as never, input.tenantId as never)
+          .eq("is_excluded" as never, false as never)
           .in("id" as never, input.takeoffItemIds as never)
       : Promise.resolve({ data: [], error: null }),
   ]);
@@ -143,6 +144,7 @@ export async function loadTakeoffDpgfSourceDecision(input: {
   tenantId: string;
   jobId: string;
   sourceVersionId: string;
+  sourceEstimateItemId: string;
   reviewReference: string;
 }): Promise<TakeoffDpgfSourceDecision | null> {
   const { data, error } = await input.supabase
@@ -152,6 +154,7 @@ export async function loadTakeoffDpgfSourceDecision(input: {
     .eq("version_id" as never, input.sourceVersionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .eq("review_reference" as never, input.reviewReference as never)
+    .eq("estimate_item_id" as never, input.sourceEstimateItemId as never)
     .order("updated_at" as never, { ascending: false })
     .maybeSingle();
   throwReviewReadError(error, "Impossible de charger la décision DPGF source.", input.jobId);

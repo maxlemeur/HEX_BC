@@ -1,3 +1,5 @@
+import { measurementUnitToken, normalizeMeasurementUnit } from "@/lib/units/normalize";
+import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
 import {
   TAKEOFF_COMPARE_DEFAULT_THRESHOLD,
   TAKEOFF_COMPARE_MAX_THRESHOLD,
@@ -26,21 +28,7 @@ import { TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE } from "@/lib/takeoff/limits";
 
 export { TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE };
 
-export function hasBlockingTakeoffDpgfExceptions(
-  summary: TakeoffDpgfComparisonSummary | null
-): boolean {
-  if (!summary) return false;
-
-  const hasTargetDpgfLines = summary.total_lines > 0;
-
-  return (
-    summary.to_confirm > 0 ||
-    summary.significant_gaps > 0 ||
-    summary.lines_without_proof > 0 ||
-    summary.forced_manual > 0 ||
-    (hasTargetDpgfLines && summary.unused_takeoff_items > 0)
-  );
-}
+export { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 
 type BuildTakeoffDpgfComparisonInput = {
   versionId: string;
@@ -147,37 +135,11 @@ function decodeCursor(cursor: string | null | undefined) {
 function normalizeUnit(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
 
-  const normalized = normalizeTakeoffCompareText(value)
-    .replace(/\s+/g, "")
-    .replace(/²/g, "2")
-    .replace(/³/g, "3");
-
-  if (normalized.length === 0) return null;
-
-  const aliasMap: Record<string, string> = {
-    u: "u",
-    un: "u",
-    unite: "u",
-    unit: "u",
-    piece: "u",
-    pieces: "u",
-    pce: "u",
-    ml: "ml",
-    mlt: "ml",
-    lm: "ml",
-    m: "m",
-    m2: "m2",
-    sqm: "m2",
-    m3: "m3",
-    kg: "kg",
-    t: "t",
-    forfait: "forfait",
-    for: "forfait",
-    ens: "ensemble",
-    ensemble: "ensemble",
-  };
-
-  return aliasMap[normalized] ?? normalized;
+  const known = normalizeMeasurementUnit(value).unitCode;
+  if (known) return known;
+  const token = measurementUnitToken(value);
+  const takeoffAliases: Record<string, string> = { un: "u", unit: "u", mlt: "ml", lm: "ml", sqm: "m2", for: "fft" };
+  return token ? takeoffAliases[token] ?? token : null;
 }
 
 function areUnitsCompatible(left: string | null, right: string | null) {
@@ -209,7 +171,7 @@ export function buildTakeoffDpgfReviewReference(input: {
   }
 
   return normalizeTakeoffCompareText(
-    `${input.position} ${input.title} ${input.unit ?? ""}`
+    `${input.position} ${input.title} ${input.sourcePage === null ? "" : input.unit ?? ""}`
   );
 }
 
@@ -447,6 +409,7 @@ function deriveReviewStatus(input: {
   matchingScore: number | null;
   confidenceScore: number;
   deltaPercent: number | null;
+  dpgfQuantity: number | null;
   aggregatedMetrics: AggregatedTakeoffMetrics;
   threshold: number;
 }): TakeoffDpgfReviewStatus {
@@ -460,12 +423,14 @@ function deriveReviewStatus(input: {
 
   if (
     input.aggregatedMetrics.hasUnitConflict ||
+    (input.dpgfQuantity === 0 && (input.aggregatedMetrics.quantity ?? 0) > 0) ||
     (input.deltaPercent !== null && input.deltaPercent > 20)
   ) {
     return "significant_gap";
   }
 
   if (
+    input.dpgfQuantity === null ||
     input.linkedTakeoffItems.length > 1 ||
     (input.deltaPercent !== null && input.deltaPercent >= 5) ||
     input.confidenceScore < TO_CONFIRM_MIN_CONFIDENCE ||
@@ -599,6 +564,9 @@ function buildRow(input: {
     items: input.linkedTakeoffItems,
     dpgfUnit: input.dpgf.unit,
   });
+  const appliedDecision = input.appliedDecision &&
+    canRetainDpgfQuantity(input.appliedDecision.decision, input.dpgf.quantity, aggregatedMetrics.quantity)
+    ? input.appliedDecision : null;
   const delta = computeDelta({
     dpgfQuantity: input.dpgf.quantity,
     takeoffQuantity: aggregatedMetrics.quantity,
@@ -607,22 +575,23 @@ function buildRow(input: {
     dpgf: input.dpgf,
     linkedTakeoffItems: input.linkedTakeoffItems,
     aggregatedMetrics,
-    appliedDecision: input.appliedDecision,
+    appliedDecision,
   });
   const confidenceScore = computeConfidenceScore({
     matchingScore: input.matchingScore,
     aggregatedMetrics,
     linkedTakeoffItems: input.linkedTakeoffItems,
     proofs: provisionalProofs,
-    appliedDecision: input.appliedDecision,
+    appliedDecision,
   });
   const reviewStatus = deriveReviewStatus({
     linkedTakeoffItems: input.linkedTakeoffItems,
     manualLinkCount: input.manualLinkCount,
-    appliedDecision: input.appliedDecision,
+    appliedDecision,
     matchingScore: input.matchingScore,
     confidenceScore,
     deltaPercent: delta.deltaPercent,
+    dpgfQuantity: input.dpgf.quantity,
     aggregatedMetrics,
     threshold: input.threshold,
   });
@@ -631,7 +600,7 @@ function buildRow(input: {
     dpgfQuantity: input.dpgf.quantity,
     takeoffQuantity: aggregatedMetrics.quantity,
     confidenceScore,
-    appliedDecision: input.appliedDecision,
+    appliedDecision,
   });
 
   return {
@@ -666,7 +635,7 @@ function buildRow(input: {
     review_status: reviewStatus,
     proofs: provisionalProofs,
     suggested_decision: suggestedDecision,
-    applied_decision: input.appliedDecision,
+    applied_decision: appliedDecision,
     delta_absolute: delta.deltaAbsolute,
     delta_percent: delta.deltaPercent,
     is_exception: EXCEPTION_STATUSES.has(reviewStatus),
@@ -758,14 +727,8 @@ function normalizeView(view: TakeoffDpgfComparisonView | undefined) {
   return view === "exceptions_only" ? "exceptions_only" : "all";
 }
 
-export function buildTakeoffDpgfComparison(
-  input: BuildTakeoffDpgfComparisonInput
-): TakeoffDpgfComparisonResponse {
+export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
   const threshold = normalizeThreshold(input.threshold);
-  const pageSize = normalizePageSize(input.pageSize);
-  const offset = decodeCursor(input.cursor);
-  const view = normalizeView(input.view);
-
   const normalizedDpgfLines: NormalizedDpgfLine[] = input.dpgfLines.map((line) => ({
     ...line,
     searchText: buildDpgfSearchText(line),
@@ -789,6 +752,7 @@ export function buildTakeoffDpgfComparison(
   );
   const manualLinksByEstimateItemId = new Map<string, TakeoffDpgfManualLinkRecord[]>();
   for (const link of input.manualLinks ?? []) {
+    if (!takeoffById.has(link.takeoff_item_id)) continue;
     const links = manualLinksByEstimateItemId.get(link.estimate_item_id) ?? [];
     links.push(link);
     manualLinksByEstimateItemId.set(link.estimate_item_id, links);
@@ -797,9 +761,21 @@ export function buildTakeoffDpgfComparison(
   const decisionByEstimateItemId = new Map(
     (input.reviewDecisions ?? []).map((decision) => [decision.estimate_item_id, decision] as const)
   );
-  const carriedDecisionByReference = new Map(
-    (input.carriedReviewDecisions ?? []).map((decision) => [decision.review_reference, decision] as const)
-  );
+  // Many imported lines can share a physical PDF page. A prior decision can
+  // carry only between a unique pair of lines with the same label and position.
+  const key = (ref: string, label: string, position: number, file: string | null, page: number | null) =>
+    JSON.stringify([ref, label, position, file, page]);
+  const carriedByKey = new Map<string, TakeoffDpgfReviewDecisionRecord | null>();
+  for (const d of input.carriedReviewDecisions ?? []) {
+    const k = key(d.review_reference, d.line_label, d.line_position, d.source_file_name, d.source_page);
+    carriedByKey.set(k, carriedByKey.has(k) ? null : d);
+  }
+  const targetKeys = new Set<string>();
+  for (const line of normalizedDpgfLines) {
+    const k = key(line.reviewReference, line.title, line.position, line.source_file_name, line.source_page);
+    if (targetKeys.has(k)) carriedByKey.delete(k);
+    targetKeys.add(k);
+  }
   const usedTakeoffIds = new Set<string>();
 
   // Les liens manuels sont prioritaires : leurs items de métré sont retirés du
@@ -835,7 +811,7 @@ export function buildTakeoffDpgfComparison(
       .filter((item): item is NormalizedTakeoffLine => item !== null);
     const explicitDecision = decisionByEstimateItemId.get(dpgfLine.estimate_item_id) ?? null;
     const carriedDecision =
-      explicitDecision ?? carriedDecisionByReference.get(dpgfLine.reviewReference) ?? null;
+      explicitDecision ?? carriedByKey.get(key(dpgfLine.reviewReference, dpgfLine.title, dpgfLine.position, dpgfLine.source_file_name, dpgfLine.source_page)) ?? null;
 
     if (manuallyLinkedTakeoffItems.length > 0) {
       manuallyLinkedTakeoffItems.forEach((item) => usedTakeoffIds.add(item.item_id));
@@ -896,6 +872,14 @@ export function buildTakeoffDpgfComparison(
     );
   }
 
+  return { rows, normalizedTakeoffLines, usedTakeoffIds, threshold };
+}
+
+export function buildTakeoffDpgfComparison(input: BuildTakeoffDpgfComparisonInput): TakeoffDpgfComparisonResponse {
+  const { rows, normalizedTakeoffLines, usedTakeoffIds, threshold } = computeTakeoffDpgfRows(input);
+  const pageSize = normalizePageSize(input.pageSize);
+  const offset = decodeCursor(input.cursor);
+  const view = normalizeView(input.view);
   const unusedTakeoffItems = buildUnusedTakeoffItems(normalizedTakeoffLines, usedTakeoffIds);
   const summary = buildTakeoffDpgfComparisonSummary({ rows, unusedTakeoffItems });
   const visibleRows =

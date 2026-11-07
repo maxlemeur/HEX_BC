@@ -24,7 +24,7 @@ export const takeoffDpgfReviewStatusSchema = z.enum(["reliable_match", "to_confi
 export const takeoffDpgfReviewDecisionSchema = z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]);
 
 export const takeoffDpgfComparisonDpgfLineSchema = z.object({
-  estimate_item_id: uuid, title: z.string(), description: z.string().nullable(), quantity,
+  estimate_item_id: uuid, title: z.string(), description: z.string().nullable(), quantity: quantity.nullable(),
   unit: z.string().nullable(), source_page: page, source_file_name: z.string().nullable(), position: count,
 });
 

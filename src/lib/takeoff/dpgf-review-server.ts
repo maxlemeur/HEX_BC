@@ -12,9 +12,11 @@ import {
 } from "@/lib/takeoff/schemas";
 import {
   assertTakeoffJobAccessibleForVersion,
-  getEstimateVersionProjectIdOrThrow,
 } from "@/lib/takeoff/version-access-server";
-import { resolveDpgfUnitByRowIndex } from "@/lib/takeoff/dpgf-comparison-repository";
+import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
+import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
+import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { normalizeTakeoffDpgfManualLinkRows } from "@/lib/takeoff/dpgf-comparison-preparation";
 import { refreshTakeoffLineEvidenceSnapshot } from "@/lib/takeoff/line-evidence-server";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
@@ -103,28 +105,23 @@ export async function saveTakeoffReviewDecision(
   };
   const accessibleJob = await assertTakeoffJobAccessibleForVersion(scope);
   const { estimateItem, existingDecision } = await loadTakeoffDpgfReviewDecisionTarget(scope);
-  const projectId = await getEstimateVersionProjectIdOrThrow({
-    supabase,
-    tenantId,
-    versionId: payload.version_id,
-  });
-  const unitByRowIndex = typeof estimateItem.source_page === "number"
-    ? await resolveDpgfUnitByRowIndex({
-        supabase,
-        tenantId,
-        projectId,
-        sourceFileName: estimateItem.source_file_name,
-      })
-    : new Map<number, string | null>();
-  const reviewReference = buildTakeoffDpgfReviewTargetReference({ estimateItem, unitByRowIndex });
+  const context = await loadTakeoffDpgfComparisonContext({ jobId: normalizedJobId, versionId: scope.versionId,
+    auth: { supabase, tenantId, userId } });
+  const row = computeTakeoffDpgfRows(context.comparisonInput).rows.find(item => item.line_id === scope.estimateItemId);
+  if (!row || !canRetainDpgfQuantity(payload.decision, row.dpgf_quantity, row.takeoff_quantity)) {
+    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+      message: "La quantité à retenir est indisponible. Vérifiez la ligne avant de décider.", jobId: normalizedJobId });
+  }
+  const reviewReference = buildTakeoffDpgfReviewTargetReference({ estimateItem, unit: row.dpgf.unit });
   const decisionTimestamp = new Date().toISOString();
   const linkedFromVersionId = accessibleJob.linked_from_version_id;
-  const sourceDecision = !existingDecision && linkedFromVersionId
+  const sourceDecision = !existingDecision && linkedFromVersionId && row.applied_decision?.source === "carried_over"
     ? await loadTakeoffDpgfSourceDecision({
         supabase,
         tenantId,
         jobId: normalizedJobId,
         sourceVersionId: linkedFromVersionId,
+        sourceEstimateItemId: row.applied_decision.estimate_item_id,
         reviewReference,
       })
     : null;

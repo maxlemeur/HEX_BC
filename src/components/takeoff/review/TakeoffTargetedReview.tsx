@@ -20,7 +20,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, isTakeoffApiError, patchTakeoffItems } from "@/lib/takeoff/client";
-import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
