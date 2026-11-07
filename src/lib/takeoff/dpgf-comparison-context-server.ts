@@ -22,11 +22,12 @@ import {
   readDpgfMappedFacts,
 } from "@/lib/takeoff/dpgf-comparison-repository";
 import {
-  carryTakeoffDpgfReviewDecisions,
   normalizeDpgfComparisonEstimateItems,
   legacyMappedRowId,
   normalizeTakeoffComparisonItems,
 } from "@/lib/takeoff/dpgf-comparison-preparation";
+
+import { loadDpgfDecisionAncestors, resolveDpgfDecisionLineage } from "@/lib/takeoff/dpgf-decision-lineage-server";
 
 export type TakeoffDpgfComparisonAuth = Pick<
   AuthenticatedTakeoffContext,
@@ -60,23 +61,12 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     jobId,
   });
   const linkedFromVersionId = accessibleJob.linked_from_version_id;
-  const decisionSourcePromise = linkedFromVersionId
-    ? listTakeoffDpgfReviewDecisions({ supabase, tenantId, versionId: linkedFromVersionId, jobId })
-        .then(async (decisions) => ({
-          decisions,
-          items: decisions.length
-            ? await listTakeoffDpgfEstimateItems({ supabase, tenantId, versionId: linkedFromVersionId })
-            : [],
-        }))
-    : Promise.resolve({ decisions: [], items: [] });
-
-  const [takeoffItems, allEstimateItems, manualLinks, reviewDecisions, decisionSource, projectId] =
+  const [takeoffItems, allEstimateItems, manualLinks, storedDecisions, projectId] =
     await Promise.all([
       listAllTakeoffItemsByJobId({ supabase, tenantId, jobId }),
       listTakeoffDpgfEstimateItems({ supabase, tenantId, versionId }),
       listTakeoffDpgfManualLinks({ supabase, tenantId, versionId, jobId }),
       listTakeoffDpgfReviewDecisions({ supabase, tenantId, versionId, jobId }),
-      decisionSourcePromise,
       input.projectId ?? getEstimateVersionProjectIdOrThrow({ supabase, tenantId, versionId }),
     ]);
 
@@ -103,7 +93,10 @@ export async function loadTakeoffDpgfComparisonContext(input: {
   assertSelectedLinesExist(new Set(estimateItems.map((item) => item.id)));
   // Match against the entire version even when refreshing a single line's
   // evidence: a second row can own the same takeoff candidate or source page.
-  const documentaryItems = [...allEstimateItems, ...decisionSource.items];
+  const ancestors = await loadDpgfDecisionAncestors({
+    supabase, tenantId, projectId, jobId, versionId, linkedFromVersionId, currentDecisions: storedDecisions,
+  });
+  const documentaryItems = [...allEstimateItems, ...[...ancestors.values()].flatMap(version => version.items)];
   const legacyFiles = new Set(documentaryItems.filter(item => item.source_provider === "dpgf" &&
     item.source_metadata?.dpgf_source_unit === undefined && !legacyMappedRowId(item) &&
     item.source_page !== null && !item.source_file_name?.toLowerCase().endsWith(".pdf"))
@@ -116,15 +109,15 @@ export async function loadTakeoffDpgfComparisonContext(input: {
   const mappedFacts = await readDpgfMappedFacts({ supabase, tenantId, projectId, mappedIds });
   const dpgfLines = normalizeDpgfComparisonEstimateItems({ rows: allEstimateItems, legacyUnits, mappedFacts });
   assertSelectedLinesExist(new Set(dpgfLines.map((line) => line.estimate_item_id)));
-  const carriedReviewDecisions = linkedFromVersionId && decisionSource.decisions.length
-    ? carryTakeoffDpgfReviewDecisions({
-        decisions: decisionSource.decisions,
-        sourceLines: normalizeDpgfComparisonEstimateItems({ rows: decisionSource.items, legacyUnits, mappedFacts }),
-        targetLines: dpgfLines,
-        linkedFromVersionId,
-        linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
-      })
-    : undefined;
+  const versions = new Map([...ancestors].map(([id, ancestor]) => [id, {
+    lines: normalizeDpgfComparisonEstimateItems({ rows: ancestor.items, legacyUnits, mappedFacts }),
+    decisions: ancestor.decisions,
+  }]));
+  versions.set(versionId, { lines: dpgfLines, decisions: storedDecisions });
+  const { reviewDecisions, carriedReviewDecisions } = resolveDpgfDecisionLineage({
+    versions, versionId, linkedFromVersionId,
+    linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
+  });
 
   return {
     supabase,

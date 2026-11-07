@@ -853,7 +853,6 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     const projectId = await extractProjectId(page, sourceVersionId);
     const tenantId = await getTenantIdForVersion(sourceVersionId);
     const userId = await getAuthenticatedUserId();
-    const targetVersionId = await duplicateEstimateViaApi(page, sourceVersionId);
 
     const sourcePeintureLine: SeededEstimateLine = {
       id: randomUUID(),
@@ -873,25 +872,6 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       sourcePage: 3,
       sourceFileName: dpgfFileName,
     };
-    const targetPeintureLine: SeededEstimateLine = {
-      mappedRowId: sourcePeintureLine.mappedRowId,
-      id: randomUUID(),
-      title: "Peinture",
-      quantity: 20,
-      position: 1,
-      sourcePage: 3,
-      sourceFileName: dpgfFileName,
-    };
-    const targetMoquetteLine: SeededEstimateLine = {
-      mappedRowId: sourceMoquetteLine.mappedRowId,
-      id: randomUUID(),
-      title: "Moquette",
-      quantity: 0,
-      position: 2,
-      sourcePage: 3,
-      sourceFileName: dpgfFileName,
-    };
-
     await seedDpgfImport({
       tenantId,
       projectId,
@@ -908,12 +888,6 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       versionId: sourceVersionId,
       lines: [sourcePeintureLine, sourceMoquetteLine],
     });
-    await seedEstimateLines({
-      tenantId,
-      versionId: targetVersionId,
-      lines: [targetPeintureLine, targetMoquetteLine],
-    });
-
     const seededJob = await seedCompletedTakeoffJob(page, {
       tenantId,
       versionId: sourceVersionId,
@@ -954,12 +928,14 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       reason: "Decision reprise tant que la reserve peinture n'est pas levee.",
     });
 
-    await seedVersionLink({
-      tenantId,
-      jobId: seededJob.jobId,
-      sourceVersionId,
-      targetVersionId,
-    });
+    const targetVersionId = await duplicateEstimateViaApi(page, sourceVersionId);
+    const db = await getAuthenticatedSupabaseClient();
+    const { data: targetDecision, error: duplicateError } = await db.from("takeoff_dpgf_review_decisions")
+      .select("estimate_item_id, carried_over_from_version_id").eq("version_id", targetVersionId)
+      .eq("takeoff_job_id", seededJob.jobId).single();
+    expect(duplicateError).toBeNull();
+    expect(targetDecision?.carried_over_from_version_id).toBe(sourceVersionId);
+    const targetLineId = targetDecision!.estimate_item_id;
 
     await page.goto(
       `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${targetVersionId}&reviewMode=production&view=dpgf&dpgfView=exceptions_only`
@@ -971,12 +947,11 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     expect(data.rows.find(row => row.line_label === "Moquette")).toMatchObject({
       applied_decision: null, dpgf_quantity: 0, takeoff_quantity: 5, dpgf: { unit: "m2" }, review_status: "significant_gap",
     });
-    const db = await getAuthenticatedSupabaseClient();
-    const readPeinture = async () => {
-      const response = await page.request.get(`/api/takeoff/jobs/${seededJob.jobId}/dpgf-compare?version_id=${targetVersionId}&view=all`);
+    const readPeinture = async (versionId = targetVersionId, lineId = targetLineId) => {
+      const response = await page.request.get(`/api/takeoff/jobs/${seededJob.jobId}/dpgf-compare?version_id=${versionId}&view=all`);
       expect(response.status()).toBe(200);
       const { data: snapshot } = await response.json() as { data: TakeoffDpgfComparisonResponse };
-      return snapshot.rows.find(row => row.line_id === targetPeintureLine.id);
+      return snapshot.rows.find(row => row.line_id === lineId);
     };
     const mappedRowId = sourcePeintureLine.mappedRowId!;
     const revisions = [
@@ -986,14 +961,25 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     ];
     for (const revision of revisions) {
       const { error } = await db.from("estimate_items").update({ source_metadata: revision })
-        .eq("id", targetPeintureLine.id).eq("version_id", targetVersionId);
+        .eq("id", targetLineId).eq("version_id", targetVersionId);
       expect(error).toBeNull();
       expect(await readPeinture()).toMatchObject({
         dpgf_quantity: revision.dpgf_source_quantity, dpgf: { unit: revision.dpgf_source_unit }, applied_decision: null,
       });
+      if (revision.dpgf_source_quantity === 25) {
+        const thirdVersionId = await duplicateEstimateViaApi(page, targetVersionId);
+        const { data: third, error } = await db.from("takeoff_dpgf_review_decisions")
+          .select("estimate_item_id, carried_over_from_version_id").eq("version_id", thirdVersionId)
+          .eq("takeoff_job_id", seededJob.jobId).single();
+        expect(error).toBeNull();
+        expect(third?.carried_over_from_version_id).toBe(targetVersionId);
+        expect(await readPeinture(thirdVersionId, third!.estimate_item_id)).toMatchObject({
+          dpgf_quantity: 25, applied_decision: null,
+        });
+      }
     }
     const { error: restoreError } = await db.from("estimate_items").update({ source_metadata: { mapped_row_id: mappedRowId } })
-      .eq("id", targetPeintureLine.id).eq("version_id", targetVersionId);
+      .eq("id", targetLineId).eq("version_id", targetVersionId);
     expect(restoreError).toBeNull();
     expect(await readPeinture()).toMatchObject({ applied_decision: { source: "carried_over", decision: "keep_dpgf" } });
 
@@ -1020,11 +1006,11 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     await expect(page.getByText(/Reprise v\d+/)).toBeVisible();
 
     const { error: renameError } = await db.from("estimate_items").update({ title: "Étanchéité" })
-      .eq("id", targetPeintureLine.id).eq("version_id", targetVersionId);
+      .eq("id", targetLineId).eq("version_id", targetVersionId);
     expect(renameError).toBeNull();
     expect(await readPeinture()).toMatchObject({ line_label: "Étanchéité", applied_decision: null });
     const freshDecision = await page.request.patch(`/api/takeoff/jobs/${seededJob.jobId}/review-decision`, {
-      data: { version_id: targetVersionId, estimate_item_id: targetPeintureLine.id,
+      data: { version_id: targetVersionId, estimate_item_id: targetLineId,
         decision: "manual_fix", reason: "Reprendre les quantités de la nouvelle prestation." },
     });
     expect(freshDecision.status()).toBe(200);

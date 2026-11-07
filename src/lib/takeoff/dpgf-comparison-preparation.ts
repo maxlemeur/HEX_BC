@@ -184,7 +184,7 @@ export function buildDpgfUnitByRowIndex(rows: Array<{ payload: Record<string, un
   return unitByRowIndex;
 }
 
-type DocumentaryDpgfLine = TakeoffDpgfComparisonDpgfLine & {
+export type DocumentaryDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   mappedRowId: string | null;
   sourceFactsKnown: boolean;
 };

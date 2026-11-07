@@ -1010,6 +1010,14 @@ describe("takeoff DPGF comparison server helpers", () => {
       },
     ];
 
+    // duplicate_estimate_version persists a target decision as well as the version link.
+    const sourceDecision = mock.state.reviewDecisions[0]!;
+    mock.state.reviewDecisions.push({
+      ...sourceDecision, id: "abababab-abab-4bab-8bab-abababababab", version_id: VERSION_ID,
+      estimate_item_id: target.id, carried_over_from_version_id: SOURCE_VERSION_ID,
+      carried_over_at: "2026-03-07T10:10:00.000000+00:00",
+    });
+
     vi.mocked(listAccessibleTakeoffJobsForVersion).mockResolvedValue([
       {
         id: JOB_ID,
@@ -1047,8 +1055,8 @@ describe("takeoff DPGF comparison server helpers", () => {
       expect(summary.forced_manual).toBe(0);
       expect(comparison.rows[0]?.applied_decision).toMatchObject({
         source: "carried_over",
-        version_id: SOURCE_VERSION_ID,
-        estimate_item_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        version_id: VERSION_ID,
+        estimate_item_id: target.id,
         decided_at: "2026-03-06T10:10:00.123456+00:00",
       });
     } else {
