@@ -522,12 +522,14 @@ function createSupabaseMock() {
             });
             return builder;
           }),
-          insert: vi.fn(async (rows: Record<string, unknown>[]) => {
-            state.riskAlerts.push(...rows.map((row, index) => ({
+          insert: vi.fn((rows: Record<string, unknown>[]) => {
+            const inserted = rows.map((row, index) => ({
               ...row,
               id: `alert-${state.riskAlerts.length + index}`,
-            })));
-            return { error: null };
+            }));
+            state.riskAlerts.push(...inserted);
+            // The radar takes its inserted alerts from the insert's returned rows.
+            return { select: vi.fn(async () => ({ data: inserted, error: null })) };
           }),
         };
       }

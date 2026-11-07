@@ -378,44 +378,92 @@ export async function listExistingRiskAlertRecords(input: {
   return normalizeExistingRiskAlertRecords((data ?? []) as Record<string, unknown>[]);
 }
 
+// Inserts go by chunks of the read page size: each statement stays well below the API roles' statement
+// timeout (8 s), and each response below max_rows (1 000, supabase/config.toml).
+const RISK_ALERT_INSERT_CHUNK_SIZE = 500;
+
+type RiskAlertWriteResult = { data?: unknown; error?: unknown } | null | undefined;
+
+function returnedRiskAlertRows(result: RiskAlertWriteResult) {
+  return Array.isArray(result?.data) ? (result.data as Record<string, unknown>[]) : [];
+}
+
+/** The order of `listActiveTakeoffRiskAlerts`: most recently updated first, then id descending. */
+function compareRiskAlertsByRecency(left: TakeoffRiskAlert, right: TakeoffRiskAlert) {
+  if (left.updated_at !== right.updated_at) return left.updated_at < right.updated_at ? 1 : -1;
+  if (left.alert_id !== right.alert_id) return left.alert_id < right.alert_id ? 1 : -1;
+  return 0;
+}
+
+/**
+ * Writes the projection and returns the active alerts it leaves, taken from the rows the writes return.
+ * Every candidate is either an update or an insert, so these rows are the whole active projection.
+ * Reading them all again page by page re-evaluated the per-row select policy for each page's exact
+ * count, which took most of a large radar call (V3E20: 30 s timeout in CI for about 1 100 lines).
+ * Returns null when a write changed fewer rows than planned, so the caller reads the stored projection:
+ * the restrictive update policy silently skips a non-operator owner's updates, and an alert can be
+ * deleted meanwhile.
+ */
 export async function applyTakeoffRiskRadarProjectionPlan(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   jobId: string;
   plan: TakeoffRiskRadarProjectionPlan;
-}) {
-  await Promise.all([
-    ...input.plan.updates.map(({ id, payload }) =>
+}): Promise<TakeoffRiskAlert[] | null> {
+  const insertChunks: Record<string, unknown>[][] = [];
+  for (let start = 0; start < input.plan.inserts.length; start += RISK_ALERT_INSERT_CHUNK_SIZE) {
+    insertChunks.push(input.plan.inserts.slice(start, start + RISK_ALERT_INSERT_CHUNK_SIZE));
+  }
+  const [updateResults, insertResults, staleResult] = await Promise.all([
+    Promise.all(input.plan.updates.map(({ id, payload }) =>
       input.supabase
         .from("estimate_risk_alerts" as never)
         .update(payload as never)
         .eq("tenant_id" as never, input.tenantId as never)
         .eq("id" as never, id as never)
-    ),
-    input.plan.inserts.length > 0
-      ? input.supabase.from("estimate_risk_alerts" as never).insert(input.plan.inserts as never)
-      : Promise.resolve({ error: null }),
+        .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    )),
+    Promise.all(insertChunks.map((rows) =>
+      input.supabase
+        .from("estimate_risk_alerts" as never)
+        .insert(rows as never)
+        .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    )),
     input.plan.staleAlertIds.length > 0
       ? input.supabase
           .from("estimate_risk_alerts" as never)
           .update(input.plan.stalePayload as never)
           .eq("tenant_id" as never, input.tenantId as never)
           .in("id" as never, input.plan.staleAlertIds as never)
-      : Promise.resolve({ error: null }),
-  ]).then((results) => {
-    for (const result of results) {
-      if (result && "error" in result && result.error) {
-        throw toTakeoffError(
-          mapSupabaseError(result.error, "Impossible de synchroniser le radar de risque."),
-          {
-            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-            retryable: false,
-            jobId: input.jobId,
-          }
-        );
-      }
+          .select("id" as never)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const results: RiskAlertWriteResult[] = [...updateResults, ...insertResults, staleResult];
+  for (const result of results) {
+    if (result && "error" in result && result.error) {
+      throw toTakeoffError(
+        mapSupabaseError(result.error as never, "Impossible de synchroniser le radar de risque."),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: input.jobId,
+        }
+      );
     }
-  });
+  }
+
+  if (
+    updateResults.some((result) => returnedRiskAlertRows(result).length !== 1) ||
+    insertResults.some((result, index) => returnedRiskAlertRows(result).length !== insertChunks[index].length) ||
+    returnedRiskAlertRows(staleResult).length !== input.plan.staleAlertIds.length
+  ) {
+    return null;
+  }
+  return [...updateResults, ...insertResults]
+    .flatMap((result) => returnedRiskAlertRows(result))
+    .map((row) => normalizeRiskAlertRow(row))
+    .filter((row): row is TakeoffRiskAlert => row !== null)
+    .sort(compareRiskAlertsByRecency);
 }
 
 export async function assertActiveTakeoffRiskAlertExists(input: {

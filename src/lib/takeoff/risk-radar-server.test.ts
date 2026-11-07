@@ -45,9 +45,13 @@ function makeDatabase() {
     estimate_risk_alerts: [], estimate_item_outlier_dismissals: [], estimate_rules: [],
   };
   const writes: Array<{ table: string; rows: Row[] }> = [];
+  // The restrictive policy « Operators can update estimate risk alerts » silently filters a non-operator's updates.
+  const access = { canUpdate: true };
+  let insertedCount = 0;
   function builder(table: string) {
     const filters: Array<(row: Row) => boolean> = [];
     let patch: Row | null = null;
+    let pendingInsert: Row[] | null = null;
     let mode: "all" | "one" = "all";
     let start = 0;
     let end = Infinity;
@@ -60,20 +64,26 @@ function makeDatabase() {
       maybeSingle: () => { mode = "one"; return query; },
       single: () => { mode = "one"; return query; },
       update: (payload: Row) => { patch = payload; return query; },
-      insert: (rows: Row[]) => {
-        const inserted = rows.map((row) => ({ ...row, id: ALERT, created_at: NOW }));
-        tables[table].push(...inserted);
-        writes.push({ table, rows: inserted });
-        return Promise.resolve({ data: inserted, error: null });
-      },
+      insert: (rows: Row[]) => { pendingInsert = rows; return query; },
       then: (resolve: (value: unknown) => unknown) => {
-        const rows = (tables[table] ?? []).filter((row) => filters.every((filter) => filter(row)));
+        if (pendingInsert) {
+          const inserted = pendingInsert.map((row) => {
+            insertedCount += 1;
+            return { ...row, id: `inserted-${insertedCount}`, created_at: NOW };
+          });
+          tables[table].push(...inserted);
+          writes.push({ table, rows: inserted });
+          // A response capped at max_rows (1 000, supabase/config.toml), as a read is.
+          return Promise.resolve({ data: inserted.slice(0, 1000), error: null }).then(resolve);
+        }
+        const rows = (tables[table] ?? []).filter((row) => filters.every((filter) => filter(row)))
+          .filter(() => !patch || access.canUpdate);
         if (patch) {
           for (const row of rows) Object.assign(row, patch);
           writes.push({ table, rows: rows.map((row) => ({ ...row })) });
         }
         return Promise.resolve({
-          data: mode === "one" ? rows[0] ?? null : rows.slice(start, end + 1),
+          data: mode === "one" ? rows[0] ?? null : rows.slice(start, Math.min(end + 1, start + 1000)),
           count: rows.length, error: null,
         }).then(resolve);
       },
@@ -84,7 +94,7 @@ function makeDatabase() {
     from: vi.fn((table: string) => builder(table)),
     rpc: vi.fn(() => builder("risk_items")),
   };
-  return { tables, writes, supabase };
+  return { tables, writes, supabase, access };
 }
 
 function storedAlert(overrides: Row = {}): Row {
@@ -139,6 +149,63 @@ describe("risk radar operations", () => {
       tenant_id: TENANT, version_id: VERSION, takeoff_job_id: JOB, is_active: true,
     })]);
     expect(db.supabase.rpc).toHaveBeenCalledWith("read_estimate_version_items", { p_tenant_id: TENANT, p_version_id: VERSION }, { count: "exact", get: true });
+  });
+
+  it("answers a large radar GET with every alert of its projection: reviewed ones keep their decision, inactive ones return, stale ones leave", async () => {
+    // 1 201 lines without a proof: more alerts than one PostgREST response carries (max_rows 1 000).
+    const lines = Array.from({ length: 1201 }, (_, index) => `line-${String(index).padStart(4, "0")}`);
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({
+      rows: lines.map((line_id) => ({ line_id, line_label: `Ligne ${line_id}`, proofs: [] })),
+    } as never);
+    const lineAlert = (id: string, lineId: string, overrides: Row = {}) => storedAlert({
+      id, scope_type: "line", scope_ref: lineId, scope_id: lineId, scope_label: `Ligne ${lineId}`,
+      line_id: lineId, cause_code: "missing_proof", ...overrides,
+    });
+    db.tables.estimate_risk_alerts = [
+      lineAlert("reviewed", lines[0], { status: "false_positive", review_note: "Preuve papier au dossier" }),
+      lineAlert("stale", "deleted-line", { status: "to_process", review_note: null, reviewed_at: null, reviewed_by: null }),
+      lineAlert("inactive", lines[1], { is_active: false, status: "to_process", review_note: null, reviewed_at: null, reviewed_by: null }),
+    ];
+
+    const radar = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+
+    const ids = radar.items.map((alert) => alert.alert_id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(radar.items.filter((alert) => alert.cause_code === "missing_proof").map((alert) => alert.line_id).sort()).toEqual(lines);
+    expect(radar.items.filter((alert) => alert.cause_code === "insufficient_margin")).toHaveLength(1);
+    expect(radar.items.find((alert) => alert.line_id === lines[0])).toMatchObject({
+      alert_id: "reviewed", status: "false_positive", review_note: "Preuve papier au dossier",
+    });
+    // An inactive alert whose cause is detected again comes back under its own identity.
+    expect(radar.items.find((alert) => alert.line_id === lines[1])).toMatchObject({ alert_id: "inactive", status: "to_process" });
+    expect(ids).not.toContain("stale");
+    expect(radar.summary).toMatchObject({ to_process_count: 1201, false_positive_count: 1 });
+    expect(db.tables.estimate_risk_alerts.find((row) => row.id === "stale")).toMatchObject({ is_active: false });
+    expect(db.tables.estimate_risk_alerts.filter((row) => row.is_active === true)).toHaveLength(1202);
+  });
+
+  it("shows a non-operator project owner the stored projection when the policy filters the radar's updates", async () => {
+    db.access.canUpdate = false;
+    vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ ...auth, tenantRole: "viewer" });
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({
+      rows: [{ line_id: "line-new", line_label: "Ligne nouvelle", proofs: [] }],
+    } as never);
+    db.tables.estimate_risk_alerts = [
+      storedAlert(),
+      storedAlert({
+        id: "stale", scope_type: "line", scope_ref: "deleted-line", scope_id: "deleted-line", line_id: "deleted-line",
+        cause_code: "missing_proof", status: "to_process", review_note: null, reviewed_at: null, reviewed_by: null,
+      }),
+    ];
+
+    const radar = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+
+    // What the stored projection holds: the reviewed alert, the alert it could not close, and its own new alert.
+    expect(radar.items).toHaveLength(3);
+    expect(radar.items.find((alert) => alert.alert_id === ALERT)).toMatchObject({ cause_code: "insufficient_margin", status: "assumed" });
+    expect(radar.items.find((alert) => alert.alert_id === "stale")).toMatchObject({ line_id: "deleted-line", status: "to_process" });
+    expect(radar.items.find((alert) => alert.line_id === "line-new")).toMatchObject({ cause_code: "missing_proof", status: "to_process" });
+    expect(radar.summary).toMatchObject({ to_process_count: 2, assumed_count: 1 });
   });
 
   it("reads active alerts within tenant/version/job without recalculating the projection", async () => {
