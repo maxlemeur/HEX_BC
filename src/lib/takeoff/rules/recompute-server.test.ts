@@ -24,7 +24,7 @@ describe("writing a version's rule results in chunks", () => {
       supabase: { rpc } as never, tenantId: "t", estimateVersionId: "v", writes, transforms: [], stamp: "stamp-read", chunk: 2,
     });
 
-    expect(written).toBe(3);
+    expect(written).toEqual({ written: 3, reopened: 0 });
     expect(stamps).toEqual(["stamp-read", "stamp-after-chunk-1"]);
   });
 
@@ -37,9 +37,17 @@ describe("writing a version's rule results in chunks", () => {
     const writes = Array.from({ length: 4 }, (_, index) => ({
       id: `0000000${index}-0000-4000-8000-000000000000`, results: [], expected_updated_at: "2026-11-05T00:00:00Z", expected_stale_at: null,
     }));
-    await writeTakeoffRuleResultChunks({
+    const result = await writeTakeoffRuleResultChunks({
       supabase: { rpc } as never, tenantId: "t", estimateVersionId: "v", writes, transforms: [], stamp: "stamp-read", chunk: 2,
     });
     expect(stamps).toEqual(["stamp-read", "stamp-read"]);
+    expect(result).toEqual({ written: 0, reopened: 0 });
+  });
+
+  it("counts only real reopenings returned by the writer", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: [{ reopened: true }, { reopened: false }], error:null });
+    const writes = Array.from({length:3}, (_,i) => ({ id:String(i), results:[], expected_updated_at:"t", expected_stale_at:null }));
+    await expect(writeTakeoffRuleResultChunks({ supabase:{rpc} as never, tenantId:"t", estimateVersionId:"v", writes, transforms:[], stamp:"s" }))
+      .resolves.toEqual({written:2,reopened:1});
   });
 });

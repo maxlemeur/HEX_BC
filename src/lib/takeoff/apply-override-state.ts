@@ -1,4 +1,4 @@
-import { ruleFailureKeys } from "@/lib/takeoff/rules/failure-keys";
+import { ruleOverrideFailureKeys } from "@/lib/takeoff/rules/failure-keys";
 
 /**
  * What an admin override records of each line it lifts (TI-677 PR D, memo Q2): the apply trigger refuses the override
@@ -40,7 +40,7 @@ export function takeoffApplyOverrideItemState(row: {
     quantity: Number(row.quantity),
     unit: String(row.unit),
     updated_at: String(row.updated_at),
-    rule_failures: ruleFailureKeys(row.rule_results),
+    rule_failures: ruleOverrideFailureKeys(row.rule_results),
     rules_stale: row.rules_stale === true,
     designation: String(row.designation),
     evidence: typeof row.evidence === "string" ? row.evidence : null,

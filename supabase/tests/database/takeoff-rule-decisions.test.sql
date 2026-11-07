@@ -587,5 +587,74 @@ from (values
     '[{"rule":"zone_overlap","status":"fail","code":"ZONE_OVERLAP_DUPLICATE","version":1,"details":{"partners":[{"item_id":"0B000000-0000-4000-8000-00000000000B"}]}}]', false)
 ) as fixture(name, previous, next, expected);
 
+-- The displays of large overlap groups can be identical before and after a hidden replacement.
+create function pg_temp.overlap_write(ids integer[], proof boolean default true, stamp text default null)
+returns boolean language sql as $$
+  with entries as (
+    select n, pos, 'p' || lpad(n::text,3,'0') as id from unnest(ids) with ordinality as a(n,pos)
+  ), identity as (
+    select array_agg('zone_overlap|ZONE_OVERLAP_DUPLICATE|1|' || id order by id collate "C") as keys,
+      jsonb_agg(jsonb_build_object('item_id',id) order by pos) filter (where pos <= 50) as displayed from entries
+  ), payload as (
+    select jsonb_build_object('id', item.id, 'expected_updated_at',item.updated_at,'expected_stale_at',item.rules_stale_at,
+      'results', jsonb_build_array(jsonb_build_object('rule','zone_overlap','code','ZONE_OVERLAP_DUPLICATE',
+      'status','fail','version',1,'acceptable',true,'reason','Plan fictif.',
+      'details', jsonb_build_object('partners',displayed,'partner_count',cardinality(ids)) ||
+        case when proof and cardinality(ids)>50 then jsonb_build_object('failure_keys_sha256',
+          encode(sha256(convert_to(array_to_string(keys,chr(10)),'UTF8')),'hex')) else '{}'::jsonb end))) ||
+      case when proof and cardinality(ids)>50 then jsonb_build_object('complete_failure_keys',keys) else '{}'::jsonb end as entry
+    from identity, public.takeoff_items item where item.id='9d000000-0000-4000-8000-000000000401'
+  )
+  select w.reopened from payload, lateral public.write_takeoff_rule_results(current_setting('test.tenant_id')::uuid,
+    '9d000000-0000-4000-8000-000000000101',jsonb_build_array(entry),'[]'::jsonb,stamp) w
+$$;
+
+select pg_temp.overlap_write(array(select generate_series(1,50)));
+update public.takeoff_items set is_verified=true, verified_by='9d000000-0000-4000-8000-000000000001',verified_at=now()
+where id='9d000000-0000-4000-8000-000000000401';
+select is(pg_temp.overlap_write(array(select generate_series(1,51)),false),null::boolean,'an older writer cannot discard the 51st identity');
+select ok((select rules_stale and public.takeoff_item_rule_blocked(rule_results,rules_stale,is_verified)
+  from public.takeoff_items where id='9d000000-0000-4000-8000-000000000401'),
+  'a verified, previously fresh line blocks after an old writer attempts an incomplete evaluation');
+select is(pg_temp.overlap_write(array(select generate_series(1,51)),true,'stale-stamp'),null::boolean,'stale evaluation writes no proof');
+select is(pg_temp.overlap_write(array(select generate_series(1,51))),true,'50 to 51 partners reopens');
+select ok((select not is_verified and verified_at is null and verified_by is null from public.takeoff_items
+  where id='9d000000-0000-4000-8000-000000000401'),'the 51st partner withdraws verification');
+select ok(exists(select 1 from public.audit_logs where after_data#>>'{metadata,item_id}'='9d000000-0000-4000-8000-000000000401'
+  and after_data#>>'{metadata,reason}' like '%ZONE_OVERLAP_DUPLICATE%'),'hidden new partner journaled by the writer');
+update public.takeoff_items set is_verified=true,verified_at=now(),verified_by='9d000000-0000-4000-8000-000000000001'
+where id='9d000000-0000-4000-8000-000000000401';
+select set_config('test.override_overflow',(select pg_temp.decisions_state(id,jsonb_build_array(
+  'sha256:' || (rule_results#>>'{0,details,failure_keys_sha256}')))::text from public.takeoff_items
+  where id='9d000000-0000-4000-8000-000000000401'),true);
+select is(pg_temp.overlap_write(array(select generate_series(51,1,-1))),false,'a reorder keeps verification');
+select ok((select public.takeoff_apply_override_state_holds(current_setting('test.override_overflow')::jsonb,item) from public.takeoff_items item
+  where id='9d000000-0000-4000-8000-000000000401'),'reordering a truncated group preserves its override');
+select is(pg_temp.overlap_write(array(select generate_series(1,51))),false,'restoring the visible order preserves verification');
+select ok((select not public.takeoff_apply_override_state_holds(pg_temp.decisions_state(item.id,
+  (select failure_keys from takeoff_internal.rule_failure_proofs where item_id=item.id) || '[null]'::jsonb),item)
+  from public.takeoff_items item where id='9d000000-0000-4000-8000-000000000401'),
+  'malformed override keys cannot hash to the identity of a real set');
+select is(pg_temp.overlap_write(array(select generate_series(1,50)) || 52),true,'a hidden replacement at equal size reopens');
+select ok((select not public.takeoff_apply_override_state_holds(current_setting('test.override_overflow')::jsonb,item) from public.takeoff_items item
+  where id='9d000000-0000-4000-8000-000000000401'),'the previous override does not cover the replacement');
+update public.takeoff_items set is_verified=true,verified_at=now(),verified_by='9d000000-0000-4000-8000-000000000001'
+where id='9d000000-0000-4000-8000-000000000401';
+select set_config('test.override_before_removal',(select pg_temp.decisions_state(id,jsonb_build_array(
+  'sha256:' || (rule_results#>>'{0,details,failure_keys_sha256}')))::text from public.takeoff_items
+  where id='9d000000-0000-4000-8000-000000000401'),true);
+select is(pg_temp.overlap_write(array(select generate_series(2,50)) || 52),false,'a removal bringing a hidden partner into view does not reopen');
+select ok((select is_verified from public.takeoff_items where id='9d000000-0000-4000-8000-000000000401'),'the reduced group stays verified');
+select ok((select not public.takeoff_apply_override_state_holds(current_setting('test.override_before_removal')::jsonb,item)
+  from public.takeoff_items item where id='9d000000-0000-4000-8000-000000000401'),
+  'a removal alone invalidates the override despite the verification still holding');
+select ok(not has_table_privilege('authenticated','takeoff_internal.rule_failure_proofs','SELECT') and
+          not has_table_privilege('anon','takeoff_internal.rule_failure_proofs','SELECT'),
+          'neither application role can read the private proof');
+-- Historical truncation without a proof: the visible list cannot authorize hidden partners.
+update public.takeoff_items set rule_results=jsonb_set(rule_results,'{0,details,partner_count}','51')
+where id='9d000000-0000-4000-8000-000000000401';
+select is(pg_temp.overlap_write(array(select generate_series(2,52))),true,'the first complete evaluation reopens legacy truncation');
+
 select * from finish();
 rollback;

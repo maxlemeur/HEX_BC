@@ -89,3 +89,34 @@ describe("a computation reopens a verified line (TS = SQL takeoff_rule_failures_
     expect(ruleFailuresReopen(previous, next)).toBe(expected);
   });
 });
+
+describe("replaying a pending verification after the server saved a new revision", () => {
+  const displayed = Array.from({ length: 50 }, (_, index) => `item-${index + 1}`);
+  const firstDigest = "a".repeat(64);
+  const changedDigest = "b".repeat(64);
+  function truncated(ids: string[], digest?: string) {
+    return [fail("zone_overlap", "ZONE_OVERLAP_DUPLICATE", { details: {
+      partner_count: 51, partners: ids.map((item_id) => ({ item_id })),
+      ...(digest ? { failure_keys_sha256: digest } : {}),
+    } })];
+  }
+
+  it("stops replay when a hidden replacement changes the digest behind the identical 50 displayed IDs", () => {
+    expect(ruleFailuresReopen(truncated(displayed, firstDigest), truncated(displayed, changedDigest))).toBe(true);
+  });
+
+  it("allows replay when the complete set is identical even if a different subset is displayed", () => {
+    const reordered = ["hidden-51", ...displayed.slice(1)];
+    expect(ruleFailuresReopen(truncated(displayed, firstDigest), truncated(reordered, firstDigest))).toBe(false);
+  });
+
+  it("does not replay after legacy truncation without a fingerprint", () => {
+    expect(ruleFailuresReopen(truncated(displayed), truncated(displayed))).toBe(true);
+    expect(ruleFailuresReopen(truncated(displayed), truncated(displayed, firstDigest))).toBe(true);
+  });
+
+  it("allows a provable reduction to a complete subset of previously visible IDs", () => {
+    expect(ruleFailuresReopen(truncated(displayed, firstDigest), [duplicate(displayed.slice(0, 3))])).toBe(false);
+    expect(ruleFailuresReopen(truncated(displayed, firstDigest), [])).toBe(false);
+  });
+});

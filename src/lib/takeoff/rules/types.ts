@@ -62,6 +62,8 @@ export type ZoneOverlapPartner = {
 };
 
 export type TakeoffRuleDetails = {
+  /** Digest of all failed rule keys of this line when partner identities had to be clipped. */
+  failure_keys_sha256?: string;
   network?: NetworkCode | null;
   material?: MaterialCode | null;
   dn?: string | null;

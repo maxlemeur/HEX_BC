@@ -74,7 +74,8 @@ const RESULT_BOUNDS = [
 /** The details' numbers (the length counted twice, the group size, the areas…) and the level, clipped. */
 function detailNumbers(details: NonNullable<TakeoffRuleResult["details"]>) {
   const kept = Object.entries(details).filter(([, value]) => typeof value === "number" && Number.isFinite(value));
-  return Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]);
+  return { ...Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]),
+    ...(details.failure_keys_sha256 ? { failure_keys_sha256: details.failure_keys_sha256 } : {}) };
 }
 
 function withinBounds(results: readonly TakeoffRuleResult[], bounds: (typeof RESULT_BOUNDS)[number]) {

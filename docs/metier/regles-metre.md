@@ -255,10 +255,20 @@ L'écrivain `write_takeoff_rule_results`, réservé au service :
 - n'écrit jamais une ligne modifiée depuis sa lecture, ni une ligne d'un job appliqué ;
 - n'écrit rien si la version a changé depuis que le calcul l'a lue (`takeoff_rule_version_stamp`, sous un verrou par version) : un calcul plus ancien n'écrase jamais un plus récent ;
 - laisse de côté, sans l'attendre, un job qu'une application tient ;
-- ne déplace `updated_at`, qu'un client ne fixe jamais lui-même, que lorsqu'il rouvre une ligne vérifiée (voir « Décisions »).
+- déplace `updated_at` lorsqu'une ligne acquiert un nouvel échec, même si elle attend déjà une vérification.
 
 Les résultats sont bornés avant écriture (raison de 1 000 caractères, 50 partenaires, puis 64 Kio de texte jsonb, voir
 « Bornes, seuil et sérialisation ») : toute lecture les accepte et la colonne les stocke.
+
+Lorsqu'un résultat masque des partenaires, le serveur conserve leurs clés complètes dans
+`takeoff_internal.rule_failure_proofs` et une empreinte de l'ensemble dans le résultat affiché.
+Un ajout ou un remplacement rouvre la vérification, y compris au-delà du dernier partenaire visible.
+Un retrait seul conserve la vérification et invalide la dérogation accordée à l'ancien ensemble.
+Un simple changement d'ordre conserve les deux décisions. Un ancien calcul tronqué sans preuve
+rend la ligne périmée jusqu'à un recalcul complet.
+Pendant une sauvegarde, l'écran peut recevoir de nouveaux résultats avant d'avoir envoyé le clic
+de vérification. Il rejoue ce clic si les empreintes sont identiques ou si toutes les nouvelles
+clés sont déjà visibles dans la révision précédente. Sinon, il demande une nouvelle vérification.
 
 **Niveaux** : les raisons des règles s'appliquent à toute ligne qui porte des entrées de
 règles, en B comme en C ; les raisons existantes (confiance faible, preuve, page)

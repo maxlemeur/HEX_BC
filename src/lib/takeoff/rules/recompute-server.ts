@@ -5,9 +5,9 @@ import { z } from "zod";
 
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { boundRuleResults, readRuleInputs } from "@/lib/takeoff/rules/contracts";
+import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
-import { ruleFailuresReopen } from "@/lib/takeoff/rules/failure-keys";
+import { prepareRuleResultWrite } from "@/lib/takeoff/rules/result-identity";
 import type { PageAnchors } from "@/lib/takeoff/rules/registration";
 import { ruleLinePage, type RulePageCandidate } from "@/lib/takeoff/rules/recompute-pages";
 import type { TakeoffFrameTransform, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
@@ -171,7 +171,6 @@ export async function recomputeTakeoffRulesForVersion(input: {
   const writes: RuleResultWrite[] = [];
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
   let unbounded = 0;
-  let reopened = 0;
   for (const { item, inputs } of items) {
     if (inputs === null || status.get(item.job_id) !== "completed") continue;
     const stored = geometries.get(item.id);
@@ -181,22 +180,21 @@ export async function recomputeTakeoffRulesForVersion(input: {
     }
     // Results that cannot be bounded to the column (TI-677; schema-valid results always are) are not written: the line
     // keeps its stored state, and the rest of the version is written.
-    let results: TakeoffRuleResult[];
+    let payload: ReturnType<typeof prepareRuleResultWrite>;
     try {
-      results = boundRuleResults(evaluation.results.get(item.id) ?? []);
+      payload = prepareRuleResultWrite(evaluation.results.get(item.id) ?? []);
     } catch {
       unbounded += 1;
       continue;
     }
-    if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, results)) {
-      writes.push({ id: item.id, results, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
-      if (item.is_verified && ruleFailuresReopen(item.rule_results, results)) reopened += 1;
+    if (item.rules_stale || item.rules_evaluated_at === null || !sameJson(item.rule_results, payload.results)) {
+      writes.push({ id: item.id, ...payload, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
     }
   }
   if (unbounded > 0) {
     console.error("takeoff.rules.results_unbounded", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: unbounded });
   }
-  const written = await writeTakeoffRuleResultChunks({ supabase, tenantId: input.tenantId,
+  const { written, reopened } = await writeTakeoffRuleResultChunks({ supabase, tenantId: input.tenantId,
     estimateVersionId: input.estimateVersionId, writes, transforms, stamp });
   if (reopened > 0) {
     console.info("takeoff.rules.reopened", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: reopened });
@@ -204,7 +202,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   return { lines: lines.length, written, skipped: writes.length - written, reopened };
 }
 
-type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; expected_updated_at: string; expected_stale_at: string | null };
+type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; complete_failure_keys?: string[]; expected_updated_at: string; expected_stale_at: string | null };
 
 /**
  * Writes a computation's results by chunks. A chunk whose write moves a line (a verified line reopened, failures that
@@ -223,18 +221,34 @@ export async function writeTakeoffRuleResultChunks(input: {
   const size = input.chunk ?? TAKEOFF_RULES_WRITE_CHUNK;
   let stamp = input.stamp;
   let written = 0;
-  for (let offset = 0; offset < Math.max(input.writes.length, input.transforms.length); offset += size) {
+  let reopened = 0;
+  let offset = 0;
+  let transformOffset = 0;
+  while (offset < input.writes.length || transformOffset < input.transforms.length) {
+    // A dense overlap can have thousands of partners per item. Split unusually large proof payloads
+    // (ASCII keys plus quotes/separators) without imposing a limit on the identities of a single item.
+    let end = offset;
+    let proofBytes = 0;
+    while (end < input.writes.length && end - offset < size) {
+      const bytes = input.writes[end].complete_failure_keys?.reduce((sum, key) => sum + key.length + 3, 0) ?? 0;
+      if (end > offset && proofBytes + bytes > 1024 * 1024) break;
+      proofBytes += bytes;
+      end++;
+    }
     const { data, error } = await input.supabase.rpc("write_takeoff_rule_results" as never, {
       p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
-      p_items: input.writes.slice(offset, offset + size), p_transforms: input.transforms.slice(offset, offset + size), p_stamp: stamp,
+      p_items: input.writes.slice(offset, end), p_transforms: input.transforms.slice(transformOffset, transformOffset + size), p_stamp: stamp,
     } as never);
     if (error) failed("Impossible d’enregistrer les résultats des règles.", error);
-    const rows = Array.isArray(data) ? (data as Array<{ version_stamp?: unknown }>) : [];
+    const rows = Array.isArray(data) ? (data as Array<{ version_stamp?: unknown; reopened?: boolean }>) : [];
     written += rows.length;
+    reopened += rows.filter((row) => row.reopened === true).length;
     const next = rows[0]?.version_stamp;
     if (typeof next === "string") stamp = next;
+    offset = end;
+    transformOffset += size;
   }
-  return written;
+  return { written, reopened };
 }
 
 /** The same computation, never throwing: logged, for callers that go on without it (the stored state still blocks). */

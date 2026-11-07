@@ -53,8 +53,42 @@ export function ruleFailureKeys(results: unknown): string[] {
   return [...keys].sort();
 }
 
-/** Whether results written over stored ones bring a failure key the stored ones did not have (SQL takeoff_rule_failures_reopen). */
+function failureDigest(results: unknown): string | undefined {
+  if (!Array.isArray(results)) return undefined;
+  for (const entry of results) {
+    if (!isObject(entry) || entry.status !== "fail" || !isObject(entry.details)) continue;
+    const digest = entry.details.failure_keys_sha256;
+    if (typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest)) return digest;
+  }
+}
+
+/** An override identifies the full set even when a line can display only some partners. */
+export function ruleOverrideFailureKeys(results: unknown): string[] {
+  const digest = failureDigest(results);
+  return digest ? [`sha256:${digest}`] : ruleFailureKeys(results);
+}
+
+function mayHidePartners(entry: unknown): boolean {
+  if (!isObject(entry) || entry.status !== "fail" || !isObject(entry.details)) return false;
+  const details = entry.details;
+  if ("failure_keys_sha256" in details) return true;
+  if (entry.code !== "ZONE_OVERLAP_DUPLICATE" && entry.code !== "ROOM_OVERLAP") return false;
+  const zone = entry.code === "ZONE_OVERLAP_DUPLICATE";
+  const count = zone ? details.partner_count : details.overlap_count;
+  const ids = zone ? details.partners : details.overlapping_item_ids;
+  const shown = Array.isArray(ids) ? ids.length : 0;
+  if (count !== undefined) return count !== shown;
+  // Older results carried no count. At one of the bounding steps the list may be incomplete.
+  return (zone ? [0, 5, 20, 50] : [0, 20, 100, 500]).includes(shown);
+}
+
+/** Whether a pending verification must be reconsidered before replaying it over a new server revision.
+ * SQL compares the exact sets when deciding whether to withdraw an already stored verification. The browser
+ * sees only the displayed identities and their digest: it replays only when inclusion can be proved. */
 export function ruleFailuresReopen(previous: unknown, next: unknown): boolean {
+  const digest = failureDigest(next);
+  if (digest && digest === failureDigest(previous)) return false;
+  if (Array.isArray(next) && next.some(mayHidePartners)) return true;
   const known = new Set(ruleFailureKeys(previous));
   return ruleFailureKeys(next).some((key) => !known.has(key));
 }
