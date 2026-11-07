@@ -438,7 +438,7 @@ WHERE pid <> pg_catalog.pg_backend_pid() AND (state = 'active' OR wait_event_typ
 }
 
 type GatingFlag = { key: string; severity: string; count?: number; item_ids: string[] };
-type RiskAlert = { line_id: string | null; cause_code: string; reason_labels: string[] };
+type RiskAlert = { alert_id: string; status: string; line_id: string | null; cause_code: string; reason_labels: string[] };
 armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 raise no quality flag in the send gating or the takeoff risk radar", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
@@ -462,9 +462,20 @@ armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 
       expect([gating.status, gating.body.ok]).toEqual([200, true]);
       const flags = [...gating.body.data.gating.blockingFlags, ...gating.body.data.gating.warningFlags];
       const takeoffJobId = await insertCompletedTakeoffJob(owner, versionId);
+      const radarStarted = Date.now();
       const radar = await recordDatabaseWaits(army, "v3e20-radar-database-waits", () => apiRequest<Envelope<{ items: RiskAlert[] }>>(
         browser, "GET", `/api/takeoff/jobs/${takeoffJobId}/risk-radar?version_id=${versionId}`));
+      const radarMs = Date.now() - radarStarted;
       const radarItems = radar.body.data?.items ?? [];
+      // The exceptions tab and the DPGF comparison call the radar again on every visit: the second call
+      // refreshes the stored projection and shows the same alerts.
+      const reopenedStarted = Date.now();
+      const reopened = await recordDatabaseWaits(army, "v3e20-radar-reopened-database-waits", () => apiRequest<Envelope<{ items: RiskAlert[] }>>(
+        browser, "GET", `/api/takeoff/jobs/${takeoffJobId}/risk-radar?version_id=${versionId}`));
+      const reopenedMs = Date.now() - reopenedStarted;
+      const alertKeys = (items: RiskAlert[]) => new Set(items.map((alert) => `${alert.alert_id}:${alert.cause_code}:${alert.status}`));
+      const firstKeys = alertKeys(radarItems);
+      const reopenedKeys = alertKeys(reopened.body.data?.items ?? []);
       const observed = {
         statusLines: statusLines.length,
         statusLinesWithoutQuantity: statusLines.filter((line) => !(Number(line.quantity) > 0)).length,
@@ -472,15 +483,21 @@ armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 
         radar: [radar.status, radar.body.ok],
         radarPriceAlertsOnStatusLines: onStatusLines(radarItems.filter((alert) => alert.cause_code === "atypical_price")
           .map((alert) => ({ key: alert.cause_code, ids: [alert.line_id] }))),
+        reopenedRadar: {
+          response: [reopened.status, reopened.body.ok],
+          alerts: reopenedKeys.size,
+          changed: [...reopenedKeys].filter((key) => !firstKeys.has(key)).length,
+        },
       };
       await recordEvidence(army, "v3e20-status-lines", { versionId, takeoffJobId,
         pricedLinesWithoutQuantity: lineItems(state).filter((line) => !statusIds.has(line.id) && !(Number(line.quantity) > 0)).length,
         blocking: gating.body.data.gating.blockingFlags.map((flag) => [flag.key, flag.count ?? flag.item_ids.length]),
         warnings: gating.body.data.gating.warningFlags.map((flag) => [flag.key, flag.count ?? flag.item_ids.length]),
         radarAlerts: radarItems.filter((alert) => alert.line_id !== null && statusIds.has(alert.line_id) && alert.cause_code === "atypical_price").slice(0, 20),
-        radarError: radar.body.error ?? null, observed });
+        radarError: radar.body.error ?? null, reopenedError: reopened.body.error ?? null, radarMs, reopenedMs, observed });
       expect(observed, "status lines of an imported v3 raise no quality flag in the send gating or the risk radar").toEqual({
         statusLines: 79, statusLinesWithoutQuantity: 46, gatingOnStatusLines: {}, radar: [200, true], radarPriceAlertsOnStatusLines: {},
+        reopenedRadar: { response: [200, true], alerts: firstKeys.size, changed: 0 },
       });
     } finally {
       await closePolicy(owner, army, "v3e20");

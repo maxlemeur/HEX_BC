@@ -245,6 +245,29 @@ export function prepareTakeoffRiskCandidates(input: {
   return { candidates: filteredCandidates, lotLabelById };
 }
 
+const RISK_ALERT_CONTENT_FIELDS = [
+  "scope_id", "scope_label", "severity", "risk_score", "margin_bucket", "line_id", "lot_id",
+  "reason_labels", "provenance", "metadata",
+] as const;
+
+/** A value as its jsonb column returns it: object keys in a stable order, undefined entries dropped. */
+function canonicalRiskAlertValue(value: unknown) {
+  return JSON.stringify(value ?? null, (_key, nested: unknown) =>
+    nested !== null && typeof nested === "object" && !Array.isArray(nested)
+      ? Object.fromEntries(Object.entries(nested).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)))
+      : nested);
+}
+
+function hasSameStoredContent(existing: ExistingRiskAlertRecord, candidate: TakeoffRiskCandidate) {
+  return RISK_ALERT_CONTENT_FIELDS.every((field) =>
+    canonicalRiskAlertValue(existing[field]) === canonicalRiskAlertValue(candidate[field]));
+}
+
+/**
+ * An existing alert detected again is rewritten only when its content changed or it was inactive.
+ * The others only get their detection refreshed, by id, so reopening a large radar costs a few
+ * requests instead of one per alert (V3E20: 1 100 parallel updates exhausted PostgREST's pool).
+ */
 export function buildTakeoffRiskRadarProjectionPlan(input: {
   tenantId: string;
   projectId: string;
@@ -268,6 +291,7 @@ export function buildTakeoffRiskRadarProjectionPlan(input: {
   const nextKeys = new Set<string>();
   const inserts: Record<string, unknown>[] = [];
   const updates: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const refreshAlertIds: string[] = [];
 
   for (const candidate of input.candidates) {
     const key = buildRiskAlertIdentityKey({
@@ -300,6 +324,11 @@ export function buildTakeoffRiskRadarProjectionPlan(input: {
       last_detected_at: now,
       updated_at: now,
     } satisfies Record<string, unknown>;
+
+    if (existing?.is_active && hasSameStoredContent(existing, candidate)) {
+      refreshAlertIds.push(existing.alert_id);
+      continue;
+    }
 
     if (existing) {
       updates.push({
@@ -341,6 +370,8 @@ export function buildTakeoffRiskRadarProjectionPlan(input: {
   return {
     inserts,
     updates,
+    refreshAlertIds,
+    refreshPayload: { last_detected_at: now, updated_at: now },
     staleAlertIds,
     stalePayload: { is_active: false, last_detected_at: now, updated_at: now },
   };

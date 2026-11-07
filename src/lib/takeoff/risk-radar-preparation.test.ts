@@ -112,6 +112,45 @@ describe("risk radar projection plan", () => {
     expect(plan.stalePayload).toEqual({ is_active: false, last_detected_at: NOW, updated_at: NOW });
   });
 
+  it("only refreshes the detection time of an active alert whose stored content is unchanged", () => {
+    const entry = { kind: "fact", label: "TVA de la ligne", source: "Estimate items", confidence_score: null, note: "20 %" } as const;
+    const plan = buildTakeoffRiskRadarProjectionPlan({
+      ...scope, now: NOW,
+      // jsonb returns object keys in its own order.
+      existingAlerts: [existing({ metadata: { version_tax_rate_bp: 2000, line_tax_rate_bp: 550 }, provenance: [entry] })],
+      candidates: [candidate({
+        metadata: { line_tax_rate_bp: 550, version_tax_rate_bp: 2000 },
+        provenance: [{ note: entry.note, confidence_score: null, source: entry.source, label: entry.label, kind: "fact" }],
+      })],
+    });
+    expect(plan.updates).toEqual([]);
+    expect(plan.inserts).toEqual([]);
+    expect(plan.staleAlertIds).toEqual([]);
+    expect(plan.refreshAlertIds).toEqual(["alert"]);
+    expect(plan.refreshPayload).toEqual({ last_detected_at: NOW, updated_at: NOW });
+  });
+
+  it.each([
+    { risk_score: 41 }, { severity: "critical" as const }, { scope_label: "Cloison CF" }, { scope_id: "other-line" },
+    { lot_id: null }, { margin_bucket: "thin" as const }, { reason_labels: ["Preuve absente", "Plan illisible"] },
+    { metadata: { pricing_flags: ["stale"] } },
+    { provenance: [{ kind: "fact" as const, label: "Plan", source: "Takeoff", confidence_score: 0.8, note: null }] },
+  ])("rewrites an active alert whose content changed: %j", (change) => {
+    const plan = buildTakeoffRiskRadarProjectionPlan({
+      ...scope, now: NOW, existingAlerts: [existing()], candidates: [candidate(change)],
+    });
+    expect(plan.refreshAlertIds).toEqual([]);
+    expect(plan.updates).toEqual([{ id: "alert", payload: expect.objectContaining({ ...change, status: "assumed", is_active: true }) }]);
+  });
+
+  it("rewrites an inactive alert detected again even when its content is unchanged", () => {
+    const plan = buildTakeoffRiskRadarProjectionPlan({
+      ...scope, now: NOW, existingAlerts: [existing({ is_active: false })], candidates: [candidate()],
+    });
+    expect(plan.refreshAlertIds).toEqual([]);
+    expect(plan.updates).toEqual([{ id: "alert", payload: expect.objectContaining({ is_active: true, status: "assumed" }) }]);
+  });
+
   it("retains the first valid stored row of each identity in repository order", () => {
     const rows = normalizeExistingRiskAlertRecords([
       { ...existing(), id: "latest", review_note: "Dernière décision" },
