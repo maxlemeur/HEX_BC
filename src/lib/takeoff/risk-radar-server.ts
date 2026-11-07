@@ -151,14 +151,14 @@ async function syncTakeoffRiskRadarProjection(input: {
     existingAlerts,
     now: new Date().toISOString(),
   });
-  await applyTakeoffRiskRadarProjectionPlan({
+  const writtenAlerts = await applyTakeoffRiskRadarProjectionPlan({
     supabase: input.supabase,
     tenantId: input.tenantId,
     jobId: input.jobId,
     plan,
   });
 
-  const alerts = await listActiveTakeoffRiskAlerts({
+  const alerts = writtenAlerts ?? await listActiveTakeoffRiskAlerts({
     supabase: input.supabase,
     tenantId: input.tenantId,
     versionId: input.versionId,
