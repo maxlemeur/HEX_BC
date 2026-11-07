@@ -298,6 +298,10 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
         await list.getByRole("option", /^ARMY worker pipe/).click();
         const accepted = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z2}/items`);
         await ui.browser.keyboard.press("v");
+        const justification = screen.getByRole("dialog", "Justifier l’acceptation", { exact: true });
+        await justification.getByLabel("Motif", { exact: true }).selectOption({ value: "system_documented" });
+        await justification.getByLabel("Référence du système", { exact: true }).fill("Fabricant fictif, gamme G, certificat C : ligne vérifiée sur le plan.");
+        await justification.getByRole("button", "Confirmer l’acceptation", { exact: true }).click();
         expect((await accepted).status).toBe(200);
         await expect(list.getByRole("option")).toHaveCount(0);
       }
@@ -410,7 +414,7 @@ armyTest("TKR04 complete review preserves an unchanged verification and never re
     const job = jobs.Z1;
     const readPipe = async () => (await readItems(ui, job)).find((item) => item.designation === "ARMY worker pipe")!;
     const pipe = await readPipe();
-    await patchItems(ui, job, [{ item: pipe, fields: { is_verified: true } }]);
+    await patchItems(ui, job, [{ item: pipe, fields: { is_verified: true, verification_justification: { reason_code: "system_documented", system_reference: "Fabricant fictif, gamme G, certificat C" } } }]);
     const original = await readPipe();
     expect(original).toMatchObject({ is_verified: true, verified_by: owner.userId });
     const path = `/dashboard/affaires/${ids.projectId}/takeoff/${job}/review`;
@@ -469,6 +473,10 @@ armyTest("TKR04 complete review preserves an unchanged verification and never re
     await expect(applyButton).toBeDisabled();
     const accepted = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
     await line.getByRole("button", /^Accepter/).click();
+    const justification = ui.screen.getByRole("dialog", "Justifier l’acceptation", { exact: true });
+    await justification.getByLabel("Motif", { exact: true }).selectOption({ value: "system_documented" });
+    await justification.getByLabel("Référence du système", { exact: true }).fill("Fabricant fictif, gamme G, certificat C : confirmé par C.");
+    await justification.getByRole("button", "Confirmer l’acceptation", { exact: true }).click();
     expect((await accepted).status).toBe(200);
     await ui.browser.reload();
     await expect(applyButton).toBeEnabled();
@@ -486,3 +494,51 @@ armyTest("TKR04 complete review preserves an unchanged verification and never re
       .toEqual([[c, false]]);
     await recordEvidence(ui.army, "TKR04-verifications", { ids, job, pipe: pipe.id, events });
   });
+
+// TI-685: a technical failure needs a coded reason and system reference; V cannot erase it silently.
+armyTest("TKR05 network material justification persists and blocked gas cannot be accepted", options, async (ui) => {
+  const { ids, client, jobs } = await seedZoneJobs(ui, "TKR05", "MAT", "Justification réseau matériau");
+  for (const job of Object.values(jobs)) {
+    const items = await readItems(ui, job);
+    await patchItems(ui, job, items.map((item) => ({ item, fields: { is_excluded: true, exclusion_reason: "Hors cas matériau fictif." } })));
+  }
+  const peId = randomUUID();
+  const blockedId = randomUUID();
+  const items = [
+    { id: peId, designation: "GAZ PEHD Ø 32", material: "pehd", dn: "Ø 32" },
+    { id: blockedId, designation: "GAZ multicouche Ø 26", material: "multicouche", dn: "Ø 26" },
+  ];
+  const job = await client.from("takeoff_jobs").select("tenant_id").eq("id", jobs.Z1).single();
+  expect(job.error).toBeNull();
+  expect((await client.from("takeoff_items").insert(items.map(({ id, designation, material, dn }) => ({
+    id, tenant_id: job.data!.tenant_id, job_id: jobs.Z1, designation, quantity: 5, unit: "ml", confidence: 0.95,
+    evidence: "Tronçon fictif sur la page 1", source_page: 1, source_file_name: "plan-fictif.pdf", rules_stale: true,
+    metadata: { rule_inputs: { version: 1, source: "designation", kind: "network", network: "GAZ", material, dn,
+      non_observable: null, model_quantity: 5 } },
+  })) as never)).error).toBeNull();
+  let pe = (await readItems(ui, jobs.Z1)).find((item) => item.id === peId)!;
+  await patchItems(ui, jobs.Z1, [{ item: pe, fields: { quantity: 5 } }]);
+  pe = (await readItems(ui, jobs.Z1)).find((item) => item.id === peId)!;
+  expect(pe.rule_results?.find((entry) => entry.rule === "dn_network")).toMatchObject({ status: "fail", acceptable: true });
+  const unqualified = await apiRequest<{ data: { failed: number } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobs.Z1}/items`,
+    { items: [{ item_id: pe.id, updated_at: pe.updated_at, fields: { is_verified: true } }] });
+  expect(unqualified.body.data.failed).toBe(1);
+  const url = `/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review/targeted?versionId=${ids.versionId}`;
+  await ui.app.open(`${url}&line=${peId}`);
+  await ui.screen.getByRole("button", "Accepter", { exact: false }).click();
+  const dialog = ui.screen.getByRole("dialog");
+  await expect(dialog.getByRole("heading", "Justifier l’acceptation")).toBeVisible();
+  await expect(dialog.getByRole("button", "Confirmer l’acceptation")).toBeDisabled();
+  await dialog.getByLabel("Motif").selectOption({ value: "gas_pe_buried_outside" });
+  await dialog.getByLabel("Référence du système").fill("Fabricant fictif, gamme G, certificat C, enterré hors emprise");
+  await dialog.getByRole("button", "Confirmer l’acceptation").click();
+  await expect(ui.screen.getByText("Ligne acceptée avec justification", { exact: true })).toBeVisible();
+  await ui.app.open(`${url}&line=${peId}`);
+  const stored = await client.from("takeoff_items").select("is_verified,verification_justification").eq("id", peId).single();
+  expect(stored.data).toMatchObject({ is_verified: true, verification_justification: { reason_code: "gas_pe_buried_outside" } });
+  await ui.app.open(`${url}&line=${blockedId}`);
+  await expect(ui.screen.getByRole("button", "Accepter", { exact: false })).toBeDisabled();
+  const blocked = (await readItems(ui, jobs.Z1)).find((item) => item.id === blockedId)!;
+  expect(blocked.rule_results?.find((entry) => entry.rule === "dn_network")).toMatchObject({ status: "fail", acceptable: false });
+  await recordEvidence(ui.army, "network-material-justification", { peId, blockedId, stored: stored.data, blocked: blocked.rule_results });
+});

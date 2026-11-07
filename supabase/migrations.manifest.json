@@ -304,6 +304,7 @@
     "20261104224500_takeoff_rule_cross_exclusions.sql": "1fbf6321dfdbc28f83534ecfe85c5f04ff91b891e170e29b68c5aaf533289554",
     "20261105020000_takeoff_rule_decisions.sql": "42bd3ca5e218cc18abba04e1ab3656fb2cf198a0912d076d984863fa9a5b2ba8",
     "20261106233931_takeoff_complete_failure_identities.sql": "1925ec1e4fdb0c2ee529c49fc6e5c7b0b6b124e7a0f6e369aede734a7b40d18a",
-    "20261107082522_takeoff_rules_recovery.sql": "b4ce1964ee04db165f4e71fdd9352ee9be47098911d794f6fa9cc93838af5eac"
+    "20261107082522_takeoff_rules_recovery.sql": "b4ce1964ee04db165f4e71fdd9352ee9be47098911d794f6fa9cc93838af5eac",
+    "20261107123425_takeoff_network_material_decisions.sql": "fdf3be48b3eb9da371c7c5ea917870e1055b4cdd3e36c2d6c06e1dad7b98ca9b"
   }
 }

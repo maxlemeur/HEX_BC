@@ -1,3 +1,4 @@
+import { verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
 import { z } from "zod";
 
 import {
@@ -16,6 +17,7 @@ export const takeoffJobItemResponseSchema = z.object({
   verified_at: timestamp.nullable(), verified_by: uuid.nullable(), created_at: timestamp, updated_at: timestamp,
   // Fixed rules (TI-664): their results, when they ran, whether a later edit left them to compute again, and who
   // typed the current quantity. Absent from an older answer: no rule read the line.
+  verification_justification: verificationJustificationSchema.nullable().optional(),
   rule_results: TakeoffRuleResultsSchema.optional(),
   rules_evaluated_at: timestamp.nullable().optional(),
   rules_stale: z.boolean().optional(),
@@ -44,7 +46,7 @@ export const TAKEOFF_ITEM_RULE_STATES_MAX = 5000;
  */
 export const takeoffItemRuleStateSchema = takeoffJobItemResponseSchema.pick({
   designation: true, quantity: true, unit: true, source_page: true, is_excluded: true, exclusion_reason: true, is_verified: true,
-  verified_at: true, verified_by: true, evidence: true, updated_at: true, quantity_entered_at: true, quantity_entered_by: true,
+  verified_at: true, verified_by: true, verification_justification: true, evidence: true, updated_at: true, quantity_entered_at: true, quantity_entered_by: true,
 }).partial().extend({
   item_id: uuid, rule_results: TakeoffRuleResultsSchema, rules_evaluated_at: timestamp.nullable(), rules_stale: z.boolean(),
 }).strict();

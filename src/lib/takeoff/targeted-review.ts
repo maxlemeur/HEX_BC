@@ -57,6 +57,9 @@ export function acceptanceOf(item: ApplyGuardItem, level: string | null): Accept
   if (item.is_verified) return { enabled: false, reason: "Ligne déjà acceptée." };
   if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
   const failures = blockingRules(item.rule_results, false);
+  if (failures.some((failure) => failure.code === "DN_NETWORK_MATERIAL_BLOCKED")) {
+    return { enabled: false, reason: "Matériau bloqué : corrigez la ligne ou demandez un forçage administrateur avec réserve ou variante." };
+  }
   const settles = failures.some((failure) => failure.acceptable)
     || ((level ?? "C") === "C" && failures.length === 0 && !item.rules_stale);
   if (!settles) {

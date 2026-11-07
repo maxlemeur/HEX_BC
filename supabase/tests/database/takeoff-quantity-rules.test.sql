@@ -256,7 +256,7 @@ set local role authenticated;
 
 -- A quantity to enter: verifying never settles it.
 select is(pg_temp.rules_exec('update-7', 'update public.takeoff_items set is_verified = true, verified_by = ''9e000000-0000-4000-8000-000000000001'', verified_at = now()
-  where id = ''9e000000-0000-4000-8000-000000000403'''), 'ok', 'the engineer verifies the quantity to enter');
+  where id = ''9e000000-0000-4000-8000-000000000403'''), '23514 TAKEOFF_RULE_NOT_ACCEPTABLE', 'the engineer cannot verify a quantity that must be entered');
 select is(pg_temp.rules_apply('guard-4', '9e000000-0000-4000-8000-000000000303'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'a verified quantity to enter still blocks');
 
 -- The entry is attested by its author, now; another user's name is refused.

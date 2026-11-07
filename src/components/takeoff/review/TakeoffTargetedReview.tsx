@@ -9,6 +9,8 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target 
 import { LoadingState } from "@/components/layout/loading-state";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
+import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
+import { requiresGasPeReason, requiresTechnicalJustification } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -103,6 +105,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const nextId = useRef<string | null>(null);
   const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number; expectedEvaluation?: string | null } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
+  const [justification, setJustification] = useState<{ item: TakeoffJobItem; gasPe: boolean } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -266,7 +269,11 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
 
   const accept = useCallback(() => {
     if (!current || readOnly || busy || !acceptance?.enabled) return;
-    void decide(current.item, { is_verified: true }, "Ligne acceptée");
+    if (requiresTechnicalJustification(current.item.rule_results)) {
+      setJustification({ item: current.item, gasPe: requiresGasPeReason(current.item.rule_results) });
+      return;
+    }
+    void decide(current.item, { is_verified: true }, "Ligne acceptée", current.item.rules_evaluated_at ?? undefined);
   }, [acceptance, busy, current, decide, readOnly]);
 
   const move = (delta: number) => {
@@ -279,7 +286,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   // E, V, F2, a digit and the arrows act on the line in focus, from this screen (or a focus lost to the page after a
   // decision removed its button), never from a field, a dialog or the dashboard's own bar.
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || wizardOpen) return;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || justification || wizardOpen) return;
     const target = event.target as HTMLElement;
     if (target !== document.body && !rootRef.current?.contains(target)) return;
     if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
@@ -536,6 +543,15 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         )}
       </div>
 
+      {justification ? (
+        <VerificationJustificationDialog gasPe={justification.gasPe} onClose={() => { setJustification(null); requestFocusList(); }}
+          onConfirm={(value) => {
+            void decide(justification.item, { is_verified: true, verification_justification: value }, "Ligne acceptée avec justification",
+              justification.item.rules_evaluated_at ?? null);
+            setJustification(null);
+            requestFocusList();
+          }} />
+      ) : null}
       {exclusion ? (
         <ExclusionReasonDialog key={exclusion.key} open count={1} defaultReason={exclusion.reason}
           onOpenChange={(open) => { if (!open) { setExclusion(null); requestFocusList(); } }}
@@ -651,7 +667,9 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                   <code className="rounded bg-surface px-1 font-mono text-[11px] text-muted-foreground">{failure.code}</code>
                 </p>
                 <p className="mt-0.5 text-xs text-foreground-secondary">{failure.reason}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable ? "Accepter (V) lève cet échec." : "À saisir : accepter (V) ne lève pas cet échec."}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable ? failure.rule === "dn_network" ? "Accepter (V) exige un motif et la référence du système." : "Accepter (V) lève cet échec."
+                  : failure.code === "DN_NETWORK_MATERIAL_BLOCKED" ? "Bloqué : V ne lève pas cet échec. Forçage administrateur uniquement."
+                    : "À saisir : accepter (V) ne lève pas cet échec."}</p>
               </li>
             ))}
           </ul>

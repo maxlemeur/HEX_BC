@@ -63209,6 +63209,36 @@
                         "updated_at": {
                           "type": "string"
                         },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "rule_results": {
                           "maxItems": 16,
                           "type": "array",
@@ -64803,6 +64833,36 @@
                         "updated_at": {
                           "type": "string"
                         },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "rule_results": {
                           "maxItems": 16,
                           "type": "array",
@@ -65074,6 +65134,36 @@
                         "updated_at": {
                           "type": "string"
                         },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "rule_results": {
                           "maxItems": 16,
                           "type": "array",
@@ -65341,6 +65431,36 @@
                         "updated_at": {
                           "type": "string"
                         },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "rule_results": {
                           "maxItems": 16,
                           "type": "array",
@@ -65589,6 +65709,36 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "rule_results": {
                           "maxItems": 16,
@@ -65929,6 +66079,36 @@
                         "updated_at": {
                           "type": "string"
                         },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "rule_results": {
                           "maxItems": 16,
                           "type": "array",
@@ -66177,6 +66357,36 @@
                         },
                         "updated_at": {
                           "type": "string"
+                        },
+                        "verification_justification": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "system_documented",
+                                    "gas_pe_buried_outside",
+                                    "gas_pe_facade_transition"
+                                  ]
+                                },
+                                "system_reference": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "system_reference"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "rule_results": {
                           "maxItems": 16,
@@ -67427,6 +67637,36 @@
                     "is_verified": {
                       "type": "boolean"
                     },
+                    "verification_justification": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason_code": {
+                              "type": "string",
+                              "enum": [
+                                "system_documented",
+                                "gas_pe_buried_outside",
+                                "gas_pe_facade_transition"
+                              ]
+                            },
+                            "system_reference": {
+                              "type": "string",
+                              "minLength": 10,
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "reason_code",
+                            "system_reference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "evidence": {
                       "anyOf": [
                         {
@@ -67584,6 +67824,36 @@
                             },
                             "updated_at": {
                               "type": "string"
+                            },
+                            "verification_justification": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string",
+                                      "enum": [
+                                        "system_documented",
+                                        "gas_pe_buried_outside",
+                                        "gas_pe_facade_transition"
+                                      ]
+                                    },
+                                    "system_reference": {
+                                      "type": "string",
+                                      "minLength": 10,
+                                      "maxLength": 500
+                                    }
+                                  },
+                                  "required": [
+                                    "reason_code",
+                                    "system_reference"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "rule_results": {
                               "maxItems": 16,
@@ -67840,6 +68110,36 @@
                           "type": "string",
                           "format": "uuid",
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "verification_justification": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason_code": {
+                              "type": "string",
+                              "enum": [
+                                "system_documented",
+                                "gas_pe_buried_outside",
+                                "gas_pe_facade_transition"
+                              ]
+                            },
+                            "system_reference": {
+                              "type": "string",
+                              "minLength": 10,
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "reason_code",
+                            "system_reference"
+                          ],
+                          "additionalProperties": false
                         },
                         {
                           "type": "null"

@@ -1,3 +1,4 @@
+import { verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
 import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
 import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import "server-only";
@@ -129,6 +130,7 @@ export const TAKEOFF_ITEMS_SELECT = [
   "verified_by",
   "created_at",
   "updated_at",
+  "verification_justification",
   "rule_results",
   "rules_evaluated_at",
   "rules_stale",
@@ -284,6 +286,7 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
   verified_by: z.string().uuid().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  verification_justification: verificationJustificationSchema.nullable().optional(),
   rule_results: TakeoffRuleResultsSchema.optional(),
   rules_evaluated_at: z.string().nullable().optional(),
   rules_stale: z.boolean().optional(),

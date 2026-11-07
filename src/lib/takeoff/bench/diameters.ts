@@ -20,7 +20,7 @@ import type { MaterialCode } from "@/lib/takeoff/bench/keys";
 
 // v2 (TI-664): copper 6 and 8 mm, cast iron DN 80, PE-X 40 to 63 and PP 16, sizes of the same standards the DN
 // rule of the fixed rules reads (rules/network-diameters.ts).
-export const DIAMETER_TABLE_VERSION = 2;
+export const DIAMETER_TABLE_VERSION = 3;
 
 export const DN_KEY_PATTERN = /^DN \d+(?:\.\d+)?$/;
 
@@ -28,6 +28,7 @@ export type DiameterFamily =
   | "cuivre"
   | "inox-sertir"
   | "inox-soude"
+  | "inox-evacuation"
   | "multicouche"
   | "per"
   | "pvc"
@@ -52,6 +53,10 @@ export const DIAMETER_FAMILIES: Record<DiameterFamily, FamilyInfo> = {
   },
   "inox-soude": {
     label: "Tube inox soudé", standard: "NF EN ISO 1127, ISO 6708", plan_label: "nominal_dn", materials: STAINLESS,
+  },
+  "inox-evacuation": {
+    label: "Tube inox d’évacuation (table provisoire)", standard: "NF EN 1124 (à recouper)",
+    plan_label: "nominal_dn", materials: STAINLESS,
   },
   multicouche: { label: "Tube multicouche", standard: "NF EN ISO 21003", plan_label: "outer_diameter", materials: ["multicouche"] },
   per: { label: "Tube PER", standard: "NF EN ISO 15875", plan_label: "outer_diameter", materials: ["per"] },
@@ -106,6 +111,12 @@ export const DIAMETER_TABLE: readonly DiameterEntry[] = [
     [60.3, null, 50], [76.1, null, 65], [88.9, null, 80], [114.3, null, 100], [139.7, null, 125],
     [168.3, null, 150], [219.1, null, 200], [273, null, 250], [323.9, null, 300],
   ]),
+  // TI-685: provisional drainage series, never an automatic admission. Blücher EuroPipe catalogue v24,
+  // pp. 1–2; second-manufacturer cross-check remains open. In particular DN 90 → OD 82 is not frozen.
+  ...series("inox-evacuation", [
+    [40, null, 40], [50, null, 50], [75, null, 70], [82, null, null], [110, null, 100],
+    [125, null, 125], [160, null, 150], [200, null, 200], [250, null, 250], [315, null, 300],
+  ]),
   ...series("multicouche", [
     [14, 2, null], [16, 2, 12], [18, 2, null], [20, 2, 15], [26, 3, 20], [32, 3, 25],
     [40, 3.5, 32], [50, 4, 40], [63, 4.5, 50], [75, 5, 65],
@@ -147,13 +158,13 @@ export function hasDiameterSeries(material: MaterialCode | null | undefined) {
 }
 
 function entriesFor(material: MaterialCode | null | undefined) {
-  if (!material) return DIAMETER_TABLE;
+  if (!material) return DIAMETER_TABLE.filter((entry) => entry.family !== "inox-evacuation");
   const families = new Set(
     (Object.keys(DIAMETER_FAMILIES) as DiameterFamily[])
       .filter((family) => DIAMETER_FAMILIES[family].materials.includes(material))
   );
   // A material without a series (calorifuge) follows the pipe it wraps: any size.
-  return families.size === 0 ? DIAMETER_TABLE : DIAMETER_TABLE.filter((entry) => families.has(entry.family));
+  return DIAMETER_TABLE.filter((entry) => entry.family !== "inox-evacuation" && (families.size === 0 || families.has(entry.family)));
 }
 
 const knownKeysCache = new Map<MaterialCode | null, ReadonlySet<string>>();
@@ -230,8 +241,11 @@ export function sameSizeWithoutSeries(left: DiameterLabel, right: DiameterLabel)
  * several entries with different outer diameters mean an ambiguous size, and
  * no entry an unknown size or an unmapped notation (« 20x25 »).
  */
-export function findDiameterEntries(text: string, material?: MaterialCode | null): DiameterEntry[] {
-  const candidates = entriesFor(material);
+export function findDiameterEntries(text: string, material?: MaterialCode | null, families?: readonly DiameterFamily[]): DiameterEntry[] {
+  // Drainage is opt-in by network: adding its OD 110 must never make an EF inox Ø 110 pass.
+  const candidates = families
+    ? DIAMETER_TABLE.filter((entry) => families.includes(entry.family) && (!material || DIAMETER_FAMILIES[entry.family].materials.includes(material)))
+    : entriesFor(material);
   const normalized = normalize(text);
 
   const byAlias = candidates.filter((entry) => entry.aliases.some((alias) =>

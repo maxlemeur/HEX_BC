@@ -49,7 +49,7 @@ async function readTakeoffItemsAfterRules(input: {
 
 /** A line's state the review shows and saves from, read with its rule state (TI-677 PR D). */
 const TAKEOFF_RULE_STATE_LINE = ["designation", "quantity", "unit", "source_page", "is_excluded", "exclusion_reason", "is_verified",
-  "verified_at", "verified_by", "evidence", "updated_at", "quantity_entered_at", "quantity_entered_by"] as const;
+  "verified_at", "verified_by", "verification_justification", "evidence", "updated_at", "quantity_entered_at", "quantity_entered_by"] as const;
 
 /**
  * The rule state of every line of the job the rules read (evaluated, or stale awaiting the server), read after the
@@ -138,7 +138,7 @@ export async function batchUpdateTakeoffItems(
       }
 
       const plan = prepareTakeoffItemPatch({
-        currentItem: current.item,
+        currentItem: normalizeTakeoffItemRow(current.item),
         entry,
         level: jobRow.level,
         userId,

@@ -211,6 +211,7 @@ export type TakeoffItemPatchField = {
   is_excluded?: boolean;
   exclusion_reason?: string | null;
   is_verified?: boolean;
+  verification_justification?: import("@/lib/takeoff/rules/verification").VerificationJustification | null;
   evidence?: string | null;
   /** The user typed this quantity (TI-664): attested for a quantity to enter, even equal to the proposed one. */
   quantity_entered?: true;

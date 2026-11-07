@@ -7,6 +7,8 @@ import type {
   TakeoffJobItem,
 } from "@/lib/takeoff/types";
 
+import { verificationError, verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
+
 const TAKEOFF_ITEM_BATCH_MAX = 100;
 
 const takeoffItemPatchFieldSchema = z
@@ -18,6 +20,7 @@ const takeoffItemPatchFieldSchema = z
     is_excluded: z.boolean().optional(),
     exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
     is_verified: z.boolean().optional(),
+    verification_justification: verificationJustificationSchema.nullable().optional(),
     evidence: z.string().trim().min(1).max(2000).nullable().optional(),
     quantity_entered: z.literal(true).optional(),
   })
@@ -53,7 +56,7 @@ export const TAKEOFF_ITEM_CONCURRENCY_ERROR =
 type TakeoffItemPatchCurrent = Pick<
   TakeoffJobItem,
   Exclude<keyof TakeoffItemPatchField, "quantity_entered"> | "updated_at"
->;
+> & Pick<TakeoffJobItem, "rule_results" | "rules_stale">;
 
 export type TakeoffItemPatchUpdate = Omit<TakeoffItemPatchField, "quantity_entered"> & {
   updated_at: string;
@@ -82,6 +85,14 @@ export function prepareTakeoffItemPatch(input: {
 
   if (currentItem.updated_at !== entry.updated_at) {
     return { success: false, error: TAKEOFF_ITEM_CONCURRENCY_ERROR };
+  }
+
+  if (fields.is_verified === true) {
+    const error = verificationError(currentItem.rule_results, currentItem.rules_stale, fields.verification_justification);
+    if (error) return { success: false, error };
+  }
+  if (fields.verification_justification !== undefined && fields.is_verified !== true) {
+    return { success: false, error: "La justification accompagne une acceptation explicite." };
   }
 
   if (input.level === "C" && fields.is_verified === true) {
@@ -124,6 +135,7 @@ export function prepareTakeoffItemPatch(input: {
 
   if (fields.is_verified !== undefined) {
     updatePayload.is_verified = fields.is_verified;
+    updatePayload.verification_justification = fields.is_verified ? fields.verification_justification ?? null : null;
     updatePayload.verified_at = fields.is_verified ? input.updatedAt : null;
     updatePayload.verified_by = fields.is_verified ? input.userId : null;
   }

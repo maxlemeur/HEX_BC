@@ -231,7 +231,7 @@ describe("DN × network reference", () => {
     expect(checkNetworkDiameter("EF", "pvc-pression", "DN 20").status).toBe("compatible");
     expect(checkNetworkDiameter("EU", "fonte", "DN 80").status).toBe("compatible");
     expect(checkNetworkDiameter("GAZ", "cuivre", "DN 8").status).toBe("compatible");
-    expect(checkNetworkDiameter("EUG", "inox", "DN 100").status).toBe("compatible");
+    expect(checkNetworkDiameter("EUG", "inox", "DN 100").status).toBe("requires_justification");
     expect(checkNetworkDiameter("GLY", "cuivre", "DN 28").status).toBe("compatible");
   });
 

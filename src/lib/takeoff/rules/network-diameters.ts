@@ -24,7 +24,7 @@ import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeof
 //   diameters are told apart here (PVC_SERIES). Cases left to Max
 //   (AMBIGUOUS_NETWORK_MATERIALS) stay as written here until he decides.
 
-export const NETWORK_DIAMETER_TABLE_VERSION = 1;
+export const NETWORK_DIAMETER_TABLE_VERSION = 2;
 
 const STAINLESS: readonly MaterialCode[] = ["inox", "inox-304l", "inox-316l"];
 const STEEL: readonly MaterialCode[] = ["acier", "acier-noir"];
@@ -55,7 +55,7 @@ export const NETWORK_MATERIALS: Record<NetworkCode, readonly MaterialCode[]> = {
   EUG: DRAINAGE,
   EP: DRAINAGE,
   VP: DRAINAGE,
-  COND: ["pvc", "pvc-pression", "pp", "pehd"],
+  COND: ["pvc", "pvc-pression", "pp", "pehd", ...STAINLESS],
   CS: FIRE,
   RIA: FIRE,
   SPK: FIRE,
@@ -77,20 +77,25 @@ export const NETWORK_MATERIALS: Record<NetworkCode, readonly MaterialCode[]> = {
   "CW-R": [...HYDRONIC, "pehd"],
 };
 
-/** Choices of this table a plumber may contest: listed for Max, unchanged until he decides. */
-export const AMBIGUOUS_NETWORK_MATERIALS: ReadonlyArray<{ network: NetworkCode; material: MaterialCode; note: string }> = [
-  { network: "EUG", material: "pvc", note: "PVC admis pour les eaux grasses (effluents chauds) : à confirmer." },
-  { network: "EUG", material: "inox", note: "Inox d'évacuation (NF EN 1124) admis, sa série lue par celles de l'inox soudé et à sertir : à confirmer." },
-  { network: "GLY", material: "cuivre", note: "Cuivre admis pour l'eau glycolée (seul le zinc est exclu) : à confirmer." },
-  { network: "EF", material: "pehd", note: "PEHD admis pour l'eau froide, souvent réservé à l'enterré : à confirmer à l'intérieur." },
-  { network: "EF", material: "acier-galvanise", note: "Acier galvanisé admis pour l'eau froide, refusé pour l'ECS : à confirmer." },
-  { network: "RECS", material: "per", note: "PER admis pour le bouclage ECS : à confirmer." },
-  { network: "COND", material: "cuivre", note: "Cuivre refusé pour les condensats : à confirmer." },
-  { network: "GAZ", material: "multicouche", note: "Multicouche gaz refusé (non listé) : à confirmer." },
-  { network: "GLY", material: "multicouche", note: "Multicouche refusé pour l'eau glycolée : à confirmer." },
-  { network: "RIA", material: "pehd", note: "PEHD refusé pour les RIA : à confirmer." },
-  { network: "EV", material: "pvc", note: "Aucun DN minimal par réseau (un EV en PVC 32 passe) : à confirmer (WC 80 à 100)." },
-];
+/** Open evidence only, never treated as permission by the evaluator. */
+export const AMBIGUOUS_NETWORK_MATERIALS = [
+  { network: "EU", material: "inox", note: "Série NF EN 1124 provisoire : second fabricant et DN 90 à recouper." },
+] as const;
+
+const DRAINAGE_NETWORKS: readonly NetworkCode[] = ["EU", "EV", "EUV", "EUG", "EP", "VP"];
+
+/** A condition belongs to the whole network/material family, not just its generic spelling. */
+function conditionOf(network: NetworkCode, material: MaterialCode): string | null {
+  if (network === "GAZ" && material === "pehd") return "PE gaz : enterré à l’extérieur hors emprise, ou remontée en façade jusqu’au raccord métal/plastique.";
+  if (DRAINAGE_NETWORKS.includes(network) && STAINLESS.includes(material)) return "Inox d’évacuation NF EN 1124 : gamme et série à justifier (table provisoire).";
+  if (network === "EUG" && material === "pvc") return "Eaux grasses : justifier un système PVC-C ou haute température.";
+  if ((network === "EF" || network === "EFA") && material === "acier-galvanise") return "Certification NF, analyse d’eau et absence de cuivre en amont à justifier.";
+  if ((network === "EF" || network === "EFA") && material === "pehd") return "Gamme eau potable et pose intérieure à justifier.";
+  if (network === "COND" && material === "cuivre") return "Justifier des condensats de climatisation.";
+  if (network === "RIA" && material === "pehd") return "Système PEHD pour RIA à justifier ; matériaux admis à vérifier.";
+  if (["GLY", "GLY-S", "GLY-R"].includes(network) && material === "multicouche") return "Gamme antigel et pourcentage de glycol à justifier.";
+  return null;
+}
 
 /** Materials that wrap a pipe: no series of their own, not read by the DN rule. */
 export const WRAPPING_MATERIALS: readonly MaterialCode[] = ["calorifuge", "cordon-chauffant"];
@@ -107,6 +112,8 @@ function familiesOf(material: MaterialCode): DiameterFamily[] {
 
 export type NetworkDiameterCheck =
   | { status: "compatible" }
+  | { status: "requires_justification"; reason: string }
+  | { status: "blocked"; reason: string }
   | { status: "material_missing" | "dn_missing" }
   | { status: "material_not_allowed"; allowed: readonly MaterialCode[] }
   | { status: "dn_not_in_series"; families: DiameterFamily[] };
@@ -114,15 +121,19 @@ export type NetworkDiameterCheck =
 /** The triplet's place in the table: compatible, or why it fails. Insulation and trace heating are never passed here. */
 export function checkNetworkDiameter(network: NetworkCode, material: MaterialCode | null, dn: string | null): NetworkDiameterCheck {
   if (material === null) return { status: "material_missing" };
+  if (network === "GAZ" && material === "multicouche") return { status: "blocked", reason: "Multicouche en gaz : validation interdite ; seul un administrateur peut forcer avec une réserve ou une variante." };
+  const condition = conditionOf(network, material);
   const allowed = NETWORK_MATERIALS[network];
-  if (!allowed.includes(material)) return { status: "material_not_allowed", allowed };
+  if (!condition && !allowed.includes(material)) return { status: "material_not_allowed", allowed };
   if (dn === null || dn.trim() === "") return { status: "dn_missing" };
-  const families = familiesOf(material);
+  const families: DiameterFamily[] = STAINLESS.includes(material) && DRAINAGE_NETWORKS.includes(network)
+    ? ["inox-evacuation"] : familiesOf(material).filter((family) => family !== "inox-evacuation");
   // findDiameterEntries restricts to the material's series; a material without series would read every series.
   if (families.length === 0) return { status: "dn_not_in_series", families };
   const restricted = PVC_SERIES[material];
-  const entries = findDiameterEntries(dn, material).filter((entry) => !restricted || restricted.includes(entry.od_mm));
-  return entries.length > 0 ? { status: "compatible" } : { status: "dn_not_in_series", families };
+  const entries = findDiameterEntries(dn, material, families).filter((entry) => !restricted || restricted.includes(entry.od_mm));
+  if (entries.length === 0) return { status: "dn_not_in_series", families };
+  return condition ? { status: "requires_justification", reason: condition } : { status: "compatible" };
 }
 
 /** Every network of the vocabulary has a row: a code added to keys.ts without one fails the type check above. */

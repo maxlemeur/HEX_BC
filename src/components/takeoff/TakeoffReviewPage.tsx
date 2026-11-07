@@ -18,6 +18,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
+import { requiresTechnicalJustification } from "@/lib/takeoff/rules/verification";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
@@ -644,6 +645,15 @@ export default function TakeoffReviewPage({
   // ---- Item update helpers
   const updateItemField = useCallback(
     (itemId: string, field: string, value: unknown) => {
+      const selected = items.find((item) => item.id === itemId);
+      if (field === "is_verified" && value === true && requiresTechnicalJustification(selected?.rule_results)) {
+        if (!projectId || items.some((item) => item._dirty || item._saving)) {
+          toast.info({ title: "Enregistrez les modifications, puis ouvrez la revue ciblée pour justifier cette ligne." });
+          return;
+        }
+        router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
+        return;
+      }
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== itemId) return item;
@@ -651,7 +661,7 @@ export default function TakeoffReviewPage({
         })
       );
     },
-    []
+    [items, projectId, router, jobId, versionId, toast]
   );
 
   // TI-664 L5c: PATCH answers carry the job's rule states; one that arrives after a later request's answer (autosave

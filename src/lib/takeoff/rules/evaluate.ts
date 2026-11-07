@@ -150,10 +150,22 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
   // A vector label keeps the size, not its notation (« DN 100 » or « Ø 110 » both give a number): read it either way.
   if (check.status === "dn_not_in_series" && inputs.source === "vector" && inputs.dn?.startsWith("DN ")) {
     const outer = checkNetworkDiameter(network, inputs.material, `Ø ${inputs.dn.slice(3)}`);
-    if (outer.status === "compatible") check = outer;
+    if (outer.status === "compatible" || outer.status === "requires_justification") check = outer;
   }
   const name = `${networkLabel(network)} (${NETWORKS[network].label.toLowerCase()})`;
+  // PE gas keeps its qualified installation requirement even when the diameter is missing or outside the series.
+  // A stable code survives result bounding and is read identically by the UI, API and database trigger.
+  if (network === "GAZ" && inputs.material === "pehd") {
+    const diameter = check.status === "dn_missing" ? " Diamètre non lu : système à préciser."
+      : check.status === "dn_not_in_series" ? " Diamètre hors série : système à justifier." : "";
+    return result("dn_network", "fail", "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION",
+      `PE gaz : justifier une pose enterrée à l’extérieur hors emprise du bâtiment, ou une remontée en façade jusqu’au raccord métal/plastique.${diameter}`, details);
+  }
   switch (check.status) {
+    case "blocked":
+      return result("dn_network", "fail", "DN_NETWORK_MATERIAL_BLOCKED", check.reason, details, false);
+    case "requires_justification":
+      return result("dn_network", "fail", "DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION", check.reason, details);
     case "compatible":
       return result("dn_network", "pass", "DN_NETWORK_COMPATIBLE",
         `${inputs.dn} en ${materialLabel(inputs.material as string).toLowerCase()} compatible avec le réseau ${name}.`, details);
