@@ -115,14 +115,15 @@ export async function saveTakeoffReviewDecision(
   const reviewReference = buildTakeoffDpgfReviewTargetReference({ estimateItem, unit: row.dpgf.unit });
   const decisionTimestamp = new Date().toISOString();
   const linkedFromVersionId = accessibleJob.linked_from_version_id;
-  const sourceDecision = !existingDecision && linkedFromVersionId && row.applied_decision?.source === "carried_over"
+  const sameDecisionLine = row.applied_decision?.version_id === scope.versionId;
+  const sourceDecision = !sameDecisionLine && linkedFromVersionId && row.applied_decision?.source === "carried_over"
     ? await loadTakeoffDpgfSourceDecision({
         supabase,
         tenantId,
         jobId: normalizedJobId,
         sourceVersionId: linkedFromVersionId,
         sourceEstimateItemId: row.applied_decision.estimate_item_id,
-        reviewReference,
+        reviewReference: row.applied_decision.review_reference,
       })
     : null;
   const plan = buildTakeoffDpgfReviewDecisionPlan({
@@ -134,6 +135,7 @@ export async function saveTakeoffReviewDecision(
     reviewReference,
     decisionTimestamp,
     existingDecision,
+    sameDecisionLine,
     sourceDecision,
     linkedFromVersionId,
   });

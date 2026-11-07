@@ -102,7 +102,7 @@ type StoredEstimateItem = {
   title: string;
   description: string | null;
   quantity: number | null;
-  source_metadata?: { dpgf_source_quantity: number | null };
+  source_metadata?: { dpgf_source_quantity: number | null; dpgf_source_unit?: string | null; mapped_row_id?: string };
   pricing_status?: string;
   unit_price_ht_cents?: number;
   selected_supplier_price_id: string | null;
@@ -969,11 +969,24 @@ describe("takeoff DPGF comparison server helpers", () => {
     ]);
   });
 
-  it("excludes carried review decisions from forced-manual blockers in the hub summary", async () => {
+  it.each([
+    { name: "a clone with an edited live quantity", sourceQuantity: 0, targetQuantity: 0, targetUnit: "m²", sameMapping: true, carries: true },
+    { name: "a different physical unit", sourceQuantity: 0, targetQuantity: 0, targetUnit: "ml", sameMapping: true, carries: false },
+    { name: "a revised source quantity", sourceQuantity: 0, targetQuantity: 15, targetUnit: "m2", sameMapping: true, carries: false },
+    { name: "a blank source changed to zero", sourceQuantity: null, targetQuantity: 0, targetUnit: "m2", sameMapping: true, carries: false },
+    { name: "another import with identical values", sourceQuantity: 0, targetQuantity: 0, targetUnit: "m2", sameMapping: false, carries: false },
+  ])("checks the carried decision against $name", async (scenario) => {
     const mock = createSupabaseMock();
-    // Carry-over now establishes uniqueness against the actual source rows.
+    const mappedRowId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const sourceMetadata = { mapped_row_id: mappedRowId, dpgf_source_quantity: scenario.sourceQuantity, dpgf_source_unit: "m2" };
+    const target = mock.state.estimateItems[0]!;
+    target.quantity = 7;
+    target.source_metadata = { mapped_row_id: scenario.sameMapping ? mappedRowId : "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      dpgf_source_quantity: scenario.targetQuantity, dpgf_source_unit: scenario.targetUnit };
+    target.source_page = null;
     mock.state.estimateItems.push({
-      ...mock.state.estimateItems[0]!, version_id: SOURCE_VERSION_ID, id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      ...target, source_metadata: sourceMetadata, quantity: 4,
+      version_id: SOURCE_VERSION_ID, id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
     });
     mock.state.reviewDecisions = [
       {
@@ -982,14 +995,14 @@ describe("takeoff DPGF comparison server helpers", () => {
         version_id: SOURCE_VERSION_ID,
         takeoff_job_id: JOB_ID,
         estimate_item_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-        review_reference: "dpgf xlsx row 12",
+        review_reference: "1 faux plafond acoustique",
         line_label: "Faux plafond acoustique",
         line_position: 1,
         source_file_name: "dpgf.xlsx",
-        source_page: 12,
+        source_page: null,
         carried_over_from_version_id: null,
         carried_over_at: null,
-        decision: "keep_dpgf",
+        decision: "out_of_scope",
         reason: "Decision issue de la version précédente.",
         decided_at: "2026-03-06T10:10:00.123456+00:00",
         updated_at: "2026-03-06T10:10:00.123456+00:00",
@@ -1022,23 +1035,25 @@ describe("takeoff DPGF comparison server helpers", () => {
       projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     });
 
-    expect(summary).toMatchObject({
-      forced_manual: 0,
-      total_lines: 1,
-      unused_takeoff_items: 1,
-    });
+    expect(summary.total_lines).toBe(1);
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
     } as never);
     const comparison = await fetchDpgfTakeoffComparison(JOB_ID, {
       version_id: VERSION_ID, view: "all",
     });
-    expect(comparison.rows[0]?.applied_decision).toMatchObject({
-      source: "carried_over",
-      version_id: SOURCE_VERSION_ID,
-      estimate_item_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-      decided_at: "2026-03-06T10:10:00.123456+00:00",
-    });
+    expect(comparison.rows[0]?.dpgf_quantity).toBe(scenario.targetQuantity);
+    if (scenario.carries) {
+      expect(summary.forced_manual).toBe(0);
+      expect(comparison.rows[0]?.applied_decision).toMatchObject({
+        source: "carried_over",
+        version_id: SOURCE_VERSION_ID,
+        estimate_item_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        decided_at: "2026-03-06T10:10:00.123456+00:00",
+      });
+    } else {
+      expect(comparison.rows[0]?.applied_decision).toBeNull();
+    }
     expect(takeoffDpgfComparisonResponseSchema.safeParse(comparison)).toMatchObject({ success: true });
   });
 

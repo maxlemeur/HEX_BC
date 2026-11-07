@@ -37,7 +37,7 @@ type BuildTakeoffDpgfComparisonInput = {
   takeoffLines: TakeoffDpgfComparisonTakeoffLine[];
   manualLinks?: TakeoffDpgfManualLinkRecord[];
   reviewDecisions?: TakeoffDpgfReviewDecisionRecord[];
-  carriedReviewDecisions?: TakeoffDpgfReviewDecisionRecord[];
+  carriedReviewDecisions?: ReadonlyMap<string, TakeoffDpgfReviewDecisionRecord>;
   threshold?: number;
   cursor?: string | null;
   pageSize?: number;
@@ -47,7 +47,6 @@ type BuildTakeoffDpgfComparisonInput = {
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   searchText: string;
   normalizedUnit: string | null;
-  reviewReference: string;
 };
 
 type NormalizedTakeoffLine = TakeoffDpgfComparisonTakeoffLine & {
@@ -132,7 +131,7 @@ function decodeCursor(cursor: string | null | undefined) {
   }
 }
 
-function normalizeUnit(value: string | null | undefined): string | null {
+export function normalizeTakeoffDpgfUnit(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
 
   const known = normalizeMeasurementUnit(value).unitCode;
@@ -732,19 +731,12 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
   const normalizedDpgfLines: NormalizedDpgfLine[] = input.dpgfLines.map((line) => ({
     ...line,
     searchText: buildDpgfSearchText(line),
-    normalizedUnit: normalizeUnit(line.unit),
-    reviewReference: buildTakeoffDpgfReviewReference({
-      sourceFileName: line.source_file_name,
-      sourcePage: line.source_page,
-      position: line.position,
-      title: line.title,
-      unit: line.unit,
-    }),
+    normalizedUnit: normalizeTakeoffDpgfUnit(line.unit),
   }));
   const normalizedTakeoffLines: NormalizedTakeoffLine[] = input.takeoffLines.map((line) => ({
     ...line,
     searchText: buildTakeoffSearchText(line),
-    normalizedUnit: normalizeUnit(line.unit),
+    normalizedUnit: normalizeTakeoffDpgfUnit(line.unit),
   }));
 
   const takeoffById = new Map(
@@ -761,21 +753,6 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
   const decisionByEstimateItemId = new Map(
     (input.reviewDecisions ?? []).map((decision) => [decision.estimate_item_id, decision] as const)
   );
-  // Many imported lines can share a physical PDF page. A prior decision can
-  // carry only between a unique pair of lines with the same label and position.
-  const key = (ref: string, label: string, position: number, file: string | null, page: number | null) =>
-    JSON.stringify([ref, label, position, file, page]);
-  const carriedByKey = new Map<string, TakeoffDpgfReviewDecisionRecord | null>();
-  for (const d of input.carriedReviewDecisions ?? []) {
-    const k = key(d.review_reference, d.line_label, d.line_position, d.source_file_name, d.source_page);
-    carriedByKey.set(k, carriedByKey.has(k) ? null : d);
-  }
-  const targetKeys = new Set<string>();
-  for (const line of normalizedDpgfLines) {
-    const k = key(line.reviewReference, line.title, line.position, line.source_file_name, line.source_page);
-    if (targetKeys.has(k)) carriedByKey.delete(k);
-    targetKeys.add(k);
-  }
   const usedTakeoffIds = new Set<string>();
 
   // Les liens manuels sont prioritaires : leurs items de métré sont retirés du
@@ -809,9 +786,11 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
     const manuallyLinkedTakeoffItems = manualLinks
       .map((link) => takeoffById.get(link.takeoff_item_id) ?? null)
       .filter((item): item is NormalizedTakeoffLine => item !== null);
-    const explicitDecision = decisionByEstimateItemId.get(dpgfLine.estimate_item_id) ?? null;
-    const carriedDecision =
-      explicitDecision ?? carriedByKey.get(key(dpgfLine.reviewReference, dpgfLine.title, dpgfLine.position, dpgfLine.source_file_name, dpgfLine.source_page)) ?? null;
+    const current = decisionByEstimateItemId.get(dpgfLine.estimate_item_id);
+    const explicitDecision = current && current.line_label === dpgfLine.title &&
+      current.source_file_name === dpgfLine.source_file_name && current.source_page === dpgfLine.source_page
+      ? current : null;
+    const carriedDecision = explicitDecision ?? input.carriedReviewDecisions?.get(dpgfLine.estimate_item_id) ?? null;
 
     if (manuallyLinkedTakeoffItems.length > 0) {
       manuallyLinkedTakeoffItems.forEach((item) => usedTakeoffIds.add(item.item_id));

@@ -165,6 +165,7 @@ export function buildTakeoffDpgfReviewDecisionPlan(input: {
   reviewReference: string;
   decisionTimestamp: string;
   existingDecision: TakeoffDpgfExistingDecision | null;
+  sameDecisionLine: boolean;
   sourceDecision: TakeoffDpgfSourceDecision | null;
   linkedFromVersionId: string | null;
 }) {
@@ -172,7 +173,7 @@ export function buildTakeoffDpgfReviewDecisionPlan(input: {
     typeof input.payload.reason === "string" && input.payload.reason.trim().length > 0
       ? input.payload.reason.trim()
       : null;
-  let carryOver: TakeoffDpgfDecisionCarryOver | null = input.existingDecision;
+  let carryOver: TakeoffDpgfDecisionCarryOver | null = input.sameDecisionLine ? input.existingDecision : null;
   if (!carryOver && input.linkedFromVersionId && input.sourceDecision) {
     carryOver = {
       carried_over_from_version_id:

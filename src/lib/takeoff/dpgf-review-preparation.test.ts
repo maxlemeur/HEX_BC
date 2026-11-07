@@ -60,6 +60,7 @@ function decisionInput(
     reviewReference: "dpgf ventilation xlsx row 12",
     decisionTimestamp: NOW,
     existingDecision: null,
+    sameDecisionLine: true,
     sourceDecision: null,
     linkedFromVersionId: null,
     ...overrides,
@@ -133,6 +134,18 @@ describe("DPGF review reference preparation", () => {
 });
 
 describe("DPGF decision preparation", () => {
+  it("starts a fresh review for a renamed line while keeping the previous decision in the audit", () => {
+    const plan = buildTakeoffDpgfReviewDecisionPlan(decisionInput({
+      existingDecision: {
+        carried_over_from_version_id: ORIGINAL_VERSION_ID, carried_over_at: CARRIED_AT,
+        decision: "out_of_scope", reason: "Ancienne prestation.",
+      },
+      sameDecisionLine: false,
+    }));
+    expect(plan.upsertPayload).toMatchObject({ carried_over_from_version_id: null, carried_over_at: null });
+    expect(plan.auditMetadata).toMatchObject({ previous_decision: "out_of_scope", previous_reason: "Ancienne prestation." });
+  });
+
   it("keeps current null provenance and current audit values despite an inherited source", () => {
     const plan = buildTakeoffDpgfReviewDecisionPlan(decisionInput({
       existingDecision: {

@@ -60,29 +60,23 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     jobId,
   });
   const linkedFromVersionId = accessibleJob.linked_from_version_id;
-  const carriedReviewDecisionsPromise = linkedFromVersionId
-    ? listTakeoffDpgfReviewDecisions({
-        supabase,
-        tenantId,
-        versionId: linkedFromVersionId,
-        jobId,
-      }).then(async (decisions) => decisions.length === 0 ? [] :
-        carryTakeoffDpgfReviewDecisions({
+  const decisionSourcePromise = linkedFromVersionId
+    ? listTakeoffDpgfReviewDecisions({ supabase, tenantId, versionId: linkedFromVersionId, jobId })
+        .then(async (decisions) => ({
           decisions,
-          sourceItems: await listTakeoffDpgfEstimateItems({ supabase, tenantId, versionId: linkedFromVersionId }),
-          linkedFromVersionId,
-          linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
-        })
-      )
-    : Promise.resolve([]);
+          items: decisions.length
+            ? await listTakeoffDpgfEstimateItems({ supabase, tenantId, versionId: linkedFromVersionId })
+            : [],
+        }))
+    : Promise.resolve({ decisions: [], items: [] });
 
-  const [takeoffItems, allEstimateItems, manualLinks, reviewDecisions, carriedReviewDecisions, projectId] =
+  const [takeoffItems, allEstimateItems, manualLinks, reviewDecisions, decisionSource, projectId] =
     await Promise.all([
       listAllTakeoffItemsByJobId({ supabase, tenantId, jobId }),
       listTakeoffDpgfEstimateItems({ supabase, tenantId, versionId }),
       listTakeoffDpgfManualLinks({ supabase, tenantId, versionId, jobId }),
       listTakeoffDpgfReviewDecisions({ supabase, tenantId, versionId, jobId }),
-      carriedReviewDecisionsPromise,
+      decisionSourcePromise,
       input.projectId ?? getEstimateVersionProjectIdOrThrow({ supabase, tenantId, versionId }),
     ]);
 
@@ -109,7 +103,8 @@ export async function loadTakeoffDpgfComparisonContext(input: {
   assertSelectedLinesExist(new Set(estimateItems.map((item) => item.id)));
   // Match against the entire version even when refreshing a single line's
   // evidence: a second row can own the same takeoff candidate or source page.
-  const legacyFiles = new Set(allEstimateItems.filter(item => item.source_provider === "dpgf" &&
+  const documentaryItems = [...allEstimateItems, ...decisionSource.items];
+  const legacyFiles = new Set(documentaryItems.filter(item => item.source_provider === "dpgf" &&
     item.source_metadata?.dpgf_source_unit === undefined && !legacyMappedRowId(item) &&
     item.source_page !== null && !item.source_file_name?.toLowerCase().endsWith(".pdf"))
     .map(item => item.source_file_name));
@@ -117,10 +112,19 @@ export async function loadTakeoffDpgfComparisonContext(input: {
   for (const sourceFileName of legacyFiles) {
     legacyUnits.set(sourceFileName, await resolveDpgfUnitByRowIndex({ supabase, tenantId, projectId, sourceFileName }));
   }
-  const mappedIds = allEstimateItems.map(legacyMappedRowId).filter((id): id is string => id !== null);
+  const mappedIds = documentaryItems.map(legacyMappedRowId).filter((id): id is string => id !== null);
   const mappedFacts = await readDpgfMappedFacts({ supabase, tenantId, projectId, mappedIds });
   const dpgfLines = normalizeDpgfComparisonEstimateItems({ rows: allEstimateItems, legacyUnits, mappedFacts });
   assertSelectedLinesExist(new Set(dpgfLines.map((line) => line.estimate_item_id)));
+  const carriedReviewDecisions = linkedFromVersionId && decisionSource.decisions.length
+    ? carryTakeoffDpgfReviewDecisions({
+        decisions: decisionSource.decisions,
+        sourceLines: normalizeDpgfComparisonEstimateItems({ rows: decisionSource.items, legacyUnits, mappedFacts }),
+        targetLines: dpgfLines,
+        linkedFromVersionId,
+        linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
+      })
+    : undefined;
 
   return {
     supabase,

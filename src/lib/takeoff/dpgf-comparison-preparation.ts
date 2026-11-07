@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { unprocessableEntity } from "@/lib/estimates/errors";
+import { normalizeTakeoffDpgfUnit } from "@/lib/takeoff/dpgf-compare";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { takeoffDpgfCompareEstimateItemRowSchema } from "@/lib/takeoff/estimate-line-read-contract";
 import type {
@@ -183,24 +184,34 @@ export function buildDpgfUnitByRowIndex(rows: Array<{ payload: Record<string, un
   return unitByRowIndex;
 }
 
+type DocumentaryDpgfLine = TakeoffDpgfComparisonDpgfLine & {
+  mappedRowId: string | null;
+  sourceFactsKnown: boolean;
+};
+
+function mappedRowId(row: TakeoffDpgfEstimateItem): string | null {
+  const parsed = z.string().uuid().safeParse(row.source_metadata?.mapped_row_id);
+  return parsed.success ? parsed.data : null;
+}
+
 // Legacy imports reference their exact mapping. An edited estimate quantity cannot
 // stand in for the original cell when that mapped row no longer exists.
 export function legacyMappedRowId(row: TakeoffDpgfEstimateItem): string | null {
   if (row.item_type !== "line" || row.source_provider !== "dpgf" ||
       (row.source_metadata?.dpgf_source_unit !== undefined && row.source_metadata?.dpgf_source_quantity !== undefined)) return null;
-  const parsed = z.string().uuid().safeParse(row.source_metadata?.mapped_row_id);
-  return parsed.success ? parsed.data : null;
+  return mappedRowId(row);
 }
 
 export function normalizeDpgfComparisonEstimateItems(input: {
   rows: TakeoffDpgfEstimateItem[];
   legacyUnits: ReadonlyMap<string | null, Map<number, string | null>>;
   mappedFacts: ReadonlyMap<string, { quantity: number | null; unit: string | null }>;
-}): TakeoffDpgfComparisonDpgfLine[] {
+}): DocumentaryDpgfLine[] {
   return input.rows
     .filter(row => row.item_type === "line" && row.source_provider === "dpgf")
     .map(row => {
-      const facts = input.mappedFacts.get(legacyMappedRowId(row) ?? "");
+      const mappingId = mappedRowId(row);
+      const facts = mappingId ? input.mappedFacts.get(mappingId) : undefined;
       const metadata = row.source_metadata;
       const original = metadata?.dpgf_source_quantity;
       const quantity = original === undefined ? facts?.quantity ?? null :
@@ -212,6 +223,9 @@ export function normalizeDpgfComparisonEstimateItems(input: {
         ? toNullableText(metadata.dpgf_source_unit) : facts ? facts.unit : legacyUnit;
       return {
         estimate_item_id: row.id,
+        mappedRowId: mappingId,
+        sourceFactsKnown: (facts !== undefined || (original !== undefined && metadata?.dpgf_source_unit !== undefined))
+          && (original === undefined || original === null || quantity !== null),
         title: row.title,
         description: row.description,
         quantity,
@@ -247,30 +261,49 @@ export function getCarriedOverVersionIds(rows: unknown[]): string[] {
   );
 }
 
+function documentPosition(file: string | null, page: number | null, title: string, position: number) {
+  return JSON.stringify([file, page, title, position]);
+}
+
+function indexUniqueDocumentLines(lines: DocumentaryDpgfLine[]) {
+  const unique = new Map<string, DocumentaryDpgfLine | null>();
+  for (const line of lines) {
+    const key = documentPosition(line.source_file_name, line.source_page, line.title, line.position);
+    unique.set(key, unique.has(key) ? null : line);
+  }
+  return unique;
+}
+
 export function carryTakeoffDpgfReviewDecisions(input: {
   decisions: TakeoffDpgfReviewDecisionRecord[];
-  sourceItems: TakeoffDpgfEstimateItem[];
+  sourceLines: DocumentaryDpgfLine[];
+  targetLines: DocumentaryDpgfLine[];
   linkedFromVersionId: string;
   linkedFromVersionNumber: number | null;
-}): TakeoffDpgfReviewDecisionRecord[] {
-  const identity = (file: string | null, page: number | null, title: string, position: number) =>
-    JSON.stringify([file, page, title, position]);
-  const unique = new Map<string, string | null>();
-  for (const line of input.sourceItems) {
-    if (line.item_type !== "line" || line.source_provider !== "dpgf") continue;
-    const key = identity(line.source_file_name, line.source_page, line.title, line.position);
-    unique.set(key, unique.has(key) ? null : line.id);
+}): Map<string, TakeoffDpgfReviewDecisionRecord> {
+  const sources = indexUniqueDocumentLines(input.sourceLines);
+  const targets = indexUniqueDocumentLines(input.targetLines);
+  const carried = new Map<string, TakeoffDpgfReviewDecisionRecord>();
+  for (const decision of input.decisions) {
+    const key = documentPosition(decision.source_file_name, decision.source_page, decision.line_label, decision.line_position);
+    const source = sources.get(key);
+    const target = targets.get(key);
+    // A copied estimate keeps its mapping ID. Reimports can reuse every visible
+    // coordinate, and an edited estimate quantity is independent of the DPGF.
+    if (!source || !target || source.estimate_item_id !== decision.estimate_item_id ||
+        !source.mappedRowId || source.mappedRowId !== target.mappedRowId ||
+        !source.sourceFactsKnown || !target.sourceFactsKnown ||
+        source.quantity !== target.quantity || normalizeTakeoffDpgfUnit(source.unit) !== normalizeTakeoffDpgfUnit(target.unit)) {
+      continue;
+    }
+    carried.set(target.estimate_item_id, {
+      ...decision,
+      source: "carried_over",
+      carried_over_from_version_id: decision.carried_over_from_version_id ?? input.linkedFromVersionId,
+      carried_over_from_version_number: decision.carried_over_from_version_number ?? input.linkedFromVersionNumber,
+    });
   }
-  return input.decisions.filter(d =>
-    unique.get(identity(d.source_file_name, d.source_page, d.line_label, d.line_position)) === d.estimate_item_id
-  ).map((decision) => ({
-    ...decision,
-    source: "carried_over",
-    carried_over_from_version_id:
-      decision.carried_over_from_version_id ?? input.linkedFromVersionId,
-    carried_over_from_version_number:
-      decision.carried_over_from_version_number ?? input.linkedFromVersionNumber,
-  }));
+  return carried;
 }
 
 export function hydrateTakeoffDpgfComparisonSummary(

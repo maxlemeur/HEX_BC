@@ -971,6 +971,32 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     expect(data.rows.find(row => row.line_label === "Moquette")).toMatchObject({
       applied_decision: null, dpgf_quantity: 0, takeoff_quantity: 5, dpgf: { unit: "m2" }, review_status: "significant_gap",
     });
+    const db = await getAuthenticatedSupabaseClient();
+    const readPeinture = async () => {
+      const response = await page.request.get(`/api/takeoff/jobs/${seededJob.jobId}/dpgf-compare?version_id=${targetVersionId}&view=all`);
+      expect(response.status()).toBe(200);
+      const { data: snapshot } = await response.json() as { data: TakeoffDpgfComparisonResponse };
+      return snapshot.rows.find(row => row.line_id === targetPeintureLine.id);
+    };
+    const mappedRowId = sourcePeintureLine.mappedRowId!;
+    const revisions = [
+      { mapped_row_id: mappedRowId, dpgf_source_unit: "ml", dpgf_source_quantity: 20 },
+      { mapped_row_id: mappedRowId, dpgf_source_unit: "m2", dpgf_source_quantity: 25 },
+      { mapped_row_id: randomUUID(), dpgf_source_unit: "m2", dpgf_source_quantity: 20 },
+    ];
+    for (const revision of revisions) {
+      const { error } = await db.from("estimate_items").update({ source_metadata: revision })
+        .eq("id", targetPeintureLine.id).eq("version_id", targetVersionId);
+      expect(error).toBeNull();
+      expect(await readPeinture()).toMatchObject({
+        dpgf_quantity: revision.dpgf_source_quantity, dpgf: { unit: revision.dpgf_source_unit }, applied_decision: null,
+      });
+    }
+    const { error: restoreError } = await db.from("estimate_items").update({ source_metadata: { mapped_row_id: mappedRowId } })
+      .eq("id", targetPeintureLine.id).eq("version_id", targetVersionId);
+    expect(restoreError).toBeNull();
+    expect(await readPeinture()).toMatchObject({ applied_decision: { source: "carried_over", decision: "keep_dpgf" } });
+
     const peintureRow = page.getByRole("button", { name: /Peinture/i });
     await expect(peintureRow).toBeVisible();
     await peintureRow.click();
@@ -992,6 +1018,19 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     await expect(page.getByText("Décision enregistrée")).toBeVisible();
     await expect(page.locator("blockquote").filter({ hasText: freshReason })).toBeVisible();
     await expect(page.getByText(/Reprise v\d+/)).toBeVisible();
+
+    const { error: renameError } = await db.from("estimate_items").update({ title: "Étanchéité" })
+      .eq("id", targetPeintureLine.id).eq("version_id", targetVersionId);
+    expect(renameError).toBeNull();
+    expect(await readPeinture()).toMatchObject({ line_label: "Étanchéité", applied_decision: null });
+    const freshDecision = await page.request.patch(`/api/takeoff/jobs/${seededJob.jobId}/review-decision`, {
+      data: { version_id: targetVersionId, estimate_item_id: targetPeintureLine.id,
+        decision: "manual_fix", reason: "Reprendre les quantités de la nouvelle prestation." },
+    });
+    expect(freshDecision.status()).toBe(200);
+    expect(await readPeinture()).toMatchObject({ line_label: "Étanchéité", applied_decision: {
+      source: "current_version", carried_over_from_version_id: null, decision: "manual_fix",
+    } });
   });
 
   test("calculates a seeded price suggestion and requires explicit human validation before apply", async ({ ui: page }) => {
