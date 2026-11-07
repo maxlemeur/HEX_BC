@@ -47,6 +47,16 @@ function makeDatabase() {
   const writes: Array<{ table: string; rows: Row[] }> = [];
   // The restrictive policy « Operators can update estimate risk alerts » silently filters a non-operator's updates.
   const access = { canUpdate: true };
+  // Runs once before the next write, as a concurrent request committing first would.
+  const hooks: { beforeNextWrite: (() => void) | null } = { beforeNextWrite: null };
+  // Write requests to PostgREST, and how many of them wait at once (each holds a pool connection).
+  const traffic = { writes: 0, inFlight: 0, maxInFlight: 0 };
+  const sendWrite = <T>(result: T, resolve: (value: unknown) => unknown) => {
+    traffic.writes += 1;
+    traffic.inFlight += 1;
+    traffic.maxInFlight = Math.max(traffic.maxInFlight, traffic.inFlight);
+    return Promise.resolve(result).then((value) => { traffic.inFlight -= 1; return resolve(value); });
+  };
   let insertedCount = 0;
   function builder(table: string) {
     const filters: Array<(row: Row) => boolean> = [];
@@ -66,6 +76,11 @@ function makeDatabase() {
       update: (payload: Row) => { patch = payload; return query; },
       insert: (rows: Row[]) => { pendingInsert = rows; return query; },
       then: (resolve: (value: unknown) => unknown) => {
+        if ((pendingInsert || patch) && hooks.beforeNextWrite) {
+          const concurrentWrite = hooks.beforeNextWrite;
+          hooks.beforeNextWrite = null;
+          concurrentWrite();
+        }
         if (pendingInsert) {
           const inserted = pendingInsert.map((row) => {
             insertedCount += 1;
@@ -74,13 +89,14 @@ function makeDatabase() {
           tables[table].push(...inserted);
           writes.push({ table, rows: inserted });
           // A response capped at max_rows (1 000, supabase/config.toml), as a read is.
-          return Promise.resolve({ data: inserted.slice(0, 1000), error: null }).then(resolve);
+          return sendWrite({ data: inserted.slice(0, 1000), error: null }, resolve);
         }
         const rows = (tables[table] ?? []).filter((row) => filters.every((filter) => filter(row)))
           .filter(() => !patch || access.canUpdate);
         if (patch) {
           for (const row of rows) Object.assign(row, patch);
           writes.push({ table, rows: rows.map((row) => ({ ...row })) });
+          return sendWrite({ data: mode === "one" ? rows[0] ?? null : rows.slice(0, 1000), error: null }, resolve);
         }
         return Promise.resolve({
           data: mode === "one" ? rows[0] ?? null : rows.slice(start, Math.min(end + 1, start + 1000)),
@@ -94,7 +110,7 @@ function makeDatabase() {
     from: vi.fn((table: string) => builder(table)),
     rpc: vi.fn(() => builder("risk_items")),
   };
-  return { tables, writes, supabase, access };
+  return { tables, writes, supabase, access, traffic, hooks };
 }
 
 function storedAlert(overrides: Row = {}): Row {
@@ -184,6 +200,36 @@ describe("risk radar operations", () => {
     expect(db.tables.estimate_risk_alerts.filter((row) => row.is_active === true)).toHaveLength(1202);
   });
 
+  it("reopens a large radar with the same alerts in a few write requests that never flood the connection pool", async () => {
+    // V3E20 reopened the radar of 1 100 alerts with one UPDATE request per alert: PostgREST answered PGRST003.
+    const lines = Array.from({ length: 1201 }, (_, index) => `line-${String(index).padStart(4, "0")}`);
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({
+      rows: lines.map((line_id) => ({ line_id, line_label: `Ligne ${line_id}`, proofs: [] })),
+    } as never);
+    const first = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+    const reviewed = db.tables.estimate_risk_alerts.find((row) => row.line_id === lines[3])!;
+    Object.assign(reviewed, { status: "false_positive", review_note: "Preuve papier", reviewed_at: NOW, reviewed_by: USER });
+    // 40 stored alerts whose content the next projection changes.
+    for (const row of db.tables.estimate_risk_alerts.filter((alert) => alert.cause_code === "missing_proof").slice(10, 50)) {
+      row.scope_label = "Libellé périmé";
+    }
+    for (const row of db.tables.estimate_risk_alerts) row.last_detected_at = "2026-01-01T00:00:00.000Z";
+    db.traffic.writes = 0;
+    db.traffic.maxInFlight = 0;
+
+    const reopened = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+
+    const keys = (items: typeof first.items) => items.map((alert) => `${alert.alert_id}:${alert.cause_code}`).sort();
+    expect(keys(reopened.items)).toEqual(keys(first.items));
+    expect(reopened.items.find((alert) => alert.line_id === lines[3])).toMatchObject({ status: "false_positive", review_note: "Preuve papier" });
+    expect(db.tables.estimate_risk_alerts.filter((row) => row.scope_label === "Libellé périmé")).toEqual([]);
+    // Every alert detected again carries this detection, as when each was rewritten.
+    expect(db.tables.estimate_risk_alerts.filter((row) => row.last_detected_at === "2026-01-01T00:00:00.000Z")).toEqual([]);
+    // 40 rewritten alerts, then the refresh of the 1 162 others by bounded id chunks.
+    expect(db.traffic.writes).toBeLessThanOrEqual(40 + 10);
+    expect(db.traffic.maxInFlight).toBeLessThanOrEqual(8);
+  });
+
   it("shows a non-operator project owner the stored projection when the policy filters the radar's updates", async () => {
     db.access.canUpdate = false;
     vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ ...auth, tenantRole: "viewer" });
@@ -206,6 +252,35 @@ describe("risk radar operations", () => {
     expect(radar.items.find((alert) => alert.alert_id === "stale")).toMatchObject({ line_id: "deleted-line", status: "to_process" });
     expect(radar.items.find((alert) => alert.line_id === "line-new")).toMatchObject({ cause_code: "missing_proof", status: "to_process" });
     expect(radar.summary).toMatchObject({ to_process_count: 2, assumed_count: 1 });
+  });
+
+  it("shows a non-operator project owner an unchanged radar again when the policy filters its refresh", async () => {
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({
+      rows: ["line-a", "line-b"].map((line_id) => ({ line_id, line_label: `Ligne ${line_id}`, proofs: [] })),
+    } as never);
+    const first = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+    db.access.canUpdate = false;
+    vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ ...auth, tenantRole: "viewer" });
+
+    const reopened = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+
+    expect(reopened.items.map((alert) => alert.alert_id).sort()).toEqual(first.items.map((alert) => alert.alert_id).sort());
+    expect(reopened.items).toHaveLength(3);
+  });
+
+  it("leaves out an alert that a concurrent radar deactivated after this one read it", async () => {
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({
+      rows: ["line-a", "line-b"].map((line_id) => ({ line_id, line_label: `Ligne ${line_id}`, proofs: [] })),
+    } as never);
+    await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+    const closed = db.tables.estimate_risk_alerts.find((row) => row.line_id === "line-a")!;
+    db.hooks.beforeNextWrite = () => { closed.is_active = false; };
+
+    const reopened = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+
+    // The response is the stored projection: the closed alert is no longer active.
+    expect(reopened.items.map((alert) => alert.alert_id)).not.toContain(closed.id);
+    expect(reopened.items).toHaveLength(2);
   });
 
   it("reads active alerts within tenant/version/job without recalculating the projection", async () => {
