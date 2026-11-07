@@ -325,7 +325,7 @@ export function useEstimateEditorState({
   const {
     document: editorDocument, scope: documentScope, version, settings, savedSettings, items,
     setVersion, setSettings, setItems,
-    categories, supplyTypes, laborRoles, setLaborRoles,
+    categories, supplyTypes, laborRoles, setLaborRoles, allowedTaxRatesBp,
     versionRef, itemsRef,
   } = useEstimateEditorDocument({ actorId: readActorId, tenantId: readTenantId, versionId: resolvedVersionId });
   const [suggestionsHydration, setSuggestionsHydration] = useState<{
@@ -2388,8 +2388,8 @@ export function useEstimateEditorState({
   );
 
   const v3Grid = useMemo<EstimateV3GridModel | null>(
-    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown) }),
-    [v3Breakdown]
+    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp }),
+    [v3Breakdown, allowedTaxRatesBp]
   );
 
   const closeSettingsDrawer = useCallback(() => {

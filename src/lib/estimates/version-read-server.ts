@@ -7,6 +7,7 @@ import {
   resolveEstimateEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
+import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import {
@@ -310,7 +311,7 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
 
 export async function getEstimateVersionDetails(
   versionId: string,
-  options?: { includeExportCalculationContext?: boolean; includeItems?: boolean }
+  options?: { includeExportCalculationContext?: boolean; includeItems?: boolean; includeEditorTaxRates?: boolean }
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
@@ -402,6 +403,7 @@ export async function getEstimateVersionDetails(
     rulesResult,
     marginTiersResult,
     versionZeroSummary,
+    taxPolicy,
   ] =
     await Promise.all([
       options?.includeItems === false ? Promise.resolve([]) : readAllEstimateItems({ supabase, tenantId, versionId }),
@@ -413,6 +415,9 @@ export async function getEstimateVersionDetails(
       isEstimateAiDraftEnabled()
         ? fetchVersionZeroDraftSummary({ versionId }).catch(() => null)
         : Promise.resolve(null),
+      options?.includeEditorTaxRates && version.status === "draft" && usesSaleCoefficients(resolveEstimateEngineVersion(version))
+        ? readTenantCalcPolicy(supabase, tenantId)
+        : null,
     ]);
 
   if (categoriesResult.error) {
@@ -487,6 +492,7 @@ export async function getEstimateVersionDetails(
     margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],
     is_labor_split_enabled: exportLaborSplitEnabled,
     version_zero_summary: versionZeroSummary,
+    ...(taxPolicy ? { allowed_tax_rates_bp: taxPolicy.allowedTaxRatesBp } : {}),
   };
 
   parseEstimateEditorResponse(result, versionId);

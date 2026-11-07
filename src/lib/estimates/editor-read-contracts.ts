@@ -148,6 +148,7 @@ export const estimateEditorResponseSchema = z.object({
   suggestion_rules: z.array(estimateEditorSuggestionRuleSchema),
   version_zero_summary: estimateVersionZeroSummarySchema.nullable().optional(),
   is_labor_split_enabled: z.boolean().nullable().optional(),
+  allowed_tax_rates_bp: z.array(z.number().int().min(0).max(10_000)).min(1).optional(),
 }).passthrough().superRefine((data, context) => {
   const { version } = data;
   const ids = new Set<string>();
@@ -188,6 +189,7 @@ function toEstimateEditorData(data: EstimateEditorResponse) {
     supplyTypes: data.supply_types, laborRoles: data.labor_roles,
     marginTiers: data.margin_tiers, suggestionRules: data.suggestion_rules,
     versionZeroSummary: data.version_zero_summary ?? null,
+    ...(data.allowed_tax_rates_bp ? { allowedTaxRatesBp: data.allowed_tax_rates_bp } : {}),
   };
 }
 
@@ -225,6 +227,7 @@ export function parseEstimateEditorData(payload: unknown, versionId: string): Es
     margin_tiers: root.margin_tiers ?? root.marginTiers,
     suggestion_rules: root.suggestion_rules ?? root.suggestionRules ?? root.rules,
     version_zero_summary: root.version_zero_summary ?? root.versionZeroSummary,
+    allowed_tax_rates_bp: root.allowed_tax_rates_bp ?? root.allowedTaxRatesBp,
   }, versionId);
   return toEstimateEditorData(data);
 }

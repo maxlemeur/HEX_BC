@@ -46,7 +46,7 @@ export async function GET(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const data = await getEstimateVersionDetails(versionId);
+    const data = await getEstimateVersionDetails(versionId, { includeEditorTaxRates: true });
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);

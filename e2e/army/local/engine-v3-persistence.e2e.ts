@@ -4,9 +4,10 @@ import type { Browser } from "@e2e-dev/web";
 import { expect, type App } from "e2e";
 
 import {
-  apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence,
+  apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
+import { openV3Editor, prepareV3Draft, seedLines, switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
 import { ownedEstimateContext, versionCountOf } from "./calculation-gate-support";
 import {
   insertCompletedTakeoffJob, insertProjectMarginRule, itemCountOfVersions, probeV3PersistenceSchema, readTenantCalcPolicy,
@@ -683,3 +684,64 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   await recordEvidence(army, "v3p-review", { expected: REVIEW_EXPECTED, actual: review, v2Coefficient });
   expect(review).toEqual(REVIEW_EXPECTED);
 });
+
+armyTest("V3P02 the grid offers the tenant VAT rates and freezes two lines with different rates", options,
+  async ({ app, browser, screen, army }) => {
+    const ui = { app, browser, screen };
+    const draft = await prepareV3Draft(ui, army, "V3P02");
+    const line = { line_nature: "supply_only", description: "u", unit_code: "u", pricing_status: "priced",
+      quantity: 1, unit_price_ht_cents: 10000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1,
+      labor_role_id: draft.tuyauteurId, source_provider: "manual" };
+    const [historical, standard] = await seedLines(ui, army, draft, "v3p02", [
+      { ...line, title: `${army.runPrefix} taux historique`, tax_rate_bp: 1000 },
+      { ...line, title: `${army.runPrefix} taux normal`, tax_rate_bp: 2000 },
+    ]);
+    await app.open("/dashboard/admin/calc-policy");
+    await screen.getByLabel("Taux de TVA autorisés", { exact: true }).fill("20 ; 8,5");
+    await screen.getByLabel("Motif du changement", { exact: true }).fill(`${army.runPrefix} TVA chantier`);
+    await screen.getByRole("button", "Enregistrer les réglages", { exact: true }).tap();
+    await expect(screen.getByText(/^Réglages enregistrés\./)).toBeVisible();
+    expect((await readTenantCalcPolicy(draft.owner))?.allowedTaxRatesBp).toEqual([2000, 850]);
+
+    const ruleId = await insertProjectMarginRule(draft.owner, draft.projectId, 9000);
+    const submit = () => submitForReviewFromJourneyProcess(app, browser, draft.versionId, ruleId, `${army.runPrefix} taux vérifiés`);
+    const denied = await submit();
+    expect(denied).toMatchObject({ status: 400, body: { ok: false, error: { code: "ESTIMATE_V3_TAX_RATE_NOT_ALLOWED" } } });
+    const before = await readEstimate(browser, draft.versionId);
+    expect(before.version.calc_snapshot_content_revision).toBeNull();
+    expect(before.items.find(item => item.id === historical.id)?.tax_rate_bp).toBe(1000);
+
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3p02");
+    await waitForDraftLease(ui);
+    const historicalTax = screen.getByLabel(`Taux de TVA pour ${historical.title}`, { exact: true });
+    const standardTax = screen.getByLabel(`Taux de TVA pour ${standard.title}`, { exact: true });
+    await expect(historicalTax).toHaveValue("1000");
+    await expect(standardTax).toHaveValue("2000");
+    const choices = await browser.evaluate((titles) => titles.map(title => {
+      const select = Array.from(document.querySelectorAll("select")).find(node => node.getAttribute("aria-label") === `Taux de TVA pour ${title}`);
+      return Array.from(select?.options ?? [], option => Number(option.value));
+    }), [historical.title, standard.title]);
+    await recordEvidence(army, "v3p02-tax-options", { versionId: draft.versionId, choices, denied });
+    expect(choices).toEqual([[2000, 850, 1000], [2000, 850]]);
+    await expect(historicalTax.getByRole("option", /TVA 10 %/)).toBeDisabled();
+    await historicalTax.selectOption({ value: "850" });
+    await saveLineEditsWithShortcut(ui, draft.versionId, historical.title, army);
+    await waitForAutoSave(ui, draft.versionId, state => state.items.find(item => item.id === historical.id)?.tax_rate_bp === 850, army);
+    await app.open("/dashboard/affaires");
+    const result = await submit();
+    expect(result).toMatchObject({ status: 201, body: { ok: true } });
+    const frozen = await readEstimate(browser, draft.versionId);
+    // Each line sells for €131.30 (100.00 purchase × 1.01 provision × 1.30); tax is rounded by rate.
+    expect(frozen.items.filter(item => item.item_type === "line").map(item => [item.id, item.tax_rate_bp, item.line_tax_cents]))
+      .toEqual([[historical.id, 850, 1116], [standard.id, 2000, 2626]]);
+    expect(frozen.version.calc_snapshot_context).toMatchObject({
+      engine: 3, tax_breakdown: [
+        { rate_bp: 850, base_cents: 13130, tax_cents: 1116 },
+        { rate_bp: 2000, base_cents: 13130, tax_cents: 2626 },
+      ],
+    });
+    expect(frozen.version.total_tax_cents).toBe(3742);
+    expect(frozen.version.calc_snapshot_content_revision).toBe(frozen.version.content_revision);
+    await recordEvidence(army, "v3p02-frozen", { versionId: draft.versionId, revision: frozen.version.content_revision, tax: frozen.version.total_tax_cents });
+  });

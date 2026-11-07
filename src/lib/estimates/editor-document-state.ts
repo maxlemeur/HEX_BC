@@ -61,6 +61,7 @@ export type EstimateEditorDocumentSnapshot = {
   categories: EstimateEditorData["categories"];
   supplyTypes: EstimateEditorData["supplyTypes"];
   laborRoles: EstimateEditorData["laborRoles"];
+  allowedTaxRatesBp: readonly number[];
   v3Settings: EstimateDocumentV3SettingsState;
   pendingCount: number;
   inFlightCount: number;
@@ -136,7 +137,7 @@ export class EstimateEditorDocument {
   private emptySnapshot(generation: number): EstimateEditorDocumentSnapshot {
     return {
       version: null, items: [], confirmedItems: [], settings: null, savedSettings: null,
-      categories: [], supplyTypes: [], laborRoles: [],
+      categories: [], supplyTypes: [], laborRoles: [], allowedTaxRatesBp: [],
       v3Settings: freshEstimateDocumentV3Settings(readEstimateDocumentV3SettingsBaseline(null)),
       pendingCount: 0, inFlightCount: 0, itemOperationCount: 0, generation,
     };
@@ -765,6 +766,7 @@ export class EstimateEditorDocument {
         savedSettings: prepared.draft.settings,
         categories: prepared.confirmed.categories, supplyTypes: prepared.confirmed.supplyTypes,
         laborRoles: prepared.confirmed.laborRoles,
+        allowedTaxRatesBp: prepared.confirmed.allowedTaxRatesBp ?? [],
         v3Settings: resyncEstimateDocumentV3Settings(this.snapshot.v3Settings,
           readEstimateDocumentV3SettingsBaseline(version)) };
       this.prune();

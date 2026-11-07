@@ -40,6 +40,7 @@ import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 export type EstimateV3GridModel = {
   /** Lignes calculées par le moteur pur pour l'aperçu courant (vide si l'aperçu est refusé). */
   lines: EstimateV3LineIndex;
+  allowedTaxRatesBp: readonly number[];
 };
 
 const EstimateV3GridContext = createContext<EstimateV3GridModel | null>(null);
@@ -305,7 +306,8 @@ export function V3LineStateControls({
   onPatchItem: PatchItem;
 }) {
   const status = isEstimateV3PricingStatus(item.pricing_status) ? item.pricing_status : "priced";
-  const taxRates = resolveEstimateV3TaxRateOptions(item.tax_rate_bp);
+  const allowedRates = useEstimateV3Grid()?.allowedTaxRatesBp ?? [];
+  const taxRates = resolveEstimateV3TaxRateOptions(allowedRates, item.tax_rate_bp);
   return (
     <span className="inline-flex shrink-0 items-center gap-1" data-testid="estimate-v3-line-state">
       <select
@@ -334,9 +336,14 @@ export function V3LineStateControls({
         }}
       >
         {item.tax_rate_bp === null ? <option value="">TVA</option> : null}
-        {taxRates.map((rateBp) => (
-          <option key={rateBp} value={String(rateBp)}>{`TVA ${formatEstimateV3TaxRate(rateBp)} %`}</option>
-        ))}
+        {taxRates.map((rateBp) => {
+          const retired = !allowedRates.includes(rateBp);
+          return (
+            <option key={rateBp} value={String(rateBp)} disabled={retired}>
+              {`TVA ${formatEstimateV3TaxRate(rateBp)} %${retired && !isReadOnly ? " (retiré)" : ""}`}
+            </option>
+          );
+        })}
       </select>
     </span>
   );

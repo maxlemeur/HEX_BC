@@ -54,9 +54,6 @@ const V3_INPUT_ITEM_KEYS = [
   "h_mo_chantier_per_unit",
 ] as const;
 
-/** Taux de la proposition validée pour le développement (D8, P-07) : défaut de la politique. */
-export const ESTIMATE_V3_EDITOR_TAX_RATES_BP: readonly number[] = [2000, 1000, 550, 210];
-
 /** Libellés de la grille (contrat d'écran §4.2) ; le référentiel garde ses libellés d'import. */
 export const ESTIMATE_V3_PRICING_STATUS_OPTIONS: ReadonlyArray<{ value: EstimateLinePricingStatus; label: string }> = [
   { value: "priced", label: "Chiffrée" },
@@ -431,12 +428,14 @@ export function formatEstimateV3TaxRate(rateBp: number): string {
 }
 
 /** Taux proposés par la cellule « TVA % » : la politique, plus le taux de la ligne s'il en sort. */
-export function resolveEstimateV3TaxRateOptions(currentRateBp: number | null | undefined): number[] {
-  const rates = [...ESTIMATE_V3_EDITOR_TAX_RATES_BP];
-  if (typeof currentRateBp === "number" && Number.isInteger(currentRateBp) && !rates.includes(currentRateBp)) {
-    rates.push(currentRateBp);
+export function resolveEstimateV3TaxRateOptions(
+  allowedRates: readonly number[],
+  currentRateBp: number | null | undefined
+): readonly number[] {
+  if (typeof currentRateBp === "number" && Number.isInteger(currentRateBp) && !allowedRates.includes(currentRateBp)) {
+    return [...allowedRates, currentRateBp];
   }
-  return rates;
+  return allowedRates;
 }
 
 /* ---------- Pied (D7, D8) ---------- */

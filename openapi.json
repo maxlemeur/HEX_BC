@@ -28361,6 +28361,15 @@
                   "boolean",
                   "null"
                 ]
+              },
+              "allowed_tax_rates_bp": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                }
               }
             },
             "required": [
