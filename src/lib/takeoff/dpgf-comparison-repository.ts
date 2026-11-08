@@ -45,6 +45,7 @@ export const TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT = [
   "decision",
   "reason",
   "decided_at",
+  "quantity_snapshot",
   "updated_at",
   "decided_by",
 ].join(", ");

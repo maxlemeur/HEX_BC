@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { unprocessableEntity } from "@/lib/estimates/errors";
 import { normalizeTakeoffDpgfUnit } from "@/lib/takeoff/dpgf-compare";
+import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { takeoffDpgfCompareEstimateItemRowSchema } from "@/lib/takeoff/estimate-line-read-contract";
 import type {
@@ -45,6 +46,7 @@ const takeoffDpgfReviewDecisionSchema: z.ZodType<TakeoffDpgfReviewDecisionRecord
   decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
   reason: z.string().nullable(),
   decided_at: z.string(),
+  quantity_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   updated_at: z.string(),
   decided_by: z.string().uuid().nullable(),
   source: z.enum(["current_version", "carried_over"]),
@@ -241,7 +243,10 @@ export function normalizeTakeoffComparisonItems(items: TakeoffJobItem[]): Takeof
   return items.filter(item => !item.is_excluded).map((item) => ({
     item_id: item.id,
     designation: item.designation,
-    quantity: item.quantity,
+    quantity: (() => {
+      const inputs = readRuleInputs(item.metadata);
+      return inputs?.source === "vector" && inputs.kind === "surface" ? inputs.model_quantity : item.quantity;
+    })(),
     unit: item.unit,
     source_page: item.source_page,
     source_file_name: item.source_file_name,

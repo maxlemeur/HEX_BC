@@ -2,7 +2,10 @@ import type { TakeoffDpgfComparisonSummary, TakeoffDpgfReviewDecision } from "@/
 
 export function canRetainDpgfQuantity(decision: TakeoffDpgfReviewDecision, dpgfQuantity: number | null, takeoffQuantity: number | null) {
   return (decision !== "keep_dpgf" || dpgfQuantity !== null) &&
-    (decision !== "keep_takeoff" || takeoffQuantity !== null);
+    (decision !== "keep_takeoff" || takeoffQuantity !== null) &&
+    (dpgfQuantity === null || takeoffQuantity === null
+      || (decision !== "keep_dpgf" || dpgfQuantity >= takeoffQuantity)
+        && (decision !== "keep_takeoff" || takeoffQuantity >= dpgfQuantity));
 }
 
 export function hasBlockingTakeoffDpgfExceptions(

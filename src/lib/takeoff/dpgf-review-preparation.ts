@@ -168,6 +168,7 @@ export function buildTakeoffDpgfReviewDecisionPlan(input: {
   sameDecisionLine: boolean;
   sourceDecision: TakeoffDpgfSourceDecision | null;
   linkedFromVersionId: string | null;
+  quantitySnapshot?: Record<string, unknown>;
 }) {
   const normalizedReason =
     typeof input.payload.reason === "string" && input.payload.reason.trim().length > 0
@@ -198,6 +199,7 @@ export function buildTakeoffDpgfReviewDecisionPlan(input: {
       carried_over_from_version_id: carryOver?.carried_over_from_version_id ?? null,
       carried_over_at: carryOver?.carried_over_at ?? null,
       decision: input.payload.decision,
+      quantity_snapshot: input.quantitySnapshot ?? null,
       reason: normalizedReason,
       decided_at: input.decisionTimestamp,
       updated_at: input.decisionTimestamp,

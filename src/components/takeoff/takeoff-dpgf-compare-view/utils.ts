@@ -3,6 +3,7 @@ import type {
   TakeoffDpgfComparisonRow,
   TakeoffDpgfReviewDecision,
 } from "@/lib/takeoff/types";
+import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
 
 import {
   DECISION_LABELS,
@@ -37,14 +38,14 @@ export function getDecisionImpactText(
   const unit = row.quantity_unit ?? "";
   switch (decision) {
     case "keep_dpgf":
-      return `Quantité retenue : ${formatNumber(row.dpgf_quantity)} ${unit}`.trim();
+      return `Quantité retenue : ${formatNumber(dpgfQuantityPolicy(row)?.priced ?? row.dpgf_quantity)} ${unit}`.trim();
     case "keep_takeoff":
       if (row.takeoff_quantity === null) return "Quantité métrée non consolidée";
-      return `Quantité retenue : ${formatNumber(row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
+      return `Quantité retenue : ${formatNumber(dpgfQuantityPolicy(row)?.priced ?? row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
     case "manual_fix":
       return "Vous devrez saisir la quantité corrigée manuellement.";
     case "out_of_scope":
-      return "Cette ligne sera exclue du chiffrage.";
+      return "Le métré rapproché ne sera pas appliqué à cette ligne DPGF.";
   }
 }
 

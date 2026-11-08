@@ -1105,13 +1105,15 @@ describe("scale, rooms and boxes", () => {
   }
   const square = (x: number, y: number, size: number) => [x, y, x + size, y, x + size, y + size, x, y + size];
 
-  it("compares the area with the printed surface, the quantity as corrected", () => {
+  it("compares the original net floor measurement at 1%, even after pricing with the printed quantity", () => {
     const { results } = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [
-      room("near", square(0, 0, 4), 16, 16.2), room("far", square(10, 0, 4), 16, 18.5), room("fixed", square(20, 0, 4), 16, 18.5, "Bureau", 18.5),
+      room("near", square(0, 0, 4), 16, 16.1, "Bureau sol net"), room("far", square(10, 0, 4), 16, 18.5, "Bureau sol net"),
+      room("fixed", square(20, 0, 4), 16, 18.5, "Bureau sol net", 18.5),
     ] });
     expect(rule(results, "near", "area_printed")).toMatchObject({ status: "pass", code: "AREA_PRINTED_CONSISTENT" });
     expect(rule(results, "far", "area_printed")).toMatchObject({ status: "fail", code: "AREA_PRINTED_MISMATCH" });
-    expect(rule(results, "fixed", "area_printed")).toMatchObject({ status: "pass" });
+    // TI-680: a protected price quantity cannot erase the independent measurement discrepancy.
+    expect(rule(results, "fixed", "area_printed")).toMatchObject({ status: "fail", details: { measured_m2: 16 } });
   });
 
   it("fails overlapping rooms, never two rooms sharing a wall", () => {

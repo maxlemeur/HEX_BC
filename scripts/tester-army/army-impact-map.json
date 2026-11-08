@@ -28,6 +28,7 @@
       "e2e/army/critical/plan-center.e2e.ts",
       "e2e/army/critical/prehydration-auth.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
+      "e2e/army/critical/takeoff-protective-quantities.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/affaire-hub-fresh-start.e2e.ts",
       "e2e/army/local/article-association.e2e.ts",
@@ -317,7 +318,8 @@
     "affaire-takeoff": [
       "e2e/army/critical/hub-launch-metre.e2e.ts",
       "e2e/army/critical/hub-plans-card.e2e.ts",
-      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts"
+      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+      "e2e/army/critical/takeoff-protective-quantities.e2e.ts"
     ],
     "print": [
       "e2e/army/critical/commercial-rounding.e2e.ts",
@@ -985,6 +987,8 @@
       "note": "Règles fixes du métré (TI-664) : entrées, résultats, garde d'application au même compte que la base, recalcul, doublons Z1/Z2 sur deux plans fictifs (TKR01), revue ciblée et assistant d'application (TKR02).",
       "paths": [
         "src/lib/takeoff/rules/**",
+        "src/lib/takeoff/quantity-*.ts",
+        "src/lib/takeoff/dpgf-*.ts",
         "src/lib/takeoff/guards.ts",
         "src/lib/takeoff/apply-*.ts",
         "src/lib/takeoff/item-patch-*.ts",
@@ -995,11 +999,13 @@
         "src/components/takeoff/review/TakeoffTargetedReview.tsx",
         "src/components/takeoff/review/useTakeoffReviewSupport.ts",
         "src/components/takeoff/TakeoffApplyWizard.tsx",
-        "src/components/takeoff/takeoff-apply-wizard/GuardPanel.tsx",
+        "src/components/takeoff/takeoff-apply-wizard/**",
+        "src/components/takeoff/takeoff-dpgf-compare-view/**",
         "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/targeted/**"
       ],
       "journeys": [
-        "e2e/army/takeoff/quantity-rules.e2e.ts"
+        "e2e/army/takeoff/quantity-rules.e2e.ts",
+        "e2e/army/critical/takeoff-protective-quantities.e2e.ts"
       ]
     }
   ]

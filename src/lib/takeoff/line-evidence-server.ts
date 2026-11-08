@@ -8,6 +8,7 @@ import type { TakeoffDpgfComparisonResponse, TakeoffLineEvidencePanelResponse } 
 import type { SupplierPriceEvidenceRow } from "@/lib/takeoff/evidence-preparation";
 import { type TakeoffDpgfEstimateItem } from "@/lib/takeoff/dpgf-comparison-preparation";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
+import type { TakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
 import {
   listSupplierPriceEvidenceRows,
@@ -52,6 +53,17 @@ export async function buildSupplierPriceEvidenceByEstimateItemId(input: {
   );
 }
 
+/** Preserve human notes as evidence, separately from whether their quantity acceptance is still current. */
+export function rowsWithDecisionNotes(context: TakeoffDpgfComparisonContext, rows: TakeoffDpgfComparisonResponse["rows"]) {
+  const current = new Map((context.comparisonInput.reviewDecisions ?? []).map(decision => [decision.estimate_item_id, decision]));
+  return rows.map(row => {
+    if (row.applied_decision) return row;
+    const note = current.get(row.line_id) ?? context.comparisonInput.carriedReviewDecisions?.get(row.line_id);
+    return note?.reason?.trim() && note.line_label === row.line_label && note.source_file_name === row.dpgf.source_file_name
+      && note.source_page === row.dpgf.source_page ? { ...row, applied_decision: note } : row;
+  });
+}
+
 export async function syncAndHydrateTakeoffLineProofs(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
@@ -60,6 +72,7 @@ export async function syncAndHydrateTakeoffLineProofs(input: {
   versionId: string;
   jobId: string;
   rows: TakeoffDpgfComparisonResponse["rows"];
+  evidenceRows?: TakeoffDpgfComparisonResponse["rows"];
   supplierPriceByEstimateItemId: Map<string, SupplierPriceEvidenceRow>;
 }) {
   if (input.rows.length === 0) {
@@ -73,7 +86,7 @@ export async function syncAndHydrateTakeoffLineProofs(input: {
     projectId: input.projectId,
     versionId: input.versionId,
     jobId: input.jobId,
-    rows: input.rows,
+    rows: input.evidenceRows ?? input.rows,
     supplierPriceByEstimateItemId: input.supplierPriceByEstimateItemId,
   });
 
@@ -129,7 +142,7 @@ export async function refreshTakeoffLineEvidenceSnapshot(input: {
     projectId: context.projectId,
     versionId: context.comparisonInput.versionId,
     jobId: context.comparisonInput.jobId,
-    rows,
+    rows: rowsWithDecisionNotes(context, rows),
     supplierPriceByEstimateItemId,
   });
 }

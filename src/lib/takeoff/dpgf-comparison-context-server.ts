@@ -125,6 +125,7 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     userId,
     projectId,
     estimateItems,
+    takeoffItems,
     comparisonInput: {
       versionId,
       jobId,

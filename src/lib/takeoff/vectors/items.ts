@@ -2,12 +2,13 @@ import { NETWORKS } from "@/lib/takeoff/bench/keys";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 import type { TakeoffItem } from "@/lib/takeoff/types";
+import { surfaceBasis } from "@/lib/takeoff/quantity-policy";
 
 // Takeoff items of a vector reading (TI-662): one item per network, material
 // and DN measured on a page whose scale is measurable (« ml »), one per room
 // whose closed polygon was found or whose floor was filled between walls
-// (« m2 », that area, never the printed surface; category and evidence say
-// which). The designation prints the network's code as plans and devis do
+// (« m2 », protective quantity only for an explicitly comparable net-floor label;
+// geometry and rule inputs retain the independent measured area). The designation prints the network's code as plans and devis do
 // (EU/EV for EUV), the material and « DN n », so that the bench reads the same
 // key as from a level C answer. A run whose label says it is insulated adds
 // an insulation item of the same length (« HW calorifuge DN 35 »). Confidence: 0.9 when the DN came from a label
@@ -15,6 +16,12 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 
 export const VECTOR_ITEMS_VERSION = 2;
 export const VECTOR_ITEM_CONFIDENCE = { labelled: 0.9, review: 0.5 } as const;
+
+/** Geometry remains the measured net floor; only an explicitly comparable label can raise the priced quantity. */
+export function pricedSurfaceQuantity(surface: Pick<RoomSurface, "room" | "polygon_m2" | "printed_m2">) {
+  if (surface.polygon_m2 === null) return null;
+  return surfaceBasis(surface.room) === "net_floor" ? Math.max(surface.polygon_m2, surface.printed_m2) : surface.polygon_m2;
+}
 
 const MATERIAL_LABELS: Record<string, string> = {
   "inox-316l": "Inox 316L", "inox-304l": "Inox 304L", inox: "Inox", pvc: "PVC", "pvc-pression": "PVC pression",
@@ -60,7 +67,7 @@ export function vectorItems(reading: VectorPageReading, sourceFile: string): Tak
   for (const surface of reading.surfaces) {
     if (surface.polygon_m2 === null || surface.polygon_m2 <= 0) continue;
     items.push({
-      designation: `Surface « ${surface.room} »`, quantity: surface.polygon_m2, unit: "m2", ...surfaceWording(surface, scale),
+      designation: `Surface « ${surface.room} »`, quantity: pricedSurfaceQuantity(surface)!, unit: "m2", ...surfaceWording(surface, scale),
       source_page: reading.page, source_file: sourceFile, confidence: VECTOR_ITEM_CONFIDENCE.labelled,
     });
   }
@@ -68,12 +75,14 @@ export function vectorItems(reading: VectorPageReading, sourceFile: string): Tak
 }
 
 /** Category and evidence of a room surface item: a closed polygon, or a floor filled between walls (TI-662 L3c). */
-export function surfaceWording(surface: Pick<RoomSurface, "method" | "polygon_points">, scale: string | null) {
+export function surfaceWording(surface: Pick<RoomSurface, "method" | "polygon_points"> & Partial<Pick<RoomSurface, "polygon_m2" | "printed_m2" | "room">>, scale: string | null) {
+  const evidence = typeof surface.polygon_m2 === "number" && typeof surface.printed_m2 === "number"
+    ? ` Mesure conservée : ${surface.polygon_m2.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} m² ; annotation : ${surface.printed_m2.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} m².` : "";
   return surface.method === "fill" ? {
     category: "surface (remplissage entre murs)",
-    evidence: `Aire du remplissage entre murs (contour de ${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
+    evidence: `Aire du remplissage entre murs (contour de ${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.${evidence}`,
   } : {
     category: "surface (polygone fermé)",
-    evidence: `Aire du polygone fermé (${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.`,
+    evidence: `Aire du polygone fermé (${surface.polygon_points} points), échelle ${scale} ; surface imprimée en contrôle.${evidence}`,
   };
 }

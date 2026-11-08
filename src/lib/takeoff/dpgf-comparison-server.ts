@@ -14,7 +14,7 @@ import {
   TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
 } from "@/lib/takeoff/dpgf-compare";
 import { hydrateTakeoffDpgfComparisonSummary } from "@/lib/takeoff/dpgf-comparison-preparation";
-import { buildSupplierPriceEvidenceByEstimateItemId, syncAndHydrateTakeoffLineProofs } from "@/lib/takeoff/line-evidence-server";
+import { buildSupplierPriceEvidenceByEstimateItemId, rowsWithDecisionNotes, syncAndHydrateTakeoffLineProofs } from "@/lib/takeoff/line-evidence-server";
 
 type HydrationContext = TakeoffDpgfComparisonContext & {
   supplierPriceByEstimateItemId: Awaited<ReturnType<typeof buildSupplierPriceEvidenceByEstimateItemId>>;
@@ -50,6 +50,7 @@ async function buildAndHydrateTakeoffDpgfComparison(
     versionId: context.comparisonInput.versionId,
     jobId: context.comparisonInput.jobId,
     rows: comparison.rows,
+    evidenceRows: rowsWithDecisionNotes(context, comparison.rows),
     supplierPriceByEstimateItemId: context.supplierPriceByEstimateItemId,
   });
   return hydrateTakeoffDpgfComparisonSummary(comparison, hydratedRows);

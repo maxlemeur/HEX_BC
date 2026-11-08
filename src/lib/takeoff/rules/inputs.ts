@@ -158,7 +158,7 @@ export function ruleInputsFromVector(line: VectorLine): TakeoffRuleInputs {
  */
 export function ruleInputsFromVectorRecord(record: {
   item: { quantity: number };
-  geometry: { kind: VectorLine["kind"]; network: NetworkCode | null; material: MaterialCode | null; dn: number | null };
+  geometry: { kind: VectorLine["kind"]; network: NetworkCode | null; material: MaterialCode | null; dn: number | null; area_m2?: number | null };
   room?: { label: string; printed_m2: number };
 }): TakeoffRuleInputs {
   const { item, geometry } = record;
@@ -166,6 +166,7 @@ export function ruleInputsFromVectorRecord(record: {
     return ruleInputsFromVector({ kind: geometry.kind, network: geometry.network, material: geometry.material, dn: geometry.dn,
       quantity: item.quantity });
   }
-  return ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null, quantity: item.quantity,
+  return ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null,
+    quantity: record.geometry.area_m2 ?? item.quantity,
     room: record.room?.label ?? null, printed_m2: record.room?.printed_m2 ?? null });
 }

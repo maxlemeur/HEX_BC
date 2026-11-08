@@ -45,6 +45,7 @@ export const takeoffDpgfReviewDecisionRecordSchema = z.object({
   decision: takeoffDpgfReviewDecisionSchema, reason: z.string().nullable(), review_reference: nonempty,
   line_label: z.string(), line_position: count, source_file_name: z.string().nullable(), source_page: page,
   decided_at: timestamp, updated_at: timestamp, decided_by: uuid.nullable(),
+  quantity_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   source: z.enum(["current_version", "carried_over"]), carried_over_from_version_id: uuid.nullable(),
   carried_over_from_version_number: z.number().int().positive().nullable(),
 }).superRefine((decision, context) => {

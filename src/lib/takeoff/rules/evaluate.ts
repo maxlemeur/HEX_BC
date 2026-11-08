@@ -1,5 +1,7 @@
 import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
 import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
+import { surfaceBasis, type SurfaceBasis } from "@/lib/takeoff/quantity-policy";
+import { areaQuantityContexts, expectedSurfaceBasis, type AreaQuantityContext } from "@/lib/takeoff/rules/area-context";
 import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/bench/diameters";
 import { NETWORK_DIAMETER_TABLE_VERSION, WRAPPING_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
 import {
@@ -13,7 +15,7 @@ import {
 } from "@/lib/takeoff/rules/registration";
 import {
   ROOM_RULES_VERSION,
-  areaAgrees,
+  AREA_PRINTED_RULE_VERSION,
   isBoxLabel,
   isBoxShape,
   polygonPoints,
@@ -56,7 +58,7 @@ export const TAKEOFF_RULE_VERSIONS: Record<TakeoffRuleId, number> = {
   dn_network: NETWORK_DIAMETER_TABLE_VERSION,
   zone_overlap: ZONE_OVERLAP_VERSION * 100 + REGISTRATION_VERSION,
   scale_dimension: 1,
-  area_printed: ROOM_RULES_VERSION,
+  area_printed: AREA_PRINTED_RULE_VERSION,
   room_overlap: ROOM_RULES_VERSION,
   closed_box: ROOM_RULES_VERSION,
   non_observable: 1,
@@ -88,6 +90,10 @@ export type RuleLine = {
   frozen: boolean;
   /** A user typed the line's current quantity (attested entry): a quantity to enter is entered. */
   quantity_entered?: boolean;
+  /** Actual estimate line, assigned server-side from the DPGF links or a unique exact match. */
+  quantity_line_key?: string;
+  quantity_line_reference?: number;
+  expected_surface_basis?: SurfaceBasis | null;
   inputs: TakeoffRuleInputs | null;
   /** Vector geometry in page metres (TI-662); a filled room's holes (TI-677): what its floor leaves out inside its polygon. */
   geometry: { segments_m: readonly Centreline[]; polygon_m: readonly number[] | null; holes_m?: ReadonlyArray<readonly number[]> | null;
@@ -222,13 +228,27 @@ function roomLabel(inputs: TakeoffRuleInputs) {
   return inputs.room ? `« ${inputs.room} »` : "la pièce";
 }
 
-function areaPrinted(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
+function areaPrinted(line: RuleLine, inputs: TakeoffRuleInputs, context: AreaQuantityContext | undefined,
+  page: RulePage | undefined): TakeoffRuleResult | null {
   if (inputs.kind !== "surface" || inputs.printed_m2 === null || inputs.printed_m2 === undefined || inputs.printed_m2 <= 0) return null;
   const printed = inputs.printed_m2;
-  const deviation = Math.round(((line.quantity - printed) / printed) * 10_000) / 10_000;
-  const details = { printed_m2: printed, measured_m2: line.quantity, deviation };
-  const text = `${squareMetres(line.quantity)} pour ${squareMetres(printed)} imprimés dans ${roomLabel(inputs)} (${percent(deviation)}).`;
-  return areaAgrees(line.quantity, printed)
+  const measured = line.geometry?.area_m2 ?? inputs.model_quantity;
+  const deviation = Math.round(((measured - printed) / printed) * 10_000) / 10_000;
+  const details = { printed_m2: printed, measured_m2: measured, deviation,
+    ...(context ? { quantity_context_key: context.key } : {}) };
+  const printedBasis = surfaceBasis(inputs.room ?? "");
+  const expectedBasis = expectedSurfaceBasis(line);
+  if (!printedBasis || !expectedBasis) return result("area_printed", "fail", "AREA_PRINTED_MISMATCH",
+    "Base de la surface imprimée ou de la prestation inconnue : confirmez la base avant de comparer les quantités.",
+    { ...details, cause: "basis_unknown" });
+  if (printedBasis !== expectedBasis || expectedBasis !== "net_floor") return result("area_printed", "fail", "AREA_PRINTED_MISMATCH",
+    "La surface imprimée et le contour mesuré ne portent pas sur la même base : SHAB et sol net ne sont pas interchangeables.",
+    { ...details, cause: "basis_mismatch" });
+  if (!page?.scale || page.scale.status === "unverified") return result("area_printed", "fail", "AREA_PRINTED_MISMATCH",
+    "Échelle non vérifiée : confirmez la mesure avant de comparer les surfaces.", { ...details, cause: "scale_unverified" });
+  const policy = context?.policy;
+  const text = `${squareMetres(measured)} mesurés pour ${squareMetres(printed)} imprimés dans ${roomLabel(inputs)} (${percent(deviation)}).`;
+  return policy && !policy.requiresReview
     ? result("area_printed", "pass", "AREA_PRINTED_CONSISTENT", `Aire cohérente : ${text}`, details)
     : result("area_printed", "fail", "AREA_PRINTED_MISMATCH", `Aire différente de la surface imprimée : ${text}`, details);
 }
@@ -580,12 +600,13 @@ const RULE_ORDER = new Map<TakeoffRuleId, number>([
 /** Every rule on every line of the version; a line without inputs gets no result. */
 export function evaluateTakeoffRules(input: { lines: readonly RuleLine[]; pages: readonly RulePage[] }): RuleEvaluation {
   const pages = new Map(input.pages.map((page) => [page.key, page]));
+  const areaContexts = areaQuantityContexts(input.lines, pages);
   const results = new Map<string, TakeoffRuleResult[]>();
   for (const line of input.lines) {
     if (!line.inputs) continue;
     const page = line.page_key === null ? undefined : pages.get(line.page_key);
     for (const entry of [nonObservable(line, line.inputs), dnNetwork(line.inputs), scaleDimension(line, line.inputs, page),
-      areaPrinted(line, line.inputs), closedBox(line, line.inputs)]) {
+      areaPrinted(line, line.inputs, areaContexts.get(line.id), page), closedBox(line, line.inputs)]) {
       if (entry) push(results, line.id, entry);
     }
   }

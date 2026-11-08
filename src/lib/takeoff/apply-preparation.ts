@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { toValidationIssues } from "@/lib/takeoff/validation-issues";
+import type { DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
 import {
   TAKEOFF_APPLY_SCOPES,
   type TakeoffApplyRequest,
@@ -140,6 +141,9 @@ export function buildTakeoffDpgfApplyAuthorizationRecord(input: {
   jobId: string;
   estimateVersionId: string;
   summary: TakeoffDpgfComparisonSummary;
+  quantityPolicy?: DpgfApplyQuantityLine[];
+  quantitySources?: Array<{ id: string; updated_at: string; quantity: number; designation: string; unit: string; is_excluded: boolean }>;
+  quantityComparisonStamp?: string;
   authorizationToken: string;
   nowMs: number;
 }) {
@@ -149,7 +153,8 @@ export function buildTakeoffDpgfApplyAuthorizationRecord(input: {
     job_id: input.jobId,
     estimate_version_id: input.estimateVersionId,
     authorization_token_hash: hashTakeoffApplyAuthorizationToken(input.authorizationToken),
-    review_summary: input.summary,
+    review_summary: input.quantityPolicy ? { ...input.summary, quantity_policy: input.quantityPolicy,
+      quantity_sources: input.quantitySources, quantity_version_stamp: input.quantityComparisonStamp } : input.summary,
     expires_at: new Date(input.nowMs + 5 * 60 * 1000).toISOString(),
   };
 }

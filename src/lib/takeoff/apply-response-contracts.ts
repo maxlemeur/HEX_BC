@@ -35,9 +35,10 @@ export const takeoffApplySummarySchema = z.object({
 }).superRefine((summary, context) => {
   // Older RPCs may omit detailed IDs/links; the normalizer returns empty arrays.
   // Counts may also include generated assembly rows, beyond source-item links.
-  if (summary.created_ids.length > summary.created_count || summary.item_links.length > summary.created_count + summary.updated_count
-    || !uniqueTakeoffResponseIds(summary.created_ids) || !uniqueTakeoffResponseIds(summary.item_links.map((link) => link.takeoff_item_id))
-    || !uniqueTakeoffResponseIds(summary.item_links.map((link) => link.estimate_item_id))) {
+  // TI-680: several measured contributions can reconcile to one retained DPGF line.
+  const linkedEstimateCount = new Set(summary.item_links.map((link) => link.estimate_item_id.toLowerCase())).size;
+  if (summary.created_ids.length > summary.created_count || linkedEstimateCount > summary.created_count + summary.updated_count
+    || !uniqueTakeoffResponseIds(summary.created_ids) || !uniqueTakeoffResponseIds(summary.item_links.map((link) => link.takeoff_item_id))) {
     context.addIssue({ code: "custom", message: "Compteurs ou identifiants d'application incohérents." });
   }
 });

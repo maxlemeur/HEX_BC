@@ -179,16 +179,26 @@ Elle reprend le résultat par page de TI-662 (`scale.ts`, tolérance de cote
 
 ### Aire du polygone cohérente avec la surface imprimée
 
-L'écart doit rester sous max(2 % ; 0,1 m²), mesuré sur la quantité actuelle de la
-ligne : une quantité corrigée à la surface imprimée règle l'échec.
+Le contrat validé le 8 novembre 2026 est décrit dans
+[Quantités de référence et métré](quantites-reference-metre.md). La règle
+`area_printed` est en version 2 ; les règles géométriques de chevauchement et de
+boîte conservent leur version et leurs seuils.
 
-**Valeur provisoire** : le banc ne donne que deux polygones de pièce fermés (D RDC,
-hors réserve).
+- Comparer la mesure originelle (géométrie, sinon mesure conservée du worker),
+  jamais la quantité chiffrée corrigée.
+- Vérifier la base de l'étiquette, celle de la prestation et l'échelle. Le sol
+  net par défaut de la prestation ne prouve pas la base d'une étiquette sans
+  précision ; SHAB et contour net restent des bases différentes.
+- Cumuler les écarts absolus des contributions rattachées à la même ligne de
+  devis ; demander une revue lorsqu'ils dépassent strictement 1 % de sa
+  référence. Un rattachement ambigu ne permet pas de grouper les quantités.
+- Conserver une identité du contexte comparé dans les clés d'échec : changer
+  une contribution ou son rattachement rouvre une acceptation antérieure.
 
-- L'un est lu juste, à −0,1 % de sa surface imprimée.
-- L'autre est une boîte à −69,8 %.
-- 2 % correspond à un contour décalé de 1,5 cm le long des murs d'une pièce de 10 m².
-- 0,1 m² évite qu'un placard de 1 m² échoue sur un arrondi.
+La proposition historique `max(2 %, 0,1 m²)` reposait sur seulement deux
+polygones de pièce fermés du banc (D RDC, hors réserve), dont un juste à −0,1 % et
+une boîte à −69,8 %. Elle est remplacée pour ce contrôle quantitatif ; elle ne
+constitue plus le seuil applicable.
 
 ### Pièces sans chevauchement
 

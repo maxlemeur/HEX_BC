@@ -227,10 +227,11 @@ describe("a room surrounding another room", () => {
   const office: [number, number, number, number] = [X0 + m(4), Y0 + m(4), X0 + m(6), Y0 + m(6)];
 
   it("reads a hall of 10 × 10 m around an office of 2 × 2 m as two rooms side by side", () => {
-    const { lines, results } = rulesOf(extraction([text("Hall 96 m²", X0 + m(1), Y0 + m(1)), text("Bureau 4 m²", X0 + m(4.3), Y0 + m(5))],
+    // TI-680: a geometric non-overlap is still valid, but the quantity comparison requires an explicit printed basis.
+    const { lines, results } = rulesOf(extraction([text("Hall sol net 96 m²", X0 + m(1), Y0 + m(1)), text("Bureau sol net 4 m²", X0 + m(4.3), Y0 + m(5))],
       [hall, office]));
-    expect(lines.map((entry) => entry.id).sort()).toEqual(["Bureau", "Hall"]);
-    for (const id of ["Hall", "Bureau"]) {
+    expect(lines.map((entry) => entry.id).sort()).toEqual(["Bureau sol net", "Hall sol net"]);
+    for (const id of ["Hall sol net", "Bureau sol net"]) {
       expect(rule(results, id, "area_printed")?.status, id).toBe("pass");
       expect(rule(results, id, "room_overlap")?.code, id).toBe("ROOM_OVERLAP_NONE");
     }

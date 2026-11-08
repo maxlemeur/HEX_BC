@@ -1,9 +1,9 @@
 // Room surface rules (TI-664 step 1): a room's polygon area agrees with the
 // surface printed in it, rooms of one page do not overlap, and a bathtub, a
 // cupboard or a shaft drawn as a closed box is no room.
-// - Area: |area − printed| ≤ max(AREA_PRINTED.relative × printed,
-//   AREA_PRINTED.absolute_m2). The line's quantity is read as it is now: a
-//   quantity the user corrected to the printed surface settles it.
+// - Area comparison: TI-680 uses the independent measurement and explicit bases,
+//   accumulating gaps on the actual price line (area-context.ts, 1%). Changing
+//   the priced quantity cannot settle an unknown basis or erase the measurement.
 // - Overlap: the area two room floors share (a polygon less its holes:
 //   TI-677), sampled on a grid over their
 //   common box: ROOM_OVERLAP.step_m, finer when that box is narrow (a twentieth
@@ -15,14 +15,18 @@
 //   four-cornered polygon under CLOSED_BOX.maxShare of the printed surface
 //   (the outline around the label is a box drawn in the room, not the room).
 
+import { QUANTITY_REVIEW_PERCENT } from "@/lib/takeoff/quantity-policy";
+
 export const ROOM_RULES_VERSION = 1;
+export const AREA_PRINTED_RULE_VERSION = 2;
 
 /**
  * Starting values (3/11/2026), provisional: the bench gives two closed room polygons only (D RDC, outside the
  * reserve), one read right at −0.1 % of its printed surface, one a box at −69.8 %. 2 % is an outline drawn
  * 1.5 cm off the walls of a 10 m² room; 0.1 m² keeps a 1 m² cupboard from failing on rounding.
  */
-export const AREA_PRINTED = { relative: 0.02, absolute_m2: 0.1 } as const;
+// TI-680: the former max(2%, 0.1m²) proposal is replaced for quantity comparison only.
+export const AREA_PRINTED = { relative: QUANTITY_REVIEW_PERCENT / 100, absolute_m2: 0 } as const;
 export const ROOM_OVERLAP = { relative: 0.02, absolute_m2: 0.1, step_m: 0.05, maxSamples: 250_000 } as const;
 export const CLOSED_BOX = { maxShare: 0.5 } as const;
 

@@ -1,5 +1,8 @@
 import { measurementUnitToken, normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
+import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
+import { haveSameQuantityIdentity, quantityIdentity, type QuantityIdentity } from "@/lib/takeoff/quantity-compatibility";
+import { dpgfReviewQuantitySnapshot, sameQuantitySnapshot } from "@/lib/takeoff/dpgf-review-quantity";
 import {
   TAKEOFF_COMPARE_DEFAULT_THRESHOLD,
   TAKEOFF_COMPARE_MAX_THRESHOLD,
@@ -33,7 +36,7 @@ export { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guar
 type BuildTakeoffDpgfComparisonInput = {
   versionId: string;
   jobId: string;
-  dpgfLines: TakeoffDpgfComparisonDpgfLine[];
+  dpgfLines: Array<TakeoffDpgfComparisonDpgfLine & { sourceFactsKnown?: boolean }>;
   takeoffLines: TakeoffDpgfComparisonTakeoffLine[];
   manualLinks?: TakeoffDpgfManualLinkRecord[];
   reviewDecisions?: TakeoffDpgfReviewDecisionRecord[];
@@ -45,11 +48,14 @@ type BuildTakeoffDpgfComparisonInput = {
 };
 
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
+  quantityIdentity: QuantityIdentity;
+  sourceFactsKnown?: boolean;
   searchText: string;
   normalizedUnit: string | null;
 };
 
 type NormalizedTakeoffLine = TakeoffDpgfComparisonTakeoffLine & {
+  quantityIdentity: QuantityIdentity;
   searchText: string;
   normalizedUnit: string | null;
 };
@@ -181,6 +187,7 @@ function computeMatchScore(input: {
   if (!areUnitsCompatible(input.dpgf.normalizedUnit, input.takeoff.normalizedUnit)) {
     return null;
   }
+  if (!haveSameQuantityIdentity(input.dpgf.quantityIdentity, input.takeoff.quantityIdentity)) return null;
 
   if (!input.dpgf.searchText || !input.takeoff.searchText) {
     return null;
@@ -212,6 +219,7 @@ function computeMatchScore(input: {
 function aggregateTakeoffMetrics(input: {
   items: NormalizedTakeoffLine[];
   dpgfUnit: string | null;
+  dpgf: NormalizedDpgfLine;
 }): AggregatedTakeoffMetrics {
   if (input.items.length === 0) {
     return {
@@ -225,7 +233,8 @@ function aggregateTakeoffMetrics(input: {
   const normalizedUnits = [...new Set(input.items.map((item) => item.normalizedUnit))].filter(
     (unit): unit is string => Boolean(unit)
   );
-  const hasUnitConflict = normalizedUnits.length > 1;
+  const hasUnitConflict = normalizedUnits.length > 1 || input.items.some(item => !areUnitsCompatible(input.dpgf.normalizedUnit, item.normalizedUnit)
+    || !haveSameQuantityIdentity(input.dpgf.quantityIdentity, item.quantityIdentity));
   const quantity = hasUnitConflict
     ? null
     : toStableNumber(
@@ -402,6 +411,7 @@ function computeConfidenceScore(input: {
 }
 
 function deriveReviewStatus(input: {
+  hasKnownEmptyReference: boolean;
   linkedTakeoffItems: NormalizedTakeoffLine[];
   manualLinkCount: number;
   appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
@@ -423,15 +433,13 @@ function deriveReviewStatus(input: {
   if (
     input.aggregatedMetrics.hasUnitConflict ||
     (input.dpgfQuantity === 0 && (input.aggregatedMetrics.quantity ?? 0) > 0) ||
-    (input.deltaPercent !== null && input.deltaPercent > 20)
+    (input.deltaPercent !== null && input.deltaPercent > 1 + 1e-9)
   ) {
     return "significant_gap";
   }
 
   if (
-    input.dpgfQuantity === null ||
-    input.linkedTakeoffItems.length > 1 ||
-    (input.deltaPercent !== null && input.deltaPercent >= 5) ||
+    (input.dpgfQuantity === null && !input.hasKnownEmptyReference) ||
     input.confidenceScore < TO_CONFIRM_MIN_CONFIDENCE ||
     (input.matchingScore ?? 0) < Math.max(input.threshold, RELIABLE_MATCH_MIN_SCORE)
   ) {
@@ -453,7 +461,7 @@ function suggestDecision(input: {
   }
 
   if (input.status === "reliable_match") {
-    return "keep_takeoff";
+    return (input.dpgfQuantity ?? 0) > (input.takeoffQuantity ?? 0) ? "keep_dpgf" : "keep_takeoff";
   }
 
   if (input.status === "forced_manual") {
@@ -465,12 +473,7 @@ function suggestDecision(input: {
   }
 
   if (input.status === "significant_gap") {
-    if (
-      input.takeoffQuantity !== null &&
-      input.dpgfQuantity !== null &&
-      input.takeoffQuantity > input.dpgfQuantity &&
-      input.confidenceScore >= TO_CONFIRM_MIN_CONFIDENCE
-    ) {
+    if (input.takeoffQuantity !== null && input.dpgfQuantity !== null && input.takeoffQuantity > input.dpgfQuantity) {
       return "keep_takeoff";
     }
 
@@ -562,19 +565,28 @@ function buildRow(input: {
   const aggregatedMetrics = aggregateTakeoffMetrics({
     items: input.linkedTakeoffItems,
     dpgfUnit: input.dpgf.unit,
+    dpgf: input.dpgf,
   });
-  const appliedDecision = input.appliedDecision &&
+  const snapshot = dpgfReviewQuantitySnapshot({ dpgf_quantity: input.dpgf.quantity, dpgf: input.dpgf,
+    linked_takeoff_items: input.linkedTakeoffItems });
+  const decisionCurrent = input.appliedDecision && (input.appliedDecision.decision === "out_of_scope"
+    || sameQuantitySnapshot(input.appliedDecision.quantity_snapshot, snapshot));
+  const appliedDecision = !aggregatedMetrics.hasUnitConflict && decisionCurrent && input.appliedDecision &&
     canRetainDpgfQuantity(input.appliedDecision.decision, input.dpgf.quantity, aggregatedMetrics.quantity)
     ? input.appliedDecision : null;
   const delta = computeDelta({
     dpgfQuantity: input.dpgf.quantity,
     takeoffQuantity: aggregatedMetrics.quantity,
   });
+  // Judge the unrounded total of this line. Display rounding cannot move a gap below the boundary.
+  const quantityPolicy = dpgfQuantityPolicy({ dpgf_quantity: input.dpgf.quantity, takeoff_quantity: aggregatedMetrics.quantity,
+    linked_takeoff_items: input.linkedTakeoffItems });
   const provisionalProofs = buildProofs({
     dpgf: input.dpgf,
     linkedTakeoffItems: input.linkedTakeoffItems,
     aggregatedMetrics,
-    appliedDecision,
+    // A past human note remains evidence even when its quantitative acceptance needs a fresh review.
+    appliedDecision: input.appliedDecision,
   });
   const confidenceScore = computeConfidenceScore({
     matchingScore: input.matchingScore,
@@ -584,12 +596,13 @@ function buildRow(input: {
     appliedDecision,
   });
   const reviewStatus = deriveReviewStatus({
+    hasKnownEmptyReference: input.dpgf.quantity === null && input.dpgf.sourceFactsKnown === true,
     linkedTakeoffItems: input.linkedTakeoffItems,
     manualLinkCount: input.manualLinkCount,
     appliedDecision,
     matchingScore: input.matchingScore,
     confidenceScore,
-    deltaPercent: delta.deltaPercent,
+    deltaPercent: quantityPolicy?.percentGap ?? delta.deltaPercent,
     dpgfQuantity: input.dpgf.quantity,
     aggregatedMetrics,
     threshold: input.threshold,
@@ -635,8 +648,8 @@ function buildRow(input: {
     proofs: provisionalProofs,
     suggested_decision: suggestedDecision,
     applied_decision: appliedDecision,
-    delta_absolute: delta.deltaAbsolute,
-    delta_percent: delta.deltaPercent,
+    delta_absolute: quantityPolicy ? toStableNumber(quantityPolicy.absoluteGap) : delta.deltaAbsolute,
+    delta_percent: quantityPolicy ? toStableNumber(quantityPolicy.percentGap) : delta.deltaPercent,
     is_exception: EXCEPTION_STATUSES.has(reviewStatus),
     manual_link_count: input.manualLinkCount,
     matched_by:
@@ -732,11 +745,13 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
     ...line,
     searchText: buildDpgfSearchText(line),
     normalizedUnit: normalizeTakeoffDpgfUnit(line.unit),
+    quantityIdentity: quantityIdentity({ designation: line.title, description: line.description, unit: line.unit ?? "", quantity: line.quantity ?? 0 }),
   }));
   const normalizedTakeoffLines: NormalizedTakeoffLine[] = input.takeoffLines.map((line) => ({
     ...line,
     searchText: buildTakeoffSearchText(line),
     normalizedUnit: normalizeTakeoffDpgfUnit(line.unit),
+    quantityIdentity: quantityIdentity(line),
   }));
 
   const takeoffById = new Map(
@@ -779,6 +794,18 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
     ),
     threshold,
   });
+  // Several plan pages can contribute to the same homogeneous price line. Only an exact, unique label
+  // extends an automatic match; fuzzy competitors keep the global one-to-one allocation above.
+  const automaticallyUsed = new Set([...autoMatchByDpgfId.values()].map(match => match.line.item_id));
+  const additionalMatches = new Map<string, NormalizedTakeoffLine[]>();
+  for (const candidate of normalizedTakeoffLines) {
+    if (automaticallyUsed.has(candidate.item_id) || manuallyUsedTakeoffIds.has(candidate.item_id)) continue;
+    const eligible = normalizedDpgfLines.filter(dpgf => autoMatchByDpgfId.has(dpgf.estimate_item_id)
+      && normalizeTakeoffCompareText(dpgf.title) === candidate.searchText && computeMatchScore({ dpgf, takeoff: candidate }) !== null);
+    if (eligible.length !== 1) continue;
+    const id = eligible[0].estimate_item_id;
+    additionalMatches.set(id, [...(additionalMatches.get(id) ?? []), candidate]);
+  }
   const rows: TakeoffDpgfComparisonRow[] = [];
 
   for (const dpgfLine of normalizedDpgfLines) {
@@ -825,11 +852,12 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
       autoMatchByDpgfId.get(dpgfLine.estimate_item_id) ?? null;
 
     if (bestMatch) {
-      usedTakeoffIds.add(bestMatch.line.item_id);
+      const matches = [bestMatch.line, ...(additionalMatches.get(dpgfLine.estimate_item_id) ?? [])];
+      matches.forEach(item => usedTakeoffIds.add(item.item_id));
       rows.push(
         buildRow({
           dpgf: dpgfLine,
-          linkedTakeoffItems: [bestMatch.line],
+          linkedTakeoffItems: matches,
           manualLinkCount: 0,
           matchingScore: bestMatch.score,
           threshold,

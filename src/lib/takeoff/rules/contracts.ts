@@ -75,6 +75,7 @@ const RESULT_BOUNDS = [
 function detailNumbers(details: NonNullable<TakeoffRuleResult["details"]>) {
   const kept = Object.entries(details).filter(([, value]) => typeof value === "number" && Number.isFinite(value));
   return { ...Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]),
+    ...(details.quantity_context_key ? { quantity_context_key: details.quantity_context_key } : {}),
     ...(details.failure_keys_sha256 ? { failure_keys_sha256: details.failure_keys_sha256 } : {}) };
 }
 

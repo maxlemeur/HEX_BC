@@ -13,6 +13,7 @@ import { ruleLinePage, type RulePageCandidate } from "@/lib/takeoff/rules/recomp
 import type { TakeoffFrameTransform, TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import { VectorItemGeometrySchema, VectorPageRecordSchema } from "@/lib/takeoff/vectors/persistence";
 import type { Database } from "@/types/database";
+import { withQuantityLineGroups, type QuantityTargetLine, type QuantityLineLink } from "@/lib/takeoff/rules/quantity-line-groups";
 
 // Computes the fixed rules of one estimate version and writes them (TI-664
 // step 2), with the service role: after a job's reading (worker), after a
@@ -171,7 +172,19 @@ export async function recomputeTakeoffRulesForVersion(input: {
         length_m: stored.geometry.length_m, area_m2: stored.geometry.area_m2 } : null,
     };
   });
-  const evaluation = evaluateTakeoffRules({ lines, pages });
+  let quantityLines = lines;
+  if (lines.some(line => line.inputs?.kind === "surface")) {
+    const [targets, links] = await Promise.all([
+      readAllRows(() => supabase.from("estimate_items").select("id,title,description,source_metadata", { count: "exact" })
+        .eq("tenant_id", input.tenantId).eq("version_id", input.estimateVersionId).eq("source_provider", "dpgf").eq("item_type", "line")),
+      readAllRows(() => supabase.from("takeoff_dpgf_links").select("takeoff_item_id,estimate_item_id", { count: "exact" })
+        .eq("tenant_id", input.tenantId).eq("version_id", input.estimateVersionId)),
+    ]);
+    if (targets.error) failed("Impossible de lire les lignes de prix pour le contrôle des surfaces.", targets.error);
+    if (links.error) failed("Impossible de lire les rattachements des surfaces.", links.error);
+    quantityLines = withQuantityLineGroups(lines, (targets.data ?? []) as QuantityTargetLine[], (links.data ?? []) as QuantityLineLink[]);
+  }
+  const evaluation = evaluateTakeoffRules({ lines: quantityLines, pages });
 
   // Each line as read: its updated_at and when it was last made stale (a partner's later edit keeps it stale).
   const writes: RuleResultWrite[] = [];

@@ -6,10 +6,12 @@ export function TakeoffApplyWizardStrategyStep({
   strategy,
   isSubmitting,
   onStrategyChange,
+  reconcilesDpgf = false,
 }: {
   strategy: TakeoffApplyStrategy;
   isSubmitting: boolean;
   onStrategyChange: (value: TakeoffApplyStrategy) => void;
+  reconcilesDpgf?: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -18,7 +20,9 @@ export function TakeoffApplyWizardStrategyStep({
           Stratégie d&apos;application
         </p>
         <p className="mt-2 text-sm text-foreground-secondary">
-          Choisissez comment enrichir le devis. Le wizard vous montre l&apos;impact avant confirmation.
+          {reconcilesDpgf
+            ? "La fusion conserve les lignes DPGF rapprochées à leur emplacement et retient la quantité supérieure. La référence DPGF et l’écart restent visibles."
+            : "Choisissez comment enrichir le devis. Le wizard vous montre l’impact avant confirmation."}
         </p>
       </div>
       {STRATEGY_OPTIONS.map((option) => (
@@ -36,7 +40,7 @@ export function TakeoffApplyWizardStrategyStep({
             value={option.value}
             checked={strategy === option.value}
             onChange={() => onStrategyChange(option.value)}
-            disabled={isSubmitting}
+            disabled={isSubmitting || (reconcilesDpgf && option.value !== "merge")}
           />
           <span>
             <span className="block text-sm font-semibold text-foreground">

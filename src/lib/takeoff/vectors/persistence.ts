@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
 import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
-import { surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
+import { pricedSurfaceQuantity, surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
@@ -280,7 +280,7 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
       .filter((hole) => hole.length <= 2 * VECTOR_GEOMETRY_LIMITS.holePoints).map((hole) => hole.map(metres)) : [];
     records.push({
       item: {
-        designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: surface.polygon_m2, unit: "m2", ...surfaceWording(surface, scale),
+        designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: pricedSurfaceQuantity(surface)!, unit: "m2", ...surfaceWording(surface, scale),
         confidence: VECTOR_ITEM_CONFIDENCE.labelled,
       },
       geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "surface", network: null, material: null, dn: null,

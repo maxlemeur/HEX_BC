@@ -222,7 +222,10 @@ est une constante nommée et versionnée dans le code.
 6. **Surfaces** ([`surfaces.ts`](../../src/lib/takeoff/vectors/surfaces.ts)).
    - La mesure est l'aire du plus petit polygone fermé autour de la surface imprimée
      d'une pièce, × échelle².
-   - La surface imprimée sert de contrôle, jamais de quantité ni de repli : une pièce
+   - La géométrie reste la mesure indépendante. Une surface imprimée explicitement
+     en sol net peut relever la quantité chiffrée à la valeur supérieure, sous les
+     [contrôles de base et d'écart par ligne](quantites-reference-metre.md). Elle
+     ne constitue jamais un repli lorsque la mesure manque : une pièce
      sans polygone fermé ni remplissage valable entre les murs (ci-dessous) n'a pas
      d'aire mesurée. Elle est comptée au rapport.
    - Un polygone est fermé par son tracé (h, s, re) ou revient à son premier point, à
@@ -273,7 +276,9 @@ est une constante nommée et versionnée dans le code.
        (une pièce par contour), qui couvre 90 % de la largeur ou de la hauteur de la feuille
        (le long du cadre), ou dont l'aire dépasse 1,5 fois la surface imprimée ou en est
        sous les deux tiers.
-     - La surface imprimée reste un contrôle : jamais la quantité, jamais un repli.
+     - La surface imprimée ne remplace pas une mesure absente. Son éventuel emploi
+       pour relever la quantité chiffrée conserve la géométrie et la référence
+       séparément, sous le contrat de TI-680 décrit ci-dessus.
      - Le contour du remplissage (au plus 2 000 points, en coordonnées de page) est la
        géométrie de la pièce, comme un polygone ; l'item dit « remplissage entre murs ».
        Il fait le tour de la pièce et de ses poches (reliées par les cellules de

@@ -15,6 +15,7 @@ import type { TakeoffDpgfComparisonSummary, TakeoffMappingPreviewItem } from "@/
 import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 import { takeoffApplyOverrideItemState, type TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
 import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
+import type { DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
 
 /** A line the apply guard reads, with the state an admin override records when it lifts it (TI-677 PR D). */
 export type TakeoffApplyGuardRow = ApplyGuardItem & { override_state: TakeoffApplyOverrideItemState };
@@ -53,6 +54,9 @@ export async function issueTakeoffDpgfApplyAuthorization(input: {
   jobId: string;
   estimateVersionId: string;
   summary: TakeoffDpgfComparisonSummary;
+  quantityPolicy?: DpgfApplyQuantityLine[];
+  quantitySources?: Array<{ id: string; updated_at: string; quantity: number; designation: string; unit: string; is_excluded: boolean }>;
+  quantityComparisonStamp?: string;
   authorizationToken: string;
   nowMs: number;
 }) {
@@ -76,6 +80,14 @@ export async function issueTakeoffDpgfApplyAuthorization(input: {
   }
 
   return input.authorizationToken;
+}
+
+/** Bind the whole documentary comparison, including excluded sources, manual links and review decisions. */
+export async function loadTakeoffQuantityComparisonStamp(tenantId: string, estimateVersionId: string): Promise<string> {
+  const { data, error } = await createServiceRoleClient().rpc("takeoff_rule_version_stamp",
+    { p_tenant_id: tenantId, p_estimate_version_id: estimateVersionId });
+  if (error || typeof data !== "string") throw new Error("Impossible de figer la révision des quantités examinées.");
+  return data;
 }
 
 export async function revokeTakeoffDpgfApplyAuthorization(input: {

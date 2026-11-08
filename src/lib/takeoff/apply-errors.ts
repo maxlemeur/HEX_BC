@@ -80,6 +80,17 @@ export function mapApplyTakeoffRpcError(
     },
   };
 
+  if (normalized.includes("takeoff_dpgf_quantity_")) {
+    const stale = normalized.includes("snapshot_stale");
+    const merge = normalized.includes("merge_required");
+    return new TakeoffError({ status: stale ? 409 : 422,
+      code: stale ? TakeoffErrorCode.CONFLICT : TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+      message: stale ? "Les quantités, les rattachements ou la revue ont changé. Rechargez la comparaison avant d’appliquer."
+        : merge ? "Utilisez la fusion pour conserver les références DPGF et appliquer les quantités protectrices."
+          : "Vérifiez les quantités et les rattachements DPGF avant l’application. Une même prestation doit conserver une base et un chiffrage cohérents.",
+      details: { ...details, guard: "dpgf_quantities" }, retryable: stale, jobId: input.jobId });
+  }
+
   if (error.code === "PGRST202") {
     return new TakeoffError({
       status: 503,

@@ -37,7 +37,8 @@ function partners(details: unknown): string[] {
     ? details.partners.map((partner) => identifier(isObject(partner) ? partner.item_id : undefined))
     : [];
   const rooms = Array.isArray(details.overlapping_item_ids) ? details.overlapping_item_ids.map(identifier) : [];
-  return [...named, ...rooms];
+  const quantity = details.quantity_context_key === undefined ? [] : [identifier(details.quantity_context_key)];
+  return [...named, ...rooms, ...quantity];
 }
 
 /** The keys of the failed rules in stored results (any JSON), sorted and without duplicates. */

@@ -14,6 +14,7 @@ import { mapApplyTakeoffRpcError } from "@/lib/takeoff/apply-errors";
 import {
   invokeApplyTakeoffRpc,
   issueTakeoffDpgfApplyAuthorization,
+  loadTakeoffQuantityComparisonStamp,
   listTakeoffApplyGuardItems,
   listTakeoffRulePartnerExclusions,
   loadTakeoffApplyConcurrencyToken,
@@ -23,8 +24,9 @@ import {
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
 import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-repository";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
-import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-comparison-server";
-import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
+import { buildDpgfApplyQuantityPolicy } from "@/lib/takeoff/dpgf-apply-quantities";
+import { computeTakeoffDpgfRows, hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
 import { failurePartners, isLineId, leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
@@ -136,6 +138,19 @@ export async function applyTakeoffJob(
     // the review holds its current results; on level C also low confidence, proof and page. The lines the mapping
     // plan skips or folds into an assembly are excluded by the RPC before the trigger counts: here too.
     await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "apply" });
+    const quantityComparisonStamp = hasDpgfTargetLines ? await loadTakeoffQuantityComparisonStamp(tenantId, jobRow.estimate_version_id) : undefined;
+    const comparisonContext = hasDpgfTargetLines ? await loadTakeoffDpgfComparisonContext({
+      auth: { supabase, tenantId, userId }, jobId: normalizedJobId, versionId: jobRow.estimate_version_id,
+    }) : null;
+    if (comparisonContext) {
+      const outOfScope = new Set(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows
+        .filter(row => row.applied_decision?.decision === "out_of_scope")
+        .flatMap(row => row.linked_takeoff_items.map(item => item.item_id)));
+      mappingPreview.items = mappingPreview.items.map(item => outOfScope.has(item.item_id)
+        ? { ...item, action: "skip", transformed: { ...item.transformed, is_excluded: true } } : item);
+      const excluded = new Set(mappingPreview.items.filter(item => item.action === "skip" || item.action === "apply_assembly").map(item => item.item_id));
+      comparisonContext.comparisonInput.takeoffLines = comparisonContext.comparisonInput.takeoffLines.filter(item => !excluded.has(item.item_id));
+    }
     {
       const lowConfidenceThreshold = await getTakeoffLowConfidenceThresholdForTenant(
         tenantId,
@@ -240,17 +255,8 @@ export async function applyTakeoffJob(
     let rpcData: unknown;
 
     try {
-      if (hasDpgfTargetLines) {
-        const comparisonContext = await loadTakeoffDpgfComparisonContext({
-          auth: { supabase, tenantId, userId },
-          jobId: normalizedJobId,
-          versionId: jobRow.estimate_version_id,
-        });
-        const dpgfComparison = await fetchDpgfTakeoffComparisonForContext(comparisonContext, {
-          version_id: jobRow.estimate_version_id,
-          page_size: 1,
-          view: "all",
-        });
+      if (comparisonContext) {
+        const dpgfComparison = await fetchAllTakeoffDpgfComparisonRows({ context: comparisonContext });
 
         if (hasBlockingTakeoffDpgfExceptions(dpgfComparison.summary)) {
           throw new TakeoffError({
@@ -273,6 +279,10 @@ export async function applyTakeoffJob(
           jobId: normalizedJobId,
           estimateVersionId: jobRow.estimate_version_id,
           summary: dpgfComparison.summary,
+          quantityPolicy: buildDpgfApplyQuantityPolicy(comparisonContext, dpgfComparison.rows),
+          quantitySources: comparisonContext.takeoffItems.map(item => ({ id: item.id, updated_at: item.updated_at,
+            quantity: item.quantity, designation: item.designation, unit: item.unit, is_excluded: item.is_excluded })),
+          quantityComparisonStamp,
           authorizationToken: randomUUID(),
           nowMs: Date.now(),
         });

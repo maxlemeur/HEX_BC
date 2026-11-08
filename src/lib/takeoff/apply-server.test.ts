@@ -13,12 +13,13 @@ vi.mock("@/lib/takeoff/apply-repository", () => ({
   listTakeoffApplyGuardItems: vi.fn(),
   listTakeoffRulePartnerExclusions: vi.fn(),
   loadTakeoffApplyConcurrencyToken: vi.fn(),
+  loadTakeoffQuantityComparisonStamp: vi.fn(),
   logTakeoffMappingApplyAuditEvents: vi.fn(),
   revokeTakeoffDpgfApplyAuthorization: vi.fn(),
 }));
 vi.mock("@/lib/takeoff/dpgf-comparison-repository", () => ({ hasTakeoffDpgfTargetLines: vi.fn() }));
 vi.mock("@/lib/takeoff/dpgf-comparison-context-server", () => ({ loadTakeoffDpgfComparisonContext: vi.fn() }));
-vi.mock("@/lib/takeoff/dpgf-comparison-server", () => ({ fetchDpgfTakeoffComparisonForContext: vi.fn() }));
+vi.mock("@/lib/takeoff/dpgf-comparison-server", () => ({ fetchAllTakeoffDpgfComparisonRows: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({ getTakeoffLowConfidenceThresholdForTenant: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn() }));
 vi.mock("@/lib/takeoff/audit", async (importOriginal) => ({
@@ -33,7 +34,7 @@ import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-
 import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow } from "@/lib/takeoff/job-read-server";
 import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-repository";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
-import { fetchDpgfTakeoffComparisonForContext } from "@/lib/takeoff/dpgf-comparison-server";
+import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { logTakeoffAuditEvent } from "@/lib/takeoff/audit";
 import { buildTakeoffDpgfComparisonSummary } from "@/lib/takeoff/dpgf-compare";
@@ -55,6 +56,7 @@ function calledBefore(first: { mock: { invocationCallOrder: number[] } }, second
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(repository.loadTakeoffQuantityComparisonStamp).mockResolvedValue("quantity-stamp");
   vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue(auth as never);
   vi.mocked(getTakeoffJobDetailByIdOrThrow)
     .mockResolvedValueOnce(completedJob as never)
@@ -70,8 +72,9 @@ beforeEach(() => {
   // The guard runs on every level (TI-664): no line blocks here.
   vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([]);
   vi.mocked(repository.loadTakeoffApplyConcurrencyToken).mockResolvedValue(TOKEN);
-  vi.mocked(loadTakeoffDpgfComparisonContext).mockResolvedValue({ jobId: JOB_ID } as never);
-  vi.mocked(fetchDpgfTakeoffComparisonForContext).mockResolvedValue({ summary } as never);
+  vi.mocked(loadTakeoffDpgfComparisonContext).mockResolvedValue({ jobId: JOB_ID, estimateItems: [], takeoffItems: [],
+    comparisonInput: { versionId: VERSION_ID, jobId: JOB_ID, dpgfLines: [], takeoffLines: [] } } as never);
+  vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary, rows: [] } as never);
   vi.mocked(repository.issueTakeoffDpgfApplyAuthorization).mockImplementation(async (input) => input.authorizationToken);
   vi.mocked(repository.invokeApplyTakeoffRpc).mockResolvedValue({ data: { created_count: 1 }, error: null } as never);
 });
@@ -81,11 +84,11 @@ describe("takeoff apply orchestration", () => {
     const response = await applyTakeoffJob(JOB_ID, request);
 
     expect(bulkUpdateEstimateItems).toHaveBeenCalledWith(VERSION_ID, [], TOKEN);
-    expect(fetchDpgfTakeoffComparisonForContext).toHaveBeenCalledWith(
-      { jobId: JOB_ID }, { version_id: VERSION_ID, page_size: 1, view: "all" }
+    expect(fetchAllTakeoffDpgfComparisonRows).toHaveBeenCalledWith(
+      { context: expect.objectContaining({ jobId: JOB_ID }) }
     );
-    calledBefore(vi.mocked(bulkUpdateEstimateItems), vi.mocked(fetchDpgfTakeoffComparisonForContext));
-    calledBefore(vi.mocked(fetchDpgfTakeoffComparisonForContext), vi.mocked(repository.issueTakeoffDpgfApplyAuthorization));
+    calledBefore(vi.mocked(bulkUpdateEstimateItems), vi.mocked(fetchAllTakeoffDpgfComparisonRows));
+    calledBefore(vi.mocked(fetchAllTakeoffDpgfComparisonRows), vi.mocked(repository.issueTakeoffDpgfApplyAuthorization));
     calledBefore(vi.mocked(repository.issueTakeoffDpgfApplyAuthorization), vi.mocked(repository.invokeApplyTakeoffRpc));
     const authorization = vi.mocked(repository.issueTakeoffDpgfApplyAuthorization).mock.calls[0][0];
     expect(authorization).toMatchObject({ tenantId: TENANT_ID, userId: USER_ID, jobId: JOB_ID, estimateVersionId: VERSION_ID, summary, nowMs: expect.any(Number) });
@@ -101,7 +104,7 @@ describe("takeoff apply orchestration", () => {
   });
 
   it("blocks the whole application when the global DPGF summary has unresolved exceptions", async () => {
-    vi.mocked(fetchDpgfTakeoffComparisonForContext).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 } } as never);
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 } } as never);
     await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422, details: { guard: "dpgf_comparison" } });
     expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
     expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();

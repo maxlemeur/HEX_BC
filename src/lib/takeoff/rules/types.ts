@@ -87,6 +87,8 @@ export type TakeoffRuleDetails = {
   cause?: string;
   model_quantity?: number;
   scale_reason?: string | null;
+  /** Identity of the full quantity comparison, so a changed partner reopens an earlier acceptance. */
+  quantity_context_key?: string;
 };
 
 export type TakeoffRuleResult = {

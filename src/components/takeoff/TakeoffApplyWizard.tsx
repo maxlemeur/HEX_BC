@@ -100,6 +100,7 @@ export function TakeoffApplyWizard({
   const [strategy, setStrategy] = useState<TakeoffApplyStrategy>("append");
   const [sectionOptions, setSectionOptions] = useState<SectionOption[]>([]);
   const [isLoadingSections, setIsLoadingSections] = useState(false);
+  const [hasDpgfLines, setHasDpgfLines] = useState(false);
   const [sectionsError, setSectionsError] = useState<string | null>(null);
   const [overridesByItemId, setOverridesByItemId] =
     useState<Record<string, TakeoffMappingOverride>>({});
@@ -155,6 +156,7 @@ export function TakeoffApplyWizard({
       setSectionOptions([]);
       setSectionsError(null);
       setIsLoadingSections(true);
+      setHasDpgfLines(false);
       resetPreview();
       setOverridesByItemId({});
       setOverrideJustification("");
@@ -163,6 +165,9 @@ export function TakeoffApplyWizard({
         const estimateItems = await fetchEstimateItemsForVersion(versionId);
         if (!active) return;
         const options = buildSectionOptions(estimateItems);
+        const dpgf = estimateItems.some(item => item.source_provider === "dpgf");
+        setHasDpgfLines(dpgf);
+        if (dpgf) setStrategy("merge");
         setSectionOptions(options);
         setTargetSectionId(options[0]?.id ?? null);
       } catch (error) {
@@ -380,6 +385,7 @@ export function TakeoffApplyWizard({
                   isLoadingSections={isLoadingSections}
                   sectionsError={sectionsError}
                   isSubmitting={isSubmitting}
+                  reconcilesDpgf={hasDpgfLines}
                   onTargetSectionChange={(value) => {
                     setTargetSectionId(value);
                     resetPreview();
@@ -390,6 +396,7 @@ export function TakeoffApplyWizard({
               {step === 2 && !isPreset && (
                 <TakeoffApplyWizardStrategyStep
                   strategy={strategy}
+                  reconcilesDpgf={hasDpgfLines}
                   isSubmitting={isSubmitting}
                   onStrategyChange={(value) => {
                     setStrategy(value);

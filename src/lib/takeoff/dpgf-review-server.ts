@@ -16,6 +16,8 @@ import {
 import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
+import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
+import { dpgfReviewQuantitySnapshot } from "@/lib/takeoff/dpgf-review-quantity";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { normalizeTakeoffDpgfManualLinkRows } from "@/lib/takeoff/dpgf-comparison-preparation";
 import { refreshTakeoffLineEvidenceSnapshot } from "@/lib/takeoff/line-evidence-server";
@@ -108,7 +110,9 @@ export async function saveTakeoffReviewDecision(
   const context = await loadTakeoffDpgfComparisonContext({ jobId: normalizedJobId, versionId: scope.versionId,
     auth: { supabase, tenantId, userId } });
   const row = computeTakeoffDpgfRows(context.comparisonInput).rows.find(item => item.line_id === scope.estimateItemId);
-  if (!row || !canRetainDpgfQuantity(payload.decision, row.dpgf_quantity, row.takeoff_quantity)) {
+  if (!row || !canRetainDpgfQuantity(payload.decision, row.dpgf_quantity, row.takeoff_quantity)
+    || row.linked_takeoff_items.some(item => !haveComparableQuantities({ designation: row.dpgf.title, description: row.dpgf.description,
+      quantity: row.dpgf_quantity ?? 0, unit: row.dpgf.unit ?? "" }, item))) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
       message: "La quantité à retenir est indisponible. Vérifiez la ligne avant de décider.", jobId: normalizedJobId });
   }
@@ -138,6 +142,7 @@ export async function saveTakeoffReviewDecision(
     sameDecisionLine,
     sourceDecision,
     linkedFromVersionId,
+    quantitySnapshot: dpgfReviewQuantitySnapshot(row),
   });
   const decision = await saveTakeoffDpgfReviewDecisionPlan({
     supabase,

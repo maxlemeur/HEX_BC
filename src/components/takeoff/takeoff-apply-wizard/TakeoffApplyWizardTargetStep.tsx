@@ -14,6 +14,7 @@ export function TakeoffApplyWizardTargetStep({
   sectionsError,
   isSubmitting,
   onTargetSectionChange,
+  reconcilesDpgf = false,
 }: {
   targetVersionLabel?: string | null;
   targetSectionId: string | null;
@@ -22,6 +23,7 @@ export function TakeoffApplyWizardTargetStep({
   sectionsError: string | null;
   isSubmitting: boolean;
   onTargetSectionChange: (value: string | null) => void;
+  reconcilesDpgf?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -35,7 +37,9 @@ export function TakeoffApplyWizardTargetStep({
             : "Brouillon actuellement ouvert"}
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Les quantités seront injectées dans cette section après confirmation finale. La racine du devis n&apos;est jamais proposée comme cible.
+          {reconcilesDpgf
+            ? "Les lignes DPGF rapprochées conservent leur emplacement. Cette section accueille les nouvelles lignes éventuelles après confirmation."
+            : "Les quantités seront injectées dans cette section après confirmation finale. La racine du devis n’est jamais proposée comme cible."}
         </p>
       </div>
 
