@@ -1,4 +1,4 @@
-import { DIAMETER_FAMILIES, findDiameterEntries, type DiameterFamily } from "@/lib/takeoff/bench/diameters";
+import { DIAMETER_FAMILIES, findDiameterEntries, type DiameterEntry, type DiameterFamily } from "@/lib/takeoff/bench/diameters";
 import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
 
 // DN × network reference of the fixed rules (TI-664 step 1), extending the
@@ -23,8 +23,14 @@ import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeof
 //   PVC pressure (NF EN 1452) share one family of the L0 table: their outer
 //   diameters are told apart here (PVC_SERIES). Cases left to Max
 //   (AMBIGUOUS_NETWORK_MATERIALS) stay as written here until he decides.
+// - Stainless is read in the series of its network (diameterFamiliesFor), by
+//   this rule, the duplicate detection and the DPGF identity alike (TI-684).
+// - A missing or out-of-series DN keeps the couple's condition (D18b): the
+//   reviewer sees what the material needs beside the DN to fix.
 
-export const NETWORK_DIAMETER_TABLE_VERSION = 2;
+// v3 (TI-684, TI-685 D18a/D18b): stainless condensates read the drainage series too, and a DN failure now shows the
+// couple's condition, which a line verified under v2 was accepted without: v3 reopens those decisions on recomputation.
+export const NETWORK_DIAMETER_TABLE_VERSION = 3;
 
 const STAINLESS: readonly MaterialCode[] = ["inox", "inox-304l", "inox-316l"];
 const STEEL: readonly MaterialCode[] = ["acier", "acier-noir"];
@@ -80,6 +86,7 @@ export const NETWORK_MATERIALS: Record<NetworkCode, readonly MaterialCode[]> = {
 /** Open evidence only, never treated as permission by the evaluator. */
 export const AMBIGUOUS_NETWORK_MATERIALS = [
   { network: "EU", material: "inox", note: "Série NF EN 1124 provisoire : second fabricant et DN 90 à recouper." },
+  { network: "COND", material: "inox", note: "Séries sous pression et NF EN 1124 provisoire réunies (D18a) ; Ø 32 hors série faute de source." },
 ] as const;
 
 const DRAINAGE_NETWORKS: readonly NetworkCode[] = ["EU", "EV", "EUV", "EUG", "EP", "VP"];
@@ -110,29 +117,56 @@ function familiesOf(material: MaterialCode): DiameterFamily[] {
   return (Object.keys(DIAMETER_FAMILIES) as DiameterFamily[]).filter((family) => DIAMETER_FAMILIES[family].materials.includes(material));
 }
 
+/**
+ * Series a material is read in on a network, one selection for the DN rule, the duplicate detection and the DPGF
+ * identity, so that one pipe names one size everywhere (TI-684):
+ * - stainless on a drainage network: the provisional drainage series only (NF EN 1124), never a pressure one
+ *   (« DN 100 » is the 110 mm drainage pipe there, not the 108 mm press-fit tube);
+ * - stainless condensates (D18a): the pressure and drainage series together, a condensate line being pumped or gravity;
+ * - anywhere else, or with no network read: the material's series, drainage stainless left out (it is opt-in by network).
+ * A material without a series of its own (an insulation) has none.
+ */
+export function diameterFamiliesFor(network: NetworkCode | null, material: MaterialCode): DiameterFamily[] {
+  if (network !== null && STAINLESS.includes(material) && DRAINAGE_NETWORKS.includes(network)) return ["inox-evacuation"];
+  return familiesOf(material).filter((family) => family !== "inox-evacuation" || network === "COND");
+}
+
+/**
+ * Entries a DN names on a network, through diameterFamiliesFor. A line without a material, or whose material has no
+ * series (an insulation), follows findDiameterEntries: every series but drainage stainless.
+ */
+export function findNetworkDiameterEntries(dn: string, network: NetworkCode | null, material: MaterialCode | null): DiameterEntry[] {
+  const families = material ? diameterFamiliesFor(network, material) : [];
+  return findDiameterEntries(dn, material, families.length > 0 ? families : undefined);
+}
+
 export type NetworkDiameterCheck =
   | { status: "compatible" }
   | { status: "requires_justification"; reason: string }
   | { status: "blocked"; reason: string }
-  | { status: "material_missing" | "dn_missing" }
+  | { status: "material_missing" }
+  | { status: "dn_missing"; condition?: string }
   | { status: "material_not_allowed"; allowed: readonly MaterialCode[] }
-  | { status: "dn_not_in_series"; families: DiameterFamily[] };
+  | { status: "dn_not_in_series"; families: DiameterFamily[]; condition?: string };
 
 /** The triplet's place in the table: compatible, or why it fails. Insulation and trace heating are never passed here. */
 export function checkNetworkDiameter(network: NetworkCode, material: MaterialCode | null, dn: string | null): NetworkDiameterCheck {
   if (material === null) return { status: "material_missing" };
-  if (network === "GAZ" && material === "multicouche") return { status: "blocked", reason: "Multicouche en gaz : validation interdite ; seul un administrateur peut forcer avec une réserve ou une variante." };
+  if (network === "GAZ" && material === "multicouche") {
+    return { status: "blocked", reason: "Multicouche en gaz : interdit, ne s’accepte pas en relecture. Seul un administrateur peut forcer l’application, avec une justification écrite." };
+  }
   const condition = conditionOf(network, material);
   const allowed = NETWORK_MATERIALS[network];
   if (!condition && !allowed.includes(material)) return { status: "material_not_allowed", allowed };
-  if (dn === null || dn.trim() === "") return { status: "dn_missing" };
-  const families: DiameterFamily[] = STAINLESS.includes(material) && DRAINAGE_NETWORKS.includes(network)
-    ? ["inox-evacuation"] : familiesOf(material).filter((family) => family !== "inox-evacuation");
+  // D18b: a DN failure carries the couple's condition, which the size never lifts.
+  const kept = condition ? { condition } : {};
+  if (dn === null || dn.trim() === "") return { status: "dn_missing", ...kept };
+  const families = diameterFamiliesFor(network, material);
   // findDiameterEntries restricts to the material's series; a material without series would read every series.
-  if (families.length === 0) return { status: "dn_not_in_series", families };
+  if (families.length === 0) return { status: "dn_not_in_series", families, ...kept };
   const restricted = PVC_SERIES[material];
   const entries = findDiameterEntries(dn, material, families).filter((entry) => !restricted || restricted.includes(entry.od_mm));
-  if (entries.length === 0) return { status: "dn_not_in_series", families };
+  if (entries.length === 0) return { status: "dn_not_in_series", families, ...kept };
   return condition ? { status: "requires_justification", reason: condition } : { status: "compatible" };
 }
 

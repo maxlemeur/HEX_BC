@@ -695,6 +695,21 @@ describe("duplicate runs between zones", () => {
     expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
   });
 
+  // TI-684, written before the fix: stainless drainage was read through the pressure series here, unlike the DN rule.
+  it("compares one stainless drainage pipe labelled « DN 100 » and « Ø 110 » through NF EN 1124, never with « Ø 108 »", () => {
+    const stainless = (network: "EU" | "EF", dn: string) => inputs({ network, material: "inox", dn });
+    const drainage = zones({ z1: { inputs: stainless("EU", "DN 100") }, z2: { inputs: stainless("EU", "Ø 110") } });
+    expect(rule(drainage.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(rule(drainage.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    const press = zones({ z1: { inputs: stainless("EU", "DN 100") }, z2: { inputs: stainless("EU", "Ø 108") } });
+    expect(rule(press.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    // Outside drainage, stainless keeps its pressure series: Ø 108 is the DN 100 press-fit tube.
+    const coldWater = zones({ z1: { inputs: stainless("EF", "DN 100") }, z2: { inputs: stainless("EF", "Ø 108") } });
+    expect(rule(coldWater.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(rule(zones({ z1: { inputs: stainless("EF", "DN 100") }, z2: { inputs: stainless("EF", "Ø 110") } }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
   it("never takes two insulations of different sizes for one run", () => {
     const insulation = (dn: number) => inputs({ kind: "insulation", material: "calorifuge", dn: `DN ${dn}` });
     const result = zones({ z1: { inputs: insulation(15) }, z2: { inputs: insulation(20) } });
