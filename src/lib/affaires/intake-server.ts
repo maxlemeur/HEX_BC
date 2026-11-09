@@ -3,6 +3,7 @@ import {
   AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
   buildClassificationPrompt,
 } from "@/lib/affaires/intake-classification-prompt";
+import { buildAffaireIntakeReanalysisUpdate } from "@/lib/affaires/intake-reanalysis";
 import { createHash, randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { cache } from "react";
@@ -61,6 +62,8 @@ import {
   inferAffaireIntakeMimeType,
   isAffaireIntakePrimaryEligibleKind,
   isAffaireIntakeAnalysisStale,
+  isAffaireIntakeReanalysisPending,
+  AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE,
   isMimeTypeSupportedForAiClassification,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeTextList,
@@ -1018,6 +1021,7 @@ async function classifyAffaireIntakeDocument(input: {
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
+  analysisSucceeded?: boolean;
 }> {
   const heuristicResult = getHeuristicAffaireDocumentClassification({
     fileName: input.fileName,
@@ -1084,6 +1088,7 @@ async function classifyAffaireIntakeDocument(input: {
     return {
       result: mergedResult,
       source,
+      analysisSucceeded: true,
     };
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
@@ -3062,11 +3067,10 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   if (error) throw internalError("Impossible de lire le document à réanalyser.", error);
   const document = normalizeDocumentRow(data);
   if (!document) throw notFound("Document introuvable.");
-  if (document.classification_source === "manual" || document.manually_overridden_at) {
-    throw conflict("Le classement manuel de cette pièce est conservé. Elle ne sera pas réanalysée.");
-  }
-  const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at });
-  if (document.upload_status !== "uploaded" || (!["ambiguous", "failed"].includes(document.classification_status) && !stale)) {
+  const preserveManualClassification = document.classification_source === "manual" || Boolean(document.manually_overridden_at);
+  const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at, issues: document.issues });
+  if (isAffaireIntakeReanalysisPending(document) && !stale) throw conflict("Une analyse de cette pièce est déjà en cours.");
+  if (document.upload_status !== "uploaded" || (!["classified", "ambiguous", "failed"].includes(document.classification_status) && !stale)) {
     throw conflict("Cette pièce n’est plus disponible pour une nouvelle analyse. Actualisez le dossier.");
   }
   const { data: lot, error: lotError } = await context.supabase.from("affaire_intake_uploads")
@@ -3076,18 +3080,18 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   if (!["ready", "partial_failure", "failed"].includes(lot.status)) {
     throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
   }
-  const editable = () => table().update({ classification_status: "processing" })
+  // A lease marker leaves the validated classification and plan generation unchanged.
+  const editable = () => table().update({ issues: [AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE,
+    ...document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE)].slice(0, 10) })
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
     .eq("upload_status", "uploaded").eq("classification_status", document.classification_status)
-    .eq("updated_at", document.updated_at).or("classification_source.is.null,classification_source.neq.manual")
-    .is("manually_overridden_at", null).is("deleted_at", null).is("deletion_token", null);
+    .eq("updated_at", document.updated_at).is("deleted_at", null).is("deletion_token", null);
   const { data: reserved, error: reserveError } = await editable().select("updated_at").maybeSingle();
   if (reserveError) throw internalError("Impossible de réserver cette pièce.", reserveError);
   if (!reserved) throw conflict("La pièce a changé. Actualisez le dossier.");
   const fence = (query: ReturnType<ReturnType<typeof table>["update"]>) => query
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
-    .eq("classification_status", "processing").eq("updated_at", reserved.updated_at)
-    .or("classification_source.is.null,classification_source.neq.manual").is("manually_overridden_at", null)
+    .eq("classification_status", document.classification_status).eq("updated_at", reserved.updated_at)
     .is("deleted_at", null).is("deletion_token", null);
   let proposalSaved = false;
   try {
@@ -3107,7 +3111,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
       beforeProviderCall: async () => {
         const { data: current, error: currentError } = await table().select("id").eq("id", document.id)
           .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("updated_at", reserved.updated_at)
-          .eq("classification_status", "processing").is("deleted_at", null).is("deletion_token", null).maybeSingle();
+          .eq("classification_status", document.classification_status).is("deleted_at", null).is("deletion_token", null).maybeSingle();
         if (currentError || !current) throw conflict("La pièce a changé avant l’analyse. Actualisez le dossier.");
       },
       decisionsContext: { owner: context, projectId: project.id, documentId: document.id,
@@ -3115,12 +3119,13 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     });
     // A reanalysis updates a proposal. Confirmation and derived dossier/brief
     // updates stay in the existing explicit manual validation action.
-    const status = "ambiguous" as const;
+    const { analysisSucceeded, values } = buildAffaireIntakeReanalysisUpdate({
+      document, classification, preserveManualClassification, now: new Date().toISOString(),
+    });
+    const status = values.classification_status;
     const { data: updated, error: updateError } = await fence(table().update({
-      classification_status: status, document_kind: classification.result.documentKind,
-      confidence: classification.result.confidence, classification_source: classification.source,
-      issues: classification.result.issues, extracted_metadata: classification.result.extractedMetadata,
-      classified_at: new Date().toISOString(), size_bytes: bytes.byteLength,
+      ...values,
+      size_bytes: bytes.byteLength,
       ...(linked ? { drive_revision: linked.file.version ?? null, drive_modified_time: linked.file.modifiedTime ?? null } : {}),
     })).select("id").maybeSingle();
     if (updateError) throw internalError("Impossible d’enregistrer la nouvelle analyse.", updateError);
@@ -3129,15 +3134,19 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
       beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },
-      afterPayload: { document_kind: classification.result.documentKind, classification_status: status,
-        classification_source: classification.source, confidence: classification.result.confidence } });
-    return { analyzed: true, usedFallback: classification.source === "heuristic",
+      afterPayload: { document_kind: preserveManualClassification ? document.document_kind : classification.result.documentKind,
+        classification_status: status, classification_source: preserveManualClassification ? document.classification_source : classification.source,
+        confidence: preserveManualClassification ? document.confidence : classification.result.confidence,
+        proposed_document_kind: classification.result.documentKind, analysis_source: analysisSucceeded ? "ai" : "heuristic",
+        preserved_manual_classification: preserveManualClassification } });
+    return { analyzed: true, usedFallback: !analysisSucceeded, preservedManualClassification: preserveManualClassification,
       warning: classification.result.issues.find((issue) => issue.startsWith("Analyse IA :")) ?? null };
   } catch (cause) {
     if (proposalSaved) throw internalError("La nouvelle proposition est enregistrée, mais son historique est incomplet. Vérifiez puis validez la catégorie pour poursuivre.", cause);
     // Does not release another request's reservation or overwrite a manual choice.
-    await fence(table().update({ classification_status: "failed",
-      issues: addIssue(document.issues, "Analyse interrompue. Vous pouvez relancer cette pièce.") }));
+    await fence(table().update({ classification_status: preserveManualClassification
+      ? (document.document_kind === "a_classer" ? "ambiguous" : "classified") : "failed",
+      issues: addIssue(document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE), "Analyse interrompue. Vous pouvez relancer cette pièce.") }));
     throw cause;
   }
 }
@@ -3501,10 +3510,11 @@ export async function reclassifyAffaireDocument(input: {
     confidence: document.confidence,
   };
 
+  const previousIssues = document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE);
   const nextIssues =
     input.category === "a_classer"
-      ? addIssue(document.issues, "Document remis manuellement dans la file à classer.")
-      : document.issues;
+      ? addIssue(previousIssues, "Document remis manuellement dans la file à classer.")
+      : previousIssues;
 
   const { data: updatedDocument, error: updateError } = await resolveSupabaseQuery<{
     data: { id: string } | null;

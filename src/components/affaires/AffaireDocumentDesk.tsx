@@ -263,6 +263,7 @@ export function AffaireDocumentDesk({
     setFailures([]);
     setMessage("");
     let analyzed = 0;
+    let preservedManual = 0;
     let fallback = 0;
     let warning = "";
     const failed: string[] = [];
@@ -278,6 +279,7 @@ export function AffaireDocumentDesk({
           });
           if (result.analyzed) {
             analyzed++;
+            if (result.preservedManualClassification) preservedManual++;
             if (result.usedFallback) {
               fallback++;
               warning = result.warning ?? "L’analyse IA n’a pas abouti.";
@@ -305,7 +307,7 @@ export function AffaireDocumentDesk({
         failed.push(`${warning} La sélection restante n’a pas été relancée.`);
       setFailures(failed);
       setMessage(
-        `${analyzed} proposition${analyzed > 1 ? "s" : ""} mise${analyzed > 1 ? "s" : ""} à jour.${fallback ? ` L’IA n’a pas abouti pour ${fallback} pièce(s) : proposition basée sur le nom.` : ""} Vérifiez les catégories puis validez-les pour actualiser le dossier et le brief. Les classements manuels sont conservés.`,
+        `${analyzed} pièce${analyzed > 1 ? "s" : ""} traitée${analyzed > 1 ? "s" : ""}.${preservedManual ? ` ${preservedManual} classement${preservedManual > 1 ? "s" : ""} manuel${preservedManual > 1 ? "s" : ""} conservé${preservedManual > 1 ? "s" : ""}. Consultez les détails pour voir le résultat de l’analyse.` : ""}${fallback ? ` L’IA n’a pas abouti pour ${fallback} pièce(s) ; les informations précédentes sont conservées.` : ""}${analyzed > preservedManual ? " Vérifiez les nouvelles propositions puis validez-les pour actualiser le dossier et le brief." : ""}`,
       );
     } finally {
       running.current = false;
@@ -369,7 +371,7 @@ export function AffaireDocumentDesk({
                 title={
                   !analysisAvailable
                     ? workspace.analysisAvailability?.message
-                    : "Relancer uniquement les pièces à vérifier, hors classements manuels"
+                    : "Relancer l’IA, y compris sur les pièces validées. Les classements manuels sont conservés."
                 }
                 onClick={() => void retryAnalysis(retryableDocuments)}
               >

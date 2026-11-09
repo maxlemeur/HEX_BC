@@ -518,9 +518,15 @@ export function buildAffaireIntakeStoragePath(input: {
 
 export const AFFAIRE_INTAKE_ANALYSIS_STALE_MS = 10 * 60_000;
 
-export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null }) {
+export const AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE = "Analyse IA en cours.";
+
+export function isAffaireIntakeReanalysisPending(document: { issues?: string[] | null }) {
+  return document.issues?.includes(AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE) === true;
+}
+
+export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null; issues?: string[] | null }) {
   const updated = Date.parse(document.classificationUpdatedAt ?? "");
-  return document.classificationStatus === "processing" && Number.isFinite(updated)
+  return (document.classificationStatus === "processing" || isAffaireIntakeReanalysisPending(document)) && Number.isFinite(updated)
     && updated < Date.now() - AFFAIRE_INTAKE_ANALYSIS_STALE_MS;
 }
 
@@ -635,6 +641,7 @@ export function isAffaireIntakeDocumentProcessing(
   document: AffaireIntakeReviewableDocument
 ) {
   if (
+    isAffaireIntakeReanalysisPending(document) ||
     document.classificationStatus === "queued" ||
     document.classificationStatus === "processing"
   ) {
