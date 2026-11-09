@@ -203,6 +203,7 @@ export function TakeoffReviewExpert({
   const hasDpgfTab = true;
   const selectedCompareCandidate =
     compareCandidates.find((job) => job.id === compareWithJobId) ?? null;
+  // The apply guard's verdict, computed once for the « Anomalies » count and the table's « Avec anomalies » filter.
   const anomalyContext = useMemo<AnomalyContext>(
     () => ({ blocked: reviewBlockReasons(items, confidenceThreshold, jobLevel), threshold: confidenceThreshold }),
     [items, confidenceThreshold, jobLevel]
@@ -404,8 +405,7 @@ export function TakeoffReviewExpert({
           onExcludeItems={onExcludeItems}
           onIncludeItems={onIncludeItems}
           onOpenEvidencePanel={onOpenEvidencePanel}
-          confidenceThreshold={confidenceThreshold}
-          jobLevel={jobLevel}
+          anomalyContext={anomalyContext}
         />
       )}
     </>

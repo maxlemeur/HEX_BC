@@ -46,10 +46,11 @@ export type TakeoffReviewTableProps = {
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
   onOpenEvidencePanel?: (itemId: string) => void;
-  /** The tenant's low confidence threshold: with it, the anomalies are the apply guard's (D13). */
-  confidenceThreshold?: number;
-  /** The job's level, read by the apply guard (level C: confidence, proof and page; every level: the rules). */
-  jobLevel?: string | null;
+  /**
+   * The apply guard's verdict and the tenant's threshold, computed once by the parent (reviewBlockReasons) and read by
+   * « Avec anomalies » (D13, D18f); none: the default threshold, without the guard.
+   */
+  anomalyContext?: AnomalyContext;
 };
 
 /** A reason the apply guard blocks a line on, or what the apply button also refuses (zero quantity, no designation). */
@@ -115,6 +116,9 @@ export type AnomalyContext = {
   /** The tenant's low confidence threshold; none: the default one. */
   threshold?: number;
 };
+
+/** A screen that reads neither the guard nor the tenant's threshold; one object, so that memoized filters keep it. */
+const NO_ANOMALY_CONTEXT: AnomalyContext = {};
 
 /**
  * A line's anomalies, one definition for every screen (D18f, decision D13), the union of:
@@ -375,17 +379,8 @@ export default function TakeoffReviewTable({
   onExcludeItems,
   onIncludeItems,
   onOpenEvidencePanel,
-  confidenceThreshold,
-  jobLevel = null,
+  anomalyContext = NO_ANOMALY_CONTEXT,
 }: TakeoffReviewTableProps) {
-  // ---- The apply guard's verdict on the lines (D13): « Avec anomalies » shows every line it blocks, and every line
-  // under the tenant's threshold (D18f).
-  const anomalyContext = useMemo<AnomalyContext>(
-    () => (confidenceThreshold === undefined ? {}
-      : { blocked: reviewBlockReasons(items, confidenceThreshold, jobLevel), threshold: confidenceThreshold }),
-    [items, confidenceThreshold, jobLevel]
-  );
-
   // ---- Filter/sort state
   const [filters, setFilters] = useState<ReviewTableFilters>(DEFAULT_REVIEW_TABLE_FILTERS);
   const [sortField, setSortField] = useState<SortField>("confidence");

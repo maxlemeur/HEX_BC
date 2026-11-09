@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import TakeoffReviewTable from "@/components/takeoff/TakeoffReviewTable";
+import TakeoffReviewTable, { reviewBlockReasons } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
@@ -105,8 +105,11 @@ function reviewLine(designation: string, overrides: Partial<ReviewItem> = {}): R
   return { ...ITEM, id: `22222222-2222-4222-8222-${String(nextLine).padStart(12, "0")}`, designation, ...overrides };
 }
 
+/** The grid as the expert view renders it: the guard's verdict computed once by the parent, at the tenant's threshold. */
 function renderFiltered(items: ReviewItem[], guard: { confidenceThreshold: number; jobLevel: string }, anomaly: string) {
-  render(<TakeoffReviewTable items={items} onUpdateItem={vi.fn()} onExcludeItems={vi.fn()} onIncludeItems={vi.fn()} {...guard} />);
+  const anomalyContext = { blocked: reviewBlockReasons(items, guard.confidenceThreshold, guard.jobLevel), threshold: guard.confidenceThreshold };
+  render(<TakeoffReviewTable items={items} onUpdateItem={vi.fn()} onExcludeItems={vi.fn()} onIncludeItems={vi.fn()}
+    anomalyContext={anomalyContext} />);
   fireEvent.change(screen.getByRole("combobox", { name: "Anomalies" }), { target: { value: anomaly } });
   return (designation: string) => screen.queryByRole("checkbox", { name: `Sélectionner ${designation}` }) !== null;
 }
