@@ -243,7 +243,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
               : data.calibration.status === "insufficient"
                 ? `n = ${formatNumber(data.calibration.appliedHighScoreItems)} : ${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} corrigées · seulement ${data.calibration.appliedHighScoreItems}/${data.calibration.minimumSampleSize} lignes appliquées`
                 : `n = ${formatNumber(data.calibration.appliedHighScoreItems)} : ${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} lignes appliquées avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)} corrigées`
-          }. ${TAKEOFF_HIGH_SCORE_RATE_NOTE}`}
+          }.${data.calibration.status === "no_data" ? "" : ` ${TAKEOFF_HIGH_SCORE_RATE_NOTE}`}`}
           variant={
             data.calibration.status !== "sufficient"
               ? "warning"

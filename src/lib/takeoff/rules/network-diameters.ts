@@ -32,8 +32,9 @@ import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeof
 // v3 (TI-684, TI-685 D18a/D18b): stainless condensates read the drainage series too, and a DN failure now shows the
 // couple's condition, which a line verified under v2 was accepted without. The version is part of every failure key
 // (failure-keys.ts), so v3 changes every dn_network key: the next recomputation of a version reopens every verified
-// line with a failing dn_network result, whatever its code, and admin overrides recorded under v2 keys no longer
-// match at apply. Unlike v2, no migration marks completed jobs stale: they keep v2 results until recomputed.
+// line of its completed, non-applied jobs that carries a failing dn_network result, whatever its code, and admin
+// overrides recorded under v2 keys no longer match at apply. Applied jobs stay frozen with their results (recompute
+// never rewrites them). Unlike v2, no migration marks completed jobs stale: they keep v2 results until recomputed.
 export const NETWORK_DIAMETER_TABLE_VERSION = 3;
 
 const STAINLESS: readonly MaterialCode[] = ["inox", "inox-304l", "inox-316l"];

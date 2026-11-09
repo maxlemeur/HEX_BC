@@ -742,7 +742,7 @@ export function buildTakeoffMetricsStatsPayload(
         calibration.status === "sufficient"
           ? `${formatPilotPercent(calibration.appliedHighScoreMaterialCorrectionRate)} sur n = ${formatPilotCount(calibration.appliedHighScoreItems)} lignes (${formatPilotCount(calibration.appliedHighScoreMateriallyCorrectedItems)} corrigée${calibration.appliedHighScoreMateriallyCorrectedItems > 1 ? "s" : ""})`
           : `n = ${formatPilotCount(calibration.appliedHighScoreItems)} ligne${calibration.appliedHighScoreItems > 1 ? "s" : ""} appliquée${calibration.appliedHighScoreItems > 1 ? "s" : ""} sur ${formatPilotCount(TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE)} requises`,
-      note: TAKEOFF_HIGH_SCORE_RATE_NOTE,
+      note: calibration.status === "no_data" ? undefined : TAKEOFF_HIGH_SCORE_RATE_NOTE,
       passed:
         calibration.status === "sufficient" &&
         calibration.appliedHighScoreMaterialCorrectionRate <=
