@@ -8,9 +8,11 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
 - PE gaz : motif de pose enterrée extérieure hors emprise, ou de remontée en façade
   jusqu'au raccord métal/plastique. Cette exigence reste présente avec un diamètre
   absent ou hors série.
-- Multicouche gaz : échec non acceptable en relecture ; l'override administrateur
-  existant reste la seule voie de forçage, avec justification écrite et provision
-  interne. Le catalogue codé d'override reste dans TI-686.
+- Multicouche gaz : échec non acceptable en relecture. Seul un administrateur peut
+  forcer l’application, avec une justification écrite (override existant, de 10 à
+  500 caractères, journalisé dans `audit_logs`, jamais imprimé pour le client).
+  Réserve, variante, provision interne et motif codé de forçage n'existent pas
+  encore : ils sont à construire (TI-686).
 - PVC en eaux grasses, galvanisé/PEHD en EF et EFA, cuivre en condensats, PEHD en
   RIA et multicouche en GLY/départ/retour : justification du système et des conditions.
 - Inox en condensats : admis ; cuivre en glycol et PER en bouclage ECS : inchangés.
@@ -26,22 +28,61 @@ Data API directes. Une quantité à saisir ou un matériau bloqué ne s'accepte 
 La justification est enregistrée avec la vérification. Le journal transactionnel
 contient les clés complètes des échecs acquittés, y compris les partenaires masqués
 par les limites d'affichage. La réouverture ou l'édition du contenu efface la
-justification. La nouvelle version de table vaut 2 ; la migration périme les
+justification. TI-685 a passé la table en version 2 ; sa migration périme les
 anciens résultats réseau des jobs terminés, sans modifier les jobs appliqués.
+TI-684 l'a passée en version 3, sans migration (voir la revue du 9 novembre).
 
 ## Inox d'évacuation : table provisoire
 
 La famille NF EN 1124 est séparée des séries à sertir et soudée et n'est
-sélectionnée que par les réseaux d'évacuation. « DN 100 » et « Ø 110 » vont en
-justification, tandis que Ø108/114,3 ne sont pas reconnus comme diamètres de cette
-série. La lecture vectorielle conserve cette distinction. La famille ne s'ajoute
+sélectionnée que par les réseaux d'évacuation, et par les condensats avec les séries
+sous pression (D18a, ci-dessous). Sur un réseau d'évacuation, « DN 100 » et
+« Ø 110 » vont en justification, tandis que Ø108/114,3 ne sont pas reconnus comme
+diamètres de cette série. La lecture vectorielle conserve cette distinction. La famille ne s'ajoute
 pas aux clés ou aux recherches génériques des séries sous pression.
 
 La [documentation Blücher EuroPipe v24](https://www.blucher.fr/dfsmedia/0533dbba17714b1ab581ab07a4cbb521/642018-source/638785985830000000/blucher-europipe-catalogue-v24.pdf)
 confirme les Ø et NF EN 1124. Le second fabricant reste à recouper ; notamment,
 DN90 → Ø82 n'est pas figé. Ø82 peut être reconnu explicitement, sous justification.
-**Tout inox d'évacuation reste à justifier** : aucune admission automatique n'est
-introduite à partir de cette table provisoire.
+**Sur un réseau d'évacuation, l'inox reste à justifier** : aucune admission
+automatique n'y est introduite à partir de cette table provisoire. Les condensats
+font exception (D18a, ci-dessous) : l'inox y est admis, et les tailles de cette
+table le sont avec celles des séries sous pression.
+
+## Revue de conformité du 9 novembre 2026 (TI-684, D18a à D18d, D18g)
+
+- **Une série par réseau partout** (TI-684, D18c) : la sélection des séries selon le
+  réseau (`diameterFamiliesFor`) sert la règle DN, la détection des doublons entre zones,
+  l'identité des quantités DPGF et la lecture des tailles dans la désignation. Un inox
+  d'évacuation « DN 100 » sur un plan et « Ø 110 » sur l'autre est un seul tronçon ;
+  « DN 100 » ne rejoint plus « Ø 108 ». Dans une même désignation, « EU inox DN 100 /
+  Ø 110 » est une taille, tandis que « EU inox DN 100 / Ø 108 » garde le Ø 108 hors
+  série, comme le cuivre garde « Ø 23 » à côté de « DN 22 ».
+  Hors évacuation, l'inox garde ses séries sous pression (Ø 108 = DN 100 à sertir).
+  L'identité DPGF lit le réseau dans la désignation ; une ligne sans réseau garde les
+  séries sous pression et ne rejoint de toute façon aucune ligne d'un réseau.
+- **Inox en condensats** (D18a) : séries sous pression et NF EN 1124 provisoire
+  réunies, une ligne de condensats pouvant être relevée ou gravitaire. Ø 22, Ø 40
+  et Ø 50 sont admis ; Ø 32 reste hors série tant qu'aucune source ne le donne.
+- **Condition du couple** (D18b) : un DN non lu ou hors série garde la condition du
+  couple dans son motif (PVC en eaux grasses, galvanisé ou PEHD en EF/EFA, cuivre en
+  condensats, PEHD en RIA, multicouche en GLY, inox d'évacuation). Codes et
+  acceptabilité inchangés, et le motif n'entre pas dans la clé d'échec ; le PE gaz
+  garde son propre code.
+- **Multicouche gaz** : le motif ne promet plus de réserve ni de variante. Seul un
+  administrateur peut forcer l'application, avec une justification écrite.
+- **Version 3 de la table** (D18g) : elle fait revoir les lignes vérifiées sans voir
+  la condition, mais la version entre dans chaque clé d'échec : toutes les clés
+  `dn_network` changent. Au prochain recalcul de la version, toute ligne vérifiée d'un
+  job terminé non appliqué qui porte un échec `dn_network` est rouverte, quel qu'en
+  soit le code (couples déjà justifiés, PE gaz et inox d'évacuation compris), et sa
+  justification est effacée. Un override administrateur enregistré avec des clés de la
+  version 2 ne correspond plus à l'application : il est à refaire. Les jobs appliqués
+  restent figés avec leurs résultats. Aucune migration ne périme les jobs terminés
+  (D18h), contrairement à la version 2 : leurs résultats restent ceux calculés avant ce
+  changement jusqu'au prochain recalcul de leur version (modification de ligne,
+  traitement, relance manuelle ou application ; le recalcul de l'application ne bloque
+  pas s'il échoue).
 
 Le texte gaz de référence est l'[arrêté du 23 février 2018, art. 10.1.2](https://www.legifrance.gouv.fr/loda/id/JORFTEXT000036667631),
 consulté le 7 novembre 2026. Le contrat TI-685 ne généralise pas les hypothèses non

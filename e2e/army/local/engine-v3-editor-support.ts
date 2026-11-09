@@ -7,6 +7,7 @@ import {
   apiRequest, ownEstimate, readEstimate, recordEvidence,
   type ArmyEstimate, type ArmyItem, type ArmyState, type ArmyVersion,
 } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { ownedEstimateContext } from "./calculation-gate-support";
 // Aliased: the sign-up helper is not a React hook, whatever its name.
 import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
@@ -199,6 +200,7 @@ export async function switchToExpertMode(ui: Ui) {
   });
   await expect.poll(async () => {
     await ui.browser.reload();
+    await waitForHydration(ui.browser);
     return withNavigationDrawer(ui, (navigation) => expert(navigation).isVisible());
   }, { timeout: 30_000, interval: 1_000 }).toBe(true);
 }

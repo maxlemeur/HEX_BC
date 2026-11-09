@@ -103,6 +103,12 @@ function PilotCriterionStatusBadge({
   );
 }
 
+/** How to read a criterion's observed value (TI-681): shown under its label, never part of the decision. */
+function PilotCriterionNote({ note }: { note: string | undefined }) {
+  if (!note) return null;
+  return <p className="mt-1 text-xs font-normal text-muted-foreground">{note}</p>;
+}
+
 export function PilotDecisionCard({
   data,
 }: {
@@ -139,9 +145,12 @@ export function PilotDecisionCard({
             className="rounded-lg border border-border-subtle bg-surface p-3"
           >
             <div className="flex items-start justify-between gap-3">
-              <p className="font-medium text-foreground">
-                {criterion.label}
-              </p>
+              <div>
+                <p className="font-medium text-foreground">
+                  {criterion.label}
+                </p>
+                <PilotCriterionNote note={criterion.note} />
+              </div>
               <PilotCriterionStatusBadge status={criterion.status} />
             </div>
             <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
@@ -185,6 +194,7 @@ export function PilotDecisionCard({
               <tr key={criterion.key} className="border-t border-border-subtle">
                 <td className="px-3 py-2 font-medium text-foreground">
                   {criterion.label}
+                  <PilotCriterionNote note={criterion.note} />
                 </td>
                 <td className="px-3 py-2 text-muted-foreground">
                   {criterion.targetLabel}

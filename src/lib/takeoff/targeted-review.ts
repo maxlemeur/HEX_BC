@@ -58,7 +58,8 @@ export function acceptanceOf(item: ApplyGuardItem, level: string | null): Accept
   if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
   const failures = blockingRules(item.rule_results, false);
   if (failures.some((failure) => failure.code === "DN_NETWORK_MATERIAL_BLOCKED")) {
-    return { enabled: false, reason: "Matériau bloqué : corrigez la ligne ou demandez un forçage administrateur avec réserve ou variante." };
+    // TI-686: the admin override at apply time is the only way past it; no reserve, variant or provision exists yet.
+    return { enabled: false, reason: "Matériau bloqué : corrigez la ligne. Sinon, seul un administrateur peut forcer l’application, avec une justification écrite." };
   }
   const settles = failures.some((failure) => failure.acceptable)
     || ((level ?? "C") === "C" && failures.length === 0 && !item.rules_stale);

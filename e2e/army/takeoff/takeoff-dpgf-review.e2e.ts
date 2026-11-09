@@ -928,6 +928,22 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       reason: "Decision reprise tant que la reserve peinture n'est pas levee.",
     });
 
+    // A legacy seed has no accepted quantity snapshot. Preserve its note, but
+    // require a real review before that decision can authorize these quantities.
+    const legacy = await page.request.get(`/api/takeoff/jobs/${seededJob.jobId}/dpgf-compare?version_id=${sourceVersionId}&view=all`);
+    expect(legacy.status()).toBe(200);
+    const { data: legacyComparison } = await legacy.json() as { data: TakeoffDpgfComparisonResponse };
+    const legacyPeinture = legacyComparison.rows.find(row => row.line_id === sourcePeintureLine.id)!;
+    expect(legacyPeinture.applied_decision).toBeNull();
+    expect(legacyPeinture.proofs).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: "comment", note: "Decision reprise tant que la reserve peinture n'est pas levee.",
+    })]));
+    const reviewed = await page.request.patch(`/api/takeoff/jobs/${seededJob.jobId}/review-decision`, {
+      data: { version_id: sourceVersionId, estimate_item_id: sourcePeintureLine.id,
+        decision: "keep_dpgf", reason: "Decision reprise tant que la reserve peinture n'est pas levee." },
+    });
+    expect(reviewed.status()).toBe(200);
+
     const targetVersionId = await duplicateEstimateViaApi(page, sourceVersionId);
     const db = await getAuthenticatedSupabaseClient();
     const { data: targetDecision, error: duplicateError } = await db.from("takeoff_dpgf_review_decisions")
@@ -953,6 +969,9 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       const { data: snapshot } = await response.json() as { data: TakeoffDpgfComparisonResponse };
       return snapshot.rows.find(row => row.line_id === lineId);
     };
+    expect(await readPeinture()).toMatchObject({ applied_decision: {
+      source: "carried_over", decision: "keep_dpgf", quantity_snapshot: expect.any(Object),
+    } });
     const mappedRowId = sourcePeintureLine.mappedRowId!;
     const revisions = [
       { mapped_row_id: mappedRowId, dpgf_source_unit: "ml", dpgf_source_quantity: 20 },
@@ -994,16 +1013,24 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     ).toBeVisible();
     await expect(page.getByText(/Reprise v\d+/)).toBeVisible();
 
-    await page.getByRole("button", { name: "Garder métré" }).click();
-    await expect(page.getByText(/Quantité retenue : 2/)).toBeVisible();
+    // TI-680 protects the higher comparable quantity: a new decision must not
+    // silently retain 2 m² when the documentary reference is 20 m².
+    await expect(page.getByRole("button", { name: "Garder métré" })).toBeDisabled();
+    const lowerQuantity = await page.request.patch(`/api/takeoff/jobs/${seededJob.jobId}/review-decision`, {
+      data: { version_id: targetVersionId, estimate_item_id: targetLineId, decision: "keep_takeoff" },
+    });
+    expect(lowerQuantity.status()).toBe(409);
+    await page.getByRole("button", { name: "Corriger manuellement" }).click();
+    await expect(page.getByText("Vous devrez saisir la quantité corrigée manuellement.")).toBeVisible();
 
-    const freshReason = "Verification terrain: on retient le metré actuel pour la version courante.";
+    const freshReason = "Verification terrain: la quantité doit être corrigée pour la version courante.";
     await page.getByLabel("Justification humaine").fill(freshReason);
     await page.getByRole("button", { name: "Enregistrer la décision" }).click();
 
     await expect(page.getByText("Décision enregistrée")).toBeVisible();
     await expect(page.locator("blockquote").filter({ hasText: freshReason })).toBeVisible();
     await expect(page.getByText(/Reprise v\d+/)).toBeVisible();
+    expect(await readPeinture()).toMatchObject({ applied_decision: { decision: "manual_fix", reason: freshReason } });
 
     const { error: renameError } = await db.from("estimate_items").update({ title: "Étanchéité" })
       .eq("id", targetLineId).eq("version_id", targetVersionId);

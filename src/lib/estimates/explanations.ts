@@ -243,9 +243,12 @@ const evidenceRowSchema = z.object({
   source_record_id: z.string().uuid().nullable(),
 });
 
+// The radar's own scale, as estimate_risk_alerts checks it.
+const RISK_ALERT_SIGNAL_SEVERITY = { info: "low", warning: "medium", critical: "high" } as const;
+
 const riskAlertRowSchema = z.object({
   id: z.string().uuid(),
-  severity: z.enum(["low", "medium", "high"]),
+  severity: z.enum(["info", "warning", "critical"]),
   cause_code: z.string(),
   scope_label: z.string(),
   reason_labels: z.array(z.string()).nullable().optional(),
@@ -1466,7 +1469,7 @@ function normalizePriceExplanationPayload(input: {
     riskSignals.push(
       estimateExplanationRiskSignalSchema.parse({
         label: riskLabel,
-        severity: alert.severity,
+        severity: RISK_ALERT_SIGNAL_SEVERITY[alert.severity],
         basis: "fact",
         source_label: "Radar risque",
       })

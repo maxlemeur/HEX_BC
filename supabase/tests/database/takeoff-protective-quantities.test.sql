@@ -121,5 +121,30 @@ select is(item.source_metadata#>>'{takeoff_quantity_policy,measured_quantity}',
   from p680_success fixture join public.estimate_items item on item.id=fixture.target_id;
 select is(job.status::text,'completed',case_name||': refused stale apply rolls back the job state')
   from p680_cases fixture join public.takeoff_jobs job on job.id=fixture.job_id where case_name like '%-4';
+-- Duplication preserves the evidence actually accepted, including null legacy
+-- snapshots and stale snapshots. It must neither drop nor freshly certify them.
+insert into public.takeoff_dpgf_review_decisions(tenant_id,version_id,takeoff_job_id,estimate_item_id,
+  review_reference,line_label,line_position,source_file_name,source_page,decision,reason,quantity_snapshot)
+select current_setting('test.tenant_id')::uuid,version_id,job_id,target_id,'snapshot-'||case_name,
+  'EF cuivre DN 22',1,'dpgf-fictif.xlsx',7,'keep_dpgf','Fictif : conserver la preuve examinée',
+  case when case_name like '%-2' then null else jsonb_build_object('version',1,'reference',
+    case when case_name like '%-3' then 2999 else 3000 end,'unit','ml','items',jsonb_build_array(
+      jsonb_build_object('id',job_id,'quantity',2980))) end
+from p680_success;
+create temporary table p680_duplicates(source_version uuid, copied_version uuid) on commit drop;
+grant select,insert on p680_duplicates to authenticated;
+set local role authenticated;
+insert into p680_duplicates select version_id,public.duplicate_estimate_version(version_id,false) from p680_success;
+reset role;
+select is((select count(*) from public.takeoff_dpgf_review_decisions copied
+    where copied.version_id=duplicate.copied_version and copied.takeoff_job_id=fixture.job_id),
+  1::bigint,fixture.case_name||': duplication carries exactly one decision')
+from p680_success fixture join p680_duplicates duplicate on duplicate.source_version=fixture.version_id;
+select is(copied.quantity_snapshot,source.quantity_snapshot,
+  fixture.case_name||': duplication preserves accepted, legacy or stale quantity evidence verbatim')
+from p680_success fixture join p680_duplicates duplicate on duplicate.source_version=fixture.version_id
+join public.takeoff_dpgf_review_decisions source on source.version_id=fixture.version_id and source.estimate_item_id=fixture.target_id
+join public.takeoff_dpgf_review_decisions copied on copied.version_id=duplicate.copied_version and copied.takeoff_job_id=fixture.job_id;
+
 select * from finish();
 rollback;

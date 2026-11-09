@@ -8,9 +8,10 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
-import { credentials, expect } from "e2e";
+import { expect } from "e2e";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
@@ -140,15 +141,10 @@ afterAll(async () => {
 test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-local-only-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Sans forfait connecté" }, army);
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
@@ -186,15 +182,10 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("LOCAL02 requires a separate temporary ChatGPT profile.");
   try {
-    const account = { ...credentials.user("army"), username: fixtureEmail };
-    await app.open(`${localOrigin}/login`);
-    await screen.getByLabel("Email", { exact: true }).fill(account.username);
-    await screen.getByLabel(/Mot de passe/).fill(account.password);
-    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-    await expect(browser).toHaveURL(/\/dashboard/);
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const prefix = `ARMY-local-legacy-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-    const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Ancienne préparation" }, army);
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
@@ -211,6 +202,7 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     const update = await worker.from("takeoff_preparations").update({ draft, revision: row.data!.revision + 1 }).eq("project_id", estimate.projectId).select("project_id").single();
     expect(update.error).toBeNull();
     await browser.reload();
+    await waitForHydration(browser);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
     const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
     await dialog.getByRole("button", /Vérifier et lancer$/).click();
@@ -262,15 +254,10 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     if (failure === "disconnected") delete selected.accessToken;
     else { selected.expiresAt = 0; delete selected.refreshToken; }
     await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
-    const account = { ...credentials.user("army"), username: fixtureEmail };
-    await app.open(`${localOrigin}/login`);
-    await screen.getByLabel("Email", { exact: true }).fill(account.username);
-    await screen.getByLabel(/Mot de passe/).fill(account.password);
-    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-    await expect(browser).toHaveURL(/\/dashboard/);
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const prefix = `ARMY-local-disconnected-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-    const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Compte déconnecté" }, army);
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
@@ -296,15 +283,10 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
 test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-local-history-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Historique fournisseur" }, army);
   const beforeEstimate = await readEstimate(browser, estimate.versionId);
   const { userId } = await localClient();
@@ -445,15 +427,10 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("LOCAL05 requires a separate temporary ChatGPT profile.");
   try {
-    const account = { ...credentials.user("army"), username: fixtureEmail };
-    await app.open(`${localOrigin}/login`);
-    await screen.getByLabel("Email", { exact: true }).fill(account.username);
-    await screen.getByLabel(/Mot de passe/).fill(account.password);
-    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-    await expect(browser).toHaveURL(/\/dashboard/);
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const prefix = `ARMY-local-retry-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-    const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Reprise ChatGPT locale" }, army);
     const before = await readEstimate(browser, estimate.versionId);
     const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
@@ -503,15 +480,10 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   // Earlier LOCAL journeys also use Decisions; count only this scenario's calls.
   const transportBefore = (await readFile(transportLog, "utf8")).trim();
   const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-decisions-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Préparation Decisions" }, army);
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
@@ -579,15 +551,10 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
     .map((line) => JSON.parse(line) as Record<string, unknown>);
   const transportStart = (await readTransport()).length;
   const triageCalls = async () => (await readTransport()).slice(transportStart).filter((entry) => entry.provider === "decisions-fixture");
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-triage-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Tri des pages" }, army);
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const pdf = await PDFDocument.create();
@@ -654,6 +621,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   expect(corrected.source.page_triage?.pages.map((page) => page.status)).toEqual(["corrected", "proposed"]);
   const callsBeforeReload = (await triageCalls()).length;
   await browser.reload();
+  await waitForHydration(browser);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const reopened = screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await reopened.getByRole("button", /Mes documents$/).click();
@@ -696,13 +664,8 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
       .then(async (response) => { await response.arrayBuffer(); return [pathname, response.status] as const; })));
   expect(warm.filter(([, status]) => status !== 200)).toEqual([]);
 
-  const account = { ...credentials.user("army"), username: fixtureEmail };
   await browser.setViewport({ width: 1440, height: 900 });
-  await app.open(`${localOrigin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-lab-vectors-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
 
@@ -720,6 +683,7 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   expect(keywordReading.body.data.run).toBeNull();
 
   await app.open(`${localOrigin}${lab}/vectors`);
+  await waitForHydration(browser);
   await expect(screen.getByRole("link", "Vecteurs", { exact: true })).toHaveAttribute("aria-current", "page");
   await screen.getByLabel("Document", { exact: true }).selectOption({ value: LAB_VECTOR_DOCUMENT });
   const rows = screen.getByRole("list", "Groupes de tracés", { exact: true }).getByRole("listitem");
@@ -825,6 +789,7 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   // An essai answered after the document changed stays with its own page: the new selection is never read with it.
   const otherDocument = "fixture-army-chatgpt-plan";
   await app.open(`${localOrigin}${lab}/vectors`);
+  await waitForHydration(browser);
   await screen.getByLabel("Document", { exact: true }).selectOption({ value: LAB_VECTOR_DOCUMENT });
   await expect(rows).toHaveCount(3);
   const heldStart = (await readTransport()).length;
@@ -861,7 +826,6 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
 test("ChatGPT local: profile starts PKCE authorization and recovers from declined consent", {
   tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
 }, async ({ app, screen, browser }) => {
-  const account = { ...credentials.user("army"), username: fixtureEmail };
   let authorization: { host: string; clientId: string | null; challengeMethod: string | null; planScope: boolean } | null = null;
   await browser.route("https://auth.openai.com/**", async (route) => {
     // This is an injected consent refusal, not evidence of live ChatGPT sign-in.
@@ -872,15 +836,9 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
     callback.search = new URLSearchParams({ error: "access_denied", state: url.searchParams.get("state")! }).toString();
     await route.fulfill({ status: 302, headers: { location: callback.toString() }, body: "" });
   });
-  await app.open(`${localOrigin}/login`);
-  const showPassword = screen.getByRole("button", "Afficher le mot de passe", { exact: true });
-  await showPassword.tap();
-  await expect(screen.getByRole("button", "Masquer le mot de passe", { exact: true })).toBeVisible();
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   await app.open(`${localOrigin}/dashboard/profile`);
+  await waitForHydration(browser);
   await expect(screen.getByRole("heading", "Mon forfait ChatGPT", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Continue with ChatGPT", { exact: true }).tap();
   await expect(screen.getByText("Vous avez annulé la connexion ChatGPT. Vous pouvez la relancer.", { exact: true })).toBeVisible();
@@ -927,16 +885,10 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   const transportBefore = (await readFile(transportLog, "utf8")).trim();
   const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
   const model = liveProbe?.model ?? "army-plan-model";
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-chatgpt-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré forfait local" }, army);
   expect((await readEstimate(browser, ids.versionId)).version.calc_engine_version).toBe(2);
   const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
@@ -981,16 +933,10 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   const newProfileWithoutPreferences = await preparePlanFixture(Boolean(liveProbe));
   const transportBefore = (await readFile(transportLog, "utf8")).trim();
   const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-chatgpt-pdf-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   if (liveProbe) {
     expect(liveProbe.model).toBe("gpt-6.1-terra");
     expect(liveProbe.reasoningEffort).toBe("medium");
@@ -1074,16 +1020,10 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   };
   expect(createHash("sha256").update(await readFile(probe.pdfPath)).digest("hex")).toBe(probe.sha256);
   await preparePlanFixture();
-  const account = { ...credentials.user("army"), username: fixtureEmail };
-  await app.open(`${localOrigin}/login`);
-  await screen.getByRole("button", "Afficher le mot de passe", { exact: true }).tap();
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
   const prefix = `ARMY-chatgpt-business-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = { app: { ...app, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
   const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Essai métier privé borné" }, army);
   const estimateBefore = await readEstimate(browser, ids.versionId);
   const planSet = await createPlanSet(ui, army, ids, `${prefix} plans R+1 Zone 1`);
@@ -1194,18 +1134,13 @@ test("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and 
 }, async ({ app, screen, browser }) => {
   await preparePlanFixture();
   try {
-    const account = { ...credentials.user("army"), username: fixtureEmail };
-    await app.open(`${localOrigin}/login`);
-    await screen.getByLabel("Email", { exact: true }).fill(account.username);
-    await screen.getByLabel(/Mot de passe/).fill(account.password);
-    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-    await expect(browser).toHaveURL(/\/dashboard/);
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const { client, userId } = await localClient();
     const member = await client.from("tenant_memberships").select("tenant_id").eq("user_id", userId).single();
     expect(member.error).toBeNull();
     const prefix = `ARMY-local-v3-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-    const ui = { app: { ...app, baseUrl: localOrigin, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
     if (!serverWorkspace) throw new Error("Owned development workspace unavailable.");
     await restrictCriticalBrowser(browser, ui.app, army);
     await verifyV3TakeoffCreation(ui, army, { userId, tenantId: member.data!.tenant_id },
@@ -1223,18 +1158,13 @@ if (!existsSync(liveProbePath)) test("PRX02 Decisions and the ChatGPT plan arbit
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("PRX02 requires its own temporary ChatGPT fixture.");
   try {
-    const account = { ...credentials.user("army"), username: fixtureEmail };
-    await app.open(`${localOrigin}/login`);
-    await screen.getByLabel("Email", { exact: true }).fill(account.username);
-    await screen.getByLabel(/Mot de passe/).fill(account.password);
-    await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-    await expect(browser).toHaveURL(/\/dashboard/);
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const { client, userId } = await localClient();
     const member = await client.from("tenant_memberships").select("tenant_id").eq("user_id", userId).single();
     expect(member.error).toBeNull();
     const prefix = `ARMY-local-prx-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-    const ui = { app: { ...app, baseUrl: localOrigin, open: (url: string) => app.open(new URL(url, localOrigin).href) } as typeof app, screen, browser };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
     await restrictCriticalBrowser(browser, ui.app, army);
     const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
       .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));

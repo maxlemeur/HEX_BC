@@ -6,10 +6,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createServerClient } from "@supabase/ssr";
 import { afterAll, beforeAll, test, type Browser } from "@e2e-dev/web";
-import { credentials, expect } from "e2e";
+import { expect } from "e2e";
 
 import { LAB_DATASET_LAYOUT } from "@/lib/takeoff/lab/contracts";
 import { apiRequest } from "../critical/fixtures";
+import { signIn, waitForHydration } from "../critical/hydration-support";
 import { querySql } from "./calculation-gate-support";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace } from "./chatgpt-server-support";
 import { labSessionCookies, rawLabRequest, type LabRawRequest } from "./takeoff-lab-support";
@@ -173,16 +174,12 @@ afterAll(async () => {
 test("LAB01 lab compares two efforts, records keyboard verdicts and reads its stats back", {
   tags: ["critical", "local", "chatgpt", "takeoff-lab"], session: "army", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
-  const account = { ...credentials.user("army"), username: owner.email };
   await browser.setViewport({ width: 1440, height: 900 });
-  await app.open(`${origin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, origin, owner.email);
   const transportStart = (await readTransport()).length;
 
   await app.open(`${origin}${LAB}`);
+  await waitForHydration(browser);
   await expect(screen.getByRole("heading", "Labo métré")).toBeVisible();
   await expect(screen.getByText("Dataset configuré", { exact: true })).toBeVisible();
   await noPageScroll(browser);
@@ -255,6 +252,7 @@ test("LAB01 lab compares two efforts, records keyboard verdicts and reads its st
     expect(Number.isFinite(Date.parse(verdict.at))).toBe(true);
   }
   await browser.reload();
+  await waitForHydration(browser);
   await progress("3 / 4 évalués · 2 bons · 1 pas bon · 1 à parcourir");
   await expect(screen.getByRole("article", "Élément à juger")).toContainText("Vanne isolement DN20");
   await expect(screen.getByRole("status", "Chargement du plan")).toBeHidden();
@@ -297,17 +295,13 @@ test("LAB01 lab compares two efforts, records keyboard verdicts and reads its st
 test("LAB02 a Decisions choice shows its probabilities and a ChatGPT schema error stays judgeable", {
   tags: ["critical", "local", "chatgpt", "takeoff-lab"], session: "army", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
-  const account = { ...credentials.user("army"), username: owner.email };
   await browser.setViewport({ width: 1440, height: 900 });
-  await app.open(`${origin}/login`);
-  await screen.getByLabel("Email", { exact: true }).fill(account.username);
-  await screen.getByLabel(/Mot de passe/).fill(account.password);
-  await screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/dashboard/);
+  await signIn({ app, screen, browser }, origin, owner.email);
   const transportStart = (await readTransport()).length;
   const runsBefore = (await storedRuns()).length;
 
   await app.open(`${origin}${LAB}`);
+  await waitForHydration(browser);
   await screen.getByLabel("Document", { exact: true }).selectOption({ value: DOCUMENT });
   await screen.getByLabel("Campagne", { exact: true }).fill(CHOICE_CAMPAIGN);
   await screen.getByRole("radio", "Lot technique du plan (question choice)", { exact: false }).check();
