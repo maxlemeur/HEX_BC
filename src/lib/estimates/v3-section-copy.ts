@@ -65,7 +65,7 @@ export function estimateV3SectionCopyToHistoricalError() {
 
 /** Ligne prête à l'écrivain : valeurs absentes omises (la création applique les défauts de la v3). */
 function compact<T extends Record<string, unknown>>(data: T): T {
-  return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== null && value !== undefined)) as T;
+  return Object.fromEntries(Object.entries(data).filter(([key, value]) => value !== undefined && (value !== null || key === "fo_price_origin"))) as T;
 }
 
 /** Provenance d'import de l'élément copié (`_timax_provenance`, `sourceDocumentId`, import, ligne mappée), si elle existe. */
@@ -107,6 +107,8 @@ function lineOperation(item: ItemInsert, source: ItemRow, sourceIsV3: boolean, k
     k_mo_chantier: source.k_mo_chantier, labor_role_id: source.labor_role_id,
     labor_role_atelier_id: source.labor_role_atelier_id, labor_role_chantier_id: source.labor_role_chantier_id,
     category_id: source.category_id, supply_type_id: source.supply_type_id, product_id: source.product_id,
+    ...(source.fo_price_origin || source.product_id || source.selected_supplier_price_id
+      ? { fo_price_origin: sourceIsV3 ? source.fo_price_origin ?? null : null } : {}),
     selected_supplier_price_id: source.selected_supplier_price_id, source_provider: source.source_provider,
     source_job_id: keepSourceJob ? source.source_job_id : null, source_file_name: source.source_file_name,
     source_page: source.source_page,

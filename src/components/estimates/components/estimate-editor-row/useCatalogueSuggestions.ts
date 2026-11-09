@@ -1,5 +1,7 @@
 "use client";
 
+import { catalogueFoTypeId, selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
+
 import {
   useCallback,
   useEffect,
@@ -23,6 +25,7 @@ import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-eligi
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 type UseCatalogueSuggestionsOptions = {
+  supplyTypes: Iterable<{ id: string; code?: string | null; name: string }>;
   versionId: string;
   item: EstimateItem;
   isReadOnly: boolean;
@@ -35,6 +38,7 @@ type UseCatalogueSuggestionsOptions = {
 };
 
 export function useCatalogueSuggestions({
+  supplyTypes,
   versionId,
   item,
   isReadOnly,
@@ -185,6 +189,10 @@ export function useCatalogueSuggestions({
         return;
       }
       const patch: ItemPatch = {
+        ...(isV3 ? {
+          supply_type_id: catalogueFoTypeId(suggestion.product_type, supplyTypes),
+          fo_price_origin: selectedFoPriceOrigin({ ...suggestion, ...alternative }),
+        } : {}),
         product_id: suggestion.product_id,
         title: selectedDescription,
         ...(!isV3 && !item.description?.trim() && suggestedUnit ? { description: suggestedUnit } : {}),
@@ -195,7 +203,7 @@ export function useCatalogueSuggestions({
       onPatchItem(item.id, patch, { persist: true });
       setIsTitleFocused(false);
     },
-    [isReadOnly, isV3, item.description, item.id, item.item_type, item.unit_code, onPatchItem]
+    [supplyTypes, isReadOnly, isV3, item.description, item.id, item.item_type, item.unit_code, onPatchItem]
   );
 
   const handleLineTitleFocus = useCallback(

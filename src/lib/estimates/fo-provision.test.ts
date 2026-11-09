@@ -82,6 +82,17 @@ describe("TI-534 FO provision mirror", () => {
     ])).toBe(items);
   });
 
+  it("acknowledges a server-corrected type even when provision and origin are unchanged", () => {
+    // The catalogue type can change between suggestion and write while transport stays included.
+    const origin = { selection_id: "53400000-0000-4000-8000-000000000001", kind: "reference", source_id: TUBE, transport_mode: "included" };
+    const item = { id: "line-1", item_type: "line", supply_type_id: RACCORD, fo_provision: 1.01, fo_price_origin: origin };
+    const results = [{ index: 0, op: "update" as const, status: "ok" as const,
+      data: { item: { ...item, supply_type_id: TUBE } } }];
+    expect(withServerFoProvisions([item], results, true)[0].supply_type_id).toBe(TUBE);
+    // The optimistic path still protects a newer local type awaiting its own write.
+    expect(withServerFoProvisions([item], results)[0]).toBe(item);
+  });
+
   it("indexes the loaded supply types by lower-case id", () => {
     expect(foProvisionsBySupplyType([{ id: TUBE.toUpperCase(), default_fo_provision: "1.030" }]))
       .toEqual(new Map([[TUBE, 1.03]]));

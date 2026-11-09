@@ -2,6 +2,8 @@ import {
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
   isAffaireIntakeAnalysisStale,
+  isAffaireIntakeReanalysisPending,
+  isAffaireIntakeCadDocument,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 
@@ -25,18 +27,17 @@ export function canClassifyDossierDocument(document: DossierDocument) {
   return state === "review" || state === "valid";
 }
 export function canRetryDossierDocument(document: DossierDocument) {
+  if (isAffaireIntakeReanalysisPending(document) && !isAffaireIntakeAnalysisStale(document)) return false;
   return (
-    dossierDocumentState(document) === "review" &&
-    (document.classificationStatus === "ambiguous" ||
-      document.classificationStatus === "failed" ||
-      isAffaireIntakeAnalysisStale(document)) &&
-    document.classificationSource !== "manual" &&
-    !document.manuallyOverriddenAt
+    !document.isBeingDeleted && document.uploadStatus === "uploaded" &&
+    (["classified", "ambiguous", "failed"].includes(document.classificationStatus ?? "") ||
+      isAffaireIntakeAnalysisStale(document))
   );
 }
 export function dossierPreviewFormat(
   document: DossierDocument,
 ): "pdf" | "image" | "text" | null {
+  if (isAffaireIntakeCadDocument(document.fileName)) return null;
   const mime = document.mimeType?.split(";")[0].toLowerCase();
   if (
     mime === "application/pdf" ||

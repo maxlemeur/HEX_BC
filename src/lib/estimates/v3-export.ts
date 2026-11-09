@@ -1,3 +1,4 @@
+import { foTransportLabel } from "@/lib/estimates/fo-price-origin";
 import {
   prepareEstimateV3DocumentData,
   type EstimateDocumentV3PreparedData,
@@ -294,6 +295,7 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     { header: "Rôle MO Chantier", key: "role_mo_chantier", width: 24 },
     { header: `PU vente HT ${currency}`, key: "pu_vente_ht_eur", width: 18 },
     { header: `Total HT brut ${currency}`, key: "total_ht_brut_eur", width: 18 },
+    { header: "Transport FO", key: "transport_fo", width: 18 },
   ];
   styleHeader(sheet);
   const depths = depthsOf(input.document.items);
@@ -317,7 +319,7 @@ export async function writeEstimateV3DpgfWorkbook(input: {
       role(item.labor_role_id), item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
       hours(item.h_mo_atelier_per_unit), item.k_mo_atelier ?? null, role(item.labor_role_atelier_id),
       hours(item.h_mo_chantier_per_unit), item.k_mo_chantier ?? null, role(item.labor_role_chantier_id),
-      priced ? euros(line.unitSaleHtCents) : null, priced ? euros(line.saleHtCents) : status,
+      priced ? euros(line.unitSaleHtCents) : null, priced ? euros(line.saleHtCents) : status, foTransportLabel(item.fo_price_origin),
     ], { currency: priced ? [8, 23, 24] : [] });
   }
   sheet.commit();

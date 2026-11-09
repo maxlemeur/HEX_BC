@@ -518,6 +518,7 @@ export function LineRow({
         onPatchItem={onPatchItem}
       />
       <EstimateLineTruthBadges item={item} />
+      {v3Grid && item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status" className="text-xs text-amber-700">Type FO à préciser</span> : null}
       {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
         <div className="estimate-quality-dots">
           {qualityFlags.slice(0, 3).map((flag) => {
@@ -967,7 +968,7 @@ export function LineRow({
           />
         </div>
       ) : null}
-      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} /> : null}
+      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} origin={item.fo_price_origin} /> : null}
       {isFoColumnVisible("k_fo") ? (
         <div
           {...kFoCellProps}

@@ -136,7 +136,7 @@ function createItem(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
-    fo_provision: 1,
+    fo_price_origin: null, fo_provision: 1,
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,
@@ -340,16 +340,16 @@ describe("useEstimateEditorItemsController", () => {
 
       // The server row was created without a type (1.010); the queued patch makes it re-derive 1.030.
       await act(async () => {
-        deferred.resolve(createItem("line-real", { fo_provision: 1.01, supply_type_id: null }));
+        deferred.resolve(createItem("line-real", { fo_price_origin: null, fo_provision: 1.01, supply_type_id: null }));
         await createRequest;
       });
       expect(result.current.items).toEqual([
-        expect.objectContaining({ id: "line-real", supply_type_id: TUBE, fo_provision: 1.03 }),
+        expect.objectContaining({ id: "line-real", supply_type_id: TUBE, fo_price_origin: null, fo_provision: 1.03 }),
       ]);
     });
 
     it("re-derives the provision when a supply type change is undone and keeps it through other undone edits, as the writer does", async () => {
-      const legacy = createItem("line-legacy", { supply_type_id: TUBE, fo_provision: 1 });
+      const legacy = createItem("line-legacy", { supply_type_id: TUBE, fo_price_origin: null, fo_provision: 1 });
       let current: () => EditorEstimateItem[] = () => [];
       const { result, dependencies } = renderController(
         { version: createVersion({ calc_engine_version: 3 }), initialItems: [legacy], v3Writer: createV3Writer() },
@@ -360,29 +360,29 @@ describe("useEstimateEditorItemsController", () => {
       await act(async () => {
         await result.current.actions.patchItem(legacy.id, { k_fo: 1.2 }, { persist: true });
       });
-      expect(result.current.items[0]).toMatchObject({ k_fo: 1.2, fo_provision: 1 });
+      expect(result.current.items[0]).toMatchObject({ k_fo: 1.2, fo_price_origin: null, fo_provision: 1 });
 
       await act(async () => {
         await result.current.actions.patchItem(legacy.id, { supply_type_id: RACCORD }, { persist: true });
       });
-      expect(result.current.items[0]).toMatchObject({ supply_type_id: RACCORD, fo_provision: 1.01 });
+      expect(result.current.items[0]).toMatchObject({ supply_type_id: RACCORD, fo_price_origin: null, fo_provision: 1.01 });
 
       const [kFoEdit, typeChange] = dependencies.pushHistoryCommand.mock.calls
         .slice(-2).map(([command]) => command as EstimateEditorHistoryCommand);
       await act(async () => {
         await typeChange.undo();
       });
-      expect(result.current.items[0]).toMatchObject({ supply_type_id: TUBE, fo_provision: 1.03 });
+      expect(result.current.items[0]).toMatchObject({ supply_type_id: TUBE, fo_price_origin: null, fo_provision: 1.03 });
 
       // Undoing or redoing an edit that keeps the type keeps the live provision, not the one its snapshot carried.
       await act(async () => {
         await kFoEdit.undo();
       });
-      expect(result.current.items[0]).toMatchObject({ k_fo: legacy.k_fo, fo_provision: 1.03 });
+      expect(result.current.items[0]).toMatchObject({ k_fo: legacy.k_fo, fo_price_origin: null, fo_provision: 1.03 });
       await act(async () => {
         await kFoEdit.redo();
       });
-      expect(result.current.items[0]).toMatchObject({ k_fo: 1.2, fo_provision: 1.03 });
+      expect(result.current.items[0]).toMatchObject({ k_fo: 1.2, fo_price_origin: null, fo_provision: 1.03 });
     });
   });
 

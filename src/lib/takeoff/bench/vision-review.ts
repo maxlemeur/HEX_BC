@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { MATERIAL_CODES, NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
-import { guardTiers } from "@/lib/takeoff/bench/rules";
 import type { BenchPass } from "@/lib/takeoff/bench/run";
 import type { BenchRuleData } from "@/lib/takeoff/bench/vector-rules";
 import { blockingRules } from "@/lib/takeoff/rules/blocking";
@@ -73,7 +72,6 @@ export function visionCandidates(input: {
   /** The scale denominator of each page read (null: no length on it). */
   denominators: ReadonlyMap<number, number | null>;
 }): VisionPage[] {
-  const tiers = guardTiers(input.items, input.results);
   const pages = new Map<number, VisionPage>();
   input.items.forEach((item, index) => {
     const datum = input.data[index] ?? null;
@@ -81,7 +79,7 @@ export function visionCandidates(input: {
     const denominator = page === null ? null : input.denominators.get(page) ?? null;
     const blocking = blockingRules(input.results[index], false);
     const failures = blocking.filter((entry) => entry.rule === "dn_network");
-    if (tiers[index] !== "rejected" || failures.length === 0 || failures.length !== blocking.length) return;
+    if (failures.length === 0 || failures.length !== blocking.length) return;
     if (datum === null || datum.inputs.kind !== "network" || page === null || denominator === null) return;
     const segments = datum.geometry?.segments_m ?? [];
     if (segments.length === 0) return;

@@ -105,7 +105,9 @@ describe("affaire document classification failure", () => {
 
     expect(classification.source).toBe("heuristic");
     expect(classification.result.documentKind).toBe("dpgf");
-    expect(classification.result.issues).toContain("Analyse IA indisponible pour ce format, classement heuristique applique.");
+    // An unreadable supported workbook is a document error, not an unsupported format.
+    expect(classification.analysisFailure).toMatchObject({ code: "DOCUMENT_UNREADABLE", scope: "document" });
+    expect(classification.result.issues.join(" ")).toContain("Le fichier est illisible");
     expect(beforeProviderCall).not.toHaveBeenCalled();
     expect(callStructuredAi).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledExactlyOnceWith("Failed to build affaire intake classification payload", { error_code: "CLASSIFICATION_PAYLOAD_ERROR" });

@@ -95,6 +95,7 @@ type EstimateSealCanonicalItem = Pick<
 > & {
   /** TI-534 : provision FO d'une ligne v3, présente seulement si elle n'est pas neutre (charge 6 inchangée sinon). */
   fo_provision?: number;
+  fo_price_origin?: ReturnType<typeof canonicalJsonValue>;
   line_nature?: EstimateItemRow["line_nature"];
   parent_id?: string | null;
   description?: string | null;
@@ -385,6 +386,7 @@ function buildEngineV3SealPayload(input: {
     k_fo: item.k_fo,
     // TI-534 : une ligne sans provision (antérieure, ou 1,000) garde l'empreinte d'avant la provision.
     ...(Number(item.fo_provision ?? 1) !== 1 ? { fo_provision: Number(item.fo_provision) } : {}),
+    ...(item.fo_price_origin == null ? {} : { fo_price_origin: canonicalJsonValue(item.fo_price_origin) }),
     h_mo: item.h_mo,
     h_mo_majoration: item.h_mo_majoration,
     k_mo: item.k_mo,

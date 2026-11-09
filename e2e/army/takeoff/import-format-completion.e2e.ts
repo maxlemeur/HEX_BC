@@ -176,11 +176,11 @@ for (const format of ["pdf", "xls"] as const) {
         }
         const report = await compare();
         expect(report.status).toBe(200);
-        // A documented empty cell has no reference to compare against (TI-680).
-        // The edited estimate quantity must not replace that original empty cell.
+        // D20: an empty DPGF quantity cell is no reference, so the measured 1 stays to confirm
+        // until a person records « garder le métré » (keep_takeoff); the estimator's 7 is not a reference either.
         expect(report.body.data.rows.find(row => row.line_label === "Manchette en attente")).toMatchObject({
           dpgf_quantity: null, takeoff_quantity: 1, delta_absolute: null, delta_percent: null,
-          review_status: "reliable_match", is_exception: false, suggested_decision: "keep_takeoff",
+          review_status: "to_confirm", is_exception: true, suggested_decision: null,
         });
         expect(report.body.data.rows.find(row => row.line_label === "Reserve zero")).toMatchObject({
           dpgf_quantity: 0, takeoff_quantity: 1, delta_absolute: 1, review_status: "significant_gap", is_exception: true,

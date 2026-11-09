@@ -1,3 +1,4 @@
+import { foTransportLabel } from "@/lib/estimates/fo-price-origin";
 import * as XLSX from "xlsx";
 
 import { serializeSpreadsheetCsv } from "@/lib/csv-security";
@@ -51,7 +52,7 @@ const LABOR_SPLIT_HEADER = ["h MO atelier / unité", "Rôle MO atelier", "K MO a
 export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
   return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
     "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
-    `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", ...(laborSplit ? LABOR_SPLIT_HEADER : [])];
+    `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : [])];
 }
 
 /** Lignes du CSV v3 (en-tête, lignes du document, puis pied sous « Désignation » / « Total HT »). */
@@ -109,6 +110,7 @@ export function buildEstimateV3CsvRows(input: {
       priced ? (euros(line.unitSaleHtCents) ?? "") : "",
       priced ? (euros(line.saleHtCents) ?? "") : status,
       rate(line.taxRateBp) ?? "",
+      foTransportLabel(item.fo_price_origin),
       ...(!laborSplit ? [] : split
         ? [hours(item.h_mo_atelier_per_unit), role(item.labor_role_atelier_id), item.k_mo_atelier ?? 1,
           hours(item.h_mo_chantier_per_unit), role(item.labor_role_chantier_id), item.k_mo_chantier ?? 1]

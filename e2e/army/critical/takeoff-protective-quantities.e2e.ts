@@ -35,7 +35,7 @@ async function prepareQuantityQuote(ui: QuantityUi, reference: number | null, me
   return { ids, owned, sectionId, lineId, job, route };
 }
 
-armyTest("TI680 requires a new review after quantities change", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
+armyTest("TI681 invalidates old review evidence while quantity corrections remain non blocking", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
   const { ids, owned, sectionId, lineId, job, route } = await prepareQuantityQuote(ui, 3000, [3060]);
   await ui.app.open(route);
   await expect(ui.screen.getByText("Quantité proposée pour chiffrer", { exact: true })).toBeVisible();
@@ -44,7 +44,7 @@ armyTest("TI680 requires a new review after quantities change", { session: "army
   if (!session) throw new Error("The owned draft lock session is missing.");
   const apply = () => apiRequest(ui.browser, "POST", `/api/takeoff/jobs/${job.jobId}/apply`,
     { strategy: "merge", target_section_id: sectionId }, { "x-estimate-draft-lock-session-id": session });
-  expect((await apply()).status).toBe(422);
+  // Review is optional; keep this job completed while exercising correction provenance.
   const decision = await apiRequest(ui.browser, "PATCH", `/api/takeoff/jobs/${job.jobId}/review-decision`,
     { version_id: ids.versionId, estimate_item_id: lineId, decision: "keep_takeoff", reason: "Mesure fictive vérifiée sur le plan indice B." });
   expect(decision.status).toBe(200);
@@ -58,12 +58,12 @@ armyTest("TI680 requires a new review after quantities change", { session: "army
   expect(changed.status).toBe(200);
   const changedSource = await owned.client.from("takeoff_items").select("quantity").eq("id", item.data!.id).single();
   expect(changedSource.data?.quantity).toBe(6000);
-  const rejected = await apply();
-  expect(rejected.status).toBe(422);
+  const applied = await apply();
+  expect(applied.status).toBe(200);
   const target = await owned.client.from("estimate_items").select("quantity,source_metadata").eq("id", lineId).single();
-  expect(target.data?.quantity).toBe(3000);
-  await recordEvidence(ui.army, "TI680-stale-review-refused", { ...ids, jobId: job.jobId, reviewed: 3060, changed: 6000,
-    actualStatus: rejected.status, preservedQuantity: target.data?.quantity ?? null });
+  expect(target.data?.quantity).toBe(6000);
+  await recordEvidence(ui.army, "TI681-stale-review-advisory", { ...ids, jobId: job.jobId, reviewed: 3060, changed: 6000,
+    actualStatus: applied.status, preservedQuantity: target.data?.quantity ?? null });
 });
 
 armyTest("TI680 copying a printed quantity cannot validate an unknown or SHAB floor basis", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
@@ -101,8 +101,16 @@ for (const fixture of cases) {
     const comparisonPath = `/api/takeoff/jobs/${job.jobId}/dpgf-compare?version_id=${ids.versionId}&view=all`;
     const before = await apiRequest<{ data: TakeoffDpgfComparisonResponse }>(browser, "GET", comparisonPath);
     expect(before.status).toBe(200);
+    // Without a reference nothing confirms the measurement: a person retains it explicitly before the apply.
     expect(before.body.data.rows[0]).toMatchObject({ dpgf_quantity: fixture.reference,
-      takeoff_quantity: fixture.measured.reduce((sum, value) => sum + value, 0), review_status: "reliable_match" });
+      takeoff_quantity: fixture.measured.reduce((sum, value) => sum + value, 0),
+      review_status: fixture.reference === null ? "to_confirm" : "reliable_match" });
+    if (fixture.reference === null) {
+      const retained = await apiRequest(browser, "PATCH", `/api/takeoff/jobs/${job.jobId}/review-decision`,
+        { version_id: ids.versionId, estimate_item_id: lineId, decision: "keep_takeoff", reason: "Mesure fictive retenue sans quantité DPGF." });
+      expect(retained.status).toBe(200);
+      await app.open(route);
+    }
     await screen.getByRole("button", "Appliquer au chiffrage", { exact: true }).click();
     const dialog = screen.getByRole("dialog");
     await expect(dialog.getByLabel("Section cible", { exact: true })).toHaveValue(sectionId);

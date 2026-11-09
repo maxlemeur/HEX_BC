@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
+import { TakeoffReviewPolicyPanel } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
@@ -25,6 +26,7 @@ import { useUserContext } from "@/components/UserContext";
 import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, isTakeoffApiError, patchTakeoffItems } from "@/lib/takeoff/client";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
+import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import {
@@ -112,6 +114,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const [rightWidth, setRightWidth] = useState(420);
   const resize = useRef<{ x: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [providerMeta, setProviderMeta] = useState<Record<string, unknown> | null>(null);
+  const [importantIds, setImportantIds] = useState<string[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
 
@@ -120,6 +124,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     void fetchTakeoffJobWithAllItems(jobId, { signal: controller.signal }).then((detail) => {
       setJob(detail.job);
       setItems(detail.items.data);
+      setProviderMeta(detail.result?.provider_meta ?? null);
     }, (error: unknown) => {
       if (!controller.signal.aborted) setLoadError(isTakeoffApiError(error) || error instanceof Error ? error.message : "Impossible de charger le métré.");
     });
@@ -147,7 +152,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }, [loaded]);
 
   const level = job?.level ?? null;
-  const review = useMemo(() => targetedReviewLines(items, threshold, level), [items, level, threshold]);
+  const review = useMemo(() => targetedReviewLines(items, threshold, level, importantIds), [items, level, threshold, importantIds]);
   const counts = useMemo(() => ({
     all: review.lines.length,
     rule_failed: review.lines.filter((line) => line.reasons.includes("rule_failed")).length,
@@ -400,6 +405,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           <Link href={`/dashboard/affaires/${projectId}/takeoff`} className={buttonVariants({ variant: "ghost", size: "xs" })}>Métrés</Link>
         </nav>
       </header>
+      <TakeoffReviewPolicyPanel jobId={jobId} items={items} providerMeta={providerMeta}
+        onImportantItems={setImportantIds} onFocusItem={setSelectedId} />
       <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)} disabled={readOnly || busy}
         beginRevision={() => ++mutationRevision.current}
         getRevision={() => mutationRevision.current}
@@ -423,7 +430,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
               <p className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground"><Spinner aria-label="Chargement" />Chargement des lignes…</p>
             ) : visible.length === 0 ? (
               <p role="status" className="px-3 py-3 text-sm text-muted-foreground">
-                {counts.all === 0 ? "Aucune ligne à trancher : le contrôle du métré est complet." : "Aucune ligne pour ce filtre."}
+                {counts.all === 0 ? "Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu." : "Aucune ligne pour ce filtre."}
               </p>
             ) : null}
             <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0} aria-keyshortcuts="ArrowUp ArrowDown E V F2"
@@ -463,7 +470,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
               <Button className="w-full" size="lg" disabled={applyBlocker !== null} onClick={() => { apply.setError(null); setWizardOpen(true); }}>
                 Appliquer au devis
               </Button>
-              <p role="status" className="text-xs text-muted-foreground">{applyBlocker ?? "Le contrôle est complet : choisissez la section et la stratégie."}</p>
+              <p role="status" className="text-xs text-muted-foreground">{applyBlocker ?? "Choisissez la section et la stratégie ; contrôlez aussi le périmètre attendu."}</p>
             </div>
           </aside>
         ) : (
@@ -613,7 +620,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
           <h2 className="text-base font-semibold text-foreground">{item.designation}</h2>
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <Badge size="sm" variant={line.tier === "rejected" ? "danger" : "warning"}>{line.tier === "rejected" ? "Rejetée" : "Incertaine"}</Badge>
-            <span>Confiance {item.confidence === null ? "non évaluée" : `${Math.round(item.confidence * 100)} %`}</span>
+            <span>Confiance {({ high: "élevée", medium: "moyenne", low: "faible" } as const)[quantityConfidence(item.confidence, (item.rule_results ?? []).filter(rule => rule.status === "fail").map(rule => rule.reason))]}</span>
             {item.source_page !== null ? <span>· p. {item.source_page}</span> : null}
             {item.is_verified ? <Badge size="sm" variant="info">Acceptée</Badge> : null}
           </p>

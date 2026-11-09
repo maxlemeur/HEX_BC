@@ -1,5 +1,7 @@
 "use client";
 
+import { AFFAIRE_INTAKE_CAD_NOTICE, isAffaireIntakeCadDocument } from "@/lib/affaires/intake";
+
 import { useEffect, useState } from "react";
 import {
   Download,
@@ -106,7 +108,7 @@ export function IntakeDocumentPreview({
           <p>
             {document.uploadStatus !== "uploaded"
               ? "Ce fichier n’est pas disponible."
-              : "Ouvrez ce format dans son application pour le consulter."}
+              : isAffaireIntakeCadDocument(document.fileName) ? AFFAIRE_INTAKE_CAD_NOTICE : "Ouvrez ce format dans son application pour le consulter."}
           </p>
         </div>
       );

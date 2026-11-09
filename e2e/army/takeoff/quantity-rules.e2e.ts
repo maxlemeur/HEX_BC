@@ -87,7 +87,7 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
   return { owner, ids, target, client, jobs, addZone };
 }
 
-armyTest("TKR01 a run drawn on two zone plans of one level blocks the application with its reason until one line removes it, then counts once", options,
+armyTest("TKR01 a run drawn on two zone plans warns with its reason and can be corrected to count once", options,
   async (ui) => {
     // Z1 then Z2: two level C jobs of the version, each read by the real worker with the vector reading and the rules.
     const { ids, target, client, jobs } = await seedZoneJobs(ui, "TKR01", "RUL", "Règles fixes Z1 Z2");
@@ -123,16 +123,11 @@ armyTest("TKR01 a run drawn on two zone plans of one level blocks the applicatio
       z2: { id: lines.Z2.ef.id, results: lines.Z2.ef.rule_results }, transform: (geometry.data as { geometry: unknown } | null)?.geometry,
       boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 and MERGEONE_TAKEOFF_RULES=1 on two fictional zone plans uploaded directly." });
 
-    // The application is blocked, with the line and its reason.
+    // TI-681: the duplicate stays explained and localizable, without applying
+    // this job before the optional correction exercised by this journey.
     const apply = { strategy: "append", target_section_id: target.parent_id };
-    const blocked = await applyWithLease(ui.browser, ids.versionId, jobs.Z1, apply);
-    const failure = blocked.body as Envelope<unknown>;
-    await recordEvidence(ui.army, "TKR01-blocked", { ids, jobs, status: blocked.status, body: failure });
-    expect([blocked.status, failure.ok, failure.error?.code]).toEqual([422, false, "TAKEOFF_APPLY_GUARD_FAILED"]);
-    const blockedItems = failure.error?.details?.blocked_items ?? [];
-    expect(blockedItems.map((entry) => [entry.item_id, entry.reasons, entry.rule_codes]))
-      .toEqual([[lines.Z1.ef.id, ["rule_failed"], ["ZONE_OVERLAP_DUPLICATE"]]]);
-    expect(blockedItems[0]?.rule_reasons?.[0]).toContain("1,00 m");
+    expect(reason?.code).toBe("ZONE_OVERLAP_DUPLICATE");
+    await recordEvidence(ui.army, "TKR01-nonblocking-warning", { ids, jobs, itemId: duplicate.id, reason });
 
     // A second session still shows Z2 before Z1's decision. Its guided reduction must not deduct the same metre.
     const z2BeforeDecision = (await readItems(ui, jobs.Z2)).find((item) => item.id === lines.Z2.ef.id) as Item;
@@ -215,8 +210,8 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     await expect(list.getByRole("option")).toHaveCount(2);
     await expect(screen.getByRole("button", /^Règle en échec 2$/)).toBeVisible();
     const applyButton = screen.getByRole("button", "Appliquer au devis", { exact: true });
-    await expect(applyButton).toBeDisabled();
-    await expect(screen.getByText("2 lignes à trancher avant l’application.", { exact: true })).toBeVisible();
+    await expect(applyButton).toBeEnabled();
+    await expect(screen.getByText("2 lignes à trancher avant l’application.", { exact: true })).toHaveCount(0);
 
     // The stub line names no network: excluded with its reason (E).
     await list.getByRole("option", /^ARMY worker pipe/).click();
@@ -239,7 +234,7 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     await expect(others).toContainText(ZONE_PLANS.designation);
     await expect(others.getByRole("link", "Ouvrir Z2", { exact: true })).toHaveAttribute("href", new RegExp(`/takeoff/${jobs.Z2}/review/targeted\\?versionId=${ids.versionId}&line=`));
     await expect(decision.getByRole("button", /^Retirer 1,00 m/)).toBeVisible();
-    await expect(screen.getByText("1 ligne à trancher avant l’application.", { exact: true })).toBeVisible();
+    await expect(screen.getByText("1 ligne à trancher avant l’application.", { exact: true })).toHaveCount(0);
     // Tool layout (TI-658): the page never scrolls, only its panels, at 1440 × 900 and 1920 × 1080.
     const screenshots: string[] = [];
     for (const size of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }]) {
@@ -278,12 +273,12 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     expect(stateIds).toContain(z1Lines.find((item) => item.designation === "ARMY worker pipe")?.id);
     expect(stateIds.filter((id) => !z1Lines.some((item) => item.id === id))).toEqual([]);
     await expect(list.getByRole("option")).toHaveCount(0);
-    await expect(screen.getByText("Aucune ligne à trancher : le contrôle du métré est complet.", { exact: true })).toBeVisible();
+    await expect(screen.getByText("Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu.", { exact: true })).toBeVisible();
     await expect(applyButton).toBeEnabled();
 
     // Kept after a reload: nothing left to settle, the line at 4.00 m on the server, both lines settled.
     await ui.browser.reload();
-    await expect(screen.getByText("Aucune ligne à trancher : le contrôle du métré est complet.", { exact: true })).toBeVisible();
+    await expect(screen.getByText("Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu.", { exact: true })).toBeVisible();
     await expect(screen.getByRole("button", "Appliquer au devis", { exact: true })).toBeEnabled();
     const z1 = (await readItems(ui, jobs.Z1)).find((item) => item.designation === ZONE_PLANS.designation);
     expect(z1).toMatchObject({ quantity: 4, is_excluded: false });
@@ -328,7 +323,8 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     const runs = estimate.items.filter((item) => item.title === ZONE_PLANS.designation).map((item) => Number(item.quantity)).sort();
     expect(runs).toEqual([3, 4]);
     expect(runs.reduce((sum, quantity) => sum + quantity, 0)).toBe(ZONE_PLANS.zones.Z1.length_m + ZONE_PLANS.zones.Z2.length_m - ZONE_PLANS.overlap_m);
-    expect(estimate.items.filter((item) => item.title === "ARMY worker pipe").map((item) => Number(item.quantity))).toEqual([12.5]);
+    // TI-681: retain the raw 12.5 m, sell the whole line at the next metre.
+    expect(estimate.items.filter((item) => item.title === "ARMY worker pipe").map((item) => Number(item.quantity))).toEqual([13]);
     await recordEvidence(ui.army, "TKR02-applied-once", { ids, jobs, estimateRuns: runs, target: target.parent_id });
   });
 
@@ -397,7 +393,7 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     await expect(list.getByRole("option")).toHaveCount(0);
     await ui.browser.reload();
     await expect(list.getByRole("option")).toHaveCount(0);
-    await expect(screen.getByText("Aucune ligne à trancher : le contrôle du métré est complet.", { exact: true })).toBeVisible();
+    await expect(screen.getByText("Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu.", { exact: true })).toBeVisible();
     const final = await readItems(ui, jobs.Z1);
     expect(final.find((item) => item.id === weld.id)).toMatchObject({ unit: "u", quantity: 2,
       rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
@@ -470,7 +466,7 @@ armyTest("TKR04 complete review preserves an unchanged verification and never re
     const line = ui.screen.getByRole("region", "Décision sur la ligne", { exact: true });
     await expect(line).toContainText("DN_NETWORK_NETWORK_MISSING");
     const applyButton = ui.screen.getByRole("button", "Appliquer au devis", { exact: true });
-    await expect(applyButton).toBeDisabled();
+    await expect(applyButton).toBeEnabled();
     const accepted = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
     await line.getByRole("button", /^Accepter/).click();
     const justification = ui.screen.getByRole("dialog", "Justifier l’acceptation", { exact: true });

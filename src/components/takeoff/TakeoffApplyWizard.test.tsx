@@ -165,13 +165,13 @@ describe("TakeoffApplyWizard", () => {
     expect(screen.queryByText(RULE_REASON, { exact: false })).not.toBeInTheDocument();
   });
 
-  it("blocks a failed line the plan keeps and names its rule and reason", async () => {
+  it("explains a quantity warning the plan keeps and permits confirmation without acknowledgement", async () => {
     vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("set_price"));
     renderRuleWizard();
     await reachConfirmation();
 
     await waitFor(() => expect(screen.getByText(RULE_REASON, { exact: false })).toBeInTheDocument());
     expect(screen.getByText(/Doublon entre zones/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled();
   });
 });

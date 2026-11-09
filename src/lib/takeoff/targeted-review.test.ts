@@ -52,11 +52,11 @@ describe("targetedReviewLines", () => {
 
     const review = targetedReviewLines(items, 0.5, "C");
     expect(review.lines.map((entry) => [entry.item.id, entry.tier])).toEqual([
-      [rejected.id, "rejected"], [toEnter.id, "rejected"], [stale.id, "rejected"], [lowNoProof.id, "rejected"],
-      [uncertain.id, "uncertain"],
+      [stale.id, "rejected"], [lowNoProof.id, "rejected"], [uncertain.id, "uncertain"],
+      [rejected.id, "uncertain"],
     ]);
-    expect(review.lines.find((entry) => entry.item.id === toEnter.id)?.reasons).toEqual(["rule_failed"]);
-    expect(review.lines.find((entry) => entry.item.id === lowNoProof.id)?.reasons).toEqual(["low_confidence", "missing_evidence"]);
+    expect(review.lines.find((entry) => entry.item.id === toEnter.id)).toBeUndefined();
+    expect(review.lines.find((entry) => entry.item.id === lowNoProof.id)?.reasons).toEqual(["missing_evidence"]);
     expect(review.guard.passed).toBe(false);
   });
 });

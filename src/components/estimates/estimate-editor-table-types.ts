@@ -89,6 +89,7 @@ type EstimateItemPatchKeys =
   | "supply_type_id"
   | "product_id"
   | "selected_supplier_price_id"
+    | "fo_price_origin"
   // Lot 2, sous-lot 2.6b (A15) : unité du référentiel d'une ligne v3, écrite par une suggestion de ligne.
   | "unit_code";
 

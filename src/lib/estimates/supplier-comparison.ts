@@ -32,6 +32,7 @@ type SuggestedSupplierAlternative = SupplierAlternative;
 export type SuggestedCataloguePrice = CataloguePriceSuggestion;
 
 export type SupplierPricebookRow = {
+  transport_mode?: "included" | "excluded" | null;
   id: string;
   supplier_id: string;
   product_id: string;
@@ -65,12 +66,14 @@ export type HydratedSuggestedCatalogueCandidate = Omit<
   "alternatives" | "supplier_offer_count"
 > & {
   price_source: "supplier";
+  transport_mode?: "included" | "excluded" | null;
   supplier_price_id: string;
   supplier_id: string;
   supplier_name: string;
 };
 
 type EstimateSupplierComparisonSourceAlternative = {
+  transport_mode?: "included" | "excluded" | null;
   supplier_price_id: string;
   supplier_id: string;
   supplier_name: string;
@@ -88,6 +91,7 @@ type EstimateSupplierComparisonSourceAlternative = {
 
 export type EstimateSupplierComparisonAlternative = SupplierOfferConditions & {
   kind: SupplierComparisonAlternativeKind;
+  transport_mode?: "included" | "excluded" | null;
   supplier_price_id: string;
   supplier_id: string;
   supplier_name: string;
@@ -137,6 +141,7 @@ export type EstimateSupplierComparisonCoverageSummary = {
 };
 
 export type EstimateSupplierComparisonCandidate = {
+  transport_mode?: "included" | "excluded" | null;
   supplier_price_id: string;
   supplier_id: string;
   supplier_name: string;
@@ -175,6 +180,7 @@ export function buildSuggestedCatalogueAlternatives(input: {
     alternatives.push({
       kind,
       supplier_price_id: selected.supplier_price_id,
+    transport_mode: selected.transport_mode ?? null,
       supplier_id: selected.supplier_id,
       supplier_name: selected.supplier_name,
       unit_price_cents: selected.unit_price_cents,
@@ -217,6 +223,7 @@ export function buildSuggestedCatalogueAlternatives(input: {
 }
 
 function toEstimateSupplierComparisonSourceAlternative(input: {
+  transport_mode?: "included" | "excluded" | null;
   supplier_price_id: string;
   supplier_id: string;
   supplier_name: string;
@@ -231,6 +238,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
 }): EstimateSupplierComparisonSourceAlternative {
   return {
     supplier_price_id: input.supplier_price_id,
+    transport_mode: input.transport_mode ?? null,
     supplier_id: input.supplier_id,
     supplier_name: input.supplier_name,
     adjusted_unit_price_cents: input.adjusted_unit_price_cents,
@@ -252,6 +260,7 @@ function toEstimateSupplierComparisonAlternative(input: {
   return {
     kind: input.kind,
     supplier_price_id: input.alternative.supplier_price_id,
+    transport_mode: input.alternative.transport_mode ?? null,
     supplier_id: input.alternative.supplier_id,
     supplier_name: input.alternative.supplier_name,
     adjusted_unit_price_cents: input.alternative.adjusted_unit_price_cents,
@@ -326,6 +335,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
     bestPrice
       ? toEstimateSupplierComparisonSourceAlternative({
           supplier_price_id: bestPrice.supplier_price_id,
+    transport_mode: bestPrice.transport_mode ?? null,
           supplier_id: bestPrice.supplier_id,
           supplier_name: bestPrice.supplier_name,
           adjusted_unit_price_cents: bestPrice.adjusted_unit_price_cents,
@@ -344,6 +354,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
     mostRecent
       ? toEstimateSupplierComparisonSourceAlternative({
           supplier_price_id: mostRecent.supplier_price_id,
+    transport_mode: mostRecent.transport_mode ?? null,
           supplier_id: mostRecent.supplier_id,
           supplier_name: mostRecent.supplier_name,
           adjusted_unit_price_cents: mostRecent.adjusted_unit_price_cents,
@@ -362,6 +373,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
     preferredSupplier
       ? toEstimateSupplierComparisonSourceAlternative({
           supplier_price_id: preferredSupplier.supplier_price_id,
+    transport_mode: preferredSupplier.transport_mode ?? null,
           supplier_id: preferredSupplier.supplier_id,
           supplier_name: preferredSupplier.supplier_name,
           adjusted_unit_price_cents: preferredSupplier.adjusted_unit_price_cents,
@@ -382,6 +394,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
       : input.candidate.supplier_price_id === input.selectedSupplierPriceId
         ? toEstimateSupplierComparisonSourceAlternative({
             supplier_price_id: input.candidate.supplier_price_id,
+    transport_mode: input.candidate.transport_mode ?? null,
             supplier_id: input.candidate.supplier_id,
             supplier_name: input.candidate.supplier_name,
             adjusted_unit_price_cents: input.candidate.adjusted_unit_price_cents,
@@ -404,6 +417,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
 
             return toEstimateSupplierComparisonSourceAlternative({
               supplier_price_id: selected.supplier_price_id,
+    transport_mode: selected.transport_mode ?? null,
               supplier_id: selected.supplier_id,
               supplier_name: selected.supplier_name,
               adjusted_unit_price_cents: selected.adjusted_unit_price_cents,

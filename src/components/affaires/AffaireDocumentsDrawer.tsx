@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { AffaireDocumentDesk } from "./AffaireDocumentDesk";
 import "./AffaireDocumentsDrawer.css";
 
-export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectName, workspace, canManage, onImportDpgf, onOverview, documentScope, returnFocus }: {
+export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectName, workspace, canManage, onImportDpgf, onOverview, documentScope, returnFocus, initialAddFiles = false }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
@@ -17,6 +17,7 @@ export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectN
   onOverview: (anchor?: string) => void;
   documentScope: string;
   returnFocus: RefObject<HTMLElement | null>;
+  initialAddFiles?: boolean;
 }) {
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent side="right" keepMounted finalFocus={returnFocus} className="affaire-documents-drawer">
@@ -24,7 +25,7 @@ export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectN
         <SheetTitle>Documents du dossier</SheetTitle>
         <SheetDescription>{projectName}</SheetDescription>
       </SheetHeader>
-      <AffaireDocumentDesk key={documentScope} projectId={projectId} projectName={projectName} workspace={workspace} canManage={canManage} onImportDpgf={onImportDpgf} onOverview={onOverview} />
+      <AffaireDocumentDesk key={documentScope} projectId={projectId} projectName={projectName} workspace={workspace} canManage={canManage} onImportDpgf={onImportDpgf} onOverview={onOverview} initialAddFiles={initialAddFiles} />
     </SheetContent>
   </Sheet>;
 }

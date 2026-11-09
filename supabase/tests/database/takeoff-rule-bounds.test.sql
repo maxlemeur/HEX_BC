@@ -179,8 +179,8 @@ select set_config('request.jwt.claim.sub', '9f000000-0000-4000-8000-000000000001
 select set_config('request.jwt.claims', '{"role":"authenticated","sub":"9f000000-0000-4000-8000-000000000001"}', true);
 
 -- More than 17 digits: TS read 0.7 and passed the 0.7 line, SQL kept every digit and blocked it; both block it now.
-select is(pg_temp.bounds_apply('threshold-1', '9f000000-0000-4000-8000-000000000301'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
-  'a 0.7 line is under a threshold of 0.70000000000000001, as the TS guard reads it');
+select is(pg_temp.bounds_apply('threshold-1', '9f000000-0000-4000-8000-000000000301'), 'ok',
+  'TI-681: a confidence threshold cannot require an individual acknowledgement');
 
 -- A tab the flag reader trims (JS trim): TS read 0.7 and blocked the 0.6 line, SQL fell back to 0.5 and applied it.
 -- (An application leaves its working tables until commit: cleared as their owner after each case.)
@@ -189,8 +189,8 @@ select pg_temp.bounds_clear();
 update public.feature_flags set value = chr(9) || '0.7' where tenant_id = current_setting('test.tenant_id')::uuid
   and flag_key = 'TAKEOFF_LOW_CONFIDENCE_THRESHOLD';
 set local role authenticated;
-select is(pg_temp.bounds_apply('threshold-2', '9f000000-0000-4000-8000-000000000302'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
-  'a threshold written after a tab reads 0.7, as the TS guard reads it');
+select is(pg_temp.bounds_apply('threshold-2', '9f000000-0000-4000-8000-000000000302'), 'ok',
+  'TI-681: whitespace-normalized thresholds remain advisory');
 
 -- « 0x1 »: TS read 1 and blocked every unverified line, SQL fell back to 0.5; both read 0.5 now.
 reset role;
@@ -207,6 +207,8 @@ select pg_temp.bounds_clear();
 -- must read the same, or the audit never matches.
 update public.feature_flags set value = '0.70000000000000001' where tenant_id = current_setting('test.tenant_id')::uuid
   and flag_key = 'TAKEOFF_LOW_CONFIDENCE_THRESHOLD';
+-- TI-681: retain override matching on a provenance protection, not confidence alone.
+update public.takeoff_items set evidence=null where id='9f000000-0000-4000-8000-000000000403';
 insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
 values (current_setting('test.tenant_id')::uuid, '9f000000-0000-4000-8000-000000000002', 'takeoff_jobs',
   '9f000000-0000-4000-8000-000000000303', '9f000000-0000-4000-8000-000000000103', 'takeoff.apply.override',

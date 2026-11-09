@@ -1067,6 +1067,26 @@ describe("takeoff DPGF comparison server helpers", () => {
     expect(takeoffDpgfComparisonResponseSchema.safeParse(comparison)).toMatchObject({ success: true });
   });
 
+  function authenticate(mock: ReturnType<typeof createSupabaseMock>) {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "admin",
+    } as never);
+  }
+
+  it("keeps a matched line whose DPGF quantity cell is blank to confirm", async () => {
+    const mock = createSupabaseMock();
+    // The DPGF cell is blank; the estimator later typed a live quantity on the line.
+    mock.state.estimateItems[0] = { ...mock.state.estimateItems[0]!, quantity: 7,
+      source_metadata: { dpgf_source_quantity: null, dpgf_source_unit: "m2" } };
+    authenticate(mock);
+
+    const comparison = await fetchDpgfTakeoffComparison(JOB_ID, { version_id: VERSION_ID, view: "all" });
+
+    expect(comparison.rows[0]).toMatchObject({ dpgf_quantity: null, takeoff_quantity: 80, delta_absolute: null,
+      delta_percent: null, review_status: "to_confirm", is_exception: true, suggested_decision: null });
+    expect(comparison.summary).toMatchObject({ reliable_matches: 0, to_confirm: 1 });
+  });
+
   it("keeps the DPGF summary global when the response rows are paginated", async () => {
     const mock = createSupabaseMock();
     mock.state.estimateItems = [

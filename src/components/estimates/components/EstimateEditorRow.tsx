@@ -353,6 +353,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     handleLineTitleBlur,
     handleLineTitleKeyDown,
   } = useCatalogueSuggestions({
+    supplyTypes: supplyTypeById.values(),
     versionId,
     item,
     isReadOnly,

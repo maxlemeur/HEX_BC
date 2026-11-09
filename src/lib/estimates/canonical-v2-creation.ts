@@ -1,3 +1,4 @@
+import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 
@@ -1017,8 +1018,11 @@ export async function persistCanonicalEstimateV2(
         });
       }
       // Ligne sans TVA (modèle) : celle de la version, comme le déclencheur v3 et l'insertion M6.
-      const v3Items = sourceResult.items.map((item) =>
+      let v3Items = sourceResult.items.map((item) =>
         item.item_type === "line" && item.tax_rate_bp == null ? { ...item, tax_rate_bp: versionPayload.tax_rate_bp } : item);
+      const resolveFoPrice = createFoPriceResolver(input.supabase, input.tenantId);
+      await resolveFoPrice.preload(v3Items.filter(item => item.item_type === "line"));
+      v3Items = await Promise.all(v3Items.map(item => item.item_type === "line" ? resolveFoPrice(item) : item));
       // TI-534 : provision FO que le déclencheur donne à chaque ligne créée, selon son type FO.
       const { provisions: foProvisions, error: foProvisionError } = await loadSupplyTypeFoProvisions(
         input.supabase, input.tenantId, v3Items.map((item) => item.supply_type_id));
@@ -1027,7 +1031,7 @@ export async function persistCanonicalEstimateV2(
         .filter((item) => item.item_type === "line")
         .map((item) => ({
           ...toCalculationItem(item),
-          fo_provision: deriveFoProvision(item.supply_type_id, foProvisions),
+          fo_provision: deriveFoProvision(item.supply_type_id, foProvisions, item.fo_price_origin),
           unit_code: item.unit_code ?? null,
           pricing_status: item.pricing_status ?? "priced",
           h_mo_per_unit: item.h_mo_per_unit ?? null,

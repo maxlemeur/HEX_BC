@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
 import {
@@ -438,6 +439,7 @@ const createLineItemSchema = z.object({
   supply_type_id: nullableUuidSchema.optional(),
   product_id: nullableUuidSchema.optional(),
   selected_supplier_price_id: nullableUuidSchema.optional(),
+  fo_price_origin: foPriceOriginSchema.nullable().optional(),
   source_provider: optionalNullableTextSchema.optional(),
   source_job_id: nullableUuidSchema.optional(),
   source_file_name: optionalNullableTextSchema.optional(),
@@ -471,6 +473,7 @@ const updateEstimateItemFields = {
   supply_type_id: nullableUuidSchema.optional(),
   product_id: nullableUuidSchema.optional(),
   selected_supplier_price_id: nullableUuidSchema.optional(),
+  fo_price_origin: foPriceOriginSchema.nullable().optional(),
 } as const;
 
 const updateEstimateItemDataSchema = z

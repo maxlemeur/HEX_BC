@@ -1,7 +1,41 @@
 # Règles fixes du métré (L5)
 
-Le modèle propose, des règles fixes décident, l'utilisateur ne tranche que ce qui
-échoue (TI-664, étape 6 du pipeline de TI-658).
+Le modèle propose, les règles expliquent les anomalies et l'utilisateur contrôle
+les valeurs clés (TI-664 et cadrage TI-681 confirmé les 8 et 9 novembre 2026).
+
+## Contrat actuel de contrôle ciblé — TI-681
+
+Les avertissements de quantité, y compris une confiance faible, recommandent un
+contrôle sans imposer l'acquittement de chaque tronçon. Les descriptions datées
+ci-dessous d'un blocage sur simple faible confiance ou doute de quantité sont
+remplacées par ce contrat. Les protections de droits, de tenant, de brouillon,
+de concurrence, de provenance localisée, de résultats périmés et les restrictions
+techniques de matériaux restent en vigueur.
+
+- Prioriser les postes dès **1 000 € HT ou 1 % du montant HT de leur lot**, au
+  premier seuil atteint, à égalité comprise. Un montant inconnu reste inconnu.
+  Une anomalie est signalée même sous ce seuil. Les montants viennent du moteur
+  épinglé ; le prix d'achat FO en v3 n'est pas un prix de vente.
+  L'impact estimé valorise l'écart absolu au prix net par unité de la ligne.
+  Les lectures alternatives sont dédupliquées par groupe ; entre leur écart et
+  l'écart DPGF, retenir le plus grand sans additionner deux fois un même doute.
+- Présenter une confiance **élevée, moyenne ou faible**, avec ses raisons, sans
+  transformer le score du modèle en pourcentage de fiabilité mesurée.
+- Une mesure vectorielle exploitable est prioritaire sur une lecture alternative
+  comparable du même document, page, étage/zone, unité et identité. Conserver les
+  deux lectures, montrer leur écart et appliquer une seule source de quantité.
+- Comparer les éléments repérés au périmètre attendu des bâtiments, étages,
+  zones et réseaux. Un nom de fichier couvrant plusieurs étages ne prouve pas
+  que tous ont été analysés ; une liste d'alertes vide ne prouve pas la complétude.
+- Conserver les mesures brutes. Pour les longueurs vendues, **cumuler par ligne
+  de devis puis arrondir une seule fois au mètre supérieur** : 2,2 + 2,2 → 5 m ;
+  2,2 + 1,3 → 4 m ; 12,14 → 13 m. Préserver les quantités protectrices DPGF.
+
+Le temps de métré/quantitatif, contrôle et corrections compris, a un objectif de
+division par quatre minimum. La référence de valorisation est 60 € HT/h.
+**L'essai chronométré est reporté par Maxime** ; les tests fonctionnels ne
+démontrent aucun gain de temps humain. Les cibles statistiques de risque et de
+couverture antérieures restent provisoires.
 
 Chaque règle est pure et déterministe. Elle rend « passe » ou « échoue », avec un
 code stable, une raison lisible et sa version. Une règle qui n'a rien à lire sur

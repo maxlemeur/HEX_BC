@@ -3,7 +3,7 @@ import { z } from "zod";
 export const AFFAIRE_INTAKE_BUCKET = "affaire-intake";
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL = "50 Mo";
-export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML";
+export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML, DWG, DXF, RVT";
 
 export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "pdf",
@@ -18,6 +18,9 @@ export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "xlsx",
   "doc",
   "docx",
+  "dwg",
+  "dxf",
+  "rvt",
 ] as const;
 
 export const AFFAIRE_INTAKE_ALLOWED_MIME_TYPES = [
@@ -33,6 +36,24 @@ export const AFFAIRE_INTAKE_ALLOWED_MIME_TYPES = [
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ] as const;
+
+export const AFFAIRE_INTAKE_CAD_NOTICE = "Original CAO/BIM conservé. Aperçu et métré non disponibles dans ce format : ajoutez un export PDF pour les plans ou un quantitatif pour les quantités.";
+
+const CAD_MIME_TYPES: Record<string, readonly string[]> = {
+  dwg: ["application/octet-stream", "image/vnd.dwg", "application/acad", "application/x-acad", "application/dwg", "application/x-dwg", "image/x-dwg"],
+  dxf: ["application/octet-stream", "image/vnd.dxf", "application/dxf", "application/x-dxf", "image/x-dxf", "text/plain"],
+  rvt: ["application/octet-stream", "application/vnd.autodesk.revit", "application/x-revit"],
+};
+
+export function isAffaireIntakeCadDocument(fileName: string) {
+  return Object.hasOwn(CAD_MIME_TYPES, getAffaireIntakeFileExtension(fileName));
+}
+
+export function getAffaireIntakeAllowedMimeTypes(fileName: string): readonly string[] {
+  return isAffaireIntakeCadDocument(fileName)
+    ? CAD_MIME_TYPES[getAffaireIntakeFileExtension(fileName)]
+    : AFFAIRE_INTAKE_ALLOWED_MIME_TYPES;
+}
 
 export const affaireIntakeDocumentKindSchema = z.enum([
   "dpgf",
@@ -101,7 +122,7 @@ function addMissingDatetimeSeconds(value: unknown) {
     : value;
 }
 
-export const affaireIntakeExtractedMetadataSchema = z
+const affaireIntakeAiMetadataSchema = z
   .object({
     projectName: z.string().trim().max(255).nullable(),
     clientName: z.string().trim().max(255).nullable(),
@@ -111,8 +132,20 @@ export const affaireIntakeExtractedMetadataSchema = z
     ),
     detectedLots: z.array(z.string().trim().min(1).max(160)).max(20),
     detectedVariants: z.array(z.string().trim().min(1).max(160)).max(20),
+    documentNature: z.string().trim().min(1).max(160).nullable().optional(),
   })
   .strict();
+
+export const affaireIntakeCategoryProposalSchema = z.object({
+  category: affaireIntakeDocumentKindSchema,
+  confidence: z.number().min(0).max(1),
+  analyzedAt: z.string().datetime({ offset: true }),
+  nature: z.string().trim().min(1).max(160).nullable(),
+}).strict();
+
+export const affaireIntakeExtractedMetadataSchema = affaireIntakeAiMetadataSchema.extend({
+  aiCategoryProposal: affaireIntakeCategoryProposalSchema.optional(),
+}).strict();
 
 export const affaireIntakeClassificationResultSchema = z
   .object({
@@ -128,6 +161,11 @@ export const affaireIntakeClassificationResultSchema = z
     }),
   })
   .strict();
+
+// The provider returns extracted facts only; proposal identity/date are server-owned.
+export const affaireIntakeClassificationAiResultSchema = affaireIntakeClassificationResultSchema.extend({
+  extractedMetadata: affaireIntakeAiMetadataSchema.default({ projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] }),
+});
 
 export type AffaireIntakeDocumentKind = z.infer<
   typeof affaireIntakeDocumentKindSchema
@@ -339,6 +377,9 @@ const DIRECT_EXTENSION_MIME_TYPES: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  dwg: "application/octet-stream",
+  dxf: "application/octet-stream",
+  rvt: "application/octet-stream",
 };
 
 export function isAffaireIntakePrimaryEligibleKind(
@@ -435,6 +476,12 @@ export function normalizeAffaireIntakeExtractedMetadata(
     return parsed.data;
   }
 
+  if (value && typeof value === "object" && "aiCategoryProposal" in value) {
+    const { aiCategoryProposal: _proposal, ...facts } = value;
+    void _proposal;
+    const base = affaireIntakeAiMetadataSchema.safeParse(facts);
+    if (base.success) return base.data;
+  }
   return createEmptyAffaireIntakeExtractedMetadata();
 }
 
@@ -494,9 +541,15 @@ export function buildAffaireIntakeStoragePath(input: {
 
 export const AFFAIRE_INTAKE_ANALYSIS_STALE_MS = 10 * 60_000;
 
-export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null }) {
+export const AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE = "Analyse IA en cours.";
+
+export function isAffaireIntakeReanalysisPending(document: { issues?: string[] | null }) {
+  return document.issues?.includes(AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE) === true;
+}
+
+export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null; issues?: string[] | null }) {
   const updated = Date.parse(document.classificationUpdatedAt ?? "");
-  return document.classificationStatus === "processing" && Number.isFinite(updated)
+  return (document.classificationStatus === "processing" || isAffaireIntakeReanalysisPending(document)) && Number.isFinite(updated)
     && updated < Date.now() - AFFAIRE_INTAKE_ANALYSIS_STALE_MS;
 }
 
@@ -505,6 +558,14 @@ export function getHeuristicAffaireDocumentClassification(input: {
   mimeType?: string | null;
 }): AffaireIntakeClassificationResult {
   const extension = getAffaireIntakeFileExtension(input.fileName);
+  if (isAffaireIntakeCadDocument(input.fileName)) {
+    return {
+      documentKind: "plans",
+      confidence: 0.64,
+      issues: [AFFAIRE_INTAKE_CAD_NOTICE],
+      extractedMetadata: createEmptyAffaireIntakeExtractedMetadata(),
+    };
+  }
   // In technical filenames underscores are separators, but RegExp \b treats
   // them as word characters. Normalize accents and separators before matching.
   const normalizedName = input.fileName.trim().toLowerCase()
@@ -603,6 +664,7 @@ export function isAffaireIntakeDocumentProcessing(
   document: AffaireIntakeReviewableDocument
 ) {
   if (
+    isAffaireIntakeReanalysisPending(document) ||
     document.classificationStatus === "queued" ||
     document.classificationStatus === "processing"
   ) {

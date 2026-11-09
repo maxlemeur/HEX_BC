@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { Building2, Pencil } from "lucide-react";
 
 import { updateAffaireProjectMetadataAction } from "@/app/dashboard/affaires/_actions/project";
 import {
@@ -22,6 +23,8 @@ type AffairePersistedProjectDetailsProps = {
   actionsPortalTarget?: HTMLElement | null;
   /** Toolbar slot rendered below the project details (e.g. ActionBar) */
   toolbar?: React.ReactNode;
+  compact?: boolean;
+  headingContext?: React.ReactNode;
 };
 
 function validateProjectName(value: string) {
@@ -42,6 +45,8 @@ export function AffairePersistedProjectDetails({
   onEditingChange,
   actionsPortalTarget,
   toolbar,
+  compact = false,
+  headingContext,
 }: Readonly<AffairePersistedProjectDetailsProps>) {
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
@@ -129,7 +134,14 @@ export function AffairePersistedProjectDetails({
       {editButtons && actionsPortalTarget
         ? createPortal(editButtons, actionsPortalTarget)
         : editButtons}
-      <AffaireProjectDetailsCard
+      {compact && mode === "view" ? (
+        <header className="affaire-compact-heading">
+          <span className="affaire-heading-icon"><Building2 size={30} aria-hidden="true" /></span>
+          <h1>{savedValues.projectName}</h1>
+          {headingContext ? <div className="affaire-heading-context">{headingContext}</div> : null}
+          <Button variant="ghost" onClick={() => setMode("edit")}><Pencil size={16} aria-hidden="true" />Modifier la fiche</Button>
+        </header>
+      ) : <AffaireProjectDetailsCard
         mode={mode}
         description="Renseignez ou corrigez le contexte projet sans quitter l'affaire."
         values={mode === "view" ? savedValues : draftValues}
@@ -165,7 +177,7 @@ export function AffairePersistedProjectDetails({
           setErrorMessage(null);
         }
       }}
-    />
+    />}
     </>
   );
 }

@@ -259,5 +259,5 @@ export function confidenceColor(confidence: number | null): string {
 
 export function formatConfidencePercent(confidence: number | null): string {
   if (confidence === null) return "N/A";
-  return `${Math.round(confidence * 100)}%`;
+  return confidence >= 0.8 ? "Élevée" : confidence >= 0.5 ? "Moyenne" : "Faible";
 }

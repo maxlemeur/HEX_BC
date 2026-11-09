@@ -48,6 +48,7 @@ const V3_DERIVED_ITEM_KEYS = [
 /** Colonnes de saisie d'une ligne v3 (même liste que `V3_ITEM_INPUT_KEYS`, 2.5). */
 const V3_INPUT_ITEM_KEYS = [
   "unit_code",
+  "fo_price_origin",
   "pricing_status",
   "h_mo_per_unit",
   "h_mo_atelier_per_unit",

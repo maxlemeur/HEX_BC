@@ -1,13 +1,15 @@
+import { buildClassificationFilePayload, buildSpreadsheetSnippet, validateSpreadsheetBudget, SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-file-payload";
+import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
+import { WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
 import { readAllRows } from "@/lib/supabase/read-all";
 import {
   AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
   buildClassificationPrompt,
 } from "@/lib/affaires/intake-classification-prompt";
+import { buildAffaireIntakeReanalysisUpdate, withAffaireAiCategoryProposal } from "@/lib/affaires/intake-reanalysis";
 import { createHash, randomUUID } from "node:crypto";
-import { inflateRawSync } from "node:zlib";
 import { cache } from "react";
 
-import * as XLSX from "xlsx";
 import { z } from "zod";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -37,12 +39,13 @@ import {
   AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
-  AFFAIRE_INTAKE_ALLOWED_MIME_TYPES,
+  getAffaireIntakeAllowedMimeTypes,
+  isAffaireIntakeCadDocument,
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
   affaireIntakeBriefBlockKeySchema,
   affaireIntakeBriefDraftSchema,
   affaireIntakeBriefStatusSchema,
-  affaireIntakeClassificationResultSchema,
+  affaireIntakeClassificationAiResultSchema,
   affaireIntakeClassificationSourceSchema,
   affaireIntakeClassificationStatusSchema,
   affaireIntakeDocumentKindSchema,
@@ -55,12 +58,12 @@ import {
   createEmptyAffaireIntakeExtractedMetadata,
   deriveAffaireIntakeClassificationStatus,
   deriveAffaireIntakeUploadStatusFromDocuments,
-  getAffaireIntakeFileExtension,
   getHeuristicAffaireDocumentClassification,
   inferAffaireIntakeMimeType,
   isAffaireIntakePrimaryEligibleKind,
   isAffaireIntakeAnalysisStale,
-  isMimeTypeSupportedForAiClassification,
+  isAffaireIntakeReanalysisPending,
+  AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeTextList,
   normalizeAffaireIntakeExtractedMetadata,
@@ -351,19 +354,8 @@ const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
 const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
-const TEXT_SNIPPET_MAX_LENGTH = 12_000;
 const AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD = 20;
 const AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES = 100 * 1024 * 1024;
-const SPREADSHEET_MAX_INPUT_BYTES = 10 * 1024 * 1024;
-const SPREADSHEET_MAX_ARCHIVE_ENTRIES = 512;
-const SPREADSHEET_MAX_EXPANDED_BYTES = 32 * 1024 * 1024;
-const SPREADSHEET_MAX_ENTRY_BYTES = 16 * 1024 * 1024;
-const SPREADSHEET_MAX_COMPRESSION_RATIO = 100;
-const SPREADSHEET_MAX_SHEETS = 32;
-const SPREADSHEET_MAX_ROWS_PER_SHEET = 20;
-const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
-const ZIP_CENTRAL_DIRECTORY_ENTRY_SIGNATURE = 0x02014b50;
-const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -737,6 +729,7 @@ function normalizeAffaireBriefSourceRow(row: unknown): AffaireBriefSourceRow | n
 }
 
 function toSafeMimeType(file: File) {
+  if (isAffaireIntakeCadDocument(file.name)) return "application/octet-stream";
   return file.type.trim().toLowerCase() || inferAffaireIntakeMimeType(file.name) || "application/octet-stream";
 }
 
@@ -761,250 +754,6 @@ function getSafeProviderErrorCode(error: unknown) {
 }
 
 
-function findZipEndOfCentralDirectory(buffer: Buffer) {
-  const minimumOffset = Math.max(0, buffer.length - 65_557);
-  for (let offset = buffer.length - 22; offset >= minimumOffset; offset -= 1) {
-    if (buffer.readUInt32LE(offset) === ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
-      return offset;
-    }
-  }
-
-  return -1;
-}
-
-function validateXlsxArchiveBudget(buffer: Buffer) {
-  const endOffset = findZipEndOfCentralDirectory(buffer);
-  if (endOffset < 0) {
-    throw new Error("Archive XLSX invalide ou répertoire central introuvable.");
-  }
-
-  const entryCount = buffer.readUInt16LE(endOffset + 10);
-  const directorySize = buffer.readUInt32LE(endOffset + 12);
-  const directoryOffset = buffer.readUInt32LE(endOffset + 16);
-  if (
-    entryCount === 0xffff ||
-    directorySize === 0xffffffff ||
-    directoryOffset === 0xffffffff
-  ) {
-    throw new Error("Les archives XLSX ZIP64 ne sont pas prises en charge.");
-  }
-  if (entryCount > SPREADSHEET_MAX_ARCHIVE_ENTRIES) {
-    throw new Error(
-      `Le classeur depasse ${SPREADSHEET_MAX_ARCHIVE_ENTRIES} entrées archivées.`
-    );
-  }
-  if (directoryOffset + directorySize > buffer.length) {
-    throw new Error("Répertoire central XLSX invalide.");
-  }
-
-  let cursor = directoryOffset;
-  let totalExpandedBytes = 0;
-
-  for (let entryIndex = 0; entryIndex < entryCount; entryIndex += 1) {
-    if (
-      cursor + 46 > directoryOffset + directorySize ||
-      buffer.readUInt32LE(cursor) !== ZIP_CENTRAL_DIRECTORY_ENTRY_SIGNATURE
-    ) {
-      throw new Error("Entrée du répertoire central XLSX invalide.");
-    }
-
-    const flags = buffer.readUInt16LE(cursor + 8);
-    const compressionMethod = buffer.readUInt16LE(cursor + 10);
-    const compressedSize = buffer.readUInt32LE(cursor + 20);
-    const declaredExpandedSize = buffer.readUInt32LE(cursor + 24);
-    const fileNameLength = buffer.readUInt16LE(cursor + 28);
-    const extraLength = buffer.readUInt16LE(cursor + 30);
-    const commentLength = buffer.readUInt16LE(cursor + 32);
-    const localHeaderOffset = buffer.readUInt32LE(cursor + 42);
-
-    if (
-      compressedSize === 0xffffffff ||
-      declaredExpandedSize === 0xffffffff ||
-      localHeaderOffset === 0xffffffff
-    ) {
-      throw new Error("Les entrées XLSX ZIP64 ne sont pas prises en charge.");
-    }
-    if ((flags & 0x1) !== 0) {
-      throw new Error("Les classeurs XLSX chiffrés ne sont pas pris en charge.");
-    }
-    if (compressionMethod !== 0 && compressionMethod !== 8) {
-      throw new Error("Méthode de compression XLSX non prise en charge.");
-    }
-    if (declaredExpandedSize > SPREADSHEET_MAX_ENTRY_BYTES) {
-      throw new Error("Une entrée du classeur depasse la taille autorisee.");
-    }
-    if (
-      declaredExpandedSize > 0 &&
-      declaredExpandedSize / Math.max(1, compressedSize) >
-        SPREADSHEET_MAX_COMPRESSION_RATIO
-    ) {
-      throw new Error("Le ratio de decompression du classeur depasse la limite autorisee.");
-    }
-    if (
-      localHeaderOffset + 30 > buffer.length ||
-      buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE
-    ) {
-      throw new Error("Entrée locale XLSX invalide.");
-    }
-
-    const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
-    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
-    const compressedDataOffset =
-      localHeaderOffset + 30 + localFileNameLength + localExtraLength;
-    const compressedDataEnd = compressedDataOffset + compressedSize;
-    if (compressedDataEnd > buffer.length) {
-      throw new Error("Données compressées XLSX tronquées.");
-    }
-
-    const remainingBudget = SPREADSHEET_MAX_EXPANDED_BYTES - totalExpandedBytes;
-    if (remainingBudget <= 0) {
-      throw new Error("Le classeur depasse la taille decompressee autorisee.");
-    }
-
-    const compressedData = buffer.subarray(compressedDataOffset, compressedDataEnd);
-    let actualExpandedSize: number;
-    if (compressionMethod === 0) {
-      actualExpandedSize = compressedData.byteLength;
-    } else {
-      try {
-        actualExpandedSize = inflateRawSync(compressedData, {
-          maxOutputLength: Math.min(remainingBudget, SPREADSHEET_MAX_ENTRY_BYTES),
-        }).byteLength;
-      } catch {
-        throw new Error("Une entrée XLSX depasse le budget de decompression.");
-      }
-    }
-
-    if (actualExpandedSize !== declaredExpandedSize) {
-      throw new Error("Taille decompressee XLSX incoherente.");
-    }
-    totalExpandedBytes += actualExpandedSize;
-    if (totalExpandedBytes > SPREADSHEET_MAX_EXPANDED_BYTES) {
-      throw new Error("Le classeur depasse la taille decompressee autorisee.");
-    }
-
-    cursor += 46 + fileNameLength + extraLength + commentLength;
-  }
-
-  if (cursor !== directoryOffset + directorySize) {
-    throw new Error("Taille du répertoire central XLSX incoherente.");
-  }
-}
-
-function validateSpreadsheetBudget(fileName: string, bytes: ArrayBuffer) {
-  if (bytes.byteLength > SPREADSHEET_MAX_INPUT_BYTES) {
-    throw new Error("Le classeur depasse la taille maximale d'analyse de 10 Mo.");
-  }
-
-  const buffer = Buffer.from(bytes);
-  const extension = getAffaireIntakeFileExtension(fileName);
-  const isZipWorkbook =
-    buffer.length >= 4 &&
-    buffer.readUInt32LE(0) === ZIP_LOCAL_FILE_HEADER_SIGNATURE;
-  if (extension === "xlsx" && !isZipWorkbook) {
-    throw new Error("Archive XLSX invalide.");
-  }
-  if (isZipWorkbook) {
-    validateXlsxArchiveBudget(buffer);
-  }
-}
-
-async function buildSpreadsheetSnippet(fileName: string, bytes: ArrayBuffer) {
-  validateSpreadsheetBudget(fileName, bytes);
-  const workbook = XLSX.read(Buffer.from(bytes), {
-    type: "buffer",
-    sheetRows: SPREADSHEET_MAX_ROWS_PER_SHEET,
-  });
-  if (workbook.SheetNames.length > SPREADSHEET_MAX_SHEETS) {
-    throw new Error(`Le classeur depasse ${SPREADSHEET_MAX_SHEETS} feuilles.`);
-  }
-  const lines: string[] = [`Workbook: ${fileName}`];
-
-  for (const sheetName of workbook.SheetNames.slice(0, 3)) {
-    const worksheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(
-      worksheet,
-      {
-        header: 1,
-        blankrows: false,
-      }
-    );
-
-    lines.push(`Sheet: ${sheetName}`);
-
-    for (const row of rows.slice(0, 12)) {
-      const normalizedRow = row
-        .map((cell) =>
-          cell === null || cell === undefined ? "" : String(cell).trim()
-        )
-        .filter((cell) => cell.length > 0)
-        .join(" | ");
-
-      if (normalizedRow.length > 0) {
-        lines.push(normalizedRow);
-      }
-    }
-  }
-
-  return lines.join("\n").slice(0, TEXT_SNIPPET_MAX_LENGTH);
-}
-
-function buildTextFilePayload(text: string, mimeType = "text/plain"): GeminiStructuredFile | null {
-  const snippet = text.trim().slice(0, TEXT_SNIPPET_MAX_LENGTH);
-  if (snippet.length === 0) {
-    return null;
-  }
-
-  return {
-    data: Buffer.from(snippet, "utf8").toString("base64"),
-    mimeType,
-  };
-}
-
-async function buildClassificationFilePayload(input: {
-  fileName: string;
-  mimeType: string;
-  bytes: ArrayBuffer;
-}): Promise<GeminiStructuredFile | null> {
-  const normalizedMimeType = input.mimeType.trim().toLowerCase();
-  const extension = getAffaireIntakeFileExtension(input.fileName);
-
-  if (
-    normalizedMimeType === "application/vnd.ms-excel" ||
-    normalizedMimeType ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    extension === "xls" ||
-    extension === "xlsx"
-  ) {
-    const snippet = await buildSpreadsheetSnippet(input.fileName, input.bytes);
-    return buildTextFilePayload(snippet);
-  }
-
-  if (
-    normalizedMimeType === "text/plain" ||
-    normalizedMimeType === "text/csv" ||
-    normalizedMimeType === "message/rfc822" ||
-    extension === "txt" ||
-    extension === "csv" ||
-    extension === "eml"
-  ) {
-    const text = Buffer.from(input.bytes).toString("utf8");
-    return buildTextFilePayload(
-      text,
-      normalizedMimeType === "text/csv" ? "text/csv" : "text/plain"
-    );
-  }
-
-  if (isMimeTypeSupportedForAiClassification(normalizedMimeType)) {
-    return {
-      data: Buffer.from(input.bytes).toString("base64"),
-      mimeType: normalizedMimeType,
-    };
-  }
-
-  return null;
-}
-
 async function classifyAffaireIntakeDocument(input: {
   fileName: string;
   mimeType: string;
@@ -1016,6 +765,8 @@ async function classifyAffaireIntakeDocument(input: {
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: AffaireIntakeClassificationSource;
+  analysisSucceeded?: boolean;
+  analysisFailure?: IntakeAnalysisFailure;
 }> {
   const heuristicResult = getHeuristicAffaireDocumentClassification({
     fileName: input.fileName,
@@ -1023,21 +774,32 @@ async function classifyAffaireIntakeDocument(input: {
   });
   if (input.existingMetadata) heuristicResult.extractedMetadata = input.existingMetadata;
 
-  if (isIntakeDecisionsSelected()) return classifyAutonomousAffaireDocument({ ...input, heuristicResult,
-    readLocalText: async () => {
-      const payload = await buildClassificationFilePayload(input);
-      return payload?.mimeType.startsWith("text/") ? Buffer.from(payload.data, "base64").toString("utf8") : undefined;
-    },
-  });
+  if (isAffaireIntakeCadDocument(input.fileName)) return { result: heuristicResult, source: "heuristic",
+    analysisFailure: { code: "UNSUPPORTED_FORMAT", message: "Ce format CAO/BIM n’est pas lisible par l’IA. Ajoutez un export PDF pour les plans.", scope: "document" } };
 
-  let filePayload: GeminiStructuredFile | null = null;
+  let filePayload: (GeminiStructuredFile & { issues?: string[] }) | null = null;
+  let payloadFailure: IntakeAnalysisFailure | undefined;
 
   try {
-    filePayload = await buildClassificationFilePayload(input);
-  } catch {
+    if (!isIntakeDecisionsSelected() || isWordFile(input.fileName, input.mimeType)) filePayload = await buildClassificationFilePayload(input);
+  } catch (error) {
+    payloadFailure = { code: error instanceof WordReadError ? error.code : "DOCUMENT_UNREADABLE",
+      message: error instanceof WordReadError ? error.message : "Le fichier est illisible, protégé ou dépasse les limites d’analyse. Réenregistrez-le puis relancez.", scope: "document" };
     console.error("Failed to build affaire intake classification payload", {
       error_code: "CLASSIFICATION_PAYLOAD_ERROR",
     });
+  }
+
+  if (isIntakeDecisionsSelected() && !payloadFailure) {
+    const classified = await classifyAutonomousAffaireDocument({ ...input, heuristicResult,
+    readLocalText: async () => {
+      const payload = filePayload ?? await buildClassificationFilePayload(input);
+      return payload?.mimeType.startsWith("text/") ? Buffer.from(payload.data, "base64").toString("utf8") : undefined;
+    },
+    });
+    classified.result.issues = [...new Set([...(filePayload?.issues ?? []), ...classified.result.issues])].slice(0, 10);
+    return classified.source === "ai" ? { ...classified, result: withAffaireAiCategoryProposal(classified.result, new Date().toISOString()), analysisSucceeded: true }
+      : { ...classified, analysisFailure: classified.analysisFailure ?? { code: "AI_UNAVAILABLE", message: classified.result.issues.find(issue => issue.startsWith("Analyse IA :")) ?? "Le fournisseur IA n’a pas pu analyser cette pièce.", scope: "provider" } };
   }
 
   if (!filePayload) {
@@ -1046,10 +808,11 @@ async function classifyAffaireIntakeDocument(input: {
         ...heuristicResult,
         issues: addIssue(
           heuristicResult.issues,
-          "Analyse IA indisponible pour ce format, classement heuristique applique."
+          payloadFailure?.message ?? "Analyse IA indisponible pour ce format, classement heuristique applique."
         ),
       },
       source: "heuristic",
+      analysisFailure: payloadFailure ?? { code: "UNSUPPORTED_FORMAT", message: "Ce format ne peut pas être lu par l’IA. Utilisez un export PDF ou texte.", scope: "document" },
     };
   }
 
@@ -1061,7 +824,7 @@ async function classifyAffaireIntakeDocument(input: {
         fileName: input.fileName,
         mimeType: input.mimeType,
       }),
-      schema: affaireIntakeClassificationResultSchema,
+      schema: affaireIntakeClassificationAiResultSchema,
       files: [filePayload],
       thinkingLevel: AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL,
       context: {
@@ -1078,8 +841,9 @@ async function classifyAffaireIntakeDocument(input: {
       mergedResult.documentKind === geminiResult.data.documentKind ? "ai" : "heuristic";
 
     return {
-      result: mergedResult,
+      result: withAffaireAiCategoryProposal({ ...mergedResult, issues: [...(filePayload.issues ?? []), ...mergedResult.issues].slice(0, 10) }, new Date().toISOString()),
       source,
+      analysisSucceeded: true,
     };
   } catch (error) {
     console.error("Affaire intake AI classification failed", {
@@ -1095,6 +859,7 @@ async function classifyAffaireIntakeDocument(input: {
           `Analyse IA : ${structuredAiFailureMessage(error)}`),
       },
       source: "heuristic",
+      analysisFailure: { code: getSafeProviderErrorCode(error), message: structuredAiFailureMessage(error), scope: "provider" },
     };
   }
 }
@@ -2038,24 +1803,27 @@ async function generateAffaireBriefDraft(input: {
     missingPieces: input.missingPieces,
   });
 
+  const aiDocuments = input.documents.filter((document) => !isAffaireIntakeCadDocument(document.file_name));
   let generated: AffaireBriefGeneration | null = null;
 
   try {
-    const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
-      renewLease: input.renewLease ?? (async () => undefined),
-      effect: () => callStructuredAi({
-        prompt: buildBriefGenerationPrompt({
-          project: input.project,
-          documents: input.documents,
-          missingPieces: input.missingPieces,
-        }),
-        schema: affaireBriefGenerationSchema,
-        thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
-        context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
-      }, input.aiOwner),
-    });
+    if (aiDocuments.length > 0) {
+      const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
+        renewLease: input.renewLease ?? (async () => undefined),
+        effect: () => callStructuredAi({
+          prompt: buildBriefGenerationPrompt({
+            project: input.project,
+            documents: aiDocuments,
+            missingPieces: input.missingPieces,
+          }),
+          schema: affaireBriefGenerationSchema,
+          thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
+          context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
+        }, input.aiOwner),
+      });
 
-    generated = result.data;
+      generated = result.data;
+    }
   } catch (error) {
     if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
     console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error_code: getSafeProviderErrorCode(error.cause) });
@@ -2507,7 +2275,7 @@ export async function createAffaireIntakeUpload(
       maxFileSizeBytes: AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
       maxFileSizeLabel: AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
       allowedExtensions: [...AFFAIRE_INTAKE_ALLOWED_EXTENSIONS],
-      allowedMimeTypes: [...AFFAIRE_INTAKE_ALLOWED_MIME_TYPES],
+      allowedMimeTypes: [...getAffaireIntakeAllowedMimeTypes(file.name)],
       allowEmptyMimeType: true,
     });
 
@@ -3040,6 +2808,8 @@ export async function processAffaireIntakeUpload(uploadId: string) {
   }
 }
 
+class IntakeDocumentReadError extends Error {}
+
 /** A manual retry owns one document, never rearms its shared import lot.
  * updated_at fences every outcome; an interrupted reservation can only be
  * reclaimed explicitly after ten minutes, using the new caller's own account.
@@ -3055,11 +2825,10 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   if (error) throw internalError("Impossible de lire le document à réanalyser.", error);
   const document = normalizeDocumentRow(data);
   if (!document) throw notFound("Document introuvable.");
-  if (document.classification_source === "manual" || document.manually_overridden_at) {
-    throw conflict("Le classement manuel de cette pièce est conservé. Elle ne sera pas réanalysée.");
-  }
-  const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at });
-  if (document.upload_status !== "uploaded" || (!["ambiguous", "failed"].includes(document.classification_status) && !stale)) {
+  const preserveManualClassification = document.classification_source === "manual" || Boolean(document.manually_overridden_at);
+  const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at, issues: document.issues });
+  if (isAffaireIntakeReanalysisPending(document) && !stale) throw conflict("Une analyse de cette pièce est déjà en cours.");
+  if (document.upload_status !== "uploaded" || (!["classified", "ambiguous", "failed"].includes(document.classification_status) && !stale)) {
     throw conflict("Cette pièce n’est plus disponible pour une nouvelle analyse. Actualisez le dossier.");
   }
   const { data: lot, error: lotError } = await context.supabase.from("affaire_intake_uploads")
@@ -3069,30 +2838,36 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   if (!["ready", "partial_failure", "failed"].includes(lot.status)) {
     throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
   }
-  const editable = () => table().update({ classification_status: "processing" })
+  // A lease marker leaves the validated classification and plan generation unchanged.
+  const editable = () => table().update({ issues: [AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE,
+    ...document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE)].slice(0, 10) })
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
     .eq("upload_status", "uploaded").eq("classification_status", document.classification_status)
-    .eq("updated_at", document.updated_at).or("classification_source.is.null,classification_source.neq.manual")
-    .is("manually_overridden_at", null).is("deleted_at", null).is("deletion_token", null);
+    .eq("updated_at", document.updated_at).is("deleted_at", null).is("deletion_token", null);
   const { data: reserved, error: reserveError } = await editable().select("updated_at").maybeSingle();
   if (reserveError) throw internalError("Impossible de réserver cette pièce.", reserveError);
   if (!reserved) throw conflict("La pièce a changé. Actualisez le dossier.");
   const fence = (query: ReturnType<ReturnType<typeof table>["update"]>) => query
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
-    .eq("classification_status", "processing").eq("updated_at", reserved.updated_at)
-    .or("classification_source.is.null,classification_source.neq.manual").is("manually_overridden_at", null)
+    .eq("classification_status", document.classification_status).eq("updated_at", reserved.updated_at)
     .is("deleted_at", null).is("deletion_token", null);
   let proposalSaved = false;
   try {
-    const linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+    let linked: Awaited<ReturnType<typeof readLinkedDriveDocument>> | null = null;
     let bytes: ArrayBuffer;
-    if (linked) bytes = new Uint8Array(linked.bytes).buffer;
-    else {
-      const { data: blob, error: downloadError } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET).download(document.storage_path!);
-      if (downloadError || !blob) throw badRequest("Le fichier ne peut pas être lu. Vérifiez sa disponibilité.");
-      bytes = await blob.arrayBuffer();
+    try {
+      linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+      if (linked) bytes = new Uint8Array(linked.bytes).buffer;
+      else {
+        const { data: blob, error: downloadError } = await context.supabase.storage.from(AFFAIRE_INTAKE_BUCKET).download(document.storage_path!);
+        if (downloadError || !blob) throw new IntakeDocumentReadError("Le fichier ne peut pas être lu. Vérifiez sa disponibilité ou ajoutez-le à nouveau.");
+        bytes = await blob.arrayBuffer();
+      }
+      if (!bytes.byteLength) throw new IntakeDocumentReadError("Le fichier est vide. Ajoutez une copie contenant les données du document.");
+      if (bytes.byteLength > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) throw new IntakeDocumentReadError("Le fichier dépasse la limite de 50 Mo par pièce.");
+    } catch (cause) {
+      throw cause instanceof IntakeDocumentReadError ? cause : new IntakeDocumentReadError("Le fichier ne peut pas être lu depuis sa source. Vérifiez sa disponibilité et, pour Drive, sa connexion.");
     }
-    if (!bytes.byteLength || bytes.byteLength > AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES) throw badRequest("La taille du fichier ne permet pas son analyse.");
     const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name,
       mimeType: document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream", bytes,
       aiOwner: context,
@@ -3100,7 +2875,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
       beforeProviderCall: async () => {
         const { data: current, error: currentError } = await table().select("id").eq("id", document.id)
           .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("updated_at", reserved.updated_at)
-          .eq("classification_status", "processing").is("deleted_at", null).is("deletion_token", null).maybeSingle();
+          .eq("classification_status", document.classification_status).is("deleted_at", null).is("deletion_token", null).maybeSingle();
         if (currentError || !current) throw conflict("La pièce a changé avant l’analyse. Actualisez le dossier.");
       },
       decisionsContext: { owner: context, projectId: project.id, documentId: document.id,
@@ -3108,12 +2883,13 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     });
     // A reanalysis updates a proposal. Confirmation and derived dossier/brief
     // updates stay in the existing explicit manual validation action.
-    const status = "ambiguous" as const;
+    const { analysisSucceeded, values } = buildAffaireIntakeReanalysisUpdate({
+      document, classification, preserveManualClassification, now: new Date().toISOString(),
+    });
+    const status = values.classification_status;
     const { data: updated, error: updateError } = await fence(table().update({
-      classification_status: status, document_kind: classification.result.documentKind,
-      confidence: classification.result.confidence, classification_source: classification.source,
-      issues: classification.result.issues, extracted_metadata: classification.result.extractedMetadata,
-      classified_at: new Date().toISOString(), size_bytes: bytes.byteLength,
+      ...values,
+      size_bytes: bytes.byteLength,
       ...(linked ? { drive_revision: linked.file.version ?? null, drive_modified_time: linked.file.modifiedTime ?? null } : {}),
     })).select("id").maybeSingle();
     if (updateError) throw internalError("Impossible d’enregistrer la nouvelle analyse.", updateError);
@@ -3122,15 +2898,26 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
       beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },
-      afterPayload: { document_kind: classification.result.documentKind, classification_status: status,
-        classification_source: classification.source, confidence: classification.result.confidence } });
-    return { analyzed: true, usedFallback: classification.source === "heuristic",
-      warning: classification.result.issues.find((issue) => issue.startsWith("Analyse IA :")) ?? null };
+      afterPayload: { document_kind: preserveManualClassification ? document.document_kind : classification.result.documentKind,
+        classification_status: status, classification_source: preserveManualClassification ? document.classification_source : classification.source,
+        confidence: preserveManualClassification ? document.confidence : classification.result.confidence,
+        proposed_document_kind: classification.result.documentKind, analysis_source: analysisSucceeded ? "ai" : "heuristic",
+        preserved_manual_classification: preserveManualClassification } });
+    return { analyzed: true, usedFallback: !analysisSucceeded, preservedManualClassification: preserveManualClassification,
+      failure: classification.analysisFailure,
+      warning: classification.analysisFailure?.message ?? classification.result.issues.find((issue) => issue.startsWith("Analyse IA :")) ?? null };
   } catch (cause) {
     if (proposalSaved) throw internalError("La nouvelle proposition est enregistrée, mais son historique est incomplet. Vérifiez puis validez la catégorie pour poursuivre.", cause);
     // Does not release another request's reservation or overwrite a manual choice.
-    await fence(table().update({ classification_status: "failed",
-      issues: addIssue(document.issues, "Analyse interrompue. Vous pouvez relancer cette pièce.") }));
+    const documentFailure: IntakeAnalysisFailure | undefined = cause instanceof IntakeDocumentReadError
+      ? { code: "DOCUMENT_UNREADABLE", message: cause.message, scope: "document" } : undefined;
+    const { data: released, error: releaseError } = await fence(table().update({ classification_status: preserveManualClassification
+      ? (document.document_kind === "a_classer" ? "ambiguous" : "classified") : "failed",
+      issues: addIssue(document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE), documentFailure?.message ?? "Analyse interrompue. Vous pouvez relancer cette pièce.") })).select("id").maybeSingle();
+    if (releaseError) throw internalError("Impossible d’enregistrer l’échec de l’analyse. Actualisez le dossier.", releaseError);
+    if (!released) throw conflict("La pièce a changé pendant l’analyse. Actualisez le dossier.");
+    if (documentFailure) return { analyzed: false, usedFallback: true, preservedManualClassification: preserveManualClassification,
+      failure: documentFailure, warning: documentFailure.message };
     throw cause;
   }
 }
@@ -3494,10 +3281,11 @@ export async function reclassifyAffaireDocument(input: {
     confidence: document.confidence,
   };
 
+  const previousIssues = document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE);
   const nextIssues =
     input.category === "a_classer"
-      ? addIssue(document.issues, "Document remis manuellement dans la file à classer.")
-      : document.issues;
+      ? addIssue(previousIssues, "Document remis manuellement dans la file à classer.")
+      : previousIssues;
 
   const { data: updatedDocument, error: updateError } = await resolveSupabaseQuery<{
     data: { id: string } | null;
@@ -3507,6 +3295,7 @@ export async function reclassifyAffaireDocument(input: {
       .from("affaire_intake_documents" as never)
       .update({
         document_kind: input.category,
+        ...(input.category !== document.document_kind ? { document_priority: "secondary" } : {}),
         classification_status: classificationStatus,
         confidence: input.category === "a_classer" ? 0.4 : 1,
         issues: nextIssues,

@@ -1,7 +1,7 @@
 "use client";
 
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronDown } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ type Props = JourneyInput & {
   studyContent?: ReactNode;
   ghost?: boolean;
   hiddenExceptionIds?: string[];
+  workspaceView?: "overview" | "submission";
 };
 
 function subscribeHash(callback: () => void) {
@@ -47,6 +48,11 @@ export function AffairePilotagePanel(props: Props) {
   const hashStage = hash === "#finish-line-orders" && journey.showPurchases ? "achats"
     : ["#finish-line-output", "#approval"].includes(hash) && journey.canShowOutput ? "remise" : null;
   const expanded = selection?.scope === scope && selection.hash === hash ? selection.stage : hashStage ?? journey.current;
+  useEffect(() => {
+    if (["#finish-line-output", "#finish-line-orders"].includes(hash)) {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
+    }
+  }, [hash, props.workspaceView]);
   const currentIndex = journey.stages.findIndex((stage) => stage.key === journey.current);
   const editHref = currentVersion ? `/dashboard/estimates/${currentVersion.id}${currentVersion.status === "draft" ? "/edit" : ""}` : `/dashboard/estimates/new?projectId=${projectId}`;
   const exceptions = buildPilotageExceptions({ ...props, allowSurfaceActions: Boolean(onOpenSurface) })
@@ -92,6 +98,13 @@ export function AffairePilotagePanel(props: Props) {
       {journey.canShowOutput ? <AffaireFinishLineActions projectId={projectId} projectName={projectName} currentVersion={currentVersion} finishLineSummary={props.finishLineSummary} /> : null}
     </>;
     return currentVersion && journey.showPurchases ? <AffaireOrderDraftsPanel projectId={projectId} currentVersion={currentVersion} allowCreate={Boolean(onOpenSurface) && (journey.accepted || hash === "#finish-line-orders")} refreshSignal={props.finishLineSummary?.readyToOrder} /> : null;
+  }
+
+  if (props.workspaceView === "submission") {
+    return <section className="affaire-journey space-y-5" aria-label="Remise et commandes">
+      {journey.canShowOutput ? <div className="journey-panel journey-panel-body">{stageContent("remise")}</div> : null}
+      {journey.showPurchases ? stageContent("achats") : currentVersion ? <Link className="journey-text-action" href="#finish-line-orders">Consulter les commandes existantes<ArrowRight size={14} aria-hidden="true" /></Link> : null}
+    </section>;
   }
 
   return <section className="affaire-journey" aria-label="Pilotage de l'affaire">

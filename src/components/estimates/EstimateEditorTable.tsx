@@ -1,5 +1,7 @@
 "use client";
 
+import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
+
 import dynamic from "next/dynamic";
 import {
   Fragment,
@@ -1654,7 +1656,7 @@ export function EstimateEditorTable({
       if (v3Grid) {
         // v3 (F26-26) : offre jugée dans unit_code, description jamais écrite ; refus nommé dans la fiche.
         const v3 = resolveEstimateV3ArticleAssociation(suggestion, itemById.get(articleSheet.itemId)?.unit_code);
-        if (v3.ok) { patchItemWithSuggestionTracking(articleSheet.itemId, v3.patch, { persist: true }); setArticleSheet(null); }
+        if (v3.ok) { patchItemWithSuggestionTracking(articleSheet.itemId, { ...v3.patch, fo_price_origin: selectedFoPriceOrigin(suggestion) }, { persist: true }); setArticleSheet(null); }
         return;
       }
       const designation = suggestion.product_designation.trim();

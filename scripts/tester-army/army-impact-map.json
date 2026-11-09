@@ -33,11 +33,13 @@
       "e2e/army/critical/takeoff-protective-quantities.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/affaire-hub-fresh-start.e2e.ts",
+      "e2e/army/local/affaire-workbench.e2e.ts",
       "e2e/army/local/article-association.e2e.ts",
       "e2e/army/local/brief-evidence.e2e.ts",
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/business-lifecycle.e2e.ts",
       "e2e/army/local/catalogue-provenance.e2e.ts",
+      "e2e/army/local/intake-cad.e2e.ts",
       "e2e/army/local/chatgpt-local.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
@@ -47,6 +49,7 @@
       "e2e/army/local/engine-v3-exports.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-financial-chain.e2e.ts",
+      "e2e/army/local/engine-v3-fo-provision.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/engine-v3-price-reuse.e2e.ts",
@@ -98,6 +101,7 @@
       "e2e/army/takeoff/intake-dossier.e2e.ts",
       "e2e/army/takeoff/quantity-rules.e2e.ts",
       "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
+      "e2e/army/takeoff/targeted-policy.e2e.ts",
       "e2e/army/takeoff/team-b-user-stories.e2e.ts",
       "e2e/army/takeoff/worker-lifecycle.e2e.ts"
     ]
@@ -565,6 +569,7 @@
         "e2e/army/local/engine-v3-default.e2e.ts",
         "e2e/army/local/engine-v3-editor-actions.e2e.ts",
         "e2e/army/local/engine-v3-editor.e2e.ts",
+        "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/engine-v3-fail-closed.e2e.ts",
         "e2e/army/local/estimate-row-limit-reads.e2e.ts",
         "e2e/army/local/legacy-access-parity.e2e.ts"
@@ -691,8 +696,12 @@
     },
     {
       "id": "dogfood-dpgf-fixture",
-      "paths": ["public/exemple-dpgf.xlsx"],
-      "journeys": ["e2e/army/critical/dogfood-dpgf-plans.e2e.ts"]
+      "paths": [
+        "public/exemple-dpgf.xlsx"
+      ],
+      "journeys": [
+        "e2e/army/critical/dogfood-dpgf-plans.e2e.ts"
+      ]
     },
     {
       "id": "plan-fixture",
@@ -706,6 +715,7 @@
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts",
+        "e2e/army/takeoff/targeted-policy.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
     },
@@ -736,6 +746,7 @@
         "src/app/dashboard/{products,prices}/**"
       ],
       "journeys": [
+        "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/legacy-catalogue-parity.e2e.ts"
       ]
     },
@@ -832,7 +843,12 @@
         "src/components/affaires/AffaireDocumentsDrawer*",
         "e2e/army/critical/affaire-pilotage-drawer.e2e.ts"
       ],
-      "journeys": ["e2e/army/critical/affaire-pilotage-drawer.e2e.ts", "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts", "e2e/army/local/brief-evidence.e2e.ts", "e2e/army/local/purchase-readiness.e2e.ts"]
+      "journeys": [
+        "e2e/army/critical/affaire-pilotage-drawer.e2e.ts",
+        "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts",
+        "e2e/army/local/brief-evidence.e2e.ts",
+        "e2e/army/local/purchase-readiness.e2e.ts"
+      ]
     },
     {
       "id": "google-drive-intake",
@@ -846,7 +862,11 @@
         "src/components/affaires/IntakeDocumentTable*",
         "e2e/army/critical/google-drive-local-store.ts"
       ],
-      "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts", "e2e/army/critical/dogfood-dpgf-plans.e2e.ts"]
+      "journeys": [
+        "e2e/army/critical/intake-google-drive.e2e.ts",
+        "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
+        "e2e/army/local/intake-cad.e2e.ts"
+      ]
     },
     {
       "id": "intake-dossier",
@@ -858,7 +878,8 @@
       ],
       "journeys": [
         "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
-        "e2e/army/takeoff/intake-dossier.e2e.ts"
+        "e2e/army/takeoff/intake-dossier.e2e.ts",
+        "e2e/army/local/intake-cad.e2e.ts"
       ]
     },
     {
@@ -909,6 +930,7 @@
       ],
       "journeys": [
         "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/engine-v3-price-reuse.e2e.ts"
       ]
     },
@@ -1006,11 +1028,35 @@
         "src/components/takeoff/TakeoffApplyWizard.tsx",
         "src/components/takeoff/takeoff-apply-wizard/**",
         "src/components/takeoff/takeoff-dpgf-compare-view/**",
-        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/targeted/**"
+        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/targeted/**",
+        "src/lib/takeoff/financial-review.ts",
+        "src/lib/takeoff/review-context-*.ts",
+        "src/lib/takeoff/scope-*.ts",
+        "src/components/takeoff/review/TakeoffReviewPolicyPanel.tsx",
+        "src/app/api/takeoff/jobs/**/review-context/**"
       ],
       "journeys": [
         "e2e/army/takeoff/quantity-rules.e2e.ts",
-        "e2e/army/critical/takeoff-protective-quantities.e2e.ts"
+        "e2e/army/critical/takeoff-protective-quantities.e2e.ts",
+        "e2e/army/takeoff/targeted-policy.e2e.ts"
+      ]
+    },
+    {
+      "id": "affaire-workbench",
+      "note": "Navigation locale du hub et consultation du dossier sans confirmation implicite ; garde des liens profonds et du mobile.",
+      "paths": [
+        "src/components/affaires/AffaireWorkbench*",
+        "src/components/affaires/AffaireHub.tsx",
+        "src/components/affaires/AffairePersistedProjectDetails.tsx",
+        "src/components/affaires/AffaireDocumentDesk.tsx",
+        "src/components/affaires/BriefDraftCard*",
+        "src/components/affaires/BriefReviewPanel.tsx",
+        "e2e/army/local/affaire-workbench.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/local/affaire-workbench.e2e.ts",
+        "e2e/army/local/brief-evidence.e2e.ts",
+        "e2e/army/critical/affaire-pilotage-drawer.e2e.ts"
       ]
     }
   ]

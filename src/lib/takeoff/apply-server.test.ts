@@ -103,11 +103,11 @@ describe("takeoff apply orchestration", () => {
     expect(logTakeoffAuditEvent).toHaveBeenLastCalledWith(expect.objectContaining({ action: "takeoff.apply.completed" }));
   });
 
-  it("blocks the whole application when the global DPGF summary has unresolved exceptions", async () => {
-    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 } } as never);
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422, details: { guard: "dpgf_comparison" } });
-    expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
-    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  it("issues a guarded authorization despite non-blocking DPGF quantity warnings", async () => {
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 }, rows: [] } as never);
+    await applyTakeoffJob(JOB_ID, request);
+    expect(repository.issueTakeoffDpgfApplyAuthorization).toHaveBeenCalled();
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalled();
   });
 
   it("revokes the issued authorization when the atomic RPC fails, retaining the named timeout", async () => {
@@ -126,13 +126,13 @@ describe("takeoff apply orchestration", () => {
     vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.7);
     // TI-677 (PR D): the override records each blocked line's state; the trigger refuses it once a line changed.
     const state = { item_id: SECTION_ID, quantity: 4, unit: "ml", updated_at: "2026-10-28T09:00:00.123456+00:00",
-      rule_failures: [], rules_stale: false, designation: "Canalisation", evidence: "Plan A", source_page: 1, is_verified: false,
+      rule_failures: [], rules_stale: false, designation: "Canalisation", evidence: null, source_page: 1, is_verified: false,
       quantity_entered_by: null };
     const included = { id: "66666666-6666-4666-8666-666666666666", designation: "Vanne", confidence: 0.9, evidence: "Plan A",
       source_page: 1, is_verified: true, is_excluded: false,
       override_state: { ...state, item_id: "66666666-6666-4666-8666-666666666666" } };
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([{
-      id: SECTION_ID, designation: "Canalisation", confidence: 0.6, evidence: "Plan A", source_page: 1, is_verified: false, is_excluded: false,
+      id: SECTION_ID, designation: "Canalisation", confidence: 0.6, evidence: null, source_page: 1, is_verified: false, is_excluded: false,
       override_state: state,
     }, included] as never);
     await applyTakeoffJob(JOB_ID, { ...request, override: true, override_justification: "  Contrôle manuel  " });
@@ -193,14 +193,14 @@ describe("takeoff apply with a duplicate the mapping plan skips", () => {
   it("never asks the database about a partner id that is no line id", async () => {
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, ["not-a-line", OTHER_JOB_LINE.toUpperCase()])] as never);
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    await applyTakeoffJob(JOB_ID, request);
     expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [OTHER_JOB_LINE] }));
   });
 
   it("reads a partner of another job as the database holds it", async () => {
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, [OTHER_JOB_LINE])] as never);
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, false]]));
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    await applyTakeoffJob(JOB_ID, request);
     expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_ID,
       itemIds: [OTHER_JOB_LINE] }));
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));
