@@ -1322,6 +1322,7 @@ export default function TakeoffReviewPage({
           items={items}
           tables={tables}
           jobLevel={jobLevel}
+          confidenceThreshold={lowConfidenceThreshold}
           activeTab={activeTab}
           onSetActiveTab={setActiveTab}
           compareCandidates={compareCandidates}

@@ -3,7 +3,12 @@ import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
 import { surfaceBasis, type SurfaceBasis } from "@/lib/takeoff/quantity-policy";
 import { areaQuantityContexts, expectedSurfaceBasis, type AreaQuantityContext } from "@/lib/takeoff/rules/area-context";
 import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/bench/diameters";
-import { NETWORK_DIAMETER_TABLE_VERSION, WRAPPING_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
+import {
+  NETWORK_DIAMETER_TABLE_VERSION,
+  WRAPPING_MATERIALS,
+  checkNetworkDiameter,
+  findNetworkDiameterEntries,
+} from "@/lib/takeoff/rules/network-diameters";
 import {
   REGISTRATION_VERSION,
   composeTranslations,
@@ -178,8 +183,11 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
     case "material_missing":
       return result("dn_network", "fail", "DN_NETWORK_MATERIAL_MISSING",
         `Matériau non lu : le DN ne peut pas être contrôlé pour le réseau ${name}.`, details);
+    // D18b: the couple's condition stands beside the DN to fix. The code stays the same and a reason is no part of the
+    // failure key; the keys change with the table version (v3, network-diameters.ts), not with this reason.
     case "dn_missing":
-      return result("dn_network", "fail", "DN_NETWORK_DN_MISSING", `DN non lu (aucun ou deux) pour le réseau ${name}.`, details);
+      return result("dn_network", "fail", "DN_NETWORK_DN_MISSING",
+        `DN non lu (aucun ou deux) pour le réseau ${name}.${check.condition ? ` ${check.condition}` : ""}`, details);
     case "material_not_allowed":
       return result("dn_network", "fail", "DN_NETWORK_MATERIAL_NOT_ALLOWED",
         `${materialLabel(inputs.material as string)} n’est pas admis pour le réseau ${name}.`,
@@ -187,7 +195,8 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
     case "dn_not_in_series": {
       const standards = check.families.map((family) => DIAMETER_FAMILIES[family].standard).join(", ");
       return result("dn_network", "fail", "DN_NETWORK_DN_NOT_IN_SERIES",
-        `${inputs.dn} n’existe pas en ${materialLabel(inputs.material as string).toLowerCase()}${standards ? ` (${standards})` : ""}.`, details);
+        `${inputs.dn} n’existe pas en ${materialLabel(inputs.material as string).toLowerCase()}${standards ? ` (${standards})` : ""}.`
+          + (check.condition ? ` ${check.condition}` : ""), details);
     }
   }
 }
@@ -308,13 +317,15 @@ function roomOverlaps(lines: readonly RuleLine[], results: Map<string, TakeoffRu
 type ZoneLine = RuleLine & { inputs: TakeoffRuleInputs; geometry: NonNullable<RuleLine["geometry"]>; page_key: string };
 
 /**
- * Sizes a line's DN names, as entries of the diameter table (family and outer diameter), through its material's
- * series; a vector size reads either way (« DN 100 » or « Ø 110 » of one cast-iron pipe).
+ * Sizes a line's DN names, as entries of the diameter table (family and outer diameter), through the series its
+ * material is read in on its network, as the DN rule reads them (TI-684: stainless drainage in NF EN 1124); a vector
+ * size reads either way (« DN 100 » or « Ø 110 » of one cast-iron or stainless drainage pipe).
  */
 function sizesOf(inputs: TakeoffRuleInputs): Set<string> {
   if (inputs.dn === null) return new Set();
-  const entries = findDiameterEntries(inputs.dn, inputs.material);
-  if (inputs.source === "vector" && inputs.dn.startsWith("DN ")) entries.push(...findDiameterEntries(`Ø ${inputs.dn.slice(3)}`, inputs.material));
+  const { network, material } = inputs;
+  const entries = findNetworkDiameterEntries(inputs.dn, network, material);
+  if (inputs.source === "vector" && inputs.dn.startsWith("DN ")) entries.push(...findNetworkDiameterEntries(`Ø ${inputs.dn.slice(3)}`, network, material));
   return new Set(entries.map((entry) => `${entry.family}:${entry.od_mm}`));
 }
 

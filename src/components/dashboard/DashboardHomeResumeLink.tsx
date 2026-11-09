@@ -3,10 +3,14 @@
 import Link from "next/link";
 
 import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
+import type { AffaireDashboardOverviewResult } from "@/lib/affaires/server";
 import { Undo2Icon } from "lucide-react";
 
-export function DashboardHomeResumeLink() {
+export function DashboardHomeResumeLink({ affaires = [] }: Readonly<{
+  affaires?: AffaireDashboardOverviewResult["recentAffaires"];
+}>) {
   const lastAffaireId = useLastAffaireId();
+  const affaire = affaires.find(item => item.projectId === lastAffaireId);
 
   if (!lastAffaireId) {
     return (
@@ -14,19 +18,23 @@ export function DashboardHomeResumeLink() {
         className="flex min-h-11 items-center rounded-lg border border-dashed border-border px-3 text-sm text-muted-foreground"
         aria-disabled="true"
       >
-        Aucune affaire récente à reprendre
+        Aucune affaire consultée sur cet appareil
       </span>
     );
   }
 
   return (
-    <Link
-      href={`/dashboard/affaires/${lastAffaireId}`}
-      prefetch={false}
-      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-semibold text-primary transition-colors hover:border-primary hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-    >
-      <Undo2Icon strokeWidth="1.75" aria-hidden="true" size={18} />
-      Reprendre la dernière affaire
-    </Link>
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-foreground" title={affaire?.projectName}>{affaire?.projectName ?? "Dernière affaire consultée"}</p>
+      {affaire?.projectReference ? <p className="mt-0.5 truncate text-xs text-muted-foreground">Réf. {affaire.projectReference}</p> : null}
+      <Link
+        href={`/dashboard/affaires/${lastAffaireId}`}
+        prefetch={false}
+        className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-semibold text-primary transition-colors hover:border-primary hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      >
+        <Undo2Icon strokeWidth="1.75" aria-hidden="true" size={18} />
+        Reprendre
+      </Link>
+    </div>
   );
 }

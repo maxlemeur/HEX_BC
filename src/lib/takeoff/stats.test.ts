@@ -297,6 +297,8 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "applied_high_score_correction_rate",
+          // TI-681: the sample size is shown, even below the minimum.
+          actualLabel: "n = 1 ligne appliquée sur 20 requises",
           status: "inconclusive",
           passed: false,
         }),
@@ -601,7 +603,9 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "applied_high_score_correction_rate",
-          actualLabel: "10 % (2/20)",
+          // TI-681: an observed rate over every plan, shown with its sample size n; never a reliability bound.
+          actualLabel: "10 % sur n = 20 lignes (2 corrigées)",
+          note: "Taux observé, tous plans confondus : indicateur, pas une borne de fiabilité.",
           status: "fail",
           passed: false,
         }),
@@ -656,6 +660,10 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         }),
       ])
     );
+    // D18e: with no applied high-score line there is no rate, so no note on how to read it.
+    const highScore = payload.pilot.goNoGo.criteria.find((criterion) => criterion.key === "applied_high_score_correction_rate");
+    expect(highScore).toMatchObject({ actualLabel: "n = 0 ligne appliquée sur 20 requises", status: "inconclusive" });
+    expect(highScore?.note).toBeUndefined();
   });
 
   it("uses measured jobs for the pilot average cost criterion", () => {
