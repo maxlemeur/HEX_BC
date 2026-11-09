@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { FileIcon, InfoIcon } from "lucide-react";
+import { FileTextIcon, InfoIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type {
@@ -45,7 +45,7 @@ export function BriefSourceAnnotation({ projectId, sources }: {
       {uniqueSources.map((source) => (
         <a key={`${source.sourceDocumentId}:${source.sourceFileName}`} href={buildBriefSourceHref(projectId, source)}
           title={`Ouvrir ${source.sourceFileName} dans le dossier ; passage non vérifié`}>
-          <FileIcon size={15} aria-hidden="true" />
+          <FileTextIcon size={15} aria-hidden="true" />
           <span>Document associé · {source.sourceFileName}</span>
         </a>
       ))}
@@ -193,9 +193,9 @@ export function BriefReviewPanel({
         <div className="brief-received-inventory">
           <h3>Pièces reçues · inventaire</h3>
           {briefDraft.receivedPieces.length > 0 ? <ul>
-            {briefDraft.receivedPieces.map((piece, index) => <li key={index}><FileIcon size={21} className={piece.toLowerCase().endsWith(".pdf") ? "brief-file-pdf" : undefined} aria-hidden="true" /><span>{piece}</span></li>)}
+            {briefDraft.receivedPieces.map((piece, index) => <li key={index}><FileTextIcon size={24} className={piece.toLowerCase().endsWith(".pdf") ? "brief-file-pdf" : undefined} aria-hidden="true" /><span>{piece}</span></li>)}
           </ul> : <p className="brief-empty-text">Aucune pièce répertoriée dans le brief.</p>}
-          {onOpenDocuments ? <Button onClick={onOpenDocuments}><FileIcon size={16} aria-hidden="true" />Consulter les pièces</Button>
+          {onOpenDocuments ? <Button onClick={onOpenDocuments}><FileTextIcon size={16} aria-hidden="true" />Consulter les pièces</Button>
             : <a className="brief-text-action" href={`/dashboard/affaires/${projectId}#intake`}>Consulter les pièces</a>}
         </div>
       </aside>
