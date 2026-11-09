@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import type { ReactNode } from "react";
 
 export type ProductionRibbonBreadcrumbItem = {

@@ -24,6 +24,7 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/intake-google-drive.e2e.ts",
+      "e2e/army/critical/navigation-feedback.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
       "e2e/army/critical/plan-center.e2e.ts",
@@ -289,7 +290,8 @@
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
       "e2e/army/local/legacy-access-parity.e2e.ts",
-      "e2e/army/local/legacy-currency-parity.e2e.ts"
+      "e2e/army/local/legacy-currency-parity.e2e.ts",
+      "e2e/army/critical/navigation-feedback.e2e.ts"
     ],
     "affaire-hub": [
       "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
@@ -306,7 +308,8 @@
       "e2e/army/local/engine-v3-exports.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
-      "e2e/army/local/supplier-preselection-v1-totals.e2e.ts"
+      "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
+      "e2e/army/critical/navigation-feedback.e2e.ts"
     ],
     "plans": [
       "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",

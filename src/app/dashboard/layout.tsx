@@ -1,6 +1,7 @@
 import packageMetadata from "../../../package.json";
 
 import { DashboardShell } from "@/components/DashboardShell";
+import { NavigationFeedbackProvider } from "@/components/navigation/NavigationFeedback";
 import { CommandPaletteLoader } from "@/components/ui-legacy/CommandPaletteLoader";
 import { UserProvider } from "@/components/UserContext";
 import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
@@ -35,14 +36,16 @@ export default async function DashboardLayout({
 
   return (
     <UserProvider initialUserEmail={userEmail} initialProfile={profile} tenantName={tenantName}>
-      <DashboardShell
-        appBuildId={appBuildId}
-        appVersion={packageMetadata.version}
-        displayName={displayName}
-        tenantName={tenantName}
-      >
-        {children}
-      </DashboardShell>
+      <NavigationFeedbackProvider>
+        <DashboardShell
+          appBuildId={appBuildId}
+          appVersion={packageMetadata.version}
+          displayName={displayName}
+          tenantName={tenantName}
+        >
+          {children}
+        </DashboardShell>
+      </NavigationFeedbackProvider>
       <CommandPaletteLoader />
       <WebVitalsReporter buildId={appBuildId} />
     </UserProvider>

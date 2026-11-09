@@ -2,8 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useFeedbackRouter as useRouter } from "@/components/navigation/NavigationFeedback";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 
 import { formatCurrency, formatEUR } from "@/lib/money";
 import { cn } from "@/lib/utils";

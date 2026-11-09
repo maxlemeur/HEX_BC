@@ -49,6 +49,15 @@ contract take precedence over historical reports and procedures.
 
 ## Verification
 
+- Small visual-only changes (spacing, typography, colors, labels and layout,
+  including responsive adjustments) require only a targeted check of the affected
+  screen in the in-app browser at the relevant viewport sizes, plus a scoped
+  `git diff --check`. Do not launch `verify:pr`, a full E2E campaign, a build,
+  repository-wide lint or typecheck for these changes. This exception takes
+  precedence over the general final-code and affected-journey rows below.
+  If a change also affects business logic, calculations, persistence,
+  authorization, APIs or the database, apply the checks for that behavior.
+  Required CI protections remain enforced.
 - Define the observable failure and affected journey before changing behavior;
   reproduce regressions first when practical. Prefer TesterArmy (`e2e`,
   `@e2e-dev/web`) as the sole test mechanism where it covers the risk. Deterministic
@@ -63,9 +72,10 @@ contract take precedence over historical reports and procedures.
 | --- | --- |
 | Documentation only | Content consistency, links and `git diff --check`; no application suites. |
 | Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
-| Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
+| Small visual-only change | Targeted in-app browser check at affected viewport sizes and scoped `git diff --check`; no global suites. |
+| Affected user journey, beyond visual-only changes | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
-| Final code | `npm run verify:pr` once; retain required CI protections. |
+| Final code, beyond visual-only changes | `npm run verify:pr` once; retain required CI protections. |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
 | Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
 
