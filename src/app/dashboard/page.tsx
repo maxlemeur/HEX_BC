@@ -4,7 +4,6 @@ import { ArrowRightIcon, ChartNoAxesCombinedIcon, CircleCheckIcon, FolderIcon, P
 
 import { buildDashboardShortcuts } from "@/app/dashboard/dashboard-shortcuts";
 import { DashboardAffaires } from "@/components/dashboard/DashboardAffaires";
-import { DashboardHomeResumeLink } from "@/components/dashboard/DashboardHomeResumeLink";
 import { buttonVariants } from "@/components/ui/button";
 import { parseDashboardQuery } from "@/lib/affaires/dashboard-query";
 import { fetchAffaireDashboardWorkspace } from "@/lib/affaires/server";
@@ -42,12 +41,8 @@ export default async function DashboardPage({ searchParams }: Readonly<{
       <div className="mb-4 lg:hidden">{affaireAction}</div>
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_17rem] xl:grid-cols-[minmax(0,1fr)_20rem]">
         <DashboardAffaires data={data} query={query} />
-        <aside aria-label="Votre espace de travail" className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-1">
+        <aside aria-label="Votre espace de travail" className="grid items-start gap-4">
           <div className="hidden lg:block">{affaireAction}</div>
-          <section aria-labelledby="dashboard-resume-heading" className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2">
-            <h2 id="dashboard-resume-heading" className="sr-only">Reprendre mon travail</h2>
-            <DashboardHomeResumeLink affaires={data.affaires} />
-          </section>
           <section aria-labelledby="dashboard-shortcuts-heading" className="min-w-0 rounded-lg border border-border bg-surface p-4 shadow-xs sm:p-5">
             <h2 id="dashboard-shortcuts-heading" className="mb-2 text-base font-semibold text-foreground">Accès rapides</h2>
             <ul className="divide-y divide-border-subtle">

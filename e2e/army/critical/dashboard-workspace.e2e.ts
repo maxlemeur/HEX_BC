@@ -159,7 +159,8 @@ armyTest("DASH02 dashboard tabs paginate the whole authorized portfolio and pres
   await app.back();
   await expect(browser).toHaveURL(secondPageUrl);
   await expect(tableRows).toHaveCount(11);
-  await expect(screen.getByRole("link", "Reprendre", { exact: true })).toHaveAttribute("href", `/dashboard/affaires/${projects[20].id}`);
+  // The dashboard intentionally omits the resume card; back navigation still preserves the page.
+  await expect(screen.getByRole("link", "Reprendre", { exact: true })).toHaveCount(0);
   await expect(screen.getByRole("link", "ARMY Dashboard foreign", { exact: true })).toHaveCount(0);
   await expect(screen.getByRole("link", "ARMY Dashboard archived", { exact: true })).toHaveCount(0);
   await filters.getByRole("link", "Acceptées 2", { exact: true }).tap();
