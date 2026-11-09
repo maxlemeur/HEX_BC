@@ -57,6 +57,26 @@ describe("complete PostgREST reads", () => {
     expect(result.data).toEqual(f.rows); expect(f.peak()).toBe(1);
     expect(f.requests.every(url => url.searchParams.get("order") === "id.asc")).toBe(true);
   });
+  it("can use the API's 1000-row cap without recounting twice as many pages", async () => {
+    const f = fixture({ reverse: true });
+    const result = await readAllRows(f.query, { concurrency: 4, pageSize: 1000 });
+    expect(result.data).toEqual(f.rows);
+    expect(result.count).toBe(2501);
+    expect(f.requests).toHaveLength(3);
+    expect(f.requests.every(url => url.searchParams.get("limit") === "1000"
+      && url.searchParams.get("order") === "id.asc" && url.searchParams.get("tenant_id") === "eq.tenant")).toBe(true);
+  });
+  it.each([{ cap: 500 }, { changedCountAt: 1000 }, { duplicateAt: 2000 }])("keeps the complete-read guards with 1000-row pages: %j", async options => {
+    const f = fixture({ ...options, reverse: true });
+    await expect(readAllRows(f.query, { concurrency: 4, pageSize: 1000 })).rejects.toThrow(/compl|chang|coh/i);
+  });
+  it("keeps a business limit narrower than the larger transport page", async () => {
+    const f = fixture({ reverse: true });
+    const result = await readAllRows(f.query, { concurrency: 4, pageSize: 1000, limit: 1101 });
+    expect(result.data).toEqual(f.rows.slice(0, 1101));
+    expect(f.requests.map(url => [url.searchParams.get("offset"), url.searchParams.get("limit")]))
+      .toEqual([["0", "1000"], ["1000", "101"]]);
+  });
   it("bounds concurrent pages by the business limit", async () => {
     const f = fixture({ reverse: true });
     const result = await readAllRows(f.query, { concurrency: 4, limit: 1101 });
