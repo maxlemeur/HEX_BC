@@ -182,3 +182,69 @@ describe("quantity entry", () => {
     expect(body({ quantity_entered_by: USER_ID }).success).toBe(false);
   });
 });
+
+// TI-686 D9: V on a scale or printed-area failure carries a coded reason; the route refuses before the database (whose
+// refusal reaches the user as a generic error) and stores only the reasons of the failures the line has, so that the
+// database never sees a stale key (validate_takeoff_rule_acceptance refuses one written in the request).
+describe("coded acceptance reasons", () => {
+  const scaleFailure = { rule: "scale_dimension", status: "fail", code: "SCALE_DIMENSION_MISMATCH", version: 2, acceptable: true,
+    reason: "Fictif." } as const;
+  const areaFailure = { rule: "area_printed", status: "fail", code: "AREA_PRINTED_MISMATCH", version: 3, acceptable: true,
+    reason: "Fictif.", details: { printed_m2: 20, measured_m2: 19.5, expected_basis: "net_floor" as const } } as const;
+  const scaleReason = { scale_dimension: { reason_code: "dimension_not_to_scale" as const, note: "Cote 3,00 du tronçon interrompu." } };
+  const areaReason = { area_printed: { reason_code: "measured_outline_retained" as const, retained_basis: "shab" as const,
+    note: "La surface écrite est une SHAB du tableau." } };
+  const unverified = { is_verified: false, verified_at: null, verified_by: null, rules_stale: false, quantity: 19.5, unit: "m2" };
+
+  it("refuses V on a scale failure without its reason", () => {
+    expect(patch({ is_verified: true }, { ...unverified, rule_results: [scaleFailure] })).toEqual({ success: false,
+      error: "Une cote de la page contredit l’échelle : un motif codé et ce qui a été vérifié (10 à 500 caractères) sont obligatoires." });
+  });
+
+  it("refuses V below a printed surface of the same basis as the price line, read with the quantity as stored", () => {
+    const sameBasis = { area_printed: { ...areaReason.area_printed, retained_basis: "net_floor" as const } };
+    expect(patch({ is_verified: true, verification_justification: sameBasis }, { ...unverified, rule_results: [areaFailure] }))
+      .toEqual({ success: false,
+        error: "Même base que la prestation : les deux surfaces se comparent et la plus élevée est retenue. Retenez 20 m² avant d’accepter." });
+    expect(patch({ is_verified: true, verification_justification: sameBasis },
+      { ...unverified, quantity: 20, rule_results: [areaFailure] })).toMatchObject({ success: true });
+  });
+
+  // The database marks the rules stale when a rule input changes (aac_) and then refuses V (zz_, TAKEOFF_RULES_STALE):
+  // on a line the rules read, the route refuses V with a changed input first, with a message the review shows.
+  it("refuses V with a rule input changed in the same request on a line the rules read", () => {
+    const evaluated = { ...unverified, rules_evaluated_at: PREVIOUS_TIMESTAMP, rule_results: [areaFailure] };
+    const sameBasis = { area_printed: { ...areaReason.area_printed, retained_basis: "net_floor" as const } };
+    const stale = { success: false, error: "Recalculez les règles avant d’accepter la ligne." };
+    expect(patch({ quantity: 20, is_verified: true, verification_justification: sameBasis }, evaluated)).toEqual(stale);
+    expect(patch({ unit: "m²", is_verified: true, verification_justification: areaReason }, evaluated)).toEqual(stale);
+    expect(patch({ source_page: 3, is_verified: true, verification_justification: areaReason }, evaluated)).toEqual(stale);
+    expect(patch({ is_excluded: false, is_verified: true, verification_justification: areaReason },
+      { ...evaluated, is_excluded: true, exclusion_reason: "Hors lot" })).toEqual(stale);
+    // Unchanged inputs leave the rules as computed.
+    expect(patch({ quantity: 19.5, unit: "m2", is_verified: true, verification_justification: areaReason }, evaluated))
+      .toMatchObject({ success: true, updatePayload: { quantity: 19.5, is_verified: true } });
+    expect(patch({ quantity: 20, is_verified: true, verification_justification: sameBasis }, { ...evaluated, quantity: 20 }))
+      .toMatchObject({ success: true, updatePayload: { is_verified: true, verification_justification: sameBasis } });
+  });
+
+  it("stores only the reasons of the failures the line has", () => {
+    expect(patch({ is_verified: true, verification_justification: { ...scaleReason, ...areaReason } },
+      { ...unverified, rule_results: [scaleFailure] })).toMatchObject({ success: true, updatePayload: {
+      is_verified: true, verification_justification: scaleReason, verified_by: USER_ID } });
+    const duplicate = { rule: "zone_overlap", status: "fail", code: "ZONE_OVERLAP_DUPLICATE", version: 101, acceptable: true,
+      reason: "Fictif." } as const;
+    expect(patch({ is_verified: true, verification_justification: scaleReason }, { ...unverified, rule_results: [duplicate] }))
+      .toMatchObject({ success: true, updatePayload: { is_verified: true, verification_justification: null } });
+  });
+
+  it("refuses a request whose reason is malformed before reading the line", () => {
+    const body = (justification: unknown) => takeoffItemBatchPatchSchema.safeParse({ items: [{ item_id: ITEM_ID,
+      updated_at: PREVIOUS_TIMESTAMP, fields: { is_verified: true, verification_justification: justification } }] });
+    expect(body({ ...scaleReason, ...areaReason }).success).toBe(true);
+    expect(body({ scale_dimension: { ...scaleReason.scale_dimension, note: "x".repeat(9) } }).success).toBe(false);
+    expect(body({ area_printed: { ...areaReason.area_printed, retained_basis: "gross_floor" } }).success).toBe(false);
+    expect(body({ unknown_rule: {} }).success).toBe(false);
+    expect(body({ reason_code: "system_documented" }).success).toBe(false);
+  });
+});

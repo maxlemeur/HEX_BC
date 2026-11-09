@@ -172,6 +172,41 @@ describe("TakeoffTargetedReview", () => {
     expect(quantity).toHaveValue("5");
   });
 
+  // TI-686 D9: « Retenir 20 m² » saves the printed surface, but the computation that follows failed: the line is stale,
+  // so the acceptance stays closed. The dialog says why, where the user acts, instead of a silent disabled button.
+  it("says why the acceptance stays closed when the line is stale after the printed surface is retained", async () => {
+    const area = { ...item(ids.z1, "Revêtement de sol", 19.5, [{ rule: "area_printed", status: "fail", code: "AREA_PRINTED_MISMATCH",
+      version: 3, acceptable: true, reason: "Surface écrite différente.", details: { printed_m2: 20, measured_m2: 19.5,
+        expected_basis: "net_floor" } }]), unit: "m2" };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [area], pagination: { total: 1, offset: 0, limit: 200 } },
+    } as never);
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: area.id, success: true, item: { ...area, quantity: 20,
+      rules_stale: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
+    const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
+    await waitFor(() => expect(within(list).getAllByRole("option")).toHaveLength(1));
+    choose(list, "Revêtement de sol");
+    await user.click(screen.getByRole("button", { name: /^Accepter/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Justifier l’acceptation" });
+    await user.selectOptions(within(dialog).getByLabelText("Motif de surface"), "printed_area_basis_identified");
+    await user.click(within(dialog).getByRole("radio", { name: "Sol net" }));
+    await user.type(within(dialog).getByLabelText("Note"), "Tableau des surfaces du plan, indice B.");
+    const confirm = within(dialog).getByRole("button", { name: "Confirmer l’acceptation" });
+    expect(confirm).toBeDisabled();
+    // The quantity below the printed surface is explained by the button that retains it, not by a second message.
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retenir 20 m²" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: area.id, updated_at: area.updated_at,
+      expected_rules_evaluated_at: area.rules_evaluated_at, fields: { quantity: 20 } }] }));
+    await waitFor(() => expect(within(dialog).queryByRole("button", { name: "Retenir 20 m²" })).not.toBeInTheDocument());
+    expect(confirm).toBeDisabled();
+    expect(within(dialog).getByText("Recalculez les règles avant d’accepter la ligne.")).toBeInTheDocument();
+  });
+
   // Codex #162: the field's blur ended an unchanged entry before the click on « Enregistrer » landed.
   it("confirms an unchanged quantity to enter with a click on Enregistrer", async () => {
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: ITEMS[0] }], succeeded: 1, failed: 0 });

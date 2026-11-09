@@ -20,7 +20,10 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
 - Pas de seuil WC global : le contrat d'entrée ne rattache pas le tronçon à un WC.
 
 Une acceptation technique ouvre un dialogue avec motif codé et référence du
-système (gamme, fabricant, certificat, conditions d'emploi). Les gestes de
+système (gamme, fabricant, certificat, conditions d'emploi). Depuis TI-686 (D9), le
+même dialogue porte une section par échec qui demande un motif : réseau, échelle
+contredite par une cote, surface imprimée. Les motifs de PE gaz ne valent que pour une
+conduite de PE en gaz (`TAKEOFF_RULE_GAS_PE_REASON_NOT_APPLICABLE` sinon). Les gestes de
 validation de la revue ordinaire conduisent à cette revue ciblée, après sauvegarde
 des modifications en cours. L'API et un trigger contrôlent aussi les écritures
 Data API directes. Une quantité à saisir ou un matériau bloqué ne s'accepte pas.

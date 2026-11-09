@@ -1,4 +1,4 @@
-import { verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
+import { verificationJustificationReadSchema } from "@/lib/takeoff/rules/verification";
 import { z } from "zod";
 
 import {
@@ -17,7 +17,8 @@ export const takeoffJobItemResponseSchema = z.object({
   verified_at: timestamp.nullable(), verified_by: uuid.nullable(), created_at: timestamp, updated_at: timestamp,
   // Fixed rules (TI-664): their results, when they ran, whether a later edit left them to compute again, and who
   // typed the current quantity. Absent from an older answer: no rule read the line.
-  verification_justification: verificationJustificationSchema.nullable().optional(),
+  // Read as stored, never with the write bounds (TI-686 D9): a note the Data API wrote does not make the job unreadable.
+  verification_justification: verificationJustificationReadSchema.nullable().optional(),
   rule_results: TakeoffRuleResultsSchema.optional(),
   rules_evaluated_at: timestamp.nullable().optional(),
   rules_stale: z.boolean().optional(),

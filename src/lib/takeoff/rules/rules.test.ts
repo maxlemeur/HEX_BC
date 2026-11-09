@@ -1143,6 +1143,26 @@ describe("scale, rooms and boxes", () => {
     expect(rule(results, "fixed", "area_printed")).toMatchObject({ status: "fail", details: { measured_m2: 16 } });
   });
 
+  // TI-686 D9: V on these failures now needs a coded reason; without a new version an earlier V would stay valid
+  // without one. The printed area also carries the basis the price line expects, read by the acceptance (D17).
+  it("versions the scale rule 2 and the printed-area rule 3, which carries the basis the price line expects", () => {
+    const pages = [page("job-z1#1", { scale: { status: "unverified", reason: "dimension_mismatch" } }), page("job-z1#2")];
+    const { results } = evaluateTakeoffRules({ pages, lines: [
+      line("ml", { inputs: ruleInputsFromDesignation({ designation: "EF cuivre DN 22", unit: "ml", quantity: 5 }) }),
+      room("floor", square(0, 0, 4), 16, 18.5, "Bureau sol net"),
+      { ...room("heated", square(10, 0, 4), 16, 18.5, "Bureau sol net"), designation: "Plancher chauffant Bureau" },
+      { ...room("pass", square(20, 0, 4), 16, 16.1, "Bureau sol net"), page_key: "job-z1#2" },
+    ] });
+    expect(rule(results, "ml", "scale_dimension")).toMatchObject({ status: "fail", code: "SCALE_DIMENSION_MISMATCH", version: 2 });
+    expect(rule(results, "pass", "scale_dimension")).toMatchObject({ status: "pass", version: 2 });
+    expect(rule(results, "floor", "area_printed")).toMatchObject({ status: "fail", version: 3,
+      details: { printed_m2: 18.5, expected_basis: "net_floor" } });
+    expect(rule(results, "pass", "area_printed")).toMatchObject({ status: "pass", version: 3, details: { expected_basis: "net_floor" } });
+    // A heated floor has no basis of its own (quantity-policy.ts): the acceptance compares nothing.
+    expect(rule(results, "heated", "area_printed")).toMatchObject({ status: "fail", version: 3, details: { cause: "basis_unknown" } });
+    expect(rule(results, "heated", "area_printed")?.details).not.toHaveProperty("expected_basis");
+  });
+
   it("fails overlapping rooms, never two rooms sharing a wall", () => {
     expect(sharedArea([[0, 0], [4, 0], [4, 4], [0, 4]], [[4, 0], [8, 0], [8, 4], [4, 4]])).toBe(0);
     const { results } = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [

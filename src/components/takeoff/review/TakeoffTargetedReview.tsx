@@ -11,7 +11,7 @@ import { TakeoffReviewPolicyPanel } from "@/components/takeoff/review/TakeoffRev
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
-import { requiresGasPeReason, requiresTechnicalJustification } from "@/lib/takeoff/rules/verification";
+import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -107,7 +107,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const nextId = useRef<string | null>(null);
   const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number; expectedEvaluation?: string | null } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
-  const [justification, setJustification] = useState<{ item: TakeoffJobItem; gasPe: boolean } | null>(null);
+  // The line V is being justified for (TI-685, TI-686 D9), read live from the lines: a quantity retained from the dialog
+  // comes back with its new results.
+  const [justification, setJustification] = useState<{ itemId: string } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -182,6 +184,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const current: Line | null = review.lines.find((line) => line.item.id === selectedId) ?? null;
   const guidance = current ? zoneOverlapGuidance(current.item) : null;
   const acceptance = current ? acceptanceOf(current.item, level) : null;
+  const justifiedItem = justification ? items.find((item) => item.id === justification.itemId) ?? null : null;
 
   const applied = job?.status === "applied";
   const readOnly = !job || job.status !== "completed";
@@ -274,8 +277,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
 
   const accept = useCallback(() => {
     if (!current || readOnly || busy || !acceptance?.enabled) return;
-    if (requiresTechnicalJustification(current.item.rule_results)) {
-      setJustification({ item: current.item, gasPe: requiresGasPeReason(current.item.rule_results) });
+    if (requiresAcceptanceReason(current.item.rule_results)) {
+      setJustification({ itemId: current.item.id });
       return;
     }
     void decide(current.item, { is_verified: true }, "Ligne acceptée", current.item.rules_evaluated_at ?? undefined);
@@ -291,7 +294,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   // E, V, F2, a digit and the arrows act on the line in focus, from this screen (or a focus lost to the page after a
   // decision removed its button), never from a field, a dialog or the dashboard's own bar.
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || justification || wizardOpen) return;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || justifiedItem || wizardOpen) return;
     const target = event.target as HTMLElement;
     if (target !== document.body && !rootRef.current?.contains(target)) return;
     if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
@@ -550,11 +553,16 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         )}
       </div>
 
-      {justification ? (
-        <VerificationJustificationDialog gasPe={justification.gasPe} onClose={() => { setJustification(null); requestFocusList(); }}
+      {justifiedItem ? (
+        <VerificationJustificationDialog item={justifiedItem} busy={busy} error={lineErrors[justifiedItem.id] ?? null}
+          onClose={() => { setJustification(null); requestFocusList(); }}
+          onRetainPrinted={(quantity) => {
+            // D17: the printed surface is saved first; the rules are computed again with it, then V is offered again.
+            void decide(justifiedItem, { quantity }, "Surface écrite retenue", justifiedItem.rules_evaluated_at ?? null);
+          }}
           onConfirm={(value) => {
-            void decide(justification.item, { is_verified: true, verification_justification: value }, "Ligne acceptée avec justification",
-              justification.item.rules_evaluated_at ?? null);
+            void decide(justifiedItem, { is_verified: true, verification_justification: value }, "Ligne acceptée avec justification",
+              justifiedItem.rules_evaluated_at ?? null);
             setJustification(null);
             requestFocusList();
           }} />
@@ -674,7 +682,8 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                   <code className="rounded bg-surface px-1 font-mono text-[11px] text-muted-foreground">{failure.code}</code>
                 </p>
                 <p className="mt-0.5 text-xs text-foreground-secondary">{failure.reason}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable ? failure.rule === "dn_network" ? "Accepter (V) exige un motif et la référence du système." : "Accepter (V) lève cet échec."
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable
+                  ? acceptanceReasonRule(failure) ? "Accepter (V) exige un motif." : "Accepter (V) lève cet échec."
                   : failure.code === "DN_NETWORK_MATERIAL_BLOCKED" ? "Bloqué : V ne lève pas cet échec. Forçage administrateur uniquement."
                     : "À saisir : accepter (V) ne lève pas cet échec."}</p>
               </li>

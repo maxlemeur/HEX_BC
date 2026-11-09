@@ -62,7 +62,8 @@ import {
 export const TAKEOFF_RULE_VERSIONS: Record<TakeoffRuleId, number> = {
   dn_network: NETWORK_DIAMETER_TABLE_VERSION,
   zone_overlap: ZONE_OVERLAP_VERSION * 100 + REGISTRATION_VERSION,
-  scale_dimension: 1,
+  // 2 (TI-686 D9): V needs a coded reason and what was checked; a new version reopens every earlier V without them.
+  scale_dimension: 2,
   area_printed: AREA_PRINTED_RULE_VERSION,
   room_overlap: ROOM_RULES_VERSION,
   closed_box: ROOM_RULES_VERSION,
@@ -243,10 +244,14 @@ function areaPrinted(line: RuleLine, inputs: TakeoffRuleInputs, context: AreaQua
   const printed = inputs.printed_m2;
   const measured = line.geometry?.area_m2 ?? inputs.model_quantity;
   const deviation = Math.round(((measured - printed) / printed) * 10_000) / 10_000;
-  const details = { printed_m2: printed, measured_m2: measured, deviation,
-    ...(context ? { quantity_context_key: context.key } : {}) };
   const printedBasis = surfaceBasis(inputs.room ?? "");
   const expectedBasis = expectedSurfaceBasis(line);
+  // The basis the price line expects: the acceptance compares it with the basis the user recognizes to the printed
+  // surface (TI-686 D9). It is already part of the compared context (quantity_context_key, area-context.ts), so copying
+  // it here changes no key; the declared basis (retained_basis) enters neither.
+  const details = { printed_m2: printed, measured_m2: measured, deviation,
+    ...(expectedBasis ? { expected_basis: expectedBasis } : {}),
+    ...(context ? { quantity_context_key: context.key } : {}) };
   if (!printedBasis || !expectedBasis) return result("area_printed", "fail", "AREA_PRINTED_MISMATCH",
     "Base de la surface imprimée ou de la prestation inconnue : confirmez la base avant de comparer les quantités.",
     { ...details, cause: "basis_unknown" });

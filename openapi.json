@@ -63975,23 +63975,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -65599,23 +65615,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -65900,23 +65932,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -66197,23 +66245,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -66476,23 +66540,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -66845,23 +66925,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -67124,23 +67220,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -68428,12 +68540,65 @@
                               "type": "string",
                               "minLength": 10,
                               "maxLength": 500
+                            },
+                            "scale_dimension": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "scale_confirmed_by_other_dimensions",
+                                    "dimension_not_to_scale",
+                                    "quantity_from_dimensions",
+                                    "scale_confirmed_by_issuer"
+                                  ]
+                                },
+                                "note": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "note"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "area_printed": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "printed_area_basis_identified",
+                                    "measured_outline_retained",
+                                    "confirmed_by_other_document",
+                                    "deviation_explained"
+                                  ]
+                                },
+                                "retained_basis": {
+                                  "type": "string",
+                                  "enum": [
+                                    "net_floor",
+                                    "shab",
+                                    "other"
+                                  ]
+                                },
+                                "note": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "retained_basis",
+                                "note"
+                              ],
+                              "additionalProperties": false
                             }
                           },
-                          "required": [
-                            "reason_code",
-                            "system_reference"
-                          ],
                           "additionalProperties": false
                         },
                         {
@@ -68605,23 +68770,39 @@
                                   "type": "object",
                                   "properties": {
                                     "reason_code": {
-                                      "type": "string",
-                                      "enum": [
-                                        "system_documented",
-                                        "gas_pe_buried_outside",
-                                        "gas_pe_facade_transition"
-                                      ]
+                                      "type": "string"
                                     },
                                     "system_reference": {
-                                      "type": "string",
-                                      "minLength": 10,
-                                      "maxLength": 500
+                                      "type": "string"
+                                    },
+                                    "scale_dimension": {
+                                      "type": "object",
+                                      "properties": {
+                                        "reason_code": {
+                                          "type": "string"
+                                        },
+                                        "note": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "additionalProperties": false
+                                    },
+                                    "area_printed": {
+                                      "type": "object",
+                                      "properties": {
+                                        "reason_code": {
+                                          "type": "string"
+                                        },
+                                        "retained_basis": {
+                                          "type": "string"
+                                        },
+                                        "note": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "additionalProperties": false
                                     }
                                   },
-                                  "required": [
-                                    "reason_code",
-                                    "system_reference"
-                                  ],
                                   "additionalProperties": false
                                 },
                                 {
@@ -68896,23 +69077,39 @@
                           "type": "object",
                           "properties": {
                             "reason_code": {
-                              "type": "string",
-                              "enum": [
-                                "system_documented",
-                                "gas_pe_buried_outside",
-                                "gas_pe_facade_transition"
-                              ]
+                              "type": "string"
                             },
                             "system_reference": {
-                              "type": "string",
-                              "minLength": 10,
-                              "maxLength": 500
+                              "type": "string"
+                            },
+                            "scale_dimension": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string"
+                                },
+                                "note": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "area_printed": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string"
+                                },
+                                "retained_basis": {
+                                  "type": "string"
+                                },
+                                "note": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false
                             }
                           },
-                          "required": [
-                            "reason_code",
-                            "system_reference"
-                          ],
                           "additionalProperties": false
                         },
                         {

@@ -28,4 +28,11 @@ describe("TI-680 quantity control per price line", () => {
     expect(first.get("a")?.find(entry => entry.rule === "area_printed")).toMatchObject({ status: "fail" });
     expect(ruleFailureKeys(first.get("a"))).not.toEqual(ruleFailureKeys(changed.get("a")));
   });
+  // TI-686 D9: version 3 reopens every V given without a coded reason and the basis of the printed surface.
+  it("keys a printed-area failure with its version 3 and the identity of the comparison", () => {
+    const evaluated = results([room("a", 51, 50), room("b", 49, 50)]);
+    const context = evaluated.get("a")?.find(entry => entry.rule === "area_printed")?.details?.quantity_context_key;
+    expect(context).toMatch(/^[0-9a-f]{64}$/);
+    expect(ruleFailureKeys(evaluated.get("a"))).toEqual([`area_printed|AREA_PRINTED_MISMATCH|3|${context}`]);
+  });
 });

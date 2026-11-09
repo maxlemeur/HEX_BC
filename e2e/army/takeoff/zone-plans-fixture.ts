@@ -8,8 +8,12 @@ import { PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
 // stays at its sheet place on both). An EF layer draws, on Z1, a run from 6 m to
 // 11 m of the building (5.00 m) and, on Z2, a run from 10 m to 13 m (3.00 m),
 // both labelled « EF - Inox 316L DN 22 » at 9 m height: the stretch from 10 m
-// to 11 m (1.00 m) is drawn on both sheets. Codes and names are generic;
-// nothing comes from a real plan.
+// to 11 m (1.00 m) is drawn on both sheets. Revision C of the Z1 sheet adds a
+// cote « 4,00 » over a line drawn 5.00 m (ticks at both ends, as
+// vectors/scale.test.ts draws one): it contradicts the title block's scale by
+// 25 %, so the page's scale is « unverified / dimension_mismatch » and every
+// length of the page fails the scale rule (TI-686 D9). Codes and names are
+// generic; nothing comes from a real plan.
 
 export const ZONE_PLANS = {
   pageSize: [1190.55, 841.89] as [number, number],
@@ -24,6 +28,8 @@ export const ZONE_PLANS = {
   label: "EF - Inox 316L DN 22",
   overlap_m: 1,
   rooms: ["Bureau 101", "Salle de reunion", "Local technique", "Archives"],
+  /** Revision C of Z1: a cote that contradicts the scale (its text, the length drawn, from and at what height, in metres). */
+  contradictedCote: { text: "4,00", drawn_m: 5, from_m: 5, height_m: 7.5 },
 } as const;
 
 const POINTS_PER_MM = 72 / 25.4;
@@ -31,7 +37,7 @@ const POINTS_PER_MM = 72 / 25.4;
 const POINTS_PER_M = (1000 / ZONE_PLANS.denominator) * POINTS_PER_MM;
 const MARGIN_PT = 60;
 
-export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revision?: "A" | "B") {
+export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revision?: "A" | "B" | "C") {
   const doc = await PDFDocument.create();
   doc.setTitle(`ARMY fictional zone plan ${zone}`);
   doc.setCreationDate(new Date("2026-01-01T00:00:00Z"));
@@ -55,6 +61,15 @@ export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revi
   }
   content.push("/OC /oc1 BDC", "0.5 G 0.5 w", ...walls,
     ...ZONE_PLANS.rooms.map((room, index) => text(room, x(5 + index * 1.5), y(2 + index * 1.2), 6)), "EMC");
+  if (zone === "Z1" && revision === "C") {
+    // Outside the layers: a dimension line, a tick crossing each end at 45°, the text centred 2 pt above the line.
+    const cote = ZONE_PLANS.contradictedCote;
+    const [x0, x1, yc] = [Number(x(cote.from_m)), Number(x(cote.from_m + cote.drawn_m)), Number(y(cote.height_m))];
+    const tick = (px: number) => `${(px - 3).toFixed(3)} ${(yc - 3).toFixed(3)} m ${(px + 3).toFixed(3)} ${(yc + 3).toFixed(3)} l S`;
+    const width = font.widthOfTextAtSize(cote.text, 8);
+    content.push("0 G 0.3 w", `${x0.toFixed(3)} ${yc.toFixed(3)} m ${x1.toFixed(3)} ${yc.toFixed(3)} l S`, tick(x0), tick(x1),
+      text(cote.text, ((x0 + x1) / 2 - width / 2).toFixed(3), (yc + 2).toFixed(3), 8));
+  }
   content.push(text("Echelle 1/50", 950, 80, 10), text("Format A3", 950, 62, 10), text(`Plan R+1 ${zone}`, 950, 44, 10));
   if (revision) content.push(text(`Indice ${revision}`, 950, 26, 10));
   if (zone === "Z1" && revision) content.push(text("Fiche atelier A-07 : 2 soudures (u)", 700, 26, 8));

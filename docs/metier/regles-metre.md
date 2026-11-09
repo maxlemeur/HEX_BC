@@ -78,8 +78,8 @@ qu'elles sont maintenant.
 |---|---|---|---|
 | `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES`, `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION`, `DN_NETWORK_MATERIAL_BLOCKED` | `DN_NETWORK_COMPATIBLE` | oui, avec un motif codé et la référence du système ; **jamais** `DN_NETWORK_MATERIAL_BLOCKED` |
 | `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED` | oui |
-| `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui |
-| `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui |
+| `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui, avec un motif codé et ce qui a été vérifié |
+| `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui, avec un motif codé, la base de la surface écrite et une note |
 | `room_overlap` | `ROOM_OVERLAP` | `ROOM_OVERLAP_NONE` | oui |
 | `closed_box` | `CLOSED_BOX_LABEL`, `CLOSED_BOX_SHAPE` | `CLOSED_BOX_NONE` | oui |
 | `non_observable` | `NON_OBSERVABLE_TO_ENTER` | `NON_OBSERVABLE_ENTERED` | **non** : la quantité se saisit |
@@ -190,19 +190,33 @@ voir « Décisions ») : le passage de la version 2 à la version 3 change toute
   manuelle ou une application ; celui de l'application ne bloque pas s'il échoue.
 
 **Acceptation technique** ([`verification.ts`](../../src/lib/takeoff/rules/verification.ts),
-migration `20261107123425_takeoff_network_material_decisions.sql`) : V ne lève un échec
-`dn_network` acceptable, quel que soit son code, qu'avec un motif codé et la référence du
-système (gamme, fabricant, certificat, conditions d'emploi), de 10 à 500 caractères.
+migrations `20261107123425_takeoff_network_material_decisions.sql` et
+`20261110094500_takeoff_acceptance_reasons.sql`) : V ne lève un échec `dn_network`
+acceptable, quel que soit son code, qu'avec un motif codé et la référence du système
+(gamme, fabricant, certificat, conditions d'emploi). Depuis TI-686 (D9), un échec
+d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sections).
 
 - **Motifs** : `system_documented` (système et conditions d'emploi documentés) ; pour le
   PE gaz, seulement `gas_pe_buried_outside` (enterré à l'extérieur, hors emprise du
   bâtiment) ou `gas_pe_facade_transition` (remontée en façade jusqu'au raccord
-  métal/plastique).
-- La revue ciblée ouvre ce dialogue ; les gestes de validation de la revue complète y
-  conduisent, une fois les modifications en cours enregistrées. L'API et le trigger
-  `validate_takeoff_rule_acceptance` refusent aussi une écriture directe sans
-  justification valide (`TAKEOFF_RULE_JUSTIFICATION_REQUIRED`,
-  `TAKEOFF_RULE_GAS_PE_REASON_REQUIRED`).
+  métal/plastique). Un motif de PE gaz est refusé sur une conduite qui n'est pas du PE
+  en gaz (`TAKEOFF_RULE_GAS_PE_REASON_NOT_APPLICABLE`).
+- **Texte** : de 10 à 500 caractères, comptés en points de code une fois retirés les
+  blancs ASCII de ses deux bouts (espace, tabulations, retours à la ligne). Même règle
+  pour la référence du système et les notes d'échelle et de surface, côté TS
+  (`noteText`) et SQL.
+- **Forme** : la justification garde la forme plate du réseau (`reason_code`,
+  `system_reference`) et ajoute une clé par autre règle (`scale_dimension`,
+  `area_printed`). Écrite avec V, elle porte exactement les motifs des échecs de la ligne :
+  le serveur retire les autres avant d'écrire. Une mise à jour qui garde V sans la
+  réécrire ne la modifie jamais : les motifs exigés doivent y être valides, et le motif
+  d'une règle qui n'échoue plus y reste jusqu'à ce que son vérificateur la réécrive.
+- La revue ciblée ouvre ce dialogue, une section par échec qui demande un motif ; les
+  gestes de validation de la revue complète y conduisent, une fois les modifications en
+  cours enregistrées. L'API et le trigger `validate_takeoff_rule_acceptance` refusent
+  aussi une écriture directe sans justification valide
+  (`TAKEOFF_RULE_JUSTIFICATION_REQUIRED`, `TAKEOFF_RULE_GAS_PE_REASON_REQUIRED`,
+  `TAKEOFF_RULE_GAS_PE_REASON_NOT_APPLICABLE`, `TAKEOFF_RULE_AREA_QUANTITY_BELOW_PRINTED`).
 - La justification est enregistrée avec la vérification (`verification_justification`)
   et journalisée. Rouvrir la ligne ou modifier son contenu l'efface.
 - Un matériau bloqué ne s'accepte jamais (`TAKEOFF_RULE_NOT_ACCEPTABLE`) : corriger la
@@ -303,11 +317,27 @@ Elle reprend le résultat par page de TI-662 (`scale.ts`, tolérance de cote
 - La page d'une ligne du modèle est celle de son propre document (`metadata.source_document` : fichier du jeu de plans ou téléversement du job) et de son numéro, jamais celle d'un autre fichier de même nom. Une ligne sans document, ou deux pages encore confondues, prend la page dont l'échelle est contredite s'il y en a une (sens sûr).
 - Les comptages ne sont pas concernés.
 
+**Acceptation (TI-686, D9, règle en version 2).** V exige un motif codé et ce qui a été
+vérifié, de 10 à 500 caractères (clé `scale_dimension` de la justification). Calibrer la
+page règle l'échec pour toutes ses lignes, sans motif. Motifs, provisoires jusqu'à
+l'accord du métier :
+
+| Code | Motif |
+|---|---|
+| `scale_confirmed_by_other_dimensions` | Échelle confirmée par d'autres cotes concordantes de la page |
+| `dimension_not_to_scale` | Cote contradictoire hors échelle (tronçon interrompu, mention non à l'échelle) |
+| `quantity_from_dimensions` | Quantité établie d'après les cotes, sans mesure graphique |
+| `scale_confirmed_by_issuer` | Échelle confirmée par l'émetteur du plan |
+
+La version 2 entre dans la clé d'échec : au prochain recalcul, une ligne vérifiée sans
+motif est rouverte. La clé reste sans partenaire : une page recalibrée mais toujours
+contredite garde son motif.
+
 ### Aire du polygone cohérente avec la surface imprimée
 
 Le contrat validé le 8 novembre 2026 est décrit dans
 [Quantités de référence et métré](quantites-reference-metre.md). La règle
-`area_printed` est en version 2 ; les règles géométriques de chevauchement et de
+`area_printed` est en version 3 (TI-686, D9) ; les règles géométriques de chevauchement et de
 boîte conservent leur version et leurs seuils.
 
 - Comparer la mesure originelle (géométrie, sinon mesure conservée du worker),
@@ -320,6 +350,37 @@ boîte conservent leur version et leurs seuils.
   référence. Un rattachement ambigu ne permet pas de grouper les quantités.
 - Conserver une identité du contexte comparé dans les clés d'échec : changer
   une contribution ou son rattachement rouvre une acceptation antérieure.
+- Garder dans le résultat la base attendue par la ligne de prix
+  (`details.expected_basis` : `net_floor` ou `shab`, absente quand elle est inconnue),
+  y compris à la dernière borne de stockage. Cette base fait déjà partie du contexte
+  comparé (`quantity_context_key`, donc de la clé d'échec) : la recopier dans le résultat
+  ne change aucune clé.
+
+**Acceptation (TI-686, D9).** V exige un motif codé, la base reconnue à la surface écrite
+et une note de 10 à 500 caractères (clé `area_printed` de la justification). Motifs et
+bases, provisoires jusqu'à l'accord du métier :
+
+| Code | Motif |
+|---|---|
+| `printed_area_basis_identified` | Base de la surface écrite identifiée (légende, cartouche, tableau des surfaces) |
+| `measured_outline_retained` | Contour mesuré retenu : la surface écrite ne couvre pas le même périmètre |
+| `confirmed_by_other_document` | Base et surface confirmées par un autre document (CCTP, DPGF, notice) |
+| `deviation_explained` | Écart expliqué (gaines, trémies, arrondi de l'étiquette) |
+
+Bases de la surface écrite (`retained_basis`) : `net_floor` (sol net), `shab` (SHAB),
+`other` (autre base, à préciser dans la note).
+
+- **Même base que la ligne de prix** (D17) : les deux surfaces se comparent et la plus
+  élevée est retenue. V exige une quantité au moins égale à la surface écrite, au
+  millième près (`TAKEOFF_RULE_AREA_QUANTITY_BELOW_PRINTED`). La quantité se relève
+  avant V, dans un enregistrement à part (« Retenir … m² » dans le dialogue) : une
+  quantité modifiée dans la même requête rend les règles à recalculer et V serait
+  refusé.
+- **Autre base, ou base de la ligne inconnue** : rien n'est comparé, la quantité reste
+  celle de la ligne ; la surface écrite reste visible dans le contrôle.
+- La base déclarée (`retained_basis`) n'entre ni dans la clé d'échec ni dans le contexte
+  comparé. La version 3 rouvre, au prochain recalcul, toute ligne vérifiée sans motif ni
+  base.
 
 La proposition historique `max(2 %, 0,1 m²)` reposait sur seulement deux
 polygones de pièce fermés du banc (D RDC, hors réserve), dont un juste à −0,1 % et
@@ -600,9 +661,9 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
     est conservée et une quantité à saisir attend toujours sa confirmation ;
   - **Accepter** (V) : lève une confiance faible ou moyenne et toute règle acceptable ;
     jamais une quantité à saisir, un matériau bloqué ni des règles à recalculer. Un échec
-    `dn_network` demande un motif codé et la référence du système (« Acceptation
-    technique »). En niveau C, seulement une ligne qui a sa preuve et sa page, comme la
-    base l'exige ;
+    `dn_network`, d'échelle ou de surface imprimée demande un motif codé (« Acceptation
+    technique ») : V ouvre un dialogue avec une section par échec. En niveau C, seulement
+    une ligne qui a sa preuve et sa page, comme la base l'exige ;
   - **Saisir** une quantité non observable : la quantité tapée, même égale à celle du
     modèle, est attestée (`quantity_entered: true`) et règle `NON_OBSERVABLE_TO_ENTER`.
 - **Doublon Z1/Z2** : la raison donne la longueur comptée deux fois et la ligne de l'autre

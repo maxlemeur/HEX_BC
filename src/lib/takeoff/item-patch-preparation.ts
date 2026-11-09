@@ -7,7 +7,7 @@ import type {
   TakeoffJobItem,
 } from "@/lib/takeoff/types";
 
-import { verificationError, verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
+import { pruneJustification, verificationError, verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
 
 const TAKEOFF_ITEM_BATCH_MAX = 100;
 
@@ -56,7 +56,20 @@ export const TAKEOFF_ITEM_CONCURRENCY_ERROR =
 type TakeoffItemPatchCurrent = Pick<
   TakeoffJobItem,
   Exclude<keyof TakeoffItemPatchField, "quantity_entered"> | "updated_at"
-> & Pick<TakeoffJobItem, "rule_results" | "rules_stale">;
+> & Pick<TakeoffJobItem, "rule_results" | "rules_stale" | "rules_evaluated_at" | "quantity_entered_by">;
+
+/**
+ * Whether the request changes an input the rules read, as enforce_authenticated_takeoff_item_fields compares them
+ * (migration 20261107123425): on a line the rules read, the database then marks its rules stale before the acceptance
+ * trigger reads them.
+ */
+function changesRuleInput(currentItem: TakeoffItemPatchCurrent, fields: TakeoffItemPatchField, userId: string) {
+  return (fields.quantity !== undefined && fields.quantity !== currentItem.quantity)
+    || (fields.unit !== undefined && fields.unit !== currentItem.unit)
+    || (fields.source_page !== undefined && fields.source_page !== currentItem.source_page)
+    || (fields.is_excluded !== undefined && fields.is_excluded !== currentItem.is_excluded)
+    || (fields.quantity_entered === true && currentItem.quantity_entered_by !== userId);
+}
 
 export type TakeoffItemPatchUpdate = Omit<TakeoffItemPatchField, "quantity_entered"> & {
   updated_at: string;
@@ -88,7 +101,13 @@ export function prepareTakeoffItemPatch(input: {
   }
 
   if (fields.is_verified === true) {
-    const error = verificationError(currentItem.rule_results, currentItem.rules_stale, fields.verification_justification);
+    // TI-686 D9: the reasons the line's failures need, its quantity as saved with V. On a line the rules read, an input
+    // changed in this request leaves the rules stale and the database refuses V (TAKEOFF_RULES_STALE): refused here
+    // first, so that a printed surface on the price line's basis is retained by an earlier save.
+    const stale = currentItem.rules_stale === true
+      || (currentItem.rules_evaluated_at != null && changesRuleInput(currentItem, fields, input.userId));
+    const error = verificationError(currentItem.rule_results, stale, fields.verification_justification,
+      fields.quantity ?? currentItem.quantity);
     if (error) return { success: false, error };
   }
   if (fields.verification_justification !== undefined && fields.is_verified !== true) {
@@ -135,7 +154,10 @@ export function prepareTakeoffItemPatch(input: {
 
   if (fields.is_verified !== undefined) {
     updatePayload.is_verified = fields.is_verified;
-    updatePayload.verification_justification = fields.is_verified ? fields.verification_justification ?? null : null;
+    // Only the reasons of the failures the line has: the database refuses any other key written with V.
+    updatePayload.verification_justification = fields.is_verified
+      ? pruneJustification(currentItem.rule_results, fields.verification_justification)
+      : null;
     updatePayload.verified_at = fields.is_verified ? input.updatedAt : null;
     updatePayload.verified_by = fields.is_verified ? input.userId : null;
   }

@@ -18,7 +18,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
-import { requiresTechnicalJustification } from "@/lib/takeoff/rules/verification";
+import { requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
@@ -646,7 +646,8 @@ export default function TakeoffReviewPage({
   const updateItemField = useCallback(
     (itemId: string, field: string, value: unknown) => {
       const selected = items.find((item) => item.id === itemId);
-      if (field === "is_verified" && value === true && requiresTechnicalJustification(selected?.rule_results)) {
+      // A failure V settles only with a coded reason (network, scale, printed area) is justified in the targeted review.
+      if (field === "is_verified" && value === true && requiresAcceptanceReason(selected?.rule_results)) {
         if (!projectId || items.some((item) => item._dirty || item._saving)) {
           toast.info({ title: "Enregistrez les modifications, puis ouvrez la revue ciblée pour justifier cette ligne." });
           return;
