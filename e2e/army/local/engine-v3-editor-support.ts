@@ -20,6 +20,16 @@ import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, typ
 // composant v3 précis, seulement des libellés accessibles et des attributs qu'il fixe.
 
 export type Ui = { app: App; screen: Screen; browser: Browser };
+
+/** In the compact grid, pricing controls move into the line details menu. */
+export async function openLineStateControl(ui: Ui, title: string, label: "Taux de TVA" | "Statut de chiffrage") {
+  const control = ui.screen.getByRole("combobox", `${label} pour ${title}`, { exact: true, visible: true });
+  if (!(await control.isVisible())) {
+    await ui.screen.getByRole("button", `Details de la ligne ${title}`, { exact: true }).click();
+  }
+  await expect(control).toBeVisible();
+  return control;
+}
 export type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
 export const BANNER = "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";

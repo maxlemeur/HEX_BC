@@ -7,7 +7,7 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
-import { openV3Editor, prepareV3Draft, seedLines, switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
+import { openLineStateControl, openV3Editor, prepareV3Draft, seedLines, switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
 import { ownedEstimateContext, versionCountOf } from "./calculation-gate-support";
 import {
   insertCompletedTakeoffJob, insertProjectMarginRule, itemCountOfVersions, probeV3PersistenceSchema, readTenantCalcPolicy,
@@ -714,18 +714,24 @@ armyTest("V3P02 the grid offers the tenant VAT rates and freezes two lines with 
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3p02");
     await waitForDraftLease(ui);
-    const historicalTax = screen.getByLabel(`Taux de TVA pour ${historical.title}`, { exact: true });
-    const standardTax = screen.getByLabel(`Taux de TVA pour ${standard.title}`, { exact: true });
-    await expect(historicalTax).toHaveValue("1000");
-    await expect(standardTax).toHaveValue("2000");
-    const choices = await browser.evaluate((titles) => titles.map(title => {
-      const select = Array.from(document.querySelectorAll("select")).find(node => node.getAttribute("aria-label") === `Taux de TVA pour ${title}`);
-      return Array.from(select?.options ?? [], option => Number(option.value));
-    }), [historical.title, standard.title]);
+    const choices: number[][] = [];
+    for (const [item, rate] of [[historical, "1000"], [standard, "2000"]] as const) {
+      const control = await openLineStateControl(ui, item.title, "Taux de TVA");
+      await expect(control).toHaveValue(rate);
+      choices.push(await browser.evaluate((title) => {
+        const select = Array.from(document.querySelectorAll("select")).find(node =>
+          node.getAttribute("aria-label") === `Taux de TVA pour ${title}` && node.checkVisibility());
+        if (!select) throw new Error("The visible line VAT control is missing.");
+        return Array.from(select.options, option => Number(option.value));
+      }, item.title));
+      await browser.keyboard.press("Escape");
+    }
     await recordEvidence(army, "v3p02-tax-options", { versionId: draft.versionId, choices, denied });
     expect(choices).toEqual([[2000, 850, 1000], [2000, 850]]);
-    await expect(historicalTax.getByRole("option", /TVA 10 %/)).toBeDisabled();
-    await historicalTax.selectOption({ value: "850" });
+    const historicalTaxControl = await openLineStateControl(ui, historical.title, "Taux de TVA");
+    await expect(historicalTaxControl.getByRole("option", /TVA 10 %/)).toBeDisabled();
+    await historicalTaxControl.selectOption({ value: "850" });
+    await browser.keyboard.press("Escape");
     await saveLineEditsWithShortcut(ui, draft.versionId, historical.title, army);
     await waitForAutoSave(ui, draft.versionId, state => state.items.find(item => item.id === historical.id)?.tax_rate_bp === 850, army);
     await app.open("/dashboard/affaires");

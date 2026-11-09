@@ -6,7 +6,7 @@ import {
 } from "../critical/fixtures";
 import {
   BANNER, addGridLine, apiProjection, checkpoint, clickSaveSettings, eur, fillCell, grid, inputValue, lineView,
-  normalized, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, releaseOfferForPreselection, seedLines,
+  normalized, openLineStateControl, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, releaseOfferForPreselection, seedLines,
   settingsDialog, settingsText, showStandardColumns, switchToExpertMode, typeTitle, waitForDraftLease,
   type ApiExpectation, type Envelope, type LineView, type RowExpectation, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
@@ -365,7 +365,8 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     // V3E-05 (S5) : O4–O7 remis à 20 % par la grille → deux taux au pied, TVA 13 335,66 €.
     await openGrid(ui, draft.versionId);
     for (const line of placed.slice(3)) {
-      await screen.getByLabel(`Taux de TVA pour ${line.title}`, { exact: true }).selectOption({ value: "2000" });
+      await (await openLineStateControl(ui, line.title, "Taux de TVA")).selectOption({ value: "2000" });
+      await browser.keyboard.press("Escape");
     }
     await saveLineEditsWithShortcut(ui, draft.versionId, placed[6].title, army);
     await waitForAutoSave(ui, draft.versionId, (snapshot) => snapshot.version.total_tax_cents === S5.totals[1], army);
@@ -422,7 +423,8 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
 
     // V3E-06 (T-STAT) : B « Hors lot » → HT −502,60 €, ses saisies conservées ; retour à « Chiffrée » → restaurée.
     const setStatus = async (value: string) => {
-      await screen.getByLabel(`Statut de chiffrage pour ${lineB.title}`, { exact: true }).selectOption({ value });
+      await (await openLineStateControl(ui, lineB.title, "Statut de chiffrage")).selectOption({ value });
+      await browser.keyboard.press("Escape");
       await saveLineEditsWithShortcut(ui, draft.versionId, lineB.title, army);
       await waitForAutoSave(ui, draft.versionId, (snapshot) =>
         snapshot.items.find(item => item.id === lineB.id)?.pricing_status === value, army);
