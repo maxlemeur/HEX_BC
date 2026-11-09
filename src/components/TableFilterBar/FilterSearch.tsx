@@ -16,10 +16,10 @@ export function FilterSearch({
   isPending = false,
 }: FilterSearchProps) {
   return (
-    <div className="table-filter-bar__search" role="search">
+    <div className="table-filter-bar__search" role="search" aria-busy={isPending}>
       <div className="table-filter-bar__search-icon">
         {isPending ? (
-          <LoaderCircleIcon aria-hidden="true" className="animate-spin" size={20} />
+          <LoaderCircleIcon aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={20} />
         ) : (
           <SearchIcon aria-hidden="true" size={20} />
         )}

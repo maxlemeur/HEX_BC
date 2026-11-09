@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { usePathname } from "next/navigation";
 import {
   useCallback,

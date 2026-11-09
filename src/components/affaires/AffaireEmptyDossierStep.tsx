@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { HardDriveIcon, MonitorIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";

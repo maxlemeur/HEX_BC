@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useActionFeedback, useFeedbackRouter as useRouter } from "@/components/navigation/NavigationFeedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
@@ -508,6 +509,7 @@ export function AffaireHub({
 
   // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
+  const runWithFeedback = useActionFeedback();
   const [actionError, setActionError] = useState<string | null>(null);
 
   const handleDuplicate = useCallback(async () => {
@@ -980,8 +982,8 @@ export function AffaireHub({
                         plansSummary={plansSummary}
                         freshStart={isFreshStartState}
                         pendingAction={pendingAction}
-                        onDuplicate={() => void handleDuplicate()}
-                        onCreateVariant={() => void handleCreateVariant()}
+                        onDuplicate={() => runWithFeedback(handleDuplicate)}
+                        onCreateVariant={() => runWithFeedback(handleCreateVariant)}
                         onLaunchMetre={() => setShowLaunchMetreDialog(true)}
                       />
                     ) : null}

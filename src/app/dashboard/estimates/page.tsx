@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useActionFeedback, useFeedbackRouter as useRouter } from "@/components/navigation/NavigationFeedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
@@ -171,6 +172,7 @@ export default function EstimatesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const runWithFeedback = useActionFeedback();
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Read URL params for initial state
@@ -819,7 +821,7 @@ export default function EstimatesPage() {
                                 <button
                                   className="btn btn-ghost btn-sm w-full justify-start"
                                   type="button"
-                                  onClick={() => void handleDuplicate(estimate.versionId)}
+                                  onClick={() => runWithFeedback(() => handleDuplicate(estimate.versionId))}
                                   disabled={Boolean(duplicatingId)}
                                 >
                                   {isDuplicating ? (
