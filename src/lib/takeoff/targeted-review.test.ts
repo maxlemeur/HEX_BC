@@ -97,6 +97,16 @@ describe("acceptanceOf", () => {
     expect(acceptanceOf(line({ is_verified: true, rule_results: [rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false })] }), "C").enabled)
       .toBe(false);
   });
+
+  // TI-686: the only way past a blocked material is the admin override at apply time, with a written justification.
+  // No reserve, variant or internal provision exists yet: the reason must not promise one.
+  it("names the admin override with a written justification as the only way past a blocked material", () => {
+    const blocked = acceptanceOf(line({ rule_results: [rule({ code: "DN_NETWORK_MATERIAL_BLOCKED", acceptable: false,
+      reason: "Multicouche en gaz : interdit." })] }), "B");
+    expect(blocked.enabled).toBe(false);
+    expect(blocked.reason).toContain("un administrateur peut forcer l’application, avec une justification écrite");
+    expect(blocked.reason).not.toMatch(/réserve|variante|provision/);
+  });
 });
 
 describe("zoneOverlapGuidance", () => {

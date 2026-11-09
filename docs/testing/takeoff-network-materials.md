@@ -8,9 +8,11 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
 - PE gaz : motif de pose enterrée extérieure hors emprise, ou de remontée en façade
   jusqu'au raccord métal/plastique. Cette exigence reste présente avec un diamètre
   absent ou hors série.
-- Multicouche gaz : échec non acceptable en relecture ; l'override administrateur
-  existant reste la seule voie de forçage de l'application, avec justification écrite.
-  Le catalogue codé d'override reste dans TI-686.
+- Multicouche gaz : échec non acceptable en relecture. Seul un administrateur peut
+  forcer l’application, avec une justification écrite (override existant, de 10 à
+  500 caractères, journalisé dans `audit_logs`, jamais imprimé pour le client).
+  Réserve, variante, provision interne et motif codé de forçage n'existent pas
+  encore : ils sont à construire (TI-686).
 - PVC en eaux grasses, galvanisé/PEHD en EF et EFA, cuivre en condensats, PEHD en
   RIA et multicouche en GLY/départ/retour : justification du système et des conditions.
 - Inox en condensats : admis ; cuivre en glycol et PER en bouclage ECS : inchangés.
