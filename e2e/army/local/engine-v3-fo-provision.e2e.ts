@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
-import { armyTest, readEstimate, recordEvidence, apiRequest } from "../critical/fixtures";
+import { armyTest, readEstimate, recordEvidence, apiRequest, saveLineEditsWithShortcut } from "../critical/fixtures";
 import { connectedApi } from "../extended/connected-support";
-import { prepareV3Draft, seedLines, waitForDraftLease, lockVersion, releaseVersion } from "./engine-v3-editor-support";
+import { prepareV3Draft, seedLines, showStandardColumns, waitForDraftLease, lockVersion, releaseVersion } from "./engine-v3-editor-support";
 import { querySql } from "./calculation-gate-support";
 
 const options = { session: "army", tags: ["critical", "local", "fo-provision"], timeout: 240_000 } as const;
@@ -14,18 +14,18 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       action: "create", item: { designation: `${ui.army.runPrefix} tube PVC FO534`, product_type: "Tube", unit: "u", unit_price_cents: 10000 },
     })).item;
     const offers: Array<{ id: string; updated_at: string }> = [];
-    for (const transport_mode of ["included", "excluded"] as const) {
+    for (const transport_mode of ["excluded", "included"] as const) {
       const supplier = (await connectedApi<{ item: { id: string } }>(ui, "POST", "/api/suppliers", {
         action: "create", item: { name: `${ui.army.runPrefix} FO534 ${transport_mode}`, is_active: true },
       })).item;
       const offer = (await connectedApi<{ item: { id: string; updated_at: string } }>(ui, "POST", "/api/prices", {
         action: "create", item: { supplier_id: supplier.id, product_id: product.id, unit: "u", min_quantity: 1,
-          unit_price_cents: transport_mode === "included" ? 10000 : 11000, currency: "EUR", valid_from: new Date().toISOString().slice(0, 10) },
+          unit_price_cents: transport_mode === "included" ? 10000 : 9000, currency: "EUR", valid_from: new Date().toISOString().slice(0, 10) },
       })).item;
       await connectedApi(ui, "POST", "/api/catalogue/reference-price", {
         action: "set-transport", product_id: product.id, offer_id: offer.id, transport_mode, expected_updated_at: offer.updated_at,
       });
-      offers.push(offer);
+      offers[transport_mode === "included" ? 0 : 1] = offer;
     }
     await querySql(`insert into public.supply_types(tenant_id,code,name,default_fo_provision)
       values ('${draft.owner.tenantId}', 'tube', 'Tube', 1.030);`);
@@ -36,28 +36,40 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       h_mo_per_unit: 0.5, labor_role_id: draft.tuyauteurId, k_fo: 1, k_mo: 1, tax_rate_bp: 2000 };
     const rows = await seedLines(ui, ui.army, draft, "fo534", [
       { ...base, title: `${ui.army.runPrefix} transport inclus`, product_id: product.id, selected_supplier_price_id: offers[0].id },
-      { ...base, title: `${ui.army.runPrefix} transport exclu`, product_id: product.id, selected_supplier_price_id: offers[1].id, supply_type_id: tube, unit_price_ht_cents: 11000 },
+      { ...base, title: `${ui.army.runPrefix} transport exclu`, product_id: product.id, selected_supplier_price_id: offers[1].id, supply_type_id: tube, unit_price_ht_cents: 9000 },
       { ...base, title: `${ui.army.runPrefix} tube sans offre`, supply_type_id: tube },
       { ...base, title: `${ui.army.runPrefix} sans type`, quantity: 1 },
     ]);
     await recordEvidence(ui.army, "fo534-before-assertions", { product, offers, tube, rows });
     expect(rows.map(row => [row.supply_type_id, Number(row.fo_provision), row.pu_ht_cents, row.line_total_ht_cents]))
-      .toEqual([[tube, 1.01, 15530, 155300], [tube, 1.03, 17129, 171290], [tube, 1.03, 15790, 157900], [null, 1.01, 15530, 15530]]);
+      .toEqual([[tube, 1.01, 15530, 155300], [tube, 1.03, 14451, 144510], [tube, 1.03, 15790, 157900], [null, 1.01, 15530, 15530]]);
     await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
     await expect(ui.screen.getByText("Type FO à préciser", { exact: true })).toBeVisible();
+    await showStandardColumns(ui);
     const row = ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"]`);
     const designation = `${ui.army.runPrefix} tube PVC FO534`;
+    const primary = ui.browser.locator(".estimate-catalogue-suggestion__primary").filter({ hasText: designation });
+    const chooseOffer = async (mode: "included" | "excluded") => {
+      await expect(primary).toBeVisible();
+      if (await primary.filter({ hasText: `FO534 ${mode}` }).isVisible()) await primary.click();
+      else {
+        await ui.browser.locator(".estimate-catalogue-suggestion__offers summary").click();
+        await ui.browser.locator(".estimate-catalogue-suggestion__alternative").filter({ hasText: `FO534 ${mode}` }).click();
+      }
+    };
     await row.getByTestId("estimate-line-title-input").fill(designation);
-    await ui.browser.locator(".estimate-catalogue-suggestion__primary").filter({ hasText: designation }).click();
+    await chooseOffer("excluded");
+    await expect(ui.screen.getByLabel(`Prix d’achat unitaire HT pour ${designation}`, { exact: true })).toHaveValue("90.00");
+    await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
       return [selected?.selected_supplier_price_id, selected?.supply_type_id, selected?.fo_provision, selected?.unit_price_ht_cents];
-    }).toEqual([offers[1].id, tube, 1.03, 11000]);
+    }).toEqual([offers[1].id, tube, 1.03, 9000]);
     await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,03");
     await row.getByTestId("estimate-line-title-input").click();
-    await ui.browser.locator(".estimate-catalogue-suggestion__offers summary").click();
-    await ui.browser.locator(".estimate-catalogue-suggestion__alternative").filter({ hasText: "included" }).click();
+    await chooseOffer("included");
+    await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
       return [selected?.selected_supplier_price_id, selected?.fo_provision, selected?.unit_price_ht_cents];
@@ -68,7 +80,7 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     expect((await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === rows[0].id)?.fo_provision).toBe(1.01);
     // Real race: load the suggestion, then change the offer before selecting it.
     await row.getByTestId("estimate-line-title-input").click();
-    await ui.browser.locator(".estimate-catalogue-suggestion__offers summary").click();
+    await expect(primary).toBeVisible();
     const latestOffers = await connectedApi<{ items: Array<{ id: string; updated_at: string }> }>(ui, "GET",
       `/api/prices?view=page&product_id=${product.id}&size=25`);
     const latestIncluded = latestOffers.items.find(offer => offer.id === offers[0].id)!;
@@ -76,7 +88,8 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       action: "set-transport", product_id: product.id, offer_id: offers[0].id, transport_mode: "excluded",
       expected_updated_at: latestIncluded.updated_at,
     });
-    await ui.browser.locator(".estimate-catalogue-suggestion__alternative").filter({ hasText: "included" }).click();
+    await chooseOffer("included");
+    await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
       return [selected?.fo_provision, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
@@ -84,6 +97,23 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,03");
     await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`))
       .toHaveAttribute("title", /Transport FO : Hors transport/);
+
+    // The article picker is also an explicit refresh of the same source and price.
+    const refreshOffers = await connectedApi<{ items: Array<{ id: string; updated_at: string }> }>(ui, "GET",
+      `/api/prices?view=page&product_id=${product.id}&size=25`);
+    await connectedApi(ui, "POST", "/api/catalogue/reference-price", {
+      action: "set-transport", product_id: product.id, offer_id: offers[0].id, transport_mode: "included",
+      expected_updated_at: refreshOffers.items.find(offer => offer.id === offers[0].id)!.updated_at,
+    });
+    await ui.screen.getByRole("button", `Plus d'actions pour ${designation}`, { exact: true }).click();
+    await ui.screen.getByRole("menuitem", "Associer ou remplacer l’article", { exact: true }).click();
+    await ui.screen.getByLabel("Rechercher dans le catalogue", { exact: true }).fill(designation);
+    await ui.browser.locator('[role="dialog"] button').filter({ hasText: designation }).click();
+    await ui.screen.getByLabel(`Prix d’achat unitaire HT pour ${designation}`, { exact: true }).press("ControlOrMeta+s");
+    await expect.poll(async () => {
+      const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
+      return [selected?.fo_provision, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
+    }).toEqual([1.01, "included"]);
 
     await ui.app.open("/dashboard/affaires");
     await lockVersion(ui.browser, draft.versionId);
@@ -132,6 +162,7 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
     await waitForDraftLease(ui);
     await ui.browser.locator(`[data-estimate-item-id="${blank.id}"]`).getByTestId("estimate-line-title-input").fill(designation);
     await ui.browser.locator(".estimate-catalogue-suggestion__primary").filter({ hasText: designation }).click();
+    await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const line = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id);
       return [line?.supply_type_id, line?.fo_provision, line?.unit_price_ht_cents, line?.pu_ht_cents, line?.line_total_ht_cents];
@@ -151,6 +182,15 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
     const reopened = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id)!;
     expect([reopened.fo_price_origin, reopened.fo_provision, reopened.unit_price_ht_cents])
       .toEqual([saved.fo_price_origin, 1.01, 10000]);
+    // An ordinary quantity edit keeps the saved included transport, although
+    // the catalogue now says excluded; only a new explicit price pick refreshes it.
+    await ui.screen.getByLabel(`Quantité pour ${designation}`, { exact: true }).fill("20");
+    await ui.browser.keyboard.press("Tab");
+    await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
+    await expect.poll(async () => {
+      const line = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id);
+      return [line?.quantity, line?.fo_price_origin, line?.fo_provision, line?.pu_ht_cents, line?.line_total_ht_cents];
+    }).toEqual([20, saved.fo_price_origin, 1.01, 13130, 262600]);
     await ui.app.open("/dashboard/affaires");
     await lockVersion(ui.browser, draft.versionId);
     const duplicate = await apiRequest(ui.browser, "POST", `/api/estimates/${draft.versionId}/sections/${draft.sectionId}/duplicate`, {});

@@ -340,6 +340,9 @@ export async function prepareEstimateBatch(input: {
           ? await resolveFoPrice({ ...current, ...patch }, current) : { ...current, ...patch };
         // Derived values in old client buffers are never a pricing authority.
         for (const field of DERIVED_FIELDS) next[field] = current[field];
+        // A sparse patch may keep the same type while changing its price origin.
+        // Load that type's provision before deriving the TS projection, as SQL does.
+        await references(next);
         if (next.item_type === "line") {
           next.line_nature = resolvePromotedEstimateLineNature(current, patch);
           if (supplyTypeChanged(current.supply_type_id, next.supply_type_id) ||
@@ -348,7 +351,6 @@ export async function prepareEstimateBatch(input: {
           }
           changedLineIds.add(next.id);
         }
-        await references(next);
         validatePlacement(next);
         items.set(next.id, next);
       } else if (operation.op === "delete") {

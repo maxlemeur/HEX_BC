@@ -6,6 +6,7 @@ import {
   prepareSectionsImport,
   selectSectionImportSubtrees,
 } from "@/lib/estimates/section-copy-plan";
+import { planV3SectionCopy } from "@/lib/estimates/v3-section-copy";
 import type { EstimateItemRow } from "@/lib/estimates/version-read-server";
 
 function item(overrides: Partial<EstimateItemRow>): EstimateItemRow {
@@ -93,5 +94,25 @@ describe("append and merge preparation", () => {
     expect(result.items[0]).toMatchObject({ id: "copy-0-section", title: "Plomberie", parent_id: null, position: 1 });
     expect(result.items[2].parent_id).toBe("copy-0-subsection");
     expect(result.createdSectionIds).toEqual(["copy-0-section", "copy-0-subsection"]);
+  });
+});
+
+// A known absence must survive the real operation compaction; otherwise a copy
+// invents current catalogue transport for a manual or historical purchase price.
+describe("TI-534 v3 section copy price origin", () => {
+  it("preserves the explicit absence for linked prices without bloating source-free lines", () => {
+    for (const sourceIsV3 of [true, false]) {
+      for (const linked of [true, false]) {
+        const source = item({ product_id: linked ? "product" : null,
+          selected_supplier_price_id: linked ? "price" : null, fo_price_origin: null });
+        const [operation] = planV3SectionCopy({ payload: [{ ...source, id: "copy-line" }],
+          sourceIdByNewId: new Map([["copy-line", source.id]]), sourceItemsById: new Map([[source.id, source]]),
+          sourceIsV3, sameVersion: false }).operations;
+        expect(operation.op).toBe("create");
+        if (operation.op !== "create") throw new Error("Expected the real create payload");
+        expect(Object.hasOwn(operation.data, "fo_price_origin")).toBe(linked);
+        if (linked) expect(operation.data.fo_price_origin).toBeNull();
+      }
+    }
   });
 });

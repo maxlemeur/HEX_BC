@@ -65,7 +65,7 @@ export function estimateV3SectionCopyToHistoricalError() {
 
 /** Ligne prête à l'écrivain : valeurs absentes omises (la création applique les défauts de la v3). */
 function compact<T extends Record<string, unknown>>(data: T): T {
-  return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== null && value !== undefined)) as T;
+  return Object.fromEntries(Object.entries(data).filter(([key, value]) => value !== undefined && (value !== null || key === "fo_price_origin"))) as T;
 }
 
 /** Provenance d'import de l'élément copié (`_timax_provenance`, `sourceDocumentId`, import, ligne mappée), si elle existe. */
