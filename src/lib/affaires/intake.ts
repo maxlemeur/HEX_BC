@@ -3,7 +3,7 @@ import { z } from "zod";
 export const AFFAIRE_INTAKE_BUCKET = "affaire-intake";
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL = "50 Mo";
-export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML";
+export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML, DWG, DXF, RVT";
 
 export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "pdf",
@@ -18,6 +18,9 @@ export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "xlsx",
   "doc",
   "docx",
+  "dwg",
+  "dxf",
+  "rvt",
 ] as const;
 
 export const AFFAIRE_INTAKE_ALLOWED_MIME_TYPES = [
@@ -33,6 +36,24 @@ export const AFFAIRE_INTAKE_ALLOWED_MIME_TYPES = [
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ] as const;
+
+export const AFFAIRE_INTAKE_CAD_NOTICE = "Original CAO/BIM conservé. Aperçu et métré non disponibles dans ce format : ajoutez un export PDF pour les plans ou un quantitatif pour les quantités.";
+
+const CAD_MIME_TYPES: Record<string, readonly string[]> = {
+  dwg: ["application/octet-stream", "image/vnd.dwg", "application/acad", "application/x-acad", "application/dwg", "application/x-dwg", "image/x-dwg"],
+  dxf: ["application/octet-stream", "image/vnd.dxf", "application/dxf", "application/x-dxf", "image/x-dxf", "text/plain"],
+  rvt: ["application/octet-stream", "application/vnd.autodesk.revit", "application/x-revit"],
+};
+
+export function isAffaireIntakeCadDocument(fileName: string) {
+  return Object.hasOwn(CAD_MIME_TYPES, getAffaireIntakeFileExtension(fileName));
+}
+
+export function getAffaireIntakeAllowedMimeTypes(fileName: string): readonly string[] {
+  return isAffaireIntakeCadDocument(fileName)
+    ? CAD_MIME_TYPES[getAffaireIntakeFileExtension(fileName)]
+    : AFFAIRE_INTAKE_ALLOWED_MIME_TYPES;
+}
 
 export const affaireIntakeDocumentKindSchema = z.enum([
   "dpgf",
@@ -339,6 +360,9 @@ const DIRECT_EXTENSION_MIME_TYPES: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  dwg: "application/octet-stream",
+  dxf: "application/octet-stream",
+  rvt: "application/octet-stream",
 };
 
 export function isAffaireIntakePrimaryEligibleKind(
@@ -505,6 +529,14 @@ export function getHeuristicAffaireDocumentClassification(input: {
   mimeType?: string | null;
 }): AffaireIntakeClassificationResult {
   const extension = getAffaireIntakeFileExtension(input.fileName);
+  if (isAffaireIntakeCadDocument(input.fileName)) {
+    return {
+      documentKind: "plans",
+      confidence: 0.64,
+      issues: [AFFAIRE_INTAKE_CAD_NOTICE],
+      extractedMetadata: createEmptyAffaireIntakeExtractedMetadata(),
+    };
+  }
   // In technical filenames underscores are separators, but RegExp \b treats
   // them as word characters. Normalize accents and separators before matching.
   const normalizedName = input.fileName.trim().toLowerCase()

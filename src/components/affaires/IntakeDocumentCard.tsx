@@ -48,6 +48,7 @@ type IntakeDocumentCardProps = {
 
 function getFileTypeIcon(fileName: string) {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  if (["dwg", "dxf", "rvt"].includes(ext)) return { label: ext.toUpperCase(), color: "text-info" };
   if (ext === "pdf") return { label: "PDF", color: "text-danger" };
   if (["xlsx", "xls", "csv"].includes(ext)) return { label: "XLS", color: "text-success" };
   if (["doc", "docx"].includes(ext)) return { label: "DOC", color: "text-info" };

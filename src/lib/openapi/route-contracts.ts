@@ -523,7 +523,7 @@ const administrationContracts: RouteContract[] = [
     path: "/api/affaires/{projectId}/intake/files",
     summary: "Deposer les fichiers d'intake d'une affaire",
     description:
-      "Accepte un lot multipart, persiste les fichiers et programme leur traitement asynchrone.",
+      "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT (50 Mo par fichier). Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré ; les autres pièces sont traitées de façon asynchrone.",
     tags: ["Affaires"],
     pathParameters: [projectIdParameter],
     body: {

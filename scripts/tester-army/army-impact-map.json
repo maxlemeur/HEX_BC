@@ -38,6 +38,7 @@
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/business-lifecycle.e2e.ts",
       "e2e/army/local/catalogue-provenance.e2e.ts",
+      "e2e/army/local/intake-cad.e2e.ts",
       "e2e/army/local/chatgpt-local.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
@@ -849,7 +850,7 @@
         "src/components/affaires/IntakeDocumentTable*",
         "e2e/army/critical/google-drive-local-store.ts"
       ],
-      "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts", "e2e/army/critical/dogfood-dpgf-plans.e2e.ts"]
+      "journeys": ["e2e/army/critical/intake-google-drive.e2e.ts", "e2e/army/critical/dogfood-dpgf-plans.e2e.ts", "e2e/army/local/intake-cad.e2e.ts"]
     },
     {
       "id": "intake-dossier",
@@ -861,7 +862,8 @@
       ],
       "journeys": [
         "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
-        "e2e/army/takeoff/intake-dossier.e2e.ts"
+        "e2e/army/takeoff/intake-dossier.e2e.ts",
+        "e2e/army/local/intake-cad.e2e.ts"
       ]
     },
     {

@@ -37,7 +37,8 @@ import {
   AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
-  AFFAIRE_INTAKE_ALLOWED_MIME_TYPES,
+  getAffaireIntakeAllowedMimeTypes,
+  isAffaireIntakeCadDocument,
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
   affaireIntakeBriefBlockKeySchema,
   affaireIntakeBriefDraftSchema,
@@ -737,6 +738,7 @@ function normalizeAffaireBriefSourceRow(row: unknown): AffaireBriefSourceRow | n
 }
 
 function toSafeMimeType(file: File) {
+  if (isAffaireIntakeCadDocument(file.name)) return "application/octet-stream";
   return file.type.trim().toLowerCase() || inferAffaireIntakeMimeType(file.name) || "application/octet-stream";
 }
 
@@ -1022,6 +1024,8 @@ async function classifyAffaireIntakeDocument(input: {
     mimeType: input.mimeType,
   });
   if (input.existingMetadata) heuristicResult.extractedMetadata = input.existingMetadata;
+
+  if (isAffaireIntakeCadDocument(input.fileName)) return { result: heuristicResult, source: "heuristic" };
 
   if (isIntakeDecisionsSelected()) return classifyAutonomousAffaireDocument({ ...input, heuristicResult,
     readLocalText: async () => {
@@ -2038,24 +2042,27 @@ async function generateAffaireBriefDraft(input: {
     missingPieces: input.missingPieces,
   });
 
+  const aiDocuments = input.documents.filter((document) => !isAffaireIntakeCadDocument(document.file_name));
   let generated: AffaireBriefGeneration | null = null;
 
   try {
-    const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
-      renewLease: input.renewLease ?? (async () => undefined),
-      effect: () => callStructuredAi({
-        prompt: buildBriefGenerationPrompt({
-          project: input.project,
-          documents: input.documents,
-          missingPieces: input.missingPieces,
-        }),
-        schema: affaireBriefGenerationSchema,
-        thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
-        context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
-      }, input.aiOwner),
-    });
+    if (aiDocuments.length > 0) {
+      const result = await durableIntake.runAffaireIntakeLeasedProviderEffect({
+        renewLease: input.renewLease ?? (async () => undefined),
+        effect: () => callStructuredAi({
+          prompt: buildBriefGenerationPrompt({
+            project: input.project,
+            documents: aiDocuments,
+            missingPieces: input.missingPieces,
+          }),
+          schema: affaireBriefGenerationSchema,
+          thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
+          context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
+        }, input.aiOwner),
+      });
 
-    generated = result.data;
+      generated = result.data;
+    }
   } catch (error) {
     if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
     console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error_code: getSafeProviderErrorCode(error.cause) });
@@ -2507,7 +2514,7 @@ export async function createAffaireIntakeUpload(
       maxFileSizeBytes: AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
       maxFileSizeLabel: AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
       allowedExtensions: [...AFFAIRE_INTAKE_ALLOWED_EXTENSIONS],
-      allowedMimeTypes: [...AFFAIRE_INTAKE_ALLOWED_MIME_TYPES],
+      allowedMimeTypes: [...getAffaireIntakeAllowedMimeTypes(file.name)],
       allowEmptyMimeType: true,
     });
 

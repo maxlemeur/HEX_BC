@@ -130,7 +130,7 @@ export function AffaireFileDropSurface({
             </p>
             {!compact ? (
               <p className="mt-1.5 text-xs font-medium text-primary">
-                Chaque pièce sera classée et orientée automatiquement
+                Les originaux DWG/DXF/RVT sont conservés ; ajoutez un PDF ou un quantitatif pour leur exploitation.
               </p>
             ) : null}
           </div>

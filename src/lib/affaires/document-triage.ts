@@ -2,6 +2,7 @@ import {
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
   isAffaireIntakeAnalysisStale,
+  isAffaireIntakeCadDocument,
 } from "@/lib/affaires/intake";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 
@@ -37,6 +38,7 @@ export function canRetryDossierDocument(document: DossierDocument) {
 export function dossierPreviewFormat(
   document: DossierDocument,
 ): "pdf" | "image" | "text" | null {
+  if (isAffaireIntakeCadDocument(document.fileName)) return null;
   const mime = document.mimeType?.split(";")[0].toLowerCase();
   if (
     mime === "application/pdf" ||

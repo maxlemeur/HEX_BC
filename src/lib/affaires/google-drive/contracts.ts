@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
-  AFFAIRE_INTAKE_ALLOWED_MIME_TYPES,
+  getAffaireIntakeAllowedMimeTypes,
 } from "@/lib/affaires/intake";
 
 export const DRIVE_READ_SCOPE =
@@ -211,7 +211,7 @@ export function driveFileRejection(file: DriveFile): string | null {
     !(AFFAIRE_INTAKE_ALLOWED_EXTENSIONS as readonly string[]).includes(
       extension,
     ) ||
-    !(AFFAIRE_INTAKE_ALLOWED_MIME_TYPES as readonly string[]).includes(
+    !getAffaireIntakeAllowedMimeTypes(file.name).includes(
       file.mimeType,
     )
   ) {
