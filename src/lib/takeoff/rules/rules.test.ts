@@ -710,6 +710,18 @@ describe("duplicate runs between zones", () => {
       .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
   });
 
+  // TI-684 pinning test, passing when written: a vector size is stored as « DN n » whatever the plan printed, so the
+  // « Ø 110 » of the test above reaches the rule as « DN 110 ». Pins that stored form through NF EN 1124.
+  it("compares the stored vector form of a stainless drainage pipe, « DN 100 » and « DN 110 », never « DN 108 »", () => {
+    const stainless = (dn: number) => inputs({ source: "vector", network: "EU", material: "inox", dn: `DN ${dn}` });
+    const drainage = zones({ z1: { inputs: stainless(100) }, z2: { inputs: stainless(110) } });
+    expect(rule(drainage.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(rule(drainage.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    const press = zones({ z1: { inputs: stainless(100) }, z2: { inputs: stainless(108) } });
+    expect(rule(press.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(press.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
   it("never takes two insulations of different sizes for one run", () => {
     const insulation = (dn: number) => inputs({ kind: "insulation", material: "calorifuge", dn: `DN ${dn}` });
     const result = zones({ z1: { inputs: insulation(15) }, z2: { inputs: insulation(20) } });
