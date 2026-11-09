@@ -38,6 +38,7 @@ Un seul serveur de développement peut détenir `.next/dev/lock` par checkout.
 | Besoin | Commande |
 |---|---|
 | Types / lint | `npm run typecheck` / `npm run lint` |
+| Boucle rapide pendant une itération | `npm run verify:fast` |
 | Qualité avant livraison de code | `npm run verify:pr` |
 | Parcours affecté sur pile locale jetable | `npm run e2e:army:local -- --grep '<pattern>'` |
 | Migrations et RLS locales | `npm run db:ci:local` |
