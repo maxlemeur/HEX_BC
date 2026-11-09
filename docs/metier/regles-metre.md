@@ -41,7 +41,7 @@ qu'elles sont maintenant.
 
 | Règle | Échoue | Passe | V lève l'échec |
 |---|---|---|---|
-| `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES` | `DN_NETWORK_COMPATIBLE` | oui |
+| `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES`, `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION`, `DN_NETWORK_MATERIAL_BLOCKED` | `DN_NETWORK_COMPATIBLE` | oui, avec un motif codé et la référence du système ; **jamais** `DN_NETWORK_MATERIAL_BLOCKED` |
 | `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED` | oui |
 | `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui |
 | `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui |
@@ -54,70 +54,139 @@ qu'elles sont maintenant.
 Elle porte sur les lignes de longueur, sauf le calorifuge et le cordon chauffant,
 qui n'ont pas de série propre.
 
-Un triplet réseau × matériau × DN absent de la table échoue :
+Chaque couple réseau × matériau a l'un de trois états (TI-685) : **admis**,
+**à justifier** ou **bloqué**. Un matériau absent des trois n'est pas admis : la
+règle ne présume jamais qu'un matériau est admis parce que son diamètre existe.
 
-- réseau ou matériau non lu ;
-- DN non lu, ou deux DN ;
-- matériau non admis pour le réseau ;
-- DN absent de la série du matériau.
+Les contrôles se lisent dans cet ordre ; le premier qui échoue décide :
 
-Un DN non lu ou hors série d'un couple à justifier garde la condition du couple dans
-son motif (TI-685, D18b) : le relecteur voit ce que le matériau demande à côté du DN
-à corriger. Ce motif ne change ni le code ni la clé de l'échec : le motif n'entre pas
-dans la clé.
+| Le triplet | Code | V |
+|---|---|---|
+| réseau non lu (aucun ou deux) | `DN_NETWORK_NETWORK_MISSING` | avec justification |
+| matériau non lu | `DN_NETWORK_MATERIAL_MISSING` | avec justification |
+| matériau bloqué pour le réseau (multicouche en gaz), quel que soit le DN | `DN_NETWORK_MATERIAL_BLOCKED` (`acceptable: false`) | **non** |
+| matériau ni admis ni à justifier pour le réseau | `DN_NETWORK_MATERIAL_NOT_ALLOWED`, avec les matériaux admis | avec justification |
+| PE en gaz, quel que soit le DN | `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION` | avec un motif de pose du PE gaz |
+| DN non lu, ou deux DN | `DN_NETWORK_DN_MISSING` | avec justification |
+| DN absent de la série retenue | `DN_NETWORK_DN_NOT_IN_SERIES`, avec sa norme | avec justification |
+| couple à justifier, DN de la série | `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, la raison donne la condition | avec justification |
+| couple admis, DN de la série | passe : `DN_NETWORK_COMPATIBLE` | — |
 
-Le passage de la table de la version 2 à la version 3 (TI-684, D18a, D18b) change en
-revanche toutes les clés d'échec `dn_network`, la version faisant partie de chaque clé
-(voir « Décisions ») :
-
-- au prochain recalcul de la version, toute ligne vérifiée qui porte un échec
-  `dn_network` est rouverte, quel qu'en soit le code : couples déjà justifiés, PE gaz
-  et inox d'évacuation compris, pas seulement les lignes vérifiées sans voir la condition ;
-- un override administrateur enregistré avec des clés de la version 2 (multicouche gaz
-  par exemple) ne correspond plus à l'application : il est à refaire ;
-- aucune migration ne périme les jobs terminés, contrairement au passage en version 2 :
-  leurs résultats restent ceux calculés avant ce changement (ancien motif du multicouche
-  gaz, DN sans condition, doublons d'inox d'évacuation lus dans les séries sous pression,
-  vérifications acquises en version 2) jusqu'au prochain recalcul de leur version.
-  Ce recalcul suit une modification de ligne, un traitement, une relance manuelle ou
-  une application ; celui de l'application ne bloque pas s'il échoue.
-
-La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 3) :
-
-- **Séries** : celles des normes produit de la table des diamètres de L0, version 2 (ajouts de TI-664 : cuivre 6 et 8 mm, fonte DN 80, PER 40 à 63, PP 16).
-  - Le PVC d'évacuation (NF EN 1329-1) et le PVC pression (NF EN 1452) partagent une famille de L0 : leurs diamètres sont séparés ici.
-  - Cuivre NF EN 1057, inox à sertir NF EN 10312, inox soudé ISO 1127.
-  - PVC NF EN 1329-1 et 1452, fonte SMU NF EN 877.
-  - Acier NF EN 10255 et 10220, multicouche ISO 21003, PER ISO 15875, PE NF EN 12201, PP NF EN 1451.
-- **Matériaux admis par réseau** :
-
-  | Réseaux | Matériaux admis |
-  |---|---|
-  | EF, EFA | tous les matériaux d'eau potable, plus le PVC pression, l'acier galvanisé et le PEHD |
-  | ECS, RECS | cuivre, inox, multicouche, PER, PP |
-  | EU, EV, EU/EV, EUG, EP, VP | PVC, fonte SMU, PP, PEHD, inox (NF EN 1124) |
-  | COND | PVC, PVC pression, PP, PEHD, inox (séries sous pression et NF EN 1124 provisoire réunies, D18a) |
-  | CS, RIA, SPK | acier galvanisé, acier |
-  | GAZ | cuivre, acier, PEHD |
-  | CHW, CW, HRC, HW (départs et retours) | acier, inox, cuivre, multicouche, PP ; plus le PEHD pour CHW et CW, et le PER pour HW |
-  | GLY | acier, inox, cuivre, PP, PEHD (sans zinc) |
-
-- **Pas de DN minimal par réseau** : un réseau restreint les matériaux, jamais les tailles.
+- **Condition affichée** (D18b) : sur un couple à justifier, un DN non lu ou hors série
+  échoue en `DN_NETWORK_DN_MISSING` ou `DN_NETWORK_DN_NOT_IN_SERIES`, et sa raison
+  rappelle aussi la condition du couple : le relecteur voit ce que le matériau demande
+  à côté du DN à corriger. Codes et acceptabilité sont inchangés, et la raison n'entre
+  pas dans la clé de l'échec. Le PE gaz garde son propre code et son exigence de pose
+  avec un diamètre non lu (« système à préciser ») ou hors série (« système à justifier »).
+- **Pas de DN minimal par réseau** : un réseau restreint les matériaux, jamais les
+  tailles. Pas de seuil WC global : le contrat d'entrée ne rattache pas un tronçon à un WC.
 - **Ligne vectorielle** : sa taille est un nombre, imprimé « DN n » ou « Ø n » sur le plan ; elle est lue des deux façons.
 
-**Cas à trancher par Max** (`AMBIGUOUS_NETWORK_MATERIALS`, inchangés tant qu'il ne
-décide pas) :
+La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 3 ;
+états de TI-685, séries par réseau de TI-684, D18a et D18b) :
 
-- PVC pour les eaux grasses ;
-- inox d'évacuation (NF EN 1124, table provisoire) : second fabricant et DN 90 à recouper ;
-- cuivre pour l'eau glycolée ;
-- PEHD pour l'eau froide à l'intérieur ;
-- acier galvanisé pour l'eau froide ;
-- PER pour le bouclage ECS ;
-- cuivre pour les condensats ;
-- multicouche pour le gaz et pour l'eau glycolée ;
-- PEHD pour les RIA ;
-- DN minimal des EV (WC de 80 à 100).
+- **Matériaux par réseau** (un réseau de départ ou de retour, CHW-S, HW-R…, suit son
+  réseau parent) :
+
+  | Réseaux | Admis | À justifier (condition affichée) | Bloqué |
+  |---|---|---|---|
+  | EF, EFA | cuivre, inox, multicouche, PER, PP, PVC pression | acier galvanisé (certification NF, analyse d'eau, absence de cuivre en amont) ; PEHD (gamme eau potable et pose intérieure) | — |
+  | ECS, RECS | cuivre, inox, multicouche, PER, PP | — | — |
+  | EU, EV, EU/EV, EP, VP | PVC, fonte SMU, PP, PEHD | inox, série NF EN 1124 (gamme et série, table provisoire) | — |
+  | EUG | fonte SMU, PP, PEHD | PVC (système PVC-C ou haute température) ; inox, série NF EN 1124 | — |
+  | COND | PVC, PVC pression, PP, PEHD, inox (séries sous pression et NF EN 1124 réunies, D18a) | cuivre (condensats de climatisation) | — |
+  | CS, SPK | acier galvanisé, acier | — | — |
+  | RIA | acier galvanisé, acier | PEHD (système pour RIA, matériaux admis à vérifier) | — |
+  | GAZ | cuivre, acier | PE (pose enterrée à l'extérieur hors emprise du bâtiment, ou remontée en façade jusqu'au raccord métal/plastique) | multicouche |
+  | CHW, CW | acier, inox, cuivre, multicouche, PP, PEHD | — | — |
+  | HW | acier, inox, cuivre, multicouche, PP, PER | — | — |
+  | HRC | acier, inox, cuivre, multicouche, PP | — | — |
+  | GLY | acier, inox, cuivre, PP, PEHD (sans zinc) | multicouche (gamme antigel et pourcentage de glycol) | — |
+
+  - Toutes les nuances d'un matériau (inox 304L et 316L) et tous les réseaux d'une même
+    famille suivent la même décision. « Acier » couvre l'acier noir et l'acier sans
+    finition précisée ; l'acier galvanisé n'est admis que là où il est nommé.
+- **Séries** : celles des normes produit de la table des diamètres de L0
+  ([`diameters.ts`](../../src/lib/takeoff/bench/diameters.ts), version 3 ; ajouts de
+  TI-664 : cuivre 6 et 8 mm, fonte DN 80, PER 40 à 63, PP 16).
+  - Cuivre NF EN 1057, inox à sertir NF EN 10312 série 2, inox soudé NF EN ISO 1127.
+  - PVC NF EN 1329-1 et 1452, fonte SMU NF EN 877. Le PVC d'évacuation et le PVC pression partagent une famille de L0 : leurs diamètres sont séparés ici.
+  - Acier NF EN 10255 et 10220, multicouche ISO 21003, PER ISO 15875, PE NF EN 12201, PP NF EN 1451 et ISO 15874.
+  - **Inox d'évacuation, série NF EN 1124 provisoire** (TI-685) : de Ø 40 (DN 40) à
+    Ø 315 (DN 300). « DN 100 » et « Ø 110 » y sont le même tube ; Ø 108 et Ø 114,3
+    n'en sont pas. Elle ne s'ajoute jamais aux clés ni aux recherches génériques des
+    séries sous pression ([essais et sources](../testing/takeoff-network-materials.md)).
+    Sur un réseau d'évacuation, l'inox reste à justifier : aucune admission automatique
+    n'y vient de cette table. Seule exception, les condensats (D18a), où l'inox est
+    admis et où les tailles de cette série le sont avec celles des séries sous pression.
+- **Série retenue**, selon le réseau et le matériau (`diameterFamiliesFor`) :
+  - inox sur un réseau d'évacuation (EU, EV, EU/EV, EUG, EP, VP) : la seule série
+    NF EN 1124 provisoire, jamais une série sous pression (TI-684) ;
+  - inox en condensats (D18a) : les séries sous pression (à sertir et soudé) et la série
+    NF EN 1124 ensemble, une ligne de condensats pouvant être relevée ou gravitaire.
+    Ø 22, Ø 40 et Ø 50 y sont admis. Aucune taille absente des tables n'est ajoutée :
+    Ø 32, qu'aucune ne porte, reste hors série tant qu'aucune source ne le donne ;
+  - tout autre couple, ou une ligne sans réseau lu : les séries du matériau, sans la
+    série NF EN 1124.
+  - Une seule sélection partout (D18c, TI-684) : la règle DN, la détection des doublons
+    entre zones et l'identité des quantités comparées au DPGF lisent la même série
+    retenue. Un inox d'évacuation « DN 100 » et « Ø 110 » y est un seul tube, qui ne
+    rejoint jamais un « Ø 108 » ; hors évacuation, l'inox garde ses séries sous pression
+    (Ø 108 est le DN 100 à sertir).
+
+**Version 3 de la table** (TI-684, D18a, D18b ; décision D18g) : la raison D18b ne change
+aucune clé, mais la version fait partie de chaque clé d'échec (« règle|code|version|partenaire »,
+voir « Décisions ») : le passage de la version 2 à la version 3 change toutes les clés
+`dn_network`.
+
+- Au prochain recalcul de la version, toute ligne vérifiée d'un job terminé non appliqué
+  qui porte un échec `dn_network` est rouverte, quel qu'en soit le code : couples déjà
+  justifiés, PE gaz et inox d'évacuation compris, pas seulement les lignes vérifiées sans
+  voir la condition. Sa justification technique est à refaire.
+- Un override administrateur enregistré avec des clés de la version 2 (multicouche gaz
+  par exemple) ne correspond plus à l'application : il est à refaire.
+- Les jobs appliqués restent figés avec leurs résultats ; le recalcul ne les réécrit pas.
+- Aucune migration ne périme les jobs terminés (D18h), contrairement au passage en
+  version 2 : leurs résultats restent ceux calculés avant ce changement (ancien motif du
+  multicouche gaz, DN sans condition, doublons d'inox d'évacuation lus dans les séries
+  sous pression, vérifications acquises en version 2) jusqu'au prochain recalcul de leur
+  version. Ce recalcul suit une modification de ligne, un traitement, une relance
+  manuelle ou une application ; celui de l'application ne bloque pas s'il échoue.
+
+**Acceptation technique** ([`verification.ts`](../../src/lib/takeoff/rules/verification.ts),
+migration `20261107123425_takeoff_network_material_decisions.sql`) : V ne lève un échec
+`dn_network` acceptable, quel que soit son code, qu'avec un motif codé et la référence du
+système (gamme, fabricant, certificat, conditions d'emploi), de 10 à 500 caractères.
+
+- **Motifs** : `system_documented` (système et conditions d'emploi documentés) ; pour le
+  PE gaz, seulement `gas_pe_buried_outside` (enterré à l'extérieur, hors emprise du
+  bâtiment) ou `gas_pe_facade_transition` (remontée en façade jusqu'au raccord
+  métal/plastique).
+- La revue ciblée ouvre ce dialogue ; les gestes de validation de la revue complète y
+  conduisent, une fois les modifications en cours enregistrées. L'API et le trigger
+  `validate_takeoff_rule_acceptance` refusent aussi une écriture directe sans
+  justification valide (`TAKEOFF_RULE_JUSTIFICATION_REQUIRED`,
+  `TAKEOFF_RULE_GAS_PE_REASON_REQUIRED`).
+- La justification est enregistrée avec la vérification (`verification_justification`)
+  et journalisée. Rouvrir la ligne ou modifier son contenu l'efface.
+- Un matériau bloqué ne s'accepte jamais (`TAKEOFF_RULE_NOT_ACCEPTABLE`) : corriger la
+  ligne ; sinon, seul un administrateur peut forcer l'application, avec une justification
+  écrite (voir « Override admin »). Réserve, variante et provision interne sont à
+  construire (TI-686).
+
+**Cas tranchés par TI-685** (l'ancienne liste « à trancher ») :
+
+- à justifier : PVC en eaux grasses, acier galvanisé et PEHD en EF/EFA, cuivre en
+  condensats, PEHD en RIA, multicouche en eau glycolée, inox d'évacuation ;
+- bloqué : multicouche en gaz ;
+- admis : inox en condensats (séries sous pression et NF EN 1124 réunies, D18a) ;
+  inchangés : cuivre en eau glycolée, PER en bouclage ECS ;
+- pas de DN minimal des EV.
+
+**Reste ouvert** (`AMBIGUOUS_NETWORK_MATERIALS`, preuve ouverte, jamais une permission) :
+la série NF EN 1124, dont le second fabricant et DN 90 → Ø 82 restent à recouper. Les
+hypothèses non vérifiées (gaz en ERP, cuivre enterré, systèmes RIA, PE d'évacuation
+EN 1519) ne sont pas généralisées.
 
 ### Aucun tronçon compté à la fois dans Z1 et Z2
 
@@ -149,7 +218,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 **Doublon**
 ([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 1) :
 
-- Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série du matériau sur ce réseau, comme la règle DN (TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; un inox d'évacuation « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
+- Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série que la règle DN retient pour ce réseau et ce matériau (D18c, TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; l'inox d'un réseau d'évacuation se lit par la seule série NF EN 1124 et son « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
 - Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions, arrondie au millimètre (un demi-millimètre vers le haut).
@@ -325,6 +394,10 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 
 **Override admin : gardé.**
 
+- C'est la seule voie pour appliquer une ligne bloquée (matériau bloqué, quantité à saisir, échec non accepté) :
+  seul un administrateur du tenant peut forcer l'application, avec une justification écrite de 10 à 500 caractères,
+  journalisée dans `audit_logs` et jamais imprimée pour le client.
+- Réserve, variante, provision interne et motif codé de forçage n'existent pas : ils sont à construire (TI-686).
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
 - Il consomme l'audit une seule fois.
@@ -490,8 +563,10 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   - **Unité** : cliquer sur l’unité de la ligne, la corriger puis enregistrer. La quantité
     est conservée et une quantité à saisir attend toujours sa confirmation ;
   - **Accepter** (V) : lève une confiance faible ou moyenne et toute règle acceptable ;
-    jamais une quantité à saisir ni des règles à recalculer. En niveau C, seulement une
-    ligne qui a sa preuve et sa page, comme la base l'exige ;
+    jamais une quantité à saisir, un matériau bloqué ni des règles à recalculer. Un échec
+    `dn_network` demande un motif codé et la référence du système (« Acceptation
+    technique »). En niveau C, seulement une ligne qui a sa preuve et sa page, comme la
+    base l'exige ;
   - **Saisir** une quantité non observable : la quantité tapée, même égale à celle du
     modèle, est attestée (`quantity_entered: true`) et règle `NON_OBSERVABLE_TO_ENTER`.
 - **Doublon Z1/Z2** : la raison donne la longueur comptée deux fois et la ligne de l'autre
