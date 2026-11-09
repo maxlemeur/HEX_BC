@@ -8,6 +8,11 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Paris"
+    groups:
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "github-actions"
