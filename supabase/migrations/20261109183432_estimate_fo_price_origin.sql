@@ -1942,7 +1942,8 @@ begin
     reason,
     decided_at,
     updated_at,
-    decided_by
+    decided_by,
+    quantity_snapshot
   )
   select
     gen_random_uuid(),
@@ -1961,7 +1962,8 @@ begin
     src.reason,
     src.decided_at,
     src.updated_at,
-    src.decided_by
+    src.decided_by,
+    src.quantity_snapshot
   from public.takeoff_dpgf_review_decisions src
   where src.version_id = duplicate_estimate_version_without_product_id.source_version_id;
 

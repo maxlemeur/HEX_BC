@@ -84,7 +84,8 @@ export function withServerFoProvisions<
   let changed = false;
   const next = items.map((item) => {
     const row = stored.get(item.id);
-    if (!row || item.item_type !== "line" || (item.fo_provision === row.fo_provision && sameFoPriceOrigin(item.fo_price_origin, row.fo_price_origin)) ||
+    if (!row || item.item_type !== "line" || (item.fo_provision === row.fo_provision && sameFoPriceOrigin(item.fo_price_origin, row.fo_price_origin) &&
+      (!confirmed || !supplyTypeChanged(item.supply_type_id, row.supply_type_id))) ||
       !confirmed && (supplyTypeChanged(item.supply_type_id, row.supply_type_id) || !sameFoPriceSelection(item, row))) return item;
     changed = true;
     return { ...item, ...(confirmed ? { supply_type_id: row.supply_type_id } : {}), fo_provision: row.fo_provision, ...(row.fo_price_origin === undefined ? {} : { fo_price_origin: row.fo_price_origin }) };
