@@ -6,7 +6,7 @@ import {
   type ApplyGuardResult,
   type GuardBlockedItem,
 } from "@/lib/takeoff/guards";
-import { blockingRules } from "@/lib/takeoff/rules/blocking";
+import { blockingRules, failedRules } from "@/lib/takeoff/rules/blocking";
 import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import type { TakeoffRuleResult, ZoneOverlapPartner } from "@/lib/takeoff/rules/types";
@@ -16,6 +16,9 @@ import { isQuantityWarning, quantitySourceComparison } from "@/lib/takeoff/quant
 // and important priced posts. Recommendations never require every run to be
 // acknowledged. Optional corrections, localized evidence and prior decisions
 // remain available; stale results and technical protections retain their guard.
+// TI-686 H17: V is never offered on a line that has a quantity to enter, even beside an acceptable failure (the
+// database refuses V while a failure V never settles is there). A quantity to enter is entered with what it rests on
+// (TI-686 D12, the review's QuantityEntryDialog).
 
 export type TargetedReviewTier = "rejected" | "uncertain";
 
@@ -58,6 +61,7 @@ export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[
 export type Acceptance = { enabled: boolean; reason: string | null };
 
 const STALE_REASON = "Règles à recalculer : ce qu’elles disaient peut ne plus tenir, V ne les lève pas. Utilisez « Recalculer les règles ».";
+const TO_ENTER_REASON = "Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée).";
 
 /** Whether V settles something on this line, and why not. */
 export function acceptanceOf(item: ApplyGuardItem, level: string | null): Acceptance {
@@ -68,16 +72,12 @@ export function acceptanceOf(item: ApplyGuardItem, level: string | null): Accept
     // TI-686: the admin override at apply time is the only way past it; no reserve, variant or provision exists yet.
     return { enabled: false, reason: "Matériau bloqué : corrigez la ligne. Sinon, seul un administrateur peut forcer l’application, avec une justification écrite." };
   }
+  // TI-686 H17: a failure V never settles (a quantity to enter) refuses V on the whole line, as the database does
+  // (TAKEOFF_RULE_NOT_ACCEPTABLE), even beside failures V settles.
+  if (failedRules(item.rule_results).some((failure) => !failure.acceptable)) return { enabled: false, reason: TO_ENTER_REASON };
   const settles = failures.some((failure) => failure.acceptable)
     || ((level ?? "C") === "C" && failures.length === 0 && !item.rules_stale);
-  if (!settles) {
-    return {
-      enabled: false,
-      reason: failures.some((failure) => !failure.acceptable)
-        ? "Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée)."
-        : STALE_REASON,
-    };
-  }
+  if (!settles) return { enabled: false, reason: STALE_REASON };
   if ((level ?? "C") === "C") {
     const readiness = getTakeoffVerificationReadiness(item);
     if (!readiness.canVerify) return { enabled: false, reason: readiness.message };

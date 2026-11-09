@@ -361,18 +361,16 @@ describe("inputs read in a designation", () => {
     expect(isRuleBlocked([entered as TakeoffRuleResult], false, false)).toBe(false);
   });
 
-  it("never takes the model's quantity stored to the millimetre for a typed one (numeric(12,3), L5b review)", () => {
-    // The model proposes 12.3456 u of supports; the column keeps 12.346. Nobody typed anything: still to enter.
-    const supports = (quantity: number) => line("supports", { designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity,
-      inputs: ruleInputsFromDesignation({ designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12.3456 }) });
-    expect(rule(evaluateTakeoffRules({ pages: [], lines: [supports(12.346)] }).results, "supports", "non_observable"))
-      .toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER" });
-    // 12.3455 is stored 12.346 (a half rounded up), whatever the float noise of the model's number.
-    const half = line("half", { designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12.346,
-      inputs: ruleInputsFromDesignation({ designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12.3455 }) });
-    expect(rule(evaluateTakeoffRules({ pages: [], lines: [half] }).results, "half", "non_observable")).toMatchObject({ status: "fail" });
-    expect(rule(evaluateTakeoffRules({ pages: [], lines: [supports(12.347)] }).results, "supports", "non_observable"))
-      .toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED" });
+  // TI-686 D12: an entry is a quantity attested with its category, never a bare edit. The rule keeps its version: a
+  // line edited without a category fails again with a new key (failure-keys), and V never settles it.
+  it("leaves a quantity changed without an attested entry to enter (model 12, quantity 15)", () => {
+    const supports = (entered: boolean) => line("supports", { designation: "Supports de tuyauterie acier galvanisé", unit: "u",
+      quantity: 15, quantity_entered: entered,
+      inputs: ruleInputsFromDesignation({ designation: "Supports de tuyauterie acier galvanisé", unit: "u", quantity: 12 }) });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [supports(false)] }).results, "supports", "non_observable"))
+      .toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER", version: 1, acceptable: false });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [supports(true)] }).results, "supports", "non_observable"))
+      .toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED", version: 1 });
   });
 
   it("keeps an unknown DN as printed, so that the DN rule fails it", () => {
@@ -383,13 +381,15 @@ describe("inputs read in a designation", () => {
       .toMatchObject({ network: "EF", material: "inox-316l", dn: "DN 22" });
   });
 
-  it("fails a quantity to enter until the user types one, and verifying never settles it", () => {
-    const soudures = (quantity: number) => line("weld", { designation: "Soudures inox", unit: "u", quantity,
-      inputs: ruleInputsFromDesignation({ designation: "Soudures inox", unit: "u", quantity: 48 }) });
+  it("fails a quantity to enter until the user attests one, and verifying never settles it", () => {
+    const soudures = (quantity: number, entered = false) => line("weld", { designation: "Soudures inox", unit: "u", quantity,
+      quantity_entered: entered, inputs: ruleInputsFromDesignation({ designation: "Soudures inox", unit: "u", quantity: 48 }) });
     const proposed = rule(evaluateTakeoffRules({ pages: [], lines: [soudures(48)] }).results, "weld", "non_observable");
     expect(proposed).toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false });
     expect(isRuleBlocked([proposed as TakeoffRuleResult], false, true)).toBe(true);
     expect(rule(evaluateTakeoffRules({ pages: [], lines: [soudures(52)] }).results, "weld", "non_observable"))
+      .toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER" });
+    expect(rule(evaluateTakeoffRules({ pages: [], lines: [soudures(52, true)] }).results, "weld", "non_observable"))
       .toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED" });
   });
 });

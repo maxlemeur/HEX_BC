@@ -356,10 +356,21 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     await recordEvidence(ui.army, "TKR03-unit", { actions, durationMs: Math.round(performance.now() - start),
       line: weld.id, file: saved.source_file_name, result: [saved.quantity, saved.unit], boundary: "Actions automatisées, fiche atelier A-07, aucun chronométrage humain." });
 
-    // The workshop sheet confirms the proposed count. Only the quantity entry attests it.
+    // TI-686 D12: the former attestation flag is refused with its request (422), never stored as an entry.
+    const former = await apiRequest<{ ok: boolean; error?: { code?: string } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobs.Z1}/items`,
+      { items: [{ item_id: saved.id, updated_at: saved.updated_at, fields: { quantity: 2, quantity_entered: true } }] });
+    expect([former.status, former.body.ok, former.body.error?.code]).toEqual([422, false, "VALIDATION_ERROR"]);
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)).toMatchObject({ updated_at: saved.updated_at,
+      quantity_entered_by: null, quantity_entry_category: null });
+
+    // The workshop sheet confirms the proposed count. Only the quantity entry attests it, with what it rests on.
     await panel.getByLabel("Quantité à saisir", { exact: true }).click();
-    const attested = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
     await ui.browser.keyboard.press("Enter");
+    const entry = screen.getByRole("dialog", "Justifier la quantité saisie", { exact: true });
+    await entry.getByLabel("Justification", { exact: true }).selectOption({ value: "written_confirmation" });
+    await entry.getByLabel("Ce qui fonde la quantité", { exact: true }).fill("Fiche atelier A-07");
+    const attested = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
+    await entry.getByRole("button", "Enregistrer la quantité", { exact: true }).click();
     expect((await attested).status).toBe(200);
     await expect(list.getByRole("option", /^Soudures atelier/)).toHaveCount(0);
 
@@ -396,6 +407,7 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     await expect(screen.getByText("Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu.", { exact: true })).toBeVisible();
     const final = await readItems(ui, jobs.Z1);
     expect(final.find((item) => item.id === weld.id)).toMatchObject({ unit: "u", quantity: 2,
+      quantity_entry_category: "written_confirmation", quantity_entry_note: "Fiche atelier A-07",
       rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
     expect(final.find((item) => item.designation === "ARMY worker pipe")).toMatchObject({ is_excluded: true, exclusion_reason: motif });
     expect(await ef(jobs.Z1)).toMatchObject({ quantity: 4 });
@@ -596,4 +608,51 @@ armyTest("TKR06 a contradicted scale is accepted with a coded reason and what wa
       verification_justification: { scale_dimension: { reason_code: "dimension_not_to_scale", note } } });
     await recordEvidence(ui.army, "TKR06-scale-reason", { ids, jobs, run: run.id, page: { source_file_name: page.source_file_name,
       source_page: page.source_page }, failure: run.rule_results, stored: stored.verification_justification ?? null });
+  });
+
+// TI-686 D12: a quantity the plan cannot show is entered with what it rests on; an hypothesis says what it assumes
+// and what remains to confirm. The complete review never enters a quantity still to enter by a bare edit: it sends it
+// to the targeted review, unsaved, where it is justified.
+armyTest("TKR07 the complete review sends a weld count to the targeted review, where an hypothesis says what it assumes", options,
+  async (ui) => {
+    const { ids, jobs } = await seedZoneJobs(ui, "TKR07", "HYP", "Saisie sur hypothèse", "A");
+    const { screen } = ui;
+    const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
+    const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
+    expect(weld).toMatchObject({ quantity: 2, unit: "kg", quantity_entry_category: null });
+
+    // The complete review: a new count typed on the line leads to the targeted review, unsaved.
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review?versionId=${ids.versionId}&reviewMode=production`);
+    const row = screen.getByRole("row").filter({ hasText: "Soudures atelier" });
+    await row.getByText("2", { exact: true }).click();
+    await ui.browser.keyboard.press("F2");
+    await row.getByLabel("Quantité", { exact: true }).fill("6");
+    await expect(screen.getByText("Une quantité à saisir se justifie dans la revue ciblée.", { exact: true })).toBeVisible();
+    await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review/targeted\\?`
+      + `versionId=${ids.versionId}&line=${weld.id}$`));
+    await expect(panel).toContainText("NON_OBSERVABLE_TO_ENTER");
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)).toMatchObject({ quantity: 2,
+      updated_at: weld.updated_at, quantity_entry_category: null });
+    await recordEvidence(ui.army, "TKR07-redirected", { ids, jobs, line: weld.id });
+
+    // The targeted review: F2, 6, Enter, then what the count rests on. An hypothesis without its note is not saved.
+    await ui.browser.keyboard.press("F2");
+    await ui.browser.keyboard.press("6");
+    await expect(panel.getByLabel("Quantité à saisir", { exact: true })).toHaveValue("6");
+    await ui.browser.keyboard.press("Enter");
+    const dialog = screen.getByRole("dialog", "Justifier la quantité saisie", { exact: true });
+    const save = dialog.getByRole("button", "Enregistrer la quantité", { exact: true });
+    await dialog.getByLabel("Justification", { exact: true }).selectOption({ value: "hypothesis" });
+    await expect(save).toBeDisabled();
+    const assumed = "6 soudures supposées : 3 piquages × 2, à confirmer au relevé.";
+    await dialog.getByLabel("Ce qui fonde la quantité", { exact: true }).fill(assumed);
+    await expect(save).toBeEnabled();
+    const entered = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
+    await save.click();
+    expect((await entered).status).toBe(200);
+    const stored = (await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)!;
+    expect(stored).toMatchObject({ quantity: 6, quantity_entry_category: "hypothesis", quantity_entry_note: assumed,
+      rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
+    await recordEvidence(ui.army, "TKR07-hypothesis", { ids, jobs, line: weld.id, quantity: stored.quantity,
+      category: stored.quantity_entry_category ?? null, note: stored.quantity_entry_note ?? null });
   });

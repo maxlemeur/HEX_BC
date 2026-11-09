@@ -136,6 +136,8 @@ export const TAKEOFF_ITEMS_SELECT = [
   "rules_stale",
   "quantity_entered_at",
   "quantity_entered_by",
+  "quantity_entry_category",
+  "quantity_entry_note",
 ].join(", ");
 
 export const jsonRecordSchema = z.record(z.string(), z.unknown());
@@ -292,6 +294,8 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
   rules_stale: z.boolean().optional(),
   quantity_entered_at: z.string().nullable().optional(),
   quantity_entered_by: z.string().uuid().nullable().optional(),
+  quantity_entry_category: z.string().nullable().optional(),
+  quantity_entry_note: z.string().nullable().optional(),
 }) as z.ZodType<TakeoffJobItem>;
 
 export type TakeoffJobDetailRow = {
@@ -368,6 +372,8 @@ export type TakeoffItemRow = {
   rules_stale?: boolean;
   quantity_entered_at?: string | null;
   quantity_entered_by?: string | null;
+  quantity_entry_category?: string | null;
+  quantity_entry_note?: string | null;
 };
 
 export type AuthenticatedTakeoffContext = Awaited<

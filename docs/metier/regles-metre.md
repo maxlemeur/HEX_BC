@@ -422,9 +422,22 @@ mise en service, DOE…).
 - **La tête de la désignation décide** : son texte avant « y compris », « avec », « compris », une virgule, un point-virgule, une parenthèse ou un « + », après « fourniture et pose de ». Elle doit s'ouvrir sur le mot. « Tube cuivre … y compris supports » reste un tube, « Robinet d'essai » un robinet.
 - **Un organe dessiné reste observable**, quel que soit le mot qui le suit : « Vanne avec support », « Pompe … y compris mise en service ».
 - **« Vertical » ne porte que sur les longueurs.**
-- Une telle ligne échoue tant que l'utilisateur n'a pas saisi sa quantité : une saisie attestée, même égale à la quantité du modèle (1 ens de mise en service), ou une quantité modifiée.
-- Les quantités sont stockées au millième : la quantité du modèle, arrondie par la base (12,3456 u stocké 12,346), reste celle du modèle, jamais une saisie.
-- La vérifier ne la règle jamais : `acceptable: false`.
+- Une telle ligne échoue tant que l'utilisateur n'a pas saisi sa quantité : une saisie attestée avec sa catégorie, même égale à la quantité du modèle (1 ens de mise en service).
+- **Catégorie de saisie (TI-686, D12).** La saisie dit sur quoi repose la quantité, parmi six catégories (liste provisoire, en attente de l'accord du métier) :
+
+  | Code | Libellé |
+  |---|---|
+  | `site_survey` | Relevé chantier |
+  | `other_drawing` | Autre plan ou coupe |
+  | `dpgf_cctp` | DPGF ou CCTP |
+  | `written_confirmation` | Confirmation écrite |
+  | `documented_calculation` | Calcul documenté |
+  | `hypothesis` | Hypothèse |
+
+  - « Ce qui fonde la quantité » est une note : obligatoire pour une hypothèse, de 10 à 500 caractères (ce qui est supposé, ce qui reste à confirmer) ; facultative, 500 caractères au plus, pour les cinq autres. Elle se mesure comme les notes d'acceptation : en caractères, sans les blancs ASCII des deux bouts.
+  - **Une modification nue de la quantité ne règle plus l'échec** : la règle reste en version 1. Une ligne modifiée sans catégorie échoue de nouveau, avec sa propre clé, et V ne l'a jamais acceptée.
+  - Le serveur lit la catégorie, pas l'auteur : une saisie survit à la suppression de son auteur. Une saisie attestée avant D12, sans catégorie, repasse « à saisir » au prochain recalcul. Aucune donnée n'est réécrite.
+- La vérifier ne la règle jamais : `acceptable: false`. Une ligne qui porte aussi un échec acceptable ne s'accepte pas non plus tant que sa quantité reste à saisir : la base refuse V (`TAKEOFF_RULE_NOT_ACCEPTABLE`), et la revue ciblée ne le propose pas.
 
 ## Blocage et branchement (L5b)
 
@@ -560,8 +573,8 @@ de version et refuse aussi une ligne périmée. Une décision sur un partenaire
 rend donc l'ancienne proposition inutilisable, même si `updated_at` de cette ligne
 n'a pas bougé. Le dialogue d'exclusion conserve le calcul vu à son ouverture.
 
-Un client qui modifie la quantité, son attestation de saisie, l'unité, l'exclusion
-ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses résultats
+Un client qui modifie la quantité, son attestation de saisie (son auteur ou sa catégorie),
+l'unité, l'exclusion ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses résultats
 (trigger) : la ligne bloque jusqu'au recalcul serveur. Une désignation modifiée ne
 change pas les entrées des règles, lues une fois par le worker.
 
@@ -585,11 +598,19 @@ n'écrit une ligne que telle que le calcul l'a lue, `updated_at` et `rules_stale
 compris : un calcul qui l'a lue avant l'édition d'un partenaire, même validée après
 son contrôle de l'empreinte de version, ne lève jamais cette invalidation.
 
-**Saisie d'une quantité à saisir** : `quantity_entered_by` et `quantity_entered_at`.
+**Saisie d'une quantité à saisir** : `quantity_entered_by`, `quantity_entered_at`,
+`quantity_entry_category` et `quantity_entry_note` (TI-686 D12, migration
+`20261110094501_takeoff_quantity_entry_category.sql`).
 
-- Ils sont attestés par leur auteur, comme `is_verified`.
-- Ils sont effacés quand la quantité change sans nouvelle attestation.
-- Le PATCH les pose avec `quantity_entered: true`.
+- Ils sont attestés par leur auteur, comme `is_verified` : une attestation porte sa catégorie, sinon la base la
+  refuse (`TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID`).
+- La catégorie et la note ne changent qu'avec une nouvelle attestation (`quantity_entered_at`), jamais seules.
+- Tous sont effacés quand la quantité change sans nouvelle attestation.
+- La base vérifie la liste des catégories et la note (contraintes `check`) ; le journal porte la catégorie et la
+  note, comme les autres champs de la revue.
+- Le PATCH les pose avec `quantity_entry: { category, note? }` : le serveur écrit l'auteur et l'heure. Une
+  hypothèse sans note de 10 caractères est refusée avec « Une hypothèse doit dire ce qui est supposé (10 à 500
+  caractères). ». L'ancien `quantity_entered: true` est refusé avec la requête (422 `VALIDATION_ERROR`).
 
 **Activation** : le worker n'écrit les entrées de règles (et les ancres de recalage des
 pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
@@ -660,12 +681,21 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   - **Unité** : cliquer sur l’unité de la ligne, la corriger puis enregistrer. La quantité
     est conservée et une quantité à saisir attend toujours sa confirmation ;
   - **Accepter** (V) : lève une confiance faible ou moyenne et toute règle acceptable ;
-    jamais une quantité à saisir, un matériau bloqué ni des règles à recalculer. Un échec
+    jamais une quantité à saisir (ni une ligne qui en porte une à côté d'un échec
+    acceptable), un matériau bloqué ni des règles à recalculer. Un échec
     `dn_network`, d'échelle ou de surface imprimée demande un motif codé (« Acceptation
     technique ») : V ouvre un dialogue avec une section par échec. En niveau C, seulement
     une ligne qui a sa preuve et sa page, comme la base l'exige ;
-  - **Saisir** une quantité non observable : la quantité tapée, même égale à celle du
-    modèle, est attestée (`quantity_entered: true`) et règle `NON_OBSERVABLE_TO_ENTER`.
+  - **Saisir** une quantité non observable : Entrée (après F2 ou une saisie directe) ou la
+    réduction guidée ouvre « Justifier la quantité saisie » : « Justification » (les six
+    catégories) et « Ce qui fonde la quantité », obligatoire pour une hypothèse. « Enregistrer
+    la quantité » (ou Entrée) atteste la quantité tapée, même égale à celle du modèle, avec
+    sa catégorie, et règle `NON_OBSERVABLE_TO_ENTER` ; Échap annule sans rien enregistrer.
+    Le panneau de la ligne affiche ensuite « Saisie : <catégorie> — <note> ». Dans la revue
+    complète, modifier la quantité d'une ligne encore à saisir renvoie vers la revue ciblée
+    (« Une quantité à saisir se justifie dans la revue ciblée. »), sans rien enregistrer ; celle
+    d'une ligne déjà saisie, que la revue ciblée ne liste plus, retire la saisie : la ligne
+    redevient à saisir.
 - **Doublon Z1/Z2** : la raison donne la longueur comptée deux fois et la ligne de l'autre
   zone (lien vers sa revue ciblée).
   - Paire : « Retirer 1,00 m » ramène la ligne à sa quantité moins cette longueur ; une

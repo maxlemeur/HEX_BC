@@ -64145,6 +64145,18 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -65785,6 +65797,18 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -66102,6 +66126,18 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -66415,6 +66451,18 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -66709,6 +66757,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -67095,6 +67155,18 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -67389,6 +67461,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -68618,9 +68702,30 @@
                         }
                       ]
                     },
-                    "quantity_entered": {
-                      "type": "boolean",
-                      "const": true
+                    "quantity_entry": {
+                      "type": "object",
+                      "properties": {
+                        "category": {
+                          "type": "string",
+                          "enum": [
+                            "site_survey",
+                            "other_drawing",
+                            "dpgf_cctp",
+                            "written_confirmation",
+                            "documented_calculation",
+                            "hypothesis"
+                          ]
+                        },
+                        "note": {
+                          "type": "string",
+                          "maxLength": 2000,
+                          "description": "Ce qui fonde la quantité : obligatoire pour hypothesis (10 à 500 caractères), 500 au plus sinon ; sans les blancs des deux bouts."
+                        }
+                      },
+                      "required": [
+                        "category"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
@@ -68940,6 +69045,18 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "quantity_entry_category": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "quantity_entry_note": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             }
                           },
                           "required": [
@@ -69142,6 +69259,18 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "quantity_entry_category": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "quantity_entry_note": {
+                      "type": [
+                        "string",
+                        "null"
                       ]
                     },
                     "item_id": {

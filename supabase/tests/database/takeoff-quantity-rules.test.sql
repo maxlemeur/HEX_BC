@@ -20,6 +20,16 @@
 -- - un override admin avec une ligne bloquée par une ancienne raison et une autre par
 --   une nouvelle seulement réussit et consomme son audit ; un audit qui n'en nomme
 --   qu'une échoue.
+-- TI-686 D12 (migration …_takeoff_quantity_entry_category.sql), écrits avant elle : une
+-- saisie porte sa catégorie, parmi six, et une note obligatoire pour « hypothèse » :
+-- - une attestation sans catégorie est refusée (TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID) ;
+-- - une catégorie hors liste et une hypothèse de 9 caractères sont refusées (23514) ;
+-- - une catégorie valide est stockée et journalisée, comme sa note ;
+-- - la catégorie ou la note ne changent qu'avec une nouvelle attestation ;
+-- - un changement de catégorie périme les règles ; une quantité changée sans nouvelle
+--   attestation efface aussi la catégorie et la note ;
+-- - la RPC de la revue accepte les deux clés et refuse toujours une clé inconnue ;
+-- - authenticated peut écrire les deux colonnes (droit de la table, triggers compris).
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -268,13 +278,76 @@ select is(pg_temp.rules_exec('update-4', 'update public.takeoff_items set quanti
   where id = ''9e000000-0000-4000-8000-000000000403'''), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID', 'an entry is attested by its own author');
 select is(pg_temp.rules_exec('update-5', 'update public.takeoff_items set quantity_entered_by = ''9e000000-0000-4000-8000-000000000001''
   where id = ''9e000000-0000-4000-8000-000000000403'''), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID', 'an entry carries its time');
-select is(pg_temp.rules_exec('update-8', 'update public.takeoff_items set quantity = 48, quantity_entered_by = ''9e000000-0000-4000-8000-000000000001'', quantity_entered_at = now()
-  where id = ''9e000000-0000-4000-8000-000000000403'''), 'ok', 'the engineer enters the quantity, the model''s value included');
+-- TI-686 D12: the entry carries its category (the columns are read through to_jsonb, so that a case fails alone before
+-- the migration instead of aborting the file).
+select is(pg_temp.rules_exec('entry-1', 'update public.takeoff_items set quantity = 48, quantity_entered_by = ''9e000000-0000-4000-8000-000000000001'', quantity_entered_at = now()
+  where id = ''9e000000-0000-4000-8000-000000000403'''), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID', 'an entry without its category is refused');
+select is(left(pg_temp.rules_exec('entry-2', $sql$update public.takeoff_items set quantity = 48, quantity_entered_by = auth.uid(),
+  quantity_entered_at = now(), quantity_entry_category = 'guess' where id = '9e000000-0000-4000-8000-000000000403'$sql$), 5), '23514',
+  'a category outside the list is refused');
+select is(left(pg_temp.rules_exec('entry-3', $sql$update public.takeoff_items set quantity = 48, quantity_entered_by = auth.uid(),
+  quantity_entered_at = now(), quantity_entry_category = 'hypothesis', quantity_entry_note = E' 123456789\t'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), 5), '23514', 'an hypothesis whose note says 9 characters is refused');
+select is(pg_temp.rules_exec('update-8', $sql$update public.takeoff_items set quantity = 48, quantity_entered_by = auth.uid(),
+  quantity_entered_at = now(), quantity_entry_category = 'site_survey', quantity_entry_note = 'Relevé fictif : 48 soudures comptées.'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), 'ok', 'the engineer enters the quantity with its category, the model''s value included');
+select is((select jsonb_build_object('category', to_jsonb(item) -> 'quantity_entry_category', 'note', to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  '{"category": "site_survey", "note": "Relevé fictif : 48 soudures comptées."}'::jsonb, 'the category and its note are stored');
+-- The journal, read as its owner (the engineer's role does not read audit_logs).
+reset role;
+select is((select jsonb_agg(jsonb_build_array(log.after_data #>> '{metadata,field}', log.after_data #> '{metadata,next_value}')
+    order by log.after_data #>> '{metadata,field}')
+  from public.audit_logs log
+  where log.user_id = '9e000000-0000-4000-8000-000000000001' and log.action = 'takeoff.item.modified'
+    and log.after_data #>> '{metadata,item_id}' = '9e000000-0000-4000-8000-000000000403'
+    and log.after_data #>> '{metadata,field}' in ('quantity_entry_category', 'quantity_entry_note')),
+  '[["quantity_entry_category", "site_survey"], ["quantity_entry_note", "Relevé fictif : 48 soudures comptées."]]'::jsonb,
+  'the category and its note are journaled, by the engineer');
+set local role authenticated;
 select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), true,
   'an entry makes the results stale until the server computes them');
+select is(pg_temp.rules_exec('entry-4', $sql$update public.takeoff_items set quantity_entry_category = 'dpgf_cctp'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID',
+  'a category never changes without a new attestation');
+select is(pg_temp.rules_exec('entry-5', $sql$update public.takeoff_items set quantity_entry_note = 'Une autre note, jamais attestée.'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID',
+  'a note never changes without a new attestation');
+-- The server computes the line again; the same author then attests another category: the rules read it.
+reset role;
+update public.takeoff_items set rules_stale = false, rules_evaluated_at = now() where id = '9e000000-0000-4000-8000-000000000403';
+set local role authenticated;
+select is(pg_temp.rules_exec('entry-6', $sql$update public.takeoff_items set quantity_entry_category = 'other_drawing',
+  quantity_entry_note = null, quantity_entered_at = clock_timestamp() where id = '9e000000-0000-4000-8000-000000000403'$sql$), 'ok',
+  'the same author attests the quantity again with another category');
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), true,
+  'a new category makes the results stale');
 select is(pg_temp.rules_exec('update-9', 'update public.takeoff_items set quantity = 50 where id = ''9e000000-0000-4000-8000-000000000403'''), 'ok', 'a quantity changed without a new attestation');
 select is((select quantity_entered_by from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), null::uuid,
   'a quantity changed without a new attestation is no longer the one entered');
+select is((select jsonb_build_array(to_jsonb(item) -> 'quantity_entered_at', to_jsonb(item) -> 'quantity_entry_category',
+    to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'), '[null, null, null]'::jsonb,
+  'its time, category and note are cleared with it');
+-- The review's RPC writes the entry's two keys, and still refuses a key it does not know.
+select is(pg_temp.rules_exec('rpc-entry-1', $sql$select count(*) from public.update_takeoff_item_for_review(current_setting('test.tenant_id')::uuid,
+  '9e000000-0000-4000-8000-000000000303', '9e000000-0000-4000-8000-000000000403',
+  (select item.updated_at from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  jsonb_build_object('quantity', 49, 'quantity_entered_by', auth.uid(), 'quantity_entered_at', clock_timestamp(),
+    'quantity_entry_category', 'hypothesis', 'quantity_entry_note', '49 soudures supposées, à confirmer au relevé.'))$sql$), 'ok',
+  'the review''s RPC saves an entry with its category and note');
+select is((select jsonb_build_array(item.quantity, to_jsonb(item) -> 'quantity_entry_category', to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  '[49, "hypothesis", "49 soudures supposées, à confirmer au relevé."]'::jsonb, 'the RPC''s entry is stored');
+select is(pg_temp.rules_exec('rpc-entry-2', $sql$select count(*) from public.update_takeoff_item_for_review(current_setting('test.tenant_id')::uuid,
+  '9e000000-0000-4000-8000-000000000303', '9e000000-0000-4000-8000-000000000403',
+  (select item.updated_at from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  jsonb_build_object('quantity_entry_source', 'site_survey'))$sql$), '22023 TAKEOFF_ITEM_PATCH_INVALID',
+  'the RPC still refuses a key it does not know');
+select ok(coalesce((select bool_and(has_column_privilege('authenticated', 'public.takeoff_items'::regclass, attribute.attnum, 'UPDATE'))
+    from pg_attribute attribute where attribute.attrelid = 'public.takeoff_items'::regclass
+      and attribute.attname in ('quantity_entry_category', 'quantity_entry_note') having count(*) = 2), false),
+  'authenticated may update both columns (the table''s grant), under the triggers');
 
 -- A client edit makes evaluated results stale: blocked until the server computes them.
 select is(pg_temp.rules_exec('update-10', 'update public.takeoff_items set quantity = 4 where id = ''9e000000-0000-4000-8000-000000000404'''), 'ok', 'the engineer corrects an evaluated quantity');

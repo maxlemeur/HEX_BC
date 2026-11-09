@@ -78,8 +78,14 @@ afterEach(() => {
 });
 
 describe("TakeoffTargetedReview", () => {
-  it("attests a quantity to enter confirmed as it is, and never offers V for it", async () => {
-    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: ITEMS[0] }], succeeded: 1, failed: 0 });
+  // TI-686 D12: Enter on a quantity to enter opens « Justifier la quantité saisie »; the quantity is saved with what it
+  // rests on, and the line then shows it.
+  it("attests a quantity to enter confirmed as it is with its category, and never offers V for it", async () => {
+    const entered = { ...ITEMS[0], quantity_entered_at: "2026-11-04T10:01:00.000Z", quantity_entered_by: "55555555-5555-4555-8555-555555555555",
+      quantity_entry_category: "written_confirmation", quantity_entry_note: "Fiche atelier A-07", rules_stale: true,
+      updated_at: "2026-11-04T10:01:00.000Z" };
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: entered }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
     const list = await open();
     choose(list, "Soudures des réseaux");
 
@@ -90,8 +96,35 @@ describe("TakeoffTargetedReview", () => {
     await waitFor(() => expect(quantity).toHaveFocus());
     fireEvent.keyDown(quantity, { key: "Enter" });
 
+    const dialog = await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+    const save = within(dialog).getByRole("button", { name: "Enregistrer la quantité" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "hypothesis");
+    expect(save).toBeDisabled();
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "written_confirmation");
+    await user.type(within(dialog).getByLabelText("Ce qui fonde la quantité"), "Fiche atelier A-07");
+    await user.click(save);
+
     await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter,
-      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entered: true } }] }));
+      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entry: { category: "written_confirmation", note: "Fiche atelier A-07" } } }] }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("Saisie : Confirmation écrite — Fiche atelier A-07")).toBeInTheDocument();
+  });
+
+  it("cancels the entry's justification with Escape, without saving", async () => {
+    const user = userEvent.setup();
+    const list = await open();
+    choose(list, "Soudures des réseaux");
+    fireEvent.keyDown(list, { key: "F2" });
+    const quantity = await screen.findByLabelText("Quantité à saisir");
+    await waitFor(() => expect(quantity).toHaveFocus());
+    fireEvent.keyDown(quantity, { key: "Enter" });
+    await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
   });
 
   it("keeps a letter typed in the quantity in the field, and opens the exclusion from the list", async () => {
@@ -208,7 +241,7 @@ describe("TakeoffTargetedReview", () => {
   });
 
   // Codex #162: the field's blur ended an unchanged entry before the click on « Enregistrer » landed.
-  it("confirms an unchanged quantity to enter with a click on Enregistrer", async () => {
+  it("confirms an unchanged quantity to enter with a click on Enregistrer, then Enter in its justification", async () => {
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: ITEMS[0] }], succeeded: 1, failed: 0 });
     const user = userEvent.setup();
     const list = await open();
@@ -216,8 +249,11 @@ describe("TakeoffTargetedReview", () => {
     await user.click(screen.getByRole("button", { name: /^Saisir/ }));
     await waitFor(() => expect(screen.getByLabelText("Quantité à saisir")).toHaveFocus());
     await user.click(screen.getByRole("button", { name: /^Enregistrer/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "site_survey");
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter,
-      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entered: true } }] }));
+      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entry: { category: "site_survey" } } }] }));
   });
 });

@@ -76,9 +76,13 @@ describe("acceptanceOf", () => {
     expect(stale.reason).toMatch(/recalcul/);
   });
 
-  it("keeps V for the acceptable failures of a line that also has a quantity to enter", () => {
-    const both = line({ rule_results: [rule({}), rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false })] });
-    expect(acceptanceOf(both, "B").enabled).toBe(true);
+  // TI-686 H17: V on a line that also has a quantity to enter is refused by the server (TAKEOFF_RULE_NOT_ACCEPTABLE): the
+  // review never offers it, and says to enter the quantity first.
+  it("never offers V on a line that also has a quantity to enter, even for its acceptable failures", () => {
+    const both = acceptanceOf(line({ rule_results: [rule({}), rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER",
+      acceptable: false })] }), "B");
+    expect(both.enabled).toBe(false);
+    expect(both.reason).toBe("Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée).");
   });
 
   it("refuses V on a level C line without its localized proof, as the server does", () => {

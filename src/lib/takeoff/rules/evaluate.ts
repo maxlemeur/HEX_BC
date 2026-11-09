@@ -94,7 +94,7 @@ export type RuleLine = {
   is_excluded: boolean;
   /** A line of an applied job: compared, never written. */
   frozen: boolean;
-  /** A user typed the line's current quantity (attested entry): a quantity to enter is entered. */
+  /** A user attested the line's current quantity with its category (TI-686 D12): a quantity to enter is entered. */
   quantity_entered?: boolean;
   /** Actual estimate line, assigned server-side from the DPGF links or a unique exact match. */
   quantity_line_key?: string;
@@ -211,10 +211,10 @@ function nonObservable(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleRe
   if (inputs.non_observable === null) return null;
   const cause = inputs.non_observable;
   const details = { cause, model_quantity: inputs.model_quantity };
-  // A quantity a user typed (attested, even equal to the model's) or changed is entered. Verifying never settles it.
-  // Quantities are stored to the thousandth (numeric(12,3), a half rounded up): the model's, stored, is still the model's.
-  const thousandths = (value: number) => Math.round(value * 1000 + 1e-6);
-  if (line.quantity_entered === true || thousandths(line.quantity) !== thousandths(inputs.model_quantity)) {
+  // A quantity a user attested with what it rests on (TI-686 D12), even equal to the model's, is entered; a bare edit
+  // is not. Verifying never settles it. The version stays 1: a line edited without a category fails again with a key
+  // of its own, and V never accepted it.
+  if (line.quantity_entered === true) {
     return result("non_observable", "pass", "NON_OBSERVABLE_ENTERED", `Quantité saisie (${CAUSE_LABELS[cause]}).`, details, false);
   }
   return result("non_observable", "fail", "NON_OBSERVABLE_TO_ENTER",

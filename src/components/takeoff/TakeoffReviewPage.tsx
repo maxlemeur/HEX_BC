@@ -655,6 +655,20 @@ export default function TakeoffReviewPage({
         router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
         return;
       }
+      // TI-686 D12: a quantity still to enter is entered with what it rests on, in the targeted review, which lists the
+      // line; a bare edit here would leave it to enter. An entered line (which the targeted review no longer lists) is
+      // edited here: the edit withdraws its entry, and the line is to enter again.
+      if (field === "quantity" && selected && value !== selected.quantity
+        && selected.rule_results?.some((result) => result.rule === "non_observable" && result.status === "fail")) {
+        const message = "Une quantité à saisir se justifie dans la revue ciblée.";
+        if (!projectId || items.some((item) => item._dirty || item._saving)) {
+          toast.info({ title: message, ...(projectId ? { description: "Enregistrez les modifications, puis ouvrez-la." } : {}) });
+          return;
+        }
+        toast.info({ title: message });
+        router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
+        return;
+      }
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== itemId) return item;

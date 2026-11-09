@@ -262,8 +262,9 @@ select ok((select is_verified from public.takeoff_items where id = 'a6860000-000
 
 set local role authenticated;
 select pg_temp.as_user('a6860000-0000-4000-8000-000000000002');
-select lives_ok($q$update public.takeoff_items set quantity_entered_by = auth.uid(), quantity_entered_at = now()
-  where id = 'a6860000-0000-4000-8000-000000000407'$q$, 'B attests the quantity and keeps the verification');
+select lives_ok($q$update public.takeoff_items set quantity_entered_by = auth.uid(), quantity_entered_at = now(),
+  quantity_entry_category = 'site_survey' where id = 'a6860000-0000-4000-8000-000000000407'$q$,
+  'B attests the quantity (with its category, TI-686 D12) and keeps the verification');
 reset role;
 select is((select verification_justification from public.takeoff_items where id = 'a6860000-0000-4000-8000-000000000407'),
   pg_temp.scale_reason('Cotes 5,00 et 3,00 concordantes en travée 2.') || pg_temp.area_reason('shab'),

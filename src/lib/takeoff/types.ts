@@ -213,8 +213,11 @@ export type TakeoffItemPatchField = {
   is_verified?: boolean;
   verification_justification?: import("@/lib/takeoff/rules/verification").VerificationJustification | null;
   evidence?: string | null;
-  /** The user typed this quantity (TI-664): attested for a quantity to enter, even equal to the proposed one. */
-  quantity_entered?: true;
+  /**
+   * The user typed this quantity (TI-664) and says what it rests on (TI-686 D12): attested for a quantity to enter,
+   * even equal to the proposed one.
+   */
+  quantity_entry?: import("@/lib/takeoff/quantity-entry").QuantityEntry;
 };
 
 export type TakeoffItemPatchEntry = {

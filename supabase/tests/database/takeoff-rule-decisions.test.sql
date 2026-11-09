@@ -317,8 +317,9 @@ select pg_temp.as_user('9d000000-0000-4000-8000-000000000001');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('is_verified', true,
   'verified_at', now(), 'verified_by', '9d000000-0000-4000-8000-000000000001')), 1, 'the user verifies a line');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('quantity', 7,
-  'quantity_entered_at', now(), 'quantity_entered_by', '9d000000-0000-4000-8000-000000000001')), 1,
-  'then types its quantity (which withdraws the verification)');
+  'quantity_entered_at', now(), 'quantity_entered_by', '9d000000-0000-4000-8000-000000000001',
+  'quantity_entry_category', 'site_survey')), 1,
+  'then types its quantity with its category (TI-686 D12), which withdraws the verification');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('quantity', 7)), 1,
   'then saves the same quantity');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('is_excluded', true,
@@ -341,7 +342,8 @@ select is(
     jsonb_build_array('takeoff.item.modified', 'is_verified', true, false, null),
     jsonb_build_array('takeoff.item.modified', 'is_verified', false, true, null),
     jsonb_build_array('takeoff.item.modified', 'quantity', 5.000, 7, null),
-    jsonb_build_array('takeoff.item.modified', 'quantity_entered_by', null, '9d000000-0000-4000-8000-000000000001', null)),
+    jsonb_build_array('takeoff.item.modified', 'quantity_entered_by', null, '9d000000-0000-4000-8000-000000000001', null),
+    jsonb_build_array('takeoff.item.modified', 'quantity_entry_category', null, 'site_survey', null)),
   'each change is journaled once, by the signed-in user, with its value before and after; an unchanged save is not');
 
 -- Q4: an excluded line always has a reason, whatever the path ------------------------------------------

@@ -1023,6 +1023,7 @@
         "src/lib/takeoff/targeted-review.ts",
         "src/components/takeoff/review/TakeoffTargetedReview.tsx",
         "src/components/takeoff/review/VerificationJustificationDialog.tsx",
+        "src/components/takeoff/review/QuantityEntryDialog.tsx",
         "src/components/takeoff/review/useTakeoffReviewSupport.ts",
         "src/components/takeoff/TakeoffReviewPage.tsx",
         "src/components/takeoff/TakeoffApplyWizard.tsx",
