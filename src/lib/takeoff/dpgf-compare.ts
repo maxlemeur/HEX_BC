@@ -36,7 +36,7 @@ export { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guar
 type BuildTakeoffDpgfComparisonInput = {
   versionId: string;
   jobId: string;
-  dpgfLines: Array<TakeoffDpgfComparisonDpgfLine & { sourceFactsKnown?: boolean }>;
+  dpgfLines: TakeoffDpgfComparisonDpgfLine[];
   takeoffLines: TakeoffDpgfComparisonTakeoffLine[];
   manualLinks?: TakeoffDpgfManualLinkRecord[];
   reviewDecisions?: TakeoffDpgfReviewDecisionRecord[];
@@ -49,7 +49,6 @@ type BuildTakeoffDpgfComparisonInput = {
 
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   quantityIdentity: QuantityIdentity;
-  sourceFactsKnown?: boolean;
   searchText: string;
   normalizedUnit: string | null;
 };
@@ -411,7 +410,6 @@ function computeConfidenceScore(input: {
 }
 
 function deriveReviewStatus(input: {
-  hasKnownEmptyReference: boolean;
   linkedTakeoffItems: NormalizedTakeoffLine[];
   manualLinkCount: number;
   appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
@@ -439,7 +437,8 @@ function deriveReviewStatus(input: {
   }
 
   if (
-    (input.dpgfQuantity === null && !input.hasKnownEmptyReference) ||
+    // Without a reference quantity nothing confirms the measurement, even when the DPGF cell is known to be blank.
+    input.dpgfQuantity === null ||
     input.confidenceScore < TO_CONFIRM_MIN_CONFIDENCE ||
     (input.matchingScore ?? 0) < Math.max(input.threshold, RELIABLE_MATCH_MIN_SCORE)
   ) {
@@ -596,7 +595,6 @@ function buildRow(input: {
     appliedDecision,
   });
   const reviewStatus = deriveReviewStatus({
-    hasKnownEmptyReference: input.dpgf.quantity === null && input.dpgf.sourceFactsKnown === true,
     linkedTakeoffItems: input.linkedTakeoffItems,
     manualLinkCount: input.manualLinkCount,
     appliedDecision,

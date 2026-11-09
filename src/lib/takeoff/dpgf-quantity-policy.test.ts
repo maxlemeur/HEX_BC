@@ -63,12 +63,12 @@ describe("TI-680 DPGF quantity comparison", () => {
     expect(comparison([3030]).rows[0].review_status).toBe("reliable_match");
     expect(comparison([3030.001]).rows[0].review_status).toBe("significant_gap");
   });
-  it("measures a documentary DPGF with an explicitly empty quantity without fabricating a reference", () => {
+  it("measures a documentary DPGF with an explicitly empty quantity without fabricating a reference or confirming it", () => {
     const input = { versionId, jobId, dpgfLines: [{ estimate_item_id: lineId, title: "EF cuivre DN 22", description: null,
-      quantity: null, unit: "ml", source_page: 1, source_file_name: "fictif.xlsx", position: 1, sourceFactsKnown: true }],
+      quantity: null, unit: "ml", source_page: 1, source_file_name: "fictif.xlsx", position: 1 }],
       takeoffLines: [{ item_id: "44444444-4444-4444-8444-444444444444", designation: "EF cuivre DN 22", quantity: 3000,
         unit: "ml", confidence: 0.99, evidence: "Fictif", source_page: 1, source_file_name: "fictif.pdf", metadata: {} }] };
     expect(buildTakeoffDpgfComparison(input).rows[0]).toMatchObject({ dpgf_quantity: null, takeoff_quantity: 3000,
-      delta_percent: null, review_status: "reliable_match" });
+      delta_percent: null, review_status: "to_confirm", is_exception: true, suggested_decision: null });
   });
 });

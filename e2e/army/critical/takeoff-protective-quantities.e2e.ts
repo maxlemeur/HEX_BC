@@ -101,8 +101,16 @@ for (const fixture of cases) {
     const comparisonPath = `/api/takeoff/jobs/${job.jobId}/dpgf-compare?version_id=${ids.versionId}&view=all`;
     const before = await apiRequest<{ data: TakeoffDpgfComparisonResponse }>(browser, "GET", comparisonPath);
     expect(before.status).toBe(200);
+    // Without a reference nothing confirms the measurement: a person retains it explicitly before the apply.
     expect(before.body.data.rows[0]).toMatchObject({ dpgf_quantity: fixture.reference,
-      takeoff_quantity: fixture.measured.reduce((sum, value) => sum + value, 0), review_status: "reliable_match" });
+      takeoff_quantity: fixture.measured.reduce((sum, value) => sum + value, 0),
+      review_status: fixture.reference === null ? "to_confirm" : "reliable_match" });
+    if (fixture.reference === null) {
+      const retained = await apiRequest(browser, "PATCH", `/api/takeoff/jobs/${job.jobId}/review-decision`,
+        { version_id: ids.versionId, estimate_item_id: lineId, decision: "keep_takeoff", reason: "Mesure fictive retenue sans quantité DPGF." });
+      expect(retained.status).toBe(200);
+      await app.open(route);
+    }
     await screen.getByRole("button", "Appliquer au chiffrage", { exact: true }).click();
     const dialog = screen.getByRole("dialog");
     await expect(dialog.getByLabel("Section cible", { exact: true })).toHaveValue(sectionId);
