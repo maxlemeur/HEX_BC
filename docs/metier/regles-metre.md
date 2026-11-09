@@ -609,7 +609,13 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   moins. Les écrans qui ne lisent ni le garde ni le seuil du tenant (fiche de ligne, vue
   des tableaux, panneau de preuve, revue de validation) appliquent le reste de la
   définition au seuil par défaut (0,5).
-  `ValidationReviewPanel` n'affiche pas les règles : la revue ciblée le fait.
+- **Revue de validation** (`ValidationReviewPanel`) : elle n'affiche pas les règles, la
+  revue ciblée le fait. Son filtre « Confiance à confirmer » (anciennement « Hypothèses
+  ouvertes », D18f) retient, comme avant, les lignes non vérifiées qui ont une preuve et
+  une confiance sous 0,8 ou aucune. Chaque ligne porte au plus un badge de confiance :
+  « Confiance faible » sous le seuil bas, sinon « Confiance inconnue » sans confiance,
+  sinon « Confiance moyenne », le score à côté ; une ligne qui n'est pas signalée sur sa
+  confiance garde son score pour badge.
 
 ## Banc
 

@@ -40,7 +40,7 @@ type ValidationFilter =
   | "missing_evidence"
   | "anomalies"
   | "unverified"
-  | "medium_confidence"
+  | "confidence_to_confirm"
   | "missing_source_context";
 
 const FILTER_OPTIONS: Array<{ value: ValidationFilter; label: string }> = [
@@ -51,18 +51,20 @@ const FILTER_OPTIONS: Array<{ value: ValidationFilter; label: string }> = [
   { value: "missing_source_context", label: "Source incomplète" },
   { value: "anomalies", label: "Anomalies" },
   { value: "unverified", label: "Non vérifiés" },
-  { value: "medium_confidence", label: "Confiance moyenne" },
+  { value: "confidence_to_confirm", label: "Confiance à confirmer" },
 ];
 
+/** Labels of the issue badges; the confidence issues are not among them, they make the line's one confidence badge. */
 const ISSUE_LABELS: Record<string, string> = {
-  low_confidence: "Confiance faible",
   missing_evidence: "Aucune preuve liée",
   missing_source_context: "Source ou page manquante",
   zero_quantity: "Quantité nulle",
   empty_designation: "Désignation manquante",
   unverified: "Validation manuelle requise",
-  medium_confidence: "Confiance moyenne",
 };
+
+/** Issues read on the confidence: shown by the line's one confidence badge (confidenceBadge), never as issue badges. */
+const CONFIDENCE_ISSUES = new Set<string>(["low_confidence", "confidence_to_confirm"]);
 
 const PRIORITY_ISSUES = new Set<string>([
   "missing_evidence",
@@ -79,7 +81,7 @@ const ISSUE_PRIORITY: Record<string, number> = {
   zero_quantity: 3,
   empty_designation: 4,
   unverified: 5,
-  medium_confidence: 6,
+  confidence_to_confirm: 6,
 };
 
 type FlaggedItem = {
@@ -127,13 +129,14 @@ function flagItems(
       issues.push("missing_source_context");
     }
 
-    // D13: an unverified line with evidence under 0,8 is named for its confidence; no hypothesis (D12) exists yet.
+    // D13, D18f: an unverified line with evidence under 0,8, or without a confidence, has a confidence to confirm; no
+    // hypothesis (D12) exists yet.
     if (
       item.evidence !== null &&
       !item.is_verified &&
       (item.confidence === null || item.confidence < 0.8)
     ) {
-      issues.push("medium_confidence");
+      issues.push("confidence_to_confirm");
     }
 
     if (issues.length > 0) {
@@ -164,7 +167,7 @@ function matchesFilter(flagged: FlaggedItem, filter: ValidationFilter): boolean 
       (issue) => issue === "zero_quantity" || issue === "empty_designation"
     );
   }
-  if (filter === "medium_confidence") return flagged.issues.includes("medium_confidence");
+  if (filter === "confidence_to_confirm") return flagged.issues.includes("confidence_to_confirm");
   return true;
 }
 
@@ -180,6 +183,24 @@ function getConfidenceBadgeVariant(
 function formatConfidenceLabel(confidence: number | null) {
   if (confidence === null) return "Confiance inconnue";
   return `Confiance ${Math.round(confidence * 100)} %`;
+}
+
+type ConfidenceBadge = { label: string; variant: "success" | "warning" | "danger" | "neutral"; score: string | null };
+
+/**
+ * The one confidence badge of a line (D18f). A line flagged on its confidence reads « Confiance faible » under the low
+ * threshold, else « Confiance inconnue » without a confidence, else « Confiance moyenne », its score beside the badge as
+ * plain text; any other line shows its score as the badge.
+ */
+function confidenceBadge(item: ReviewItem, issues: readonly string[]): ConfidenceBadge {
+  const score = item.confidence === null ? null : `${Math.round(item.confidence * 100)} %`;
+  if (issues.includes("low_confidence")) return { label: "Confiance faible", variant: "danger", score };
+  if (issues.includes("confidence_to_confirm")) {
+    return item.confidence === null
+      ? { label: "Confiance inconnue", variant: "neutral", score: null }
+      : { label: "Confiance moyenne", variant: "warning", score };
+  }
+  return { label: formatConfidenceLabel(item.confidence), variant: getConfidenceBadgeVariant(item.confidence), score: null };
 }
 
 function buildStatusMessage(input: {
@@ -284,7 +305,7 @@ export function ValidationReviewPanel({
               100
           )
         : 0;
-    const mediumConfidence = includedItems.filter(
+    const confidenceToConfirm = includedItems.filter(
       (item) =>
         item.evidence !== null &&
         !item.is_verified &&
@@ -303,7 +324,7 @@ export function ValidationReviewPanel({
       unverified,
       verified,
       coveragePct,
-      mediumConfidence,
+      confidenceToConfirm,
       flaggedCount: flaggedItems.length,
       cleanCount: total - flaggedItems.length,
       priorityCount,
@@ -504,9 +525,9 @@ export function ValidationReviewPanel({
             variant={summary.withAnomalies === 0 ? "success" : "danger"}
           />
           <SummaryCard
-            label="Confiance moyenne"
-            value={summary.mediumConfidence}
-            variant={summary.mediumConfidence === 0 ? "success" : "warning"}
+            label="Confiance à confirmer"
+            value={summary.confidenceToConfirm}
+            variant={summary.confidenceToConfirm === 0 ? "success" : "warning"}
           />
           <SummaryCard
             label="Validés"
@@ -738,14 +759,20 @@ function ValidationItemRow({
       ? "Ouvrir les preuves"
       : "Ajouter une preuve";
 
+  const designationId = `validation-item-${item.id}`;
+  const confidence = confidenceBadge(item, issues);
+
   return (
-    <div className="rounded-xl border border-border bg-surface px-4 py-4">
+    <article aria-labelledby={designationId} className="rounded-xl border border-border bg-surface px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={getConfidenceBadgeVariant(item.confidence)} size="sm">
-              {formatConfidenceLabel(item.confidence)}
+            <Badge variant={confidence.variant} size="sm">
+              {confidence.label}
             </Badge>
+            {confidence.score ? (
+              <span className="text-xs text-muted-foreground">{confidence.score}</span>
+            ) : null}
             {item.is_excluded ? (
               <Badge variant="neutral" size="sm">
                 Exclu
@@ -762,7 +789,7 @@ function ValidationItemRow({
             )}
           </div>
 
-          <p className="mt-3 text-sm font-semibold text-foreground">
+          <p id={designationId} className="mt-3 text-sm font-semibold text-foreground">
             {item.designation || "(sans désignation)"}
           </p>
 
@@ -800,7 +827,7 @@ function ValidationItemRow({
         </div>
 
         <div className="flex w-full min-w-0 flex-wrap gap-1 sm:w-auto sm:max-w-[45%] sm:justify-end">
-          {issues.map((issue) => (
+          {issues.filter((issue) => !CONFIDENCE_ISSUES.has(issue)).map((issue) => (
             <Badge
               key={issue}
               variant={PRIORITY_ISSUES.has(issue) ? "danger" : "warning"}
@@ -846,6 +873,6 @@ function ValidationItemRow({
           </Button>
         )}
       </div>
-    </div>
+    </article>
   );
 }
