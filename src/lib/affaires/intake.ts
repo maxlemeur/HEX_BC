@@ -122,7 +122,7 @@ function addMissingDatetimeSeconds(value: unknown) {
     : value;
 }
 
-export const affaireIntakeExtractedMetadataSchema = z
+const affaireIntakeAiMetadataSchema = z
   .object({
     projectName: z.string().trim().max(255).nullable(),
     clientName: z.string().trim().max(255).nullable(),
@@ -132,8 +132,20 @@ export const affaireIntakeExtractedMetadataSchema = z
     ),
     detectedLots: z.array(z.string().trim().min(1).max(160)).max(20),
     detectedVariants: z.array(z.string().trim().min(1).max(160)).max(20),
+    documentNature: z.string().trim().min(1).max(160).nullable().optional(),
   })
   .strict();
+
+export const affaireIntakeCategoryProposalSchema = z.object({
+  category: affaireIntakeDocumentKindSchema,
+  confidence: z.number().min(0).max(1),
+  analyzedAt: z.string().datetime({ offset: true }),
+  nature: z.string().trim().min(1).max(160).nullable(),
+}).strict();
+
+export const affaireIntakeExtractedMetadataSchema = affaireIntakeAiMetadataSchema.extend({
+  aiCategoryProposal: affaireIntakeCategoryProposalSchema.optional(),
+}).strict();
 
 export const affaireIntakeClassificationResultSchema = z
   .object({
@@ -149,6 +161,11 @@ export const affaireIntakeClassificationResultSchema = z
     }),
   })
   .strict();
+
+// The provider returns extracted facts only; proposal identity/date are server-owned.
+export const affaireIntakeClassificationAiResultSchema = affaireIntakeClassificationResultSchema.extend({
+  extractedMetadata: affaireIntakeAiMetadataSchema.default({ projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] }),
+});
 
 export type AffaireIntakeDocumentKind = z.infer<
   typeof affaireIntakeDocumentKindSchema
@@ -459,6 +476,12 @@ export function normalizeAffaireIntakeExtractedMetadata(
     return parsed.data;
   }
 
+  if (value && typeof value === "object" && "aiCategoryProposal" in value) {
+    const { aiCategoryProposal: _proposal, ...facts } = value;
+    void _proposal;
+    const base = affaireIntakeAiMetadataSchema.safeParse(facts);
+    if (base.success) return base.data;
+  }
   return createEmptyAffaireIntakeExtractedMetadata();
 }
 

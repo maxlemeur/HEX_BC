@@ -1241,7 +1241,7 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await setDecisionsControl({ timeoutWriting: true });
     try {
       await retry.click();
-      await expect(screen.getByText(/L’IA n’a pas abouti pour 1 pièce/)).toBeVisible();
+      await expect(screen.getByText(/0 pièce analysée. 1 pièce non analysée./)).toBeVisible();
       const failed = (await documents())[0];
       for (const field of ["document_kind", "classification_status", "classification_source", "classified_by", "classified_at",
         "manually_overridden_at", "confidence", "document_priority", "plan_copy_generation"] as const) expect(failed[field]).toEqual(before[field]);
@@ -1253,6 +1253,86 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await recordEvidence(army, "intake-manual-reanalysis", { documentId: document.id, manualCategory: after.document_kind,
       aiProposedCategory: "plans", preservedManualFields: true, provider: "chatgpt-fixture",
       boundary: "Owned ephemeral backend, fictional PDF and simulated ChatGPT transport; no private source or live inference." });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+
+test("INTWORD01 Word analysis reports per-file failures and preserves manual choice until a proposal is applied", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("INTWORD01 requires the fictional provider transport fixture.");
+  if (!await preparePlanFixture()) throw new Error("INTWORD01 requires its own temporary profile.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-word-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Word et propositions" }, army);
+    const { client } = await localClient();
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const files = [
+      { name: "01-corrompu.docx", bytes: Buffer.from([1, 2, 3]) },
+      { name: "02-note.doc", bytes: await readFile("e2e/fixtures/word/intake-word.doc") },
+      { name: "03-note.docx", bytes: await readFile("e2e/fixtures/word/intake-word.docx") },
+      { name: "04-plan.pdf", bytes: await readFile("e2e/fixtures/sample-plan.pdf") },
+    ];
+    for (const file of files) await writeFile(path.join(directory, file.name), file.bytes);
+    const documents = async () => {
+      const result = await client.from("affaire_intake_documents")
+        .select("id,file_name,classification_status,classification_source,document_kind,extracted_metadata,manually_overridden_at")
+        .eq("project_id", ids.projectId).order("created_at");
+      if (result.error) throw new Error(`Owned Word read failed: ${result.error.code}`);
+      return result.data;
+    };
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
+      .setInputFiles(files.map(file => path.join(directory, file.name)));
+    await expect.poll(async () => {
+      const rows = await documents();
+      return rows.length === 4 && rows.every(row => !["queued", "processing"].includes(row.classification_status));
+    }, { timeout: 60_000 }).toBe(true);
+    for (const row of await documents()) {
+      const category = row.file_name.endsWith(".pdf") ? "annexes" : "emails";
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${row.id}#intake`);
+      await screen.getByRole("button", `Détails de ${row.file_name}`, { exact: true }).click();
+      const details = screen.getByRole("dialog", "Document et détails", { exact: true });
+      await details.getByRole("button", "Reclasser", { exact: true }).click();
+      await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: category });
+      await details.getByRole("button", "Valider", { exact: true }).click();
+      await expect.poll(async () => (await documents()).find(doc => doc.id === row.id)).toMatchObject({ document_kind: category, classification_source: "manual" });
+      await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
+      await expect(details).toHaveAttribute("aria-busy", "false");
+      await details.getByRole("button", "Fermer", { exact: true }).click();
+      await expect(details).not.toBeVisible();
+    }
+    await screen.getByRole("button", "Relancer l’analyse (4)", { exact: true }).click();
+    await expect(screen.getByText(/3 pièces analysées. 1 pièce non analysée./)).toBeVisible();
+    await expect(screen.getByText("01-corrompu.docx : Le fichier Word est invalide ou corrompu. Réenregistrez-le en DOCX ou exportez-le en PDF.", { exact: true })).toBeVisible();
+    await expect(screen.getByText(/sélection restante/)).toHaveCount(0);
+    const rows = await documents();
+    expect(rows.filter(row => row.classification_source === "manual")).toHaveLength(4);
+    for (const word of rows.filter(row => row.file_name.startsWith("02-") || row.file_name.startsWith("03-"))) {
+      expect(word).toMatchObject({ document_kind: "emails", extracted_metadata: { clientName: "Client réanalyse fictif", aiCategoryProposal: { category: "cctp" } } });
+    }
+    const pdf = rows.find(row => row.file_name === "04-plan.pdf")!;
+    expect(pdf.document_kind).toBe("annexes");
+    await screen.getByRole("button", "Voir la proposition IA pour 04-plan.pdf", { exact: true }).click();
+    const details = screen.getByRole("dialog", "Document et détails", { exact: true });
+    const proposal = details.getByRole("region", "Proposition de catégorie IA", { exact: true });
+    await expect(proposal.getByText("Proposition IA : Plans", { exact: true })).toBeVisible();
+    await expect(proposal.getByText("Vue isométrique", { exact: true })).toBeVisible();
+    await details.getByRole("button", "Fermer", { exact: true }).click();
+    expect((await documents()).find(row => row.id === pdf.id)?.document_kind).toBe("annexes");
+    await screen.getByRole("button", "Voir la proposition IA pour 04-plan.pdf", { exact: true }).click();
+    await proposal.getByRole("button", "Appliquer la catégorie proposée", { exact: true }).click();
+    await expect.poll(async () => (await documents()).find(row => row.id === pdf.id)).toMatchObject({ document_kind: "plans", classification_source: "manual" });
+    await recordEvidence(army, "word-analysis-proposal", { supportedFormats: ["doc", "docx"], invalidFirstFileDidNotStopOthers: true,
+      successful: 3, failed: "01-corrompu.docx", manualChoicePreservedBeforeAcceptance: true, categoryAfterExplicitAcceptance: "plans",
+      boundary: "Fictional documents, isolated DB/Storage and simulated provider transport; no private file or live inference." });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;

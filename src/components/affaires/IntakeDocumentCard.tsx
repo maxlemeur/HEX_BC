@@ -173,7 +173,19 @@ export function IntakeDocumentCard({
   }, [doc.documentId, onReclassified, projectId]);
 
   const meta = doc.extractedMetadata;
-  const hasMetadata = meta.projectName || meta.clientName || meta.deadlineAt || meta.detectedLots.length > 0 || meta.detectedVariants.length > 0;
+  const proposal = meta.aiCategoryProposal;
+  const applyProposal = () => {
+    if (!proposal || !canManage || !canClassify || isPending || proposal.category === doc.detectedCategory) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await reclassifyAffaireDocument({ projectId, documentId: doc.documentId, category: proposal.category });
+        setSelectedCategory(proposal.category);
+        onReclassified();
+      } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible d’appliquer cette catégorie."); }
+    });
+  };
+  const hasMetadata = meta.documentNature || meta.projectName || meta.clientName || meta.deadlineAt || meta.detectedLots.length > 0 || meta.detectedVariants.length > 0;
 
   // Compact mode: single-line summary (name + badge only)
   if (compact && !isEditing) {
@@ -319,9 +331,30 @@ export function IntakeDocumentCard({
         <p className="mt-2 text-xs font-medium text-danger" role="alert">{error}</p>
       )}
 
+      {proposal && !isProcessing && (
+        <section className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3" aria-label="Proposition de catégorie IA">
+          <p className="text-sm font-semibold">Proposition IA : {CATEGORY_LABELS[proposal.category]}</p>
+          {proposal.nature && <p className="mt-1 text-sm">{proposal.nature}</p>}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Confiance : {Math.round(proposal.confidence * 100)} % · Analyse du {new Date(proposal.analyzedAt).toLocaleString("fr-FR")}
+          </p>
+          {proposal.category === doc.detectedCategory ? (
+            <p className="mt-2 text-xs">La proposition correspond à votre classement actuel.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-xs">Votre classement « {CATEGORY_LABELS[doc.detectedCategory]} » reste inchangé sans validation.</p>
+              {canManage && canClassify && <button type="button" className="btn btn-primary btn-sm mt-2" disabled={isPending} onClick={applyProposal}>
+                Appliquer la catégorie proposée
+              </button>}
+            </>
+          )}
+        </section>
+      )}
+
       {/* Extracted metadata */}
       {hasMetadata && !isProcessing && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-6">
+          <MetadataLine label="Nature" value={meta.documentNature ?? null} />
           <MetadataLine label="Projet" value={meta.projectName} />
           <MetadataLine label="Client" value={meta.clientName} />
           <MetadataLine label="Échéance" value={meta.deadlineAt ? new Date(meta.deadlineAt).toLocaleDateString("fr-FR") : null} />

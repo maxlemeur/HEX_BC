@@ -101,7 +101,8 @@ describe("reanalysis preserves human classification", () => {
   });
   it("restores the validated state when reading the file fails", async () => {
     const before = manualFields(); downloadFails = true;
-    await expect(retry()).rejects.toThrow(/ne peut pas être lu/);
+    await expect(retry()).resolves.toMatchObject({ analyzed: false, usedFallback: true,
+      failure: { code: "DOCUMENT_UNREADABLE", scope: "document", message: expect.stringMatching(/ne peut pas être lu/) } });
     expect(manualFields()).toEqual(before);
     expect(document.classification_status).toBe("classified");
   });
@@ -159,4 +160,13 @@ describe("reanalysis lease preserves the validated source while AI runs", () => 
     document.updated_at = manualDate;
     await expect(retry()).resolves.toMatchObject({ analyzed: true });
   });
+});
+
+
+it("persists an AI category proposal separately from the protected human category", async () => {
+  await retry();
+  expect(document.document_kind).toBe("annexes");
+  expect(document.extracted_metadata).toMatchObject({ aiCategoryProposal: {
+    category: "plans", confidence: 0.97,
+  } });
 });

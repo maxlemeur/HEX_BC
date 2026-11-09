@@ -7,6 +7,13 @@ import {
   type AffaireIntakeExtractedMetadata,
 } from "@/lib/affaires/intake";
 
+export function withAffaireAiCategoryProposal(result: AffaireIntakeClassificationResult, now: string) {
+  return { ...result, extractedMetadata: { ...result.extractedMetadata, aiCategoryProposal: {
+    category: result.documentKind, confidence: result.confidence, analyzedAt: now,
+    nature: result.extractedMetadata.documentNature ?? null,
+  } } };
+}
+
 /** A new extraction must not turn an explicit human category back into an AI proposal. */
 export function buildAffaireIntakeReanalysisUpdate(input: {
   document: { document_kind: AffaireIntakeDocumentKind; extracted_metadata: AffaireIntakeExtractedMetadata };
@@ -33,7 +40,7 @@ export function buildAffaireIntakeReanalysisUpdate(input: {
         classified_at: input.now,
       } : {}),
       issues,
-      extracted_metadata: analysisSucceeded ? classification.result.extractedMetadata : document.extracted_metadata,
+      extracted_metadata: analysisSucceeded ? withAffaireAiCategoryProposal(classification.result, input.now).extractedMetadata : document.extracted_metadata,
     },
   };
 }
