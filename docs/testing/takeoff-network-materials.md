@@ -30,24 +30,26 @@ contient les clés complètes des échecs acquittés, y compris les partenaires 
 par les limites d'affichage. La réouverture ou l'édition du contenu efface la
 justification. TI-685 a passé la table en version 2 ; sa migration périme les
 anciens résultats réseau des jobs terminés, sans modifier les jobs appliqués.
+TI-684 l'a passée en version 3, sans migration (voir la revue du 9 novembre).
 
 ## Inox d'évacuation : table provisoire
 
 La famille NF EN 1124 est séparée des séries à sertir et soudée et n'est
 sélectionnée que par les réseaux d'évacuation, et par les condensats avec les séries
-sous pression (D18a, ci-dessous). « DN 100 » et « Ø 110 » vont en
-justification, tandis que Ø108/114,3 ne sont pas reconnus comme diamètres de cette
-série. La lecture vectorielle conserve cette distinction. La famille ne s'ajoute
+sous pression (D18a, ci-dessous). Sur un réseau d'évacuation, « DN 100 » et
+« Ø 110 » vont en justification, tandis que Ø108/114,3 ne sont pas reconnus comme
+diamètres de cette série. La lecture vectorielle conserve cette distinction. La famille ne s'ajoute
 pas aux clés ou aux recherches génériques des séries sous pression.
 
 La [documentation Blücher EuroPipe v24](https://www.blucher.fr/dfsmedia/0533dbba17714b1ab581ab07a4cbb521/642018-source/638785985830000000/blucher-europipe-catalogue-v24.pdf)
 confirme les Ø et NF EN 1124. Le second fabricant reste à recouper ; notamment,
 DN90 → Ø82 n'est pas figé. Ø82 peut être reconnu explicitement, sous justification.
-**Tout inox d'évacuation reste à justifier** : aucune admission automatique n'est
-introduite à partir de cette table provisoire, sauf en condensats (D18a, ci-dessous),
-où ses tailles sont admises avec celles des séries sous pression.
+**Sur un réseau d'évacuation, l'inox reste à justifier** : aucune admission
+automatique n'y est introduite à partir de cette table provisoire. Les condensats
+font exception (D18a, ci-dessous) : l'inox y est admis, et les tailles de cette
+table le sont avec celles des séries sous pression.
 
-## Revue de conformité du 9 novembre 2026 (TI-684, D18a, D18b)
+## Revue de conformité du 9 novembre 2026 (TI-684, D18a à D18d, D18g)
 
 - **Une série par réseau partout** (TI-684, D18c) : la sélection des séries selon le
   réseau (`diameterFamiliesFor`) sert la règle DN, la détection des doublons entre zones,
@@ -69,16 +71,18 @@ où ses tailles sont admises avec celles des séries sous pression.
   garde son propre code.
 - **Multicouche gaz** : le motif ne promet plus de réserve ni de variante. Seul un
   administrateur peut forcer l'application, avec une justification écrite.
-- **Version 3 de la table** : elle fait revoir les lignes vérifiées sans voir la
-  condition, mais la version entre dans chaque clé d'échec : toutes les clés
-  `dn_network` changent. Au prochain recalcul de la version, toute ligne vérifiée qui
-  porte un échec `dn_network` est rouverte, quel qu'en soit le code (couples déjà
-  justifiés, PE gaz et inox d'évacuation compris). Un override administrateur
-  enregistré avec des clés de la version 2 ne correspond plus à l'application : il est
-  à refaire. Aucune migration ne périme les jobs terminés, contrairement à la
-  version 2 : leurs résultats restent ceux calculés avant ce changement jusqu'au
-  prochain recalcul de leur version (modification de ligne, traitement, relance
-  manuelle ou application ; le recalcul de l'application ne bloque pas s'il échoue).
+- **Version 3 de la table** (D18g) : elle fait revoir les lignes vérifiées sans voir
+  la condition, mais la version entre dans chaque clé d'échec : toutes les clés
+  `dn_network` changent. Au prochain recalcul de la version, toute ligne vérifiée d'un
+  job terminé non appliqué qui porte un échec `dn_network` est rouverte, quel qu'en
+  soit le code (couples déjà justifiés, PE gaz et inox d'évacuation compris), et sa
+  justification est effacée. Un override administrateur enregistré avec des clés de la
+  version 2 ne correspond plus à l'application : il est à refaire. Les jobs appliqués
+  restent figés avec leurs résultats. Aucune migration ne périme les jobs terminés
+  (D18h), contrairement à la version 2 : leurs résultats restent ceux calculés avant ce
+  changement jusqu'au prochain recalcul de leur version (modification de ligne,
+  traitement, relance manuelle ou application ; le recalcul de l'application ne bloque
+  pas s'il échoue).
 
 Le texte gaz de référence est l'[arrêté du 23 février 2018, art. 10.1.2](https://www.legifrance.gouv.fr/loda/id/JORFTEXT000036667631),
 consulté le 7 novembre 2026. Le contrat TI-685 ne généralise pas les hypothèses non
