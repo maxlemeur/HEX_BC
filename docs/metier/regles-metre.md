@@ -61,7 +61,11 @@ Un triplet réseau × matériau × DN absent de la table échoue :
 - matériau non admis pour le réseau ;
 - DN absent de la série du matériau.
 
-La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 1) :
+Un DN non lu ou hors série d'un couple à justifier garde la condition du couple dans
+son motif (TI-685, D18b) : le relecteur voit ce que le matériau demande à côté du DN
+à corriger. Le code et la clé de l'échec ne changent pas.
+
+La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 3) :
 
 - **Séries** : celles des normes produit de la table des diamètres de L0, version 2 (ajouts de TI-664 : cuivre 6 et 8 mm, fonte DN 80, PER 40 à 63, PP 16).
   - Le PVC d'évacuation (NF EN 1329-1) et le PVC pression (NF EN 1452) partagent une famille de L0 : leurs diamètres sont séparés ici.
@@ -75,7 +79,7 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
   | EF, EFA | tous les matériaux d'eau potable, plus le PVC pression, l'acier galvanisé et le PEHD |
   | ECS, RECS | cuivre, inox, multicouche, PER, PP |
   | EU, EV, EU/EV, EUG, EP, VP | PVC, fonte SMU, PP, PEHD, inox (NF EN 1124) |
-  | COND | PVC, PVC pression, PP, PEHD |
+  | COND | PVC, PVC pression, PP, PEHD, inox (séries sous pression et NF EN 1124 provisoire réunies, D18a) |
   | CS, RIA, SPK | acier galvanisé, acier |
   | GAZ | cuivre, acier, PEHD |
   | CHW, CW, HRC, HW (départs et retours) | acier, inox, cuivre, multicouche, PP ; plus le PEHD pour CHW et CW, et le PER pour HW |
@@ -88,7 +92,7 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
 décide pas) :
 
 - PVC pour les eaux grasses ;
-- inox d'évacuation (NF EN 1124) pour les eaux grasses, lu par les séries de l'inox soudé et à sertir ;
+- inox d'évacuation (NF EN 1124, table provisoire) : second fabricant et DN 90 à recouper ;
 - cuivre pour l'eau glycolée ;
 - PEHD pour l'eau froide à l'intérieur ;
 - acier galvanisé pour l'eau froide ;
@@ -128,7 +132,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 **Doublon**
 ([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 1) :
 
-- Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série du matériau : « DN 100 » et « Ø 110 » d'une même fonte sont le même tuyau.
+- Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série du matériau sur ce réseau, comme la règle DN (TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; un inox d'évacuation « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
 - Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions, arrondie au millimètre (un demi-millimètre vers le haut).

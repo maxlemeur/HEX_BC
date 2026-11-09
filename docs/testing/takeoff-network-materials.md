@@ -43,6 +43,26 @@ DN90 → Ø82 n'est pas figé. Ø82 peut être reconnu explicitement, sous justi
 **Tout inox d'évacuation reste à justifier** : aucune admission automatique n'est
 introduite à partir de cette table provisoire.
 
+## Revue de conformité du 9 novembre 2026 (TI-684, D18a, D18b)
+
+- **Une série par réseau partout** (TI-684) : la sélection des séries selon le réseau
+  (`diameterFamiliesFor`) sert la règle DN, la détection des doublons entre zones et
+  l'identité des quantités DPGF. Un inox d'évacuation « DN 100 » sur un plan et
+  « Ø 110 » sur l'autre est un seul tronçon ; « DN 100 » ne rejoint plus « Ø 108 ».
+  Hors évacuation, l'inox garde ses séries sous pression (Ø 108 = DN 100 à sertir).
+  L'identité DPGF lit le réseau dans la désignation ; une ligne sans réseau garde les
+  séries sous pression et ne rejoint de toute façon aucune ligne d'un réseau.
+- **Inox en condensats** (D18a) : séries sous pression et NF EN 1124 provisoire
+  réunies, une ligne de condensats pouvant être relevée ou gravitaire. Ø 22, Ø 40
+  et Ø 50 sont admis ; Ø 32 reste hors série tant qu'aucune source ne le donne.
+- **Condition du couple** (D18b) : un DN non lu ou hors série garde la condition du
+  couple dans son motif (PVC en eaux grasses, galvanisé ou PEHD en EF/EFA, cuivre en
+  condensats, PEHD en RIA, multicouche en GLY, inox d'évacuation). Codes,
+  acceptabilité et clés d'échec inchangés ; le PE gaz garde son propre code.
+- **Multicouche gaz** : le motif ne promet plus de réserve ni de variante.
+- La table passe en version 3 : les décisions vérifiées sans voir la condition sont
+  rouvertes au prochain recalcul de la version (au plus tard avant l'application).
+
 Le texte gaz de référence est l'[arrêté du 23 février 2018, art. 10.1.2](https://www.legifrance.gouv.fr/loda/id/JORFTEXT000036667631),
 consulté le 7 novembre 2026. Le contrat TI-685 ne généralise pas les hypothèses non
 vérifiées (gaz ERP, cuivre enterré, systèmes RIA, PE d'évacuation EN 1519).
