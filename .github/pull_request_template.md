@@ -15,7 +15,7 @@ Describe the observable result and link the issue or lot when one exists.
 - Affected TesterArmy journey, exact expected/actual result and existing evidence path (or why no runtime journey is affected):
 - Remaining failures, skipped/blocked cases and platform/backend limits:
 
-`verify:pr` runs the existing `check:quality` chain on the current checkout;
+`verify:pr` runs the `check:quality` gate on the current checkout;
 keep the affected TesterArmy/SQL/RLS evidence separate. Include reviewed
 screenshots when the UI changed. Anonymous or simulated
 evidence does not qualify authenticated business or real backend behavior.

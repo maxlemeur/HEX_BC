@@ -316,50 +316,79 @@ describe("CI and local quality guardrails", () => {
     expect(result.stdout).not.toContain("Quality Gate au vert.");
   });
 
+  // Every check of the local gate, whatever order or lane the gate runs it in.
+  const QUALITY_COMMANDS = [
+    "audit:dependencies", "audit:signatures", "check:repository-hygiene", "check:database-types", "check:architecture",
+    "validate-openapi", "typecheck", "lint", "check:army-recipes", "test:ci:node", "test:ci:jsdom", "test:critical-coverage",
+  ];
+
+  /** Runs a gate with a controlled npm: every `npm run X` is logged, and X fails with 31 when it is FAIL_COMMAND. */
+  function runGate(gate: { shell: string } | { node: string[] }, fail: string) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "quality-gate-commands-"));
+    try {
+      const executable = path.join(directory, "npm");
+      const log = path.join(directory, "commands.log");
+      fs.writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$COMMAND_LOG"\nif [ "$1" = run ] && [ "$2" = "$FAIL_COMMAND" ]; then exit 31; fi\n');
+      fs.chmodSync(executable, 0o755);
+      fs.writeFileSync(log, "");
+      const options = {
+        cwd: directory, encoding: "utf8" as const, env: {
+          NODE_ENV: "test" as const,
+          PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
+          COMMAND_LOG: log, FAIL_COMMAND: fail,
+        },
+      };
+      const result = "shell" in gate ? spawnSync("bash", ["-c", gate.shell], options) : spawnSync(process.execPath, gate.node, options);
+      return { result, calls: fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean) };
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
   it.each([
     { command: "check:repository-hygiene", job: "static" },
     { command: "check:army-recipes", job: "tests" },
-  ].flatMap((entry) => ["local", "CI"].map((gate) => ({ ...entry, gate }))))(
-    "runs $command and propagates its child failure in the $gate gate", ({ command, job, gate }) => {
-      const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> }).scripts;
-      let shell = scripts["check:quality"];
-      if (gate === "CI") {
-        const jobs = workflowJobs(read(".github/workflows/quality-gate.yml"));
-        const step = workflowSteps(jobs[job]).find((candidate) =>
-          new RegExp(`^\\s+run: npm run ${command}\\s*$`, "mu").test(candidate)
-        );
-        expect(step, `${job} must run the real ${command} command`).toBeDefined();
-        expect(step).toMatch(/^\s+if: \$\{\{ !cancelled\(\) \}\}$/mu);
-        const ciCommand = /^\s+run: (.+)$/mu.exec(step!)?.[1];
-        expect(ciCommand).toBeDefined();
-        shell = ciCommand!;
-      }
-      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "quality-gate-commands-"));
-      try {
-        const executable = path.join(directory, "npm");
-        const log = path.join(directory, "commands.log");
-        fs.writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$COMMAND_LOG"\nif [ "$1" = run ] && [ "$2" = "$FAIL_COMMAND" ]; then exit 31; fi\n');
-        fs.chmodSync(executable, 0o755);
-        for (const fail of ["", command]) {
-          fs.writeFileSync(log, "");
-          const result = spawnSync("bash", ["-c", shell], {
-            cwd: directory, encoding: "utf8", env: {
-              NODE_ENV: "test",
-              PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
-              COMMAND_LOG: log, FAIL_COMMAND: fail,
-            },
-          });
-          const calls = fs.readFileSync(log, "utf8").trim().split("\n");
-          expect(calls, `${command} must execute exactly once`).toContain(`run ${command}`);
-          expect(calls.filter((call) => call === `run ${command}`)).toHaveLength(1);
-          expect(result.status, `${result.stdout}${result.stderr}`).toBe(fail ? 31 : 0);
-          if (fail) expect(calls.at(-1)).toBe(`run ${command}`);
-        }
-      } finally {
-        fs.rmSync(directory, { recursive: true, force: true });
-      }
+  ])("runs $command and propagates its child failure in the CI gate", ({ command, job }) => {
+    const jobs = workflowJobs(read(".github/workflows/quality-gate.yml"));
+    const step = workflowSteps(jobs[job]).find((candidate) =>
+      new RegExp(`^\\s+run: npm run ${command}\\s*$`, "mu").test(candidate)
+    );
+    expect(step, `${job} must run the real ${command} command`).toBeDefined();
+    expect(step).toMatch(/^\s+if: \$\{\{ !cancelled\(\) \}\}$/mu);
+    const ciCommand = /^\s+run: (.+)$/mu.exec(step!)?.[1];
+    expect(ciCommand).toBeDefined();
+    for (const fail of ["", command]) {
+      const { result, calls } = runGate({ shell: ciCommand! }, fail);
+      expect(calls, `${command} must execute exactly once`).toEqual([`run ${command}`]);
+      expect(result.status, `${result.stdout}${result.stderr}`).toBe(fail ? 31 : 0);
     }
-  );
+  });
+
+  // The local gate (verify:pr) runs its checks in parallel lanes. What a
+  // parallel gate can get wrong and a browser cannot see: a check dropped from
+  // every lane, a check run twice, a red check hidden by the lanes that end
+  // after it, and a red check that keeps the other checks from reporting.
+  const localGate = () => {
+    const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> }).scripts;
+    expect(scripts["verify:pr"]).toBe("npm run check:quality");
+    expect(scripts["check:quality"]).toBe("node scripts/check-quality.mjs");
+    return { node: [path.join(process.cwd(), "scripts", "check-quality.mjs")] };
+  };
+  const everyCheckOnce = QUALITY_COMMANDS.map((command) => `run ${command}`).sort();
+
+  it("runs every check of the local gate exactly once and passes when all pass", () => {
+    const { result, calls } = runGate(localGate(), "");
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+    expect([...calls].sort()).toEqual(everyCheckOnce);
+  });
+
+  it.each(QUALITY_COMMANDS)("fails the local gate with the exit code of a red %s, names it and still runs every other check", (command) => {
+    const { result, calls } = runGate(localGate(), command);
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(31);
+    expect(`${result.stdout}${result.stderr}`).toContain(`échec : ${command} (code 31)`);
+    // One pass shows every problem: no check is skipped or repeated because another one is red.
+    expect([...calls].sort()).toEqual(everyCheckOnce);
+  });
 
   it("runs the offline RMO admission check with the platform interpreter and refuses its absence", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "quality-gate-python-"));

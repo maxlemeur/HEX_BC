@@ -78,7 +78,7 @@ contract take precedence over historical reports and procedures.
 | Small visual-only change | Check the affected screen in a real browser (in-app browser or Playwright) at the affected viewport sizes, plus a scoped `git diff --check`. No `verify:pr`, E2E campaign, build, repository-wide lint or typecheck. |
 | Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
-| Final code | `npm run verify:pr` once (about 4 minutes cold, 2 warm). |
+| Final code | `npm run verify:pr` once (about 3 minutes cold, 1.5 warm). Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
 | Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
 
