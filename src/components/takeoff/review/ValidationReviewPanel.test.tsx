@@ -54,4 +54,23 @@ describe("ValidationReviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Contrôler et valider" }));
     expect(openEvidencePanel).toHaveBeenCalledWith("level-c-ready");
   });
+
+  // D13: the filter selects unverified lines with evidence and a confidence under 0,8. No hypothesis (in the D12 sense)
+  // exists yet, so it is named for what it selects.
+  it("names « Confiance moyenne » the filter of unverified lines with evidence and confidence under 0,8", () => {
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({ id: "medium", designation: "Tube cuivre 22", confidence: 0.6, is_verified: false }),
+          makeItem({ id: "missing-page", designation: "Tube PVC 110", source_page: null, is_verified: false }),
+        ]}
+        requiresLocalizedProof
+      />
+    );
+
+    expect(screen.queryByText(/Hypothèse/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Confiance moyenne" }));
+    expect(screen.getByText("Tube cuivre 22")).toBeTruthy();
+    expect(screen.queryByText("Tube PVC 110")).toBeNull();
+  });
 });

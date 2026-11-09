@@ -40,7 +40,7 @@ type ValidationFilter =
   | "missing_evidence"
   | "anomalies"
   | "unverified"
-  | "open_hypotheses"
+  | "medium_confidence"
   | "missing_source_context";
 
 const FILTER_OPTIONS: Array<{ value: ValidationFilter; label: string }> = [
@@ -51,7 +51,7 @@ const FILTER_OPTIONS: Array<{ value: ValidationFilter; label: string }> = [
   { value: "missing_source_context", label: "Source incomplète" },
   { value: "anomalies", label: "Anomalies" },
   { value: "unverified", label: "Non vérifiés" },
-  { value: "open_hypotheses", label: "Hypothèses ouvertes" },
+  { value: "medium_confidence", label: "Confiance moyenne" },
 ];
 
 const ISSUE_LABELS: Record<string, string> = {
@@ -61,7 +61,7 @@ const ISSUE_LABELS: Record<string, string> = {
   zero_quantity: "Quantité nulle",
   empty_designation: "Désignation manquante",
   unverified: "Validation manuelle requise",
-  open_hypotheses: "Hypothèse ouverte",
+  medium_confidence: "Confiance moyenne",
 };
 
 const PRIORITY_ISSUES = new Set<string>([
@@ -79,7 +79,7 @@ const ISSUE_PRIORITY: Record<string, number> = {
   zero_quantity: 3,
   empty_designation: 4,
   unverified: 5,
-  open_hypotheses: 6,
+  medium_confidence: 6,
 };
 
 type FlaggedItem = {
@@ -127,12 +127,13 @@ function flagItems(
       issues.push("missing_source_context");
     }
 
+    // D13: an unverified line with evidence under 0,8 is named for its confidence; no hypothesis (D12) exists yet.
     if (
       item.evidence !== null &&
       !item.is_verified &&
       (item.confidence === null || item.confidence < 0.8)
     ) {
-      issues.push("open_hypotheses");
+      issues.push("medium_confidence");
     }
 
     if (issues.length > 0) {
@@ -163,7 +164,7 @@ function matchesFilter(flagged: FlaggedItem, filter: ValidationFilter): boolean 
       (issue) => issue === "zero_quantity" || issue === "empty_designation"
     );
   }
-  if (filter === "open_hypotheses") return flagged.issues.includes("open_hypotheses");
+  if (filter === "medium_confidence") return flagged.issues.includes("medium_confidence");
   return true;
 }
 
@@ -283,7 +284,7 @@ export function ValidationReviewPanel({
               100
           )
         : 0;
-    const openHypotheses = includedItems.filter(
+    const mediumConfidence = includedItems.filter(
       (item) =>
         item.evidence !== null &&
         !item.is_verified &&
@@ -302,7 +303,7 @@ export function ValidationReviewPanel({
       unverified,
       verified,
       coveragePct,
-      openHypotheses,
+      mediumConfidence,
       flaggedCount: flaggedItems.length,
       cleanCount: total - flaggedItems.length,
       priorityCount,
@@ -503,9 +504,9 @@ export function ValidationReviewPanel({
             variant={summary.withAnomalies === 0 ? "success" : "danger"}
           />
           <SummaryCard
-            label="Hypothèses ouvertes"
-            value={summary.openHypotheses}
-            variant={summary.openHypotheses === 0 ? "success" : "warning"}
+            label="Confiance moyenne"
+            value={summary.mediumConfidence}
+            variant={summary.mediumConfidence === 0 ? "success" : "warning"}
           />
           <SummaryCard
             label="Validés"
