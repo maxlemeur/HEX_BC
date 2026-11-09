@@ -308,6 +308,7 @@
     "20261107123425_takeoff_network_material_decisions.sql": "fdf3be48b3eb9da371c7c5ea917870e1055b4cdd3e36c2d6c06e1dad7b98ca9b",
     "20261108212717_takeoff_protective_quantities.sql": "a77baa74fbfd82c9216200e761d353b90ba37c06dd6a2c4f9e0815017f08c925",
     "20261109174312_duplicate_dpgf_review_quantity_snapshot.sql": "dd2468145cb71e204c412a084375185ccd3e324f9f4ff89f76ab7653bd77d9ac",
-    "20261109183432_estimate_fo_price_origin.sql": "0408eb76622907eb672298472300b37f302999659cf4483768bff0d956256dec"
+    "20261109183432_estimate_fo_price_origin.sql": "0408eb76622907eb672298472300b37f302999659cf4483768bff0d956256dec",
+    "20261109192026_clear_detached_fo_price_origin.sql": "b4525d4551b55fc7531c0cb820b352e8a438eb744b104b625283eb5f04122252"
   }
 }

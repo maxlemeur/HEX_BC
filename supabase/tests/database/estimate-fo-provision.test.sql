@@ -407,8 +407,8 @@ select is(
 -- TI-534 remaining lot: source conditions are captured, never inferred again on a save.
 update public.tenant_memberships set role='admin' where user_id='53400000-0000-4000-8000-000000000001';
 select set_config('request.jwt.claim.sub','53400000-0000-4000-8000-000000000001',true);
-insert into public.products(id,tenant_id,designation,unit,unit_price_cents,product_type) values
- ('53400000-0000-4000-8000-000000000051',current_setting('test.tenant_id')::uuid,'Tube PVC source','u',10000,'Tube');
+insert into public.products(id,tenant_id,designation,unit,unit_price_cents,product_type,reference_transport_mode) values
+ ('53400000-0000-4000-8000-000000000051',current_setting('test.tenant_id')::uuid,'Tube PVC source','u',10000,'Tube','included');
 insert into public.suppliers(id,tenant_id,name) values
  ('53400000-0000-4000-8000-000000000052',current_setting('test.tenant_id')::uuid,'Fournisseur FO');
 insert into public.supplier_catalog_items(id,tenant_id,supplier_id,product_id,supplier_sku) values
@@ -435,6 +435,14 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set quantity=10 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_provision,fo_price_origin->>'transport_mode') from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
 'ok:1.010|included','catalogue changes and quantity edits preserve the saved origin');
+
+-- A sparse detach of the reference product clears its transport proof, as the TS writer does.
+select is(pg_temp.fp_probe(array[
+ $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
+ $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id=null where id='53400000-0000-4000-8001-000000000111'$s$,
+ $s$update public.estimate_items set product_id=null where id='53400000-0000-4000-8001-000000000111'$s$
+],$a$select concat_ws('|',fo_provision,fo_price_origin is null,product_id is null) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
+'ok:1.030|t|t','detaching a reference product clears included transport and rederives its tube provision');
 
 select * from finish();
 rollback;
