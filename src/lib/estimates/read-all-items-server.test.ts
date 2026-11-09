@@ -4,10 +4,11 @@ import { describe, expect, it } from "vitest";
 import type { Database } from "@/types/database";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "./read-all-items-server";
 
-function fixture(options: { size?: number; failAt?: number; changedAt?: number; duplicateAt?: number; cap?: number } = {}) {
+function fixture(options: { size?: number; failAt?: number; changedAt?: number; duplicateAt?: number; cap?: number; origin?: unknown } = {}) {
   const rows = Array.from({ length: options.size ?? 2501 }, (_, index) => ({
     id: String(index).padStart(5, "0"), tenant_id: "tenant", version_id: "version",
     position: Math.floor(index / 2), item_type: "line", parent_id: "section",
+    ...(Object.hasOwn(options, "origin") ? { fo_price_origin: options.origin } : {}),
   }));
   const requests: URL[] = [];
   const completed: number[] = [];
@@ -45,7 +46,7 @@ function fixture(options: { size?: number; failAt?: number; changedAt?: number; 
 describe("complete estimate item transport", () => {
   it("assembles reversed pages in position/id order with at most four requests", async () => {
     const f = fixture();
-    expect(await readAllEstimateItems(f.input)).toEqual(f.rows);
+    expect(await readAllEstimateItems(f.input)).toEqual(f.rows.map(row => ({ ...row, fo_price_origin: null })));
     expect(f.peak()).toBe(4);
     expect(f.completed.slice(1, 5)).toEqual([2000, 1500, 1000, 500]);
     expect(f.requests.every(url => url.pathname === "/rest/v1/rpc/read_estimate_version_items"
@@ -53,6 +54,12 @@ describe("complete estimate item transport", () => {
       && url.searchParams.get("p_version_id") === "version"
       && url.searchParams.get("order") === "position.asc,id.asc"
       && Number(url.searchParams.get("limit")) <= 500)).toBe(true);
+  });
+  it("normalizes an absent historical price origin to null but rejects malformed metadata", async () => {
+    const historical = fixture({ size: 1 });
+    expect((await readAllEstimateItems(historical.input))[0].fo_price_origin).toBeNull();
+    const malformed = fixture({ size: 1, origin: { transport_mode: "included" } });
+    await expect(readAllEstimateItems(malformed.input)).rejects.toThrow();
   });
   it.each([{ cap: 200 }, { changedAt: 1000 }, { duplicateAt: 1500 }, { failAt: 1000 }])("rejects a partial or changing version: %j", async options => {
     const f = fixture(options);

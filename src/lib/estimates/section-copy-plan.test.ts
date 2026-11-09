@@ -105,11 +105,11 @@ describe("TI-534 v3 section copy price origin", () => {
       for (const linked of [true, false]) {
         const source = item({ product_id: linked ? "product" : null,
           selected_supplier_price_id: linked ? "price" : null, fo_price_origin: null });
-        const [operation] = planV3SectionCopy({ payload: [{ ...source, id: "copy-line" }],
+        const [operation] = planV3SectionCopy({ payload: [{ ...source, id: "copy-line", source_metadata: source.source_metadata ?? {} }],
           sourceIdByNewId: new Map([["copy-line", source.id]]), sourceItemsById: new Map([[source.id, source]]),
           sourceIsV3, sameVersion: false }).operations;
         expect(operation.op).toBe("create");
-        if (operation.op !== "create") throw new Error("Expected the real create payload");
+        if (operation.op !== "create" || operation.data.item_type !== "line") throw new Error("Expected the real line create payload");
         expect(Object.hasOwn(operation.data, "fo_price_origin")).toBe(linked);
         if (linked) expect(operation.data.fo_price_origin).toBeNull();
       }

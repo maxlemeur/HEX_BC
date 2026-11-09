@@ -59,6 +59,7 @@ describe("price reuse write plan", () => {
       unchanged: [],
       operations: [{ op: "update", id: "target", data: {
         line_nature: "supply_and_labor", pricing_status: "priced", unit_price_ht_cents: 1250, supply_type_id: SUPPLY_TUBE,
+        fo_price_origin: null,
         k_fo: 1.1, h_mo_per_unit: 0.35, h_mo_atelier_per_unit: 0.1, h_mo_chantier_per_unit: 0.25, h_mo_majoration: 1.05,
         k_mo: 1.2, k_mo_atelier: 1.3, k_mo_chantier: 1.4,
         labor_role_id: ROLE_TARGET, labor_role_atelier_id: ROLE_TARGET_CAL, labor_role_chantier_id: ROLE_TARGET,
@@ -102,8 +103,11 @@ describe("price reuse write plan", () => {
 
   it("detaches a supplier offer retained on the line, whose price no longer applies", () => {
     const offer = "66666666-6666-4666-8666-666666666666";
-    expect(plan({ targets: [{ ...targetLine, selected_supplier_price_id: offer }] }).operations[0].data)
-      .toMatchObject({ unit_price_ht_cents: 1250, selected_supplier_price_id: null });
+    // Reusing another quote's price also clears this line's old transport proof.
+    const origin = { selection_id: "53400000-0000-4000-8000-000000000001", kind: "supplier" as const,
+      source_id: offer, transport_mode: "included" as const };
+    expect(plan({ targets: [{ ...targetLine, selected_supplier_price_id: offer, fo_price_origin: origin }] }).operations[0].data)
+      .toMatchObject({ unit_price_ht_cents: 1250, selected_supplier_price_id: null, fo_price_origin: null });
   });
 
   it("refuses an ambiguous role name instead of picking one", () => {

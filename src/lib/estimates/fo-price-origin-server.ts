@@ -58,6 +58,9 @@ export function createFoPriceResolver(supabase: SupabaseClient<Database>, tenant
     const newProduct = Boolean(next.product_id && next.product_id !== previous?.product_id);
     const selected = !previous || newOffer || newProduct || !sameFoPriceSelection(previous, next) && origin !== null;
     if (!selected) return previous ? clearStaleFoPriceOrigin(previous, next) : next;
+    // Manual source-free creations need no catalogue lookup. A retained origin
+    // still passes through the copy check even if its source FK was cleared.
+    if (!origin && !next.selected_supplier_price_id && !next.product_id) return { ...next, fo_price_origin: null };
     if (!types) await preload([next]);
     // Copies keep a snapshot already recorded in this tenant. Later catalogue edits are irrelevant.
     if (!previous && origin && retained.has(JSON.stringify(origin)) && (next.selected_supplier_price_id ? origin.kind === "supplier" && origin.source_id === next.selected_supplier_price_id : !next.product_id || origin.kind === "reference" && origin.source_id === next.product_id)) return next;
