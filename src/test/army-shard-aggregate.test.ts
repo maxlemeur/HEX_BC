@@ -80,7 +80,7 @@ type UnitOptions = {
   extra?: Record<string, unknown>;
   revision?: string;
   calcV3?: { phases: { phase: string; status: string }[] };
-  results?: (file: string) => { status: string };
+  results?: (file: string) => { status: string; titlePath?: string[] };
   summary?: Record<string, number>;
 };
 
@@ -219,6 +219,39 @@ describe("TesterArmy shard aggregation", () => {
       writeCriticalShards(undefined, (index) => (index === 1 ? options : {}));
       expect(problems(critical(criticalSelection())), label).toMatchObject({ status: "failed", problems: expect.stringContaining("shard 1/2") });
     }
+  });
+
+  it("names every journey that did not pass, in the result and in the job summary", () => {
+    // Without the names, a red aggregate only says "N selected result(s) not
+    // passed, first <file>": finding which journeys means downloading the
+    // evidence artifact and reading report.json.
+    writeCriticalShards(undefined, (index) => (index === 1 ? {
+      results: (file) => (file === A ? { status: "failed", titlePath: ["A01 the hub opens"] }
+        : file === C ? { status: "interrupted", titlePath: ["a suite", "C02 the export downloads"] } : { status: "passed" }),
+      summary: { passed: 1, failed: 1, interrupted: 1 },
+    } : {}));
+    const result = aggregateEvidence(critical(criticalSelection()));
+    expect(result.status).toBe("failed");
+    expect(result.notPassed).toEqual([
+      "shard 1/2 : a.e2e.ts : A01 the hub opens (failed)",
+      "shard 1/2 : c.e2e.ts : a suite > C02 the export downloads (interrupted)",
+    ]);
+    const selection = path.join(directory, "selection.json");
+    fs.writeFileSync(selection, JSON.stringify(criticalSelection()));
+    const summary = path.join(directory, "github-summary.md");
+    const run = spawnSync(process.execPath, [AGGREGATOR, "critical", "--plan", selection, "--evidence", evidence,
+      "--out", out, "--results", "army-select=success,army-critical-shard=failure", "--revision", REVISION], {
+      cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: "", GITHUB_STEP_SUMMARY: summary }, windowsHide: true,
+    });
+    expect(run.status).toBe(1);
+    const written = fs.readFileSync(summary, "utf8");
+    expect(written).toContain("Parcours non passés (2)");
+    expect(written).toContain("- shard 1/2 : a.e2e.ts : A01 the hub opens (failed)");
+    expect(written).toContain("- shard 1/2 : c.e2e.ts : a suite > C02 the export downloads (interrupted)");
+    // A green aggregate lists none.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards();
+    expect(aggregateEvidence(critical(criticalSelection())).notPassed).toEqual([]);
   });
 
   it("fails on evidence that is not the shard's own, on other revisions and on a swapped shard", () => {

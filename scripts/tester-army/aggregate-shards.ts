@@ -39,6 +39,8 @@ export type AggregateInput = {
 export type AggregateResult = {
   status: "passed" | "failed" | "not-run";
   problems: string[];
+  /** Every selected journey that did not pass, as "<unit> : <file> : <title> (<status>)", for the job summary. */
+  notPassed: string[];
   /** The aggregate evidence directory to retain, null when nothing was planned. */
   evidence: string | null;
 };
@@ -219,7 +221,7 @@ function expectedScope(input: AggregateInput, unit: Unit, plan: Plan | undefined
   return input.suite === "full" && plan?.development === "none" ? "filtered-full" : input.suite;
 }
 
-function checkReport(unitDirectory: string, phase: string, where: string, problems: string[]): Report | undefined {
+function checkReport(unitDirectory: string, phase: string, where: string, problems: string[], notPassed: string[]): Report | undefined {
   const relative = `${phase}/report.json`;
   const file = path.join(unitDirectory, relative);
   if (!fs.existsSync(file)) {
@@ -237,6 +239,10 @@ function checkReport(unitDirectory: string, phase: string, where: string, proble
   if (results.length === 0) problems.push(`${where} ${relative} has no selected result.`);
   const red = results.filter((result) => result.status !== "passed");
   if (red.length) problems.push(`${where} ${relative}: ${red.length} selected result(s) not passed, first ${String(red[0].file)} (${String(red[0].status)}).`);
+  for (const result of red) {
+    const title = Array.isArray(result.titlePath) && result.titlePath.length ? result.titlePath.map(String).join(" > ") : String(result.testId ?? "");
+    notPassed.push(`${where} : ${path.posix.basename(String(result.file))} : ${title} (${String(result.status)})`);
+  }
   if (["failed", "skipped", "flaky", "interrupted"].some((key) => (summary[key] ?? 0) !== 0) ||
     ["selected", "executed", "passed"].some((key) => summary[key] !== results.length) || run.exitCode !== 0) {
     problems.push(`${where} ${relative} counts do not add up to every selected result executed and passed.`);
@@ -259,7 +265,7 @@ function unitDirectories(input: AggregateInput, units: Unit[], problems: string[
   return new Map(units.map((unit) => [unit, flat && units.length === 1 ? input.evidence : path.join(input.evidence, unit.artifact)]));
 }
 
-function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: Plan | undefined, problems: string[]): UnitRecord {
+function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: Plan | undefined, problems: string[], notPassed: string[]): UnitRecord {
   const where = unit.kind === "shard" ? unit.id : `${unit.id} (${unit.artifact})`;
   const manifestFile = path.join(directory, "manifest.json");
   if (!fs.existsSync(manifestFile)) {
@@ -340,7 +346,7 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
     if (!same(result.phases, wanted) || phases.length !== wanted.length || phases.some((phase) => phase.status !== "passed")) {
       problems.push(`${where} phases ${phases.map((phase) => `${String(phase.phase)} ${String(phase.status)}`).join(", ") || "none"}, expected ${wanted.join(", ")} passed.`);
     }
-    result.reports = wanted.flatMap((phase) => checkReport(directory, phase, where, problems) ?? []);
+    result.reports = wanted.flatMap((phase) => checkReport(directory, phase, where, problems, notPassed) ?? []);
     const ran = result.reports.find((report) => report.path === `${wanted[0]}/report.json`)?.files ?? [];
     if (planned.length) {
       for (const file of planned) if (!ran.includes(file)) problems.push(`${where} did not run ${file}.`);
@@ -389,14 +395,15 @@ function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records
 export function aggregateEvidence(input: AggregateInput): AggregateResult {
   const startedAt = new Date().toISOString();
   const problems: string[] = [];
+  const notPassed: string[] = [];
   const { units, plan, scope, wholeSuite } = plannedUnits(input, problems);
   checkJobs(input, units, plan, problems);
   if (units.length === 0) {
     // An explicit none: nothing ran, nothing is claimed.
-    return { status: problems.length ? "failed" : "not-run", problems, evidence: null };
+    return { status: problems.length ? "failed" : "not-run", problems, notPassed, evidence: null };
   }
   const directories = unitDirectories(input, units, problems);
-  const records = units.map((unit) => checkUnit(input, unit, directories.get(unit)!, plan, problems));
+  const records = units.map((unit) => checkUnit(input, unit, directories.get(unit)!, plan, problems, notPassed));
   const union = checkAcrossUnits(input, plan, records, problems, wholeSuite);
   fs.rmSync(input.out, { recursive: true, force: true });
   for (const unit of units) {
@@ -413,7 +420,7 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
   };
   fs.mkdirSync(input.out, { recursive: true });
   fs.writeFileSync(path.join(input.out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  return { status, problems, evidence: input.out };
+  return { status, problems, notPassed, evidence: input.out };
 }
 
 function summary(input: AggregateInput, result: AggregateResult): string {
@@ -422,6 +429,11 @@ function summary(input: AggregateInput, result: AggregateResult): string {
   if (result.status === "not-run") return `${[...lines, "Aucun parcours sélectionné : aucun job lancé, aucune preuve revendiquée.", ""].join("\n")}\n`;
   lines.push(result.status === "passed" ? "Tous les jobs prévus ont réussi, leurs preuves sont intègres et couvrent la sélection." : "Agrégation en échec :", "");
   for (const problem of result.problems.slice(0, 50)) lines.push(`- ${problem}`);
+  if (result.notPassed.length) {
+    // The names a reader needs first: without them, finding the red journeys means downloading the evidence.
+    lines.push("", `#### Parcours non passés (${result.notPassed.length})`, "");
+    for (const journey of result.notPassed.slice(0, 200)) lines.push(`- ${journey}`);
+  }
   return `${lines.join("\n")}\n`;
 }
 
