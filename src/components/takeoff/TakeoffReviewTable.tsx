@@ -108,15 +108,28 @@ export function reviewBlockReasons(items: readonly ReviewItem[], threshold: numb
   return new Map(guard.blocked_items.map((blocked) => [blocked.item_id, blocked.reasons]));
 }
 
+/** What a screen knows of the job when it reads a line's anomalies. */
+export type AnomalyContext = {
+  /** The apply guard's verdict on the job's lines (reviewBlockReasons); none: the screen does not read the guard. */
+  blocked?: ReviewBlockReasons;
+  /** The tenant's low confidence threshold; none: the default one. */
+  threshold?: number;
+};
+
 /**
- * A line's anomalies. With the guard's verdict (`blocked`), every reason it blocks the line on (a low confidence at the
- * tenant's threshold, a missing proof or page, a failed rule, rules to compute again); without it (the screens that do
- * not read the guard yet), a confidence below the default threshold, verified or not. Then, in both cases, a missing
- * proof and what the apply button also refuses: a zero quantity, an empty designation.
+ * A line's anomalies, one definition for every screen (D18f, decision D13), the union of:
+ * - every reason the apply guard blocks the line on (`blocked`, its verdict at the tenant's threshold and the job's
+ *   level: a low or missing confidence on level C, a missing proof or page, a failed rule, rules to compute again);
+ * - a confidence under the tenant's low threshold (`threshold`), on every level, verified or not;
+ * - a missing proof;
+ * - what the apply button also refuses: a zero quantity, an empty designation.
+ * A union, so « Avec anomalies » lists more lines than the guard blocks, never fewer. A screen that passes neither the
+ * guard's verdict nor the tenant's threshold reads the rest at the default threshold.
  */
-export function detectAnomalies(item: ReviewItem, blocked?: ReviewBlockReasons): AnomalyType[] {
-  const anomalies = new Set<AnomalyType>(blocked?.get(item.id) ?? []);
-  if (!blocked && item.confidence !== null && item.confidence < DEFAULT_LOW_CONFIDENCE_THRESHOLD) {
+export function detectAnomalies(item: ReviewItem, context: AnomalyContext = {}): AnomalyType[] {
+  const anomalies = new Set<AnomalyType>(context.blocked?.get(item.id) ?? []);
+  const threshold = context.threshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  if (item.confidence !== null && item.confidence < threshold) {
     anomalies.add("low_confidence");
   }
   if (!item.evidence) {
@@ -131,7 +144,7 @@ export function detectAnomalies(item: ReviewItem, blocked?: ReviewBlockReasons):
   return [...anomalies];
 }
 
-function matchesFilters(item: ReviewItem, filters: ReviewTableFilters, blocked: ReviewBlockReasons | undefined): boolean {
+function matchesFilters(item: ReviewItem, filters: ReviewTableFilters, anomalyContext: AnomalyContext): boolean {
   const query = filters.search.trim().toLowerCase();
   if (query && !item.designation.toLowerCase().includes(query)) return false;
 
@@ -151,7 +164,7 @@ function matchesFilters(item: ReviewItem, filters: ReviewTableFilters, blocked: 
   }
 
   if (filters.anomaly !== "all") {
-    const hasAnomalies = detectAnomalies(item, blocked).length > 0;
+    const hasAnomalies = detectAnomalies(item, anomalyContext).length > 0;
     if (filters.anomaly === "with_anomalies" && !hasAnomalies) return false;
     if (filters.anomaly === "without_anomalies" && hasAnomalies) return false;
   }
@@ -365,9 +378,11 @@ export default function TakeoffReviewTable({
   confidenceThreshold,
   jobLevel = null,
 }: TakeoffReviewTableProps) {
-  // ---- The apply guard's verdict on the lines (D13): « Avec anomalies » shows every line it blocks.
-  const blocked = useMemo(
-    () => (confidenceThreshold === undefined ? undefined : reviewBlockReasons(items, confidenceThreshold, jobLevel)),
+  // ---- The apply guard's verdict on the lines (D13): « Avec anomalies » shows every line it blocks, and every line
+  // under the tenant's threshold (D18f).
+  const anomalyContext = useMemo<AnomalyContext>(
+    () => (confidenceThreshold === undefined ? {}
+      : { blocked: reviewBlockReasons(items, confidenceThreshold, jobLevel), threshold: confidenceThreshold }),
     [items, confidenceThreshold, jobLevel]
   );
 
@@ -411,7 +426,7 @@ export default function TakeoffReviewTable({
 
   // ---- Filter + sort
   const filteredItems = useMemo(() => {
-    const result = items.filter((item) => matchesFilters(item, filters, blocked));
+    const result = items.filter((item) => matchesFilters(item, filters, anomalyContext));
     return result.sort((a, b) => {
       if (sortField === "confidence") {
         return compareConfidence(a.confidence, b.confidence, sortDirection);
@@ -426,7 +441,7 @@ export default function TakeoffReviewTable({
       }
       return sortDirection === "asc" ? cmp : -cmp;
     });
-  }, [items, filters, blocked, sortField, sortDirection]);
+  }, [items, filters, anomalyContext, sortField, sortDirection]);
 
   // ---- Spreadsheet navigation
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
@@ -642,7 +657,7 @@ export default function TakeoffReviewTable({
               </tr>
             ) : (
               filteredItems.map((item) => {
-                const anomalies = detectAnomalies(item, blocked);
+                const anomalies = detectAnomalies(item, anomalyContext);
                 const isExcluded = item.is_excluded;
                 const rowClassName = [
                   isExcluded && "bg-surface-subtle",

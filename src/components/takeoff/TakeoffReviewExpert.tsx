@@ -7,7 +7,7 @@ import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import TakeoffReviewTable, {
   detectAnomalies,
   reviewBlockReasons,
-  type ReviewBlockReasons,
+  type AnomalyContext,
 } from "@/components/takeoff/TakeoffReviewTable";
 import { TakeoffTableView } from "@/components/takeoff/TakeoffTableView";
 import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
@@ -89,19 +89,19 @@ function SummaryStatsBar({
   items,
   tablesCount,
   jobLevel,
-  blocked,
+  anomalyContext,
 }: {
   items: ReviewItem[];
   tablesCount: number;
   jobLevel: string | null;
-  blocked: ReviewBlockReasons;
+  anomalyContext: AnomalyContext;
 }) {
   const total = items.length;
   const included = items.filter((i) => !i.is_excluded).length;
   const excluded = items.filter((i) => i.is_excluded).length;
   const verified = items.filter((i) => i.is_verified).length;
   // The same count as the table's « Avec anomalies » filter.
-  const withAnomalies = items.filter((i) => detectAnomalies(i, blocked).length > 0).length;
+  const withAnomalies = items.filter((i) => detectAnomalies(i, anomalyContext).length > 0).length;
 
   // Level C extras
   const isLevelC = jobLevel === "C";
@@ -203,15 +203,15 @@ export function TakeoffReviewExpert({
   const hasDpgfTab = true;
   const selectedCompareCandidate =
     compareCandidates.find((job) => job.id === compareWithJobId) ?? null;
-  const blocked = useMemo(
-    () => reviewBlockReasons(items, confidenceThreshold, jobLevel),
+  const anomalyContext = useMemo<AnomalyContext>(
+    () => ({ blocked: reviewBlockReasons(items, confidenceThreshold, jobLevel), threshold: confidenceThreshold }),
     [items, confidenceThreshold, jobLevel]
   );
 
   return (
     <>
       {/* ---- Summary stats ---- */}
-      <SummaryStatsBar items={items} tablesCount={tablesCount} jobLevel={jobLevel} blocked={blocked} />
+      <SummaryStatsBar items={items} tablesCount={tablesCount} jobLevel={jobLevel} anomalyContext={anomalyContext} />
 
       {/* ---- Tab bar ---- */}
       {(hasTables || hasCompareTab || hasDpgfTab) && (

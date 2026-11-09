@@ -139,6 +139,20 @@ describe("TakeoffReviewTable anomaly filter", () => {
       .toBe(true);
   });
 
+  // D18f, written before the fix: « Avec anomalies » read the low confidence only through the guard, which checks it on
+  // level C alone, so an unverified level A or B line under the tenant threshold was « sans anomalie ».
+  it("lists under « Avec anomalies » a line under the tenant threshold on every level, not only where the guard reads it", () => {
+    for (const jobLevel of ["A", "B"]) {
+      const low = reviewLine(`EF cuivre DN 18 niveau ${jobLevel}`, { confidence: 0.6 });
+      const above = reviewLine(`EF cuivre DN 15 niveau ${jobLevel}`, { confidence: 0.75 });
+      const listed = renderFiltered([low, above], { confidenceThreshold: 0.7, jobLevel }, "with_anomalies");
+      expect(listed(low.designation), jobLevel).toBe(true);
+      expect(listed(above.designation), jobLevel).toBe(false);
+      expect(screen.getByRole("button", { name: `1 anomalie pour ${low.designation} : voir le détail` })).toBeTruthy();
+      cleanup();
+    }
+  });
+
   it("keeps a line whose rules are to compute again under « Avec anomalies »", () => {
     const stale = reviewLine("EF cuivre DN 42", { rules_stale: true });
     expect(renderFiltered([stale], { confidenceThreshold: 0.5, jobLevel: "B" }, "with_anomalies")(stale.designation)).toBe(true);

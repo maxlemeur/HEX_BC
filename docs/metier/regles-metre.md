@@ -596,10 +596,19 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   aperçu à jour, il garde toutes les lignes retenues (sens sûr). Le panneau des lignes
   bloquées nomme chaque règle en échec et sa raison.
 - **Revue complète** (vue avancée) : le filtre « Avec anomalies » et le compteur
-  « Anomalies » lisent le garde de la revue ciblée, au seuil du tenant et au niveau du
-  job (`reviewBlockReasons`, D13) : toute ligne qu'il bloque y figure (confiance faible
-  non vérifiée, preuve ou page manquante, règle en échec, règles à recalculer), avec les
-  quantités nulles, les désignations vides et les lignes sans preuve.
+  « Anomalies » suivent une seule définition (D13, D18f, `detectAnomalies`). Une ligne
+  y figure pour l'une de ces raisons :
+  - le garde de la revue ciblée la bloque, au seuil du tenant et au niveau du job
+    (`reviewBlockReasons` : confiance faible ou absente non vérifiée en niveau C, preuve
+    ou page manquante, règle en échec, règles à recalculer) ;
+  - sa confiance est sous le seuil du tenant, à tous les niveaux, vérifiée ou non ;
+  - elle n'a pas de preuve ;
+  - sa quantité est nulle ou sa désignation vide.
+
+  C'est une réunion : le filtre montre plus de lignes que le garde n'en bloque, jamais
+  moins. Les écrans qui ne lisent ni le garde ni le seuil du tenant (fiche de ligne, vue
+  des tableaux, panneau de preuve, revue de validation) appliquent le reste de la
+  définition au seuil par défaut (0,5).
   `ValidationReviewPanel` n'affiche pas les règles : la revue ciblée le fait.
 
 ## Banc
