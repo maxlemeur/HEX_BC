@@ -47,12 +47,12 @@ function PagesField({ name, pages, onChange }: { name: string; pages: number[]; 
   const parse = (value: string) => value.trim() === "" ? [] : value.split(",").map((part) => /^\s*[1-9]\d*\s*$/.test(part) ? Number(part) : -1);
   const invalid = parse(text).some((page) => page < 1);
   useEffect(() => { if (JSON.stringify(parse(text)) !== JSON.stringify(pages)) setText(pages.join(", ")); }, [pages, text]);
-  return <label className="space-y-1 text-sm"><span>Pages de {name}</span><Input aria-label={`Pages de ${name}`} aria-invalid={invalid} value={text} placeholder="Toutes les pages" onChange={(event) => { setText(event.target.value); onChange(parse(event.target.value)); }} />{invalid && <span className="block text-xs text-danger">Indiquez des pages entières positives séparées par des virgules. Aucune page invalide ne sera ignorée.</span>}</label>;
+  return <label className="space-y-1 text-sm"><span>Pages</span><Input aria-label={`Pages de ${name}`} aria-invalid={invalid} value={text} placeholder="Toutes les pages" onChange={(event) => { setText(event.target.value); onChange(parse(event.target.value)); }} />{invalid && <span className="block text-xs text-danger">Indiquez des pages entières positives séparées par des virgules. Aucune page invalide ne sera ignorée.</span>}</label>;
 }
 
-export function PreparationConfirmation({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+export function PreparationConfirmation({ label, accessibleLabel, checked, onChange }: { label: string; accessibleLabel?: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return <label className="flex items-start gap-2 rounded-lg border border-border bg-surface-subtle p-3 text-sm">
-    <input type="checkbox" className="mt-0.5 size-4" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    <input type="checkbox" aria-label={accessibleLabel} className="mt-0.5 size-4" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     <span>{label}</span>
   </label>;
 }
@@ -86,26 +86,26 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
         <span className="min-w-0 break-words">{source.document_name}<span className="ml-2 text-xs font-normal text-muted-foreground">{source.confirmed ? "Confirmé" : "À confirmer"}</span></span>
       </label>
       {source.active && <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm"><span>Révision de {source.document_name}</span><Input aria-label={`Révision de ${source.document_name}`} value={source.revision ?? ""} placeholder="Révision inconnue" onChange={(event) => changeSource(source.document_id, { revision: event.target.value.trim() || null })} /></label>
+        <label className="space-y-1 text-sm"><span>Révision</span><Input aria-label={`Révision de ${source.document_name}`} value={source.revision ?? ""} placeholder="Révision inconnue" onChange={(event) => changeSource(source.document_id, { revision: event.target.value.trim() || null })} /></label>
         <PagesField name={source.document_name} pages={source.pages} onChange={(pages) => changeSource(source.document_id, { pages })} />
       </div>}
-      {source.active && <label className="block space-y-1 text-sm"><span>Référence du plan de {source.document_name}</span><Input value={source.logical_document_id ?? ""} placeholder="Même référence pour les révisions du même document" onChange={(event) => changeSource(source.document_id, { logical_document_id: event.target.value.trim() || null })} /><span className="block text-xs text-muted-foreground">Les pièces ayant cette même référence représentent un même document. Choisissez une seule révision active.</span></label>}
+      {source.active && <label className="block space-y-1 text-sm"><span>Référence du plan</span><Input aria-label={`Référence du plan de ${source.document_name}`} value={source.logical_document_id ?? ""} placeholder="Même référence pour les révisions du même document" onChange={(event) => changeSource(source.document_id, { logical_document_id: event.target.value.trim() || null })} /><span className="block text-xs text-muted-foreground">Les pièces ayant cette même référence représentent un même document. Choisissez une seule révision active.</span></label>}
       <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} localPreviewUrl={source.document_id.startsWith("upload:") ? localPreviewUrl : null} />
       {source.active && !source.revision && <div className="space-y-2 text-sm">
         <p className="text-muted-foreground">Révision inconnue : précisez-la ou conservez une réserve attribuée.</p>
-        <label className="block space-y-1"><span>Motif de réserve pour {source.document_name}</span><Input value={draft.unknowns.find((unknown) => unknown.id === `source_revision:${source.document_id}`)?.answer ?? ""} onChange={(event) => {
+        <label className="block space-y-1"><span>Motif de réserve</span><Input aria-label={`Motif de réserve pour ${source.document_name}`} value={draft.unknowns.find((unknown) => unknown.id === `source_revision:${source.document_id}`)?.answer ?? ""} onChange={(event) => {
           const unknownId = `source_revision:${source.document_id}`;
           const previous = draft.unknowns.find((unknown) => unknown.id === unknownId);
           const next = { id: unknownId, question: `Révision inconnue de ${source.document_name}`, impact: "reservation" as const, status: "open" as const, answer: event.target.value || null, responsible: previous?.responsible ?? null, source_document_id: source.document_id, page: null };
           onChange({ ...draft, unknowns: [...draft.unknowns.filter((unknown) => unknown.id !== unknownId), next] });
         }} /></label>
-        <label className="block space-y-1"><span>Responsable de la réserve pour {source.document_name}</span><Input value={draft.unknowns.find((unknown) => unknown.id === `source_revision:${source.document_id}`)?.responsible ?? ""} onChange={(event) => {
+        <label className="block space-y-1"><span>Responsable de la réserve</span><Input aria-label={`Responsable de la réserve pour ${source.document_name}`} value={draft.unknowns.find((unknown) => unknown.id === `source_revision:${source.document_id}`)?.responsible ?? ""} onChange={(event) => {
           const unknownId = `source_revision:${source.document_id}`;
           const previous = draft.unknowns.find((unknown) => unknown.id === unknownId);
           const next = { id: unknownId, question: `Révision inconnue de ${source.document_name}`, impact: "reservation" as const, status: "open" as const, answer: previous?.answer ?? null, responsible: event.target.value || null, source_document_id: source.document_id, page: null };
           onChange({ ...draft, unknowns: [...draft.unknowns.filter((unknown) => unknown.id !== unknownId), next] });
         }} /></label>
-        <PreparationConfirmation label={`J'accepte la réserve de révision pour ${source.document_name}`} checked={draft.unknowns.some((unknown) => unknown.id === `source_revision:${source.document_id}` && unknown.status === "accepted")} onChange={(checked) => onChange({ ...draft, unknowns: draft.unknowns.map((unknown) => unknown.id === `source_revision:${source.document_id}` ? { ...unknown, status: checked ? "accepted" : "open" } : unknown) })} />
+        <PreparationConfirmation label="J’accepte cette réserve de révision" accessibleLabel={`J’accepte cette réserve de révision pour ${source.document_name}`} checked={draft.unknowns.some((unknown) => unknown.id === `source_revision:${source.document_id}` && unknown.status === "accepted")} onChange={(checked) => onChange({ ...draft, unknowns: draft.unknowns.map((unknown) => unknown.id === `source_revision:${source.document_id}` ? { ...unknown, status: checked ? "accepted" : "open" } : unknown) })} />
       </div>}
     </div>)}
     {draft.sources.length === 0 && <p className="text-sm text-muted-foreground">Aucune pièce disponible. Ajoutez vos documents avant de poursuivre.</p>}
