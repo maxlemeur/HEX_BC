@@ -2,6 +2,12 @@ import type { TakeoffMetricsStatsPayload } from "@/lib/takeoff/types";
 
 export const TAKEOFF_HIGH_SCORE_THRESHOLD = 0.8;
 export const TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE = 5;
+/**
+ * TI-681 (decision D18e): the high-score correction rate is observed over every plan together; the GO reads it as is,
+ * but the display must not present it as a reliability bound.
+ */
+export const TAKEOFF_HIGH_SCORE_RATE_NOTE =
+  "Taux observé, tous plans confondus : indicateur, pas une borne de fiabilité (TI-681).";
 
 export type TakeoffPilotWeeklySnapshot = {
   key: string;
@@ -28,6 +34,8 @@ export type TakeoffPilotGoNoGoCriterion = {
   label: string;
   targetLabel: string;
   actualLabel: string;
+  /** How to read the observed value, shown under the criterion; never part of the decision. */
+  note?: string;
   passed: boolean;
   status: "pass" | "fail" | "inconclusive";
 };

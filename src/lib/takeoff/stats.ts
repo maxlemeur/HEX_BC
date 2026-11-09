@@ -20,6 +20,7 @@ import {
 } from "@/lib/takeoff/types";
 import {
   TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE,
+  TAKEOFF_HIGH_SCORE_RATE_NOTE,
   TAKEOFF_HIGH_SCORE_THRESHOLD,
   type TakeoffMetricsPilotStatsPayload,
   type TakeoffPilotGoNoGo,
@@ -295,6 +296,7 @@ function buildGoNoGoCriterion(input: {
   label: string;
   targetLabel: string;
   actualLabel: string;
+  note?: string;
   passed: boolean;
   status?: TakeoffPilotGoNoGoCriterion["status"];
 }): TakeoffPilotGoNoGoCriterion {
@@ -735,10 +737,12 @@ export function buildTakeoffMetricsStatsPayload(
       key: "applied_high_score_correction_rate",
       label: "Corrections malgré un score élevé",
       targetLabel: `≤ ${formatPilotPercent(TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE)} sur ≥ ${formatPilotCount(TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE)} lignes appliquées`,
+      // TI-681: the sample size n is always shown; the note says how to read the rate (display only).
       actualLabel:
         calibration.status === "sufficient"
-          ? `${formatPilotPercent(calibration.appliedHighScoreMaterialCorrectionRate)} (${formatPilotCount(calibration.appliedHighScoreMateriallyCorrectedItems)}/${formatPilotCount(calibration.appliedHighScoreItems)})`
-          : `${formatPilotCount(calibration.appliedHighScoreItems)}/${formatPilotCount(TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE)} lignes appliquées`,
+          ? `${formatPilotPercent(calibration.appliedHighScoreMaterialCorrectionRate)} sur n = ${formatPilotCount(calibration.appliedHighScoreItems)} lignes (${formatPilotCount(calibration.appliedHighScoreMateriallyCorrectedItems)} corrigée${calibration.appliedHighScoreMateriallyCorrectedItems > 1 ? "s" : ""})`
+          : `n = ${formatPilotCount(calibration.appliedHighScoreItems)} ligne${calibration.appliedHighScoreItems > 1 ? "s" : ""} appliquée${calibration.appliedHighScoreItems > 1 ? "s" : ""} sur ${formatPilotCount(TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE)} requises`,
+      note: TAKEOFF_HIGH_SCORE_RATE_NOTE,
       passed:
         calibration.status === "sufficient" &&
         calibration.appliedHighScoreMaterialCorrectionRate <=
