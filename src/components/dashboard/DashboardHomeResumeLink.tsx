@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 
 import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import type { AffaireDashboardOverviewResult } from "@/lib/affaires/server";
