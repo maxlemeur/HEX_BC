@@ -821,6 +821,7 @@ export function LineRow({
             >
               <div className="estimate-line-more__items">
                 <div className="estimate-line-more__state">{lineStateNodes}</div>
+                {v3Grid ? <V3LineStateControls item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} /> : null}
                 {lineDetailNodes}
               </div>
             </Popover>
