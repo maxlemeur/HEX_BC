@@ -9,7 +9,7 @@ export type CompleteRowsQuery<Row, ErrorType> = PromiseLike<CompleteRowsResult<R
   order(column: string, options?: { ascending?: boolean }): CompleteRowsQuery<Row, ErrorType>;
   range(from: number, to: number): CompleteRowsQuery<Row, ErrorType>;
 };
-type ReadOptions = { limit?: number; concurrency?: 1 | 4 };
+type ReadOptions = { limit?: number; concurrency?: 1 | 4; pageSize?: 500 | 1000 };
 export type RowOrder = { column: string; ascending?: boolean; nullsFirst?: boolean };
 const PAGE_SIZE = 500;
 const IN_FILTER_ENCODED_BUDGET = 6000;
@@ -24,16 +24,18 @@ export async function readAllRows<Row, ErrorType>(
   if (limit !== Infinity && (!Number.isSafeInteger(limit) || limit < 1)) throw new Error("Limite de lecture invalide.");
   const concurrency = options.concurrency ?? 1;
   if (concurrency !== 1 && concurrency !== 4) throw new Error("Concurrence de lecture invalide.");
+  const pageSize = options.pageSize ?? PAGE_SIZE;
+  if (pageSize !== 500 && pageSize !== 1000) throw new Error("Taille de page invalide.");
   const query = createQuery().order("id", { ascending: true });
   const rows: Row[] = [];
   const ids = new Set<string | number>();
   let expectedCount: number | null = null;
   for (let offset = 0; offset < limit;) {
-    const total = expectedCount === null ? Math.min(PAGE_SIZE, limit) : Math.min(expectedCount, limit);
-    const offsets: number[] = Array.from({ length: expectedCount === null ? 1 : concurrency }, (_, index) => offset + index * PAGE_SIZE)
+    const total = expectedCount === null ? Math.min(pageSize, limit) : Math.min(expectedCount, limit);
+    const offsets: number[] = Array.from({ length: expectedCount === null ? 1 : concurrency }, (_, index) => offset + index * pageSize)
       .filter(start => start < total);
     const pages = await Promise.all(offsets.map(async start => {
-      const end = Math.min(start + PAGE_SIZE, limit) - 1;
+      const end = Math.min(start + pageSize, limit) - 1;
       const pageQuery = concurrency === 1 || start === 0 ? query : createQuery().order("id", { ascending: true });
       return { start, end, result: await pageQuery.range(start, end) };
     }));
@@ -62,7 +64,7 @@ export async function readAllRows<Row, ErrorType>(
         throw new Error("Lecture incomplète : une page de résultats est tronquée.");
       }
     }
-    offset += offsets.length * PAGE_SIZE;
+    offset += offsets.length * pageSize;
   }
   throw new Error("Lecture incomplète des lignes.");
 }

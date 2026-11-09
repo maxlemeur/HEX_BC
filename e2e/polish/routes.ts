@@ -25,7 +25,7 @@ const FROZEN_GRID = ['[data-testid="estimate-editor-table-shell"]'];
 
 export const POLISH_ROUTES: PolishRoute[] = [
   // Accueil et affaires
-  { id: "home", path: "/dashboard", heading: "Vue d’ensemble", tags: ["home"] },
+  { id: "home", path: "/dashboard", heading: "Accueil", tags: ["home"] },
   { id: "affaires", path: "/dashboard/affaires", heading: "Affaires", tags: ["affaires"] },
   { id: "affaires-new", path: "/dashboard/affaires/new", heading: "Nouvelle affaire", tags: ["affaires"] },
   { id: "affaire-hub", path: "/dashboard/affaires/:projectId", heading: /\S/, tags: ["affaires"] },

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { selectInChunks } from "@/lib/supabase/in-chunks";
+import { IN_FILTER_CHUNK_SIZE, selectInChunks } from "@/lib/supabase/in-chunks";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { mapSupabaseError, unprocessableEntity } from "@/lib/estimates/errors";
@@ -363,8 +363,9 @@ export async function listExistingRiskAlertRecords(input: {
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("updated_at" as never, { ascending: false })
-    // Every page recounts the alerts under the per-row select policy: the pages after the first go in parallel.
-    .order("id" as never, { ascending: false }), { concurrency: 4 });
+    // Each exact count evaluates the row policy again. Use the API's 1000-row
+    // cap here, retaining the complete-read guards and the recency ordering.
+    .order("id" as never, { ascending: false }), { concurrency: 4, pageSize: 1000 });
 
   if (error) {
     throw toTakeoffError(
@@ -385,6 +386,8 @@ export async function listExistingRiskAlertRecords(input: {
 const RISK_ALERT_INSERT_CHUNK_SIZE = 500;
 // Each request in flight holds a PostgREST pool connection: the rewrites of changed alerts go a few at a time.
 const RISK_ALERT_UPDATE_CONCURRENCY = 4;
+const RISK_ALERT_REFRESH_CONCURRENCY = 4;
+const RISK_ALERT_WRITE_CONCURRENCY = 8;
 
 /** Runs `run` on every item, at most `limit` at a time, and keeps the results in item order. */
 async function mapWithConcurrency<Item, Result>(
@@ -402,6 +405,28 @@ async function mapWithConcurrency<Item, Result>(
     }
   }));
   return results;
+}
+
+/** Share a pool bound across rewrites, refreshes, inserts and deactivation. */
+function limitRiskAlertWrites() {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async <Result>(request: () => PromiseLike<Result>): Promise<Result> => {
+    if (active >= RISK_ALERT_WRITE_CONCURRENCY) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    } else {
+      active += 1;
+    }
+    try {
+      return await request();
+    } finally {
+      // Hand the occupied slot directly to the next request; a new caller must
+      // not claim it before that waiter resumes.
+      const resume = waiting.shift();
+      if (resume) resume();
+      else active -= 1;
+    }
+  };
 }
 
 type RiskAlertWriteResult = { data?: unknown; error?: unknown } | null | undefined;
@@ -438,41 +463,46 @@ export async function applyTakeoffRiskRadarProjectionPlan(input: {
   for (let start = 0; start < input.plan.inserts.length; start += RISK_ALERT_INSERT_CHUNK_SIZE) {
     insertChunks.push(input.plan.inserts.slice(start, start + RISK_ALERT_INSERT_CHUNK_SIZE));
   }
-  const [updateResults, refreshResult, insertResults, staleResult] = await Promise.all([
+  const refreshChunks: string[][] = [];
+  for (let start = 0; start < input.plan.refreshAlertIds.length; start += IN_FILTER_CHUNK_SIZE) {
+    refreshChunks.push(input.plan.refreshAlertIds.slice(start, start + IN_FILTER_CHUNK_SIZE));
+  }
+  const write = limitRiskAlertWrites();
+  const [updateResults, refreshResults, insertResults, staleResult] = await Promise.all([
     mapWithConcurrency(input.plan.updates, RISK_ALERT_UPDATE_CONCURRENCY, ({ id, payload }) =>
-      input.supabase
+      write(() => input.supabase
         .from("estimate_risk_alerts" as never)
         .update(payload as never)
         .eq("tenant_id" as never, input.tenantId as never)
         .eq("id" as never, id as never)
-        .select(ESTIMATE_RISK_ALERTS_SELECT as never) as PromiseLike<RiskAlertWriteResult>
+        .select(ESTIMATE_RISK_ALERTS_SELECT as never) as PromiseLike<RiskAlertWriteResult>)
     ),
-    selectInChunks<Record<string, unknown>, unknown>(input.plan.refreshAlertIds, (chunk) =>
-      input.supabase
+    mapWithConcurrency(refreshChunks, RISK_ALERT_REFRESH_CONCURRENCY, (chunk) =>
+      write(() => input.supabase
         .from("estimate_risk_alerts" as never)
         .update(input.plan.refreshPayload as never)
         .eq("tenant_id" as never, input.tenantId as never)
         // An alert deactivated meanwhile by a concurrent radar is not refreshed: the count then differs.
         .eq("is_active" as never, true as never)
         .in("id" as never, chunk as never)
-        .select(ESTIMATE_RISK_ALERTS_SELECT as never) as PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>
+        .select(ESTIMATE_RISK_ALERTS_SELECT as never) as PromiseLike<RiskAlertWriteResult>)
     ),
     mapWithConcurrency(insertChunks, 1, (rows) =>
-      input.supabase
+      write(() => input.supabase
         .from("estimate_risk_alerts" as never)
         .insert(rows as never)
-        .select(ESTIMATE_RISK_ALERTS_SELECT as never) as PromiseLike<RiskAlertWriteResult>
+        .select(ESTIMATE_RISK_ALERTS_SELECT as never) as PromiseLike<RiskAlertWriteResult>)
     ),
     selectInChunks<Record<string, unknown>, unknown>(input.plan.staleAlertIds, (chunk) =>
-      input.supabase
+      write(() => input.supabase
         .from("estimate_risk_alerts" as never)
         .update(input.plan.stalePayload as never)
         .eq("tenant_id" as never, input.tenantId as never)
         .in("id" as never, chunk as never)
-        .select("id" as never) as PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>
+        .select("id" as never) as PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>)
     ),
   ]);
-  const results: RiskAlertWriteResult[] = [...updateResults, refreshResult, ...insertResults, staleResult];
+  const results: RiskAlertWriteResult[] = [...updateResults, ...refreshResults, ...insertResults, staleResult];
   for (const result of results) {
     if (result && "error" in result && result.error) {
       throw toTakeoffError(
@@ -488,13 +518,13 @@ export async function applyTakeoffRiskRadarProjectionPlan(input: {
 
   if (
     updateResults.some((result) => returnedRiskAlertRows(result).length !== 1) ||
-    returnedRiskAlertRows(refreshResult).length !== input.plan.refreshAlertIds.length ||
+    refreshResults.some((result, index) => returnedRiskAlertRows(result).length !== refreshChunks[index].length) ||
     insertResults.some((result, index) => returnedRiskAlertRows(result).length !== insertChunks[index].length) ||
     returnedRiskAlertRows(staleResult).length !== input.plan.staleAlertIds.length
   ) {
     return null;
   }
-  return [...updateResults, refreshResult, ...insertResults]
+  return [...updateResults, ...refreshResults, ...insertResults]
     .flatMap((result) => returnedRiskAlertRows(result))
     .map((row) => normalizeRiskAlertRow(row))
     .filter((row): row is TakeoffRiskAlert => row !== null)

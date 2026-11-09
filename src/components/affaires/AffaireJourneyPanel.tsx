@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronDown } from "lucide-react";
 

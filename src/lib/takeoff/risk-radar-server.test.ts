@@ -230,6 +230,36 @@ describe("risk radar operations", () => {
     expect(db.traffic.maxInFlight).toBeLessThanOrEqual(8);
   });
 
+  it.each([false, true])("refreshes independent alert batches concurrently without flooding the pool (mixed writes: %s)", async (mixed) => {
+    const lines = Array.from({ length: 1201 }, (_, index) => `line-${String(index).padStart(4, "0")}`);
+    const compare = (ids: string[]) => vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({
+      rows: ids.map((line_id) => ({ line_id, line_label: `Ligne ${line_id}`, proofs: [] })),
+    } as never);
+    compare(lines);
+    await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+    const reviewed = db.tables.estimate_risk_alerts.find((row) => row.line_id === lines[3])!;
+    Object.assign(reviewed, { status: "false_positive", review_note: "Preuve papier", reviewed_at: NOW, reviewed_by: USER });
+    const currentLines = mixed ? [...lines.slice(0, -5), ...Array.from({ length: 5 }, (_, index) => `new-${index}`)] : lines;
+    if (mixed) {
+      // Exercise inserts, individual rewrites and deactivation alongside refreshes.
+      for (const row of db.tables.estimate_risk_alerts.filter((alert) => alert.cause_code === "missing_proof").slice(10, 50)) {
+        row.scope_label = "Libellé périmé";
+      }
+    }
+    compare(currentLines);
+    for (const row of db.tables.estimate_risk_alerts) row.last_detected_at = "2026-01-01T00:00:00.000Z";
+    db.traffic.maxInFlight = 0;
+
+    const reopened = await fetchTakeoffRiskRadar(JOB, { version_id: VERSION });
+
+    expect(reopened.items.filter((row) => row.cause_code === "missing_proof").map((row) => row.line_id).sort()).toEqual([...currentLines].sort());
+    expect(reopened.items.find((row) => row.line_id === lines[3])).toMatchObject({ status: "false_positive", review_note: "Preuve papier" });
+    expect(db.tables.estimate_risk_alerts.filter((row) => row.is_active)
+      .every((row) => row.last_detected_at !== "2026-01-01T00:00:00.000Z")).toBe(true);
+    expect(db.traffic.maxInFlight).toBeGreaterThan(1);
+    expect(db.traffic.maxInFlight).toBeLessThanOrEqual(8);
+  });
+
   it("shows a non-operator project owner the stored projection when the policy filters the radar's updates", async () => {
     db.access.canUpdate = false;
     vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ ...auth, tenantRole: "viewer" });

@@ -26,7 +26,7 @@ export function AffaireFavoriteButton({
     <IconButton
       label={label}
       aria-pressed={isFavorite}
-      disabled={isPending}
+      loading={isPending}
       className={cn(isFavorite && "text-warning hover:text-warning", className)}
       icon={<StarIcon fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />}
       onClick={(event) => {

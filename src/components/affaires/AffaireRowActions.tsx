@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { EllipsisIcon, EyeIcon, HouseIcon, SquarePenIcon, TrashIcon } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
