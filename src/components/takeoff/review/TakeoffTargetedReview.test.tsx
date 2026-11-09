@@ -59,11 +59,11 @@ const AREA_LINE = { ...item(ids.z1, "Revêtement de sol", 19.5, [{ rule: "area_p
     expected_basis: "net_floor" } }]), unit: "m2" };
 const D17_REFUSAL = "Même base que la prestation : les deux surfaces se comparent et la plus élevée est retenue. Retenez 20 m² avant d’accepter.";
 
-/** Opens the acceptance of AREA_LINE alone, its reason, the net floor basis and a note filled in. */
-async function justifyPrintedArea(user: ReturnType<typeof userEvent.setup>, reason: string) {
+/** Opens the acceptance of an area line alone (AREA_LINE by default), its reason, the net floor basis and a note filled in. */
+async function justifyPrintedArea(user: ReturnType<typeof userEvent.setup>, reason: string, line: TakeoffJobItem = AREA_LINE) {
   vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
     job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
-    items: { data: [AREA_LINE], pagination: { total: 1, offset: 0, limit: 200 } },
+    items: { data: [line], pagination: { total: 1, offset: 0, limit: 200 } },
   } as never);
   render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
   const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
@@ -250,20 +250,40 @@ describe("TakeoffTargetedReview", () => {
   });
 
   // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline. On the price line's basis
-  // too, the quantity stays the measurement: nothing to retain, V is offered at 19.5 m².
-  it("accepts a measured outline on the price line's basis at the measured quantity", async () => {
+  // too, nothing compares: the quantity stays the line's, nothing to retain, V is offered at 19.5 m².
+  const OUTLINE_SENTENCE = "Même base, autre périmètre : la quantité reste celle de la ligne ; la surface écrite reste visible "
+    + "dans le contrôle.";
+  it("accepts a measured outline on the price line's basis at the line's quantity", async () => {
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: AREA_LINE.id, success: true, item: { ...AREA_LINE,
       is_verified: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
     const user = userEvent.setup();
     const dialog = await justifyPrintedArea(user, "measured_outline_retained");
-    expect(within(dialog).getByText("Même base, autre périmètre : la quantité reste la mesure de la ligne ; la surface écrite reste "
-      + "visible dans le contrôle.")).toBeInTheDocument();
+    expect(within(dialog).getByText(OUTLINE_SENTENCE)).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /^Retenir/ })).not.toBeInTheDocument();
     expect(within(dialog).queryByText(D17_REFUSAL)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Confirmer l’acceptation" }));
 
     await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: AREA_LINE.id,
       updated_at: AREA_LINE.updated_at, expected_rules_evaluated_at: AREA_LINE.rules_evaluated_at, fields: { is_verified: true,
+        verification_justification: { area_printed: { reason_code: "measured_outline_retained", retained_basis: "net_floor",
+          note: "Tableau des surfaces du plan, indice B." } } } }] }));
+  });
+
+  // A vector room labelled « sol net » is stored at max(polygon, printed) when the line is created (vectors/items.ts):
+  // here 20 m² for 19.5 measured. The dialog must not say the quantity stays the measurement: it stays the line's,
+  // 20 m², and V sends no quantity.
+  it("never calls the stored maximum of a vector net-floor room its measurement", async () => {
+    const stored = { ...AREA_LINE, quantity: 20 };
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: stored.id, success: true, item: { ...stored,
+      is_verified: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const dialog = await justifyPrintedArea(user, "measured_outline_retained", stored);
+    expect(within(dialog).getByText(OUTLINE_SENTENCE)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/reste la mesure/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirmer l’acceptation" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: stored.id,
+      updated_at: stored.updated_at, expected_rules_evaluated_at: stored.rules_evaluated_at, fields: { is_verified: true,
         verification_justification: { area_printed: { reason_code: "measured_outline_retained", retained_basis: "net_floor",
           note: "Tableau des surfaces du plan, indice B." } } } }] }));
   });

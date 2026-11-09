@@ -85,7 +85,8 @@ describe("printed-area failure", () => {
   });
 
   // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline. Even on the price line's
-  // basis nothing compares: the quantity stays the measurement. Every other reason keeps D17 on that basis.
+  // basis nothing compares: the quantity stays the line's (here the measurement). Every other reason keeps D17 on that
+  // basis.
   it("keeps the measurement when the measured outline is retained, even on the price line's basis (D21)", () => {
     expect(verificationError([AREA], false, area("net_floor", "measured_outline_retained"), 19.5)).toBeNull();
     expect(verificationError([AREA], false, area("net_floor", "printed_area_basis_identified"), 19.5)).toBe(D17_MESSAGE);

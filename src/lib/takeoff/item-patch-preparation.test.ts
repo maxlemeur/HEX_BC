@@ -262,7 +262,7 @@ describe("coded acceptance reasons", () => {
   });
 
   // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline: on the price line's basis
-  // too, the quantity stays the measurement.
+  // too, the quantity stays the line's (here the measurement).
   it("accepts a measured outline retained on the price line's basis at the measured quantity", () => {
     const outline = { area_printed: { ...areaReason.area_printed, retained_basis: "net_floor" as const } };
     expect(patch({ is_verified: true, verification_justification: outline }, { ...unverified, rule_results: [areaFailure] }))

@@ -264,6 +264,14 @@ function resolveSource(input: {
 
 const CLIENT_SEES_ORDINARY_LINE = "le client voit une ligne ordinaire.";
 
+/**
+ * What an administrator's override lifts since TI-681 (H8, D23): low confidence no longer blocks, so a forced line is
+ * not an unverified quantity as such; it lacked its localized proof or page (level C), its rule results were to compute
+ * again, or a blocking rule failed (a material not allowed). The marker does not say which one: all are named.
+ */
+const OVERRIDE_LIFTED = "un administrateur a levé ce qui la bloquait (preuve localisée ou page source manquante, règles à "
+  + "recalculer, ou règle bloquante en échec, comme un matériau interdit)";
+
 /** TI-686 D10/D12: a line the takeoff application marked; its amount is a provision, internal only (H9). */
 function provisionQtyStatus(provision: TakeoffProvision): EstimateLineTruth["qtyStatus"] {
   if (provision.kind === "hypothesis") {
@@ -277,7 +285,7 @@ function provisionQtyStatus(provision: TakeoffProvision): EstimateLineTruth["qty
     code: "internal_provision",
     label: "Provision interne",
     detail: provision.readable
-      ? `Ligne forcée à l’application du métré. Quantité non vérifiée : son montant est une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`
+      ? `Ligne forcée à l’application du métré : ${OVERRIDE_LIFTED}. Son montant est une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`
       : `Marqueur de provision illisible : la ligne est traitée comme une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`,
   };
 }

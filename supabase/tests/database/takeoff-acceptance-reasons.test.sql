@@ -220,7 +220,7 @@ select is((select array[quantity::text, verification_justification #>> '{area_pr
   'accepted at the printed 20 m² on the net floor basis');
 
 -- D21: « contour mesuré retenu » says the printed surface covers another outline. On the price line's basis too,
--- nothing compares: the quantity stays the measurement.
+-- nothing compares: the quantity stays the line's (here the measurement).
 select lives_ok($q$select pg_temp.accept('a6860000-0000-4000-8000-000000000410',
   pg_temp.area_reason('net_floor', 'measured_outline_retained'))$q$,
   'a measured outline retained on the price line''s basis is accepted at the measured 19.5 m² (D21)');

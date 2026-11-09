@@ -380,8 +380,10 @@ Bases de la surface écrite (`retained_basis`) : `net_floor` (sol net), `shab` (
   refusé.
 - **Même base, motif « contour mesuré retenu »** (D21) : la surface écrite ne couvre
   pas le même périmètre que le contour mesuré, donc rien n'est comparé. La quantité
-  reste la mesure ; le dialogue ne propose pas de retenir la surface écrite. Les trois
-  autres motifs gardent la règle D17 sur la même base.
+  reste celle de la ligne ; le dialogue ne propose pas de retenir la surface écrite.
+  Ce n'est pas toujours la mesure : une pièce vectorielle dont l'étiquette dit « sol
+  net » est enregistrée à la création au maximum du contour et de la surface écrite.
+  Les trois autres motifs gardent la règle D17 sur la même base.
 - **Autre base, ou base de la ligne inconnue** : rien n'est comparé, la quantité reste
   celle de la ligne ; la surface écrite reste visible dans le contrôle.
 - La base déclarée (`retained_basis`) n'entre ni dans la clé d'échec ni dans le contexte
@@ -529,6 +531,9 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
   - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
     provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
     interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
+  - Le détail interne d'une ligne forcée nomme ce qu'un forçage lève (preuve localisée ou page source manquante,
+    règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas une quantité non
+    vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait.
   - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client (copie
     commerciale, PDF, portail, export DPGF) ne lit `source_metadata` ; les tests de garde le vérifient.
   - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée

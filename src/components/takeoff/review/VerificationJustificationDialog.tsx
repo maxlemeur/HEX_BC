@@ -30,8 +30,9 @@ import {
 
 // The coded reasons V needs on a line (TI-685, TI-686 D9): one section per failure that asks for one, each titled by
 // its rule. The line is read live: a printed surface retained from here (« Retenir … m² ») is saved first, the rules
-// are computed again with it, then the acceptance is offered again. A measured outline retained keeps the measurement,
-// on the price line's basis too (D21): nothing to retain then.
+// are computed again with it, then the acceptance is offered again. A measured outline retained keeps the line's
+// quantity, on the price line's basis too (D21): nothing to retain then. That quantity is not always the measurement: a
+// vector room labelled « sol net » is stored at max(polygon, printed) when created (vectors/items.ts).
 
 const SELECT_CLASS = "rounded-md border border-border bg-surface p-2 text-sm";
 const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
@@ -42,7 +43,7 @@ type Line = { rule_results?: TakeoffRuleResult[]; rules_stale?: boolean; quantit
 function basisSentence(sameBasis: boolean, measuredOutline: boolean, lineBasisKnown: boolean) {
   if (sameBasis) {
     return measuredOutline
-      ? "Même base, autre périmètre : la quantité reste la mesure de la ligne ; la surface écrite reste visible dans le contrôle."
+      ? "Même base, autre périmètre : la quantité reste celle de la ligne ; la surface écrite reste visible dans le contrôle."
       : "Même base que la prestation : les deux surfaces se comparent, la plus élevée est retenue.";
   }
   return lineBasisKnown
