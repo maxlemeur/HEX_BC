@@ -573,6 +573,41 @@ describe("estimate pdf generator", () => {
     );
   });
 
+  // TI-686 D10/D12 (H9): a takeoff line forced past the apply guard, or entered as a hypothesis, prints as an ordinary
+  // priced line. Its marker (source_metadata.takeoff_provision) is internal: neither the client contract the PDF
+  // publishes nor the rendered document carries it.
+  const publishedCopy = (serviceRoleSupabase: ReturnType<typeof usePdfClients>["serviceRoleSupabase"]) => {
+    const publication = vi.mocked(serviceRoleSupabase.rpc).mock.calls
+      .find(([name]) => name === "publish_estimate_pdf_generation")?.[1] as Record<string, unknown> | undefined;
+    return {
+      contract: JSON.stringify(publication?.p_client_contract_snapshot),
+      document: JSON.stringify(vi.mocked(renderToBuffer).mock.calls.at(-1)?.[0]),
+    };
+  };
+  it.each([
+    ["a forced line", { forced: true, forced_reason: null, entry_category: null }],
+    ["an entered hypothesis", { forced: false, forced_reason: null, entry_category: "hypothesis" }],
+  ])("prints %s of the takeoff as an ordinary priced line", async (_name, source) => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
+    const itemId = "c3000000-0000-4000-8000-000000000301";
+    const line = { source_provider: "takeoff", source_file_name: "plan-fictif.pdf", source_page: 3 };
+
+    const ordinaryClients = usePdfClients({ itemOverrides: { ...line, source_metadata: { takeoff_item_id: itemId } } });
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    const ordinary = publishedCopy(ordinaryClients.serviceRoleSupabase);
+    const provisionClients = usePdfClients({ itemOverrides: { ...line, source_metadata: { takeoff_item_id: itemId,
+      takeoff_provision: { version: 1, job_id: "c3000000-0000-4000-8000-000000000201",
+        sources: [{ takeoff_item_id: itemId, ...source }] } } } });
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    const provision = publishedCopy(provisionClients.serviceRoleSupabase);
+
+    expect(ordinary.contract).toContain("\"saleHtCents\":10000");
+    expect(provision).toEqual(ordinary);
+    for (const printed of [provision.contract, provision.document]) {
+      expect(printed).not.toMatch(/takeoff_provision|Provision interne|Hypothèse|forç|dérogation/);
+    }
+  });
+
   it("keeps unexpected CGV loading errors visible", async () => {
     const supabase = createSupabasePdfMock({
       termsTemplateError: {

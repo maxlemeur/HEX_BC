@@ -222,8 +222,9 @@ d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sec
   et journalisée. Rouvrir la ligne ou modifier son contenu l'efface.
 - Un matériau bloqué ne s'accepte jamais (`TAKEOFF_RULE_NOT_ACCEPTABLE`) : corriger la
   ligne ; sinon, seul un administrateur peut forcer l'application, avec une justification
-  écrite (voir « Override admin »). Réserve, variante et provision interne sont à
-  construire (TI-686).
+  écrite (voir « Override admin »). La ligne forcée entre alors au devis comme provision
+  interne (TI-686, D10). La réserve dans l'offre (TI-682) et la variante restent à
+  construire.
 
 **Cas tranchés par TI-685** (l'ancienne liste « à trancher ») :
 
@@ -442,6 +443,7 @@ mise en service, DOE…).
   - « Ce qui fonde la quantité » est une note : obligatoire pour une hypothèse, de 10 à 500 caractères (ce qui est supposé, ce qui reste à confirmer) ; facultative, 500 caractères au plus, pour les cinq autres. Elle se mesure comme les notes d'acceptation : en caractères, sans les blancs ASCII des deux bouts.
   - **Une modification nue de la quantité ne règle plus l'échec** : la règle reste en version 1. Une ligne modifiée sans catégorie échoue de nouveau, avec sa propre clé, et V ne l'a jamais acceptée.
   - Le serveur lit la catégorie, pas l'auteur : une saisie survit à la suppression de son auteur. Une saisie attestée avant D12, sans catégorie, repasse « à saisir » au prochain recalcul. Aucune donnée n'est réécrite.
+  - Une quantité saisie en « Hypothèse » entre au devis comme hypothèse : une provision interne à confirmer, que le client voit comme une ligne chiffrée ordinaire (voir « Override admin », provision interne).
 - La vérifier ne la règle jamais : `acceptable: false`. Une ligne qui porte aussi un échec acceptable ne s'accepte pas non plus tant que sa quantité reste à saisir : la base refuse V (`TAKEOFF_RULE_NOT_ACCEPTABLE`), et la revue ciblée ne le propose pas.
 
 ## Blocage et branchement (L5b)
@@ -509,10 +511,29 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 
 **Override admin : gardé.**
 
-- C'est la seule voie pour appliquer une ligne bloquée (matériau bloqué, quantité à saisir, échec non accepté) :
-  seul un administrateur du tenant peut forcer l'application, avec une justification écrite de 10 à 500 caractères,
-  journalisée dans `audit_logs` et jamais imprimée pour le client.
-- Réserve, variante, provision interne et motif codé de forçage n'existent pas : ils sont à construire (TI-686).
+- C'est la seule voie pour appliquer une ligne bloquée (depuis TI-681 : preuve localisée ou page manquante en
+  niveau C, résultats à recalculer, matériau bloqué ou autre échec d'une règle bloquante) : seul un administrateur du
+  tenant peut forcer l'application, avec une justification écrite de 10 à 500 caractères, journalisée dans
+  `audit_logs` et jamais imprimée pour le client.
+- **Provision interne** (TI-686, D10 et D12, migration `20261110094503_takeoff_apply_provisions.sql`). Toute ligne
+  forcée entre au devis comme provision interne, quelle que soit la protection qui la bloquait encore (H8) : preuve
+  localisée ou page manquante en niveau C, résultats à recalculer, échec d'une règle bloquante comme un matériau
+  bloqué. Une confiance faible ne bloque plus depuis TI-681 : elle ne force rien et ne fait pas de provision. Une
+  quantité saisie avec la catégorie « Hypothèse » y entre aussi, sans forçage, comme hypothèse.
+  - L'application écrit `source_metadata.takeoff_provision` sur la ligne du devis, dans sa propre transaction et par
+    ses deux variantes (sans DPGF et avec l'autorisation DPGF) : `{ version: 1, job_id, sources: [{ takeoff_item_id,
+    forced, forced_reason, entry_category }] }`. Les sources sont les lignes de métré forcées (celles de l'audit
+    consommé pour ce job) ou saisies en hypothèse ; une ligne DPGF rapprochée ne nomme que celles-là. Une ligne de
+    longueur dont les tronçons sont regroupés et arrondis une seule fois (TI-681) nomme les sources provisionnées de
+    tous ses tronçons. Les lignes d'un ouvrage créé depuis une hypothèse gardent le marqueur.
+  - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
+    provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
+    interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
+  - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client (copie
+    commerciale, PDF, portail, export DPGF) ne lit `source_metadata` ; les tests de garde le vérifient.
+  - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
+    `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
+- La réserve dans l'offre (TI-682), la variante et le motif codé de forçage restent à construire.
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
 - Il consomme l'audit une seule fois.

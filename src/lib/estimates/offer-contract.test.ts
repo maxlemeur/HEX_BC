@@ -200,7 +200,8 @@ describe("Client1/Proof1/Seal5 contracts", () => {
     );
     it.each([
       "rows.1.unit_price_ht_cents", "rows.1.h_mo", "rows.1.labor_role_id", "rows.1.selected_supplier_price_id",
-      "rows.1.source_metadata", "totals.costSubtotalCents", "version.margin_multiplier", "version.calc_snapshot_context",
+      // TI-686 (H9): a takeoff provision is internal; the client copy refuses its marker as any private key.
+      "rows.1.source_metadata", "rows.1.takeoff_provision", "rows.1.line_truth", "totals.costSubtotalCents", "version.margin_multiplier", "version.calc_snapshot_context",
       "issuer.ownerId", "company.legal.extra", "company.address.extra", "portalToken", "project.currentProfile",
     ])("rejects unknown/private key %s", (target) => {
       const changed = snapshot(); setAt(changed, target, "forbidden-private-field");

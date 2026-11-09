@@ -1,3 +1,5 @@
+import { readTakeoffProvision, type TakeoffProvision } from "@/lib/estimates/takeoff-provision";
+
 type EstimateLineTruthSourceKind =
   | "manual"
   | "dpgf"
@@ -14,7 +16,10 @@ export type EstimateLineTruthQtyStatus =
   | "assumed"
   | "provisional"
   | "to_confirm"
-  | "missing";
+  | "missing"
+  // TI-686 D10/D12: internal estimate only; the client sees an ordinary priced line (H9).
+  | "internal_provision"
+  | "hypothesis";
 
 export type EstimateLineTruthConfidenceLabel = "faible" | "moyenne" | "forte";
 
@@ -257,9 +262,30 @@ function resolveSource(input: {
   }
 }
 
+const CLIENT_SEES_ORDINARY_LINE = "le client voit une ligne ordinaire.";
+
+/** TI-686 D10/D12: a line the takeoff application marked; its amount is a provision, internal only (H9). */
+function provisionQtyStatus(provision: TakeoffProvision): EstimateLineTruth["qtyStatus"] {
+  if (provision.kind === "hypothesis") {
+    return {
+      code: "hypothesis",
+      label: "Hypothèse",
+      detail: `Quantité saisie sur hypothèse au métré : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`,
+    };
+  }
+  return {
+    code: "internal_provision",
+    label: "Provision interne",
+    detail: provision.readable
+      ? `Ligne forcée à l’application du métré. Quantité non vérifiée : son montant est une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`
+      : `Marqueur de provision illisible : la ligne est traitée comme une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`,
+  };
+}
+
 function resolveQtyStatus(input: {
   quantity: number | null;
   provider: string | null;
+  metadata: unknown;
 }): EstimateLineTruth["qtyStatus"] {
   if (input.quantity === null) {
     return {
@@ -267,6 +293,11 @@ function resolveQtyStatus(input: {
       label: "Qte manquante",
       detail: "Aucune quantité n'est renseignée sur cette ligne.",
     };
+  }
+
+  const provision = readTakeoffProvision(input.metadata);
+  if (provision) {
+    return provisionQtyStatus(provision);
   }
 
   switch (input.provider) {
@@ -394,6 +425,7 @@ export function resolveEstimateLineTruth(
   const qtyStatus = resolveQtyStatus({
     quantity,
     provider,
+    metadata: item.source_metadata,
   });
   const confidence = resolveConfidence({
     quantity,

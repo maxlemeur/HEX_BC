@@ -89,6 +89,25 @@ for (const scenario of ["level-a", "admin-override", "excluded"] as const) {
     const after = await readEstimate(browser, ids.versionId);
     for (const item of items.filter(item => !item.is_excluded)) expect(after.items.find(row => row.title === item.designation)?.quantity).toBe(item.quantity);
     for (const item of items.filter(item => item.is_excluded)) expect(after.items.some(row => row.title === item.designation)).toBe(false);
+    if (scenario === "admin-override") {
+      // TI-686 D10 (H8, H9): the line forced past its missing localized proof enters the internal estimate as a
+      // provision; the admitted lines stay measured, low confidence included (TI-681: it no longer blocks, so nothing
+      // forces it). The printed estimate shows ordinary priced lines, never the provision or the override.
+      const qtyStatus = (title: string) => (after.items.find(row => row.title === title)?.line_truth as
+        { qtyStatus?: { code?: string } } | null | undefined)?.qtyStatus?.code;
+      expect(seed.items[0].designation).toBe("Cloison BA13 ep.72");
+      expect(Object.fromEntries(items.filter(item => !item.is_excluded).map(item => [item.designation, qtyStatus(item.designation)])))
+        .toEqual({ "Cloison BA13 ep.72": "internal_provision", "Faux-plafond 60x60": "measured",
+          "Enduit platre int.": "measured", "Peinture acrylique": "measured" });
+      await browser.goto(`/dashboard/estimates/${ids.versionId}/print?price_mode=unit_and_total&detail_level=lines`, { waitUntil: "domcontentloaded" });
+      await expect(screen.getByRole("heading", "Devis", { exact: true })).toBeVisible();
+      const printed = await browser.evaluate(() => Array.from(document.querySelectorAll(".estimate-document"))
+        .filter(element => element.getClientRects().length > 0).map(element => element.textContent ?? "").join(" "));
+      await recordEvidence(army, "takeoff-admin-override-print", { versionId: ids.versionId, printed });
+      expect(printed).toContain("Cloison BA13 ep.72");
+      expect(printed).toContain("Faux-plafond 60x60");
+      expect(printed).not.toMatch(/Provision interne|Hypothèse|forç|dérogation/);
+    }
   });
 }
 

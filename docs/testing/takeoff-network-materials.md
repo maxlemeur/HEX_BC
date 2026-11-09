@@ -11,8 +11,9 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
 - Multicouche gaz : échec non acceptable en relecture. Seul un administrateur peut
   forcer l’application, avec une justification écrite (override existant, de 10 à
   500 caractères, journalisé dans `audit_logs`, jamais imprimé pour le client).
-  Réserve, variante, provision interne et motif codé de forçage n'existent pas
-  encore : ils sont à construire (TI-686).
+  Depuis TI-686 (D10), la ligne forcée entre au devis comme provision interne : le
+  client voit une ligne chiffrée ordinaire. La réserve dans l'offre (TI-682), la
+  variante et le motif codé de forçage restent à construire.
 - PVC en eaux grasses, galvanisé/PEHD en EF et EFA, cuivre en condensats, PEHD en
   RIA et multicouche en GLY/départ/retour : justification du système et des conditions.
 - Inox en condensats : admis ; cuivre en glycol et PER en bouclage ECS : inchangés.
@@ -73,7 +74,8 @@ table le sont avec celles des séries sous pression.
   acceptabilité inchangés, et le motif n'entre pas dans la clé d'échec ; le PE gaz
   garde son propre code.
 - **Multicouche gaz** : le motif ne promet plus de réserve ni de variante. Seul un
-  administrateur peut forcer l'application, avec une justification écrite.
+  administrateur peut forcer l'application, avec une justification écrite ; la ligne
+  entre alors au devis comme provision interne (TI-686, D10).
 - **Version 3 de la table** (D18g) : elle fait revoir les lignes vérifiées sans voir
   la condition, mais la version entre dans chaque clé d'échec : toutes les clés
   `dn_network` changent. Au prochain recalcul de la version, toute ligne vérifiée d'un

@@ -29,6 +29,19 @@ describe("estimate editor read contract", () => {
     await expect(fetchEstimateEditorData(VERSION_ID)).rejects.toThrow();
   });
 
+  // TI-686 D10/D12: the server's line truth of a forced takeoff line or an entered hypothesis reaches the editor.
+  it.each(["internal_provision", "hypothesis"])("accepts the internal %s quantity status of a takeoff line", async (code) => {
+    const data = editorResponse();
+    respondWith({ ...data, items: [{ ...data.items[0], line_truth: {
+      source: { kind: "plan", label: "Plan / métré", detail: null },
+      qtyStatus: { code, label: "Provision interne", detail: null },
+      confidence: { label: "faible", score: 0.42, detail: null },
+      needsReview: true,
+    } }] });
+    const loaded = await fetchEstimateEditorData(VERSION_ID);
+    expect(loaded.items[0]).toMatchObject({ line_truth: { qtyStatus: { code } } });
+  });
+
   it("rejects an incomplete version", async () => {
     respondWith({ ...editorResponse(), version: { id: VERSION_ID } });
     await expect(fetchEstimateEditorData(VERSION_ID)).rejects.toThrow();

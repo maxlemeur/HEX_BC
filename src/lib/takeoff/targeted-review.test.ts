@@ -102,14 +102,16 @@ describe("acceptanceOf", () => {
       .toBe(false);
   });
 
-  // TI-686: the only way past a blocked material is the admin override at apply time, with a written justification.
-  // No reserve, variant or internal provision exists yet: the reason must not promise one.
+  // TI-686: the only way past a blocked material is the admin override at apply time, with a written justification;
+  // the forced line then enters the estimate as an internal provision (D10). No reserve or variant exists yet (the
+  // reserve is TI-682's): the reason must not promise one.
   it("names the admin override with a written justification as the only way past a blocked material", () => {
     const blocked = acceptanceOf(line({ rule_results: [rule({ code: "DN_NETWORK_MATERIAL_BLOCKED", acceptable: false,
       reason: "Multicouche en gaz : interdit." })] }), "B");
     expect(blocked.enabled).toBe(false);
-    expect(blocked.reason).toContain("un administrateur peut forcer l’application, avec une justification écrite");
-    expect(blocked.reason).not.toMatch(/réserve|variante|provision/);
+    expect(blocked.reason).toBe("Matériau bloqué : corrigez la ligne. Sinon, seul un administrateur peut forcer l’application, "
+      + "avec une justification écrite ; la ligne entre alors au devis comme provision interne.");
+    expect(blocked.reason).not.toMatch(/réserve|variante/);
   });
 });
 

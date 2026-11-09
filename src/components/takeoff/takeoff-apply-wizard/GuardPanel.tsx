@@ -153,7 +153,9 @@ export function GuardPanel({
           <p className="mt-1 text-xs text-muted-foreground">
             Cette dérogation contourne les blocages ci-dessus. Elle exige une
             justification précise, sera enregistrée dans le journal d&apos;audit et
-            ne remplace pas les preuves manquantes.
+            ne remplace pas les preuves manquantes. Chaque ligne levée entre au
+            devis comme provision interne ; le forçage n&apos;apparaît jamais dans
+            le devis client.
           </p>
           <label
             htmlFor={justificationId}
