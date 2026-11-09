@@ -1,4 +1,5 @@
-export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE = 56;
+// Une ligne de la grille mesure 35 px ; les lignes mesurées corrigent ensuite l'estimation.
+export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE = 36;
 export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN = 8;
 export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD = 50;
 

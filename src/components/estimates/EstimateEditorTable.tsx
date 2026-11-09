@@ -5,6 +5,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -76,9 +77,15 @@ import {
   type EstimateSectionCalculation,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
-  useSpreadsheetNavigation,
-  type SpreadsheetNavigationRow,
-} from "@/hooks/useSpreadsheetNavigation";
+  useGridActiveRowId,
+  useGridNavigation,
+  type GridNavigationResult,
+} from "@/hooks/useGridNavigation";
+import { type SpreadsheetNavigationRow } from "@/hooks/useSpreadsheetNavigation";
+import {
+  useEstimateGridCellActions,
+  useEstimateGridClipboardEvents,
+} from "@/components/estimates/hooks/useEstimateGridCellActions";
 import {
   useColumnVisibility,
   type ColumnKey,
@@ -267,6 +274,10 @@ type EstimateEditorTableProps = {
   ) => void;
   onTrackSuggestionCorrections?: (
     corrections: SuggestionCorrectionPayload[]
+  ) => Promise<void>;
+  /** Cellules de plusieurs lignes écrites ensemble (coller, recopier, effacer) : une seule annulation. */
+  onApplyCellPatches?: (
+    entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>
   ) => Promise<void>;
   onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
   onBulkDeleteLines: (itemIds: string[]) => Promise<void>;
@@ -872,6 +883,43 @@ export function resolveEstimateViewportColumns(
   return isMobileViewport ? MOBILE_ESSENTIAL_COLUMNS : visibleColumns;
 }
 
+/** « Lot > Sous-lot » of the active line; null on a section or at the root. */
+function resolveActiveLineBreadcrumb(
+  activeClientKey: string | null,
+  itemByClientKey: ReadonlyMap<string, EstimateItem>,
+  itemById: ReadonlyMap<string, EstimateItem>,
+) {
+  if (!activeClientKey) return null;
+  const activeItem = itemByClientKey.get(activeClientKey);
+  if (!activeItem || activeItem.item_type !== "line") return null;
+
+  const labels: string[] = [];
+  let cursorParentId = activeItem.parent_id;
+  let guard = 0;
+  while (cursorParentId && guard < 100) {
+    guard += 1;
+    const parent = itemById.get(cursorParentId);
+    if (!parent || parent.item_type !== "section") break;
+    labels.push(parent.title || "Sans titre");
+    cursorParentId = parent.parent_id;
+  }
+  return labels.length === 0 ? null : labels.reverse().join(" > ");
+}
+
+/**
+ * Renders what depends on the active row. Moving the active cell re-renders
+ * this subtree only, never the table.
+ */
+function GridActiveRow({
+  navigation,
+  children,
+}: {
+  navigation: GridNavigationResult;
+  children: (activeClientKey: string | null) => React.ReactNode;
+}) {
+  return <>{children(useGridActiveRowId(navigation))}</>;
+}
+
 export function EstimateEditorTable({
   versionId,
   currency = "EUR",
@@ -912,6 +960,7 @@ export function EstimateEditorTable({
   onConvertItems,
   onPatchItem,
   onTrackSuggestionCorrections,
+  onApplyCellPatches,
   onApplyBulkMajoration,
   onBulkDeleteLines,
   onBulkMoveLines,
@@ -984,6 +1033,9 @@ export function EstimateEditorTable({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const columnResizeCleanupRef = useRef<(() => void) | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
+  const gridNavigationRef = useRef<GridNavigationResult | null>(null);
+  const cellPasteHandlerRef = useRef<((text: string, target: Element) => boolean) | null>(null);
+  const getPinnedRowId = useCallback(() => gridNavigationRef.current?.getActiveRowId() ?? null, []);
   const appliedSuggestionContextByItemIdRef = useRef<
     Record<string, AppliedSuggestionContext>
   >({});
@@ -1542,6 +1594,7 @@ export function EstimateEditorTable({
     supplyTypeById,
     v3LaborRoles: v3Grid ? laborRoles : null,
     onPasteRows,
+    cellPasteHandlerRef,
   });
 
   const handleTableBodyMouseDown = useCallback(
@@ -1955,6 +2008,7 @@ export function EstimateEditorTable({
     tableCardRef,
     scrollToItemId: needsScrollTargetReveal || (isMobileViewport && !showFullTableOnMobile) ? null : scrollToItemId,
     onScrollToItemHandled,
+    getPinnedRowId,
   });
 
   const hiddenSpreadsheetColumnKeys = useMemo(() => {
@@ -1999,21 +2053,26 @@ export function EstimateEditorTable({
   const spreadsheetNavigationRows = useMemo(() => {
     if (!hasVisibleRowsForRender) return [] as SpreadsheetNavigationRow[];
 
-    return visibleItemsInOrderForRender.map((item) => {
-      const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled, viewportVisibleColumns.has("supplier"));
-      if (hiddenSpreadsheetColumnKeys.size === 0) {
-        return {
-          rowId: getEstimateEditorItemClientKey(item),
-          columnKeys: allKeys,
-        };
-      }
-      return {
-        rowId: getEstimateEditorItemClientKey(item),
-        columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key))
+    const includeSupplier = viewportVisibleColumns.has("supplier");
+    // Les clés suivent l'ordre affiché des colonnes. Un seul tableau par type
+    // de ligne, partagé par toutes les lignes : la grille les compare par référence.
+    const keysByItemType = new Map<EstimateItem["item_type"], string[]>();
+    const keysFor = (itemType: EstimateItem["item_type"]) => {
+      let keys = keysByItemType.get(itemType);
+      if (!keys) {
+        keys = getSpreadsheetColumnKeys(itemType, isLaborSplitEnabled, includeSupplier)
+          .filter((key) => !hiddenSpreadsheetColumnKeys.has(key))
           .sort((left, right) => columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[left])
-            - columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[right])),
-      };
-    });
+            - columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[right]));
+        keysByItemType.set(itemType, keys);
+      }
+      return keys;
+    };
+
+    return visibleItemsInOrderForRender.map((item) => ({
+      rowId: getEstimateEditorItemClientKey(item),
+      columnKeys: keysFor(item.item_type),
+    }));
   }, [
     hasVisibleRowsForRender,
     hiddenSpreadsheetColumnKeys,
@@ -2023,50 +2082,75 @@ export function EstimateEditorTable({
     visibleItemsInOrderForRender,
   ]);
 
-  const spreadsheetNavigation = useSpreadsheetNavigation({
+  const getGridItem = useCallback(
+    (rowId: string) => itemByClientKey.get(rowId),
+    [itemByClientKey],
+  );
+  const reportGridLeftovers = useCallback(
+    (message: { title: string; description: string }) => toast.error(message),
+    [toast],
+  );
+  const gridCellActions = useEstimateGridCellActions({
+    isReadOnly,
+    isV3: Boolean(v3Grid),
+    currency,
+    supplyTypes,
+    laborRoles,
+    legacyUnitByItemId: mergedUnitDrafts,
+    rows: spreadsheetNavigationRows,
+    getItem: getGridItem,
+    hasSelectedLines,
+    onPatchItem: patchItemWithSuggestionTracking,
+    onApplyCellPatches,
+    onLegacyUnitDraftChange: handleUnitDraftChange,
+    onLeftovers: reportGridLeftovers,
+  });
+
+  // Page précédente / suivante : une hauteur d'écran moins une ligne, comme un tableur.
+  const getGridPageSize = useCallback(() => {
+    const scroller = virtualScrollRef.current ?? scrollContainerRef.current;
+    const row = scroller?.querySelector<HTMLElement>(".estimate-row");
+    if (!scroller || !row || row.offsetHeight === 0) return 10;
+    return Math.max(1, Math.floor(scroller.clientHeight / row.offsetHeight) - 1);
+  }, [virtualScrollRef]);
+
+  const spreadsheetNavigation = useGridNavigation({
     rows: spreadsheetNavigationRows,
     disabled: !hasVisibleRowsForRender || isReadOnly,
     onActiveCellNotMounted: isVirtualized
       ? handleNavigationCellNotMounted
       : undefined,
+    getPageSize: getGridPageSize,
+    // Des lignes cochées : Maj+clic continue d'étendre la sélection de lignes.
+    shouldExtendOnShiftClick: () => !hasSelectedLines,
+    onClearSelection: gridCellActions.onClearSelection,
+    onFillDown: gridCellActions.onFillDown,
   });
-  const activeClientKey = spreadsheetNavigation.activeCell?.rowId ?? null;
-  const insertionAnchorItemId = activeClientKey
-    ? (itemByClientKey.get(activeClientKey)?.id ?? null)
-    : null;
 
+  useLayoutEffect(() => {
+    gridNavigationRef.current = spreadsheetNavigation;
+  }, [spreadsheetNavigation]);
+
+  useEstimateGridClipboardEvents({
+    navigation: spreadsheetNavigation,
+    cellActions: gridCellActions,
+    tableCardRef,
+    cellPasteHandlerRef,
+    isReadOnly,
+  });
+
+  // La cellule active change sans re-rendre le tableau : l'ancre d'insertion
+  // suit le magasin de la grille, et ce qui s'affiche passe par GridActiveRow.
   useEffect(() => {
-    insertionAnchorItemIdRef.current = insertionAnchorItemId;
-  }, [insertionAnchorItemId]);
-
-  const activeLineBreadcrumb = useMemo(() => {
-    if (!activeClientKey) return null;
-
-    const activeItem = itemByClientKey.get(activeClientKey);
-    if (!activeItem || activeItem.item_type !== "line") {
-      return null;
-    }
-
-    const labels: string[] = [];
-    let cursorParentId = activeItem.parent_id;
-    let guard = 0;
-
-    while (cursorParentId && guard < 100) {
-      guard += 1;
-      const parent = itemById.get(cursorParentId);
-      if (!parent || parent.item_type !== "section") {
-        break;
-      }
-      labels.push(parent.title || "Sans titre");
-      cursorParentId = parent.parent_id;
-    }
-
-    if (labels.length === 0) {
-      return null;
-    }
-
-    return labels.reverse().join(" > ");
-  }, [activeClientKey, itemByClientKey, itemById]);
+    const syncInsertionAnchor = () => {
+      const activeClientKey = spreadsheetNavigation.getActiveRowId();
+      insertionAnchorItemIdRef.current = activeClientKey
+        ? (itemByClientKey.get(activeClientKey)?.id ?? null)
+        : null;
+    };
+    syncInsertionAnchor();
+    return spreadsheetNavigation.subscribe(syncInsertionAnchor);
+  }, [itemByClientKey, spreadsheetNavigation]);
 
   const openSectionContextMenuForRow = useCallback(
     (sectionId: string, position: { x: number; y: number }) => {
@@ -2558,7 +2642,7 @@ export function EstimateEditorTable({
                       isOpen
                       isReadOnly={isReadOnly}
                       onInsert={(templateId) =>
-                        onInsertTemplate(templateId, insertionAnchorItemId)
+                        onInsertTemplate(templateId, insertionAnchorItemIdRef.current)
                       }
                       onClose={() => setIsQuickTemplatePickerOpen(false)}
                     />
@@ -2566,7 +2650,22 @@ export function EstimateEditorTable({
                 }
               />
             }
-            activeLineBreadcrumb={activeLineBreadcrumb}
+            activeLineBreadcrumbNode={
+              <GridActiveRow navigation={spreadsheetNavigation}>
+                {(activeClientKey) => {
+                  const breadcrumb = resolveActiveLineBreadcrumb(activeClientKey, itemByClientKey, itemById);
+                  return (
+                    <div
+                      className="mt-2 h-4 truncate text-xs leading-4 text-[var(--slate-500)]"
+                      aria-hidden={!breadcrumb}
+                      title={breadcrumb ? `Chemin actif: ${breadcrumb}` : undefined}
+                    >
+                      {breadcrumb ? `Chemin actif: ${breadcrumb}` : null}
+                    </div>
+                  );
+                }}
+              </GridActiveRow>
+            }
             actionError={actionError ?? null}
             scrollContainerRef={scrollContainerRef}
             isLaborSplitEnabled={isLaborSplitEnabled}
@@ -2756,16 +2855,20 @@ export function EstimateEditorTable({
       </datalist>
 
       {isAssemblyPickerOpen ? (
-        <AssemblyPicker
-          isOpen
-          isReadOnly={isReadOnly}
-          anchorItemId={insertionAnchorItemId}
-          anchorLabel={activeLineBreadcrumb}
-          onClose={() => setIsAssemblyPickerOpen(false)}
-          onInsert={(assemblyId) =>
-            onInsertAssembly(assemblyId, insertionAnchorItemId)
-          }
-        />
+        <GridActiveRow navigation={spreadsheetNavigation}>
+          {(activeClientKey) => (
+            <AssemblyPicker
+              isOpen
+              isReadOnly={isReadOnly}
+              anchorItemId={activeClientKey ? (itemByClientKey.get(activeClientKey)?.id ?? null) : null}
+              anchorLabel={resolveActiveLineBreadcrumb(activeClientKey, itemByClientKey, itemById)}
+              onClose={() => setIsAssemblyPickerOpen(false)}
+              onInsert={(assemblyId) =>
+                onInsertAssembly(assemblyId, insertionAnchorItemIdRef.current)
+              }
+            />
+          )}
+        </GridActiveRow>
       ) : null}
 
       {isPastePreviewOpen ? (

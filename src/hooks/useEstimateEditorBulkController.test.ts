@@ -284,6 +284,9 @@ describe("useEstimateEditorBulkController", () => {
         [line.id],
         "role-new"
       );
+      await harness.result.current.actions.applyBulkCellPatches([
+        { itemId: line.id, patch: { quantity: 4 } },
+      ]);
     });
 
     expect(
@@ -294,6 +297,7 @@ describe("useEstimateEditorBulkController", () => {
       "déplacer les lignes sélectionnées",
       "appliquer la catégorie en lot",
       "appliquer le rôle MO en lot",
+      "modifier les cellules sélectionnées",
     ]);
     expect(harness.getItems()).toEqual([line]);
     expect(harness.setItems).not.toHaveBeenCalled();
@@ -301,6 +305,91 @@ describe("useEstimateEditorBulkController", () => {
     expect(clientMocks.bulkUpdateEstimateItems).not.toHaveBeenCalled();
     expect(clientMocks.deleteEstimateItem).not.toHaveBeenCalled();
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+  });
+
+  it("writes the grid cells of several lines in one request and one history entry", async () => {
+    const lineA = createLine("line-a", { quantity: 1, k_fo: 1 });
+    const lineB = createLine("line-b", { quantity: 2, k_fo: 1 });
+    const untouched = createLine("line-c", { quantity: 3 });
+    const section = { ...createLine("section-1"), item_type: "section" as const, parent_id: null };
+    const harness = createHarness({ items: [section, lineA, lineB, untouched] });
+
+    await act(async () => {
+      await harness.result.current.actions.applyBulkCellPatches([
+        { itemId: lineA.id, patch: { quantity: 10 } },
+        // Two cells of the same line reach the server as one row.
+        { itemId: lineA.id, patch: { k_fo: 1.2 } },
+        { itemId: lineB.id, patch: { quantity: 20 } },
+        // A section title is not a line: the grouped write leaves it alone.
+        { itemId: section.id, patch: { title: "Autre lot" } },
+        { itemId: "unknown", patch: { quantity: 99 } },
+      ]);
+    });
+
+    expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(1);
+    const updates = clientMocks.bulkUpdateEstimateItems.mock.calls[0][2] as Array<{ id: string }>;
+    expect(updates.map((update) => update.id)).toEqual([lineA.id, lineB.id]);
+    expect(harness.normalizeLine).toHaveBeenCalledTimes(2);
+    expect(harness.getItems()).toEqual([
+      section,
+      expect.objectContaining({ id: lineA.id, quantity: 10, k_fo: 1.2 }),
+      expect.objectContaining({ id: lineB.id, quantity: 20, k_fo: 1 }),
+      untouched,
+    ]);
+
+    expect(harness.pushHistoryCommand).toHaveBeenCalledTimes(1);
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    expect(command.label).toBe("bulk-cell-patch");
+
+    await act(async () => {
+      await command.undo();
+    });
+    expect(harness.getItems()).toEqual([
+      section,
+      expect.objectContaining({ id: lineA.id, quantity: 1, k_fo: 1 }),
+      expect.objectContaining({ id: lineB.id, quantity: 2, k_fo: 1 }),
+      untouched,
+    ]);
+
+    await act(async () => {
+      await command.redo();
+    });
+    expect(harness.getItems()).toEqual([
+      section,
+      expect.objectContaining({ id: lineA.id, quantity: 10, k_fo: 1.2 }),
+      expect.objectContaining({ id: lineB.id, quantity: 20, k_fo: 1 }),
+      untouched,
+    ]);
+    expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(3);
+  });
+
+  it("does nothing for an empty batch, a batch without a line, or a missing version", async () => {
+    const section = { ...createLine("section-1"), item_type: "section" as const, parent_id: null };
+    const harness = createHarness({ items: [section] });
+
+    await act(async () => {
+      await harness.result.current.actions.applyBulkCellPatches([]);
+    });
+    expect(harness.ensureGroupedActionCanProceed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await harness.result.current.actions.applyBulkCellPatches([
+        { itemId: section.id, patch: { title: "Autre lot" } },
+      ]);
+    });
+    expect(clientMocks.bulkUpdateEstimateItems).not.toHaveBeenCalled();
+    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
+
+    const line = createLine("line-1");
+    const withoutVersion = createHarness({ items: [line], version: null });
+    await act(async () => {
+      await withoutVersion.result.current.actions.applyBulkCellPatches([
+        { itemId: line.id, patch: { quantity: 4 } },
+      ]);
+    });
+    expect(withoutVersion.reportError).toHaveBeenCalledWith("Version introuvable.");
+    expect(clientMocks.bulkUpdateEstimateItems).not.toHaveBeenCalled();
+    expect(withoutVersion.getItems()).toEqual([line]);
   });
 
   it("keeps the live FO provision of a v3 line when a bulk edit is undone or redone (TI-534)", async () => {

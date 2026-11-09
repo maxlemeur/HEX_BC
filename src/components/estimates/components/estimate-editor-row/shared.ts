@@ -16,6 +16,12 @@ import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
 import { majorationPercentToCoefficient } from "@/lib/estimates/majoration";
 import type { ColumnKey } from "@/hooks/useColumnVisibility";
 import {
+  GRID_RANGE_EDGE_BOTTOM,
+  GRID_RANGE_EDGE_LEFT,
+  GRID_RANGE_EDGE_RIGHT,
+  GRID_RANGE_EDGE_TOP,
+} from "@/hooks/useGridNavigation";
+import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
 } from "@/hooks/useSpreadsheetNavigation";
@@ -236,6 +242,17 @@ export function toCellClassName(
 
   if (navigation.isCellEditing(cell)) {
     classNames.push("estimate-cell--editing");
+  }
+
+  // Range selection (grid engine only): one tint for the block and an outline
+  // drawn on its outer edges, like a spreadsheet selection.
+  const rangeEdges = navigation.getCellRangeEdges?.(cell) ?? 0;
+  if (rangeEdges !== 0) {
+    classNames.push("estimate-cell--selected");
+    if (rangeEdges & GRID_RANGE_EDGE_TOP) classNames.push("estimate-cell--range-top");
+    if (rangeEdges & GRID_RANGE_EDGE_RIGHT) classNames.push("estimate-cell--range-right");
+    if (rangeEdges & GRID_RANGE_EDGE_BOTTOM) classNames.push("estimate-cell--range-bottom");
+    if (rangeEdges & GRID_RANGE_EDGE_LEFT) classNames.push("estimate-cell--range-left");
   }
 
   return classNames.join(" ");

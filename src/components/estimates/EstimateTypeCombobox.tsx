@@ -101,6 +101,9 @@ export function EstimateTypeCombobox({
         }}
         className={className}
         tabIndex={editorProps?.tabIndex}
+        // In the grid, a press on the field opens its list at once (like the
+        // arrow of an Excel list cell) instead of only selecting the cell.
+        data-grid-editor-click={editorProps ? "open" : undefined}
         role="combobox"
         aria-label={label}
         aria-autocomplete="list"

@@ -2031,6 +2031,7 @@ export function useEstimateEditorState({
     v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
   });
   const {
+    applyBulkCellPatches: handleApplyCellPatches,
     applyBulkMajoration: handleApplyBulkMajoration,
     bulkDeleteLines: handleBulkDeleteLines,
     bulkMoveLines: handleBulkMoveLines,
@@ -2273,6 +2274,7 @@ export function useEstimateEditorState({
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onTrackSuggestionCorrections: handleTrackSuggestionCorrections,
+      onApplyCellPatches: handleApplyCellPatches,
       onApplyBulkMajoration: handleApplyBulkMajoration,
       onBulkDeleteLines: handleBulkDeleteLines,
       onBulkMoveLines: handleBulkMoveLines,
@@ -2328,6 +2330,7 @@ export function useEstimateEditorState({
       handleOpenPriceReuseDialog,
       handleOpenEstimateStructureDraftDialog,
       handleOpenGeneratedOuvrageDialog,
+      handleApplyCellPatches,
       handleApplyBulkMajoration,
       handleBulkDeleteLines,
       handleBulkMoveLines,
