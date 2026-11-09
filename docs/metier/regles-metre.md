@@ -593,8 +593,12 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   saute (`skip`) ou replie dans un ouvrage (`apply_assembly`), comme le serveur ; sans
   aperçu à jour, il garde toutes les lignes retenues (sens sûr). Le panneau des lignes
   bloquées nomme chaque règle en échec et sa raison.
-- `ValidationReviewPanel` et `detectAnomalies` n'affichent pas les règles : la revue
-  ciblée le fait.
+- **Revue complète** (vue avancée) : le filtre « Avec anomalies » et le compteur
+  « Anomalies » lisent le garde de la revue ciblée, au seuil du tenant et au niveau du
+  job (`reviewBlockReasons`, D13) : toute ligne qu'il bloque y figure (confiance faible
+  non vérifiée, preuve ou page manquante, règle en échec, règles à recalculer), avec les
+  quantités nulles, les désignations vides et les lignes sans preuve.
+  `ValidationReviewPanel` n'affiche pas les règles : la revue ciblée le fait.
 
 ## Banc
 
