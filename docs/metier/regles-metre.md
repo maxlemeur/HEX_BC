@@ -63,7 +63,24 @@ Un triplet réseau × matériau × DN absent de la table échoue :
 
 Un DN non lu ou hors série d'un couple à justifier garde la condition du couple dans
 son motif (TI-685, D18b) : le relecteur voit ce que le matériau demande à côté du DN
-à corriger. Le code et la clé de l'échec ne changent pas.
+à corriger. Ce motif ne change ni le code ni la clé de l'échec : le motif n'entre pas
+dans la clé.
+
+Le passage de la table de la version 2 à la version 3 (TI-684, D18a, D18b) change en
+revanche toutes les clés d'échec `dn_network`, la version faisant partie de chaque clé
+(voir « Décisions ») :
+
+- au prochain recalcul de la version, toute ligne vérifiée qui porte un échec
+  `dn_network` est rouverte, quel qu'en soit le code : couples déjà justifiés, PE gaz
+  et inox d'évacuation compris, pas seulement les lignes vérifiées sans voir la condition ;
+- un override administrateur enregistré avec des clés de la version 2 (multicouche gaz
+  par exemple) ne correspond plus à l'application : il est à refaire ;
+- aucune migration ne périme les jobs terminés, contrairement au passage en version 2 :
+  leurs résultats restent ceux calculés avant ce changement (ancien motif du multicouche
+  gaz, DN sans condition, doublons d'inox d'évacuation lus dans les séries sous pression,
+  vérifications acquises en version 2) jusqu'au prochain recalcul de leur version.
+  Ce recalcul suit une modification de ligne, un traitement, une relance manuelle ou
+  une application ; celui de l'application ne bloque pas s'il échoue.
 
 La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 3) :
 

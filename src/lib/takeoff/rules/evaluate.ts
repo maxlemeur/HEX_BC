@@ -183,7 +183,8 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
     case "material_missing":
       return result("dn_network", "fail", "DN_NETWORK_MATERIAL_MISSING",
         `Matériau non lu : le DN ne peut pas être contrôlé pour le réseau ${name}.`, details);
-    // D18b: the couple's condition stands beside the DN to fix; the code, and so the failure key, stays the same.
+    // D18b: the couple's condition stands beside the DN to fix. The code stays the same and a reason is no part of the
+    // failure key; the keys change with the table version (v3, network-diameters.ts), not with this reason.
     case "dn_missing":
       return result("dn_network", "fail", "DN_NETWORK_DN_MISSING",
         `DN non lu (aucun ou deux) pour le réseau ${name}.${check.condition ? ` ${check.condition}` : ""}`, details);
