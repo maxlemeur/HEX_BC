@@ -15,7 +15,7 @@ import { checked, createActor, executePlan, sqlTransport, versionDefaults, write
 // Prerequisites only. Each selected journey gets fresh owned UUIDs; its browser
 // still performs the mutation, authorization, file and persistence assertions.
 export const BUSINESS_JOURNEY_FILES = [
-  "article-association.e2e.ts", "brief-evidence.e2e.ts", "catalogue-provenance.e2e.ts",
+  "affaire-workbench.e2e.ts", "article-association.e2e.ts", "brief-evidence.e2e.ts", "catalogue-provenance.e2e.ts",
   "purchase-decimals.e2e.ts", "purchase-draft-eligibility.e2e.ts", "purchase-preparation.e2e.ts",
   "purchase-readiness.e2e.ts", "reference-price.e2e.ts", "source-reference-read.e2e.ts", "source-reference.e2e.ts",
 ] as const;
@@ -293,7 +293,7 @@ export async function prepareBusinessJourneyFixtures(context: CalcV3FixtureConte
     await executePlan(context, "catalogue provenance", records);
     await publish("business-catalogue-provenance", "E2E_CATALOGUE_PROVENANCE_FIXTURE_PATH", fixture);
   }
-  if (selected.has("brief-evidence.e2e.ts")) {
+  if (selected.has("brief-evidence.e2e.ts") || selected.has("affaire-workbench.e2e.ts")) {
     const fixture = await documentsFixture(context, "brief");
     env.E2E_BRIEF_EVIDENCE_PROJECT_ID = fixture.projectId; env.E2E_BRIEF_EVIDENCE_DOCUMENT_ID = fixture.documents.A;
     identities.brief = fixture;

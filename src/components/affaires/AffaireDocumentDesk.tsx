@@ -66,6 +66,7 @@ export function AffaireDocumentDesk({
   canManage,
   onOverview,
   onImportDpgf,
+  initialAddFiles = false,
 }: {
   projectId: string;
   projectName: string;
@@ -73,11 +74,12 @@ export function AffaireDocumentDesk({
   canManage: boolean;
   onOverview: (anchor?: string) => void;
   onImportDpgf: (documentId: string) => void;
+  initialAddFiles?: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
   const [filter, setFilter] = useState(
-    params.has("intakeDocument") ? "all" : "review",
+    params.has("intakeDocument") || (params.get("intakeFilter") !== "a_revoir" && !workspace.documents.some((document) => dossierDocumentState(document) === "review")) ? "all" : "review",
   );
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -95,7 +97,7 @@ export function AffaireDocumentDesk({
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
   const [failures, setFailures] = useState<string[]>([]);
-  const [addFiles, setAddFiles] = useState(false);
+  const [addFiles, setAddFiles] = useState(initialAddFiles);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const running = useRef(false);
   const appliedFocus = useRef<string | null>(null);

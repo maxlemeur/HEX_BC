@@ -17,6 +17,14 @@ test("Parcours opens its real documents in a right drawer and preserves classifi
   expect(response.status()).toBe(201);
   const payload = await response.json() as { data: { project: { id: string }; version: { id: string } } };
   const projectId = payload.data.project.id;
+  // The workbench gives empty domains an explanation before any document exists.
+  await page.goto(`/dashboard/affaires/${projectId}`);
+  const navigation = page.getByRole("navigation", { name: "Navigation de l'affaire", exact: true });
+  await navigation.getByRole("button", { name: "Points à traiter", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Points à traiter", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ouvrir le dossier", exact: true })).toBeVisible();
+  await navigation.getByRole("button", { name: "Remise", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Préparer la remise", exact: true })).toBeVisible();
   const { client, userId } = await localClient();
   const project = await client.from("estimate_projects").select("tenant_id").eq("id", projectId).single();
   expect(project.error).toBeNull();
