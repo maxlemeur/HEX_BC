@@ -8,7 +8,7 @@ import { armyTest, recordEvidence } from "./fixtures";
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 const routes = [
-  { path: "/dashboard", heading: "Vue d’ensemble" },
+  { path: "/dashboard", heading: "Accueil" },
   { path: "/dashboard/affaires", heading: "Affaires" },
   { path: "/dashboard/takeoff", heading: "Métrés — Analyse de plans" },
   { path: "/dashboard/admin/flags", heading: "Fonctionnalités" },

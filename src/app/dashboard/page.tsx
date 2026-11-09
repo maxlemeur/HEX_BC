@@ -4,7 +4,6 @@ import { ArrowRightIcon, ChartNoAxesCombinedIcon, CircleCheckIcon, FolderIcon, P
 
 import { buildDashboardShortcuts } from "@/app/dashboard/dashboard-shortcuts";
 import { DashboardAffaires } from "@/components/dashboard/DashboardAffaires";
-import { DashboardHomeResumeLink } from "@/components/dashboard/DashboardHomeResumeLink";
 import { buttonVariants } from "@/components/ui/button";
 import { parseDashboardQuery } from "@/lib/affaires/dashboard-query";
 import { fetchAffaireDashboardWorkspace } from "@/lib/affaires/server";
@@ -30,21 +29,20 @@ export default async function DashboardPage({ searchParams }: Readonly<{
   const canCreateAffaire = role === "admin" || role === "engineer";
   const shortcuts = buildDashboardShortcuts(role, profile?.ui_mode ?? "simplified");
 
+  const affaireAction = (
+    <Link href={canCreateAffaire ? "/dashboard/affaires/new" : "/dashboard/affaires"} prefetch={false} className={`${buttonVariants({ variant: "primary", size: "md" })} w-full`}>
+      {canCreateAffaire ? <><PlusIcon aria-hidden="true" /> Nouvelle affaire</> : "Voir les affaires"}
+    </Link>
+  );
+
   return (
     <div className="mx-auto w-full max-w-[1440px]">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-[28px]">Vue d’ensemble</h1>
-        <Link href={canCreateAffaire ? "/dashboard/affaires/new" : "/dashboard/affaires"} prefetch={false} className={buttonVariants({ variant: "primary", size: "md" })}>
-          {canCreateAffaire ? <><PlusIcon aria-hidden="true" /> Nouvelle affaire</> : "Voir les affaires"}
-        </Link>
-      </header>
+      <h1 className="sr-only">Accueil</h1>
+      <div className="mb-4 lg:hidden">{affaireAction}</div>
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_17rem] xl:grid-cols-[minmax(0,1fr)_20rem]">
         <DashboardAffaires data={data} query={query} />
-        <aside aria-label="Votre espace de travail" className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-1">
-          <section aria-labelledby="dashboard-resume-heading" className="min-w-0 rounded-lg border border-warning/15 bg-warning-subtle p-4 sm:p-5">
-            <h2 id="dashboard-resume-heading" className="mb-3 text-base font-semibold text-foreground">Reprendre mon travail</h2>
-            <DashboardHomeResumeLink affaires={data.affaires} />
-          </section>
+        <aside aria-label="Votre espace de travail" className="grid items-start gap-4">
+          <div className="hidden lg:block">{affaireAction}</div>
           <section aria-labelledby="dashboard-shortcuts-heading" className="min-w-0 rounded-lg border border-border bg-surface p-4 shadow-xs sm:p-5">
             <h2 id="dashboard-shortcuts-heading" className="mb-2 text-base font-semibold text-foreground">Accès rapides</h2>
             <ul className="divide-y divide-border-subtle">

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
@@ -9,12 +9,14 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 
 import { useUiMode } from "@/hooks/useUiMode";
 import { useIsWideViewport } from "@/hooks/useIsTablet";
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { LoadingState } from "@/components/layout/loading-state";
 import { useToast } from "@/components/feedback/toast-provider";
 import { cn } from "@/lib/utils";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
@@ -128,12 +130,13 @@ export function AffairesPageClient({
   const { isExpert } = useUiMode();
   const isWideViewport = useIsWideViewport();
   const toast = useToast();
+  const [isFiltering, startFiltering] = useTransition();
 
   // -- State --
 
   const [searchValue, setSearchValue] = useState(initialQ);
   const [debouncedSearch, setDebouncedSearch] = useState(initialQ);
-  const isSearchPending = searchValue !== debouncedSearch;
+  const isSearchPending = searchValue !== debouncedSearch || isFiltering;
 
   const [selectedStatuses, setSelectedStatuses] =
     useState<AffaireStatus[]>(initialStatuses);
@@ -378,7 +381,7 @@ export function AffairesPageClient({
     if (qs === currentQs) return;
 
     const newPath = qs ? `${pathname}?${qs}` : pathname;
-    router.replace(newPath, { scroll: false });
+    startFiltering(() => router.replace(newPath, { scroll: false }));
   }, [
     debouncedSearch,
     selectedStatuses,
@@ -390,6 +393,7 @@ export function AffairesPageClient({
     pathname,
     router,
     searchParams,
+    startFiltering,
   ]);
 
   // -- Handlers --
@@ -702,14 +706,20 @@ export function AffairesPageClient({
 
       {/* Result count, with draft selection as a quiet action until something is selected */}
       <div className="journey-result-row flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <ResultCount
-          filteredCount={data.counters.filteredCount}
-          totalCount={data.counters.totalCount}
-          label="affaires"
-          activeFilterCount={activeFilterCount}
-          searchValue={searchValue}
-          onClearAll={handleClearAll}
-        />
+        <div className="min-h-6">
+          {isSearchPending ? (
+            <LoadingState label="Actualisation des affaires…" className="justify-start py-0" />
+          ) : (
+            <ResultCount
+              filteredCount={data.counters.filteredCount}
+              totalCount={data.counters.totalCount}
+              label="affaires"
+              activeFilterCount={activeFilterCount}
+              searchValue={searchValue}
+              onClearAll={handleClearAll}
+            />
+          )}
+        </div>
         {!hasSelection && visibleDraftIds.length > 0 ? (
           <Button ref={selectDraftsRef} variant="link" size="sm" onClick={handleToggleAllVisibleDrafts}>
             Sélectionner les brouillons affichés ({visibleDraftIds.length})
@@ -768,7 +778,7 @@ export function AffairesPageClient({
       ) : null}
 
       {/* Content */}
-      <div className="mt-4">
+      <section className="mt-4" aria-label="Liste des affaires" aria-busy={isSearchPending}>
         {isExpert ? (
           <div className={isWideViewport ? undefined : "xl:hidden"}>
             {isWideViewport ? (
@@ -808,7 +818,7 @@ export function AffairesPageClient({
             onToggleProjectSelection={handleToggleProjectSelection}
           />
         )}
-      </div>
+      </section>
 
       {/* Pagination */}
       {showPagination ? (
@@ -843,7 +853,7 @@ export function AffairesPageClient({
               size="md"
               leftIcon={<ChevronLeftIcon aria-hidden="true" />}
               onClick={handlePrevPage}
-              disabled={!hasPrevPage}
+              disabled={!hasPrevPage || isFiltering}
             >
               Précédent
             </Button>
@@ -852,7 +862,7 @@ export function AffairesPageClient({
               size="md"
               rightIcon={<ChevronRightIcon aria-hidden="true" />}
               onClick={handleNextPage}
-              disabled={!hasNextPage}
+              disabled={!hasNextPage || isFiltering}
             >
               Suivant
             </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { FolderIcon, PlusIcon, SearchIcon } from "lucide-react";
 
 import { formatCurrency } from "@/lib/money";

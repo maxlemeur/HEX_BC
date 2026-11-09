@@ -83,7 +83,7 @@ armyTest("DASH01 dashboard initial load stays bounded with 999 affaires", option
   for (let repeat = 0; repeat < 7; repeat += 1) {
     const start = Date.now();
     await app.open("/dashboard");
-    await expect(screen.getByRole("heading", "Vue d’ensemble", { exact: true })).toBeVisible();
+    await expect(screen.getByRole("heading", "Accueil", { exact: true })).toBeVisible();
     await expect(browser.locator(`main a[href="/dashboard/affaires/${projects[0].id}"]`)).toBeVisible();
     const readyMs = Date.now() - start;
     const rows = await browser.evaluate(() => [...document.querySelectorAll('main a[href^="/dashboard/affaires/"]')]
@@ -159,7 +159,8 @@ armyTest("DASH02 dashboard tabs paginate the whole authorized portfolio and pres
   await app.back();
   await expect(browser).toHaveURL(secondPageUrl);
   await expect(tableRows).toHaveCount(11);
-  await expect(screen.getByRole("link", "Reprendre", { exact: true })).toHaveAttribute("href", `/dashboard/affaires/${projects[20].id}`);
+  // The dashboard intentionally omits the resume card; back navigation still preserves the page.
+  await expect(screen.getByRole("link", "Reprendre", { exact: true })).toHaveCount(0);
   await expect(screen.getByRole("link", "ARMY Dashboard foreign", { exact: true })).toHaveCount(0);
   await expect(screen.getByRole("link", "ARMY Dashboard archived", { exact: true })).toHaveCount(0);
   await filters.getByRole("link", "Acceptées 2", { exact: true }).tap();
@@ -196,7 +197,7 @@ armyTest("DASH03 empty dashboard keeps filters, keyboard access and a recoverabl
   await expect(screen.getByRole("heading", "Cette page n’a pas pu être chargée", { exact: true })).toBeVisible();
   await expect(screen.getByRole("button", "Réessayer", { exact: true })).toBeVisible();
   await screen.getByRole("link", "Retour à l’accueil", { exact: true }).tap();
-  await expect(screen.getByRole("heading", "Vue d’ensemble", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("heading", "Accueil", { exact: true })).toBeVisible();
   await app.open("/dashboard?view=unknown&after=invalid");
   await expect(screen.getByRole("heading", "Aucune affaire pour le moment", { exact: true })).toBeVisible();
   await browser.setViewport({ width: 983, height: 558 });

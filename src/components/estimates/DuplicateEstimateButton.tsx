@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useActionFeedback, useFeedbackRouter as useRouter } from "@/components/navigation/NavigationFeedback";
 import { useCallback, useState } from "react";
 import { CopyIcon, GitBranchIcon } from "lucide-react";
 
@@ -22,6 +22,7 @@ export function DuplicateEstimateButton({
   className,
 }: DuplicateEstimateButtonProps) {
   const router = useRouter();
+  const runWithFeedback = useActionFeedback();
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(
     null
   );
@@ -75,7 +76,7 @@ export function DuplicateEstimateButton({
         variant="ghost"
         size="md"
         type="button"
-        onClick={() => void handleDuplicate()}
+        onClick={() => runWithFeedback(handleDuplicate)}
         loading={pendingAction === "duplicate"}
         disabled={isBusy}
         leftIcon={<CopyIcon aria-hidden="true" />}
@@ -87,7 +88,7 @@ export function DuplicateEstimateButton({
         variant="ghost"
         size="md"
         type="button"
-        onClick={() => void handleCreateVariant()}
+        onClick={() => runWithFeedback(handleCreateVariant)}
         loading={pendingAction === "variant"}
         disabled={isBusy}
         leftIcon={<GitBranchIcon aria-hidden="true" />}
