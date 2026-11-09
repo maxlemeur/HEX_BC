@@ -1,8 +1,7 @@
-import { expect, type JsonValue } from "e2e";
-import type { Browser } from "@e2e-dev/web";
+import { expect } from "e2e";
 
 import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
-import { localTakeoffFixture } from "./fixtures";
+import { applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
 import { nativeTest } from "./native-ui";
 import { launchWorkerCsv } from "./worker-support";
 
@@ -13,19 +12,7 @@ type Item = { id: string; designation: string; confidence: number; is_excluded: 
   source_page: number; source_file_name: string; exclusion_reason: string | null };
 const options = { session: "army", tags: ["critical", "takeoff", "local"], timeout: 180_000 };
 
-async function applyOwnedTakeoff(browser: Browser, versionId: string, jobId: string, body: unknown, foreignSession = false) {
-  return browser.evaluate(async input => {
-    const scope = globalThis as typeof globalThis & { __miaouffrageEstimateDraftLockSessions?: Map<string, string> };
-    const sessionId = scope.__miaouffrageEstimateDraftLockSessions?.get(input.versionId) ??
-      sessionStorage.getItem(`__miaouffrageEstimateDraftLockSession:${input.versionId}`);
-    if (!sessionId) throw new Error("The owned page lease is missing.");
-    const response = await fetch(`/api/takeoff/jobs/${input.jobId}/apply`, {
-      method: "POST", credentials: "same-origin", body: input.body,
-      headers: { "content-type": "application/json", "x-estimate-draft-lock-session-id": input.foreignSession ? crypto.randomUUID() : sessionId },
-    });
-    return { status: response.status, body: await response.json() as JsonValue };
-  }, { versionId, jobId, body: JSON.stringify(body), foreignSession });
-}
+
 const definitions = [
   { designation: "Cloison BA13 ep.72", quantity: 42, unit: "m2", confidence: 0.23 },
   { designation: "Faux-plafond 60x60", quantity: 15, unit: "m2", confidence: 0.41 },
@@ -48,37 +35,23 @@ nativeTest("TKF05 a stored historical level-A job remains present and can be can
   await recordEvidence(ui.army, "takeoff-level-a-upload", { ids, jobId, canceled: canceled.body.data.job });
 });
 
-armyTest("TKF01 low-confidence measures require explicit verification before actual apply", options, async ({ app, screen, browser, army }) => {
-  const ids = await createEstimateViaWizard({ app, screen, browser }, { projectName: army.projectName, title: "ARMY confidence guard" }, army);
+// TI-681 replaces mandatory low-confidence acknowledgements with non-blocking recommendations.
+armyTest("TKF01 low-confidence measures apply without individual verification and retain their evidence", options, async ({ app, screen, browser, army }) => {
+  const ids = await createEstimateViaWizard({ app, screen, browser }, { projectName: army.projectName, title: "ARMY targeted recommendations" }, army);
   const line = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} target`);
   const fixture = await localTakeoffFixture(army, ids);
   const seed = await fixture.seed("C", definitions);
-  const body = { strategy: "append", target_section_id: line.parent_id };
-  const before = await readEstimate(browser, ids.versionId);
-  const blocked = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, body) as { status: number; body: Envelope<unknown> };
-  await recordEvidence(army, "takeoff-guard-blocked", { ids, seed, response: blocked });
-  expect(blocked.status).toBe(422);
-  expect(blocked.body.error?.code).toBe("TAKEOFF_APPLY_GUARD_FAILED");
-  expect(blocked.body.error?.details?.blocked_items?.map(item => item.designation).sort()).toEqual(["Cloison BA13 ep.72", "Faux-plafond 60x60"]);
-  expect(blocked.body.error?.details?.medium_items?.map(item => item.designation)).toEqual(["Enduit platre int."]);
-  expect(blocked.body.error?.details?.threshold).toBeGreaterThan(0);
-  expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);
-  const detail = await apiRequest<Envelope<{ items: { data: Item[] } }>>(browser, "GET", `/api/takeoff/jobs/${seed.jobId}`);
-  expect(detail.status).toBe(200);
-  const low = detail.body.data.items.data.filter(item => !item.is_excluded && item.confidence < 0.5);
-  expect(low).toHaveLength(2);
-  const patched = await apiRequest(browser, "PATCH", `/api/takeoff/jobs/${seed.jobId}/items`, {
-    items: low.map(item => ({ item_id: item.id, updated_at: item.updated_at, fields: { is_verified: true } })),
-  });
-  expect(patched.status).toBe(200);
-  const applied = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, body);
-  await recordEvidence(army, "takeoff-verified-apply", { seed, response: applied });
+  const applied = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, { strategy: "append", target_section_id: line.parent_id });
   expect(applied.status).toBe(200);
   const after = await readEstimate(browser, ids.versionId);
   for (const item of definitions.filter(item => !item.is_excluded)) {
     expect(after.items.find(row => row.title === item.designation)?.quantity).toBe(item.quantity);
   }
   expect(after.items.some(item => item.title === "Excluded low conf")).toBe(false);
+  const detail = await apiRequest<Envelope<{ items: { data: Item[] } }>>(browser, "GET", `/api/takeoff/jobs/${seed.jobId}`);
+  expect(detail.status).toBe(200);
+  expect(detail.body.data.items.data.filter(item => !item.is_excluded).every(item => !item.is_verified && item.source_page === 1)).toBe(true);
+  await recordEvidence(army, "TKF01-nonblocking-apply", { ids, jobId: seed.jobId, result: applied });
 });
 
 for (const scenario of ["level-a", "admin-override", "excluded"] as const) {
@@ -88,6 +61,12 @@ for (const scenario of ["level-a", "admin-override", "excluded"] as const) {
     const fixture = await localTakeoffFixture(army, ids);
     const items = scenario === "excluded" ? definitions.map(item => ({ ...item, is_excluded: item.confidence < 0.8 })) : definitions;
     const seed = await fixture.seed(scenario === "level-a" ? "A" : "C", items);
+    if (scenario === "admin-override") {
+      // TI-681: confidence alone is optional; keep the override/audit test on a real provenance protection.
+      const worker = await localTakeoffWorkerClient(army, ids.versionId);
+      const missing = await worker.client.from("takeoff_items").update({ evidence: null }).eq("id", seed.items[0].id);
+      expect(missing.error).toBeNull();
+    }
     const request = { strategy: "append", target_section_id: target.parent_id };
     if (scenario === "admin-override") {
       const invalid = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, { ...request, override: true });

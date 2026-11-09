@@ -182,7 +182,7 @@ function getConfidenceBadgeVariant(
 
 function formatConfidenceLabel(confidence: number | null) {
   if (confidence === null) return "Confiance inconnue";
-  return `Confiance ${Math.round(confidence * 100)} %`;
+  return `Confiance ${confidence >= 0.8 ? "élevée" : confidence >= 0.5 ? "moyenne" : "faible"}`;
 }
 
 type ConfidenceBadge = { label: string; variant: "success" | "warning" | "danger" | "neutral"; score: string | null };
@@ -193,11 +193,11 @@ type ConfidenceBadge = { label: string; variant: "success" | "warning" | "danger
  * plain text; any other line shows its score as the badge.
  */
 function confidenceBadge(item: ReviewItem, issues: readonly string[]): ConfidenceBadge {
-  const score = item.confidence === null ? null : `${Math.round(item.confidence * 100)} %`;
+  const score = null;
   if (issues.includes("low_confidence")) return { label: "Confiance faible", variant: "danger", score };
   if (issues.includes("confidence_to_confirm")) {
     return item.confidence === null
-      ? { label: "Confiance inconnue", variant: "neutral", score: null }
+      ? { label: "Confiance faible · score absent", variant: "danger", score: null }
       : { label: "Confiance moyenne", variant: "warning", score };
   }
   return { label: formatConfidenceLabel(item.confidence), variant: getConfidenceBadgeVariant(item.confidence), score: null };

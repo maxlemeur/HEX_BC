@@ -7,9 +7,8 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 // The fixed rules on the bench (TI-664 acceptance): each line of a reading is
 // rejected, uncertain or at high confidence, as the apply guard would see it
 // with nobody's decision yet (not verified, not excluded):
-// - rejected: in the guard's blocked items (confidence under the threshold or
-//   missing, missing proof or page), and after the rules a failed rule too;
-// - uncertain: in its medium items (threshold ≤ confidence < 0.8);
+// - rejected: current provenance/technical protections or stale results;
+// - uncertain: confidence missing/below the ceiling, or a quantity warning;
 // - high confidence: neither, confidence ≥ 0.8.
 // Before the rules a line is classed by the guard alone, after them by the
 // guard and its rule results. Lines without precomputed results (a level C

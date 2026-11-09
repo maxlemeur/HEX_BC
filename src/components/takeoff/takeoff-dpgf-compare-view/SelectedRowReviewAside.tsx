@@ -439,7 +439,7 @@ export function SelectedRowReviewAside({
                   Arbitrage humain
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Sélection explicite obligatoire avant application.
+                  Contrôle recommandé avant application ; cet avertissement de quantité ne bloque pas la poursuite.
                 </p>
               </div>
               <Button type="button" size="sm" variant="secondary" onClick={onOpenManualLinkModal}>

@@ -49,8 +49,8 @@ export function GuardPanel({
         <p className="mt-2 text-sm text-foreground-secondary">
           {guardResult.blocked_items.length} item
           {guardResult.blocked_items.length > 1 ? "s sont bloqués" : " est bloqué"} :
-          confiance faible non validée, preuve absente, page source introuvable,
-          règle en échec ou règles à recalculer.
+          preuve absente, page source introuvable, restriction technique
+          ou règles à recalculer.
           Revenez à la revue pour trancher chaque ligne avant application.
         </p>
         {onReturnToReview ? (
@@ -121,13 +121,11 @@ export function GuardPanel({
       {guardResult.medium_items.length > 0 && (
         <div className="rounded-xl border border-info bg-info-light p-3">
           <p className="text-xs font-semibold text-info">
-            Confiance moyenne (non bloquante)
+            Contrôle recommandé (non bloquant)
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {guardResult.medium_items.length} item
-            {guardResult.medium_items.length > 1 ? "s ont" : " a"} une confiance
-            comprise entre {Math.round(guardResult.threshold * 100)} % et 80 %.
-            Un contrôle humain reste recommandé.
+            {guardResult.medium_items.length} élément(s) présentent une confiance à confirmer ou un avertissement de quantité.
+            Un contrôle humain reste recommandé, sans acquittement individuel.
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer text-xs text-info">

@@ -101,6 +101,7 @@
       "e2e/army/takeoff/intake-dossier.e2e.ts",
       "e2e/army/takeoff/quantity-rules.e2e.ts",
       "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
+      "e2e/army/takeoff/targeted-policy.e2e.ts",
       "e2e/army/takeoff/team-b-user-stories.e2e.ts",
       "e2e/army/takeoff/worker-lifecycle.e2e.ts"
     ]
@@ -714,6 +715,7 @@
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts",
+        "e2e/army/takeoff/targeted-policy.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
     },
@@ -1026,11 +1028,17 @@
         "src/components/takeoff/TakeoffApplyWizard.tsx",
         "src/components/takeoff/takeoff-apply-wizard/**",
         "src/components/takeoff/takeoff-dpgf-compare-view/**",
-        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/targeted/**"
+        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/targeted/**",
+        "src/lib/takeoff/financial-review.ts",
+        "src/lib/takeoff/review-context-*.ts",
+        "src/lib/takeoff/scope-*.ts",
+        "src/components/takeoff/review/TakeoffReviewPolicyPanel.tsx",
+        "src/app/api/takeoff/jobs/**/review-context/**"
       ],
       "journeys": [
         "e2e/army/takeoff/quantity-rules.e2e.ts",
-        "e2e/army/critical/takeoff-protective-quantities.e2e.ts"
+        "e2e/army/critical/takeoff-protective-quantities.e2e.ts",
+        "e2e/army/takeoff/targeted-policy.e2e.ts"
       ]
     },
     {

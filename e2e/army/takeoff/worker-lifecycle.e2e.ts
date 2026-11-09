@@ -424,6 +424,8 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   expect(foreign.tenantId).not.toBe(tenantId);
   const denied = await apiRequest<{ ok: boolean; data?: unknown; error?: { code: string } }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
   expect([denied.status, denied.body.ok, denied.body.data, denied.body.error?.code]).toEqual([404, false, undefined, "TAKEOFF_JOB_NOT_FOUND"]);
+  const deniedFinancial = await apiRequest(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/review-context`);
+  expect(deniedFinancial.status).toBe(404);
   const rows = async (userId: string) => {
     const claims = JSON.stringify({ sub: userId, role: "authenticated" });
     const output = await querySql(`BEGIN;

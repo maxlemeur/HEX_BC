@@ -104,7 +104,7 @@ const callGemini = async (options) => {
     retryable: mode === "transient", jobId, level: current.level,
   });
   const data = options.schema.parse({
-    items: [
+    items: process.env.ARMY_TAKEOFF_PROVIDER_ITEMS ? JSON.parse(process.env.ARMY_TAKEOFF_PROVIDER_ITEMS) : [
       ...(current.source_file_name === "revue-A-R+1-Z1.pdf" ? [
         { designation: "Soudures atelier", quantity: 2, unit: "kg", source_page: 1, confidence: 0.99, evidence: "Fiche atelier A-07" },
       ] : []),

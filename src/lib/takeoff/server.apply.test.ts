@@ -723,6 +723,7 @@ describe("applyTakeoffJob", () => {
         baseTakeoffItem({
           id: TAKEOFF_ITEM_ID_1,
           confidence: 0.2,
+          evidence: null,
           is_verified: false,
         }),
       ],
@@ -763,6 +764,7 @@ describe("applyTakeoffJob", () => {
         baseTakeoffItem({
           id: TAKEOFF_ITEM_ID_1,
           confidence: 0.2,
+          evidence: null,
           is_verified: false,
         }),
       ],
@@ -799,7 +801,7 @@ describe("applyTakeoffJob", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("uses tenant low-confidence threshold for level C guard", async () => {
+  it("keeps a tenant confidence threshold advisory while applying level C quantities", async () => {
     const supabase = createSupabaseMock({
       jobLevel: "C",
       takeoffItems: [
@@ -825,22 +827,9 @@ describe("applyTakeoffJob", () => {
       },
     } as never);
 
-    await expect(
-      applyTakeoffJob(JOB_ID, {
-        strategy: "merge",
-        target_section_id: SECTION_ID,
-      })
-    ).rejects.toMatchObject({
-      status: 422,
-      code: "TAKEOFF_APPLY_GUARD_FAILED",
-      details: {
-        blocked_items: expect.arrayContaining([
-          expect.objectContaining({ item_id: TAKEOFF_ITEM_ID_1 }),
-        ]),
-      },
-    });
-
-    expect(supabase.rpc).not.toHaveBeenCalled();
+    await applyTakeoffJob(JOB_ID, { strategy: "merge", target_section_id: SECTION_ID });
+    expect(getTakeoffLowConfidenceThresholdForTenant).toHaveBeenCalled();
+    expect(supabase.rpc).toHaveBeenCalled();
   });
 
   it("blocks a high-confidence level C item when its localized proof is missing", async () => {

@@ -1,3 +1,4 @@
+import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1883,6 +1884,10 @@ const apiTakeoffPreviewConversionSchemaDefinition = successResponseSchemaDefinit
   "ApiTakeoffPreviewConversionResponse",
   takeoffPreviewConversionDataSchema
 );
+const apiTakeoffReviewContextSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffReviewContextResponse",
+  takeoffReviewContextResponseSchema
+);
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffVectorReadingResponse",
   takeoffVectorReadingResponseSchema
@@ -3103,6 +3108,18 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Detail du job takeoff retourne.",
         apiTakeoffJobDetailSchemaDefinition
       ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/review-context",
+    summary: "Recommandations financieres du controle cible",
+    description: "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse("Contexte du controle cible.", apiTakeoffReviewContextSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },

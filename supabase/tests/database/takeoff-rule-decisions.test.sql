@@ -90,20 +90,23 @@ from (values
   ('9d000000-0000-4000-8000-000000000405'::uuid, '9d000000-0000-4000-8000-000000000302'::uuid, 'Vanne DN 32', 0.95,
     false, false, '[]'::jsonb, 5),
   ('9d000000-0000-4000-8000-000000000406'::uuid, '9d000000-0000-4000-8000-000000000303'::uuid, 'Hall R+1', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 6),
+    false, false, '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":1,"acceptable":false,"reason":"Fictif."}]'::jsonb, 6),
   ('9d000000-0000-4000-8000-000000000407'::uuid, '9d000000-0000-4000-8000-000000000304'::uuid, 'Vanne DN 40', 0.4,
     false, false, '[]'::jsonb, 7),
   ('9d000000-0000-4000-8000-000000000408'::uuid, '9d000000-0000-4000-8000-000000000305'::uuid, 'Hall R+2', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 8),
+    false, false, '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":1,"acceptable":false,"reason":"Fictif."}]'::jsonb, 8),
   ('9d000000-0000-4000-8000-000000000409'::uuid, '9d000000-0000-4000-8000-000000000306'::uuid, 'Hall R+3', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 9),
+    false, false, '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":1,"acceptable":false,"reason":"Fictif."}]'::jsonb, 9),
   ('9d000000-0000-4000-8000-000000000410'::uuid, '9d000000-0000-4000-8000-000000000307'::uuid, 'Hall R+4', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 10),
+    false, false, '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":1,"acceptable":false,"reason":"Fictif."}]'::jsonb, 10),
   ('9d000000-0000-4000-8000-000000000411'::uuid, '9d000000-0000-4000-8000-000000000308'::uuid, 'Hall R+5', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 11),
+    false, false, '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":1,"acceptable":false,"reason":"Fictif."}]'::jsonb, 11),
   ('9d000000-0000-4000-8000-000000000412'::uuid, '9d000000-0000-4000-8000-000000000309'::uuid, 'Hall R+6', 0.95,
-    false, false, '[{"rule":"area_printed","status":"fail","code":"AREA_PRINTED_MISMATCH","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb, 12)
+    false, false, '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":1,"acceptable":false,"reason":"Fictif."}]'::jsonb, 12)
 ) as fixture(id, job_id, designation, confidence, verified, excluded, results, rank);
+
+-- TI-681: preserve quantity-change/override binding using a provenance protection.
+update public.takeoff_items set evidence=null where id='9d000000-0000-4000-8000-000000000407';
 
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
 select version.id,
@@ -258,8 +261,8 @@ select is((select count(*)::integer from public.audit_logs log
 
 set local role authenticated;
 select pg_temp.as_user('9d000000-0000-4000-8000-000000000001');
-select is(pg_temp.decisions_apply('reopened', '9d000000-0000-4000-8000-000000000301'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
-  'the reopened line blocks the application until a user verifies it again');
+reset role;
+select ok(not public.takeoff_item_rule_blocked((select rule_results from public.takeoff_items where id='9d000000-0000-4000-8000-000000000401'),false,false), 'TI-681: a reopened quantity warning remains visible without mandatory acknowledgement');
 reset role;
 select pg_temp.decisions_clear();
 
@@ -362,7 +365,7 @@ reset role;
 
 -- The state unchanged: the override applies.
 select pg_temp.decisions_override('9d000000-0000-4000-8000-000000000406',
-  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000406', '["area_printed|AREA_PRINTED_MISMATCH|1|"]'::jsonb));
+  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000406', '["dn_network|DN_NETWORK_MATERIAL_BLOCKED|1|"]'::jsonb));
 set local role authenticated;
 select pg_temp.as_user('9d000000-0000-4000-8000-000000000002');
 select is(pg_temp.decisions_apply('override-unchanged', '9d000000-0000-4000-8000-000000000303'), 'ok',
@@ -385,10 +388,10 @@ select pg_temp.decisions_clear();
 
 -- A computation that brings the blocked line another failure after the override.
 select pg_temp.decisions_override('9d000000-0000-4000-8000-000000000408',
-  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000408', '["area_printed|AREA_PRINTED_MISMATCH|1|"]'::jsonb));
+  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000408', '["dn_network|DN_NETWORK_MATERIAL_BLOCKED|1|"]'::jsonb));
 set local role service_role;
 select is(pg_temp.decisions_write('9d000000-0000-4000-8000-000000000408',
-  '[{"rule":"closed_box","status":"fail","code":"CLOSED_BOX_LABEL","version":1,"acceptable":true,"reason":"Fictif."}]'::jsonb),
+  '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":2,"acceptable":false,"reason":"Restriction fictive actualisée."}]'::jsonb),
   1, 'the line now fails another rule');
 set local role authenticated;
 select pg_temp.as_user('9d000000-0000-4000-8000-000000000002');
@@ -408,7 +411,7 @@ select pg_temp.decisions_clear();
 
 -- The application renames the blocked line itself (a mapping rule): its own change keeps the override.
 select pg_temp.decisions_override('9d000000-0000-4000-8000-000000000410',
-  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000410', '["area_printed|AREA_PRINTED_MISMATCH|1|"]'::jsonb));
+  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000410', '["dn_network|DN_NETWORK_MATERIAL_BLOCKED|1|"]'::jsonb));
 set local role authenticated;
 select pg_temp.as_user('9d000000-0000-4000-8000-000000000002');
 select is(pg_temp.decisions_apply('override-renamed', '9d000000-0000-4000-8000-000000000307', '9d000000-0000-4000-8000-000000000410'),
@@ -421,7 +424,7 @@ select is((select count(*)::integer from public.audit_logs log
 
 -- ...but not when a user saved it after the override, even if the application renames it afterwards.
 select pg_temp.decisions_override('9d000000-0000-4000-8000-000000000411',
-  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000411', '["area_printed|AREA_PRINTED_MISMATCH|1|"]'::jsonb));
+  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000411', '["dn_network|DN_NETWORK_MATERIAL_BLOCKED|1|"]'::jsonb));
 set local role authenticated;
 select pg_temp.as_user('9d000000-0000-4000-8000-000000000001');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000411', jsonb_build_object('evidence', 'Autre repère')), 1,
@@ -438,7 +441,7 @@ select pg_temp.decisions_clear();
 -- A change no decision journals (another transaction's, here the owner's) after the override: the application's own
 -- renaming does not hide it, every field the override recorded is compared.
 select pg_temp.decisions_override('9d000000-0000-4000-8000-000000000412',
-  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000412', '["area_printed|AREA_PRINTED_MISMATCH|1|"]'::jsonb));
+  pg_temp.decisions_state('9d000000-0000-4000-8000-000000000412', '["dn_network|DN_NETWORK_MATERIAL_BLOCKED|1|"]'::jsonb));
 update public.takeoff_items set evidence = 'Repère changé hors revue' where id = '9d000000-0000-4000-8000-000000000412';
 set local role authenticated;
 select pg_temp.as_user('9d000000-0000-4000-8000-000000000002');
