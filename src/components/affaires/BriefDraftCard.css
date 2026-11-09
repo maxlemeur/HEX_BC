@@ -1,0 +1,87 @@
+.brief-review { min-width: 0; color: var(--foreground); background: var(--surface); }
+.affaire-workbench.is-reviewing-brief .affaire-compact-heading { padding-block: 14px; }
+.affaire-workbench.is-reviewing-brief .affaire-compact-heading .affaire-heading-icon { width: 40px; height: 40px; }
+.affaire-workbench.is-reviewing-brief .affaire-compact-heading h1 { font-size: 23px; }
+.affaire-workbench.is-reviewing-brief .affaire-heading-context { gap: 14px; }
+.affaire-workbench.is-reviewing-brief .affaire-heading-context > strong { padding-block: 4px; }
+.brief-review-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 30px; }
+.brief-review-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; min-width: 0; }
+.brief-review-heading h2 { font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -.025em; }
+.brief-generation-date { flex-basis: 100%; color: var(--muted-foreground); font-size: 14px; }
+.brief-review button, .brief-review a, .brief-review textarea { -webkit-tap-highlight-color: transparent; }
+.brief-review button:focus-visible, .brief-review a:focus-visible, .brief-review textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.brief-review button { cursor: pointer; }
+.brief-review button:disabled { cursor: default; }
+.brief-review-header > button, .brief-review-actions button, .brief-edit-footer button, .brief-received-inventory > button { min-height: 42px; font-size: 14px; }
+.brief-review-header > button { display: inline-flex; gap: 10px; }
+.brief-reference-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 24px; padding: 12px 16px; background: var(--success-subtle); color: var(--success); font-size: 13px; }
+.brief-reference-status > span:last-child { color: var(--muted-foreground); }
+.brief-review-columns { display: grid; grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr); gap: 26px; align-items: start; }
+.brief-review-information { min-width: 0; }
+.brief-information-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 14px; line-height: 1.5; }
+.brief-proof-column { width: 172px; }
+.brief-information-table th { padding: 9px 14px; text-align: left; background: var(--surface-subtle); font-size: 14px; font-weight: 600; }
+.brief-information-table td { padding: 5px 14px; vertical-align: top; overflow-wrap: anywhere; }
+.brief-information-table .brief-group-start td { padding-top: 9px; }
+.brief-information-table .brief-group-end td { padding-bottom: 9px; border-bottom: 1px solid var(--border); }
+.brief-information-table h3 { margin: 0 0 3px; font-size: 15px; font-weight: 650; line-height: 1.4; }
+.brief-information-table h3 button, .brief-reserves-heading button { text-align: left; color: inherit; font-weight: inherit; min-height: 26px; }
+.brief-information-table h3 button:hover, .brief-reserves-heading button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.brief-information-table p { color: var(--muted-foreground); white-space: pre-line; }
+.brief-information-table .is-selected td { background: var(--info-subtle); }
+.brief-proof-label { display: inline-block; max-width: 100%; padding: 3px 9px; border-radius: 20px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+.brief-proof-label.has-document { background: var(--info-subtle); color: var(--primary); }
+.brief-proof-note { display: block; margin-top: 4px; font-size: 12px; color: var(--muted-foreground); }
+.brief-empty-text { color: var(--muted-foreground); font-size: 13px; }
+.brief-reserves-heading { margin: 25px 0 14px; }
+.brief-reserves-heading h3, .brief-proof-inspector > h3 { font-size: 22px; font-weight: 650; line-height: 1.3; letter-spacing: -.02em; }
+.brief-reserves-table td { padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.brief-reserves-table p { color: var(--foreground); }
+.brief-resolved-label { display: inline-block; margin-top: 5px; padding: 2px 7px; border-radius: 12px; color: var(--success); background: var(--success-subtle); font-size: 12px; }
+.brief-text-action { display: inline-flex; align-items: center; min-height: 36px; color: var(--primary); font-size: 14px; font-weight: 550; text-decoration: underline; text-underline-offset: 3px; text-align: left; }
+.brief-proof-inspector { min-width: 0; border-left: 1px solid var(--border); padding-left: 26px; outline-offset: 6px; scroll-margin-top: 84px; }
+.brief-proof-notice { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin: 22px 0 14px; border-radius: 8px; background: var(--warning-subtle); color: var(--warning); font-size: 14px; line-height: 1.5; }
+.brief-proof-notice svg { flex-shrink: 0; }
+.brief-inspector-description { font-size: 14px; line-height: 1.6; color: var(--muted-foreground); }
+.brief-inspector-entry { padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.brief-source-links { display: grid; gap: 7px; margin-top: 8px; font-size: 12px; color: var(--muted-foreground); }
+.brief-source-links a { display: flex; align-items: flex-start; gap: 6px; color: var(--primary); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.brief-source-links svg { flex-shrink: 0; margin-top: 2px; }
+.brief-source-links small { font-size: 12px; }
+.brief-received-inventory { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--border); }
+.brief-received-inventory h3 { font-size: 18px; font-weight: 650; line-height: 1.4; margin-bottom: 16px; }
+.brief-received-inventory ul { margin-bottom: 20px; }
+.brief-received-inventory li { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.brief-received-inventory li svg { flex-shrink: 0; color: var(--primary); margin-top: 2px; }
+.brief-received-inventory li .brief-file-pdf { color: var(--danger); }
+.brief-received-inventory > .brief-empty-text { margin-bottom: 16px; }
+.brief-review-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; margin-top: 28px; padding: 20px 0 0; border-top: 1px solid var(--border); background: var(--surface); }
+.brief-confirmation-note { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 380px; font-size: 13px; line-height: 1.6; }
+.brief-confirmation-note svg { flex-shrink: 0; margin-top: 2px; color: var(--muted-foreground); }
+.brief-review-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
+.brief-confirm-action { display: grid; gap: 6px; }
+.brief-confirm-action small { color: var(--muted-foreground); font-size: 12px; text-align: right; }
+.brief-edit-body { display: grid; gap: 24px; max-width: 80ch; }
+.brief-edit-body h3 { font-size: 15px; text-transform: none; letter-spacing: normal; }
+.brief-edit-field { display: block; width: 100%; min-width: 0; border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; color: var(--foreground); background: var(--surface); font-size: 14px; line-height: 1.5; resize: vertical; }
+.brief-remove-entry { display: grid; place-items: center; width: 40px; height: 40px; }
+.brief-edit-footer { position: sticky; bottom: 0; z-index: 10; padding-bottom: 16px; }
+.brief-edit-footer > div { display: flex; flex-wrap: wrap; gap: 10px; }
+.brief-edit-footer > p { flex-basis: 100%; }
+@media (max-width: 1100px) {
+  .brief-review-columns { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .brief-proof-inspector { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 24px; }
+}
+@media (max-width: 767px) {
+  .brief-review-heading h2 { font-size: 25px; }
+  .brief-review-header { margin-bottom: 24px; }
+  .brief-proof-column { width: 36%; }
+  .brief-information-table th, .brief-information-table td { padding-left: 8px; padding-right: 8px; }
+  .brief-information-table h3 { font-size: 14px; }
+  .brief-proof-label { padding: 3px 7px; }
+  .brief-confirmation-note { flex-basis: 100%; }
+  .brief-review-actions { width: 100%; }
+  .brief-confirm-action { width: 100%; }
+  .brief-confirm-action small { text-align: left; }
+  .brief-edit-field { font-size: 16px; }
+}

@@ -1041,6 +1041,8 @@
         "src/components/affaires/AffaireHub.tsx",
         "src/components/affaires/AffairePersistedProjectDetails.tsx",
         "src/components/affaires/AffaireDocumentDesk.tsx",
+        "src/components/affaires/BriefDraftCard*",
+        "src/components/affaires/BriefReviewPanel.tsx",
         "e2e/army/local/affaire-workbench.e2e.ts"
       ],
       "journeys": [

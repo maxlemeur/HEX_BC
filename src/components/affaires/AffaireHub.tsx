@@ -486,6 +486,7 @@ export function AffaireHub({
   }, [activeSection]);
   const selectSection = useCallback((section: AffaireWorkbenchSection) => {
     setActiveSection(section);
+    setDetailsOpen(false);
     const url = new URL(window.location.href);
     url.searchParams.set("view", section);
     for (const key of ["intakeDocument", "intakeFilter", "briefBlock", "briefEntry"]) url.searchParams.delete(key);
@@ -667,22 +668,28 @@ export function AffaireHub({
   const focusedIntakeFilter = documentSearchParams.get("intakeFilter");
   const focusedHubQuery = documentSearchParams.toString();
   useEffect(() => {
-    const revealLinkedSurface = (fromHashChange = false) => {
+    const revealLinkedSurface = () => {
       const hash = window.location.hash;
-      setActiveSection(affaireSectionFromLocation(new URLSearchParams(window.location.search), hash));
+      const params = new URLSearchParams(window.location.search);
+      setActiveSection(affaireSectionFromLocation(params, hash));
       const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans", "#financial", "#finish-line-output", "#finish-line-orders"].includes(hash);
-      if (!isFreshStartState && !isDetailsLink && (hash === "#intake" || (!fromHashChange && (focusedIntakeDocument || focusedIntakeFilter)))) {
+      const isDocumentLink = !isFreshStartState && !isDetailsLink && (hash === "#intake" || params.has("intakeDocument") || params.has("intakeFilter"));
+      if (isDocumentLink) {
         openDocuments();
+      } else {
+        setDetailsOpen(hash === "#brief");
       }
       if (isDetailsLink) {
-        setDetailsOpen(true);
         requestAnimationFrame(() => document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" }));
       }
     };
     revealLinkedSurface();
-    const onHashChange = () => revealLinkedSurface(true);
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    window.addEventListener("hashchange", revealLinkedSurface);
+    window.addEventListener("popstate", revealLinkedSurface);
+    return () => {
+      window.removeEventListener("hashchange", revealLinkedSurface);
+      window.removeEventListener("popstate", revealLinkedSurface);
+    };
   }, [focusedIntakeDocument, focusedIntakeFilter, focusedHubQuery, isFreshStartState, openDocuments]);
 
   useEffect(() => {
@@ -978,7 +985,10 @@ export function AffaireHub({
   const reviewBrief = () => {
     selectSection("dossier");
     setDetailsOpen(true);
-    requestAnimationFrame(() => document.getElementById("brief")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    const url = new URL(window.location.href);
+    url.hash = "brief";
+    window.history.replaceState(null, "", url);
+    requestAnimationFrame(() => document.getElementById("brief")?.scrollIntoView({ block: "start" }));
   };
   const openDocument = (documentId: string) => {
     const url = new URL(window.location.href);
@@ -990,7 +1000,7 @@ export function AffaireHub({
 
 
   return (
-    <div className="affaire-workbench" onClickCapture={(event) => {
+    <div className={`affaire-workbench${activeSection === "dossier" && detailsOpen ? " is-reviewing-brief" : ""}`} onClickCapture={(event) => {
       const link = (event.target as HTMLElement).closest("a[href]");
       if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const url = new URL(link.getAttribute("href")!, window.location.href);
@@ -1126,7 +1136,7 @@ export function AffaireHub({
           <p>{activeSection === "register" ? "Ajoutez les pièces et précisez le périmètre du dossier pour organiser les points à suivre." : "Le devis n’est pas encore chiffré. Préparez le dossier et ses lignes avant la validation et l’envoi."}</p>
           <Button className="mt-5" variant="outline" onClick={() => selectSection("dossier")}>Ouvrir le dossier</Button>
         </section> : null}
-        {!showImportFlow && !isFreshStartState ? <div hidden={activeSection !== "dossier"}>
+        {!showImportFlow && !isFreshStartState ? <div hidden={activeSection !== "dossier" || detailsOpen}>
           <AffaireDossierOverview
             workspace={intakeWorkspace}
             clientName={summary.project.clientName}
@@ -1292,14 +1302,19 @@ export function AffaireHub({
                 </div>
               )}
               {!isFreshStartState && intakeWorkspace !== undefined && (
-                <div hidden={activeSection !== "dossier"}><details id="brief" className="affaire-brief-details scroll-mt-24" open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>Brief complet</summary>
+                <div id="brief" hidden={activeSection !== "dossier" || !detailsOpen} className="scroll-mt-24">
                   <BriefDraftCard
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
                     isReadOnly={isReadOnlyReview}
+                    onOpenDocuments={openDocuments}
+                    onBackToDossier={() => {
+                      selectSection("dossier");
+                      requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(".affaire-review-brief")?.focus());
+                    }}
                   />
-                </details></div>
+                </div>
               )}
               <div hidden={activeSection !== "estimate"} className="space-y-5">
               {!isReadOnlyReview ? workbenchToolbar : null}
