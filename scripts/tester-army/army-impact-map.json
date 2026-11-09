@@ -108,7 +108,6 @@
   },
   "docs": [
     "docs/**",
-    "maquette/**",
     "**/*.md"
   ],
   "nonRuntime": [
@@ -120,7 +119,7 @@
     "src/test/**",
     "scripts/engine-v3/**",
     "scripts/test-*-sql.mjs",
-    "scripts/{add-supabase-migrations-to-manifest,check-architecture-budgets,check-dependency-audit,guard-supabase-migrations,run-local-supabase-ci,check-takeoff-bench,run-takeoff-provider-benchmark,sofinther-prices,supabase-migration-restamp,validate-e2e-environment,validate-supabase-migrations,verify-local-supabase-migrations,verify-production-build}.ts",
+    "scripts/{add-supabase-migrations-to-manifest,check-architecture-budgets,check-dependency-audit,guard-supabase-migrations,run-local-supabase-ci,check-takeoff-bench,run-takeoff-provider-benchmark,sofinther-prices,supabase-migration-restamp,validate-e2e-environment,validate-supabase-migrations,verify-production-build}.ts",
     "scripts/{check-durable-recovery,extract-audit-artifact,purge-test-data,typecheck}.mjs",
     "scripts/generate-fake-plan.py",
     "supabase/.gitignore",
@@ -146,7 +145,6 @@
     "vitest.critical.config.ts",
     "e2e.calc-v3.config.ts",
     "e2e.offer.config.ts",
-    "e2e.resend-portal.config.ts",
     "e2e/polish/**",
     "e2e/army/*.e2e.ts",
     "e2e/army/{development,extended,local,performance,polish,takeoff}/**/*.ts",

@@ -270,7 +270,7 @@ describe("TesterArmy critical impact map", () => {
   });
 
   it("selects only what a change reaches, with the login setup", () => {
-    const docs = select(["docs/testing/tester-army-ci.md", "README.md", "maquette/notes.md"]);
+    const docs = select(["docs/testing/tester-army-ci.md", "README.md", "notes/plan.md"]);
     expect(docs.mode).toBe("none");
 
     const test = select(["src/app/dashboard/estimates/[versionId]/edit/page.test.tsx"]);
