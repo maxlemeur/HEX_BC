@@ -154,6 +154,8 @@ for (const format of ["pdf", "xls"] as const) {
         return editedQuantities.map(({ title }) => value.items.find(item => item.title === title)?.quantity);
       };
       await expect.poll(readQuantities, { timeout: 45_000 }).toEqual([7, 7, 4]);
+      // The commit can be visible to the API before the editor receives its acknowledgement.
+      await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
       await browser.reload();
       await expect.poll(readQuantities).toEqual([7, 7, 4]);
       const edited = await readEstimate(browser, versionId);
