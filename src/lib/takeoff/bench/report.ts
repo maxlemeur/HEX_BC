@@ -92,7 +92,7 @@ export type BenchReportMetadata = {
     skipped: Array<{ id: string; reason: string }>;
   };
   profile: { model: string | null; reasoning_effort: ChatGptReasoningEffort | null; unchanged: boolean | null };
-  /** Host and load before and after the run (AGENTS.md: performance figures carry the host load). */
+  /** Host and load before and after the run (docs/testing/large-estimate-statement-budget.md: performance figures carry the host load). */
   host?: { platform: string; release: string; cpus: number; loadavg_before: number[]; loadavg_after: number[] };
   /** Pages read when the extraction did not read every page (TI-663 « après »). */
   page_selection?: BenchPageSelection;
