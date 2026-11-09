@@ -5,6 +5,7 @@ import { cache } from "react";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { normalizeAffaireCounters } from "@/lib/affaires/status-counts";
+import type { DashboardQuery } from "@/lib/affaires/dashboard";
 import {
   computeEstimateBreakdown,
   computeStoredDiscountCents,
@@ -2131,6 +2132,44 @@ export async function fetchAffaireManagerQueueSummary(
 }
 
 const DASHBOARD_RECENT_AFFAIRE_LIMIT = 5;
+
+export type AffaireDashboardWorkspaceResult = {
+  affaires: AffaireDashboardOverviewResult["recentAffaires"];
+  counters: AffaireCountersResult;
+  nextCursor: string | null;
+  previousCursor: string | null;
+};
+
+/** Metadata only: one bounded list RPC and global counters; no per-affaire reads. */
+export async function fetchAffaireDashboardWorkspace(input: DashboardQuery): Promise<AffaireDashboardWorkspaceResult> {
+  const context = await getAuthenticatedContext();
+  const recent = input.view === "recent";
+  const backwards = !recent && input.direction === "previous" && Boolean(input.cursor);
+  const query = normalizeAffaireListQuery({
+    status: input.view === "draft" || input.view === "sent" || input.view === "accepted" ? [input.view] : null,
+    cursor: recent ? null : input.cursor,
+    dir: backwards ? "asc" : "desc",
+  });
+  const [page, counters] = await Promise.all([
+    fetchAffaireListRowsWithContext(context, { ...query, size: recent ? 5 : 20 }),
+    fetchAffaireCountersWithContext(context, normalizeAffaireListQuery({})),
+  ]);
+  const items = backwards ? [...page.items].reverse() : page.items;
+  const first = items[0];
+  const last = items.at(-1);
+  const cursorFor = (item: AffaireListItem) => encodeAffaireCursor(createAffaireCursorPayload(item, "updatedAt"));
+  const hasPreviousPage = !recent && (backwards ? page.hasNextPage : Boolean(input.cursor));
+  const hasNextPage = !recent && (backwards ? Boolean(input.cursor) : page.hasNextPage);
+  return {
+    affaires: items.map(item => ({
+      projectId: item.projectId, projectName: item.projectName, projectReference: item.projectReference,
+      projectClient: item.projectClient, currentStatus: item.currentStatus, currentUpdatedAt: item.currentUpdatedAt,
+    })),
+    counters,
+    previousCursor: hasPreviousPage ? first ? cursorFor(first) : input.cursor : null,
+    nextCursor: hasNextPage ? last ? cursorFor(last) : input.cursor : null,
+  };
+}
 
 export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardOverviewResult> {
   const context = await getAuthenticatedContext();

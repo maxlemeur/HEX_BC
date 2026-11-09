@@ -14,6 +14,7 @@ type ErrorStateProps = {
   onRetry?: () => void;
   homeHref?: string;
   homeLabel?: string;
+  reloadHome?: boolean;
   digest?: string;
   headingLevel?: 1 | 2;
   className?: string;
@@ -25,6 +26,7 @@ export function ErrorState({
   onRetry,
   homeHref,
   homeLabel = "Retour à l’accueil",
+  reloadHome = false,
   digest,
   headingLevel = 1,
   className,
@@ -54,7 +56,11 @@ export function ErrorState({
             Réessayer
           </button>
         ) : null}
-        {homeHref ? (
+        {homeHref ? reloadHome ? (
+          <a href={homeHref} className={buttonVariants({ variant: "outline", size: "lg" })}>
+            {homeLabel}
+          </a>
+        ) : (
           <Link href={homeHref} className={buttonVariants({ variant: "outline", size: "lg" })}>
             {homeLabel}
           </Link>
@@ -74,12 +80,14 @@ export function RouteError({
   title,
   source,
   homeHref = "/dashboard",
+  reloadHome = false,
 }: {
   error: Error & { digest?: string };
   retry?: () => void;
   title: string;
   source: string;
   homeHref?: string;
+  reloadHome?: boolean;
 }) {
   useEffect(() => {
     reportError({
@@ -91,7 +99,7 @@ export function RouteError({
 
   return (
     <div className="py-8">
-      <ErrorState title={title} onRetry={retry} homeHref={homeHref} digest={error.digest} />
+      <ErrorState title={title} onRetry={retry} homeHref={homeHref} reloadHome={reloadHome} digest={error.digest} />
     </div>
   );
 }
