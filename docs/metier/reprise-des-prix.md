@@ -127,3 +127,8 @@ proposition du rapprochement : c'est ce choix qui est écrit. La reprise entre p
 reste couverte isolément pour le rapprochement des rôles par nom. Les réponses simulées ne prouvent ni l'accès
 réel aux fournisseurs ni la justesse de leurs choix : celle-ci se mesure sur une
 affaire réelle, contre un rapprochement fait par un chiffreur.
+
+La reprise détache aussi la provenance de transport du coût remplacé (TI-534).
+Le lien éventuel au produit ne vaut pas preuve de transport inclus pour le nouveau
+prix. Une offre choisie explicitement ensuite capture ses propres conditions ;
+la main-d'œuvre et le prix du catalogue restent indépendants de cette reprise.

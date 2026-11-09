@@ -79,16 +79,28 @@ sur la ligne (`estimate_items.fo_provision`, 3 décimales, entre 1 et 2). Une li
 v3 la reçoit à sa création depuis son type FO (`supply_types.default_fo_provision`) :
 1,030 pour les types FO Tube, Calorifuge et Isolant (valeurs posées par la
 migration), 1,010 pour tout autre type, pour un type créé ensuite et pour une
-ligne sans type. Un changement de type FO la redérive ; aucune
-autre écriture ne la touche, si bien que sauvegarde, réouverture, duplication et
-copie ne la cumulent jamais. Modifier la valeur d'un type ne change aucune ligne
+ligne sans type. Une offre ou référence dont le transport est inclus donne
+1,010 aux tubes, calorifuges et isolants. Le prix choisi conserve sur la ligne
+sa provenance et son traitement du transport (`fo_price_origin`) : une mise à
+jour ultérieure du catalogue ne le remplace pas. Le Type FO est prérempli par
+le type de produit déclaré, indépendamment du matériau ; Isolant prend d'abord
+le type exact, puis Calorifuge si celui-ci est seul disponible. Une famille
+absente ou ambiguë reste à préciser, avec un avertissement non bloquant.
+
+Changer le Type FO, choisir un prix ou remplacer le coût à la main redérive
+la provision concernée. Un prix manuel ou repris d'un autre devis perd l'ancienne
+preuve de transport, même si le lien produit reste présent. Sauvegarde,
+réouverture, duplication et copie ne cumulent jamais la provision. Une copie de
+section conserve le snapshot de transport de sa source, ainsi que son absence
+connue ; une duplication de version conserve aussi la provision exacte. Modifier la valeur d'un type ne change aucune ligne
 existante. Les lignes antérieures, les sections et les lignes v1/v2 gardent 1,000 :
 aucun montant existant ne change. Le déclencheur
 `private.derive_estimate_item_fo_provision` pose la valeur ; les projections
 calculées avant l'écriture (lot, création atomique, création de devis, éditeur)
 appliquent le même miroir ([fo-provision.ts](../../src/lib/estimates/fo-provision.ts)).
 La provision fait partie de l'entrée canonique et du gel ; elle figure dans les
-exports DPGF (« Données ») et CSV, avant K FO. Le contrôle D11 de l'import
+exports DPGF (« Données ») et CSV, avant K FO. La colonne « Transport FO »
+indique les conditions enregistrées du prix choisi. Le contrôle D11 de l'import
 compare le PU du classeur à la lecture de ses colonnes, avant provision : il
 vérifie l'interprétation du fichier, pas le prix créé.
 

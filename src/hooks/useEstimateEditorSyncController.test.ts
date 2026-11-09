@@ -172,7 +172,7 @@ function createItem(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
-    fo_provision: 1,
+    fo_price_origin: null, fo_provision: 1,
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,
@@ -658,7 +658,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
       ["627ef080-0004-4000-8000-00000000000b", 1.01],
     ]);
     const input = createInput({
-      items: [createItem("line-1", { supply_type_id: "627ef080-0004-4000-8000-00000000000b", fo_provision: 1.01 })],
+      items: [createItem("line-1", { supply_type_id: "627ef080-0004-4000-8000-00000000000b", fo_price_origin: null, fo_provision: 1.01 })],
       deriveBufferedItem: (source, merged) => withRederivedFoProvision(source, merged, provisions),
     });
     const { result } = renderHook(() => useEstimateEditorSyncController(input));
@@ -667,7 +667,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
       expect(result.current.state.hasPendingBufferedUpdates).toBe(true);
     });
 
-    const recovered = { id: "line-1", supply_type_id: "627ef080-0004-4000-8000-00000000000a", fo_provision: 1.03 };
+    const recovered = { id: "line-1", supply_type_id: "627ef080-0004-4000-8000-00000000000a", fo_price_origin: null, fo_provision: 1.03 };
     expect(input.replaceItems).toHaveBeenCalledWith([expect.objectContaining(recovered)]);
     // Rechargement : la ligne serveur garde l'ancien type, la saisie en attente le remplace avec sa provision.
     expect(result.current.actions.overlayPendingUpdates(input.items)).toEqual([expect.objectContaining(recovered)]);

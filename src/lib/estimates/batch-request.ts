@@ -12,7 +12,7 @@ const LINE_FIELDS = [
   "tax_rate_bp", "k_fo", "h_mo", "h_mo_majoration", "k_mo", "labor_role_id",
   "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id",
-  "category_id", "supply_type_id", "product_id", "selected_supplier_price_id",
+  "category_id", "supply_type_id", "product_id", "selected_supplier_price_id", "fo_price_origin",
   // Lot 2, sous-lot 2.5 : colonnes de saisie v3 (D4, D9), jamais retirées en silence.
   "unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit",
 ] as const;
@@ -22,7 +22,7 @@ const UPDATE_FIELDS = [
   "h_mo_majoration", "k_mo", "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id", "pu_ht_cents",
   "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents", "labor_role_id",
-  "category_id", "supply_type_id", "product_id", "selected_supplier_price_id",
+  "category_id", "supply_type_id", "product_id", "selected_supplier_price_id", "fo_price_origin",
   "unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit",
 ] as const;
 const UUID_FIELDS = new Set([

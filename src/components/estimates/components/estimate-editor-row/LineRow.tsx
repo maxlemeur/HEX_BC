@@ -821,6 +821,7 @@ export function LineRow({
             >
               <div className="estimate-line-more__items">
                 <div className="estimate-line-more__state">{lineStateNodes}</div>
+                {v3Grid ? <V3LineStateControls item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} /> : null}
                 {lineDetailNodes}
               </div>
             </Popover>
@@ -964,9 +965,10 @@ export function LineRow({
             onCommit={(id) => onPatchItem(item.id, { supply_type_id: id }, { persist: true })}
             disabled={isReadOnly}
           />
+          {v3Grid && item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status" className="text-xs text-amber-700">Type FO à préciser</span> : null}
         </div>
       ) : null}
-      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} /> : null}
+      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} origin={item.fo_price_origin} /> : null}
       {isFoColumnVisible("k_fo") ? (
         <div
           {...kFoCellProps}

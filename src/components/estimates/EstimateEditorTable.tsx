@@ -1,5 +1,7 @@
 "use client";
 
+import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
+
 import dynamic from "next/dynamic";
 import {
   Fragment,
@@ -1625,6 +1627,7 @@ export function EstimateEditorTable({
           description: unit || null,
           unit_price_ht_cents: linePrice.priceCents,
           selected_supplier_price_id: suggestion.supplier_price_id,
+          ...(v3Grid ? { fo_price_origin: selectedFoPriceOrigin(suggestion) } : {}),
         },
         { persist: true }
       );

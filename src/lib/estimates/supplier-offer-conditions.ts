@@ -33,6 +33,7 @@ export async function readSelectedSupplierDetails(
 }
 
 export type SupplierOfferConditions = {
+  transport_mode?: "included" | "excluded" | null;
   unit?: string | null;
   min_quantity?: number | null;
   valid_from?: string | null;

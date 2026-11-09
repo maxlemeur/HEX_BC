@@ -107,6 +107,8 @@ function lineOperation(item: ItemInsert, source: ItemRow, sourceIsV3: boolean, k
     k_mo_chantier: source.k_mo_chantier, labor_role_id: source.labor_role_id,
     labor_role_atelier_id: source.labor_role_atelier_id, labor_role_chantier_id: source.labor_role_chantier_id,
     category_id: source.category_id, supply_type_id: source.supply_type_id, product_id: source.product_id,
+    ...(source.fo_price_origin || source.product_id || source.selected_supplier_price_id
+      ? { fo_price_origin: sourceIsV3 ? source.fo_price_origin ?? null : null } : {}),
     selected_supplier_price_id: source.selected_supplier_price_id, source_provider: source.source_provider,
     source_job_id: keepSourceJob ? source.source_job_id : null, source_file_name: source.source_file_name,
     source_page: source.source_page,

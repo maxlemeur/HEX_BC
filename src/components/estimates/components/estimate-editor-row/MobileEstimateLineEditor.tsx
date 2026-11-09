@@ -380,6 +380,7 @@ export function MobileEstimateLineEditor({
               </div>
               {isV3 ? (
                 <p className="text-xs text-[var(--slate-600)]" title={FO_PROVISION_CELL_TITLE}>
+                  {item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status">Type FO à préciser — </span> : null}
                   {"Provision FO (automatique, selon le type) : "}
                   <output aria-label={`Provision FO pour ${lineLabel}`} className="font-semibold tabular-nums">
                     {formatFoProvision(item.fo_provision)}

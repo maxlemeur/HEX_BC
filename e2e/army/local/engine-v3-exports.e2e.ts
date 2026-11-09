@@ -180,7 +180,7 @@ type Currency = keyof typeof CURRENCY_FORMATS;
 const dpgfHeader = (currency: Currency) => ["Type", "AID", "Désignation", "Quantité", "Unité", "Statut", "TVA (%)",
   `Prix unitaire HT ${currency}`, "Type FO", "Provision FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
   "h MO Atelier / unité", "K MO Atelier", "Rôle MO Atelier", "h MO Chantier / unité", "K MO Chantier", "Rôle MO Chantier",
-  `PU vente HT ${currency}`, `Total HT brut ${currency}`];
+  `PU vente HT ${currency}`, `Total HT brut ${currency}`, "Transport FO"];
 const FOOTER_FIELD = /^(Total HT brut|Remise commerciale|Arrondi commercial|Total HT net|TVA |Total TVA|Total TTC)/u;
 
 /** Formats des cellules numériques de montant, dans l'ordre des lignes, et tous les formats du classeur. */
@@ -493,7 +493,7 @@ async function downloadFrom(browser: Browser, url: RegExp, trigger: () => Promis
 
 const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Type FO",
   "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
-  "Total HT (EUR)", "TVA (%)"];
+  "Total HT (EUR)", "TVA (%)", "Transport FO"];
 // En-tête BDC V1.1 (bdc-export.ts) : inchangé et dans cet ordre pour toute version ; une v3 ajoute ses colonnes à la fin.
 const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Quantité", "Type FO", "PU FO HT EUR", "PR FO HT EUR", "K FO",
   "h MO", "K MO", "Taux horaire MO EUR", "Rôle MO", "Catégorie", "Total FO HT EUR", "Total MO HT EUR", "Total HT EUR",
@@ -586,9 +586,9 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         const label = STATUS_LABELS[line.status];
         return [draft.sectionTitle, posteOf(title(line.ref)), line.ref === "P1" ? "'=1+1" : title(line.ref), line.unit, String(line.quantity), label,
           priced ? String(line.prFo / 100) : label, "", "", "", "", "1.01", "1", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
-          line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20"];
+          line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20", ""];
       };
-      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, ""];
+      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, "", ""];
       const actual = {
         status: csv.status, filename: /\.csv$/i.test(csv.filename), bom: csv.bytes.subarray(0, 3).toString("hex"),
         header: rows[0] ?? null,
@@ -826,7 +826,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       // Ligne ventilée : h/u, rôle et K MO de la ligne vides (le moteur ne les lit pas), colonnes atelier/chantier remplies.
       const csvLine = (ref: string, unit: string, quantity: number, pr: number, legacy: [string, string, string], pu: number, gross: number,
         split: string[]) => [draft.sectionTitle, posteOf(title(ref)), title(ref), unit, String(quantity), "Chiffrée", String(pr), "", "", "", "",
-        "1.01", "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", ...split];
+        "1.01", "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", "", ...split];
       const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 18 ? value : ""));
       const csvActual = { status: csv.status, error: csv.error, header: rows[0] ?? null,
         lines: rows.slice(1, 4).map((row) => row.map((cell) => normalized(cell))),

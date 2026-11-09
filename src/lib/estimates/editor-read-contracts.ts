@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
 
 import { ESTIMATE_STATUS_VALUES } from "@/lib/estimates/status";
 import { ESTIMATE_LINE_PRICING_STATUSES } from "@/lib/units/normalize";
@@ -87,6 +88,7 @@ export const estimateEditorItemSchema = z.object({
     price_id: uuid, name: z.string().nullable(), reference: z.string().nullable(),
   }).nullable().optional(),
   line_nature: z.enum(["supply_only", "supply_and_labor", "labor_only"]).nullable(),
+  fo_price_origin: foPriceOriginSchema.nullable().default(null),
   fo_provision: number.nullable(), aid: z.string().nullable(),
   unit_code: z.string().nullable(), pricing_status: z.enum(ESTIMATE_LINE_PRICING_STATUSES),
   line_total_ht_cents: integer.nullable(), line_tax_cents: integer.nullable(), line_total_ttc_cents: integer.nullable(),

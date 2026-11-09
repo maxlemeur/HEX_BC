@@ -12,7 +12,9 @@ import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/e
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
 } from "@/lib/estimates/estimate-placement-helpers";
-import { deriveFoProvision, supplyTypeChanged } from "@/lib/estimates/fo-provision";
+import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
+import { isTransportSensitiveFoType, sameFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
+import { deriveFoProvision, supplyTypeChanged, type FoProvisionValue } from "@/lib/estimates/fo-provision";
 import {
   buildHierarchyIndex, clampMaxSectionDepth, getDefaultSectionTitleForLevel,
   isAncestorOrSelf, resolveSectionLevel, type HierarchyIndex,
@@ -151,9 +153,10 @@ export async function prepareEstimateBatch(input: {
   const checkedReferences = new Map<string, Promise<void>>();
   // TI-534: the supply type provisions read by the reference checks, for the mirror of
   // private.derive_estimate_item_fo_provision (1.000 on v1/v2 and on sections).
-  const supplyTypeProvisions = new Map<string, number>();
-  const foProvisionOf = (supplyTypeId: string | null) =>
-    perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions) : 1;
+  const supplyTypeProvisions = new Map<string, FoProvisionValue>();
+  const resolveFoPrice = createFoPriceResolver(supabase, tenantId);
+  const foProvisionOf = (supplyTypeId: string | null, origin?: unknown) =>
+    perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions, origin) : 1;
 
   function references(data: Partial<Item>) {
     const checks: Promise<void>[] = [];
@@ -172,11 +175,11 @@ export async function prepareEstimateBatch(input: {
             if (error) throw unavailable();
             if (!found) throw badRequest(`${field} invalide.`);
           } else if (table === "supply_types") {
-            const { data: found, error } = await supabase.from("supply_types").select("id, default_fo_provision")
+            const { data: found, error } = await supabase.from("supply_types").select("id, code, name, default_fo_provision")
               .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
             if (error) throw unavailable();
             if (!found) throw badRequest(`${field} invalide.`);
-            supplyTypeProvisions.set(found.id.toLowerCase(), Number(found.default_fo_provision));
+            supplyTypeProvisions.set(found.id.toLowerCase(), { value: Number(found.default_fo_provision), transportSensitive: isTransportSensitiveFoType(found) });
           } else {
             const { data: found, error } = await supabase.from(table).select("id")
               .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
@@ -260,11 +263,22 @@ export async function prepareEstimateBatch(input: {
     }
   }
 
+  if (perUnitLabor) await resolveFoPrice.preload(input.operations.flatMap<import("./fo-price-origin").FoPriceLine>(operation => {
+    if (operation.op === "create") return operation.data.item_type === "line" &&
+      (operation.data.product_id || operation.data.selected_supplier_price_id || operation.data.fo_price_origin) ? [operation.data] : [];
+    if (operation.op !== "update") return [];
+    const current = items.get(operation.id);
+    return current && (operation.data.fo_price_origin ||
+      operation.data.product_id && operation.data.product_id !== current.product_id ||
+      operation.data.selected_supplier_price_id && operation.data.selected_supplier_price_id !== current.selected_supplier_price_id)
+      ? [{ ...current, ...operation.data }] : [];
+  }));
   for (let index = 0; index < input.operations.length; index += 1) {
     const operation = input.operations[index];
     try {
       if (operation.op === "create") {
-        const data = engineItemWrite(normalizeStoredItemNumerics(operation.data), operation.data.item_type);
+        let data = engineItemWrite(normalizeStoredItemNumerics(operation.data), operation.data.item_type);
+        if (perUnitLabor && data.item_type === "line") data = await resolveFoPrice(data);
         const parentId = data.parent_id ?? null;
         // Lot 3.1: the sibling scan and the parent level only feed the default position and title.
         const position = data.position ?? [...items.values()].filter((item) => item.parent_id === parentId)
@@ -284,7 +298,7 @@ export async function prepareEstimateBatch(input: {
           parent_id: parentId, item_type: data.item_type, position,
           title: data.title ?? (isLine ? "Nouvelle ligne" : getDefaultSectionTitleForLevel((parentLevel ?? 0) + 1)),
           aid: data.aid ?? null, description: null, line_nature: null,
-          quantity: null, unit_price_ht_cents: null, tax_rate_bp: null, k_fo: null, fo_provision: 1, h_mo: null,
+          quantity: null, unit_price_ht_cents: null, tax_rate_bp: null, k_fo: null, fo_provision: 1, fo_price_origin: null, h_mo: null,
           h_mo_majoration: 1, k_mo: null, labor_role_id: null, category_id: null,
           h_mo_atelier: null, k_mo_atelier: null, labor_role_atelier_id: null,
           h_mo_chantier: null, k_mo_chantier: null, labor_role_chantier_id: null,
@@ -307,7 +321,7 @@ export async function prepareEstimateBatch(input: {
         validateAid(item);
         validatePlacement(item);
         await references(item);
-        if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id);
+        if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id, item.fo_price_origin);
         items.set(item.id, item);
         const sourceMetadata = suppliedMetadata.get(index);
         createdIds.push(sourceMetadata ? { index, id: item.id, source_metadata: sourceMetadata } : { index, id: item.id });
@@ -322,14 +336,19 @@ export async function prepareEstimateBatch(input: {
         const patch = engineItemWrite(rawPatch, current.item_type);
         validateAid(patch);
         await references(patch);
-        const next = { ...current, ...patch };
+        const next = perUnitLabor && current.item_type === "line"
+          ? await resolveFoPrice({ ...current, ...patch }, current) : { ...current, ...patch };
         // Derived values in old client buffers are never a pricing authority.
         for (const field of DERIVED_FIELDS) next[field] = current[field];
         if (next.item_type === "line") {
           next.line_nature = resolvePromotedEstimateLineNature(current, patch);
-          if (supplyTypeChanged(current.supply_type_id, next.supply_type_id)) next.fo_provision = foProvisionOf(next.supply_type_id);
+          if (supplyTypeChanged(current.supply_type_id, next.supply_type_id) ||
+              !sameFoPriceOrigin(current.fo_price_origin, next.fo_price_origin)) {
+            next.fo_provision = foProvisionOf(next.supply_type_id, next.fo_price_origin);
+          }
           changedLineIds.add(next.id);
         }
+        await references(next);
         validatePlacement(next);
         items.set(next.id, next);
       } else if (operation.op === "delete") {

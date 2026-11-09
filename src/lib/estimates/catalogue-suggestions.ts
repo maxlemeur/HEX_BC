@@ -23,6 +23,7 @@ export type SupplierAlternative = {
   catalogue_url: string | null;
   /** A7: "included" or "free" on an offer at 0 € that may price a line (sub-lot 2.2). */
   zero_price_kind?: string | null;
+  transport_mode?: "included" | "excluded" | null;
   /** 2.9: the purchase unit and conversion of the offer behind this price. */
   /** Price per purchase unit, adjusted by the material index like adjusted_unit_price_cents. */
   adjusted_purchase_unit_price_cents?: number | null;
@@ -61,6 +62,7 @@ export type CataloguePriceSuggestion = {
   catalogue_url: string | null;
   /** A7 marking of the suggested supplier offer, if any. */
   zero_price_kind?: string | null;
+  transport_mode?: "included" | "excluded" | null;
   /** 2.9: the purchase unit and conversion of the offer behind this price. */
   /** Price per purchase unit, adjusted by the material index like adjusted_unit_price_cents. */
   adjusted_purchase_unit_price_cents?: number | null;
@@ -91,6 +93,7 @@ export function isSupplierBackedCatalogueSuggestion(
 }
 
 export type CatalogueProductSuggestionRecord = {
+  reference_transport_mode?: "included" | "excluded" | null;
   id: string;
   designation: string;
   reference: string | null;
@@ -231,6 +234,7 @@ export function mergeCatalogueProductSuggestions(input: {
 
     suggestionByProductId.set(product.id, {
       price_source: priceSource,
+      transport_mode: product.reference_transport_mode ?? null,
       supplier_price_id: null,
       product_id: product.id,
       product_designation: product.designation,

@@ -79,6 +79,7 @@ export type EstimateV3VersionTotals = {
 /** Colonnes de ligne propres à la v3 (saisie). `h_mo*` reste un total dérivé. */
 export const V3_ITEM_INPUT_KEYS = [
   "unit_code",
+  "fo_price_origin",
   "pricing_status",
   "h_mo_per_unit",
   "h_mo_atelier_per_unit",

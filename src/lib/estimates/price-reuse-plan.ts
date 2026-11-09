@@ -19,14 +19,14 @@ export const PRICE_REUSE_COPIED_FIELDS = [
 export const PRICE_REUSE_MAX_SELECTIONS = 1000;
 
 type CopiedField = (typeof PRICE_REUSE_COPIED_FIELDS)[number];
-export type PriceReuseItem = Pick<ItemRow, "id" | "item_type" | "title" | "unit_code" | "selected_supplier_price_id" | CopiedField>;
+export type PriceReuseItem = Pick<ItemRow, "id" | "item_type" | "title" | "unit_code" | "selected_supplier_price_id" | CopiedField> & Pick<Partial<ItemRow>, "fo_price_origin">;
 export type PriceReuseRole = { id: string; name: string };
 export type PriceReuseSelection = { line_id: string; reference_line_id: string };
 /** The writer refuses `null` for these inputs: an absent reference value leaves the line's own value. */
 const NON_NULL_FIELDS = new Set(["line_nature", "pricing_status", "unit_price_ht_cents", "k_fo", "h_mo_majoration", "k_mo"] as const);
 type NonNullField = typeof NON_NULL_FIELDS extends Set<infer T> ? T : never;
 export type PriceReuseUpdateData = { [K in NonNullField]?: NonNullable<ItemRow[K]> } &
-  { [K in Exclude<CopiedField, NonNullField>]?: ItemRow[K] } & { selected_supplier_price_id?: null };
+  { [K in Exclude<CopiedField, NonNullField>]?: ItemRow[K] } & { selected_supplier_price_id?: null; fo_price_origin?: null };
 export type PriceReuseOperation = { op: "update"; id: string; data: PriceReuseUpdateData };
 
 export type PriceReusePlanErrorCode =
@@ -113,6 +113,7 @@ export function planPriceReuseOperations(input: {
       return value === null && (NON_NULL_FIELDS as Set<string>).has(field) ? [] : [[field, value]];
     })) as PriceReuseUpdateData;
     data.pricing_status = "priced";
+    data.fo_price_origin = null;
     for (const field of ROLE_FIELDS) {
       const roleId = reference[field];
       if (!roleId || targetRoleIds.has(roleId)) continue;

@@ -1,5 +1,7 @@
 "use client";
 
+import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
@@ -21,6 +23,7 @@ type SupplierComparisonPatch = {
   description?: string | null;
   unit_price_ht_cents: number;
   selected_supplier_price_id: string | null;
+  fo_price_origin?: EstimateItem["fo_price_origin"];
 };
 
 export type SupplierComparisonResult = {
@@ -209,7 +212,7 @@ export function useEstimateSupplierComparison({
         activeSupplierComparisonItem.id,
         {
           // A v3 line keeps its unit_code; only its PR FO and the offer change.
-          ...(isV3 ? {} : { description: selectedUnit || null }),
+          ...(isV3 ? { fo_price_origin: selectedFoPriceOrigin({ product_id: "", supplier_price_id: alternative.supplier_price_id, transport_mode: alternative.transport_mode }) } : { description: selectedUnit || null }),
           unit_price_ht_cents: linePrice.priceCents,
           selected_supplier_price_id: alternative.supplier_price_id,
         },

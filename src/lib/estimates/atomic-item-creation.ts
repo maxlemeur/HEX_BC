@@ -1,3 +1,4 @@
+import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
@@ -184,14 +185,15 @@ async function persistAtomicEstimateV3Item(input: Parameters<typeof persistAtomi
   let item: AtomicEstimateItemInsert = normalizeV3ItemWrite(input.item, input.item.item_type);
   const lines = [...input.lines];
   if (item.item_type === "line") {
+    const pricedItem = await createFoPriceResolver(supabase, tenantId)(item);
     // TI-534 : provision FO que le déclencheur donne à la ligne neuve (jamais envoyée : p_item reste inchangé).
-    const { provisions, error: provisionError } = await loadSupplyTypeFoProvisions(supabase, tenantId, [item.supply_type_id]);
+    const { provisions, error: provisionError } = await loadSupplyTypeFoProvisions(supabase, tenantId, [pricedItem.supply_type_id]);
     if (provisionError) {
       throw mapSupabaseError(provisionError, "Impossible de lire le type de fourniture.");
     }
     lines.push({
-      ...item,
-      fo_provision: deriveFoProvision(item.supply_type_id, provisions),
+      ...pricedItem,
+      fo_provision: deriveFoProvision(pricedItem.supply_type_id, provisions, pricedItem.fo_price_origin),
       parent_id: item.parent_id ?? null,
       description: item.description ?? null,
       labor_role_id: item.labor_role_id ?? null,

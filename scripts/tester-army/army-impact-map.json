@@ -46,6 +46,7 @@
       "e2e/army/local/engine-v3-exports.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-financial-chain.e2e.ts",
+      "e2e/army/local/engine-v3-fo-provision.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/engine-v3-price-reuse.e2e.ts",
@@ -562,6 +563,7 @@
         "e2e/army/local/engine-v3-default.e2e.ts",
         "e2e/army/local/engine-v3-editor-actions.e2e.ts",
         "e2e/army/local/engine-v3-editor.e2e.ts",
+        "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/engine-v3-fail-closed.e2e.ts",
         "e2e/army/local/estimate-row-limit-reads.e2e.ts",
         "e2e/army/local/legacy-access-parity.e2e.ts"
@@ -733,6 +735,7 @@
         "src/app/dashboard/{products,prices}/**"
       ],
       "journeys": [
+        "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/legacy-catalogue-parity.e2e.ts"
       ]
     },
@@ -906,6 +909,7 @@
       ],
       "journeys": [
         "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/engine-v3-price-reuse.e2e.ts"
       ]
     },

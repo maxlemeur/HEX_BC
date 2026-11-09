@@ -105,7 +105,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
   stalePriceDays: number;
   query: string;
   filterByRelevance: boolean;
-}) {
+}): Promise<HydratedSuggestedCatalogueCandidate[]> {
   if (input.supplierPrices.length === 0) {
     return [] as HydratedSuggestedCatalogueCandidate[];
   }
@@ -118,7 +118,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     const { data: productsData, error: productsError } = await input.supabase
       .from("products")
       .select(
-        "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at"
+        "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode"
       )
       .eq("tenant_id", input.tenantId)
       .in("id", productIds);
@@ -286,6 +286,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         material_index_value: materialIndex?.index_value ?? null,
         catalogue_url: row.product_url ?? extractCatalogueUrl(row.notes),
         zero_price_kind: row.zero_price_kind ?? null,
+        transport_mode: row.transport_mode ?? null,
         purchase_unit: row.unit ?? null,
         adjusted_purchase_unit_price_cents: adjustedPurchaseUnitPriceCents,
         estimate_unit_code: row.estimate_unit_code ?? null,
@@ -313,7 +314,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.selectedSupplierPriceId)
@@ -336,7 +337,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: productPriceData, error: productPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("product_id", selectedPrice.product_id)
@@ -444,7 +445,7 @@ export async function suggestEstimateCataloguePrices(
   }
 
   const productColumns =
-    "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at";
+    "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode";
   const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
   const productPrefixFilter = `designation.ilike.${safeSearch}%,reference.ilike.${safeSearch}%`;
 
@@ -524,7 +525,7 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
@@ -788,6 +789,7 @@ export async function getEstimateSupplierComparisons(
         currency: candidate.currency ?? null,
         supplier_reference: candidate.supplier_reference,
         catalogue_url: candidate.catalogue_url,
+        transport_mode: candidate.transport_mode ?? null,
         updated_at: candidate.updated_at,
         is_stale: candidate.is_stale,
         product_designation: candidate.product_designation,

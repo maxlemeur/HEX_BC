@@ -73,7 +73,7 @@ function createLine(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
-    fo_provision: 1,
+    fo_price_origin: null, fo_provision: 1,
     h_mo: 1,
     h_mo_majoration: 1,
     k_mo: 1,
@@ -305,7 +305,7 @@ describe("useEstimateEditorBulkController", () => {
 
   it("keeps the live FO provision of a v3 line when a bulk edit is undone or redone (TI-534)", async () => {
     const TUBE = "8f9a1b2c-0000-4000-8000-000000000041";
-    const legacy = createLine("line-1", { category_id: "category-old", supply_type_id: TUBE, fo_provision: 1 });
+    const legacy = createLine("line-1", { category_id: "category-old", supply_type_id: TUBE, fo_price_origin: null, fo_provision: 1 });
     const v3Writer: EstimateV3EditorWriter = {
       deleteItems: vi.fn(),
       updateItems: vi.fn().mockResolvedValue({ id: "version-1", updated_at: "token-v3" }),
@@ -322,17 +322,17 @@ describe("useEstimateEditorBulkController", () => {
     const command = readHistoryCommand(harness.pushHistoryCommand);
     // A Type FO change and its undo in between re-derived the tube's provision, on the server as in the editor.
     act(() => {
-      harness.setItems((previous) => previous.map((item) => ({ ...item, fo_provision: 1.03 })));
+      harness.setItems((previous) => previous.map((item) => ({ ...item, fo_price_origin: null, fo_provision: 1.03 })));
     });
 
     await act(async () => {
       await command.undo();
     });
-    expect(harness.getItems()[0]).toMatchObject({ category_id: "category-old", fo_provision: 1.03 });
+    expect(harness.getItems()[0]).toMatchObject({ category_id: "category-old", fo_price_origin: null, fo_provision: 1.03 });
     await act(async () => {
       await command.redo();
     });
-    expect(harness.getItems()[0]).toMatchObject({ category_id: "category-new", fo_provision: 1.03 });
+    expect(harness.getItems()[0]).toMatchObject({ category_id: "category-new", fo_price_origin: null, fo_provision: 1.03 });
   });
 
   it.each([

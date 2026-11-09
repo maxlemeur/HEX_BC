@@ -490,9 +490,9 @@ export function useEstimateEditorState({
         // acknowledgement must not become another local preview or intention.
         if (results?.length) {
           const before = editorDocument.getSnapshot().confirmedItems;
-          const after = withServerFoProvisions(before, results);
-          editorDocument.acknowledgeItems(after.flatMap((item, index) => item.fo_provision !== before[index].fo_provision
-            ? [{ id: item.id, updates: { fo_provision: item.fo_provision } }] : []));
+          const after = withServerFoProvisions(before, results, true);
+          editorDocument.acknowledgeItems(after.flatMap((item, index) => item !== before[index]
+            ? [{ id: item.id, updates: { fo_provision: item.fo_provision, fo_price_origin: item.fo_price_origin, supply_type_id: item.supply_type_id } }] : []));
         }
       });
     },
