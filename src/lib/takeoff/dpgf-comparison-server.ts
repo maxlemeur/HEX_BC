@@ -42,6 +42,13 @@ async function buildAndHydrateTakeoffDpgfComparison(
     pageSize: input.page_size ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
     view: input.view,
   });
+  return hydrateComparisonPage(context, comparison);
+}
+
+async function hydrateComparisonPage(
+  context: HydrationContext,
+  comparison: TakeoffDpgfComparisonResponse
+): Promise<TakeoffDpgfComparisonResponse> {
   const hydratedRows = await syncAndHydrateTakeoffLineProofs({
     supabase: context.supabase,
     tenantId: context.tenantId,
@@ -79,20 +86,20 @@ export async function fetchAllTakeoffDpgfComparisonRows(input: {
   // for every 200-line page makes the radar quadratic in database reads.
   const context = await addSupplierPriceEvidence(input.context);
   const { jobId, versionId } = context.comparisonInput;
-  const rows: TakeoffDpgfComparisonResponse["rows"] = [];
+  const pages: TakeoffDpgfComparisonResponse[] = [];
   let cursor: string | undefined;
   let response: TakeoffDpgfComparisonResponse | null = null;
   const seenCursors = new Set<string>();
 
   while (true) {
-    response = await buildAndHydrateTakeoffDpgfComparison(context, {
-      version_id: versionId,
+    response = buildTakeoffDpgfComparison({
+      ...context.comparisonInput,
       cursor,
-      page_size: TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+      pageSize: TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
       view: "all",
       threshold: input.threshold,
     });
-    rows.push(...response.rows);
+    pages.push(response);
 
     const nextCursor = response.pagination.next_cursor;
     if (!nextCursor) {
@@ -132,11 +139,27 @@ export async function fetchAllTakeoffDpgfComparisonRows(input: {
     });
   }
 
+  // Hydrate disjoint pages with a request-wide bound, keeping each page's SQL
+  // batches unchanged. Reads inside a page stay sequential: no nested fan-out.
+  // Validate every cursor before starting effects, and drain a failed batch
+  // before throwing so it cannot leave detached proof writes behind.
+  const hydratedPages: TakeoffDpgfComparisonResponse[] = [];
+  for (let start = 0; start < pages.length; start += 4) {
+    const results = await Promise.allSettled(pages.slice(start, start + 4)
+      .map(page => hydrateComparisonPage(context, page)));
+    for (const result of results) {
+      if (result.status === "rejected") throw result.reason;
+      hydratedPages.push(result.value);
+    }
+  }
+  const lastPage = hydratedPages[hydratedPages.length - 1];
+  const rows = hydratedPages.flatMap(page => page.rows);
+
   return {
-    ...response,
+    ...lastPage,
     rows,
     pagination: {
-      ...response.pagination,
+      ...lastPage.pagination,
       next_cursor: null,
       total: rows.length,
     },
