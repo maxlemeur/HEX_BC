@@ -26,6 +26,7 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   - Toutes les tailles imprimées comptent, quelle que soit celle que garde le lecteur (il lit « DN 22 » et saute « Ø 23 » à côté).
   - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue, même à côté d'une taille connue (« DN 22 / Ø 23 »).
   - Deux tailles connues différentes, quelles que soient leurs notations (« DN 22 / Ø 28 »), sont deux DN. Une même taille écrite de deux façons (« DN 20 / Ø 22 » d'un tube cuivre) en est une.
+  - Ces tailles se lisent dans la série que la règle DN retient pour le réseau et le matériau lus (D18c, voir « Série retenue ») ; sans réseau lu, dans les séries du matériau. « EU inox DN 100 / Ø 110 » est une seule taille NF EN 1124 ; dans « EU inox DN 100 / Ø 108 », le Ø 108 que cette série n'a pas est gardé tel qu'imprimé, comme « Ø 23 » à côté de « DN 22 » ; « EU inox DN 100 / Ø 125 » porte deux DN.
   - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm », « ép. 2,20 mm ») n'est jamais un DN, et aucune taille ne commence à l'intérieur d'un nombre (« 20 mm » de « 2,20 mm »).
   - « 1"1/4 » et « 1 1/4" » sont une même taille.
   - Les tailles se lisent après les guillemets d'un texte cité, retirés comme le fait le lecteur : le guillemet fermant de « "EF cuivre 20/22" » termine le texte, ce n'est pas le pouce d'un 22" (TI-677). Un pouce à l'intérieur du texte cité reste un pouce (« "EF acier noir 3/4" fileté" »), et aucun pouce ne commence après une barre (le 22 de « 20/22" »). Comme le lecteur, un nombre entier qui ferme un texte cité n'est pas un pouce (« "EF acier galvanisé 2" DN 32 » se lit DN 32).
@@ -129,10 +130,11 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
   - tout autre couple, ou une ligne sans réseau lu : les séries du matériau, sans la
     série NF EN 1124.
   - Une seule sélection partout (D18c, TI-684) : la règle DN, la détection des doublons
-    entre zones et l'identité des quantités comparées au DPGF lisent la même série
-    retenue. Un inox d'évacuation « DN 100 » et « Ø 110 » y est un seul tube, qui ne
-    rejoint jamais un « Ø 108 » ; hors évacuation, l'inox garde ses séries sous pression
-    (Ø 108 est le DN 100 à sertir).
+    entre zones, l'identité des quantités comparées au DPGF et la lecture des tailles
+    dans la désignation (voir « Entrées ») lisent la même série retenue. Un inox
+    d'évacuation « DN 100 » et « Ø 110 » y est un seul tube, qui ne rejoint jamais un
+    « Ø 108 » ; hors évacuation, l'inox garde ses séries sous pression (Ø 108 est le
+    DN 100 à sertir).
 
 **Version 3 de la table** (TI-684, D18a, D18b ; décision D18g) : la raison D18b ne change
 aucune clé, mais la version fait partie de chaque clé d'échec (« règle|code|version|partenaire »,

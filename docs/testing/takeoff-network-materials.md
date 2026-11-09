@@ -49,10 +49,13 @@ où ses tailles sont admises avec celles des séries sous pression.
 
 ## Revue de conformité du 9 novembre 2026 (TI-684, D18a, D18b)
 
-- **Une série par réseau partout** (TI-684) : la sélection des séries selon le réseau
-  (`diameterFamiliesFor`) sert la règle DN, la détection des doublons entre zones et
-  l'identité des quantités DPGF. Un inox d'évacuation « DN 100 » sur un plan et
-  « Ø 110 » sur l'autre est un seul tronçon ; « DN 100 » ne rejoint plus « Ø 108 ».
+- **Une série par réseau partout** (TI-684, D18c) : la sélection des séries selon le
+  réseau (`diameterFamiliesFor`) sert la règle DN, la détection des doublons entre zones,
+  l'identité des quantités DPGF et la lecture des tailles dans la désignation. Un inox
+  d'évacuation « DN 100 » sur un plan et « Ø 110 » sur l'autre est un seul tronçon ;
+  « DN 100 » ne rejoint plus « Ø 108 ». Dans une même désignation, « EU inox DN 100 /
+  Ø 110 » est une taille, tandis que « EU inox DN 100 / Ø 108 » garde le Ø 108 hors
+  série, comme le cuivre garde « Ø 23 » à côté de « DN 22 ».
   Hors évacuation, l'inox garde ses séries sous pression (Ø 108 = DN 100 à sertir).
   L'identité DPGF lit le réseau dans la désignation ; une ligne sans réseau garde les
   séries sous pression et ne rejoint de toute façon aucune ligne d'un réseau.

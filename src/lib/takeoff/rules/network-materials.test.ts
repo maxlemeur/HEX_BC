@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findDiameterEntries } from "@/lib/takeoff/bench/diameters";
 import { takeoffItemBatchPatchSchema, prepareTakeoffItemPatch } from "@/lib/takeoff/item-patch-preparation";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
+import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { requiresGasPeReason } from "@/lib/takeoff/rules/verification";
 import { evaluateTakeoffRules, type RuleLine } from "@/lib/takeoff/rules/evaluate";
 import { checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
@@ -103,6 +104,52 @@ describe("TI-684 one stainless series per network everywhere", () => {
     }
     expect(comparable("EF inox DN 100", "EF inox Ø 108")).toEqual([true, true]);
     expect(comparable("EF inox DN 100", "EF inox Ø 110")).toEqual([false, false]);
+  });
+
+  // D18c, written before the fix: the designation reader still read every printed stainless size through the pressure
+  // series, whatever the network. « EU inox DN 100 / Ø 108 » (the 110 mm drainage DN beside the 108 mm press-fit tube)
+  // passed as one size, « EU inox DN 100 / Ø 125 » (two drainage sizes) as the one Ø 125 the pressure series lacks, and
+  // « EU inox DN 100 / Ø 110 » as an unknown Ø 110. The reader must treat them as it treats copper pairs today.
+  describe("in the designation reader (D18c)", () => {
+    const read = (designation: string) => {
+      const inputs = ruleInputsFromDesignation({ designation, unit: "ml", quantity: 10 });
+      return { dn: inputs.dn, code: dnNetwork(inputs)?.code };
+    };
+
+    it("reads one drainage size printed two ways as that size, as copper reads « DN 20 / Ø 22 »", () => {
+      expect(read("EF cuivre DN 20 / Ø 22")).toEqual({ dn: "DN 20", code: "DN_NETWORK_COMPATIBLE" });
+      for (const designation of ["EU inox DN 100 / Ø 110", "EP inox 316L DN 100 / Ø 110", "EUG inox DN 150 / Ø 160"]) {
+        expect(read(designation), designation).toEqual({ dn: designation.match(/DN \d+/)?.[0],
+          code: "DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION" });
+      }
+    });
+
+    it("keeps a size the drainage series lacks as printed beside a known DN, as copper keeps « Ø 23 » beside « DN 22 »", () => {
+      expect(read("EF cuivre DN 22 / Ø 23")).toEqual({ dn: "Ø 23", code: "DN_NETWORK_DN_NOT_IN_SERIES" });
+      expect(read("EU fonte DN 100 / Ø 108")).toEqual({ dn: "Ø 108", code: "DN_NETWORK_DN_NOT_IN_SERIES" });
+      for (const material of ["inox", "inox 304L", "inox 316L"]) {
+        const designation = `EU ${material} DN 100 / Ø 108`;
+        expect(read(designation), designation).toEqual({ dn: "Ø 108", code: "DN_NETWORK_DN_NOT_IN_SERIES" });
+      }
+    });
+
+    it("reads two different drainage sizes as none, as copper reads « DN 22 / Ø 28 »", () => {
+      expect(read("EF cuivre DN 22 / Ø 28")).toEqual({ dn: null, code: "DN_NETWORK_DN_MISSING" });
+      expect(read("EU inox DN 100 / Ø 125")).toEqual({ dn: null, code: "DN_NETWORK_DN_MISSING" });
+    });
+
+    it("keeps the pressure series outside drainage, and reads both in condensates (D18a)", () => {
+      expect(read("EF inox DN 100 / Ø 108")).toEqual({ dn: "DN 100", code: "DN_NETWORK_COMPATIBLE" });
+      expect(read("EF inox DN 100 / Ø 110")).toEqual({ dn: "Ø 110", code: "DN_NETWORK_DN_NOT_IN_SERIES" });
+      expect(read("COND inox DN 100 / Ø 108")).toEqual({ dn: "DN 100", code: "DN_NETWORK_COMPATIBLE" });
+      expect(read("COND inox DN 100 / Ø 110")).toEqual({ dn: "DN 100", code: "DN_NETWORK_COMPATIBLE" });
+    });
+
+    it("never takes two contradictory stainless drainage sizes for the DPGF quantity of one", () => {
+      expect(comparable("EU inox DN 100 / Ø 108", "EU inox DN 100")).toEqual([false, false]);
+      expect(comparable("EU inox DN 100 / Ø 110", "EU inox DN 100")).toEqual([true, true]);
+      expect(comparable("EU inox DN 100 / Ø 110", "EU inox Ø 110")).toEqual([true, true]);
+    });
   });
 });
 

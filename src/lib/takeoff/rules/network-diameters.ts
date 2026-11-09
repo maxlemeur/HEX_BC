@@ -24,7 +24,8 @@ import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeof
 //   diameters are told apart here (PVC_SERIES). Cases left to Max
 //   (AMBIGUOUS_NETWORK_MATERIALS) stay as written here until he decides.
 // - Stainless is read in the series of its network (diameterFamiliesFor), by
-//   this rule, the duplicate detection and the DPGF identity alike (TI-684).
+//   this rule, the duplicate detection, the DPGF identity and the designation
+//   reader alike (TI-684, D18c).
 // - A missing or out-of-series DN keeps the couple's condition (D18b): the
 //   reviewer sees what the material needs beside the DN to fix.
 
@@ -120,8 +121,9 @@ function familiesOf(material: MaterialCode): DiameterFamily[] {
 }
 
 /**
- * Series a material is read in on a network, one selection for the DN rule, the duplicate detection and the DPGF
- * identity, so that one pipe names one size everywhere (TI-684):
+ * Series a material is read in on a network, one selection for the DN rule, the duplicate detection, the DPGF
+ * identity and the sizes the designation reader keeps (inputs.ts), so that one pipe names one size everywhere
+ * (TI-684, D18c):
  * - stainless on a drainage network: the provisional drainage series only (NF EN 1124), never a pressure one
  *   (« DN 100 » is the 110 mm drainage pipe there, not the 108 mm press-fit tube);
  * - stainless condensates (D18a): the pressure and drainage series together, a condensate line being pumped or gravity;
