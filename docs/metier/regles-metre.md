@@ -190,8 +190,9 @@ voir « Décisions ») : le passage de la version 2 à la version 3 change toute
   manuelle ou une application ; celui de l'application ne bloque pas s'il échoue.
 
 **Acceptation technique** ([`verification.ts`](../../src/lib/takeoff/rules/verification.ts),
-migrations `20261107123425_takeoff_network_material_decisions.sql` et
-`20261110094500_takeoff_acceptance_reasons.sql`) : V ne lève un échec `dn_network`
+migrations `20261107123425_takeoff_network_material_decisions.sql`,
+`20261110094500_takeoff_acceptance_reasons.sql` et
+`20261110094502_takeoff_acceptance_outline_reason.sql`) : V ne lève un échec `dn_network`
 acceptable, quel que soit son code, qu'avec un motif codé et la référence du système
 (gamme, fabricant, certificat, conditions d'emploi). Depuis TI-686 (D9), un échec
 d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sections).
@@ -376,6 +377,10 @@ Bases de la surface écrite (`retained_basis`) : `net_floor` (sol net), `shab` (
   avant V, dans un enregistrement à part (« Retenir … m² » dans le dialogue) : une
   quantité modifiée dans la même requête rend les règles à recalculer et V serait
   refusé.
+- **Même base, motif « contour mesuré retenu »** (D21) : la surface écrite ne couvre
+  pas le même périmètre que le contour mesuré, donc rien n'est comparé. La quantité
+  reste la mesure ; le dialogue ne propose pas de retenir la surface écrite. Les trois
+  autres motifs gardent la règle D17 sur la même base.
 - **Autre base, ou base de la ligne inconnue** : rien n'est comparé, la quantité reste
   celle de la ligne ; la surface écrite reste visible dans le contrôle.
 - La base déclarée (`retained_basis`) n'entre ni dans la clé d'échec ni dans le contexte

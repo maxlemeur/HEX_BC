@@ -7,6 +7,9 @@
 -- - a gas PE reason is accepted on a pipe that is no gas PE;
 -- - the trigger rewrites the justification on another user's update that keeps V, which the journal then records as
 --   that user taking the verification over.
+-- Case written before the D21 correction (red on 20261110094500):
+-- - a measured outline retained (the printed surface covers another outline) on the price line's basis is refused
+--   below the printed value, though nothing compares (D21).
 -- The TS side runs the same cases in src/lib/takeoff/rules/verification.test.ts. All values are fictional.
 begin;
 
@@ -56,7 +59,8 @@ select set_config('test.duplicate', '{"rule":"zone_overlap","status":"fail","cod
 
 -- ...401 scale; ...402 and ...403 printed area at 19.5 m² for 20 m² printed; ...404 network and scale; ...405 scale
 -- (notes); ...406 network (no gas); ...407 scale and area, never timestamped by a computation (an attestation keeps its
--- results fresh); ...408 a duplicate only; ...409 network, verified before D9 with the flat justification.
+-- results fresh); ...408 a duplicate only; ...409 network, verified before D9 with the flat justification; ...410
+-- printed area at 19.5 m² for 20 m² printed (D21).
 insert into public.takeoff_items (id, tenant_id, job_id, designation, quantity, unit, confidence, evidence, source_file_name,
   source_page, rule_results, rules_evaluated_at, is_verified, verified_at, verified_by, verification_justification)
 select fixture.id, current_setting('test.tenant_id')::uuid, 'a6860000-0000-4000-8000-000000000301', fixture.designation,
@@ -83,7 +87,9 @@ from (values
     jsonb_build_array(current_setting('test.duplicate')::jsonb), true, null),
   ('a6860000-0000-4000-8000-000000000409'::uuid, 'EF PEHD DN 50', 5, 'ml',
     jsonb_build_array(current_setting('test.network')::jsonb), true,
-    '{"reason_code":"system_documented","system_reference":"Fabricant fictif, gamme G, certificat C"}'::jsonb)
+    '{"reason_code":"system_documented","system_reference":"Fabricant fictif, gamme G, certificat C"}'::jsonb),
+  ('a6860000-0000-4000-8000-000000000410'::uuid, 'Revêtement de sol Bureau', 19.5, 'm2',
+    jsonb_build_array(current_setting('test.area')::jsonb), true, null)
 ) as fixture(id, designation, quantity, unit, results, evaluated, justification);
 
 create function pg_temp.as_user(p_user uuid)
@@ -116,13 +122,13 @@ returns jsonb language sql immutable as $$
 $$;
 grant execute on function pg_temp.scale_reason(text) to authenticated;
 
-create function pg_temp.area_reason(p_basis text)
+create function pg_temp.area_reason(p_basis text, p_reason text default 'printed_area_basis_identified')
 returns jsonb language sql immutable as $$
-  select jsonb_build_object('area_printed', jsonb_build_object('reason_code', 'printed_area_basis_identified', 'note',
+  select jsonb_build_object('area_printed', jsonb_build_object('reason_code', p_reason, 'note',
     'Tableau des surfaces du plan fictif, indice B.') || case when p_basis is null then '{}'::jsonb
       else jsonb_build_object('retained_basis', p_basis) end);
 $$;
-grant execute on function pg_temp.area_reason(text) to authenticated;
+grant execute on function pg_temp.area_reason(text, text) to authenticated;
 
 set local role authenticated;
 select pg_temp.as_user('a6860000-0000-4000-8000-000000000001');
@@ -183,6 +189,12 @@ select throws_ok($q$select pg_temp.accept('a6860000-0000-4000-8000-000000000402'
 select throws_ok($q$select pg_temp.accept('a6860000-0000-4000-8000-000000000402', pg_temp.area_reason('net_floor'))$q$,
   '23514', 'TAKEOFF_RULE_AREA_QUANTITY_BELOW_PRINTED',
   'the price line''s basis makes both surfaces comparable: 19.5 m² is not accepted for 20 m² printed (D17)');
+select throws_ok(format('select pg_temp.accept(%L, pg_temp.area_reason(%L, %L))', 'a6860000-0000-4000-8000-000000000402',
+  'net_floor', reason.code), '23514', 'TAKEOFF_RULE_AREA_QUANTITY_BELOW_PRINTED', reason.name)
+from (values
+  ('confirmed_by_other_document', 'a printed surface confirmed by another document keeps D17 on the price line''s basis'),
+  ('deviation_explained', 'an explained deviation keeps D17 on the price line''s basis')
+) as reason(code, name);
 select lives_ok($q$select pg_temp.accept('a6860000-0000-4000-8000-000000000402', pg_temp.area_reason('shab'))$q$,
   'another basis compares nothing: the quantity stays the line''s');
 select is((select array[quantity::text, verification_justification #>> '{area_printed,retained_basis}']
@@ -206,6 +218,19 @@ select lives_ok($q$select pg_temp.accept('a6860000-0000-4000-8000-000000000403',
 select is((select array[quantity::text, verification_justification #>> '{area_printed,retained_basis}', is_verified::text]
   from public.takeoff_items where id = 'a6860000-0000-4000-8000-000000000403'), array['20.000', 'net_floor', 'true'],
   'accepted at the printed 20 m² on the net floor basis');
+
+-- D21: « contour mesuré retenu » says the printed surface covers another outline. On the price line's basis too,
+-- nothing compares: the quantity stays the measurement.
+select lives_ok($q$select pg_temp.accept('a6860000-0000-4000-8000-000000000410',
+  pg_temp.area_reason('net_floor', 'measured_outline_retained'))$q$,
+  'a measured outline retained on the price line''s basis is accepted at the measured 19.5 m² (D21)');
+reset role;
+select is((select array[quantity::text, verification_justification #>> '{area_printed,reason_code}',
+    verification_justification #>> '{area_printed,retained_basis}', is_verified::text]
+  from public.takeoff_items where id = 'a6860000-0000-4000-8000-000000000410'),
+  array['19.500', 'measured_outline_retained', 'net_floor', 'true'], 'the measurement stays the quantity of the line');
+set local role authenticated;
+select pg_temp.as_user('a6860000-0000-4000-8000-000000000001');
 
 -- Several failures, unknown keys and the gas PE reasons --------------------------------------------------------
 

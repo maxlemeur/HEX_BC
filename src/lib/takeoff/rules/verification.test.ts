@@ -27,8 +27,8 @@ const NOTE = "Cotes 5,00 et 3,00 concordantes en travée 2.";
 const NETWORK_REASON = { reason_code: "system_documented", system_reference: "Fabricant fictif, gamme G, certificat C" } as const;
 const scale = (note: string = NOTE) => ({ scale_dimension: { reason_code: "scale_confirmed_by_other_dimensions", note } } as const);
 const AREA_NOTE = "Tableau des surfaces du plan fictif, indice B.";
-const area = <Basis extends string>(retainedBasis: Basis) =>
-  ({ area_printed: { reason_code: "printed_area_basis_identified", retained_basis: retainedBasis, note: AREA_NOTE } } as const);
+const area = <Basis extends string, Reason extends string = "printed_area_basis_identified">(retainedBasis: Basis, reasonCode?: Reason) =>
+  ({ area_printed: { reason_code: reasonCode ?? "printed_area_basis_identified", retained_basis: retainedBasis, note: AREA_NOTE } } as const);
 const AREA_WITHOUT_BASIS = { area_printed: { reason_code: "printed_area_basis_identified", note: AREA_NOTE } } as const;
 
 const SCALE_MESSAGE = "Une cote de la page contredit l’échelle : un motif codé et ce qui a été vérifié (10 à 500 caractères) sont obligatoires.";
@@ -82,6 +82,15 @@ describe("printed-area failure", () => {
     expect(verificationError([AREA], false, area("net_floor"), 20)).toBeNull();
     expect(verificationError([AREA], false, area("shab"), 19.5)).toBeNull();
     expect(verificationError([AREA], false, area("other"), 19.5)).toBeNull();
+  });
+
+  // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline. Even on the price line's
+  // basis nothing compares: the quantity stays the measurement. Every other reason keeps D17 on that basis.
+  it("keeps the measurement when the measured outline is retained, even on the price line's basis (D21)", () => {
+    expect(verificationError([AREA], false, area("net_floor", "measured_outline_retained"), 19.5)).toBeNull();
+    expect(verificationError([AREA], false, area("net_floor", "printed_area_basis_identified"), 19.5)).toBe(D17_MESSAGE);
+    expect(verificationError([AREA], false, area("net_floor", "confirmed_by_other_document"), 19.5)).toBe(D17_MESSAGE);
+    expect(verificationError([AREA], false, area("net_floor", "deviation_explained"), 19.5)).toBe(D17_MESSAGE);
   });
 
   it("compares nothing when the line's basis is unknown", () => {

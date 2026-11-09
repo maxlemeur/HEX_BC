@@ -46,8 +46,8 @@ export function QuantityEntryDialog({ quantity, unit, busy, onClose, onConfirm }
         <DialogHeader>
           <DialogTitle>Justifier la quantité saisie</DialogTitle>
           <DialogDescription>
-            Le plan ne montre pas cette quantité : {quantityText(quantity)} {unit} est enregistrée comme saisie, avec ce qui la
-            fonde. La décision reste dans le journal.
+            Le plan ne montre pas cette quantité. La quantité saisie, {quantityText(quantity)} {unit}, sera enregistrée avec ce
+            qui la fonde. La décision reste dans le journal.
           </DialogDescription>
         </DialogHeader>
         {/* Enter saves from the list or the note (a select never submits by itself), never from a button. */}

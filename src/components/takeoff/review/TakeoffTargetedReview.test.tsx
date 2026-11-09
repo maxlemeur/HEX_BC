@@ -53,6 +53,30 @@ const ITEMS = [
   item(ids.z2, "EF Z2", 3, [duplicate(ids.z1, "Z1")]),
 ];
 
+// A floor of 19.5 m² measured, 20 m² printed, priced on the net floor basis (TI-686 D9, D17, D21).
+const AREA_LINE = { ...item(ids.z1, "Revêtement de sol", 19.5, [{ rule: "area_printed", status: "fail", code: "AREA_PRINTED_MISMATCH",
+  version: 3, acceptable: true, reason: "Surface écrite différente.", details: { printed_m2: 20, measured_m2: 19.5,
+    expected_basis: "net_floor" } }]), unit: "m2" };
+const D17_REFUSAL = "Même base que la prestation : les deux surfaces se comparent et la plus élevée est retenue. Retenez 20 m² avant d’accepter.";
+
+/** Opens the acceptance of AREA_LINE alone, its reason, the net floor basis and a note filled in. */
+async function justifyPrintedArea(user: ReturnType<typeof userEvent.setup>, reason: string) {
+  vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+    job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+    items: { data: [AREA_LINE], pagination: { total: 1, offset: 0, limit: 200 } },
+  } as never);
+  render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
+  const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
+  await waitFor(() => expect(within(list).getAllByRole("option")).toHaveLength(1));
+  choose(list, "Revêtement de sol");
+  await user.click(screen.getByRole("button", { name: /^Accepter/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Justifier l’acceptation" });
+  await user.selectOptions(within(dialog).getByLabelText("Motif de surface"), reason);
+  await user.click(within(dialog).getByRole("radio", { name: "Sol net" }));
+  await user.type(within(dialog).getByLabelText("Note"), "Tableau des surfaces du plan, indice B.");
+  return dialog;
+}
+
 async function open() {
   render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
   const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
@@ -208,36 +232,40 @@ describe("TakeoffTargetedReview", () => {
   // TI-686 D9: « Retenir 20 m² » saves the printed surface, but the computation that follows failed: the line is stale,
   // so the acceptance stays closed. The dialog says why, where the user acts, instead of a silent disabled button.
   it("says why the acceptance stays closed when the line is stale after the printed surface is retained", async () => {
-    const area = { ...item(ids.z1, "Revêtement de sol", 19.5, [{ rule: "area_printed", status: "fail", code: "AREA_PRINTED_MISMATCH",
-      version: 3, acceptable: true, reason: "Surface écrite différente.", details: { printed_m2: 20, measured_m2: 19.5,
-        expected_basis: "net_floor" } }]), unit: "m2" };
-    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
-      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
-      items: { data: [area], pagination: { total: 1, offset: 0, limit: 200 } },
-    } as never);
-    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: area.id, success: true, item: { ...area, quantity: 20,
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: AREA_LINE.id, success: true, item: { ...AREA_LINE, quantity: 20,
       rules_stale: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
     const user = userEvent.setup();
-    render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
-    const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
-    await waitFor(() => expect(within(list).getAllByRole("option")).toHaveLength(1));
-    choose(list, "Revêtement de sol");
-    await user.click(screen.getByRole("button", { name: /^Accepter/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Justifier l’acceptation" });
-    await user.selectOptions(within(dialog).getByLabelText("Motif de surface"), "printed_area_basis_identified");
-    await user.click(within(dialog).getByRole("radio", { name: "Sol net" }));
-    await user.type(within(dialog).getByLabelText("Note"), "Tableau des surfaces du plan, indice B.");
+    const dialog = await justifyPrintedArea(user, "printed_area_basis_identified");
     const confirm = within(dialog).getByRole("button", { name: "Confirmer l’acceptation" });
     expect(confirm).toBeDisabled();
     // The quantity below the printed surface is explained by the button that retains it, not by a second message.
-    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(D17_REFUSAL)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Retenir 20 m²" }));
 
-    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: area.id, updated_at: area.updated_at,
-      expected_rules_evaluated_at: area.rules_evaluated_at, fields: { quantity: 20 } }] }));
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: AREA_LINE.id,
+      updated_at: AREA_LINE.updated_at, expected_rules_evaluated_at: AREA_LINE.rules_evaluated_at, fields: { quantity: 20 } }] }));
     await waitFor(() => expect(within(dialog).queryByRole("button", { name: "Retenir 20 m²" })).not.toBeInTheDocument());
     expect(confirm).toBeDisabled();
     expect(within(dialog).getByText("Recalculez les règles avant d’accepter la ligne.")).toBeInTheDocument();
+  });
+
+  // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline. On the price line's basis
+  // too, the quantity stays the measurement: nothing to retain, V is offered at 19.5 m².
+  it("accepts a measured outline on the price line's basis at the measured quantity", async () => {
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: AREA_LINE.id, success: true, item: { ...AREA_LINE,
+      is_verified: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const dialog = await justifyPrintedArea(user, "measured_outline_retained");
+    expect(within(dialog).getByText("Même base, autre périmètre : la quantité reste la mesure de la ligne ; la surface écrite reste "
+      + "visible dans le contrôle.")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /^Retenir/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(D17_REFUSAL)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirmer l’acceptation" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: AREA_LINE.id,
+      updated_at: AREA_LINE.updated_at, expected_rules_evaluated_at: AREA_LINE.rules_evaluated_at, fields: { is_verified: true,
+        verification_justification: { area_printed: { reason_code: "measured_outline_retained", retained_basis: "net_floor",
+          note: "Tableau des surfaces du plan, indice B." } } } }] }));
   });
 
   // Codex #162: the field's blur ended an unchanged entry before the click on « Enregistrer » landed.

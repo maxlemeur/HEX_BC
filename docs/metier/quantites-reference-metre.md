@@ -89,8 +89,10 @@ L'acceptation d'un échec de surface exige, depuis TI-686 (D9), un motif codé, 
 reconnue à la surface écrite et une note ; elle est journalisée avec les clés des échecs
 acquittés. Quand cette base est celle de la ligne de prix, les deux surfaces se comparent
 et la plus élevée est retenue : l'acceptation exige une quantité au moins égale à la
-surface écrite, relevée avant l'acceptation. Sinon, la quantité reste celle de la ligne
-(voir « Aire du polygone cohérente avec la surface imprimée » dans les
+surface écrite, relevée avant l'acceptation. Le motif « contour mesuré retenu » fait
+exception (D21) : il dit que la surface écrite ne couvre pas le même périmètre, et
+la quantité reste alors la mesure. Avec une autre base, la quantité reste celle de la
+ligne (voir « Aire du polygone cohérente avec la surface imprimée » dans les
 [règles actuelles du métré](regles-metre.md)).
 Voir les [règles actuelles du métré](regles-metre.md) et la
 [lecture vectorielle](lecture-vectorielle.md) pour le comportement du code

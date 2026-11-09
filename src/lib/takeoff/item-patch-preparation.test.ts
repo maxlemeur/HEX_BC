@@ -244,6 +244,8 @@ describe("coded acceptance reasons", () => {
   const scaleReason = { scale_dimension: { reason_code: "dimension_not_to_scale" as const, note: "Cote 3,00 du tronçon interrompu." } };
   const areaReason = { area_printed: { reason_code: "measured_outline_retained" as const, retained_basis: "shab" as const,
     note: "La surface écrite est une SHAB du tableau." } };
+  const sameBasis = { area_printed: { reason_code: "printed_area_basis_identified" as const, retained_basis: "net_floor" as const,
+    note: "Tableau des surfaces du plan, indice B." } };
   const unverified = { is_verified: false, verified_at: null, verified_by: null, rules_stale: false, quantity: 19.5, unit: "m2" };
 
   it("refuses V on a scale failure without its reason", () => {
@@ -252,7 +254,6 @@ describe("coded acceptance reasons", () => {
   });
 
   it("refuses V below a printed surface of the same basis as the price line, read with the quantity as stored", () => {
-    const sameBasis = { area_printed: { ...areaReason.area_printed, retained_basis: "net_floor" as const } };
     expect(patch({ is_verified: true, verification_justification: sameBasis }, { ...unverified, rule_results: [areaFailure] }))
       .toEqual({ success: false,
         error: "Même base que la prestation : les deux surfaces se comparent et la plus élevée est retenue. Retenez 20 m² avant d’accepter." });
@@ -260,11 +261,18 @@ describe("coded acceptance reasons", () => {
       { ...unverified, quantity: 20, rule_results: [areaFailure] })).toMatchObject({ success: true });
   });
 
+  // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline: on the price line's basis
+  // too, the quantity stays the measurement.
+  it("accepts a measured outline retained on the price line's basis at the measured quantity", () => {
+    const outline = { area_printed: { ...areaReason.area_printed, retained_basis: "net_floor" as const } };
+    expect(patch({ is_verified: true, verification_justification: outline }, { ...unverified, rule_results: [areaFailure] }))
+      .toMatchObject({ success: true, updatePayload: { is_verified: true, verification_justification: outline } });
+  });
+
   // The database marks the rules stale when a rule input changes (aac_) and then refuses V (zz_, TAKEOFF_RULES_STALE):
   // on a line the rules read, the route refuses V with a changed input first, with a message the review shows.
   it("refuses V with a rule input changed in the same request on a line the rules read", () => {
     const evaluated = { ...unverified, rules_evaluated_at: PREVIOUS_TIMESTAMP, rule_results: [areaFailure] };
-    const sameBasis = { area_printed: { ...areaReason.area_printed, retained_basis: "net_floor" as const } };
     const stale = { success: false, error: "Recalculez les règles avant d’accepter la ligne." };
     expect(patch({ quantity: 20, is_verified: true, verification_justification: sameBasis }, evaluated)).toEqual(stale);
     expect(patch({ unit: "m²", is_verified: true, verification_justification: areaReason }, evaluated)).toEqual(stale);

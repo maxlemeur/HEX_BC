@@ -13,12 +13,14 @@ import {
   ACCEPTANCE_MESSAGES,
   ACCEPTANCE_NOTE,
   AREA_PRINTED_REASONS,
+  MEASURED_OUTLINE_REASON,
   RETAINED_SURFACE_BASES,
   SCALE_DIMENSION_REASONS,
   VERIFICATION_REASONS,
   belowPrintedArea,
   noteLength,
   printedAreaComparison,
+  printedAreaToReach,
   requiredAcceptanceReasons,
   requiresGasPeReason,
   verificationError,
@@ -28,12 +30,25 @@ import {
 
 // The coded reasons V needs on a line (TI-685, TI-686 D9): one section per failure that asks for one, each titled by
 // its rule. The line is read live: a printed surface retained from here (« Retenir … m² ») is saved first, the rules
-// are computed again with it, then the acceptance is offered again.
+// are computed again with it, then the acceptance is offered again. A measured outline retained keeps the measurement,
+// on the price line's basis too (D21): nothing to retain then.
 
 const SELECT_CLASS = "rounded-md border border-border bg-surface p-2 text-sm";
 const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
 
 type Line = { rule_results?: TakeoffRuleResult[]; rules_stale?: boolean; quantity: number };
+
+/** What the declared basis does to the quantity: D17 on the price line's basis, unless the outline differs (D21). */
+function basisSentence(sameBasis: boolean, measuredOutline: boolean, lineBasisKnown: boolean) {
+  if (sameBasis) {
+    return measuredOutline
+      ? "Même base, autre périmètre : la quantité reste la mesure de la ligne ; la surface écrite reste visible dans le contrôle."
+      : "Même base que la prestation : les deux surfaces se comparent, la plus élevée est retenue.";
+  }
+  return lineBasisKnown
+    ? "Bases différentes : la quantité reste celle de la ligne ; la surface écrite reste visible dans le contrôle."
+    : "Base de la prestation non déterminée : la quantité reste celle de la ligne ; la surface écrite reste visible dans le contrôle.";
+}
 
 /** A note, counted as the server counts it (code points, without the blanks at its ends). */
 function NoteField({ id, label, value, onChange }: Readonly<{ id: string; label: string; value: string; onChange: (text: string) => void }>) {
@@ -74,7 +89,8 @@ export function VerificationJustificationDialog({ item, busy, error, onClose, on
   const refusal = parsed.success ? verificationError(item.rule_results, item.rules_stale, parsed.data, item.quantity) : null;
   const accepted = parsed.success && refusal === null;
   const sameBasis = comparison !== null && comparison.expected_basis !== null && area.basis === comparison.expected_basis;
-  const retain = sameBasis && belowPrintedArea(item.quantity, comparison.printed_m2) ? comparison.printed_m2 : null;
+  const printed = printedAreaToReach(item.rule_results, { reason_code: area.reason, retained_basis: area.basis });
+  const retain = printed !== null && belowPrintedArea(item.quantity, printed) ? printed : null;
   // Why a complete form still cannot be confirmed (a line left stale by its last save, a failure V never settles), said
   // where the user acts; a quantity below the printed surface is already said by the button that retains it (D17).
   const blocked = refusal !== null && !(retain !== null && refusal === ACCEPTANCE_MESSAGES.belowPrinted(retain)) ? refusal : null;
@@ -154,10 +170,7 @@ export function VerificationJustificationDialog({ item, busy, error, onClose, on
             </FieldSet>
             {area.basis ? (
               <p role="status" className="text-xs text-foreground-secondary">
-                {sameBasis ? "Même base que la prestation : les deux surfaces se comparent, la plus élevée est retenue."
-                  : comparison?.expected_basis
-                    ? "Bases différentes : la quantité reste celle de la ligne ; la surface écrite reste visible dans le contrôle."
-                    : "Base de la prestation non déterminée : la quantité reste celle de la ligne ; la surface écrite reste visible dans le contrôle."}
+                {basisSentence(sameBasis, area.reason === MEASURED_OUTLINE_REASON, Boolean(comparison?.expected_basis))}
               </p>
             ) : null}
             {retain !== null ? (

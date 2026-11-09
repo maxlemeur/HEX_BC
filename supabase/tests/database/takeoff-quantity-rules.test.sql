@@ -318,8 +318,12 @@ reset role;
 update public.takeoff_items set rules_stale = false, rules_evaluated_at = now() where id = '9e000000-0000-4000-8000-000000000403';
 set local role authenticated;
 select is(pg_temp.rules_exec('entry-6', $sql$update public.takeoff_items set quantity_entry_category = 'other_drawing',
-  quantity_entry_note = null, quantity_entered_at = clock_timestamp() where id = '9e000000-0000-4000-8000-000000000403'$sql$), 'ok',
-  'the same author attests the quantity again with another category');
+  quantity_entry_note = 'Plan de détail fictif D-03.', quantity_entered_at = clock_timestamp()
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), 'ok',
+  'the same author attests the quantity again with another category and its note');
+select is((select jsonb_build_object('category', to_jsonb(item) -> 'quantity_entry_category', 'note', to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  '{"category": "other_drawing", "note": "Plan de détail fictif D-03."}'::jsonb, 'the new category and its note are stored');
 select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), true,
   'a new category makes the results stale');
 select is(pg_temp.rules_exec('update-9', 'update public.takeoff_items set quantity = 50 where id = ''9e000000-0000-4000-8000-000000000403'''), 'ok', 'a quantity changed without a new attestation');

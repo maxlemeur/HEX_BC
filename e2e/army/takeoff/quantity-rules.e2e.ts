@@ -624,7 +624,8 @@ armyTest("TKR07 the complete review sends a weld count to the targeted review, w
     // The complete review: a new count typed on the line leads to the targeted review, unsaved.
     await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review?versionId=${ids.versionId}&reviewMode=production`);
     const row = screen.getByRole("row").filter({ hasText: "Soudures atelier" });
-    await row.getByText("2", { exact: true }).click();
+    // The line's quantity cell, by its grid identity (row id and column), never by a text another cell could show.
+    await ui.browser.locator(`[data-cell-id="${weld.id}::quantity"]`).click();
     await ui.browser.keyboard.press("F2");
     await row.getByLabel("Quantité", { exact: true }).fill("6");
     await expect(screen.getByText("Une quantité à saisir se justifie dans la revue ciblée.", { exact: true })).toBeVisible();

@@ -314,6 +314,7 @@
     "20261109205839_takeoff_targeted_quantity_review.sql": "21f0b3e0185edf4b91ed3e918043985f394872bf139bc1efff62f0f9238d6ef4",
     "20261110025003_atomic_create_estimate_item_keeps_unchanged_projection.sql": "4d065b8ef34760a18b1cc891262f358db6414240ba70788542029ba3ac2dfef5",
     "20261110094500_takeoff_acceptance_reasons.sql": "f0af6a7fa32a2e56cbba4fddc14df630f10dfac0c3a4ce98515116414605d53f",
-    "20261110094501_takeoff_quantity_entry_category.sql": "a09f9455547cfbf1eac72732bbfa7a9031a36539dbccb6cd035df89a19d9a0b9"
+    "20261110094501_takeoff_quantity_entry_category.sql": "a09f9455547cfbf1eac72732bbfa7a9031a36539dbccb6cd035df89a19d9a0b9",
+    "20261110094502_takeoff_acceptance_outline_reason.sql": "b8ca36a0162719ef9f85e8e0f3cd39ec49d2cb76159f65b8b7084f4eeaf6c3d1"
   }
 }

@@ -4,9 +4,10 @@ import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 // Coded reasons to accept (V) a failure that V alone does not settle (TI-685 for the network, TI-686 D9 for the scale
 // and the printed area). The justification is additive: the flat network part ({reason_code, system_reference}),
-// then one key per other rule. The database trigger validate_takeoff_rule_acceptance (migration
-// 20261110094500_takeoff_acceptance_reasons.sql) refuses the same values; the route refuses them first, with a message
-// the review shows, since a refusal of the database reaches the user as a generic error.
+// then one key per other rule. The database trigger validate_takeoff_rule_acceptance (migrations
+// 20261110094500_takeoff_acceptance_reasons.sql and 20261110094502_takeoff_acceptance_outline_reason.sql) refuses the
+// same values; the route refuses them first, with a message the review shows, since a refusal of the database reaches
+// the user as a generic error.
 // The reason lists are provisional (H2, pending the owner's agreement): data kept equal to the trigger's lists.
 
 export const VERIFICATION_REASONS = {
@@ -142,7 +143,8 @@ export function requiresGasPeReason(results: readonly TakeoffRuleResult[] | unde
 
 /**
  * The printed surface of a printed-area failure and the basis the price line expects (null when unknown). With the
- * same declared basis both surfaces compare, and the higher is retained (D17).
+ * same declared basis both surfaces compare, and the higher is retained (D17), unless the measured outline is retained
+ * (D21, printedAreaToReach).
  */
 export function printedAreaComparison(results: readonly TakeoffRuleResult[] | undefined) {
   const area = failures(results).find((entry) => entry.code === "AREA_PRINTED_MISMATCH");
@@ -155,6 +157,21 @@ export function printedAreaComparison(results: readonly TakeoffRuleResult[] | un
 /** Whether a quantity is below the printed surface, to the thousandth (quantities are numeric(12,3)). */
 export function belowPrintedArea(quantity: number, printed: number) {
   return quantity < printed - 0.0005;
+}
+
+/** The reason that says the printed surface covers another outline than the one measured (D21). */
+export const MEASURED_OUTLINE_REASON = "measured_outline_retained" satisfies keyof typeof AREA_PRINTED_REASONS;
+
+/**
+ * The printed surface V requires the quantity to reach (D17), or null: only when it is declared on the basis the price
+ * line expects, for a reason other than the measured outline retained, which says the two surfaces cover different
+ * outlines (D21).
+ */
+export function printedAreaToReach(results: readonly TakeoffRuleResult[] | undefined,
+  area: { reason_code: string; retained_basis: string }): number | null {
+  const comparison = printedAreaComparison(results);
+  if (!comparison || comparison.expected_basis === null || comparison.expected_basis !== area.retained_basis) return null;
+  return area.reason_code === MEASURED_OUTLINE_REASON ? null : comparison.printed_m2;
 }
 
 const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
@@ -195,10 +212,8 @@ export function verificationError(results: readonly TakeoffRuleResult[] | undefi
   if (required.includes("area_printed")) {
     const area = areaPrintedJustificationSchema.safeParse(value.area_printed);
     if (!area.success) return ACCEPTANCE_MESSAGES.area;
-    const comparison = printedAreaComparison(results);
-    if (comparison && comparison.expected_basis === area.data.retained_basis && belowPrintedArea(quantity, comparison.printed_m2)) {
-      return ACCEPTANCE_MESSAGES.belowPrinted(comparison.printed_m2);
-    }
+    const printed = printedAreaToReach(results, area.data);
+    if (printed !== null && belowPrintedArea(quantity, printed)) return ACCEPTANCE_MESSAGES.belowPrinted(printed);
   }
   return null;
 }
