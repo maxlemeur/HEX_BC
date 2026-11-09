@@ -1,6 +1,6 @@
-import { findDiameterEntries } from "@/lib/takeoff/bench/diameters";
 import { readItemKey, unquote } from "@/lib/takeoff/bench/item-keys";
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import { findNetworkDiameterEntries } from "@/lib/takeoff/rules/network-diameters";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
 
 // Inputs of the fixed rules for one line (TI-664 step 0), written once by the
@@ -14,7 +14,9 @@ import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/
 //   room. Every size the designation prints is checked, whatever the reader
 //   kept: an unknown one (« DN 23 », « Ø 23 » beside « DN 22 ») is kept as
 //   printed, so that the DN rule fails it; two sizes or two networks give no
-//   triplet.
+//   triplet. Sizes are read in the series the DN rule retains for the network
+//   and material read (D18c, network-diameters.ts diameterFamiliesFor):
+//   stainless drainage in NF EN 1124 only, stainless condensates in both.
 // - Non-observable quantities: a plan view never shows a weld, a tap, a
 //   support, a vertical run, a transport or a service (bench PLAN_CAUSES,
 //   keys.ts). A line whose head (its text before « y compris », « avec »,
@@ -94,9 +96,10 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   // Every printed size counts, whatever the reader kept (it reads « DN 22 » and skips « Ø 23 » beside it). A size no
   // series has is kept as printed, the first the material's series lacks, never a known one printed beside it
   // (« DN 22 / DN 23 », « DN 22 / Ø 23 »); two known sizes are none (« DN 22 / Ø 28 »); one size printed two ways is
-  // one (« DN 20 / Ø 22 » of a copper tube).
+  // one (« DN 20 / Ø 22 » of a copper tube). The series is the one the DN rule retains on the network read (D18c):
+  // « EU inox DN 100 / Ø 110 » is one drainage size, « EU inox DN 100 / Ø 108 » keeps the Ø 108 NF EN 1124 lacks.
   const dn = reason === "dn_ambiguous" ? null
-    : unknownSize(line.designation, material) ?? (severalSizes(line.designation, material) ? null
+    : unknownSize(line.designation, network, material) ?? (severalSizes(line.designation, network, material) ? null
       : key.dn?.printed ?? printedSizes(line.designation)[0] ?? null);
   return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn };
 }
@@ -121,14 +124,18 @@ function printedSize(raw: string) {
   return compound ? `${compound[1]} ${compound[2]}"` : text;
 }
 
-/** The first size a designation prints that the material's series lacks (null: every printed size is known). */
-function unknownSize(designation: string, material: MaterialCode | null) {
-  return printedSizes(designation).find((size) => findDiameterEntries(size, material).length === 0) ?? null;
+/**
+ * The first size a designation prints that the material's series on its network lacks (null: every printed size is
+ * known). Without a network read, the material's own series (findNetworkDiameterEntries).
+ */
+function unknownSize(designation: string, network: NetworkCode | null, material: MaterialCode | null) {
+  return printedSizes(designation).find((size) => findNetworkDiameterEntries(size, network, material).length === 0) ?? null;
 }
 
 /** Whether a designation prints two known sizes: two printed sizes with no entry (family and outer diameter) in common. */
-function severalSizes(designation: string, material: MaterialCode | null) {
-  const sizes = printedSizes(designation).map((size) => new Set(findDiameterEntries(size, material).map((entry) => `${entry.family}:${entry.od_mm}`)));
+function severalSizes(designation: string, network: NetworkCode | null, material: MaterialCode | null) {
+  const sizes = printedSizes(designation)
+    .map((size) => new Set(findNetworkDiameterEntries(size, network, material).map((entry) => `${entry.family}:${entry.od_mm}`)));
   return sizes.some((left, index) => sizes.slice(index + 1).some((right) => ![...left].some((entry) => right.has(entry))));
 }
 

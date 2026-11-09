@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect } from "e2e";
 import { ownEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { createPlanSet, ownedTakeoffJobs, requireLocalPlansBackend, uploadSamplePlan } from "../critical/plans-support";
 import { fillTakeoffPreparation, openTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
 import { querySql } from "./calculation-gate-support";
@@ -62,6 +63,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       await app.open(`/dashboard/affaires/${anchor.projectId}#plans`);
       // The prerequisite uses the API; reload the hub to read its committed line count.
       await browser.reload();
+      await waitForHydration(browser);
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
       dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "chatgpt" } });

@@ -45,6 +45,7 @@ import type {
 } from "@/lib/takeoff/types";
 import {
   TAKEOFF_HIGH_SCORE_MAX_MATERIAL_CORRECTION_RATE,
+  TAKEOFF_HIGH_SCORE_RATE_NOTE,
   TAKEOFF_HIGH_SCORE_THRESHOLD,
   type TakeoffMetricsPilotStatsPayload,
 } from "@/lib/takeoff/pilot-metrics";
@@ -235,13 +236,14 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
               ? `${formatPercent(data.calibration.appliedHighScoreMaterialCorrectionRate)} %`
               : "-"
           }
-          hint={
+          // TI-681: the sample size n first, then how to read the rate (an indicator, never a reliability bound).
+          hint={`${
             data.calibration.status === "no_data"
-              ? `Aucune ligne appliquée avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)}`
+              ? `n = 0 : aucune ligne appliquée avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)}`
               : data.calibration.status === "insufficient"
-                ? `${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} corrigées · seulement ${data.calibration.appliedHighScoreItems}/${data.calibration.minimumSampleSize} lignes appliquées`
-                : `${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} lignes appliquées avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)} corrigées`
-          }
+                ? `n = ${formatNumber(data.calibration.appliedHighScoreItems)} : ${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} corrigées · seulement ${data.calibration.appliedHighScoreItems}/${data.calibration.minimumSampleSize} lignes appliquées`
+                : `n = ${formatNumber(data.calibration.appliedHighScoreItems)} : ${data.calibration.appliedHighScoreMateriallyCorrectedItems}/${data.calibration.appliedHighScoreItems} lignes appliquées avec score ≥ ${formatConfidence(TAKEOFF_HIGH_SCORE_THRESHOLD)} corrigées`
+          }.${data.calibration.status === "no_data" ? "" : ` ${TAKEOFF_HIGH_SCORE_RATE_NOTE}`}`}
           variant={
             data.calibration.status !== "sufficient"
               ? "warning"

@@ -29,6 +29,12 @@ import {
   type SortDirection,
   type SortField,
 } from "@/components/takeoff/review/TakeoffReviewFilters";
+import {
+  APPLY_GUARD_REASON_LABELS,
+  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  type ApplyGuardBlockReason,
+} from "@/lib/takeoff/guards";
+import { targetedReviewLines } from "@/lib/takeoff/targeted-review";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,11 +46,16 @@ export type TakeoffReviewTableProps = {
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
   onOpenEvidencePanel?: (itemId: string) => void;
+  /**
+   * The apply guard's verdict and the tenant's threshold, computed once by the parent (reviewBlockReasons) and read by
+   * « Avec anomalies » (D13, D18f); none: the default threshold, without the guard.
+   */
+  anomalyContext?: AnomalyContext;
 };
 
+/** A reason the apply guard blocks a line on, or what the apply button also refuses (zero quantity, no designation). */
 export type AnomalyType =
-  | "low_confidence"
-  | "missing_evidence"
+  | ApplyGuardBlockReason
   | "zero_quantity"
   | "empty_designation";
 
@@ -55,8 +66,11 @@ export type AnomalyType =
 const EDITABLE_COLUMNS = ["designation", "quantity", "unit"] as const;
 
 export const ANOMALY_LABELS: Record<AnomalyType, string> = {
-  low_confidence: "Confiance faible (< 50 %)",
+  low_confidence: "Confiance faible",
   missing_evidence: "Aucune preuve ni source",
+  missing_source_page: APPLY_GUARD_REASON_LABELS.missing_source_page,
+  rule_failed: APPLY_GUARD_REASON_LABELS.rule_failed,
+  rules_stale: APPLY_GUARD_REASON_LABELS.rules_stale,
   zero_quantity: "Quantité nulle ou négative",
   empty_designation: "Désignation vide",
 };
@@ -83,24 +97,58 @@ function getCategory(item: ReviewItem): string | null {
 // Anomaly detection (exported for reuse)
 // ---------------------------------------------------------------------------
 
-export function detectAnomalies(item: ReviewItem): AnomalyType[] {
-  const anomalies: AnomalyType[] = [];
-  if (item.confidence !== null && item.confidence < 0.5) {
-    anomalies.push("low_confidence");
-  }
-  if (!item.evidence) {
-    anomalies.push("missing_evidence");
-  }
-  if (item.quantity <= 0) {
-    anomalies.push("zero_quantity");
-  }
-  if (!item.designation.trim()) {
-    anomalies.push("empty_designation");
-  }
-  return anomalies;
+/** What the apply guard blocks each line on, by line id; a line it lets through has no entry. */
+export type ReviewBlockReasons = ReadonlyMap<string, readonly ApplyGuardBlockReason[]>;
+
+/**
+ * The guard of the targeted review (targeted-review.ts), at the tenant's threshold and the job's level: the lines and
+ * reasons the application stops on, a cross-line failure whose partners are all left out excepted (D13).
+ */
+export function reviewBlockReasons(items: readonly ReviewItem[], threshold: number, level: string | null): ReviewBlockReasons {
+  const { guard } = targetedReviewLines(items, threshold, level);
+  return new Map(guard.blocked_items.map((blocked) => [blocked.item_id, blocked.reasons]));
 }
 
-function matchesFilters(item: ReviewItem, filters: ReviewTableFilters): boolean {
+/** What a screen knows of the job when it reads a line's anomalies. */
+export type AnomalyContext = {
+  /** The apply guard's verdict on the job's lines (reviewBlockReasons); none: the screen does not read the guard. */
+  blocked?: ReviewBlockReasons;
+  /** The tenant's low confidence threshold; none: the default one. */
+  threshold?: number;
+};
+
+/** A screen that reads neither the guard nor the tenant's threshold; one object, so that memoized filters keep it. */
+const NO_ANOMALY_CONTEXT: AnomalyContext = {};
+
+/**
+ * A line's anomalies, one definition for every screen (D18f, decision D13), the union of:
+ * - every reason the apply guard blocks the line on (`blocked`, its verdict at the tenant's threshold and the job's
+ *   level: a low or missing confidence on level C, a missing proof or page, a failed rule, rules to compute again);
+ * - a confidence under the tenant's low threshold (`threshold`), on every level, verified or not;
+ * - a missing proof;
+ * - what the apply button also refuses: a zero quantity, an empty designation.
+ * A union, so « Avec anomalies » lists more lines than the guard blocks, never fewer. A screen that passes neither the
+ * guard's verdict nor the tenant's threshold reads the rest at the default threshold.
+ */
+export function detectAnomalies(item: ReviewItem, context: AnomalyContext = {}): AnomalyType[] {
+  const anomalies = new Set<AnomalyType>(context.blocked?.get(item.id) ?? []);
+  const threshold = context.threshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  if (item.confidence !== null && item.confidence < threshold) {
+    anomalies.add("low_confidence");
+  }
+  if (!item.evidence) {
+    anomalies.add("missing_evidence");
+  }
+  if (item.quantity <= 0) {
+    anomalies.add("zero_quantity");
+  }
+  if (!item.designation.trim()) {
+    anomalies.add("empty_designation");
+  }
+  return [...anomalies];
+}
+
+function matchesFilters(item: ReviewItem, filters: ReviewTableFilters, anomalyContext: AnomalyContext): boolean {
   const query = filters.search.trim().toLowerCase();
   if (query && !item.designation.toLowerCase().includes(query)) return false;
 
@@ -120,7 +168,7 @@ function matchesFilters(item: ReviewItem, filters: ReviewTableFilters): boolean 
   }
 
   if (filters.anomaly !== "all") {
-    const hasAnomalies = detectAnomalies(item).length > 0;
+    const hasAnomalies = detectAnomalies(item, anomalyContext).length > 0;
     if (filters.anomaly === "with_anomalies" && !hasAnomalies) return false;
     if (filters.anomaly === "without_anomalies" && hasAnomalies) return false;
   }
@@ -331,6 +379,7 @@ export default function TakeoffReviewTable({
   onExcludeItems,
   onIncludeItems,
   onOpenEvidencePanel,
+  anomalyContext = NO_ANOMALY_CONTEXT,
 }: TakeoffReviewTableProps) {
   // ---- Filter/sort state
   const [filters, setFilters] = useState<ReviewTableFilters>(DEFAULT_REVIEW_TABLE_FILTERS);
@@ -372,7 +421,7 @@ export default function TakeoffReviewTable({
 
   // ---- Filter + sort
   const filteredItems = useMemo(() => {
-    const result = items.filter((item) => matchesFilters(item, filters));
+    const result = items.filter((item) => matchesFilters(item, filters, anomalyContext));
     return result.sort((a, b) => {
       if (sortField === "confidence") {
         return compareConfidence(a.confidence, b.confidence, sortDirection);
@@ -387,7 +436,7 @@ export default function TakeoffReviewTable({
       }
       return sortDirection === "asc" ? cmp : -cmp;
     });
-  }, [items, filters, sortField, sortDirection]);
+  }, [items, filters, anomalyContext, sortField, sortDirection]);
 
   // ---- Spreadsheet navigation
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
@@ -603,7 +652,7 @@ export default function TakeoffReviewTable({
               </tr>
             ) : (
               filteredItems.map((item) => {
-                const anomalies = detectAnomalies(item);
+                const anomalies = detectAnomalies(item, anomalyContext);
                 const isExcluded = item.is_excluded;
                 const rowClassName = [
                   isExcluded && "bg-surface-subtle",
