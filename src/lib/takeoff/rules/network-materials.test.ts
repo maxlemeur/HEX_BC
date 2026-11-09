@@ -121,7 +121,8 @@ describe("TI-685 D18a stainless condensates", () => {
 });
 
 // TI-685 D18b, written before implementation: a missing or out-of-series DN hid the couple's condition, so the
-// reviewer never saw what the material needed. Codes, versions and acceptability stay as they were.
+// reviewer never saw what the material needed. Codes and acceptability stay as they were, and the reason is no part of
+// a failure key. The keys still change, but with the table version (v3, NETWORK_DIAMETER_TABLE_VERSION), not the reason.
 describe("TI-685 D18b couple condition beside a DN failure", () => {
   it.each<[NetworkCode, MaterialCode, string, string]>([
     ["EUG", "pvc", "Ø 105", "Eaux grasses : justifier un système PVC-C ou haute température."],
