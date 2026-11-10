@@ -10,13 +10,13 @@ const paramsSchema = z.object({
 });
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ projectId: string; documentId: string }> },
 ) {
   try {
     const { projectId, documentId } = paramsSchema.parse(await params);
-    const drawing = await readAffaireDocumentDrawing(projectId, documentId);
-    return new Response(new Uint8Array(drawing.bytes), {
+    const drawing = await readAffaireDocumentDrawing(projectId, documentId, request.signal);
+    return new Response(drawing.bytes as Uint8Array<ArrayBuffer>, {
       headers: {
         // A DXF is text: named so, it is compressed on its way to the browser.
         "Content-Type": "text/plain",

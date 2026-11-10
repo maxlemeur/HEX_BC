@@ -239,12 +239,13 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
       const response = await fetch(url, { credentials });
       const body = await response.text();
       return { status: response.status, type: response.headers.get("content-type"), cache: response.headers.get("cache-control"),
-        start: body.slice(0, 12), code: response.ok ? null : (JSON.parse(body) as { error?: { code?: string } }).error?.code ?? null };
+        start: body.slice(0, 16), code: response.ok ? null : (JSON.parse(body) as { error?: { code?: string } }).error?.code ?? null };
     };
     return { converted: await ask(converted), anonymous: await ask(converted, "omit"), refused: await ask(refused), plotted: await ask(plotted) };
   }, [drawing(original.id), drawing(old.id), drawing(plot.id)]);
   expect(answers.converted).toMatchObject({ status: 200, type: expect.stringContaining("text/plain"), cache: "private, no-store", code: null });
-  expect(answers.converted.start.replace(/\s+/g, " ").trim()).toMatch(/^(999 LibreDWG|0 SECTION)/);
+  // LibreDWG signs the DXF it writes on its first two lines.
+  expect(answers.converted.start.replace(/\s+/g, " ")).toMatch(/^999 LibreDWG/);
   expect(answers.anonymous.status).toBe(401);
   expect(answers.refused).toMatchObject({ status: 422, code: "DWG_CONVERSION_OLD_FORMAT", cache: "private, no-store" });
   expect(answers.plotted).toMatchObject({ status: 400, code: "CAD_DRAWING_NOT_DWG" });

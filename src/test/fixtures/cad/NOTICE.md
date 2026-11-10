@@ -6,6 +6,6 @@ release (<https://ftp.gnu.org/gnu/libredwg/libredwg-0.13.3.tar.xz>), unchanged
 customer data: tables and chairs on five layers, saved by AutoCAD in the 2018 format.
 
 It is distributed with LibreDWG under the GNU General Public License, version 3 or later
-(<https://www.gnu.org/licenses/gpl-3.0.html>), and is kept here under that licence, as test
+(text in `LICENSES/GPL-3.0-or-later.txt` at the root of the repository), and is kept here under that licence, as test
 data only: the conversion tests of `src/lib/cad/dwg-conversion-server.test.ts` and the journey
 CAD03 read it. It is not part of the application.

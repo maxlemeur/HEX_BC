@@ -118,6 +118,26 @@ describe("runLockedProgram", () => {
     expect(outcome.environment.filter((name: string) => !["NODE_ENV", "PATH"].includes(name))).toEqual([]);
   }, 30_000);
 
+  it("takes the exit code of a program that ends before it has read what it was sent", async () => {
+    const result = await run("process.exit(4);", new Uint8Array(8 * 1024 * 1024));
+    expect(result.exitCode).toBe(4);
+    expect(result.output.byteLength).toBe(0);
+  }, 30_000);
+
+  it("ends the program when the request it serves is given up, and starts none for a request already given up", async () => {
+    const endless = "setInterval(() => {}, 1000);";
+    const given = new AbortController();
+    const running = reasonOf(runLockedProgram(endless, "{}", new Uint8Array(0), { ...limits, readable: [], signal: given.signal }));
+    setTimeout(() => given.abort(), 300);
+    const started = Date.now();
+    expect(await running).toBe("failed");
+    // Long before the deadline of 20 s.
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(await reasonOf(runLockedProgram(endless, "{}", new Uint8Array(0), { ...limits, readable: [], signal: given.signal }))).toBe("failed");
+    expect(await reasonOf(convertDwgToDxf(SAMPLE, { signal: given.signal }))).toBe("failed");
+  }, 30_000);
+
+  // The refusal comes once the program is gone: were it left running, these would wait for it and never end.
   it("ends a program that does not finish, and one that writes too much", async () => {
     expect(await reasonOf(runLockedProgram("setInterval(() => {}, 1000);", "{}", new Uint8Array(0), { timeoutMs: 300, maxOutputBytes: 1000, readable: [] }))).toBe("timeout");
     expect(await reasonOf(runLockedProgram("const more = () => process.stdout.write('x'.repeat(65536), more); more();", "{}", new Uint8Array(0), { timeoutMs: 20_000, maxOutputBytes: 100_000, readable: [] }))).toBe("output_too_large");
@@ -125,18 +145,31 @@ describe("runLockedProgram", () => {
 });
 
 describe("oneAtATime", () => {
+  const events: string[] = [];
+  const task = (name: string, fails = false) => () => new Promise<string>((resolve, reject) => {
+    events.push(`start ${name}`);
+    setTimeout(() => {
+      events.push(`end ${name}`);
+      if (fails) reject(new Error(name));
+      else resolve(name);
+    }, 15);
+  });
+  const told = (outcomes: PromiseSettledResult<string>[]) => outcomes.map((outcome) => (outcome.status === "fulfilled" ? outcome.value : outcome.reason instanceof DwgConversionError ? outcome.reason.reason : "refused"));
+
   it("starts a conversion when the one before it has ended, whether that one succeeded or not", async () => {
-    const events: string[] = [];
-    const task = (name: string, fails = false) => () => new Promise<string>((resolve, reject) => {
-      events.push(`start ${name}`);
-      setTimeout(() => {
-        events.push(`end ${name}`);
-        if (fails) reject(new Error(name));
-        else resolve(name);
-      }, 15);
-    });
-    const outcomes = await Promise.allSettled([oneAtATime(task("a", true)), oneAtATime(task("b")), oneAtATime(task("c"))]);
+    events.length = 0;
+    const queue = oneAtATime(3);
+    const outcomes = await Promise.allSettled([queue(task("a", true)), queue(task("b")), queue(task("c"))]);
     expect(events).toEqual(["start a", "end a", "start b", "end b", "start c", "end c"]);
-    expect(outcomes.map((outcome) => (outcome.status === "fulfilled" ? outcome.value : "refused"))).toEqual(["refused", "b", "c"]);
+    expect(told(outcomes)).toEqual(["refused", "b", "c"]);
+  });
+
+  it("turns away a conversion that would wait behind too many, and takes the next one once they have ended", async () => {
+    events.length = 0;
+    const queue = oneAtATime(2);
+    const outcomes = await Promise.allSettled([queue(task("a")), queue(task("b")), queue(task("c"))]);
+    expect(told(outcomes)).toEqual(["a", "b", "busy"]);
+    expect(events).not.toContain("start c");
+    expect(await queue(task("d"))).toBe("d");
   });
 });

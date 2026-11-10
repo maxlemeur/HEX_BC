@@ -278,7 +278,8 @@ describe("useCadOriginal", () => {
       const { result } = renderHook(() => useCadOriginal(dwg));
       const first = await lastRequest(() => workers[0]);
       await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: summary });
-      await waitFor(() => expect(result.current.state).toEqual({ status: "ready", original: summary, notice: "Le dessin de ce DWG n’a pas pu être demandé au serveur." }));
+      // A conversion that was not reached can be asked again.
+      await waitFor(() => expect(result.current.state).toEqual({ status: "ready", original: summary, notice: "Le dessin de ce DWG n’a pas pu être demandé au serveur.", retryable: true }));
 
       reachable = true;
       act(() => result.current.retry());
@@ -287,6 +288,49 @@ describe("useCadOriginal", () => {
       const converted = await lastRequest(() => workers[1], 2);
       await answer(workers[1], { requestId: converted.requestId, ok: false, type: "read", reason: "too_large" });
       expect(result.current.state).toEqual({ status: "ready", original: summary, notice: cadReadMessage("too_large") });
+    });
+
+    it("offers to ask again a server that is busy, not one that refuses the file", async () => {
+      const workers = installWorkers();
+      const busy = "Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant.";
+      installDwgFetch(() => ({ ok: false, status: 503, json: async () => ({ error: { message: busy } }) }));
+      const { result } = renderHook(() => useCadOriginal(dwg));
+      const first = await lastRequest(() => workers[0]);
+      await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: summary });
+      await waitFor(() => expect(result.current.state).toEqual({ status: "ready", original: summary, notice: busy, retryable: true }));
+    });
+
+    it("keeps what the DWG says when the reading of its DXF never ends", async () => {
+      vi.useFakeTimers();
+      const workers = installWorkers();
+      installDwgFetch(() => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(16) }));
+      const { result } = renderHook(() => useCadOriginal(dwg));
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      const { requestId } = workers[0].postMessage.mock.calls[0][0];
+      await answer(workers[0], { requestId, ok: true, type: "read", original: summary });
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(workers[0].postMessage).toHaveBeenCalledTimes(2);
+
+      await act(() => vi.advanceTimersByTimeAsync(120_000));
+      expect(result.current.state).toEqual({ status: "ready", original: summary, notice: "La lecture du dessin de ce DWG prend trop de temps." });
+      // The worker still reading is ended: it would answer nothing else.
+      expect(workers[0].terminate).toHaveBeenCalled();
+    });
+
+    it("stops asking for the drawing when the document is closed", async () => {
+      const workers = installWorkers();
+      const fetchMock = installDwgFetch(() => new Promise(() => {}));
+      const { result, unmount } = renderHook(() => useCadOriginal(dwg));
+      const first = await lastRequest(() => workers[0]);
+      await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: summary });
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(result.current.state).toEqual({ status: "loading", converting: true });
+      const signal = fetchMock.mock.calls[1][1]?.signal;
+      expect(signal?.aborted).toBe(false);
+      unmount();
+      expect(signal?.aborted).toBe(true);
+      expect(workers[0].terminate).toHaveBeenCalled();
+      expect(workers[0].postMessage).toHaveBeenCalledTimes(1);
     });
 
     it("asks for no conversion of a Revit model, nor of a DWG without a conversion address", async () => {

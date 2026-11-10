@@ -21,12 +21,13 @@ export type CadOriginalState =
   | { status: "loading"; converting?: true }
   /**
    * `source`: the drawing is the server's conversion of this DWG.
-   * `notice`: why the DWG is shown without its drawing.
+   * `notice`: why the DWG is shown without its drawing; `retryable`: asking again may bring it.
    */
-  | { status: "ready"; original: CadOriginal; source?: CadSummary; notice?: string }
+  | { status: "ready"; original: CadOriginal; source?: CadSummary; notice?: string; retryable?: true }
   | { status: "error"; message: string };
 
 const READ_TIMEOUT_MS = 120_000;
+const PLOT_TIMEOUT_MS = 180_000;
 const UNREACHED = "Le dessin de ce DWG n’a pas pu être demandé au serveur.";
 
 /** What a refusal says, or the sentence kept for one that says nothing. */
@@ -34,7 +35,6 @@ async function refusalMessage(response: Response, fallback: string): Promise<str
   const payload = await response.json().catch(() => null);
   return typeof payload?.error?.message === "string" ? payload.error.message : fallback;
 }
-const PLOT_TIMEOUT_MS = 180_000;
 
 type Outcome = CadWorkerResponse | "timeout" | "closed";
 type Ask = { type: "read"; fileName: string; buffer: ArrayBuffer } | { type: "plot"; options: CadPlotOptions };
@@ -127,22 +127,24 @@ export function useCadOriginal(source: CadOriginalSource | null) {
       if (original.kind !== "summary" || original.summary.format !== "dwg" || drawingUrl === null) return setState({ status: "ready", original });
 
       // The DWG stays shown by what its file says whenever its drawing does not come.
-      const undrawn = (notice: string) => {
-        if (!abort.signal.aborted) setState({ status: "ready", original, notice });
+      // A server that was not reached, or that is busy, can be asked again; a file it refuses would be refused again.
+      const undrawn = (notice: string, retryable = false) => {
+        if (!abort.signal.aborted) setState({ status: "ready", original, notice, ...(retryable ? { retryable } : {}) });
       };
       setState({ status: "loading", converting: true });
       const conversion = await fetch(drawingUrl, { cache: "no-store", signal: abort.signal }).catch(() => null);
       if (abort.signal.aborted) return;
-      if (!conversion) return undrawn(UNREACHED);
-      if (!conversion.ok) return undrawn(await refusalMessage(conversion, UNREACHED));
+      if (!conversion) return undrawn(UNREACHED, true);
+      if (!conversion.ok) return undrawn(await refusalMessage(conversion, UNREACHED), conversion.status >= 500);
       const dxf = await conversion.arrayBuffer().catch(() => null);
       if (abort.signal.aborted) return;
-      if (!dxf) return undrawn(UNREACHED);
+      if (!dxf) return undrawn(UNREACHED, true);
       const drawn = await session.ask({ type: "read", fileName: `${fileName}.dxf`, buffer: dxf }, [dxf], READ_TIMEOUT_MS);
       if (abort.signal.aborted) return;
       if (drawn === "timeout") {
+        // The reading holds the worker, which a summary does not need.
         session.close();
-        return fail("La lecture de ce fichier prend trop de temps.");
+        return undrawn("La lecture du dessin de ce DWG prend trop de temps.");
       }
       if (drawn === "closed" || !drawn.ok) return undrawn(cadReadMessage(drawn === "closed" ? "failed" : drawn.reason));
       if (drawn.type === "read") setState({ status: "ready", original: drawn.original, source: original.summary });

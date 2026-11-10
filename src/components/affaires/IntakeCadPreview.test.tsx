@@ -185,6 +185,29 @@ describe("IntakeCadPreview", () => {
     expect(screen.queryByRole("button", { name: "Calques et quantités" })).not.toBeInTheDocument();
     expect(workers[0].postMessage).toHaveBeenCalledTimes(1);
     expect(onDrawingChange).toHaveBeenLastCalledWith(false);
+    // Asking again would be refused again.
+    expect(screen.queryByRole("button", { name: "Réessayer" })).not.toBeInTheDocument();
+  });
+
+  it("offers to ask again for the drawing of a DWG when the server was busy", async () => {
+    const workers = installWorkers();
+    let busy = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url === DRAWING && busy
+        ? { ok: false, status: 503, json: async () => ({ error: { code: "DWG_CONVERSION_BUSY", message: "Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant." } }) }
+        : { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(8) }));
+    render(<Harness canManage dwg onDrawingChange={vi.fn()} />);
+    const first = await lastRequest(() => workers[0]);
+    await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: DWG });
+    expect(await screen.findByText("Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant.")).toBeInTheDocument();
+
+    busy = false;
+    await userEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    const again = await lastRequest(() => workers[1]);
+    await answer(workers[1], { requestId: again.requestId, ok: true, type: "read", original: DWG });
+    const converted = await lastRequest(() => workers[1], 2);
+    await answer(workers[1], { requestId: converted.requestId, ok: true, type: "read", original: { kind: "drawing", drawing } });
+    expect(screen.getByRole("img", { name: "Plan Réseaux.dwg" })).toBeInTheDocument();
   });
 
   it("shows the picture a Revit model carries, and lets go of it when closed", async () => {

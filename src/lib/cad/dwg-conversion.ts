@@ -1,7 +1,7 @@
 // What the server and the screen share about turning a DWG into a DXF: why a
 // conversion did not happen, and how that is said.
 
-export type DwgConversionErrorReason = "empty" | "too_large" | "not_dwg" | "old_format" | "timeout" | "output_too_large" | "failed";
+export type DwgConversionErrorReason = "empty" | "too_large" | "not_dwg" | "old_format" | "timeout" | "output_too_large" | "busy" | "failed";
 
 export class DwgConversionError extends Error {
   constructor(readonly reason: DwgConversionErrorReason) {
@@ -24,6 +24,7 @@ const CONVERSION_MESSAGES: Record<DwgConversionErrorReason, string> = {
   old_format: "Ce DWG est enregistré dans un format antérieur à AutoCAD 2004, que MergeOne ne convertit pas. Enregistrez-le au format DWG 2004 ou plus récent, ou en DXF, puis déposez-le à nouveau.",
   timeout: "La conversion de ce DWG prend trop de temps. Déposez ce plan en DXF pour le visualiser.",
   output_too_large: "Une fois converti, le dessin de ce DWG dépasse 50 Mo : il n’est pas affiché.",
+  busy: "Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant.",
   failed: "Ce DWG n’a pas pu être converti. Déposez ce plan en DXF pour le visualiser.",
 };
 

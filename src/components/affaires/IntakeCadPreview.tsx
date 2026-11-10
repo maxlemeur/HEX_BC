@@ -41,8 +41,11 @@ type PlotState =
   | { status: "done"; fileName: string; plot: Pick<CadPlot, "denominator" | "scaleSource" | "otherScales" | "sheet_mm" | "omitted"> }
   | { status: "error"; message: string };
 
-/** What the file itself tells of a DWG or a Revit model: its release and the picture it carries. `notice` says why a DWG is not drawn. */
-function CadSummaryView({ summary, notice }: { summary: CadSummary; notice?: string }) {
+/**
+ * What the file itself tells of a DWG or a Revit model: its release and the picture it carries.
+ * `notice` says why a DWG is not drawn, and `onRetry` asks for its drawing again.
+ */
+function CadSummaryView({ summary, notice, onRetry }: { summary: CadSummary; notice?: string; onRetry?(): void }) {
   const { thumbnail } = summary;
   const [picture, setPicture] = useState<string | null>(null);
 
@@ -70,6 +73,12 @@ function CadSummaryView({ summary, notice }: { summary: CadSummary; notice?: str
       )}
       <strong>{release}</strong>
       <p>{notice ?? SUMMARY_GUIDANCE[summary.format]}</p>
+      {onRetry && (
+        <button type="button" className="document-desk-button" onClick={onRetry}>
+          <RefreshCw size={14} />
+          Réessayer
+        </button>
+      )}
     </div>
   );
 }
@@ -356,7 +365,7 @@ export function IntakeCadPreview({
       </div>
     );
   }
-  if (state.original.kind === "summary") return <CadSummaryView summary={state.original.summary} notice={state.notice} />;
+  if (state.original.kind === "summary") return <CadSummaryView summary={state.original.summary} notice={state.notice} onRetry={state.retryable ? retry : undefined} />;
   return (
     <CadDrawingView
       projectId={projectId}
