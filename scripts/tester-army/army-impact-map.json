@@ -130,7 +130,7 @@
     ".gitignore",
     "tools/next-eslint-root-glob/**",
     ".github/dependabot.yml",
-    ".github/workflows/{e2e-army-calc-v3,e2e-army-full,e2e-army-smoke,e2e-rls-matrix,purge-test-data,quality-gate,recover-durable-fallback,release-please,supabase-backup}.yml",
+    ".github/workflows/{ci-night-alert,e2e-army-calc-v3,e2e-army-full,e2e-army-smoke,e2e-rls-matrix,purge-test-data,quality-gate,recover-durable-fallback,release-please,supabase-backup}.yml",
     ".claude/**",
     ".env.example",
     ".release-please-manifest.json",

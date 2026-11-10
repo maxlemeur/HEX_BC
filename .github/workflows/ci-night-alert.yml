@@ -1,0 +1,67 @@
+name: CI night alert
+
+# A scheduled TesterArmy campaign that goes red on main reaches nobody by
+# itself: no pull request shows it. After each one, this workflow opens an
+# issue naming the run, its failed jobs and every journey that did not pass,
+# adds a comment to it while the campaign stays red, and closes it on the first
+# green one (scripts/tester-army/nightly-alert.ts, docs/testing/tester-army-ci.md,
+# "Alerte des campagnes planifiées").
+#
+# workflow_run executes this file and that script from main, never from a pull
+# request. A dispatch replays the alert of one run; it only simulates unless
+# write is chosen and that run was a scheduled one.
+on:
+  workflow_run:
+    workflows: ["TesterArmy Full", "TesterArmy calc-v3"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Identifiant du run TesterArmy Full ou calc-v3 dont rejouer l'alerte."
+        required: true
+        type: string
+      write:
+        description: "Écrire dans les tickets. Décoché : la décision est seulement affichée dans le résumé."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # One alert at a time per scheduled workflow. The skipped runs that pull-request
+  # completions of the same workflows start stay out of that queue.
+  group: ci-night-alert-${{ github.event.workflow_run.event == 'schedule' && github.event.workflow_run.name || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    name: ci-night-alert
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Open, update or close the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERT_REPOSITORY: ${{ github.repository }}
+          # Through env and validated as digits, never pasted into the script.
+          ALERT_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
+          # The script also refuses to write for a run that is not a scheduled one.
+          ALERT_WRITE: ${{ github.event_name != 'workflow_dispatch' || inputs.write }}
+          # Optional repository variable: comma-separated logins assigned to a new alert.
+          ALERT_ASSIGNEES: ${{ vars.CI_ALERT_ASSIGNEES }}
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/nightly-alert.ts

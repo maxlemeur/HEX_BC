@@ -14,6 +14,7 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; étapes lourdes d'une PR selon chemins DB/runtime ; les autres lancements sont complets |
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel et quotidien à 03:15 UTC ; parcours de production et phase développement |
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC et PR modifiant ce workflow ; phases du [guide calc-v3](tester-army-calc-v3.md) |
+| [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne planifiée Full ou Calc-v3, et manuel ; [ticket d'alerte](#alerte-des-campagnes-planifiées) ouvert, commenté ou fermé |
 
 Les commandes locales ne modifient ni les règles de protection de `main` ni
 les vérifications obligatoires. Un check agrégé réussi avec sélection `none`
@@ -44,6 +45,56 @@ commité. `--files` et `--grep` s'excluent. Avant de créer une pile,
 alternative de filtre sans correspondance et un fichier local oublié des
 collecteurs ou du registre d'exclusions. Chaque fichier demandé doit ensuite
 être réellement exécuté et réussi.
+
+## Avant un push direct sur main
+
+Un push `main` lance la suite critical seule. Les parcours du métré et les phases
+calc-v3 attendent sinon une PR ; la phase développement et les parcours
+`extended` ne tournent que dans la campagne Full planifiée. Un changement poussé
+directement prouve donc sur le poste, avant le push, ceux qu'il atteint.
+
+```sh
+npm run e2e:army:reach
+```
+
+[`reach.ts`](../../scripts/tester-army/reach.ts) compare l'arbre de travail
+(commits, modifications et fichiers non suivis) à `origin/main` avec la sélection
+d'une PR, puis affiche la commande locale de chaque suite :
+
+- « mapped to the change » : une règle relie le changement à ces parcours ou
+  phases ; ils sont à lancer ;
+- « every journey » ou « every phase » : repli de la sélection sur un chemin
+  partagé ou inconnu de la carte. Une PR lancerait tout en parallèle ; sur le
+  poste, lancer ce que le changement peut modifier et citer le reste au rapport ;
+- phase développement : elle pilote le même hub d'affaire que les parcours du
+  métré et les suit ; aucune règle ne la relie à un fichier source ;
+- parcours `extended` : seuls les fichiers de parcours modifiés sont listés ; un
+  changement applicatif qui les casse n'est vu que par la campagne planifiée et
+  son [alerte](#alerte-des-campagnes-planifiées).
+
+## Alerte des campagnes planifiées
+
+Une campagne planifiée rouge sur `main` n'apparaît sur aucune PR.
+[`ci-night-alert.yml`](../../.github/workflows/ci-night-alert.yml) s'exécute
+après chaque campagne planifiée « TesterArmy Full » et « TesterArmy calc-v3 » et
+tient un ticket GitHub par workflow, titré « CI nocturne rouge : <workflow> » :
+
+- campagne rouge : le ticket est ouvert, ou reçoit un commentaire s'il l'est
+  déjà. Il cite le run, ses jobs en échec et les parcours non passés que nomme
+  `notPassed` dans le manifeste agrégé (rapports des shards et des phases
+  calc-v3) ; un échec antérieur aux parcours n'en nomme aucun ;
+- première campagne verte : le ticket est commenté puis fermé ;
+- campagne annulée ou sans conclusion : rien n'est écrit.
+
+Seuls les tickets ouverts par le workflow lui-même sont reconnus : le dépôt est
+public et n'importe qui peut ouvrir un ticket du même titre. La variable de dépôt
+facultative `CI_ALERT_ASSIGNEES` (identifiants séparés par des virgules) assigne
+les nouveaux tickets ; sans elle, seuls les abonnés aux tickets du dépôt sont
+notifiés. Une alerte qui échoue elle-même laisse un run « CI night alert » rouge.
+
+Le déclenchement manuel rejoue l'alerte d'un run donné. Il n'écrit que si
+l'option d'écriture est cochée et que ce run est une campagne planifiée ; sinon
+la décision est seulement affichée dans le résumé du job.
 
 ## Jobs parallèles
 
