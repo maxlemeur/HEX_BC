@@ -14,7 +14,8 @@ export const TAKEOFF_PROVISION_KEY = "takeoff_provision";
 const sourceSchema = z.object({
   takeoff_item_id: z.string(),
   forced: z.boolean(),
-  /** The coded override reason (D10), once the override carries one per line; null before. */
+  /** The coded override reason of a forced source (D10, migration …_takeoff_apply_force_reasons.sql); null otherwise,
+   * and on the markers written before the override carried one per line. */
   forced_reason: z.string().nullable(),
   /** The quantity entry category of the takeoff line (D12), null when its quantity was not entered. */
   entry_category: z.string().nullable(),

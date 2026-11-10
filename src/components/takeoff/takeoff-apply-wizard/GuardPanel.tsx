@@ -1,44 +1,139 @@
 "use client";
 
 import Link from "next/link";
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import {
   APPLY_GUARD_REASON_LABELS,
   type ApplyGuardResult,
+  type GuardBlockedItem,
 } from "@/lib/takeoff/guards";
-
+import { FORCE_REASONS, forceReasonsFor, forceRulesOf, type ForceReason } from "@/lib/takeoff/force-reasons";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
+import { ACCEPTANCE_NOTE, noteLength, validNote } from "@/lib/takeoff/rules/verification";
 
+import {
+  falsePositiveRules,
+  forcedDraftOf,
+  forcedEntryOf,
+  forcedOverrideOf,
+  type ForcedDraft,
+  type ForcedDrafts,
+} from "./forced-drafts";
 import { confidenceColor, formatConfidencePercent } from "./shared";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 
+const SELECT_CLASS = "w-full rounded-md border border-border bg-surface p-2 text-sm";
+
+/** A justification counted as the server counts it (code points, without the blanks at its ends). */
+function JustificationCount({ id, value }: Readonly<{ id: string; value: string }>) {
+  const length = noteLength(value);
+  const valid = validNote(value);
+  return (
+    <p id={id} className={cn("mt-1 text-right text-xs tabular-nums", valid || value === "" ? "text-muted-foreground" : "text-danger")}>
+      {length}/{ACCEPTANCE_NOTE.max} caractères (au moins {ACCEPTANCE_NOTE.min})
+    </p>
+  );
+}
+
+/** TI-686 D10: one blocked line's coded reason, rules at fault and justification. */
+function ForcedLine({ line, draft, onChange }: Readonly<{
+  line: GuardBlockedItem; draft: ForcedDraft; onChange: (next: ForcedDraft) => void;
+}>) {
+  const id = useId();
+  const reasons = forceReasonsFor(line);
+  const rules = forceRulesOf(line);
+  const chosenRules = falsePositiveRules(line, draft);
+  const result = forcedEntryOf(line, draft);
+  const complete = "entry" in result;
+  return (
+    <li className="space-y-2 border-t border-border py-3 first:border-t-0">
+      <div className="flex items-center gap-2">
+        <input id={`${id}-selected`} type="checkbox" checked={draft.selected}
+          onChange={(event) => onChange({ ...draft, selected: event.target.checked })} />
+        <label htmlFor={`${id}-selected`} className="text-sm font-medium text-foreground">{line.designation}</label>
+        <span className={cn("ml-auto text-xs", complete ? "text-success" : "text-muted-foreground")} role="status">
+          {complete ? "Complète" : "À compléter"}
+        </span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+        <div>
+          <label htmlFor={`${id}-reason`} className="block text-xs font-medium text-foreground-secondary">Motif</label>
+          <select id={`${id}-reason`} aria-label={`Motif : ${line.designation}`} className={SELECT_CLASS} value={draft.reason}
+            onChange={(event) => onChange({ ...draft, reason: event.target.value as ForceReason | "", rules: [] })}>
+            <option value="">Choisir un motif</option>
+            {reasons.map((code) => <option key={code} value={code}>{FORCE_REASONS[code]}</option>)}
+          </select>
+          {draft.reason === "rule_false_positive" && rules.length > 1 ? (
+            <fieldset className="mt-2">
+              <legend className="text-xs font-medium text-foreground-secondary">Règle fautive</legend>
+              {rules.map((rule) => (
+                <label key={rule} className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={draft.rules.includes(rule)} aria-label={`Règle fautive : ${TAKEOFF_RULE_LABELS[rule]}`}
+                    onChange={(event) => onChange({ ...draft, rules: event.target.checked
+                      ? [...draft.rules, rule] : draft.rules.filter((other) => other !== rule) })} />
+                  {TAKEOFF_RULE_LABELS[rule]}
+                </label>
+              ))}
+            </fieldset>
+          ) : draft.reason === "rule_false_positive" && chosenRules.length === 1 ? (
+            <p className="mt-2 text-xs text-muted-foreground">Règle fautive : {TAKEOFF_RULE_LABELS[chosenRules[0]]}</p>
+          ) : null}
+        </div>
+        <div>
+          <label htmlFor={`${id}-justification`} className="block text-xs font-medium text-foreground-secondary">Justification</label>
+          <Textarea id={`${id}-justification`} aria-label={`Justification : ${line.designation}`} rows={2} className="w-full text-sm"
+            value={draft.justification} aria-describedby={`${id}-count`} autoComplete="off"
+            onChange={(event) => onChange({ ...draft, justification: event.target.value })} />
+          <JustificationCount id={`${id}-count`} value={draft.justification} />
+        </div>
+      </div>
+      {"error" in result && result.error ? <p className="text-xs text-danger">{result.error}</p> : null}
+    </li>
+  );
+}
+
 export function GuardPanel({
   guardResult,
   isAdmin,
   canOverride,
-  overrideJustification,
+  forcedDrafts,
   onReturnToReview,
   reviewHref,
   targetedReviewHref,
-  onOverrideJustificationChange,
+  onForcedDraftsChange,
   onOverrideConfirm,
 }: {
   guardResult: ApplyGuardResult;
   isAdmin: boolean;
   canOverride: boolean;
-  overrideJustification: string;
+  /** TI-686 D10: what the administrator wrote for each blocked line, kept by the wizard. */
+  forcedDrafts: ForcedDrafts;
   onReturnToReview?: () => void;
   reviewHref?: string;
   /** The targeted review of the job (TI-664 L5c), where each blocked line is settled. */
   targetedReviewHref?: string;
-  onOverrideJustificationChange: (value: string) => void;
+  onForcedDraftsChange: (next: ForcedDrafts) => void;
   onOverrideConfirm: () => void;
 }) {
-  const justificationId = useId();
-  const justificationLength = overrideJustification.trim().length;
+  const bulkId = useId();
+  const [bulk, setBulk] = useState<{ reason: ForceReason | ""; justification: string }>({ reason: "", justification: "" });
+  const blocked = guardResult.blocked_items;
+  const selected = blocked.filter((line) => forcedDraftOf(forcedDrafts, line.item_id).selected);
+  // The reasons every selected line accepts (the unconditional ones at least).
+  const bulkReasons = (Object.keys(FORCE_REASONS) as ForceReason[])
+    .filter((code) => selected.every((line) => forceReasonsFor(line).includes(code)));
+  const complete = forcedOverrideOf(blocked, forcedDrafts) !== null;
+  const setDraft = (itemId: string, next: ForcedDraft) => onForcedDraftsChange({ ...forcedDrafts, [itemId]: next });
+  // One reason and one text copied to the selected lines; the request stores the text once.
+  const applyToSelection = () => onForcedDraftsChange(Object.fromEntries(blocked.map((line) => {
+    const draft = forcedDraftOf(forcedDrafts, line.item_id);
+    return [line.item_id, draft.selected && bulk.reason !== ""
+      ? { ...draft, reason: bulk.reason, rules: draft.reason === bulk.reason ? draft.rules : [], justification: bulk.justification }
+      : draft];
+  })));
 
   return (
     <div className="space-y-4">
@@ -148,44 +243,56 @@ export function GuardPanel({
       {isAdmin && (
         <div className="rounded-xl border border-danger bg-error-light p-4">
           <p className="text-xs font-semibold text-danger">
-            Dérogation administrateur
+            Forcer l&apos;application
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Cette dérogation contourne les blocages ci-dessus. Elle exige une
-            justification précise, sera enregistrée dans le journal d&apos;audit et
-            ne remplace pas les preuves manquantes. Chaque ligne levée entre au
-            devis comme provision interne ; le forçage n&apos;apparaît jamais dans
-            le devis client.
+            Chaque ligne forcée reçoit un motif codé et une justification ({ACCEPTANCE_NOTE.min} à {ACCEPTANCE_NOTE.max}{" "}
+            caractères), enregistrés dans le journal d&apos;audit. Le forçage contourne les blocages ci-dessus sans
+            remplacer les preuves manquantes. Chaque ligne levée entre au devis comme provision interne ; le forçage
+            n&apos;apparaît jamais dans le devis client.
           </p>
-          <label
-            htmlFor={justificationId}
-            className="mt-3 block text-xs font-medium text-foreground-secondary"
-          >
-            Justification de la dérogation
-          </label>
-          <Textarea
-            id={justificationId}
-            name="takeoff-apply-override-justification"
-            className="mt-2 w-full text-sm"
-            rows={2}
-            placeholder="Expliquez le contrôle réalisé et le risque accepté…"
-            value={overrideJustification}
-            onChange={(event) => onOverrideJustificationChange(event.target.value)}
-            maxLength={500}
-            autoComplete="off"
-          />
-          <p className="mt-1 text-right text-xs text-muted-foreground tabular-nums">
-            {overrideJustification.length}/500
-          </p>
+
+          <fieldset className="mt-3 space-y-2 rounded-lg border border-border bg-surface p-3">
+            <legend className="px-1 text-xs font-medium text-foreground-secondary">
+              Sélection ({selected.length}/{blocked.length})
+            </legend>
+            <label htmlFor={`${bulkId}-reason`} className="block text-xs font-medium text-foreground-secondary">
+              Motif de la sélection
+            </label>
+            <select id={`${bulkId}-reason`} className={SELECT_CLASS} value={bulk.reason}
+              onChange={(event) => setBulk({ ...bulk, reason: event.target.value as ForceReason | "" })}>
+              <option value="">Choisir un motif</option>
+              {bulkReasons.map((code) => <option key={code} value={code}>{FORCE_REASONS[code]}</option>)}
+            </select>
+            <label htmlFor={`${bulkId}-justification`} className="block text-xs font-medium text-foreground-secondary">
+              Justification de la sélection
+            </label>
+            <Textarea id={`${bulkId}-justification`} name="takeoff-apply-forced-justification" className="w-full text-sm" rows={2}
+              placeholder="Dites ce qui a été contrôlé et le risque accepté…" value={bulk.justification}
+              aria-describedby={`${bulkId}-count`} autoComplete="off"
+              onChange={(event) => setBulk({ ...bulk, justification: event.target.value })} />
+            <JustificationCount id={`${bulkId}-count`} value={bulk.justification} />
+            <button type="button" className={buttonVariants({ variant: "outline" })} onClick={applyToSelection}
+              disabled={selected.length === 0 || bulk.reason === "" || !bulkReasons.includes(bulk.reason)
+                || !validNote(bulk.justification)}>
+              Appliquer à la sélection
+            </button>
+          </fieldset>
+
+          <ul className="mt-3 max-h-[320px] overflow-auto rounded-lg border border-border bg-surface px-3">
+            {blocked.map((line) => (
+              <ForcedLine key={line.item_id} line={line} draft={forcedDraftOf(forcedDrafts, line.item_id)}
+                onChange={(next) => setDraft(line.item_id, next)} />
+            ))}
+          </ul>
+
           <button
             type="button"
-            className={cn(buttonVariants({ variant: "danger-solid" }), "mt-2")}
+            className={cn(buttonVariants({ variant: "danger-solid" }), "mt-3")}
             onClick={onOverrideConfirm}
-            disabled={
-              !canOverride || justificationLength < 10 || justificationLength > 500
-            }
+            disabled={!canOverride || !complete}
           >
-            Appliquer avec dérogation
+            Forcer l&apos;application ({blocked.length} ligne{blocked.length > 1 ? "s" : ""})
           </button>
           {!canOverride ? (
             <p className="mt-2 text-xs text-danger" role="status">

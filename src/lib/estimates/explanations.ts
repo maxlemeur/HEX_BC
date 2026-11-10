@@ -556,7 +556,9 @@ function extractSourceMetadataStatements(input: {
   if (provision) {
     pushStatement(input.hypotheses, {
       label: provision.kind === "hypothesis"
-        ? "Quantité saisie sur hypothèse au métré"
+        ? provision.sources.some((source) => source.entry_category === "hypothesis")
+          ? "Quantité saisie sur hypothèse au métré"
+          : "Ligne forcée à l’application du métré comme hypothèse chiffrée"
         : provision.readable
           ? "Ligne forcée à l’application du métré (provision interne)"
           : "Provision interne posée au métré (marqueur illisible)",

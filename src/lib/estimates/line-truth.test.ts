@@ -34,8 +34,32 @@ describe("resolveEstimateLineTruth, takeoff provisions", () => {
     expect(truth?.source.kind).toBe("plan");
   });
 
-  it("shows a quantity entered as a hypothesis, or forced as a priced hypothesis, as a hypothesis", () => {
-    for (const metadata of [marked(HYPOTHESIS), marked(FORCED, HYPOTHESIS), marked({ ...FORCED, forced_reason: "priced_hypothesis" })]) {
+  // TI-686 D10 (M4): the marker carries each forced line's coded reason; the internal detail names it.
+  it("names the coded reason of a forced line, once per reason", () => {
+    const evidence = { ...FORCED, forced_reason: "additional_evidence" };
+    const falsePositive = { ...FORCED, takeoff_item_id: "c3000000-0000-4000-8000-000000000302", forced_reason: "rule_false_positive" };
+    expect(resolveEstimateLineTruth(line("takeoff", marked(evidence)))?.qtyStatus.detail).toBe(
+      "Ligne forcée à l’application du métré (motif : Preuve complémentaire) : un administrateur a levé ce qui la bloquait "
+      + "(preuve localisée ou page source manquante, règles à recalculer, ou règle bloquante en échec, comme un matériau "
+      + "interdit). Son montant est une provision interne ; le client voit une ligne ordinaire.");
+    expect(resolveEstimateLineTruth(line("takeoff", marked(evidence, falsePositive, { ...evidence,
+      takeoff_item_id: "c3000000-0000-4000-8000-000000000304" })))?.qtyStatus.detail)
+      .toMatch(/^Ligne forcée à l’application du métré \(motifs : Preuve complémentaire, Faux positif de règle\) : /);
+  });
+
+  it("says a line forced as a priced hypothesis was forced, not entered", () => {
+    const truth = resolveEstimateLineTruth(line("takeoff", marked({ ...FORCED, forced_reason: "priced_hypothesis" })));
+    expect(truth?.qtyStatus).toEqual({
+      code: "hypothesis",
+      label: "Hypothèse",
+      detail: "Ligne forcée à l’application du métré comme hypothèse chiffrée : provision à confirmer ; le client voit une "
+        + "ligne ordinaire.",
+    });
+  });
+
+  it("shows a quantity entered as a hypothesis as a hypothesis, forced or not", () => {
+    for (const metadata of [marked(HYPOTHESIS), marked(FORCED, HYPOTHESIS), marked({ ...FORCED, forced_reason: "priced_hypothesis" },
+      HYPOTHESIS)]) {
       const truth = resolveEstimateLineTruth(line("takeoff", metadata));
       expect(truth?.qtyStatus).toEqual({
         code: "hypothesis",

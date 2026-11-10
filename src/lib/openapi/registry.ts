@@ -18,6 +18,7 @@ import { updateTakeoffRiskAlertStatusResponseSchema as sharedTakeoffRiskAlertSta
 import { estimateCreateResponseSchema, estimateStatusResponseSchema, estimateVersionIdResponseSchema, estimateVerifySealResponseSchema, estimateItemWriteResponseSchema, estimateBulkUpdateResponseSchema, estimateEventsResponseSchema, estimateSettingsResponseSchema, estimatePromoteVariantResponseSchema } from "@/lib/estimates/write-response-contracts";
 import { takeoffDpgfComparisonResponseSchema, takeoffDpgfComparisonViewSchema, takeoffDpgfReviewDecisionSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
+import { forcedItemSchema, forcedJustificationSchema } from "@/lib/takeoff/force-reasons";
 import { estimateItemDeleteResponseSchema, estimateItemsMoveResponseSchema, estimateItemsReorderResponseSchema } from "@/lib/estimates/item-structure-contracts";
 import {
   takeoffPriceSuggestionResponseSchema as takeoffPriceSuggestionResponseDataSchema,
@@ -1197,6 +1198,10 @@ const takeoffJobApplyRequestSchema = z
     strategy: takeoffApplyStrategySchema,
     target_section_id: uuidSchema.nullable().optional(),
     overrides: z.array(takeoffApplyOverrideSchema).optional(),
+    // TI-686 D10: an administrator's override names each blocked line with its coded reason (no cap on their number).
+    override: z.boolean().optional(),
+    forced_justifications: z.array(forcedJustificationSchema).min(1).optional(),
+    forced_items: z.array(forcedItemSchema).min(1).optional(),
   })
   .strict();
 
@@ -2709,7 +2714,9 @@ const createTakeoffJobBody = multipartBody({
 const applyTakeoffJobBody = jsonBody({
   name: "ApplyTakeoffJobRequest",
   description:
-    "Payload d'application Takeoff (strategie et section cible optionnelle).",
+    "Payload d'application Takeoff (strategie et section cible optionnelle). Forcage administrateur : override=true avec, "
+    + "pour chaque ligne bloquee, un motif code (forced_items) et l'indice de sa justification (forced_justifications, "
+    + "10 a 500 caracteres, chacune enregistree une fois).",
   schema: takeoffJobApplyRequestSchema,
 });
 const previewTakeoffConversionBody = jsonBody({

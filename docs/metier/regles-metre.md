@@ -515,8 +515,39 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 
 - C'est la seule voie pour appliquer une ligne bloquée (depuis TI-681 : preuve localisée ou page manquante en
   niveau C, résultats à recalculer, matériau bloqué ou autre échec d'une règle bloquante) : seul un administrateur du
-  tenant peut forcer l'application, avec une justification écrite de 10 à 500 caractères, journalisée dans
-  `audit_logs` et jamais imprimée pour le client.
+  tenant peut forcer l'application, ligne par ligne, avec un motif codé et une justification écrite de 10 à 500
+  caractères, journalisés dans `audit_logs` et jamais imprimés pour le client.
+- **Motif codé par ligne** (TI-686, D10 et H7, migration `20261110094504_takeoff_apply_force_reasons.sql`). Listes
+  provisoires jusqu'à l'accord de Max :
+
+  | Code | Motif | Vaut pour |
+  |---|---|---|
+  | `rule_false_positive` | Faux positif de règle | une ligne dont une règle en échec la bloque, résultats lisibles et à jour ; `false_positive_rules` nomme la ou les règles fautives parmi elles, sans doublon |
+  | `additional_evidence` | Preuve complémentaire | toute ligne |
+  | `engineer_or_client_confirmation` | Confirmation BET ou client | toute ligne |
+  | `controlled_correction` | Correction contrôlée | toute ligne |
+  | `duplicate_resolved` | Doublon résolu | un échec bloquant `zone_overlap` ou `room_overlap`, résultats lisibles et à jour |
+  | `priced_hypothesis` | Hypothèse chiffrée | toute ligne |
+
+  - Les échecs qui comptent sont ceux qui bloquent la ligne, au sens de TI-681 (`takeoff_item_rule_blocked`,
+    `checkApplyGuard`) : un avertissement de quantité (échelle, surface écrite, doublon entre zones, pièces qui se
+    chevauchent, DN manquant…) ne bloque jamais, donc ne se déclare pas en faux positif. Aujourd'hui, seuls les échecs
+    de matériau de `dn_network` (interdit, à justifier, PE gaz, bloqué) peuvent bloquer : « Doublon résolu » ne vaut
+    pour aucune ligne tant que les chevauchements restent des avertissements.
+  - Des résultats illisibles (lus comme vides et à recalculer par la route) ou à recalculer n'admettent que les quatre
+    motifs inconditionnels.
+  - La requête d'application porte `override: true`, `forced_justifications` (chaque texte une fois) et
+    `forced_items: [{ item_id, reason_code, false_positive_rules?, justification_index }]`, sans plafond de lignes.
+    Une ligne bloquée sans entrée, ou dont le motif ne vaut pas pour elle, refuse le forçage (422 `VALIDATION_ERROR`,
+    `guard: "override_reasons"`, `missing_item_ids`, `invalid_items`) ; les entrées des lignes non bloquées sont
+    écartées. L'ancien `override_justification` est refusé (422).
+  - L'audit `takeoff.apply.override` porte les mêmes champs, lignes triées par identifiant et justifications
+    dédoublonnées, sans justification de premier niveau ni `rule_codes` (les `rule_results` des jobs appliqués sont
+    figés). Le trigger vérifie chaque entrée (`private.takeoff_apply_forced_item_valid`) et refuse l'ancien format,
+    sans fenêtre de transition (H10).
+  - Dans l'assistant, le panneau « Forcer l'application » donne, par ligne bloquée, le motif, la règle fautive et la
+    justification ; « Appliquer à la sélection » recopie un motif et un texte, et « Forcer l'application (N lignes) »
+    n'est actif que lorsque toutes les lignes sont complètes. Un ingénieur ne voit pas ce panneau.
 - **Provision interne** (TI-686, D10 et D12, migration `20261110094503_takeoff_apply_provisions.sql`). Toute ligne
   forcée entre au devis comme provision interne, quelle que soit la protection qui la bloquait encore (H8) : preuve
   localisée ou page manquante en niveau C, résultats à recalculer, échec d'une règle bloquante comme un matériau
@@ -525,20 +556,22 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
   - L'application écrit `source_metadata.takeoff_provision` sur la ligne du devis, dans sa propre transaction et par
     ses deux variantes (sans DPGF et avec l'autorisation DPGF) : `{ version: 1, job_id, sources: [{ takeoff_item_id,
     forced, forced_reason, entry_category }] }`. Les sources sont les lignes de métré forcées (celles de l'audit
-    consommé pour ce job) ou saisies en hypothèse ; une ligne DPGF rapprochée ne nomme que celles-là. Une ligne de
+    consommé pour ce job, avec leur motif codé dans `forced_reason` depuis la migration
+    `20261110094504_takeoff_apply_force_reasons.sql`) ou saisies en hypothèse ; une ligne DPGF rapprochée ne nomme que celles-là. Une ligne de
     longueur dont les tronçons sont regroupés et arrondis une seule fois (TI-681) nomme les sources provisionnées de
     tous ses tronçons. Les lignes d'un ouvrage créé depuis une hypothèse gardent le marqueur.
   - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
     provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
     interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
-  - Le détail interne d'une ligne forcée nomme ce qu'un forçage lève (preuve localisée ou page source manquante,
-    règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas une quantité non
-    vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait.
+  - Le détail interne d'une ligne forcée donne son motif codé et nomme ce qu'un forçage lève (preuve localisée ou
+    page source manquante, règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas
+    une quantité non vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait. Une ligne
+    forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie.
   - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client (copie
     commerciale, PDF, portail, export DPGF) ne lit `source_metadata` ; les tests de garde le vérifient.
   - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
     `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
-- La réserve dans l'offre (TI-682), la variante et le motif codé de forçage restent à construire.
+- La réserve dans l'offre (TI-682) et la variante restent à construire.
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
 - Il consomme l'audit une seule fois.

@@ -165,6 +165,49 @@ describe("TakeoffApplyWizard", () => {
     expect(screen.queryByText(RULE_REASON, { exact: false })).not.toBeInTheDocument();
   });
 
+  // TI-686 D10: an administrator forces each blocked line with a coded reason and a justification; « Appliquer à la
+  // sélection » copies one reason and one text to the selected lines, and the request stores the text once. Written
+  // before the per-line panel (a single job-level justification was sent).
+  it("forces each blocked line with its coded reason, the selection's text sent once", async () => {
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+    const other = "33333333-3333-4333-8333-333333333332";
+    const noProof = { ...RULE_ITEM, rule_results: [], evidence: null };
+    render(
+      <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={2} excludedCount={0} isSubmitting={false}
+        submitError={null} onOpenChange={() => undefined} onConfirm={onConfirm} isAdmin
+        items={[noProof, { ...noProof, id: other, designation: "Raccord PVC" }]} jobLevel="C" />
+    );
+    await reachConfirmation();
+    const force = await screen.findByRole("button", { name: "Forcer l'application (2 lignes)" });
+    expect(force).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Motif de la sélection"), { target: { value: "additional_evidence" } });
+    fireEvent.change(screen.getByLabelText("Justification de la sélection"),
+      { target: { value: "  Relevé chantier joint au dossier.  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Appliquer à la sélection" }));
+    await waitFor(() => expect(force).toBeEnabled());
+    fireEvent.click(force);
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ override: true, forced: {
+      forced_justifications: ["Relevé chantier joint au dossier."],
+      forced_items: [
+        { item_id: other, reason_code: "additional_evidence", justification_index: 0 },
+        { item_id: ITEM_ID, reason_code: "additional_evidence", justification_index: 0 },
+      ] } })));
+  });
+
+  it("shows the per-line override to administrators only", async () => {
+    render(
+      <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn().mockResolvedValue(undefined)}
+        items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} jobLevel="C" />
+    );
+    await reachConfirmation();
+    await waitFor(() => expect(screen.getByText(/Lignes à trancher/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^Forcer l'application/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Motif de la sélection")).not.toBeInTheDocument();
+  });
+
   it("explains a quantity warning the plan keeps and permits confirmation without acknowledgement", async () => {
     vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("set_price"));
     renderRuleWizard();

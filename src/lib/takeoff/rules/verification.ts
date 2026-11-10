@@ -56,7 +56,8 @@ export function noteLength(text: string) {
   return [...noteText(text)].length;
 }
 
-function validNote(text: string) {
+/** A note of 10 to 500 code points once its blanks are trimmed (shared with the override's justifications, TI-686 D10). */
+export function validNote(text: string) {
   const length = noteLength(text);
   return length >= ACCEPTANCE_NOTE.min && length <= ACCEPTANCE_NOTE.max;
 }

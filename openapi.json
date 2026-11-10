@@ -18684,7 +18684,7 @@
           }
         ],
         "requestBody": {
-          "description": "Payload d'application Takeoff (strategie et section cible optionnelle).",
+          "description": "Payload d'application Takeoff (strategie et section cible optionnelle). Forcage administrateur : override=true avec, pour chaque ligne bloquee, un motif code (forced_items) et l'indice de sa justification (forced_justifications, 10 a 500 caracteres, chacune enregistree une fois).",
           "required": true,
           "content": {
             "application/json": {
@@ -64436,6 +64436,69 @@
                 }
               ]
             }
+          },
+          "override": {
+            "type": "boolean"
+          },
+          "forced_justifications": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          },
+          "forced_items": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "rule_false_positive",
+                    "additional_evidence",
+                    "engineer_or_client_confirmation",
+                    "controlled_correction",
+                    "duplicate_resolved",
+                    "priced_hypothesis"
+                  ]
+                },
+                "false_positive_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "dn_network",
+                      "zone_overlap",
+                      "scale_dimension",
+                      "area_printed",
+                      "room_overlap",
+                      "closed_box",
+                      "non_observable"
+                    ]
+                  }
+                },
+                "justification_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "item_id",
+                "reason_code",
+                "justification_index"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -69937,6 +70000,69 @@
                   ]
                 }
               ]
+            }
+          },
+          "override": {
+            "type": "boolean"
+          },
+          "forced_justifications": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          },
+          "forced_items": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "rule_false_positive",
+                    "additional_evidence",
+                    "engineer_or_client_confirmation",
+                    "controlled_correction",
+                    "duplicate_resolved",
+                    "priced_hypothesis"
+                  ]
+                },
+                "false_positive_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "dn_network",
+                      "zone_overlap",
+                      "scale_dimension",
+                      "area_printed",
+                      "room_overlap",
+                      "closed_box",
+                      "non_observable"
+                    ]
+                  }
+                },
+                "justification_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "item_id",
+                "reason_code",
+                "justification_index"
+              ],
+              "additionalProperties": false
             }
           }
         },

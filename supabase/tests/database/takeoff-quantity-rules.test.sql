@@ -512,7 +512,10 @@ values (current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000
     'tenant_id', current_setting('test.tenant_id'), 'user_id', '9e000000-0000-4000-8000-000000000002',
     'metadata', jsonb_build_object('estimate_version_id', '9e000000-0000-4000-8000-000000000105', 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array('9e000000-0000-4000-8000-000000000405'), 'blocked_items_count', 1,
-      'justification', 'Audit qui oublie la ligne de règle')));
+      -- TI-686 D10: each forced line's coded reason and justification.
+      'forced_justifications', jsonb_build_array('Audit qui oublie la ligne de règle'),
+      'forced_items', jsonb_build_array(jsonb_build_object('item_id', '9e000000-0000-4000-8000-000000000405',
+        'reason_code', 'additional_evidence', 'justification_index', 0)))));
 
 set local role authenticated;
 select is(pg_temp.rules_apply('guard-6', '9e000000-0000-4000-8000-000000000305'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'an override audit that leaves out the line a rule blocks is refused');
@@ -525,7 +528,14 @@ values (current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000
     'tenant_id', current_setting('test.tenant_id'), 'user_id', '9e000000-0000-4000-8000-000000000002',
     'metadata', jsonb_build_object('estimate_version_id', '9e000000-0000-4000-8000-000000000105', 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array('9e000000-0000-4000-8000-000000000405', '9e000000-0000-4000-8000-000000000406'),
-      'blocked_items_count', 2, 'justification', 'Vérifié sur le plan fictif',
+      'blocked_items_count', 2,
+      -- TI-686 D10: each forced line's coded reason, the justification stored once.
+      'forced_justifications', jsonb_build_array('Vérifié sur le plan fictif'),
+      'forced_items', jsonb_build_array(
+        jsonb_build_object('item_id', '9e000000-0000-4000-8000-000000000405', 'reason_code', 'additional_evidence',
+          'justification_index', 0),
+        jsonb_build_object('item_id', '9e000000-0000-4000-8000-000000000406', 'reason_code', 'additional_evidence',
+          'justification_index', 0)),
       -- TI-677 (PR D): each lifted line's state, as the route records it (apply-override-state.ts).
       'blocked_items_state', (select jsonb_agg(jsonb_build_object('item_id', ti.id, 'quantity', ti.quantity, 'unit', ti.unit,
         'updated_at', ti.updated_at, 'rule_failures', public.takeoff_rule_failure_keys(ti.rule_results), 'rules_stale', ti.rules_stale,

@@ -763,6 +763,9 @@ describe("estimate explanations service", () => {
       "Ligne forcée à l’application du métré (provision interne)"],
     ["an entered hypothesis", { takeoff_item_id: "c3000000-0000-4000-8000-000000000303", forced: false, forced_reason: null,
       entry_category: "hypothesis" }, "Quantité saisie sur hypothèse au métré"],
+    // TI-686 D10: a line forced as a priced hypothesis was not entered.
+    ["a line forced as a priced hypothesis", { takeoff_item_id: "c3000000-0000-4000-8000-000000000301", forced: true,
+      forced_reason: "priced_hypothesis", entry_category: null }, "Ligne forcée à l’application du métré comme hypothèse chiffrée"],
   ])("lists %s of the takeoff among the line's hypotheses", async (_name, source, sentence) => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(createSupabaseMock() as never);
     const details = buildVersionDetails();

@@ -18,7 +18,10 @@
 -- merged line carries the marker of its provision sources, through either overload.
 -- Guards (green before the migration): stored amounts and totals equal the same application with the line's proof
 -- instead of the override; another job's override consumed in the same version, even when it names this job's line,
--- marks nothing of this job. All values are fictional.
+-- marks nothing of this job.
+-- TI-686 D10 (…_takeoff_apply_force_reasons.sql): the override names each forced line with its coded reason, and the
+-- marker carries it (forced_reason: a false positive of the blocked material, the other lines forced with an
+-- unconditional reason); red on the M3 writer, which wrote null. All values are fictional.
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -207,7 +210,9 @@ select version.id, 'c3000000-0000-4000-8000-000000000001', version.tenant_id,
 from public.estimate_versions version
 where version.project_id = 'c3000000-0000-4000-8000-000000000010';
 
--- The admin's override of each forced line, as the route records it (audit.ts, apply-override-state.ts).
+-- The admin's override of each forced line, as the route records it (audit.ts, apply-override-state.ts), with its coded
+-- reason (TI-686 D10): the blocked material is a false positive of its rule, the other protections take an
+-- unconditional reason.
 insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
 select current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-000000000001', 'takeoff_jobs', job.id,
   job.estimate_version_id, 'takeoff.apply.override',
@@ -215,13 +220,20 @@ select current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-0000000
     'tenant_id', current_setting('test.tenant_id'), 'user_id', 'c3000000-0000-4000-8000-000000000001',
     'metadata', jsonb_build_object('estimate_version_id', job.estimate_version_id, 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array(ti.id), 'blocked_items_count', 1,
-      'justification', 'Contrôlé sur le plan fictif, provision chiffrée.',
+      'forced_justifications', jsonb_build_array('Contrôlé sur le plan fictif, provision chiffrée.'),
+      'forced_items', jsonb_build_array(jsonb_build_object('item_id', ti.id, 'justification_index', 0)
+        || case prov.protection
+          when 'material' then '{"reason_code": "rule_false_positive", "false_positive_rules": ["dn_network"]}'::jsonb
+          when 'page' then '{"reason_code": "engineer_or_client_confirmation"}'::jsonb
+          when 'stale' then '{"reason_code": "controlled_correction"}'::jsonb
+          else '{"reason_code": "additional_evidence"}'::jsonb end),
       'blocked_items_state', jsonb_build_array(jsonb_build_object('item_id', ti.id, 'quantity', ti.quantity, 'unit', ti.unit,
         'updated_at', ti.updated_at, 'rule_failures', public.takeoff_rule_failure_keys(ti.rule_results),
         'rules_stale', ti.rules_stale, 'designation', ti.designation, 'evidence', ti.evidence, 'source_page', ti.source_page,
         'is_verified', ti.is_verified, 'quantity_entered_by', ti.quantity_entered_by))))
 from public.takeoff_items ti
 join public.takeoff_jobs job on job.id = ti.job_id
+join prov_items prov on prov.id = ti.id
 where ti.id in ('c3000000-0000-4000-8000-000000000301', 'c3000000-0000-4000-8000-000000000331',
   'c3000000-0000-4000-8000-000000000341', 'c3000000-0000-4000-8000-000000000361');
 
@@ -345,11 +357,12 @@ as $$
   select jsonb_build_object('version', 1, 'job_id', p_job_id, 'sources', to_jsonb(p_sources))
 $$;
 
-create or replace function pg_temp.prov_source(p_item_id uuid, p_forced boolean, p_entry_category text)
+create or replace function pg_temp.prov_source(p_item_id uuid, p_forced boolean, p_entry_category text,
+  p_forced_reason text default null)
 returns jsonb
 language sql
 as $$
-  select jsonb_build_object('takeoff_item_id', p_item_id, 'forced', p_forced, 'forced_reason', null,
+  select jsonb_build_object('takeoff_item_id', p_item_id, 'forced', p_forced, 'forced_reason', p_forced_reason,
     'entry_category', p_entry_category)
 $$;
 
@@ -397,8 +410,8 @@ select is((pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Tube fo
   '4 arguments, v3: the merged line is rounded once, to the next metre (12,5 + 2,2 = 14,7 -> 15)');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Tube forcé') #> '{source_metadata,takeoff_provision}',
   pg_temp.prov_marker('c3000000-0000-4000-8000-000000000201',
-    pg_temp.prov_source('c3000000-0000-4000-8000-000000000301', true, null)),
-  '4 arguments, v3: the forced line enters the estimate as an internal provision, its admitted run is no source');
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000301', true, null, 'additional_evidence')),
+  '4 arguments, v3: the forced line enters the estimate as an internal provision with its coded reason, its admitted run is no source');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Tube forcé') #> '{source_metadata,takeoff_length_rounding,item_ids}',
   '["c3000000-0000-4000-8000-000000000301", "c3000000-0000-4000-8000-000000000305"]'::jsonb,
   '4 arguments, v3: the line keeps its takeoff provenance (the merged runs) beside the marker');
@@ -452,7 +465,9 @@ values ('c3000000-0000-4000-8000-000000000501', current_setting('test.tenant_id'
     'user_id', 'c3000000-0000-4000-8000-000000000001',
     'metadata', jsonb_build_object('estimate_version_id', 'c3000000-0000-4000-8000-000000000101', 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array('c3000000-0000-4000-8000-000000000312'), 'blocked_items_count', 1,
-      'justification', 'Audit d''un autre job, consommé pour lui seul.')));
+      'forced_justifications', jsonb_build_array('Audit d''un autre job, consommé pour lui seul.'),
+      'forced_items', jsonb_build_array(jsonb_build_object('item_id', 'c3000000-0000-4000-8000-000000000312',
+        'reason_code', 'additional_evidence', 'justification_index', 0)))));
 insert into public.takeoff_apply_override_consumptions (audit_log_id, tenant_id, job_id, estimate_version_id, user_id)
 values ('c3000000-0000-4000-8000-000000000501', current_setting('test.tenant_id')::uuid,
   'c3000000-0000-4000-8000-000000000201', 'c3000000-0000-4000-8000-000000000101',
@@ -485,8 +500,8 @@ select is(pg_temp.prov_consumed('c3000000-0000-4000-8000-000000000204'), 1,
   '4 arguments, engine 2: a line without its page (level C) is still blocked, and the override lifts it');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Tube forcé') #> '{source_metadata,takeoff_provision}',
   pg_temp.prov_marker('c3000000-0000-4000-8000-000000000204',
-    pg_temp.prov_source('c3000000-0000-4000-8000-000000000331', true, null)),
-  '4 arguments, engine 2: the forced line enters as an internal provision');
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000331', true, null, 'engineer_or_client_confirmation')),
+  '4 arguments, engine 2: the forced line enters as an internal provision with its coded reason');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Collier supposé') #> '{source_metadata,takeoff_provision}',
   pg_temp.prov_marker('c3000000-0000-4000-8000-000000000204',
     pg_temp.prov_source('c3000000-0000-4000-8000-000000000332', false, 'hypothesis')),
@@ -519,8 +534,8 @@ select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'EF cuivre D
   'preserve', '5 arguments, v3: the DPGF provenance is kept');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'EF cuivre DN 22') #> '{source_metadata,takeoff_provision}',
   pg_temp.prov_marker('c3000000-0000-4000-8000-000000000205',
-    pg_temp.prov_source('c3000000-0000-4000-8000-000000000341', true, null)),
-  '5 arguments, v3: a DPGF line reconciled from a forced and a verified run names only the forced one');
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000341', true, null, 'rule_false_positive')),
+  '5 arguments, v3: a DPGF line reconciled from a forced and a verified run names only the forced one, a false positive of its rule');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'P3 Collier supposé') #> '{source_metadata,takeoff_provision}',
   pg_temp.prov_marker('c3000000-0000-4000-8000-000000000205',
     pg_temp.prov_source('c3000000-0000-4000-8000-000000000343', false, 'hypothesis')),
@@ -575,7 +590,7 @@ select is((pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Tube fo
   '5 arguments, engine 2: the merged line is rounded once, to the next metre (12,5 + 2,2 = 14,7 -> 15)');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Tube forcé') #> '{source_metadata,takeoff_provision}',
   pg_temp.prov_marker('c3000000-0000-4000-8000-000000000207',
-    pg_temp.prov_source('c3000000-0000-4000-8000-000000000361', true, null),
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000361', true, null, 'controlled_correction'),
     pg_temp.prov_source('c3000000-0000-4000-8000-000000000364', false, 'hypothesis')),
   '5 arguments, engine 2: the merged line enters as an internal provision and names both of its provision sources');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Collier supposé') #> '{source_metadata,takeoff_provision}',

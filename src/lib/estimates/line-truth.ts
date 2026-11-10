@@ -1,4 +1,5 @@
 import { readTakeoffProvision, type TakeoffProvision } from "@/lib/estimates/takeoff-provision";
+import { FORCE_REASONS } from "@/lib/takeoff/force-reasons";
 
 type EstimateLineTruthSourceKind =
   | "manual"
@@ -272,20 +273,36 @@ const CLIENT_SEES_ORDINARY_LINE = "le client voit une ligne ordinaire.";
 const OVERRIDE_LIFTED = "un administrateur a levé ce qui la bloquait (preuve localisée ou page source manquante, règles à "
   + "recalculer, ou règle bloquante en échec, comme un matériau interdit)";
 
+/** TI-686 D10: the coded reasons of the forced sources (once each, in their order), as the override recorded them. */
+function forcedReasonLabels(provision: TakeoffProvision) {
+  const labels = provision.sources.flatMap((source) => {
+    const label = source.forced && source.forced_reason
+      ? FORCE_REASONS[source.forced_reason as keyof typeof FORCE_REASONS] : undefined;
+    return label ? [label] : [];
+  });
+  return [...new Set(labels)];
+}
+
 /** TI-686 D10/D12: a line the takeoff application marked; its amount is a provision, internal only (H9). */
 function provisionQtyStatus(provision: TakeoffProvision): EstimateLineTruth["qtyStatus"] {
   if (provision.kind === "hypothesis") {
+    const entered = provision.sources.some((source) => source.entry_category === "hypothesis");
     return {
       code: "hypothesis",
       label: "Hypothèse",
-      detail: `Quantité saisie sur hypothèse au métré : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`,
+      detail: entered
+        ? `Quantité saisie sur hypothèse au métré : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`
+        : `Ligne forcée à l’application du métré comme hypothèse chiffrée : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`,
     };
   }
+  const labels = forcedReasonLabels(provision);
+  const reasons = labels.length === 0 ? "" : ` (${labels.length > 1 ? "motifs" : "motif"} : ${labels.join(", ")})`;
   return {
     code: "internal_provision",
     label: "Provision interne",
     detail: provision.readable
-      ? `Ligne forcée à l’application du métré : ${OVERRIDE_LIFTED}. Son montant est une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`
+      ? `Ligne forcée à l’application du métré${reasons} : ${OVERRIDE_LIFTED}. Son montant est une provision interne ; `
+        + CLIENT_SEES_ORDINARY_LINE
       : `Marqueur de provision illisible : la ligne est traitée comme une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`,
   };
 }
