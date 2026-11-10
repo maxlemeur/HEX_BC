@@ -170,7 +170,7 @@ describe("IntakeCadPreview", () => {
 
   it("keeps what a DWG says of itself, with the server's reason, when it is not converted", async () => {
     const workers = installWorkers();
-    const refusal = "Ce DWG est enregistré dans un format antérieur à AutoCAD 2004, que MergeOne ne convertit pas.";
+    const refusal = "Ce DWG est enregistré dans un format antérieur à AutoCAD R13, que MergeOne ne convertit pas.";
     vi.stubGlobal("fetch", vi.fn(async (url: string) =>
       url === DRAWING
         ? { ok: false, status: 422, json: async () => ({ error: { code: "DWG_CONVERSION_OLD_FORMAT", message: refusal } }) }
@@ -178,9 +178,9 @@ describe("IntakeCadPreview", () => {
     const onDrawingChange = vi.fn<(drawn: boolean) => void>();
     render(<Harness canManage dwg onDrawingChange={onDrawingChange} />);
     const first = await lastRequest(() => workers[0]);
-    await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: { kind: "summary", summary: { format: "dwg", version: { code: "AC1015", label: "AutoCAD 2000" }, thumbnail: null } } });
+    await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: { kind: "summary", summary: { format: "dwg", version: { code: "AC1009", label: "AutoCAD R11/R12" }, thumbnail: null } } });
     expect(await screen.findByText(refusal)).toBeInTheDocument();
-    expect(screen.getByText("Format DWG AutoCAD 2000")).toBeInTheDocument();
+    expect(screen.getByText("Format DWG AutoCAD R11/R12")).toBeInTheDocument();
     expect(screen.queryByText(/Enregistrez ce plan en DXF/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Calques et quantités" })).not.toBeInTheDocument();
     expect(workers[0].postMessage).toHaveBeenCalledTimes(1);

@@ -1,6 +1,6 @@
 "use client";
 
-import { isAffaireIntakeCadDocument } from "@/lib/affaires/intake";
+import { affaireIntakeFileUrl, isAffaireIntakeCadDocument } from "@/lib/affaires/intake";
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -65,7 +65,7 @@ export function IntakeDocumentPreview({
     document.uploadStatus === "uploaded" &&
     !document.isBeingDeleted;
   const canExpand = cad ? cadDrawn : Boolean(resource);
-  const endpoint = `/api/affaires/${projectId}/intake/files/${document.documentId}/preview`;
+  const endpoint = affaireIntakeFileUrl(projectId, document.documentId, "preview");
   useEffect(() => {
     if (
       !format ||
@@ -194,7 +194,7 @@ export function IntakeDocumentPreview({
             projectId={projectId}
             fileName={document.fileName}
             url={`${endpoint}?download=1`}
-            drawingUrl={/\.dwg$/i.test(document.fileName.trim()) ? endpoint.replace(/preview$/, "drawing") : undefined}
+            drawingUrl={/\.dwg$/i.test(document.fileName.trim()) ? affaireIntakeFileUrl(projectId, document.documentId, "drawing") : undefined}
             canManage={canManage}
             expanded={expanded}
             onExpandedChange={setExpanded}

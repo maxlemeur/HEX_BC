@@ -164,25 +164,27 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
   await mkdir(directory, { recursive: true });
-  // LibreDWG's own sample drawing (src/test/fixtures/cad/NOTICE.md), and the first bytes of a DWG saved by AutoCAD 2000.
-  const fileName = "tables-libredwg.dwg", oldName = "format-2000.dwg", plotName = "tables-libredwg (tracé 1-5000).pdf";
+  // LibreDWG's own sample drawing (src/test/fixtures/cad/NOTICE.md) as saved in the 2018 and in the 2000 format, and the
+  // first bytes of a DWG saved by AutoCAD R12.
+  const fileName = "tables-libredwg.dwg", olderName = "tables-libredwg-2000.dwg", oldName = "format-r12.dwg", plotName = "tables-libredwg (tracé 1-5000).pdf";
   await copyFile(path.resolve("src/test/fixtures/cad/libredwg-example-2018.dwg"), path.join(directory, fileName));
-  await writeFile(path.join(directory, oldName), Buffer.concat([Buffer.from("AC1015"), Buffer.alloc(4090)]));
+  await copyFile(path.resolve("src/test/fixtures/cad/libredwg-example-2000.dwg"), path.join(directory, olderName));
+  await writeFile(path.join(directory, oldName), Buffer.concat([Buffer.from("AC1009"), Buffer.alloc(4090)]));
   await app.open(`/dashboard/affaires/${ids.projectId}`);
   // A real client interaction proves hydration before setting the hidden file input.
   await screen.getByRole("button", "Modifier la fiche", { exact: true }).click();
   await expect(screen.getByRole("button", "Annuler", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Annuler", { exact: true }).click();
   await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
-    .setInputFiles([fileName, oldName].map(name => path.join(directory, name)));
+    .setInputFiles([fileName, olderName, oldName].map(name => path.join(directory, name)));
   const stored = async (name: string) => {
     const result = await client.from("affaire_intake_documents").select("id,mime_type,storage_path,upload_status,issues")
       .eq("project_id", ids.projectId).eq("file_name", name);
     if (result.error) throw new Error(`Owned CAD read failed: ${result.error.code}`);
     return result.data.filter(doc => doc.upload_status === "uploaded");
   };
-  await expect.poll(async () => (await stored(fileName)).length + (await stored(oldName)).length, { timeout: 60_000 }).toBe(2);
-  const [original] = await stored(fileName), [old] = await stored(oldName);
+  await expect.poll(async () => (await stored(fileName)).length + (await stored(olderName)).length + (await stored(oldName)).length, { timeout: 60_000 }).toBe(3);
+  const [original] = await stored(fileName), [older] = await stored(olderName), [old] = await stored(oldName);
   // The notice comes with the classification, a moment after the deposit.
   await expect.poll(async () => (await stored(fileName))[0]?.issues ?? [], { timeout: 60_000 })
     .toEqual(expect.arrayContaining([expect.stringContaining("Original DWG conservé")]));
@@ -232,20 +234,35 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   expect(Math.abs(width - 703 * 72 / 25.4)).toBeLessThan(0.5);
   expect(Math.abs(height - 586 * 72 / 25.4)).toBeLessThan(0.5);
 
+  // The same drawing saved in the 2000 format is read with the same quantities: LibreDWG reads it, and its DXF is written from that reading.
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${older.id}#intake`);
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
+  await expect(screen.getByText("3 calques · 103,63 m de tracé · 10 blocs", { exact: true })).toBeVisible({ timeout: 120_000 });
+  await expect.poll(inked, { timeout: 15_000 }).toBeGreaterThan(200);
+  await screen.getByRole("button", "Calques et quantités", { exact: true }).click();
+  await expect(screen.getByText("DWG AutoCAD 2000, converti par LibreDWG · 3 calques · 103,63 m de tracé · 10 blocs", { exact: true })).toBeVisible();
+  expect(await totals()).toEqual({ "Tracé": "103,63 m", "Tracé des blocs": "6 019,55 m", "Contours fermés": "133,6 m²", "Hachures": "0,12 m²", "Blocs posés": "10" });
+  await expect.poll(inked, { timeout: 15_000 }).toBeGreaterThan(200);
+  await expect.poll(() => browser.evaluate(() => getComputedStyle(document.querySelector(".document-cad-dialog") ?? document.body).opacity)).toBe("1");
+  const olderFormat = await app.screenshot("cad03-format-2000");
+
   // The conversion is the dossier's: it answers who reads the affaire, says what it does not convert, and nothing else.
   const drawing = (documentId: string) => `/api/affaires/${ids.projectId}/intake/files/${documentId}/drawing`;
-  const answers = await browser.evaluate(async ([converted, refused, plotted]) => {
+  const answers = await browser.evaluate(async ([converted, read, refused, plotted]) => {
     const ask = async (url: string, credentials: RequestCredentials = "same-origin") => {
       const response = await fetch(url, { credentials });
       const body = await response.text();
       return { status: response.status, type: response.headers.get("content-type"), cache: response.headers.get("cache-control"),
         start: body.slice(0, 16), code: response.ok ? null : (JSON.parse(body) as { error?: { code?: string } }).error?.code ?? null };
     };
-    return { converted: await ask(converted), anonymous: await ask(converted, "omit"), refused: await ask(refused), plotted: await ask(plotted) };
-  }, [drawing(original.id), drawing(old.id), drawing(plot.id)]);
+    return { converted: await ask(converted), read: await ask(read), anonymous: await ask(converted, "omit"), refused: await ask(refused), plotted: await ask(plotted) };
+  }, [drawing(original.id), drawing(older.id), drawing(old.id), drawing(plot.id)]);
   expect(answers.converted).toMatchObject({ status: 200, type: expect.stringContaining("text/plain"), cache: "private, no-store", code: null });
   // LibreDWG signs the DXF it writes on its first two lines.
   expect(answers.converted.start.replace(/\s+/g, " ")).toMatch(/^999 LibreDWG/);
+  // The DXF of an older format is not LibreDWG's own: it starts with the header the conversion writes.
+  expect(answers.read).toMatchObject({ status: 200, type: expect.stringContaining("text/plain"), cache: "private, no-store", code: null });
+  expect(answers.read.start.replace(/\s+/g, " ")).toMatch(/^0 SECTION 2 HEAD/);
   expect(answers.anonymous.status).toBe(401);
   expect(answers.refused).toMatchObject({ status: 422, code: "DWG_CONVERSION_OLD_FORMAT", cache: "private, no-store" });
   expect(answers.plotted).toMatchObject({ status: 400, code: "CAD_DRAWING_NOT_DWG" });
@@ -253,12 +270,12 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   // A DWG the converter does not take keeps what its file says, with the way out.
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${old.id}#intake`);
   await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
-  await expect(screen.getByText("Format DWG AutoCAD 2000", { exact: true })).toBeVisible({ timeout: 60_000 });
-  await expect(screen.getByText("Ce DWG est enregistré dans un format antérieur à AutoCAD 2004, que MergeOne ne convertit pas. Enregistrez-le au format DWG 2004 ou plus récent, ou en DXF, puis déposez-le à nouveau.", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Format DWG AutoCAD R11/R12", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(screen.getByText("Ce DWG est enregistré dans un format antérieur à AutoCAD R13, que MergeOne ne convertit pas. Enregistrez-le au format DWG 2000 ou plus récent, ou en DXF, puis déposez-le à nouveau.", { exact: true })).toBeVisible();
   const refused = await app.screenshot("cad03-old-format");
   await recordEvidence(army, "cad-dwg", { original: fileName, sha256: createHash("sha256").update(await client.storage.from("affaire-intake").download(original.storage_path!).then(async file => Buffer.from(await file.data!.arrayBuffer()))).digest("hex"),
     plot: plotName, sheet_mm: [703, 586], scale: "1/5000",
     totals: { length_m: 103.63, blockLength_m: 6019.55, closedArea_m2: 133.6, hatchArea_m2: 0.12, blocks: 10 },
-    screenshots: [compact, large, refused].map(file => path.basename(file)),
-    scope: "LibreDWG's sample DWG (AutoCAD 2018) converted on the server in a locked process and read in the browser: layers, quantities, plotted PDF. A DWG in the 2000 format is refused by name. No RVT geometry." });
+    screenshots: [compact, large, olderFormat, refused].map(file => path.basename(file)),
+    scope: "LibreDWG's sample DWG (AutoCAD 2018) converted on the server in a locked process and read in the browser: layers, quantities, plotted PDF. The same drawing saved in the 2000 format is read by LibreDWG in the same locked process, its DXF written from that reading, with the same quantities. A DWG in the R12 format is refused by name. No RVT geometry." });
 });
