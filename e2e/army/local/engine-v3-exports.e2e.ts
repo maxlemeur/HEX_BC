@@ -686,7 +686,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const settled = await readEstimate(browser, draft.versionId);
       expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 13540, 2708, 16248]);
 
-      await app.open(`/dashboard/affaires/${draft.projectId}`);
+      await app.open(`/dashboard/affaires/${draft.projectId}?view=overview`);
       const zone = screen.getByTestId("affaire-finish-line-bdc");
       const button = zone.getByRole("button", "Exporter le BDC", { exact: true });
       await expect(button).toBeVisible({ timeout: 60_000 });

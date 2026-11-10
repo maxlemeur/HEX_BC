@@ -1,0 +1,1595 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-10",
+  "status": "completed",
+  "previousReceiptCommit": "46089078600e0b6d679f0726453c8ad9a9baeadd",
+  "previousReceipt": "docs/testing/shared-supabase-main-catchup-2026-11-10.json",
+  "sourceCommit": "46089078600e0b6d679f0726453c8ad9a9baeadd",
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande",
+    "environment": "shared Supabase, also production"
+  },
+  "authorization": "Owner explicitly authorized exactly these five remaining TI-686 migrations in order, with per-apply connector confirmation, receipt commit and direct push to main. No deployment or flag activation.",
+  "migrations": [
+    {
+      "name": "20261110094501_takeoff_quantity_entry_category",
+      "path": "supabase/migrations/20261110094501_takeoff_quantity_entry_category.sql",
+      "bytes": 16330,
+      "sha256": "a09f9455547cfbf1eac72732bbfa7a9031a36539dbccb6cd035df89a19d9a0b9",
+      "applied": {
+        "version": "20261110115619",
+        "name": "20261110094501_takeoff_quantity_entry_category",
+        "statements": 1,
+        "bytes": 16330,
+        "sha256": "a09f9455547cfbf1eac72732bbfa7a9031a36539dbccb6cd035df89a19d9a0b9",
+        "observed_at": "2026-11-10 11:56:30.790015+00"
+      },
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:55:54.802863+00:00",
+        "history_rows": 367,
+        "prerequisites": {
+          "trigger": true,
+          "update_rpc": true,
+          "validation": true,
+          "entry_author_column": true
+        },
+        "latest_version": "20261110114023",
+        "new_policy_absent": true,
+        "new_columns_absent": true,
+        "new_helpers_absent": true,
+        "new_constraints_absent": true,
+        "pending_history_absent": true
+      }
+    },
+    {
+      "name": "20261110094502_takeoff_acceptance_outline_reason",
+      "path": "supabase/migrations/20261110094502_takeoff_acceptance_outline_reason.sql",
+      "bytes": 7792,
+      "sha256": "b8ca36a0162719ef9f85e8e0f3cd39ec49d2cb76159f65b8b7084f4eeaf6c3d1",
+      "applied": {
+        "version": "20261110115728",
+        "name": "20261110094502_takeoff_acceptance_outline_reason",
+        "statements": 1,
+        "bytes": 7792,
+        "sha256": "b8ca36a0162719ef9f85e8e0f3cd39ec49d2cb76159f65b8b7084f4eeaf6c3d1",
+        "observed_at": "2026-11-10 11:57:43.058858+00"
+      },
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "observed_at": "2026-11-10 11:57:19.239162+00",
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "history_rows": 368,
+        "history_missing": true,
+        "current_body_matches_previous_receipt": true,
+        "owner": "postgres",
+        "security_definer": false,
+        "config": [
+          "search_path=pg_catalog"
+        ]
+      }
+    },
+    {
+      "name": "20261110094503_takeoff_apply_provisions",
+      "path": "supabase/migrations/20261110094503_takeoff_apply_provisions.sql",
+      "bytes": 24827,
+      "sha256": "86d563fb2d5c59f229e3dd593a2763431f54eae2ada834578842f2fd28e89dd2",
+      "applied": {
+        "version": "20261110115759",
+        "name": "20261110094503_takeoff_apply_provisions",
+        "statements": 1,
+        "bytes": 24827,
+        "sha256": "86d563fb2d5c59f229e3dd593a2763431f54eae2ada834578842f2fd28e89dd2",
+        "observed_at": "2026-11-10 11:58:15.041889+00"
+      },
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "observed_at": "2026-11-10 11:57:45.737205+00",
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "history_rows": 369,
+        "history_missing": true,
+        "helper_absent": true,
+        "guarded_bodies_match_previous_receipt": true,
+        "entry_columns_present": true,
+        "source_guard_present": true,
+        "finalize_present": true
+      }
+    },
+    {
+      "name": "20261110094504_takeoff_apply_force_reasons",
+      "path": "supabase/migrations/20261110094504_takeoff_apply_force_reasons.sql",
+      "bytes": 21010,
+      "sha256": "69532cfe09d994647f30f3bf5463bf111539aa46e0248a2e691bd5acde5f84d2",
+      "applied": {
+        "version": "20261110115826",
+        "name": "20261110094504_takeoff_apply_force_reasons",
+        "statements": 1,
+        "bytes": 21010,
+        "sha256": "69532cfe09d994647f30f3bf5463bf111539aa46e0248a2e691bd5acde5f84d2",
+        "observed_at": "2026-11-10 11:58:42.716382+00"
+      },
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "observed_at": "2026-11-10 11:58:17.660173+00",
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "history_rows": 370,
+        "history_missing": true,
+        "helper_absent": true,
+        "guard_matches_previous_receipt": true,
+        "provisions_matches_m3": true
+      }
+    },
+    {
+      "name": "20261110094505_takeoff_override_consumptions_admin_read",
+      "path": "supabase/migrations/20261110094505_takeoff_override_consumptions_admin_read.sql",
+      "bytes": 1306,
+      "sha256": "5c2e53f3741e3de8ca6c6869fad2f5d0e8a31bd598d63d41c436f98cbcd45075",
+      "applied": {
+        "version": "20261110115859",
+        "name": "20261110094505_takeoff_override_consumptions_admin_read",
+        "statements": 1,
+        "bytes": 1306,
+        "sha256": "5c2e53f3741e3de8ca6c6869fad2f5d0e8a31bd598d63d41c436f98cbcd45075",
+        "observed_at": "2026-11-10 11:59:12.488309+00"
+      },
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "observed_at": "2026-11-10 11:58:46.645228+00",
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "history_rows": 371,
+        "history_missing": true,
+        "policy_absent": true,
+        "rls_enabled_and_forced": true,
+        "authenticated_select_absent": true,
+        "authenticated_writes_absent": true,
+        "anon_access_absent": true
+      }
+    }
+  ],
+  "history": {
+    "before": 367,
+    "after": 372,
+    "previousEntriesUnchanged": true,
+    "onlyAuthorizedNamesAdded": true,
+    "lastSix": [
+      {
+        "version": "20261110114023",
+        "name": "20261110094500_takeoff_acceptance_reasons"
+      },
+      {
+        "version": "20261110115619",
+        "name": "20261110094501_takeoff_quantity_entry_category"
+      },
+      {
+        "version": "20261110115728",
+        "name": "20261110094502_takeoff_acceptance_outline_reason"
+      },
+      {
+        "version": "20261110115759",
+        "name": "20261110094503_takeoff_apply_provisions"
+      },
+      {
+        "version": "20261110115826",
+        "name": "20261110094504_takeoff_apply_force_reasons"
+      },
+      {
+        "version": "20261110115859",
+        "name": "20261110094505_takeoff_override_consumptions_admin_read"
+      }
+    ]
+  },
+  "postChecks": {
+    "catalog": {
+      "rls": [
+        {
+          "table": "takeoff_apply_authorizations",
+          "forced": true,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_apply_override_consumptions",
+          "forced": true,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_dpgf_links",
+          "forced": false,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_dpgf_review_decisions",
+          "forced": false,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_item_geometries",
+          "forced": true,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_items",
+          "forced": true,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_jobs",
+          "forced": true,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "takeoff_vector_pages",
+          "forced": true,
+          "schema": "public",
+          "enabled": true
+        },
+        {
+          "table": "rule_failure_proofs",
+          "forced": false,
+          "schema": "takeoff_internal",
+          "enabled": true
+        }
+      ],
+      "columns": [
+        {
+          "type": "jsonb",
+          "table": "estimate_items",
+          "column": "fo_price_origin",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "type": "text",
+          "table": "takeoff_items",
+          "column": "quantity_entry_category",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "type": "text",
+          "table": "takeoff_items",
+          "column": "quantity_entry_note",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "type": "jsonb",
+          "table": "takeoff_items",
+          "column": "verification_justification",
+          "default": null,
+          "nullable": "YES"
+        }
+      ],
+      "triggers": [
+        {
+          "name": "aac_enforce_authenticated_takeoff_item_fields",
+          "table": "takeoff_items",
+          "schema": "public",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER aac_enforce_authenticated_takeoff_item_fields BEFORE UPDATE ON public.takeoff_items FOR EACH ROW EXECUTE FUNCTION enforce_authenticated_takeoff_item_fields()"
+        },
+        {
+          "name": "ad_derive_estimate_item_fo_provision",
+          "table": "estimate_items",
+          "schema": "public",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER ad_derive_estimate_item_fo_provision BEFORE INSERT OR UPDATE ON public.estimate_items FOR EACH ROW EXECUTE FUNCTION private.derive_estimate_item_fo_provision()"
+        },
+        {
+          "name": "audit_takeoff_item_decisions",
+          "table": "takeoff_items",
+          "schema": "public",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER audit_takeoff_item_decisions AFTER UPDATE ON public.takeoff_items FOR EACH ROW WHEN (((old.designation IS DISTINCT FROM new.designation) OR (old.quantity IS DISTINCT FROM new.quantity) OR (old.quantity_entered_by IS DISTINCT FROM new.quantity_entered_by) OR (old.unit IS DISTINCT FROM new.unit) OR (old.source_page IS DISTINCT FROM new.source_page) OR (old.evidence IS DISTINCT FROM new.evidence) OR (old.is_excluded IS DISTINCT FROM new.is_excluded) OR (old.exclusion_reason IS DISTINCT FROM new.exclusion_reason) OR (old.is_verified IS DISTINCT FROM new.is_verified) OR (old.verified_by IS DISTINCT FROM new.verified_by) OR (old.verification_justification IS DISTINCT FROM new.verification_justification) OR (old.quantity_entry_category IS DISTINCT FROM new.quantity_entry_category) OR (old.quantity_entry_note IS DISTINCT FROM new.quantity_entry_note))) EXECUTE FUNCTION audit_takeoff_item_decisions()"
+        },
+        {
+          "name": "enforce_takeoff_apply_security",
+          "table": "takeoff_jobs",
+          "schema": "public",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER enforce_takeoff_apply_security BEFORE UPDATE OF status ON public.takeoff_jobs FOR EACH ROW WHEN (((new.status = 'applied'::takeoff_job_status) AND (old.status IS DISTINCT FROM new.status))) EXECUTE FUNCTION enforce_takeoff_apply_security()"
+        },
+        {
+          "name": "zz_validate_takeoff_rule_acceptance",
+          "table": "takeoff_items",
+          "schema": "public",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER zz_validate_takeoff_rule_acceptance BEFORE UPDATE ON public.takeoff_items FOR EACH ROW EXECUTE FUNCTION validate_takeoff_rule_acceptance()"
+        }
+      ],
+      "functions": [
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "assert_takeoff_single_quantity_source",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "f3754e07e7938d94af60e33c9404ff667f83dd0f69c5b03fa34bd8104517a91f",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "canonical_estimate_batch_operations",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "language": "plpgsql",
+          "volatility": "i",
+          "body_sha256": "0a490a66087016a07994020facdf2941e98d44cc478dad61ed909904ad468b09",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "operations jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "derive_estimate_item_fo_provision",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "898c9d64f787283deef7965cf85081cdfac1a00a04401445e89e9726d3fd58a8",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "finalize_takeoff_lengths",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "67fd9dafec4d238fb418175141e602f79446344da5aaab1ec07a2c93251661ae",
+          "execute_anon": false,
+          "argument_count": 8,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "takeoff_apply_forced_item_valid",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "language": "plpgsql",
+          "volatility": "s",
+          "body_sha256": "866f27477d46570f719aea0ab321509e58e44f642921ee7a670e55fe3f96c3ae",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_forced jsonb, p_item takeoff_items, p_justifications jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "takeoff_mark_provisions",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "b4414fc1176013fa8f7519ad1359eaf4236560a12df79041363eb8ab3e8f4fa0",
+          "execute_anon": false,
+          "argument_count": 5,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_tenant_id uuid, p_version_id uuid, p_item_links jsonb, p_created_ids uuid[]",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "apply_takeoff_job_guarded_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "fb2975b908cf2f79f21698df96786a3ae13391743b18ca9742ed6dabb0e65b4f",
+          "execute_anon": false,
+          "argument_count": 4,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "apply_takeoff_job_guarded_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "905c3da36a6accac7bedaf54c843aacf37db558730ec095f703de22818dadc0c",
+          "execute_anon": false,
+          "argument_count": 5,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "atomic_create_estimate_item",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "fe5b96d90a5eb8df2735f1e432d8df9db58cd8815c8b726f142e3b7de675b0cf",
+          "execute_anon": false,
+          "argument_count": 7,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "audit_takeoff_item_decisions",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "af5228ee5755cbe7eeced3ad10f383cea62723cf2fde20a0cf9a5cd5a028adfd",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "commit_estimate_batch",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "a5e64f5494829c98f532e7c6ef26314d7dd3bf5adb36a9e364c4adf22c5a1a55",
+          "execute_anon": false,
+          "argument_count": 10,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "duplicate_estimate_version_without_product_id",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "a5f86935c32d89f3f9e23eb0c74a286cd952db50771c491d6a05865d21019402",
+          "execute_anon": false,
+          "argument_count": 2,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "source_version_id uuid, as_variant boolean",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "enforce_authenticated_takeoff_item_fields",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "ef932db87e3ec5461304c23a933ca526c2ce2faa33b251c3065e68efe8dec49c",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "enforce_takeoff_apply_security",
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "d363c775b89d30b77312e559dfb530d4a7e7fca02440d2c43baa87d45d451e41",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "estimate_fo_price_origin_write_input",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "language": "sql",
+          "volatility": "i",
+          "body_sha256": "e3e55f7b7e3ba0931215c627bdfc66d91677df90b155aee0a6c142e27f4e9134",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "value jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "persist_estimate_creation_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "0de2154dc87acb0f46289adacd610a800895e68bd840d35a915f0976ac5b6406",
+          "execute_anon": false,
+          "argument_count": 7,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "select_takeoff_quantity_sources",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "5c858c21a9f3643d8ddaf2982c984e622ee30fb1ef902db2ee899b38d88f9995",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid, p_tenant_id uuid, p_choices jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "takeoff_item_rule_blocked",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "language": "sql",
+          "volatility": "s",
+          "body_sha256": "2f86dc858e4a7a5c3895930fbbc84063c1fb98a64e4fe4157871f003299dbfa6",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "update_takeoff_item_for_review",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "5812b786396ccf4349c6d35630e5a9bd0d2e8086114217ae2ba68e621e97bd83",
+          "execute_anon": false,
+          "argument_count": 5,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_tenant_id uuid, p_job_id uuid, p_item_id uuid, p_expected_updated_at timestamp with time zone, p_fields jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "update_takeoff_item_for_review",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "d105af0131cc5e10c96d56cbff2f4ed664c06f50c81d4328090464bb160992a0",
+          "execute_anon": false,
+          "argument_count": 6,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_tenant_id uuid, p_job_id uuid, p_item_id uuid, p_expected_updated_at timestamp with time zone, p_fields jsonb, p_expected_rules_evaluated_at timestamp with time zone",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "validate_takeoff_rule_acceptance",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "language": "plpgsql",
+          "volatility": "v",
+          "body_sha256": "1f7ee0eecaad96248845017dc6bc9d8bb01da1ef227645323da251052541678a",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        }
+      ],
+      "row_counts": {
+        "takeoff_jobs": 0,
+        "takeoff_items": 0,
+        "takeoff_dpgf_links": 0,
+        "rule_failure_proofs": 0,
+        "takeoff_vector_pages": 0,
+        "takeoff_item_geometries": 0,
+        "takeoff_apply_authorizations": 0,
+        "takeoff_dpgf_review_decisions": 0,
+        "takeoff_apply_override_consumptions": 0
+      },
+      "constraints": [
+        {
+          "name": "estimate_items_fo_price_origin_check",
+          "table": "estimate_items",
+          "validated": true,
+          "definition": "CHECK (((fo_price_origin IS NULL) OR ((jsonb_typeof(fo_price_origin) = 'object'::text) AND (fo_price_origin ?& ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text]) AND ((fo_price_origin - ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text]) = '{}'::jsonb) AND ((fo_price_origin ->> 'kind'::text) = ANY (ARRAY['supplier'::text, 'reference'::text])) AND ((fo_price_origin ->> 'selection_id'::text) ~ '^[0-9a-fA-F-]{36}$'::text) AND ((fo_price_origin ->> 'source_id'::text) ~ '^[0-9a-fA-F-]{36}$'::text) AND (((fo_price_origin -> 'transport_mode'::text) = 'null'::jsonb) OR ((fo_price_origin ->> 'transport_mode'::text) = ANY (ARRAY['included'::text, 'excluded'::text]))))))"
+        },
+        {
+          "name": "takeoff_items_quantity_entry_attested_check",
+          "table": "takeoff_items",
+          "validated": true,
+          "definition": "CHECK (((quantity_entry_category IS NULL) OR (quantity_entered_at IS NOT NULL)))"
+        },
+        {
+          "name": "takeoff_items_quantity_entry_category_check",
+          "table": "takeoff_items",
+          "validated": true,
+          "definition": "CHECK (((quantity_entry_category IS NULL) OR (quantity_entry_category = ANY (ARRAY['site_survey'::text, 'other_drawing'::text, 'dpgf_cctp'::text, 'written_confirmation'::text, 'documented_calculation'::text, 'hypothesis'::text]))))"
+        },
+        {
+          "name": "takeoff_items_quantity_entry_hypothesis_check",
+          "table": "takeoff_items",
+          "validated": true,
+          "definition": "CHECK (((quantity_entry_category IS DISTINCT FROM 'hypothesis'::text) OR ((char_length(regexp_replace(COALESCE(quantity_entry_note, ''::text), '^[ \\t\\n\\r\\f\\v]+|[ \\t\\n\\r\\f\\v]+$'::text, ''::text, 'g'::text)) >= 10) AND (char_length(regexp_replace(COALESCE(quantity_entry_note, ''::text), '^[ \\t\\n\\r\\f\\v]+|[ \\t\\n\\r\\f\\v]+$'::text, ''::text, 'g'::text)) <= 500))))"
+        },
+        {
+          "name": "takeoff_items_quantity_entry_note_check",
+          "table": "takeoff_items",
+          "validated": true,
+          "definition": "CHECK (((quantity_entry_note IS NULL) OR ((quantity_entry_category IS NOT NULL) AND ((char_length(regexp_replace(quantity_entry_note, '^[ \\t\\n\\r\\f\\v]+|[ \\t\\n\\r\\f\\v]+$'::text, ''::text, 'g'::text)) >= 1) AND (char_length(regexp_replace(quantity_entry_note, '^[ \\t\\n\\r\\f\\v]+|[ \\t\\n\\r\\f\\v]+$'::text, ''::text, 'g'::text)) <= 500)))))"
+        }
+      ],
+      "observed_at": "2026-11-10T11:59:53.094199+00:00",
+      "origin_index": [
+        {
+          "name": "estimate_items_fo_price_selection_idx",
+          "valid": true
+        }
+      ],
+      "intake_bucket": {
+        "public": false,
+        "binary_allowed": true
+      },
+      "override_policies": [
+        {
+          "cmd": "SELECT",
+          "qual": "( SELECT has_tenant_role(takeoff_apply_override_consumptions.tenant_id, ARRAY['admin'::tenant_role]) AS has_tenant_role)",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "takeoff_apply_override_consumptions",
+          "permissive": "PERMISSIVE",
+          "policyname": "Admins can view override consumptions",
+          "schemaname": "public",
+          "with_check": null
+        }
+      ],
+      "override_table_acl": [
+        {
+          "role": "anon",
+          "delete": false,
+          "insert": false,
+          "select": false,
+          "update": false,
+          "trigger": false,
+          "truncate": false,
+          "references": false
+        },
+        {
+          "role": "authenticated",
+          "delete": false,
+          "insert": false,
+          "select": true,
+          "update": false,
+          "trigger": false,
+          "truncate": false,
+          "references": false
+        },
+        {
+          "role": "service_role",
+          "delete": true,
+          "insert": true,
+          "select": true,
+          "update": true,
+          "trigger": true,
+          "truncate": true,
+          "references": true
+        }
+      ]
+    },
+    "checks": [
+      {
+        "name": "function body public.estimate_fo_price_origin_write_input#1",
+        "ok": true,
+        "expected": "e3e55f7b7e3ba0931215c627bdfc66d91677df90b155aee0a6c142e27f4e9134",
+        "actual": "e3e55f7b7e3ba0931215c627bdfc66d91677df90b155aee0a6c142e27f4e9134"
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.estimate_fo_price_origin_write_input#1 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body private.derive_estimate_item_fo_provision#0",
+        "ok": true,
+        "expected": "898c9d64f787283deef7965cf85081cdfac1a00a04401445e89e9726d3fd58a8",
+        "actual": "898c9d64f787283deef7965cf85081cdfac1a00a04401445e89e9726d3fd58a8"
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved config",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision#0 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body private.canonical_estimate_batch_operations#1",
+        "ok": true,
+        "expected": "0a490a66087016a07994020facdf2941e98d44cc478dad61ed909904ad468b09",
+        "actual": "0a490a66087016a07994020facdf2941e98d44cc478dad61ed909904ad468b09"
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved config",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations#1 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.commit_estimate_batch#10",
+        "ok": true,
+        "expected": "a5e64f5494829c98f532e7c6ef26314d7dd3bf5adb36a9e364c4adf22c5a1a55",
+        "actual": "a5e64f5494829c98f532e7c6ef26314d7dd3bf5adb36a9e364c4adf22c5a1a55"
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch#10 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.atomic_create_estimate_item#7",
+        "ok": true,
+        "expected": "fe5b96d90a5eb8df2735f1e432d8df9db58cd8815c8b726f142e3b7de675b0cf",
+        "actual": "fe5b96d90a5eb8df2735f1e432d8df9db58cd8815c8b726f142e3b7de675b0cf"
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item#7 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.persist_estimate_creation_atomic#7",
+        "ok": true,
+        "expected": "0de2154dc87acb0f46289adacd610a800895e68bd840d35a915f0976ac5b6406",
+        "actual": "0de2154dc87acb0f46289adacd610a800895e68bd840d35a915f0976ac5b6406"
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic#7 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.duplicate_estimate_version_without_product_id#2",
+        "ok": true,
+        "expected": "a5f86935c32d89f3f9e23eb0c74a286cd952db50771c491d6a05865d21019402",
+        "actual": "a5f86935c32d89f3f9e23eb0c74a286cd952db50771c491d6a05865d21019402"
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id#2 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.takeoff_item_rule_blocked#3",
+        "ok": true,
+        "expected": "2f86dc858e4a7a5c3895930fbbc84063c1fb98a64e4fe4157871f003299dbfa6",
+        "actual": "2f86dc858e4a7a5c3895930fbbc84063c1fb98a64e4fe4157871f003299dbfa6"
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked#3 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.enforce_takeoff_apply_security#0",
+        "ok": true,
+        "expected": "d363c775b89d30b77312e559dfb530d4a7e7fca02440d2c43baa87d45d451e41",
+        "actual": "d363c775b89d30b77312e559dfb530d4a7e7fca02440d2c43baa87d45d451e41"
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security#0 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.select_takeoff_quantity_sources#3",
+        "ok": true,
+        "expected": "5c858c21a9f3643d8ddaf2982c984e622ee30fb1ef902db2ee899b38d88f9995",
+        "actual": "5c858c21a9f3643d8ddaf2982c984e622ee30fb1ef902db2ee899b38d88f9995"
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources#3 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body private.finalize_takeoff_lengths#8",
+        "ok": true,
+        "expected": "67fd9dafec4d238fb418175141e602f79446344da5aaab1ec07a2c93251661ae",
+        "actual": "67fd9dafec4d238fb418175141e602f79446344da5aaab1ec07a2c93251661ae"
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved config",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths#8 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body private.assert_takeoff_single_quantity_source#1",
+        "ok": true,
+        "expected": "f3754e07e7938d94af60e33c9404ff667f83dd0f69c5b03fa34bd8104517a91f",
+        "actual": "f3754e07e7938d94af60e33c9404ff667f83dd0f69c5b03fa34bd8104517a91f"
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved config",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source#1 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.apply_takeoff_job_guarded_atomic#4",
+        "ok": true,
+        "expected": "fb2975b908cf2f79f21698df96786a3ae13391743b18ca9742ed6dabb0e65b4f",
+        "actual": "fb2975b908cf2f79f21698df96786a3ae13391743b18ca9742ed6dabb0e65b4f"
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#4 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.apply_takeoff_job_guarded_atomic#5",
+        "ok": true,
+        "expected": "905c3da36a6accac7bedaf54c843aacf37db558730ec095f703de22818dadc0c",
+        "actual": "905c3da36a6accac7bedaf54c843aacf37db558730ec095f703de22818dadc0c"
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic#5 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.validate_takeoff_rule_acceptance#0",
+        "ok": true,
+        "expected": "1f7ee0eecaad96248845017dc6bc9d8bb01da1ef227645323da251052541678a",
+        "actual": "1f7ee0eecaad96248845017dc6bc9d8bb01da1ef227645323da251052541678a"
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved owner",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved security_definer",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved config",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved acl",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved execute_public",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved execute_anon",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved execute_authenticated",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance#0 preserved execute_service_role",
+        "ok": true
+      },
+      {
+        "name": "function body public.enforce_authenticated_takeoff_item_fields#0",
+        "ok": true,
+        "expected": "ef932db87e3ec5461304c23a933ca526c2ce2faa33b251c3065e68efe8dec49c",
+        "actual": "ef932db87e3ec5461304c23a933ca526c2ce2faa33b251c3065e68efe8dec49c"
+      },
+      {
+        "name": "public.enforce_authenticated_takeoff_item_fields#0 attributes and rights",
+        "ok": true
+      },
+      {
+        "name": "function body public.update_takeoff_item_for_review#5",
+        "ok": true,
+        "expected": "5812b786396ccf4349c6d35630e5a9bd0d2e8086114217ae2ba68e621e97bd83",
+        "actual": "5812b786396ccf4349c6d35630e5a9bd0d2e8086114217ae2ba68e621e97bd83"
+      },
+      {
+        "name": "public.update_takeoff_item_for_review#5 attributes and rights",
+        "ok": true
+      },
+      {
+        "name": "function body public.audit_takeoff_item_decisions#0",
+        "ok": true,
+        "expected": "af5228ee5755cbe7eeced3ad10f383cea62723cf2fde20a0cf9a5cd5a028adfd",
+        "actual": "af5228ee5755cbe7eeced3ad10f383cea62723cf2fde20a0cf9a5cd5a028adfd"
+      },
+      {
+        "name": "public.audit_takeoff_item_decisions#0 attributes and rights",
+        "ok": true
+      },
+      {
+        "name": "function body private.takeoff_mark_provisions#5",
+        "ok": true,
+        "expected": "b4414fc1176013fa8f7519ad1359eaf4236560a12df79041363eb8ab3e8f4fa0",
+        "actual": "b4414fc1176013fa8f7519ad1359eaf4236560a12df79041363eb8ab3e8f4fa0"
+      },
+      {
+        "name": "private.takeoff_mark_provisions#5 attributes and rights",
+        "ok": true
+      },
+      {
+        "name": "function body private.takeoff_apply_forced_item_valid#3",
+        "ok": true,
+        "expected": "866f27477d46570f719aea0ab321509e58e44f642921ee7a670e55fe3f96c3ae",
+        "actual": "866f27477d46570f719aea0ab321509e58e44f642921ee7a670e55fe3f96c3ae"
+      },
+      {
+        "name": "private.takeoff_apply_forced_item_valid#3 attributes and rights",
+        "ok": true
+      },
+      {
+        "name": "nine business counts zero",
+        "ok": true
+      },
+      {
+        "name": "four entry constraints validated",
+        "ok": true
+      },
+      {
+        "name": "entry columns nullable text without default",
+        "ok": true
+      },
+      {
+        "name": "five triggers enabled",
+        "ok": true
+      },
+      {
+        "name": "audit trigger watches both entry fields",
+        "ok": true
+      },
+      {
+        "name": "RLS enabled on all nine tables; four previous tables remain forced",
+        "ok": true
+      },
+      {
+        "name": "override policy admin tenant SELECT authenticated only",
+        "ok": true
+      },
+      {
+        "name": "override table rights exactly select-only authenticated; no anon; service preserved",
+        "ok": true
+      },
+      {
+        "name": "origin index and private intake preserved",
+        "ok": true
+      },
+      {
+        "name": "existing six-argument review overload matches origin/main",
+        "ok": true,
+        "expectedBodySha256": "d105af0131cc5e10c96d56cbff2f4ed664c06f50c81d4328090464bb160992a0",
+        "source": "supabase/migrations/20261107082522_takeoff_rules_recovery.sql"
+      }
+    ]
+  },
+  "securityAdvisors": {
+    "beforeMatchesPreviousReceiptAllIdentities": true,
+    "comparison": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "before": 25,
+        "after": 24,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "before": 70,
+        "after": 70,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "before": 1,
+        "after": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+      }
+    ],
+    "removedFindings": [
+      {
+        "name": "rls_enabled_no_policy",
+        "detail": "Table \\`public.takeoff_apply_override_consumptions\\` has RLS enabled, but no policies exist",
+        "metadata": {
+          "name": "takeoff_apply_override_consumptions",
+          "type": "table",
+          "schema": "public"
+        }
+      }
+    ],
+    "addedFindings": [],
+    "comparisonMethod": "Compare all findings' name, detail and metadata, ignoring observed_at only. Before matches afterIdentities of the previous receipt; after has exactly one expected removed finding and no addition."
+  },
+  "evidence": {
+    "methods": [
+      "Supabase MCP list_projects: project identity",
+      "Supabase MCP list_migrations: before and after",
+      "Supabase MCP execute_sql: read-only preflight before every migration, exact counts of nine tables, complete stored SQL bytes and SHA-256, final catalogue",
+      "Supabase MCP apply_migration: five successful sequential calls with exact complete git blob SQL, including final newline",
+      "Supabase MCP get_advisors(type=security): before and after",
+      "retro-guards/tool-results.cjs assertSuccess: 19 provider envelopes checked"
+    ],
+    "queries": {
+      "preflights": [
+        "select jsonb_build_object(\n'observed_at', clock_timestamp(),\n'history_rows', (select count(*) from supabase_migrations.schema_migrations),\n'latest_version', (select max(version) from supabase_migrations.schema_migrations),\n'row_counts', jsonb_build_object(\n'takeoff_jobs',(select count(*) from public.takeoff_jobs),\n'takeoff_items',(select count(*) from public.takeoff_items),\n'takeoff_item_geometries',(select count(*) from public.takeoff_item_geometries),\n'takeoff_vector_pages',(select count(*) from public.takeoff_vector_pages),\n'takeoff_dpgf_links',(select count(*) from public.takeoff_dpgf_links),\n'takeoff_dpgf_review_decisions',(select count(*) from public.takeoff_dpgf_review_decisions),\n'takeoff_apply_authorizations',(select count(*) from public.takeoff_apply_authorizations),\n'takeoff_apply_override_consumptions',(select count(*) from public.takeoff_apply_override_consumptions),\n'rule_failure_proofs',(select count(*) from takeoff_internal.rule_failure_proofs)),\n'pending_history_absent', not exists(select 1 from supabase_migrations.schema_migrations where name in ('20261110094501_takeoff_quantity_entry_category','20261110094502_takeoff_acceptance_outline_reason','20261110094503_takeoff_apply_provisions','20261110094504_takeoff_apply_force_reasons','20261110094505_takeoff_override_consumptions_admin_read')),\n'new_columns_absent', not exists(select 1 from pg_attribute where attrelid='public.takeoff_items'::regclass and attname in ('quantity_entry_category','quantity_entry_note') and not attisdropped),\n'new_constraints_absent', not exists(select 1 from pg_constraint where conrelid='public.takeoff_items'::regclass and conname in ('takeoff_items_quantity_entry_category_check','takeoff_items_quantity_entry_note_check','takeoff_items_quantity_entry_hypothesis_check','takeoff_items_quantity_entry_attested_check')),\n'new_helpers_absent', not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('takeoff_mark_provisions','takeoff_apply_forced_item_valid')),\n'new_policy_absent', not exists(select 1 from pg_policy where polrelid='public.takeoff_apply_override_consumptions'::regclass and polname='Admins can view override consumptions'),\n'prerequisites', jsonb_build_object('entry_author_column', exists(select 1 from pg_attribute where attrelid='public.takeoff_items'::regclass and attname='quantity_entered_by' and not attisdropped),\n'update_rpc', to_regprocedure('public.update_takeoff_item_for_review(uuid,uuid,uuid,timestamp with time zone,jsonb)') is not null,\n'trigger', exists(select 1 from pg_trigger where tgrelid='public.takeoff_items'::regclass and tgname='audit_takeoff_item_decisions' and tgenabled='O'),\n'validation', to_regprocedure('public.validate_takeoff_rule_acceptance()') is not null))\nas preflight;",
+        "select clock_timestamp() as observed_at,jsonb_build_object('takeoff_jobs',(select count(*) from public.takeoff_jobs),'takeoff_items',(select count(*) from public.takeoff_items),'takeoff_item_geometries',(select count(*) from public.takeoff_item_geometries),'takeoff_vector_pages',(select count(*) from public.takeoff_vector_pages),'takeoff_dpgf_links',(select count(*) from public.takeoff_dpgf_links),'takeoff_dpgf_review_decisions',(select count(*) from public.takeoff_dpgf_review_decisions),'takeoff_apply_authorizations',(select count(*) from public.takeoff_apply_authorizations),'takeoff_apply_override_consumptions',(select count(*) from public.takeoff_apply_override_consumptions),'rule_failure_proofs',(select count(*) from takeoff_internal.rule_failure_proofs)) as row_counts,(select count(*) from supabase_migrations.schema_migrations) as history_rows,not exists(select 1 from supabase_migrations.schema_migrations where name='20261110094502_takeoff_acceptance_outline_reason') as history_missing,encode(sha256(convert_to(prosrc,'UTF8')),'hex')='5b6765e795768b30409db5cbd43f836ad456302b163ec6bd0e63ffb163b5e021' as current_body_matches_previous_receipt,proowner::regrole::text as owner,prosecdef as security_definer,proconfig as config from pg_proc where oid='public.validate_takeoff_rule_acceptance()'::regprocedure;",
+        "select clock_timestamp() as observed_at,jsonb_build_object('takeoff_jobs',(select count(*) from public.takeoff_jobs),'takeoff_items',(select count(*) from public.takeoff_items),'takeoff_item_geometries',(select count(*) from public.takeoff_item_geometries),'takeoff_vector_pages',(select count(*) from public.takeoff_vector_pages),'takeoff_dpgf_links',(select count(*) from public.takeoff_dpgf_links),'takeoff_dpgf_review_decisions',(select count(*) from public.takeoff_dpgf_review_decisions),'takeoff_apply_authorizations',(select count(*) from public.takeoff_apply_authorizations),'takeoff_apply_override_consumptions',(select count(*) from public.takeoff_apply_override_consumptions),'rule_failure_proofs',(select count(*) from takeoff_internal.rule_failure_proofs)) as row_counts,(select count(*) from supabase_migrations.schema_migrations) as history_rows,not exists(select 1 from supabase_migrations.schema_migrations where name='20261110094503_takeoff_apply_provisions') as history_missing,not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname='takeoff_mark_provisions') as helper_absent,\n(select count(*)=2 and bool_and(((pronargs=4 and encode(sha256(convert_to(prosrc,'UTF8')),'hex')='79ce5a5a6a77a277045dd3aa1a9c1e8e927c063689a75f58209f4464096c0804') or (pronargs=5 and encode(sha256(convert_to(prosrc,'UTF8')),'hex')='3f8a962e55aa25880a56f25eb2f189375ce7419f519372e2f1b23689c32a0b5f'))) from pg_proc where pronamespace='public'::regnamespace and proname='apply_takeoff_job_guarded_atomic') as guarded_bodies_match_previous_receipt,\n(select count(*)=2 from information_schema.columns where table_schema='public' and table_name='takeoff_items' and column_name in ('quantity_entry_category','quantity_entry_note')) as entry_columns_present,\nto_regprocedure('private.assert_takeoff_single_quantity_source(uuid)') is not null as source_guard_present,\nto_regprocedure('private.finalize_takeoff_lengths(uuid,integer,integer,integer,uuid[],text,jsonb,jsonb)') is not null as finalize_present;",
+        "select clock_timestamp() as observed_at,jsonb_build_object('takeoff_jobs',(select count(*) from public.takeoff_jobs),'takeoff_items',(select count(*) from public.takeoff_items),'takeoff_item_geometries',(select count(*) from public.takeoff_item_geometries),'takeoff_vector_pages',(select count(*) from public.takeoff_vector_pages),'takeoff_dpgf_links',(select count(*) from public.takeoff_dpgf_links),'takeoff_dpgf_review_decisions',(select count(*) from public.takeoff_dpgf_review_decisions),'takeoff_apply_authorizations',(select count(*) from public.takeoff_apply_authorizations),'takeoff_apply_override_consumptions',(select count(*) from public.takeoff_apply_override_consumptions),'rule_failure_proofs',(select count(*) from takeoff_internal.rule_failure_proofs)) as row_counts,(select count(*) from supabase_migrations.schema_migrations) as history_rows,not exists(select 1 from supabase_migrations.schema_migrations where name='20261110094504_takeoff_apply_force_reasons') as history_missing,\nnot exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname='takeoff_apply_forced_item_valid') as helper_absent,\n(select encode(sha256(convert_to(prosrc,'UTF8')),'hex')='55298cdf6121a2698acf1d5362deb75c2cf40f433208236dd9d2a4957701e654' from pg_proc where oid='public.enforce_takeoff_apply_security()'::regprocedure) as guard_matches_previous_receipt,\n(select encode(sha256(convert_to(prosrc,'UTF8')),'hex')='34082fcf6ee539cc77e54727c576de12649793b7125a579f0814aafb1078b5cc' from pg_proc where oid='private.takeoff_mark_provisions(uuid,uuid,uuid,jsonb,uuid[])'::regprocedure) as provisions_matches_m3;",
+        "select clock_timestamp() as observed_at,jsonb_build_object('takeoff_jobs',(select count(*) from public.takeoff_jobs),'takeoff_items',(select count(*) from public.takeoff_items),'takeoff_item_geometries',(select count(*) from public.takeoff_item_geometries),'takeoff_vector_pages',(select count(*) from public.takeoff_vector_pages),'takeoff_dpgf_links',(select count(*) from public.takeoff_dpgf_links),'takeoff_dpgf_review_decisions',(select count(*) from public.takeoff_dpgf_review_decisions),'takeoff_apply_authorizations',(select count(*) from public.takeoff_apply_authorizations),'takeoff_apply_override_consumptions',(select count(*) from public.takeoff_apply_override_consumptions),'rule_failure_proofs',(select count(*) from takeoff_internal.rule_failure_proofs)) as row_counts,(select count(*) from supabase_migrations.schema_migrations) as history_rows,not exists(select 1 from supabase_migrations.schema_migrations where name='20261110094505_takeoff_override_consumptions_admin_read') as history_missing,\nnot exists(select 1 from pg_policy where polrelid='public.takeoff_apply_override_consumptions'::regclass and polname='Admins can view override consumptions') as policy_absent,\nrelrowsecurity and relforcerowsecurity as rls_enabled_and_forced,\nnot has_table_privilege('authenticated',oid,'SELECT') as authenticated_select_absent,\nnot (has_table_privilege('authenticated',oid,'INSERT') or has_table_privilege('authenticated',oid,'UPDATE') or has_table_privilege('authenticated',oid,'DELETE') or has_table_privilege('authenticated',oid,'TRUNCATE')) as authenticated_writes_absent,\nnot (has_table_privilege('anon',oid,'SELECT') or has_table_privilege('anon',oid,'INSERT') or has_table_privilege('anon',oid,'UPDATE') or has_table_privilege('anon',oid,'DELETE') or has_table_privilege('anon',oid,'TRUNCATE')) as anon_access_absent\nfrom pg_class where oid='public.takeoff_apply_override_consumptions'::regclass;"
+      ],
+      "storedSqlIdentity": "select version, name, cardinality(statements) as statements, octet_length(statements[1]) as bytes, encode(sha256(convert_to(statements[1], 'UTF8')), 'hex') as sha256 from supabase_migrations.schema_migrations where name = '<migration name>';",
+      "catalog": "select jsonb_build_object(\n'observed_at',clock_timestamp(),\n'row_counts',jsonb_build_object('takeoff_jobs',(select count(*) from public.takeoff_jobs),'takeoff_items',(select count(*) from public.takeoff_items),'takeoff_item_geometries',(select count(*) from public.takeoff_item_geometries),'takeoff_vector_pages',(select count(*) from public.takeoff_vector_pages),'takeoff_dpgf_links',(select count(*) from public.takeoff_dpgf_links),'takeoff_dpgf_review_decisions',(select count(*) from public.takeoff_dpgf_review_decisions),'takeoff_apply_authorizations',(select count(*) from public.takeoff_apply_authorizations),'takeoff_apply_override_consumptions',(select count(*) from public.takeoff_apply_override_consumptions),'rule_failure_proofs',(select count(*) from takeoff_internal.rule_failure_proofs)),\n'functions',(select jsonb_agg(jsonb_build_object('schema',n.nspname,'name',p.proname,'identity_arguments',pg_get_function_identity_arguments(p.oid),'argument_count',p.pronargs,'owner',pg_get_userbyid(p.proowner),'language',l.lanname,'security_definer',p.prosecdef,'volatility',p.provolatile,'config',p.proconfig,'acl',p.proacl::text,'body_sha256',encode(sha256(convert_to(p.prosrc,'UTF8')),'hex'),\n'execute_public',exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE'),\n'execute_anon',has_function_privilege('anon',p.oid,'EXECUTE'),'execute_authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'),'execute_service_role',has_function_privilege('service_role',p.oid,'EXECUTE')) order by n.nspname,p.proname,p.pronargs)\nfrom pg_proc p join pg_namespace n on n.oid=p.pronamespace join pg_language l on l.oid=p.prolang where (n.nspname||'.'||p.proname) in ('public.estimate_fo_price_origin_write_input','private.derive_estimate_item_fo_provision','private.canonical_estimate_batch_operations','public.commit_estimate_batch','public.atomic_create_estimate_item','public.persist_estimate_creation_atomic','public.duplicate_estimate_version_without_product_id','public.takeoff_item_rule_blocked','public.enforce_takeoff_apply_security','public.select_takeoff_quantity_sources','private.finalize_takeoff_lengths','private.assert_takeoff_single_quantity_source','public.apply_takeoff_job_guarded_atomic','public.validate_takeoff_rule_acceptance','public.enforce_authenticated_takeoff_item_fields','public.update_takeoff_item_for_review','public.audit_takeoff_item_decisions','private.takeoff_mark_provisions','private.takeoff_apply_forced_item_valid')),\n'triggers',(select jsonb_agg(jsonb_build_object('schema',n.nspname,'table',c.relname,'name',t.tgname,'enabled',t.tgenabled,'definition',pg_get_triggerdef(t.oid)) order by t.tgname) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where t.tgfoid in (select p.oid from pg_proc p join pg_namespace n on n.oid=p.pronamespace where (n.nspname||'.'||p.proname) in ('public.enforce_authenticated_takeoff_item_fields','public.audit_takeoff_item_decisions','public.validate_takeoff_rule_acceptance','public.enforce_takeoff_apply_security','private.derive_estimate_item_fo_provision'))),\n'columns',(select jsonb_agg(jsonb_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) order by table_name,column_name) from information_schema.columns where table_schema='public' and ((table_name='takeoff_items' and column_name in ('quantity_entry_category','quantity_entry_note','verification_justification')) or (table_name='estimate_items' and column_name='fo_price_origin'))),\n'constraints',(select jsonb_agg(jsonb_build_object('table',conrelid::regclass::text,'name',conname,'validated',convalidated,'definition',pg_get_constraintdef(oid)) order by conname) from pg_constraint where (conrelid='public.takeoff_items'::regclass and conname like 'takeoff_items_quantity_entry_%') or (conrelid='public.estimate_items'::regclass and conname like '%fo_price_origin%')),\n'rls',(select jsonb_agg(jsonb_build_object('schema',n.nspname,'table',c.relname,'enabled',c.relrowsecurity,'forced',c.relforcerowsecurity) order by n.nspname,c.relname) from pg_class c join pg_namespace n on n.oid=c.relnamespace where (n.nspname='public' and c.relname in ('takeoff_jobs','takeoff_items','takeoff_item_geometries','takeoff_vector_pages','takeoff_dpgf_links','takeoff_dpgf_review_decisions','takeoff_apply_authorizations','takeoff_apply_override_consumptions')) or (n.nspname='takeoff_internal' and c.relname='rule_failure_proofs')),\n'override_policies',(select jsonb_agg(to_jsonb(p)) from pg_policies p where schemaname='public' and tablename='takeoff_apply_override_consumptions'),\n'override_table_acl',(select jsonb_agg(jsonb_build_object('role',role_name,'select',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','SELECT'),'insert',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','INSERT'),'update',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','UPDATE'),'delete',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','DELETE'),'truncate',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','TRUNCATE'),'references',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','REFERENCES'),'trigger',has_table_privilege(role_name,'public.takeoff_apply_override_consumptions','TRIGGER'))) from unnest(array['anon','authenticated','service_role']) as r(role_name)),\n'origin_index',(select jsonb_agg(jsonb_build_object('name',c.relname,'valid',i.indisvalid)) from pg_index i join pg_class c on c.oid=i.indexrelid where i.indrelid='public.estimate_items'::regclass and pg_get_indexdef(i.indexrelid) like '%fo_price_origin%'),\n'intake_bucket',(select jsonb_build_object('public',public,'binary_allowed',allowed_mime_types @> array['application/octet-stream']::text[]) from storage.buckets where id='affaire-intake')\n) as catalog;"
+    }
+  },
+  "limitations": [
+    "Read-only catalogue and exact migration application evidence, not authenticated business-journey or release qualification.",
+    "No local application suite: documentation-only repository diff; migration SQL and application sources unchanged.",
+    "Effective flag state in deployed environments not read; this run enabled no flag.",
+    "Pre-existing security warnings remain open."
+  ],
+  "deployment": false,
+  "flagsEnabledByThisRun": [],
+  "businessRowsWrittenByChecks": false,
+  "canonicalWorkingDirectoryModified": false
+}

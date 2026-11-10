@@ -9,7 +9,8 @@ async function createTeamAHubEstimateViaApi(ui: NativeUi, options: { projectName
  return { projectId: payload.data.project.id, versionId: payload.data.version.id };
 }
 async function openTeamADevHubScenario(ui: NativeUi, input: { projectId: string; scenario: string }) {
- await ui.goto(`/dashboard/affaires/${input.projectId}?devHubScenario=${input.scenario}`);
+ // The workbench shows one domain at a time: the journey and its study panel are in « Vue d’ensemble ».
+ await ui.goto(`/dashboard/affaires/${input.projectId}?view=overview&devHubScenario=${input.scenario}`);
  await expect(ui.getByRole("heading", { name: "Pilotage de l'affaire" })).toBeVisible();
 }
 function getTeamARegisterSection(ui: NativeUi) {
@@ -24,9 +25,10 @@ async function openTeamAStudyPanel(ui: NativeUi) {
  await expect(studyPanel.getByText("Prochaine étape", { exact: true })).toBeVisible();
  return studyPanel;
 }
-// f63d9cd6 also folds the register with the other dossier cards under « Détails du dossier et du devis ».
+// The register is the « Points à traiter » section of the workbench.
 async function openTeamARegisterSection(ui: NativeUi) {
- await ui.getByText("Détails du dossier et du devis", { exact: true }).click();
+ await ui.getByRole("navigation", { name: "Navigation de l'affaire", exact: true })
+  .getByRole("button", { name: /^Points à traiter/ }).click();
  await expect(ui.getByRole("heading", { name: "Registre hypothèses & pièces manquantes" })).toBeVisible();
  return getTeamARegisterSection(ui);
 }
@@ -56,15 +58,18 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
     // the reservations stay readable in the readiness badge.
     await expect(studyPanel.getByText("Préparation à confirmer", { exact: true })).toBeVisible();
     await expect(studyPanel.getByText("Avancer sous réserves", { exact: true })).toBeVisible();
+    // The contextual actions of the affaire are offered in « Chiffrage ».
+    await page.getByRole("navigation", { name: "Navigation de l'affaire", exact: true })
+      .getByRole("button", { name: "Chiffrage", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Traiter 1 hypothèse ouverte" }),
+    ).toBeVisible();
     const registerSection = await openTeamARegisterSection(page);
     await expect(
       registerSection.getByText(
         "Prix fournisseurs à confirmer après la première passe de chiffrage.",
         { exact: true },
       ).first(),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Traiter 1 hypothèse ouverte" }),
     ).toBeVisible();
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);

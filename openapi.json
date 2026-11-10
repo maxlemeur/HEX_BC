@@ -1005,6 +1005,108 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake/files/{documentId}/drawing": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Lire le dessin d’un DWG du dossier, converti en DXF",
+        "description": "Lecture privée sans cache, avec la même autorisation que l’aperçu de la pièce. Le DWG (formats AutoCAD 2004 à 2018, 50 Mo au plus, et dont le DXF ne dépasse pas 50 Mo, soit un DWG d’une dizaine de Mo) est converti en DXF par LibreDWG dans un processus séparé, sans accès au disque, au réseau ni aux secrets du serveur, arrêté après 60 s ou quand l’appelant abandonne. Le DXF n’est pas conservé. Une pièce qui n’est pas un DWG est refusée (400) ; un DWG vide, trop lourd, d’un format antérieur à 2004 ou non convertible est refusé avec sa raison (422) ; un serveur qui convertit déjà quatre DWG répond 503, et la demande peut être refaite.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeDocumentDrawingProjectIdParameter"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "Identifiant UUID de la pièce du dossier.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeDocumentDrawingDocumentIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dessin au format DXF, avec Content-Disposition attachment, Cache-Control private/no-store et X-Content-Type-Options nosniff.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/intake/files/{documentId}/preview": {
       "get": {
         "tags": [
@@ -18684,7 +18786,7 @@
           }
         ],
         "requestBody": {
-          "description": "Payload d'application Takeoff (strategie et section cible optionnelle).",
+          "description": "Payload d'application Takeoff (strategie et section cible optionnelle). Forcage administrateur : override=true avec, pour chaque ligne bloquee, un motif code (forced_items) et l'indice de sa justification (forced_justifications, 10 a 500 caracteres, chacune enregistree une fois).",
           "required": true,
           "content": {
             "application/json": {
@@ -20168,6 +20270,108 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiTakeoffJobActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/jobs/{jobId}/review-context": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Recommandations financieres du controle cible",
+        "description": "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contexte du controle cible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffReviewContextResponse"
                 }
               }
             }
@@ -24480,6 +24684,16 @@
           }
         ]
       },
+      "ReadAffaireIntakeDocumentDrawingProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireIntakeDocumentDrawingDocumentIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
       "PreviewAffaireIntakeDocumentProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -27864,7 +28078,9 @@
                                     "assumed",
                                     "provisional",
                                     "to_confirm",
-                                    "missing"
+                                    "missing",
+                                    "internal_provision",
+                                    "hypothesis"
                                   ]
                                 },
                                 "label": {
@@ -29673,7 +29889,9 @@
                                     "assumed",
                                     "provisional",
                                     "to_confirm",
-                                    "missing"
+                                    "missing",
+                                    "internal_provision",
+                                    "hypothesis"
                                   ]
                                 },
                                 "label": {
@@ -36158,7 +36376,9 @@
                                   "assumed",
                                   "provisional",
                                   "to_confirm",
-                                  "missing"
+                                  "missing",
+                                  "internal_provision",
+                                  "hypothesis"
                                 ]
                               },
                               "label": {
@@ -37297,7 +37517,9 @@
                                   "assumed",
                                   "provisional",
                                   "to_confirm",
-                                  "missing"
+                                  "missing",
+                                  "internal_provision",
+                                  "hypothesis"
                                 ]
                               },
                               "label": {
@@ -63873,23 +64095,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -64026,6 +64264,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -64297,6 +64547,69 @@
                   ]
                 }
               ]
+            }
+          },
+          "override": {
+            "type": "boolean"
+          },
+          "forced_justifications": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          },
+          "forced_items": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "rule_false_positive",
+                    "additional_evidence",
+                    "engineer_or_client_confirmation",
+                    "controlled_correction",
+                    "duplicate_resolved",
+                    "priced_hypothesis"
+                  ]
+                },
+                "false_positive_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "dn_network",
+                      "zone_overlap",
+                      "scale_dimension",
+                      "area_printed",
+                      "room_overlap",
+                      "closed_box",
+                      "non_observable"
+                    ]
+                  }
+                },
+                "justification_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "item_id",
+                "reason_code",
+                "justification_index"
+              ],
+              "additionalProperties": false
             }
           }
         },
@@ -65497,23 +65810,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -65650,6 +65979,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -65798,23 +66139,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -65951,6 +66308,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -66095,23 +66464,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -66248,6 +66633,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -66374,23 +66771,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -66527,6 +66940,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -66743,23 +67168,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -66896,6 +67337,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -67022,23 +67475,39 @@
                               "type": "object",
                               "properties": {
                                 "reason_code": {
-                                  "type": "string",
-                                  "enum": [
-                                    "system_documented",
-                                    "gas_pe_buried_outside",
-                                    "gas_pe_facade_transition"
-                                  ]
+                                  "type": "string"
                                 },
                                 "system_reference": {
-                                  "type": "string",
-                                  "minLength": 10,
-                                  "maxLength": 500
+                                  "type": "string"
+                                },
+                                "scale_dimension": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "area_printed": {
+                                  "type": "object",
+                                  "properties": {
+                                    "reason_code": {
+                                      "type": "string"
+                                    },
+                                    "retained_basis": {
+                                      "type": "string"
+                                    },
+                                    "note": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
-                              "required": [
-                                "reason_code",
-                                "system_reference"
-                              ],
                               "additionalProperties": false
                             },
                             {
@@ -67175,6 +67644,18 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "quantity_entry_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity_entry_note": {
+                          "type": [
+                            "string",
+                            "null"
                           ]
                         }
                       },
@@ -68326,12 +68807,65 @@
                               "type": "string",
                               "minLength": 10,
                               "maxLength": 500
+                            },
+                            "scale_dimension": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "scale_confirmed_by_other_dimensions",
+                                    "dimension_not_to_scale",
+                                    "quantity_from_dimensions",
+                                    "scale_confirmed_by_issuer"
+                                  ]
+                                },
+                                "note": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "note"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "area_printed": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "printed_area_basis_identified",
+                                    "measured_outline_retained",
+                                    "confirmed_by_other_document",
+                                    "deviation_explained"
+                                  ]
+                                },
+                                "retained_basis": {
+                                  "type": "string",
+                                  "enum": [
+                                    "net_floor",
+                                    "shab",
+                                    "other"
+                                  ]
+                                },
+                                "note": {
+                                  "type": "string",
+                                  "minLength": 10,
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "reason_code",
+                                "retained_basis",
+                                "note"
+                              ],
+                              "additionalProperties": false
                             }
                           },
-                          "required": [
-                            "reason_code",
-                            "system_reference"
-                          ],
                           "additionalProperties": false
                         },
                         {
@@ -68351,9 +68885,30 @@
                         }
                       ]
                     },
-                    "quantity_entered": {
-                      "type": "boolean",
-                      "const": true
+                    "quantity_entry": {
+                      "type": "object",
+                      "properties": {
+                        "category": {
+                          "type": "string",
+                          "enum": [
+                            "site_survey",
+                            "other_drawing",
+                            "dpgf_cctp",
+                            "written_confirmation",
+                            "documented_calculation",
+                            "hypothesis"
+                          ]
+                        },
+                        "note": {
+                          "type": "string",
+                          "maxLength": 2000,
+                          "description": "Ce qui fonde la quantité : obligatoire pour hypothesis (10 à 500 caractères), 500 au plus sinon ; sans les blancs des deux bouts."
+                        }
+                      },
+                      "required": [
+                        "category"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
@@ -68503,23 +69058,39 @@
                                   "type": "object",
                                   "properties": {
                                     "reason_code": {
-                                      "type": "string",
-                                      "enum": [
-                                        "system_documented",
-                                        "gas_pe_buried_outside",
-                                        "gas_pe_facade_transition"
-                                      ]
+                                      "type": "string"
                                     },
                                     "system_reference": {
-                                      "type": "string",
-                                      "minLength": 10,
-                                      "maxLength": 500
+                                      "type": "string"
+                                    },
+                                    "scale_dimension": {
+                                      "type": "object",
+                                      "properties": {
+                                        "reason_code": {
+                                          "type": "string"
+                                        },
+                                        "note": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "additionalProperties": false
+                                    },
+                                    "area_printed": {
+                                      "type": "object",
+                                      "properties": {
+                                        "reason_code": {
+                                          "type": "string"
+                                        },
+                                        "retained_basis": {
+                                          "type": "string"
+                                        },
+                                        "note": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "additionalProperties": false
                                     }
                                   },
-                                  "required": [
-                                    "reason_code",
-                                    "system_reference"
-                                  ],
                                   "additionalProperties": false
                                 },
                                 {
@@ -68656,6 +69227,18 @@
                                 {
                                   "type": "null"
                                 }
+                              ]
+                            },
+                            "quantity_entry_category": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "quantity_entry_note": {
+                              "type": [
+                                "string",
+                                "null"
                               ]
                             }
                           },
@@ -68794,23 +69377,39 @@
                           "type": "object",
                           "properties": {
                             "reason_code": {
-                              "type": "string",
-                              "enum": [
-                                "system_documented",
-                                "gas_pe_buried_outside",
-                                "gas_pe_facade_transition"
-                              ]
+                              "type": "string"
                             },
                             "system_reference": {
-                              "type": "string",
-                              "minLength": 10,
-                              "maxLength": 500
+                              "type": "string"
+                            },
+                            "scale_dimension": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string"
+                                },
+                                "note": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "area_printed": {
+                              "type": "object",
+                              "properties": {
+                                "reason_code": {
+                                  "type": "string"
+                                },
+                                "retained_basis": {
+                                  "type": "string"
+                                },
+                                "note": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false
                             }
                           },
-                          "required": [
-                            "reason_code",
-                            "system_reference"
-                          ],
                           "additionalProperties": false
                         },
                         {
@@ -68843,6 +69442,18 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "quantity_entry_category": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "quantity_entry_note": {
+                      "type": [
+                        "string",
+                        "null"
                       ]
                     },
                     "item_id": {
@@ -69501,6 +70112,69 @@
                   ]
                 }
               ]
+            }
+          },
+          "override": {
+            "type": "boolean"
+          },
+          "forced_justifications": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          },
+          "forced_items": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "rule_false_positive",
+                    "additional_evidence",
+                    "engineer_or_client_confirmation",
+                    "controlled_correction",
+                    "duplicate_resolved",
+                    "priced_hypothesis"
+                  ]
+                },
+                "false_positive_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "dn_network",
+                      "zone_overlap",
+                      "scale_dimension",
+                      "area_printed",
+                      "room_overlap",
+                      "closed_box",
+                      "non_observable"
+                    ]
+                  }
+                },
+                "justification_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "item_id",
+                "reason_code",
+                "justification_index"
+              ],
+              "additionalProperties": false
             }
           }
         },
@@ -71588,6 +72262,133 @@
             },
             "required": [
               "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffReviewContextResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "unlinked_item_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "posts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "line_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "lot_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "amount_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lot_amount_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "impact_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "recommend_review": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "item_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "line_id",
+                    "title",
+                    "lot_id",
+                    "amount_cents",
+                    "lot_amount_cents",
+                    "impact_cents",
+                    "recommend_review",
+                    "item_ids"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "version_id",
+              "unlinked_item_ids",
+              "posts"
             ],
             "additionalProperties": false
           }
@@ -76598,6 +77399,84 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "ruleForcing": {
+                "type": "object",
+                "properties": {
+                  "forcedLines": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "rule": {
+                          "type": "string",
+                          "enum": [
+                            "dn_network",
+                            "zone_overlap",
+                            "scale_dimension",
+                            "area_printed",
+                            "room_overlap",
+                            "closed_box",
+                            "non_observable"
+                          ]
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "failedLines": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "forcedLines": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "falsePositiveLines": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "falsePositiveRate": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "canBlock": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "rule",
+                        "label",
+                        "failedLines",
+                        "forcedLines",
+                        "falsePositiveLines",
+                        "falsePositiveRate",
+                        "canBlock"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "forcedLines",
+                  "rows"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -76609,7 +77488,8 @@
               "tokenBreakdown",
               "topErrors",
               "reliability",
-              "recentJobs"
+              "recentJobs",
+              "ruleForcing"
             ],
             "additionalProperties": false
           }

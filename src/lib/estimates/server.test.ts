@@ -404,7 +404,7 @@ function createSupabaseMock(input: {
             return estimateVersionAccessBuilder;
           }
 
-          if (columns === "id, updated_at") {
+          if (columns === "id, updated_at, content_revision") {
             return estimateVersionTokenBuilder;
           }
 
@@ -503,7 +503,8 @@ describe("bulkUpdateEstimateItems regressions", () => {
       bulkUpdateEstimateItems(VERSION_ID, [], VERSION_UPDATED_AT)
     ).resolves.toEqual({
       updated_count: 0,
-      version: { id: VERSION_ID, updated_at: VERSION_UPDATED_AT },
+      // The revision of the same row as the token: the editor has no reason to read the estimate again for it.
+      version: { id: VERSION_ID, updated_at: VERSION_UPDATED_AT, content_revision: 1 },
     });
     await expect(
       bulkUpdateEstimateItems(VERSION_ID, [{ id: ITEM_ID_1, title: "Ligne 1" }], VERSION_UPDATED_AT)

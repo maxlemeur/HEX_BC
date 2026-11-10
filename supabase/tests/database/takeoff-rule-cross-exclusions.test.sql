@@ -79,32 +79,30 @@ from (values
 
 -- The shared predicate -------------------------------------------------------------------------------
 
-select ok(not public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1), false, false),
-  'a duplicate whose only partner is excluded no longer blocks');
-select ok(not public.takeoff_item_rule_blocked(pg_temp.rooms_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1), false, false),
-  'a room whose only overlapping room is excluded no longer blocks');
-select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000404'::uuid], 1), false, false),
-  'a duplicate whose partner is included blocks');
-select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
-  '9f200000-0000-4000-8000-000000000404'::uuid], 2), false, false), 'a duplicate blocks while one of its partners is included');
-select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 2), false, false),
-  'a duplicate whose partner list was cut blocks');
-select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-0000000004ff'::uuid], 1), false, false),
-  'a duplicate whose partner no longer exists blocks');
-select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
-  '9f200000-0000-4000-8000-000000000403'::uuid], 2), false, false), 'a partner listed twice never stands for two');
+select ok(not (not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1))->0)),
+  'a duplicate is resolved when its only partner is excluded');
+select ok(not (not public.takeoff_rule_failure_left_out((pg_temp.rooms_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1))->0)),
+  'a room is resolved when its only overlapping room is excluded');
+select ok((not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000404'::uuid], 1))->0)),
+  'a duplicate whose partner is included is not resolved');
+select ok((not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
+  '9f200000-0000-4000-8000-000000000404'::uuid], 2))->0)), 'a duplicate is not resolved while a partner remains included');
+select ok((not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 2))->0)),
+  'a duplicate whose partner list was cut is not resolved');
+select ok((not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-0000000004ff'::uuid], 1))->0)),
+  'a duplicate whose partner no longer exists is not resolved');
+select ok((not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
+  '9f200000-0000-4000-8000-000000000403'::uuid], 2))->0)), 'a partner listed twice never stands for two');
 -- Review of PR B: the TS guard reads a count of 1.0 as 1 and an id whatever its case; so does the trigger.
-select ok(not public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
-  '{0,details,partner_count}', '1.0'::jsonb), false, false), 'a count written 1.0 is one partner');
-select ok(not public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
-  '{0,details,partners,0,item_id}', to_jsonb(upper('9f200000-0000-4000-8000-000000000403'))), false, false), 'an id in capitals is the same line');
-select ok(public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
-  '9f200000-0000-4000-8000-000000000403'::uuid], 2), '{0,details,partners,0,item_id}', to_jsonb(upper('9f200000-0000-4000-8000-000000000403'))),
-  false, false), 'one line named in two cases never stands for two partners');
-select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1) #- '{0,details,partner_count}',
-  false, false), 'a duplicate computed without its partner count blocks');
-select ok(public.takeoff_item_rule_blocked(jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
-  '{0,code}', '"ZONE_OVERLAP_UNREGISTERED"'), false, false), 'zones never registered block, whatever their lines');
+select ok(not (not public.takeoff_rule_failure_left_out((jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
+  '{0,details,partner_count}', '1.0'::jsonb))->0)), 'a count written 1.0 is one partner');
+select ok(not (not public.takeoff_rule_failure_left_out((jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
+  '{0,details,partners,0,item_id}', to_jsonb(upper('9f200000-0000-4000-8000-000000000403'))))->0)), 'an id in capitals is the same line');
+select ok((not public.takeoff_rule_failure_left_out((jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid,
+  '9f200000-0000-4000-8000-000000000403'::uuid], 2), '{0,details,partners,0,item_id}', to_jsonb(upper('9f200000-0000-4000-8000-000000000403'))))->0)), 'one line named in two cases never stands for two partners');
+select ok((not public.takeoff_rule_failure_left_out((pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1) #- '{0,details,partner_count}')->0)), 'a duplicate without a complete count is not resolved');
+select ok((not public.takeoff_rule_failure_left_out((jsonb_set(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1),
+  '{0,code}', '"ZONE_OVERLAP_UNREGISTERED"'))->0)), 'unregistered zones are not resolved by excluded partners');
 select ok(public.takeoff_item_rule_blocked(pg_temp.duplicate_of(array['9f200000-0000-4000-8000-000000000403'::uuid], 1), true, false),
   'stale results block even when every partner is excluded');
 
@@ -132,12 +130,27 @@ begin
 end;
 $$;
 grant execute on function pg_temp.cross_apply(uuid) to authenticated;
+-- Probe one successful application inside a rolled-back subtransaction so the
+-- following mapping/exclusion case still starts from the original completed job.
+create or replace function pg_temp.cross_probe() returns text language plpgsql as $$
+declare outcome text;
+begin
+  begin
+    outcome:=pg_temp.cross_apply(null);
+    raise exception 'ROLLBACK_PROBE' using errcode='PT681';
+  exception when sqlstate 'PT681' then null;
+  end;
+  return outcome;
+end;
+$$;
+grant execute on function pg_temp.cross_probe() to authenticated;
+
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '9f200000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claims', '{"role":"authenticated","sub":"9f200000-0000-4000-8000-000000000001"}', true);
 
-select is(pg_temp.cross_apply(null), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'both lines of a duplicate block when the plan keeps both');
+select is(pg_temp.cross_probe(), 'ok', 'TI-681: suspected duplicate quantities can be applied without acknowledgement');
 select is(pg_temp.cross_apply('9f200000-0000-4000-8000-000000000402'), 'ok', 'the retained line is applied once the plan skips its duplicate');
 reset role;
 select is((select status::text from public.takeoff_jobs where id = '9f200000-0000-4000-8000-000000000301'), 'applied', 'the job is applied');

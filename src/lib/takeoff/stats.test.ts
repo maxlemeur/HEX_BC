@@ -728,4 +728,50 @@ describe("buildTakeoffMetricsStatsPayload", () => {
     });
     expect(payload.pilot.goNoGo.status).toBe("watch");
   });
+
+  it("publishes the false positives declared at forcing per rule, apart from the corrections (TI-686 D10)", () => {
+    const job = (id: string, status: string) => ({ id, status, level: "C", model: "gemini-3-flash-preview",
+      duration_ms: 1_000, cost_cents: 10, retry_count: 0, error_code: null, created_at: "2026-03-05T10:00:00.000Z" });
+    const blocked = { rule: "dn_network", status: "fail", code: "DN_NETWORK_MATERIAL_BLOCKED", version: 3, acceptable: false,
+      reason: "Matériau bloqué sur ce réseau (fictif)." };
+    const forcedLine = "00000000-0000-4000-8000-000000000011";
+    const correctedLine = "00000000-0000-4000-8000-000000000012";
+    const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
+      period: "30d",
+      now: new Date("2026-03-10T12:00:00.000Z"),
+      jobs: [job("job-forced", "applied"), job("job-open", "completed")],
+      runMetrics: [],
+      results: [],
+      items: [],
+      ruleForcingItems: [
+        { id: forcedLine, job_id: "job-forced", is_excluded: false, is_verified: false, rule_results: [blocked] },
+        { id: correctedLine, job_id: "job-forced", is_excluded: false, is_verified: false, rule_results: [blocked] },
+        // A line of a job the read did not return (another tenant or period) never counts.
+        { id: "00000000-0000-4000-8000-000000000013", job_id: "job-elsewhere", is_excluded: false, is_verified: false,
+          rule_results: [blocked] },
+      ],
+      auditLogs: [{
+        id: "audit-override",
+        record_id: "job-forced",
+        action: "takeoff.apply.override",
+        created_at: "2026-03-05T11:00:00.000Z",
+        after_data: { metadata: { forced_justifications: ["Relevé chantier joint au dossier (fictif)."], forced_items: [
+          { item_id: forcedLine, reason_code: "rule_false_positive", false_positive_rules: ["dn_network"], justification_index: 0 },
+          { item_id: correctedLine, reason_code: "controlled_correction", justification_index: 0 },
+        ] } },
+      }],
+      overrideConsumptions: [{ audit_log_id: "audit-override", job_id: "job-forced" }],
+    });
+
+    expect(payload.ruleForcing.forcedLines).toBe(2);
+    expect(payload.ruleForcing.rows.find((row) => row.rule === "dn_network")).toEqual({
+      rule: "dn_network", label: "DN et réseau", failedLines: 2, forcedLines: 2, falsePositiveLines: 1, falsePositiveRate: 50,
+      canBlock: true,
+    });
+    // An override is not a correction of the takeoff.
+    expect(payload.corrections.kpis.totalEvents).toBe(0);
+    expect(payload.corrections.kpis.correctedJobs).toBe(0);
+  });
 });

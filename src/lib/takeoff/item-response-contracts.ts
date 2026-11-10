@@ -1,4 +1,4 @@
-import { verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
+import { verificationJustificationReadSchema } from "@/lib/takeoff/rules/verification";
 import { z } from "zod";
 
 import {
@@ -17,12 +17,17 @@ export const takeoffJobItemResponseSchema = z.object({
   verified_at: timestamp.nullable(), verified_by: uuid.nullable(), created_at: timestamp, updated_at: timestamp,
   // Fixed rules (TI-664): their results, when they ran, whether a later edit left them to compute again, and who
   // typed the current quantity. Absent from an older answer: no rule read the line.
-  verification_justification: verificationJustificationSchema.nullable().optional(),
+  // Read as stored, never with the write bounds (TI-686 D9): a note the Data API wrote does not make the job unreadable.
+  verification_justification: verificationJustificationReadSchema.nullable().optional(),
   rule_results: TakeoffRuleResultsSchema.optional(),
   rules_evaluated_at: timestamp.nullable().optional(),
   rules_stale: z.boolean().optional(),
   quantity_entered_at: timestamp.nullable().optional(),
   quantity_entered_by: uuid.nullable().optional(),
+  // What the entered quantity rests on (TI-686 D12), read as stored: a category the list no longer has, or a note the
+  // Data API wrote beyond the write bounds, never makes the job unreadable.
+  quantity_entry_category: z.string().nullable().optional(),
+  quantity_entry_note: z.string().nullable().optional(),
 });
 
 export const takeoffItemPatchResultSchema = z.discriminatedUnion("success", [
@@ -47,6 +52,7 @@ export const TAKEOFF_ITEM_RULE_STATES_MAX = 5000;
 export const takeoffItemRuleStateSchema = takeoffJobItemResponseSchema.pick({
   designation: true, quantity: true, unit: true, source_page: true, is_excluded: true, exclusion_reason: true, is_verified: true,
   verified_at: true, verified_by: true, verification_justification: true, evidence: true, updated_at: true, quantity_entered_at: true, quantity_entered_by: true,
+  quantity_entry_category: true, quantity_entry_note: true,
 }).partial().extend({
   item_id: uuid, rule_results: TakeoffRuleResultsSchema, rules_evaluated_at: timestamp.nullable(), rules_stale: z.boolean(),
 }).strict();

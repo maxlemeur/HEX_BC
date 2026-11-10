@@ -10,6 +10,7 @@ import { normalizeMappedRowsForEstimateCreation } from "@/lib/affaires/import-fl
 import { detectImportProfile } from "@/lib/imports/optima-profile";
 import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { resolveEstimateLineTruth } from "@/lib/estimates/line-truth";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -317,6 +318,43 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(reimported.validLines[0]).toMatchObject({
       title: "Beton arme", description: "m3", quantity: 3, unitPriceHtCents: 12550, hMo: 4, hMoMajoration: 1.15,
     });
+  });
+
+  // TI-686 D10/D12 (H9): the DPGF export is a client document. A takeoff line forced past the apply guard, or entered as
+  // a hypothesis, is exported as the ordinary line it prints as: neither its marker nor its internal status reaches it.
+  it("exports a takeoff provision as an ordinary line", async () => {
+    const exportWith = async (sourceMetadata: Record<string, unknown>) => {
+      const item = {
+        id: "line-1", item_type: "line" as const, parent_id: null, position: 1, title: "Tube cuivre", description: "ml",
+        quantity: 12.5, unit_price_ht_cents: 1234, tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1,
+        h_mo_atelier: null, k_mo_atelier: null, labor_role_atelier_id: null, h_mo_chantier: null, k_mo_chantier: null,
+        labor_role_chantier_id: null, pu_ht_cents: null, labor_role_id: null, category_id: null, supply_type_id: null,
+        line_total_ht_cents: null, line_tax_cents: null, line_total_ttc_cents: null, source_provider: "takeoff",
+        source_file_name: "plan-fictif.pdf", source_level: "C", source_metadata: sourceMetadata,
+      };
+      vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+        version: {
+          id: VERSION_ID, version_number: 1, title: "Provisions", date_devis: "2026-11-09",
+          estimate_projects: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", user_id: null, name: "Projet", reference: "P3", client_name: null },
+        },
+        // As the server reads it: each line with its internal line truth.
+        items: [{ ...item, line_truth: resolveEstimateLineTruth(item) }],
+        supply_types: [], labor_roles: [], categories: [],
+      } as never);
+      const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+      const exported = await streamEstimateVersionDpgfXlsx(VERSION_ID, { workbookWriterFactory, isLaborSplitEnabled: false });
+      await new Response(exported.stream).arrayBuffer();
+      return worksheets;
+    };
+    const itemId = "c3000000-0000-4000-8000-000000000301";
+    const ordinary = await exportWith({ takeoff_item_id: itemId });
+    const provision = await exportWith({ takeoff_item_id: itemId, takeoff_provision: {
+      version: 1, job_id: "c3000000-0000-4000-8000-000000000201",
+      sources: [{ takeoff_item_id: itemId, forced: true, forced_reason: null, entry_category: null }],
+    } });
+    expect(provision).toEqual(ordinary);
+    expect(JSON.stringify(provision)).toContain("Tube cuivre");
+    expect(JSON.stringify(provision)).not.toMatch(/takeoff_provision|Provision interne|Hypothèse|forç|dérogation/);
   });
 
   // DPGF exports written before this fix carry the raw coefficient under « Majoration MO ».

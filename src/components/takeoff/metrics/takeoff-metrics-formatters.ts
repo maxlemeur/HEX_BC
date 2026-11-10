@@ -27,7 +27,7 @@ export function formatPercent(value: number): string {
 
 export function formatConfidence(value: number | null): string {
   if (value == null) return "-";
-  return `${Math.round(value * 100)}%`;
+  return value >= 0.8 ? "Élevée" : value >= 0.5 ? "Moyenne" : "Faible";
 }
 
 export function formatGeneratedAt(value: string): string {

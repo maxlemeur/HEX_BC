@@ -1,5 +1,7 @@
 "use client";
 
+import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
+
 import {
   useCallback,
   useMemo,
@@ -192,45 +194,27 @@ function matchesFilters(item: ReviewItem, filters: ReviewTableFilters, anomalyCo
 // Cells
 // ---------------------------------------------------------------------------
 
-function ConfidenceBadge({ confidence }: { confidence: number | null }) {
-  if (confidence === null) {
-    return (
-      <Badge variant="neutral" size="sm">
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">Non évaluée</span>
-      </Badge>
-    );
-  }
-  const pct = Math.round(confidence * 100);
-  const variant = pct >= 80 ? "success" : pct >= 50 ? "warning" : "danger";
-  return (
-    <Badge variant={variant} size="sm">
-      {pct} %
-    </Badge>
-  );
+function ConfidenceBadge({ confidence, reasons = [] }: { confidence: number | null; reasons?: string[] }) {
+  const level = quantityConfidence(confidence, reasons);
+  return <Badge variant={level === "high" ? "success" : level === "medium" ? "warning" : "danger"} size="sm">
+    {({ high: "Élevée", medium: "Moyenne", low: "Faible" } as const)[level]}
+    {confidence === null ? " · non évaluée" : ""}
+  </Badge>;
 }
 
 function ClickableConfidenceBadge({
   confidence,
   hasEvidence,
+  reasons = [],
   onClick,
 }: {
   confidence: number | null;
   hasEvidence: boolean;
+  reasons?: string[];
   onClick?: () => void;
 }) {
-  const pct = confidence !== null ? Math.round(confidence * 100) : null;
-  const barClass =
-    pct === null
-      ? "bg-border-strong"
-      : pct >= 80
-        ? "bg-success"
-        : pct >= 50
-          ? "bg-warning"
-          : "bg-danger";
-  const label = `${pct !== null ? `Confiance ${pct} %` : "Confiance non évaluée"}, ${
-    hasEvidence ? "preuve disponible" : "aucune preuve"
-  } — ouvrir la preuve`;
+  const level = quantityConfidence(confidence, reasons);
+  const label = `Confiance ${{ high: "élevée", medium: "moyenne", low: "faible" }[level]}, ${hasEvidence ? "preuve disponible" : "aucune preuve"} — ouvrir la preuve`;
 
   return (
     <button
@@ -240,13 +224,7 @@ function ClickableConfidenceBadge({
       aria-label={label}
     >
       <span aria-hidden="true" className="contents">
-        <ConfidenceBadge confidence={confidence} />
-        <span className="h-1.5 w-8 overflow-hidden rounded-full bg-muted">
-          <span
-            className={`block h-full rounded-full transition-all duration-300 ${barClass}`}
-            style={{ width: pct !== null ? `${pct}%` : "0%" }}
-          />
-        </span>
+        <ConfidenceBadge confidence={confidence} reasons={reasons} />
         <FileTextIcon
           className={`size-3.5 ${hasEvidence ? "text-info" : "text-subtle-foreground"}`}
         />
@@ -748,11 +726,12 @@ export default function TakeoffReviewTable({
                       {onOpenEvidencePanel ? (
                         <ClickableConfidenceBadge
                           confidence={item.confidence}
+                          reasons={(item.rule_results ?? []).filter(rule => rule.status === "fail").map(rule => rule.reason)}
                           hasEvidence={!!item.evidence}
                           onClick={() => onOpenEvidencePanel(item.id)}
                         />
                       ) : (
-                        <ConfidenceBadge confidence={item.confidence} />
+                        <ConfidenceBadge confidence={item.confidence} reasons={(item.rule_results ?? []).filter(rule => rule.status === "fail").map(rule => rule.reason)} />
                       )}
                     </td>
 

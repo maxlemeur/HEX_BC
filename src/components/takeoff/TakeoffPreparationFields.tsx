@@ -69,7 +69,7 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
   const changeSource = (documentId: string, patch: Partial<TakeoffPreparation["sources"][number]>) => {
     onChange({ ...draft, sources: draft.sources.map((source) => source.document_id === documentId ? reconcileTakeoffPageTriageStatuses({ ...source, ...patch, confirmed: false }) : source) });
   };
-  const changeScope = (key: "lots" | "networks" | "levels" | "zones" | "inclusions" | "exclusions", values: string[]) => {
+  const changeScope = (key: "buildings" | "lots" | "networks" | "levels" | "zones" | "inclusions" | "exclusions", values: string[]) => {
     onChange({ ...draft, scope: { ...draft.scope, [key]: values, confirmed: false } });
   };
   const changeConventions = (patch: Partial<TakeoffPreparation["conventions"]>) => {
@@ -124,6 +124,7 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
     <p className="text-sm text-muted-foreground">Un champ laissé vide reste inconnu. Pour un périmètre complet, indiquez explicitement « Tous » dans les champs concernés.</p>
     <div className="grid gap-3 sm:grid-cols-2">
       <ListField label="Lots" values={draft.scope.lots} onChange={(values) => changeScope("lots", values)} />
+      <ListField label="Bâtiments" values={draft.scope.buildings ?? []} onChange={(values) => changeScope("buildings", values)} />
       <ListField label="Réseaux" values={draft.scope.networks} onChange={(values) => changeScope("networks", values)} />
       <ListField label="Niveaux" values={draft.scope.levels} onChange={(values) => changeScope("levels", values)} />
       <ListField label="Zones" values={draft.scope.zones} onChange={(values) => changeScope("zones", values)} />

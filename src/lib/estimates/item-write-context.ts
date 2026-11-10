@@ -20,6 +20,10 @@ export async function resolveEstimateItemAidRegex(input: {
   return parseEstimateItemAidRegexPattern(configuredPattern);
 }
 
+/**
+ * The token of the version after a write, with its content revision read from the same row: an editor that
+ * receives no revision reads the whole estimate again to learn it.
+ */
 export async function fetchEstimateVersionToken(input: {
   supabase: Supabase;
   tenantId: string;
@@ -27,7 +31,7 @@ export async function fetchEstimateVersionToken(input: {
 }) {
   const { data, error } = await input.supabase
     .from("estimate_versions")
-    .select("id, updated_at")
+    .select("id, updated_at, content_revision")
     .eq("id", input.versionId)
     .eq("tenant_id", input.tenantId)
     .single();

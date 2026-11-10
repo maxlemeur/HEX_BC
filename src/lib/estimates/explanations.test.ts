@@ -757,6 +757,31 @@ describe("estimate explanations service", () => {
       .toEqual(["dpgf_takeoff_gap", "missing_proof", "missing_piece"]);
   });
 
+  // TI-686 D10/D12: the internal explanation of a line the takeoff application marked says what its amount is.
+  it.each([
+    ["a forced line", { takeoff_item_id: "c3000000-0000-4000-8000-000000000301", forced: true, forced_reason: null, entry_category: null },
+      "Ligne forcée à l’application du métré (provision interne)"],
+    ["an entered hypothesis", { takeoff_item_id: "c3000000-0000-4000-8000-000000000303", forced: false, forced_reason: null,
+      entry_category: "hypothesis" }, "Quantité saisie sur hypothèse au métré"],
+    // TI-686 D10: a line forced as a priced hypothesis was not entered.
+    ["a line forced as a priced hypothesis", { takeoff_item_id: "c3000000-0000-4000-8000-000000000301", forced: true,
+      forced_reason: "priced_hypothesis", entry_category: null }, "Ligne forcée à l’application du métré comme hypothèse chiffrée"],
+  ])("lists %s of the takeoff among the line's hypotheses", async (_name, source, sentence) => {
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(createSupabaseMock() as never);
+    const details = buildVersionDetails();
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails({
+      items: details.items.map((item) => ({ ...item, source_provider: "takeoff", source_metadata: {
+        takeoff_item_id: source.takeoff_item_id,
+        takeoff_provision: { version: 1, job_id: "c3000000-0000-4000-8000-000000000201", sources: [source] },
+      } })),
+    }) as never);
+    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+
+    const explanation = await getEstimateLineExplanation({ versionId: VERSION_ID, lineId: LINE_ID, includeDetail: true });
+
+    expect(explanation.hypotheses.map((statement) => statement.label)).toEqual([sentence]);
+  });
+
   it("rehydrates missing provenance on an active snapshot reuse", async () => {
     const fingerprintProbeSupabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(

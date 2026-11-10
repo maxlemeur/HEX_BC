@@ -39,6 +39,12 @@ export type ExecuteEstimateBatchOptions = {
    * Never set by the HTTP batch API.
    */
   targetItems?: readonly EstimateBatchItem[];
+  /**
+   * HTTP batch API only: read the content revision of the version the batch committed and return it in
+   * `current_version`. The SQL response carries no revision, and without it the editor read the whole estimate again
+   * after every save to learn it.
+   */
+  currentContentRevision?: boolean;
 };
 
 export function resolveEstimateBatchMaxOperations(override?: number) {
@@ -95,6 +101,27 @@ function parseCommitted(value: unknown, input: {
     return result;
   } catch {
     throw outcomeUnknown();
+  }
+}
+
+/**
+ * The content revision of the version as the batch left it. Left out when the read fails or the version has moved
+ * since the commit: the caller then reads it itself, and the commit stays acknowledged either way.
+ */
+async function withCurrentContentRevision(
+  context: AuthenticatedContext, result: ExecuteEstimateBatchResult
+): Promise<ExecuteEstimateBatchResult> {
+  if (!result.committed || result.current_version.content_revision !== undefined) return result;
+  try {
+    const { data, error } = await context.supabase.from("estimate_versions")
+      .select("id, updated_at, content_revision")
+      .eq("tenant_id", context.tenantId).eq("id", result.current_version.id).maybeSingle();
+    const revision = data?.content_revision;
+    if (error || !data || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0 ||
+      !sameEstimateBatchTimestamp(data.updated_at, result.current_version.updated_at)) return result;
+    return { ...result, current_version: { ...result.current_version, content_revision: revision } };
+  } catch {
+    return result;
   }
 }
 
@@ -203,11 +230,13 @@ export async function executeEstimateBatch(
   } catch { throw outcomeUnknown(); }
   if (response.error) throw rpcError(response.error, true);
   if (Buffer.byteLength(JSON.stringify(response.data), "utf8") > ESTIMATE_BATCH_MAX_RECEIPT_BYTES) throw outcomeUnknown();
+  let committed;
   try {
-    return parseEstimateBatchResponse(response.data, {
+    committed = parseEstimateBatchResponse(response.data, {
       versionId, operationKey, actorId: context.userId, expectedUpdatedAt: concurrencyToken, operations,
     });
   } catch {
     throw outcomeUnknown();
   }
+  return options.currentContentRevision ? withCurrentContentRevision(context, committed) : committed;
 }

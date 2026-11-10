@@ -11,17 +11,19 @@ import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
 import { boundPageAnchors } from "@/lib/takeoff/rules/registration";
 import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
+import { selectQuantitySources, type QuantitySourceItem } from "@/lib/takeoff/quantity-source-selection";
+import { listAllTakeoffItemsByJobId } from "@/lib/takeoff/job-read-server";
 
 // Writes a job's vector reading with the worker's service role (TI-662): one
 // takeoff_vector_pages row per page read, then its measured items in
 // takeoff_items (same columns as the level C items, metadata.vector naming
 // their kind) and one takeoff_item_geometries row per item. Called inside the
 // result persistence of the job, after its result row. Clearing the job's
-// results deletes these rows too. A failure never fails the job: the processor
-// calls discardTakeoffVectorReading, which removes the rows already written.
-// Until TI-664 decides between both readings, a vector item is excluded by
-// default (with its reason): applying the level C reading never counts a
-// network twice; the user includes a vector item in the review.
+// results deletes these rows too. Before source selection, the processor can
+// discard an incomplete vector reading. An uncertain selection fails the job.
+// TI-681: initially exclude vector items, then atomically select an exploitable
+// reading on an unambiguous common perimeter after every geometry is persisted.
+// Alternative readings and their difference remain recorded.
 
 type ServiceClient = SupabaseClient<Database>;
 
@@ -65,6 +67,10 @@ export async function persistTakeoffVectorReading(input: {
         is_excluded: true, exclusion_reason: VECTOR_ITEM_EXCLUSION_REASON,
         metadata: { category: record.item.category, source_document: outcome.document,
           vector: { schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, kind: record.geometry.kind, key },
+          quantity_source: { version: 1, origin: "vector", location: outcome.record?.location,
+            exploitable: (outcome.record?.scale.status === "verified" || outcome.record?.scale.status === "calibrated")
+              && outcome.record?.mode !== "raster" && outcome.record?.to_review === 0
+              && (record.geometry.kind === "surface" || outcome.record?.labels?.incomplete === 0) },
           ...(ruleInputs ? { rule_inputs: ruleInputs } : {}) },
         ...(ruleInputs ? { rules_stale: true } : {}),
       };
@@ -82,6 +88,22 @@ export async function persistTakeoffVectorReading(input: {
     if (geometryError) failed("Impossible d’enregistrer la géométrie de la lecture vectorielle.", geometryError);
     items += rows.length;
   }
+  // Select only after every geometry was persisted. A lost RPC response leaves
+  // the commit uncertain: propagate that failure instead of deleting the chosen reading.
+  if (items > 0) {
+    const reading = await listAllTakeoffItemsByJobId({ supabase: input.supabase, tenantId: input.job.tenant_id, jobId: input.job.id });
+    const selections = selectQuantitySources(reading as QuantitySourceItem[]);
+    if (selections.length) {
+      try {
+        const selection = await input.supabase.rpc("select_takeoff_quantity_sources" as never,
+          { p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_choices: selections } as never);
+        if (selection.error) failed("Impossible de retenir une source de quantité.", selection.error);
+      } catch (cause) {
+        throw Object.assign(new Error("Sélection de quantité non confirmée ; reprise du job nécessaire.", { cause }),
+          { code: "TAKEOFF_QUANTITY_SOURCE_SELECTION_UNRESOLVED" });
+      }
+    }
+  }
   return { pages, items };
 }
 
@@ -92,6 +114,9 @@ export async function discardTakeoffVectorReading(input: {
   resultId: string;
   error: unknown;
 }) {
+  if ((input.error as { code?: string } | null)?.code === "TAKEOFF_QUANTITY_SOURCE_SELECTION_UNRESOLVED") {
+    throw input.error;
+  }
   // Geometries go with their page (on delete cascade); vector items are the result's items with metadata.vector.
   const pages = await input.supabase.from("takeoff_vector_pages" as never).delete()
     .eq("tenant_id" as never, input.job.tenant_id as never).eq("job_id" as never, input.job.id as never).eq("result_id" as never, input.resultId as never);

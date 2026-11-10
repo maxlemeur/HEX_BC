@@ -210,6 +210,99 @@ describe("executeEstimateBatch", () => {
     expect(db.forbiddenWrite).not.toHaveBeenCalled();
   });
 
+  // Without the revision, the editor read the whole estimate again after every save (5 Mo for 2 031 items) only
+  // to learn this number. Failure modes: a revision from another state of the version; a commit reported as
+  // failed, or as unknown, because this read failed; server-side copies paying a read they do not use.
+  describe("content revision of a committed batch", () => {
+    const COMMITTED_AT = "2026-02-21T10:00:05.000Z";
+    const operations: BatchOperationInput[] = [{ op: "update", id: ITEM_ID, data: { title: "Titre enregistré" } }];
+    const commitAt = (after: { updated_at: string; content_revision: number }) => {
+      db.commit.mockImplementation(async () => {
+        // The transaction has moved the version before the function reads it back.
+        Object.assign(db.version, after);
+        return {
+          data: {
+            committed: true,
+            results: [{ index: 0, op: "update", status: "ok", data: { item: { ...line(), title: "Titre enregistré" } } }],
+            version: { id: VERSION_ID, updated_at: COMMITTED_AT },
+            totals: { total_ht_cents: 1000, total_tax_cents: 200, total_ttc_cents: 1200 },
+            receipt: {
+              operation_key: OPERATION_KEY, actor_id: ACTOR_ID, version_id: VERSION_ID,
+              expected_updated_at: UPDATED_AT, operations, committed_at: COMMITTED_AT,
+            },
+            replayed: false,
+            current_version: { id: VERSION_ID, updated_at: COMMITTED_AT, status: "draft" },
+          },
+          error: null,
+        };
+      });
+    };
+    const HTTP_OPTIONS = { ...OPTIONS, currentContentRevision: true };
+
+    it("returns the revision of the version it committed", async () => {
+      commitAt({ updated_at: COMMITTED_AT, content_revision: 7 });
+      const result = await executeEstimateBatch(VERSION_ID, operations, HTTP_OPTIONS);
+      expect(result).toMatchObject({
+        committed: true, version: { id: VERSION_ID, updated_at: COMMITTED_AT },
+        current_version: { id: VERSION_ID, updated_at: COMMITTED_AT, status: "draft", content_revision: 7 },
+      });
+      expect(db.forbiddenWrite).not.toHaveBeenCalled();
+    });
+
+    it("leaves the revision out when the version has moved again since the commit", async () => {
+      commitAt({ updated_at: "2026-02-21T10:00:09.000Z", content_revision: 8 });
+      const result = await executeEstimateBatch(VERSION_ID, operations, HTTP_OPTIONS);
+      expect(result).toMatchObject({ committed: true, current_version: { updated_at: COMMITTED_AT } });
+      expect(result.committed && "content_revision" in result.current_version).toBe(false);
+    });
+
+    it("still acknowledges the commit when the revision cannot be read", async () => {
+      commitAt({ updated_at: COMMITTED_AT, content_revision: 7 });
+      const read = db.from.getMockImplementation()!;
+      let committed = false;
+      db.commit.mockImplementation(((previous) => async (input: Record<string, unknown>) => {
+        const response = await previous!(input);
+        committed = true;
+        return response;
+      })(db.commit.getMockImplementation()));
+      db.from.mockImplementation((table: string) => {
+        if (committed && table === "estimate_versions") throw new Error("Connection closed");
+        return read(table);
+      });
+      const result = await executeEstimateBatch(VERSION_ID, operations, HTTP_OPTIONS);
+      expect(result).toMatchObject({ committed: true, current_version: { updated_at: COMMITTED_AT } });
+      expect(result.committed && "content_revision" in result.current_version).toBe(false);
+    });
+
+    it("still acknowledges the commit when the version is no longer readable", async () => {
+      commitAt({ updated_at: COMMITTED_AT, content_revision: 7 });
+      // The read finds no row once the batch has committed (access withdrawn in between).
+      db.commit.mockImplementation(((previous) => async (input: Record<string, unknown>) => {
+        const response = await previous!(input);
+        db.rows.estimate_versions = [];
+        return response;
+      })(db.commit.getMockImplementation()));
+      const result = await executeEstimateBatch(VERSION_ID, operations, HTTP_OPTIONS);
+      expect(result).toMatchObject({ committed: true, current_version: { updated_at: COMMITTED_AT } });
+      expect(result.committed && "content_revision" in result.current_version).toBe(false);
+    });
+
+    it("reads nothing more for a caller that does not ask for the revision", async () => {
+      commitAt({ updated_at: COMMITTED_AT, content_revision: 7 });
+      let readsAfterCommit = 0;
+      const read = db.from.getMockImplementation()!;
+      db.commit.mockImplementation(((previous) => async (input: Record<string, unknown>) => {
+        const response = await previous!(input);
+        db.from.mockImplementation((table: string) => { readsAfterCommit += 1; return read(table); });
+        return response;
+      })(db.commit.getMockImplementation()));
+      const result = await executeEstimateBatch(VERSION_ID, operations, OPTIONS);
+      expect(result).toMatchObject({ committed: true });
+      expect(result.committed && "content_revision" in result.current_version).toBe(false);
+      expect(readsAfterCommit).toBe(0);
+    });
+  });
+
   // TI-534: the projection checked by the database (D12) carries the FO provision its trigger gives each v3 line.
   it("projects a v3 line with the FO provision of its supply type, on a supply type change and at creation", async () => {
     const TUBE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";

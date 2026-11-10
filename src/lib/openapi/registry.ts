@@ -1,3 +1,4 @@
+import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -17,12 +18,15 @@ import { updateTakeoffRiskAlertStatusResponseSchema as sharedTakeoffRiskAlertSta
 import { estimateCreateResponseSchema, estimateStatusResponseSchema, estimateVersionIdResponseSchema, estimateVerifySealResponseSchema, estimateItemWriteResponseSchema, estimateBulkUpdateResponseSchema, estimateEventsResponseSchema, estimateSettingsResponseSchema, estimatePromoteVariantResponseSchema } from "@/lib/estimates/write-response-contracts";
 import { takeoffDpgfComparisonResponseSchema, takeoffDpgfComparisonViewSchema, takeoffDpgfReviewDecisionSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
+import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
 import { estimateItemDeleteResponseSchema, estimateItemsMoveResponseSchema, estimateItemsReorderResponseSchema } from "@/lib/estimates/item-structure-contracts";
 import {
   takeoffPriceSuggestionResponseSchema as takeoffPriceSuggestionResponseDataSchema,
   takeoffPriceSuggestionReviewResponseSchema as takeoffPriceSuggestionReviewResponseDataSchema,
 } from "@/lib/takeoff/price-suggestion-contracts";
 import {
+  forcedItemSchema,
+  forcedJustificationSchema,
   requestTakeoffPriceSuggestionSchema as takeoffPriceSuggestionRequestSchema,
   reviewTakeoffPriceSuggestionSchema as takeoffPriceSuggestionReviewRequestSchema,
 } from "@/lib/takeoff/schemas";
@@ -1196,6 +1200,10 @@ const takeoffJobApplyRequestSchema = z
     strategy: takeoffApplyStrategySchema,
     target_section_id: uuidSchema.nullable().optional(),
     overrides: z.array(takeoffApplyOverrideSchema).optional(),
+    // TI-686 D10: an administrator's override names each blocked line with its coded reason (no cap on their number).
+    override: z.boolean().optional(),
+    forced_justifications: z.array(forcedJustificationSchema).min(1).optional(),
+    forced_items: z.array(forcedItemSchema).min(1).optional(),
   })
   .strict();
 
@@ -1292,6 +1300,20 @@ const takeoffMetricsRecentJobSchema = z.object({
   errorCode: z.string().nullable(),
   createdAt: z.string(),
 });
+// TI-686 D10 (H19): per rule, the false positives declared at forcing over the applied lines it fails (n/N).
+const takeoffRuleForcingRowSchema = z.object({
+  rule: z.enum(TAKEOFF_RULE_IDS),
+  label: z.string(),
+  failedLines: z.number().int().min(0),
+  forcedLines: z.number().int().min(0),
+  falsePositiveLines: z.number().int().min(0),
+  falsePositiveRate: z.number().min(0).max(100).nullable(),
+  canBlock: z.boolean(),
+});
+const takeoffRuleForcingMetricsSchema = z.object({
+  forcedLines: z.number().int().min(0),
+  rows: z.array(takeoffRuleForcingRowSchema),
+});
 const takeoffMetricsDataSchema = z.object({
   generatedAt: z.string(),
   period: takeoffJobsPeriodQuerySchema,
@@ -1302,6 +1324,7 @@ const takeoffMetricsDataSchema = z.object({
   topErrors: z.array(takeoffMetricsErrorEntrySchema),
   reliability: takeoffMetricsReliabilitySchema,
   recentJobs: z.array(takeoffMetricsRecentJobSchema),
+  ruleForcing: takeoffRuleForcingMetricsSchema,
 });
 const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
 const takeoffMappingRuleRenameActionParamsSchema = z.object({
@@ -1882,6 +1905,10 @@ const apiTakeoffJobApplySchemaDefinition = successResponseSchemaDefinition(
 const apiTakeoffPreviewConversionSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffPreviewConversionResponse",
   takeoffPreviewConversionDataSchema
+);
+const apiTakeoffReviewContextSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffReviewContextResponse",
+  takeoffReviewContextResponseSchema
 );
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffVectorReadingResponse",
@@ -2704,7 +2731,9 @@ const createTakeoffJobBody = multipartBody({
 const applyTakeoffJobBody = jsonBody({
   name: "ApplyTakeoffJobRequest",
   description:
-    "Payload d'application Takeoff (strategie et section cible optionnelle).",
+    "Payload d'application Takeoff (strategie et section cible optionnelle). Forcage administrateur : override=true avec, "
+    + "pour chaque ligne bloquee, un motif code (forced_items) et l'indice de sa justification (forced_justifications, "
+    + "10 a 500 caracteres, chacune enregistree une fois).",
   schema: takeoffJobApplyRequestSchema,
 });
 const previewTakeoffConversionBody = jsonBody({
@@ -3103,6 +3132,18 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Detail du job takeoff retourne.",
         apiTakeoffJobDetailSchemaDefinition
       ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/review-context",
+    summary: "Recommandations financieres du controle cible",
+    description: "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse("Contexte du controle cible.", apiTakeoffReviewContextSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },

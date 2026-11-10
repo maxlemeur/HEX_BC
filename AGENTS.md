@@ -7,16 +7,19 @@ contract take precedence over historical reports and procedures.
 
 - Start with Git status and affected code, tests and configuration. Read history,
   skills and installed API docs when relevant; reuse unchanged references.
-- Work in the canonical checkout on `main`; create or switch branches only when
-  asked. Use a detached verification worktree when credentials or concurrent work
-  require isolation; an uncommitted task diff alone does not require one.
+- Work on `main` and push to `main` directly, from the canonical checkout or a
+  cloud session alike; create or switch branches only when asked, or when the
+  environment cannot push to `main`. Use a detached verification worktree when
+  credentials or concurrent work require isolation; an uncommitted task diff
+  alone does not require one.
 - Preserve unrelated changes, untracked files and personal data. Never stage
   `.env`, `CLAUDE.local.md`, `settings.local.json`, `design-qa.md` or `outputs/`.
 - Complete requested changes through verification, review, commit and push without
   repeated approval. Keep implementation focused. Analysis-only requests end with
   findings. Ask only for a missing decision or an action outside the authorized scope.
-  PRs, deployment, shared/remote migrations, access changes and destructive actions
-  require explicit authorization. Tool permissions alone do not provide it.
+- Opening or merging a pull request, deployment, shared/remote migrations, access
+  changes and destructive actions require the explicit go of the owner, the person
+  who gave the current request. Tool permissions alone do not provide it.
 
 ## Product and data contracts
 
@@ -35,8 +38,10 @@ contract take precedence over historical reports and procedures.
   enter browser code. Storage paths, portal tokens, email side effects and takeoff
   workers are sensitive boundaries.
 - Preserve `dpgf_rows_raw -> mappings -> confirmUnifiedImportFlow`, CSV/XLS/XLSX/PDF
-  compatibility and provenance. Public fixtures are fictional; private originals
-  and formative feedback must not be published.
+  compatibility and provenance. The repository is public: commits, pull request
+  text and evidence are readable by anyone. Fixtures are fictional; secrets,
+  private originals, customer documents and formative feedback must not be
+  published.
 - Use strict TypeScript, two spaces, semicolons, double quotes, `@/` imports from
   `src/` and existing naming conventions. Synchronize OpenAPI source and artifact
   when its contract changes.
@@ -49,15 +54,12 @@ contract take precedence over historical reports and procedures.
 
 ## Verification
 
-- Small visual-only changes (spacing, typography, colors, labels and layout,
-  including responsive adjustments) require only a targeted check of the affected
-  screen in the in-app browser at the relevant viewport sizes, plus a scoped
-  `git diff --check`. Do not launch `verify:pr`, a full E2E campaign, a build,
-  repository-wide lint or typecheck for these changes. This exception takes
-  precedence over the general final-code and affected-journey rows below.
-  If a change also affects business logic, calculations, persistence,
-  authorization, APIs or the database, apply the checks for that behavior.
-  Required CI protections remain enforced.
+- Small visual-only changes (spacing, typography, colors, wording and layout,
+  including responsive adjustments) follow the "Small visual-only change" row
+  below and nothing else. A change is not visual-only when it renames, moves,
+  hides or removes a control, label, role or test id that a journey selects
+  (search `e2e/` for it), or touches business logic, calculations, persistence,
+  authorization, APIs or the database: the other rows then apply.
 - Define the observable failure and affected journey before changing behavior;
   reproduce regressions first when practical. Prefer TesterArmy (`e2e`,
   `@e2e-dev/web`) as the sole test mechanism where it covers the risk. Deterministic
@@ -71,19 +73,22 @@ contract take precedence over historical reports and procedures.
 | Scope | Required checks |
 | --- | --- |
 | Documentation only | Content consistency, links and `git diff --check`; no application suites. |
+| Iteration on code | `npm run verify:fast`: incremental typecheck, cached lint and the Vitest files the diff reaches (seconds to about a minute). It does not replace the final check. |
 | Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
-| Small visual-only change | Targeted in-app browser check at affected viewport sizes and scoped `git diff --check`; no global suites. |
-| Affected user journey, beyond visual-only changes | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
+| Small visual-only change | Check the affected screen in a real browser (in-app browser or Playwright) at the affected viewport sizes, plus a scoped `git diff --check`. No `verify:pr`, E2E campaign, build, repository-wide lint or typecheck. |
+| Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
+| Push to `main` of code or journeys | `npm run e2e:army:reach` first: the Critical run of a push leaves out the takeoff, development, extended and calc-v3 journeys. Run the commands it prints for the journeys it maps to the change. Where it falls back to every takeoff journey or calc-v3 phase, run those whose screens or data the change can alter; the Full and calc-v3 campaigns that follow the push cover the others. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
-| Final code, beyond visual-only changes | `npm run verify:pr` once; retain required CI protections. |
+| Final code | `npm run verify:pr` once (about 3 minutes cold, 1.5 warm). Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
 | Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
 
 - Diagnose failures before rerunning affected checks; never mask them with retries
   or higher timeouts. Broaden only for a failure or material risk. Once required
   checks pass, stop testing unchanged inputs; do not duplicate full CI suites.
-- Keep CI quality, smoke, critical, takeoff, SQL/RLS and calc-v3 protections.
-  Selection and schedules belong to workflows and the [CI guide](docs/testing/tester-army-ci.md).
+- Never weaken, skip or remove the CI quality, smoke, critical, takeoff, SQL/RLS
+  and calc-v3 checks to get green. Selection and schedules belong to workflows
+  and the [CI guide](docs/testing/tester-army-ci.md).
 - Record command, source/build and fixture identities, environment, expected/actual
   results and primary evidence paths. Preserve failures and skips; setup failure,
   skips or changing sources cannot qualify a journey. Never put secrets in evidence.
@@ -93,6 +98,11 @@ contract take precedence over historical reports and procedures.
 - Use `.nvmrc` and [package.json](package.json) for runtime and commands. Reuse
   conforming dependencies; use `npm ci` when installation is needed, inside the
   checkout root. See the [test guide](e2e/README.md) for setup and suite contents.
+- Start the local server someone browses with `npm run dev` or `npm run dev:chatgpt`
+  as written, on Next's default compiler (Turbopack). `--webpack` belongs to the
+  scripts that already pass it (builds, Army development): in `next dev` it took
+  20 s instead of 7 s to compile the estimate editor and its API routes on a first
+  visit, twice the memory, and seconds more for each file changed in the checkout.
 - Browser campaigns require no ambient `.env` files or inherited DB/Supabase
   credentials, matching dependencies and sources frozen during qualification;
   task changes may be uncommitted. Isolate when needed without moving personal
@@ -120,13 +130,28 @@ contract take precedence over historical reports and procedures.
   the scoped diff is reviewed and task-owned files are committed and pushed.
   Before committing, fetch and reconcile with `origin/main` without force or loss
   of work, stage only scoped files and run `git diff --cached --check`. Use
-  Conventional Commits and push the finished review round, avoiding intermediate
-  pushes that cancel CI. Report any blocker instead of claiming completion.
+  Conventional Commits in English, with the Linear id when one exists (`TI-681`).
+  Report any blocker instead of claiming completion.
+- Push once per finished task, not per commit: every push to `main` that is not
+  documentation-only starts a full Critical run of about 15 minutes, and nothing
+  cancels it. After pushing, read the Quality Gate and Critical results of your
+  commit. If your change made one red, fix it before other work; if it was
+  already red, say so in your report. The push also queues the Full and calc-v3
+  [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
+  one at a time: an open issue « CI rouge sur main » names their red journeys,
+  and one your change caused is yours to fix.
+- Pull requests are the exception (asked for, Dependabot, or an environment that
+  cannot push to `main`). Open them ready for review, never as drafts, with the
+  template. Push once per review round, since a new push cancels the runs in
+  progress. Merge `origin/main` into the branch only for a conflict, a migration
+  to restamp or a dependency on code that landed on `main`. Do not stack them.
+  Green ones merge one at a time, on the owner's go.
 - Pushes do not deploy: Vercel Git deployment is disabled in `vercel.json`.
   Before a separately authorized deployment, confirm required shared migrations
-  are applied. For security-scan work, update [dispositions](docs/security-remediation-91386191.md),
+  are applied.
+- For security-scan work, update [dispositions](docs/security-remediation-91386191.md),
   preserve canonical evidence and never treat provisional reports as current
-  exploitability proof. Load guides only for the environment involved.
+  exploitability proof.
 - Report outcomes, checks, limitations and blockers concisely. Discuss Figma only
   when requested; use visuals only when they clarify the subject.
 

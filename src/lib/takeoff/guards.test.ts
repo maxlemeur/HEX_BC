@@ -37,6 +37,13 @@ function makeItem(
 
 describe("checkApplyGuard", () => {
 
+  it.each(["DN_NETWORK_MATERIAL_BLOCKED", "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION", "DN_NETWORK_MATERIAL_NOT_ALLOWED"] as const)(
+    "retains technical protection %s while quantity warnings remain optional", (code) => {
+      const item = makeItem("gas", "Gaz matériau à contrôler", { rule_results: [{ rule: "dn_network", status: "fail", code,
+        version: 1, acceptable: code !== "DN_NETWORK_MATERIAL_BLOCKED", reason: "Protection technique." }] });
+      expect(checkApplyGuard([item]).blocked_items[0].reasons).toContain("rule_failed");
+    });
+
   it("threshold is configurable", () => {
     const items = [
       makeItem("a", "Item A", { confidence: 0.6, is_verified: false }),
@@ -47,23 +54,23 @@ describe("checkApplyGuard", () => {
     expect(defaultResult.passed).toBe(true);
     expect(defaultResult.medium_items).toHaveLength(1);
 
-    // With higher threshold (0.7) → blocked
+    // TI-681: a higher threshold strengthens the recommendation, without blocking.
     const strictResult = checkApplyGuard(items, 0.7);
-    expect(strictResult.passed).toBe(false);
-    expect(strictResult.blocked_items).toHaveLength(1);
-    expect(strictResult.blocked_items[0].item_id).toBe("a");
+    expect(strictResult.passed).toBe(true);
+    expect(strictResult.blocked_items).toHaveLength(0);
+    expect(strictResult.medium_items[0].item_id).toBe("a");
   });
 
-  it("treats null confidence as low-confidence (blocked)", () => {
+  it("keeps null confidence as a recommendation without inventing a score", () => {
     const items = [
       makeItem("a", "Null confidence", { confidence: null, is_verified: false }),
     ];
 
     const result = checkApplyGuard(items);
 
-    expect(result.passed).toBe(false);
-    expect(result.blocked_items).toHaveLength(1);
-    expect(result.blocked_items[0].confidence).toBeNull();
+    expect(result.passed).toBe(true);
+    expect(result.blocked_items).toHaveLength(0);
+    expect(result.medium_items[0].confidence).toBeNull();
   });
 
   it("items at exactly threshold boundary are medium, not blocked", () => {
@@ -125,14 +132,12 @@ describe("checkApplyGuard with rule results", () => {
     acceptable: false, reason: "Quantité à saisir." };
   const entered = { ...toEnter, status: "pass" as const, code: "NON_OBSERVABLE_ENTERED" as const };
 
-  it("blocks a failed rule on a level B job, without the level C reasons", () => {
+  it("does not require a quantity-warning acknowledgement on a level B job", () => {
     const result = checkApplyGuard([
       makeItem("rule", "EF inox DN 22", { rule_results: [duplicate] }),
       makeItem("low", "Vanne", { confidence: 0.2, evidence: null, source_page: null }),
     ], DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" });
-    expect(result.blocked_items.map((item) => [item.item_id, item.reasons])).toEqual([["rule", ["rule_failed"]]]);
-    expect(result.blocked_items[0].rule_failures).toEqual([{ rule: "zone_overlap", code: "ZONE_OVERLAP_DUPLICATE",
-      reason: "Tronçon compté aussi en Z2.", acceptable: true }]);
+    expect(result.blocked_items).toEqual([]);
     expect(result.medium_items).toEqual([]);
   });
 
@@ -144,14 +149,14 @@ describe("checkApplyGuard with rule results", () => {
       makeItem("stale", "EF inox DN 22", { rule_results: [], rules_stale: true }),
       makeItem("excluded", "EF inox DN 22", { is_excluded: true, rule_results: [duplicate], rules_stale: true }),
     ], DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" });
-    expect(result.blocked_items.map((item) => [item.item_id, item.reasons])).toEqual([["enter", ["rule_failed"]], ["stale", ["rules_stale"]]]);
+    expect(result.blocked_items.map((item) => [item.item_id, item.reasons])).toEqual([["stale", ["rules_stale"]]]);
   });
 
   it("adds the rule reasons to the level C reasons, a job without level being read as level C", () => {
     const items = [makeItem("both", "EF inox DN 22", { confidence: 0.2, rule_results: [duplicate] })];
-    expect(checkApplyGuard(items).blocked_items[0].reasons).toEqual(["low_confidence", "rule_failed"]);
-    expect(checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "C" }).blocked_items[0].reasons)
-      .toEqual(["low_confidence", "rule_failed"]);
+    expect(checkApplyGuard(items).blocked_items).toEqual([]);
+    expect(checkApplyGuard(items).medium_items.map(item => item.item_id)).toEqual(["both"]);
+    expect(checkApplyGuard(items, DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "C" }).passed).toBe(true);
   });
 });
 
@@ -186,43 +191,43 @@ describe("checkApplyGuard with cross-line failures whose partners are left out",
       ...(partnerExclusions ? { partnerExclusions } : {}) }).blocked_items.map((item) => item.item_id);
 
   // The review page guards its included lines only and passes no test: there, such a failure keeps blocking.
-  it("keeps a cross-line failure blocking when the caller passes no partner test", () => {
+  it("keeps cross-line uncertainty non blocking without a partner test", () => {
     expect(checkApplyGuard([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { is_excluded: true })],
-      DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" }).blocked_items.map((item) => item.item_id)).toEqual(["L"]);
+      DEFAULT_LOW_CONFIDENCE_THRESHOLD, { level: "B" }).blocked_items.map((item) => item.item_id)).toEqual([]);
   });
 
-  it("lets a duplicate pass when its only partner, in the job, is left out, and blocks it while the partner counts", () => {
+  it("lets a duplicate pass when its only partner, in the job, is left out, and also passes while the partner counts", () => {
     expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { is_excluded: true, rule_results: [duplicate(["L"])] })]))
       .toEqual([]);
     expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P])] }), makeItem(P, "EF", { rule_results: [duplicate(["L"])] })]))
-      .toEqual(["L", P]);
+      .toEqual([]);
   });
 
-  it("reads a partner of another job from the context, and blocks when its state is unknown", () => {
+  it("reads a partner of another job from the context, and also passes when its state is unknown", () => {
     expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })], new Map([[Q, true]]))).toEqual([]);
-    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })], new Map([[Q, false]]))).toEqual(["L"]);
-    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })])).toEqual(["L"]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })], new Map([[Q, false]]))).toEqual([]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([Q])] })])).toEqual([]);
   });
 
-  it("blocks while one partner counts, when the list is cut, and for zones never registered", () => {
+  it("does not turn uncertain partners, cut lists or unregistered zones into mandatory review", () => {
     const left = makeItem(P, "EF", { is_excluded: true });
-    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P, Q])] }), left], new Map([[Q, false]]))).toEqual(["L"]);
-    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P], 2)] }), left])).toEqual(["L"]);
-    expect(blocked([makeItem("L", "EF", { rule_results: [{ ...duplicate([P]), code: "ZONE_OVERLAP_UNREGISTERED" as never }] }), left])).toEqual(["L"]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P, Q])] }), left], new Map([[Q, false]]))).toEqual([]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P], 2)] }), left])).toEqual([]);
+    expect(blocked([makeItem("L", "EF", { rule_results: [{ ...duplicate([P]), code: "ZONE_OVERLAP_UNREGISTERED" as never }] }), left])).toEqual([]);
   });
 
   // Review of PR B: the trigger reads an id whatever its case; a partner named twice in two cases is one line.
   it("reads a partner id whatever its case, and never counts one line twice", () => {
     expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P.toUpperCase()])] }), makeItem(P, "EF", { is_excluded: true })])).toEqual([]);
     expect(blocked([makeItem("L", "EF", { rule_results: [duplicate([P.toUpperCase(), P])] }), makeItem(P, "EF", { is_excluded: true })]))
-      .toEqual(["L"]);
+      .toEqual([]);
   });
 
   it("lets a room pass when every room it overlaps is left out", () => {
     expect(blocked([makeItem("R", "Hall", { rule_results: [rooms([P, Q])] }), makeItem(P, "Bureau", { is_excluded: true }),
       makeItem(Q, "Réserve", { is_excluded: true })])).toEqual([]);
     expect(blocked([makeItem("R", "Hall", { rule_results: [rooms([P, Q], 3)] }), makeItem(P, "Bureau", { is_excluded: true }),
-      makeItem(Q, "Réserve", { is_excluded: true })])).toEqual(["R"]);
+      makeItem(Q, "Réserve", { is_excluded: true })])).toEqual([]);
   });
 });
 
@@ -248,7 +253,7 @@ describe("low confidence threshold read as the apply trigger reads it", () => {
   it("blocks the lines the trigger blocks for a threshold of more than 17 digits, and none for a hexadecimal one", () => {
     const items = [makeItem("at-0.7", "Vanne", { confidence: 0.7 }), makeItem("at-0.6", "Vanne", { confidence: 0.6 })];
     expect(checkApplyGuard(items, parseLowConfidenceThreshold("0.70000000000000001")).blocked_items.map((item) => item.item_id))
-      .toEqual(["at-0.7", "at-0.6"]);
+      .toEqual([]);
     expect(checkApplyGuard(items, parseLowConfidenceThreshold("0x1")).blocked_items).toEqual([]);
   });
 });

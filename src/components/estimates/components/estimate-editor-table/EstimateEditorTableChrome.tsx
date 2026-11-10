@@ -76,6 +76,26 @@ function ColumnResizeHandle({
   );
 }
 
+// Colonnes de chiffres : leur en-tête s'aligne à droite, au-dessus des nombres.
+const NUMERIC_COLUMN_IDS: ReadonlySet<EstimateColumnId> = new Set<EstimateColumnId>([
+  "quantity",
+  "supply_price",
+  "fo_provision",
+  "k_fo",
+  "labor_hours",
+  "labor_hours_workshop",
+  "labor_hours_site",
+  "h_mo_majoration",
+  "k_mo",
+  "k_mo_workshop",
+  "k_mo_site",
+  "ds",
+  "marge",
+  "marque",
+  "unit_price",
+  "total_price",
+]);
+
 function ResizableColumnHeader({
   columnId,
   label,
@@ -91,7 +111,9 @@ function ResizableColumnHeader({
   } & ColumnResizeHandlers
 >) {
   return (
-    <div className={`relative ${className}`}>
+    <div
+      className={`relative ${className}${NUMERIC_COLUMN_IDS.has(columnId) ? " estimate-head--number" : ""}`}
+    >
       <ColumnHeaderLabel label={label} allowWrap={allowWrap} />
       <ColumnResizeHandle columnId={columnId} label={label} {...handlers} />
     </div>
@@ -106,7 +128,8 @@ type EstimateEditorTableChromeProps = {
   ribbonAlertsNode?: ReactNode;
   mobileListNode?: ReactNode;
   showFullTableOnMobile?: boolean;
-  activeLineBreadcrumb: string | null;
+  /** The « Chemin actif » line, rendered by the table so that it follows the active cell on its own. */
+  activeLineBreadcrumbNode: ReactNode;
   actionError: string | null;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   isLaborSplitEnabled?: boolean;
@@ -162,7 +185,7 @@ export function EstimateEditorTableChrome({
   ribbonAlertsNode,
   mobileListNode,
   showFullTableOnMobile = false,
-  activeLineBreadcrumb,
+  activeLineBreadcrumbNode,
   actionError,
   scrollContainerRef,
   isLaborSplitEnabled,
@@ -249,13 +272,7 @@ export function EstimateEditorTableChrome({
             <div className="mt-3">{ribbonAlertsNode}</div>
           ) : null}
 
-          <div
-            className="mt-2 h-4 truncate text-xs leading-4 text-[var(--slate-500)]"
-            aria-hidden={!activeLineBreadcrumb}
-            title={activeLineBreadcrumb ? `Chemin actif: ${activeLineBreadcrumb}` : undefined}
-          >
-            {activeLineBreadcrumb ? `Chemin actif: ${activeLineBreadcrumb}` : null}
-          </div>
+          {activeLineBreadcrumbNode}
 
           {actionError ? (
             <div

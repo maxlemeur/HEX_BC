@@ -79,6 +79,8 @@ export type TakeoffRuleDetails = {
   level?: string | null;
   printed_m2?: number;
   measured_m2?: number;
+  /** The basis the price line expects (TI-686 D9): a printed surface declared on it compares with the line (D17). */
+  expected_basis?: "net_floor" | "shab";
   deviation?: number;
   overlapping_item_ids?: string[];
   /** Every room an outline overlaps (the list may be cut when stored). */

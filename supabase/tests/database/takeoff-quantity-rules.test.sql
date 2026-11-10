@@ -20,6 +20,16 @@
 -- - un override admin avec une ligne bloquée par une ancienne raison et une autre par
 --   une nouvelle seulement réussit et consomme son audit ; un audit qui n'en nomme
 --   qu'une échoue.
+-- TI-686 D12 (migration …_takeoff_quantity_entry_category.sql), écrits avant elle : une
+-- saisie porte sa catégorie, parmi six, et une note obligatoire pour « hypothèse » :
+-- - une attestation sans catégorie est refusée (TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID) ;
+-- - une catégorie hors liste et une hypothèse de 9 caractères sont refusées (23514) ;
+-- - une catégorie valide est stockée et journalisée, comme sa note ;
+-- - la catégorie ou la note ne changent qu'avec une nouvelle attestation ;
+-- - un changement de catégorie périme les règles ; une quantité changée sans nouvelle
+--   attestation efface aussi la catégorie et la note ;
+-- - la RPC de la revue accepte les deux clés et refuse toujours une clé inconnue ;
+-- - authenticated peut écrire les deux colonnes (droit de la table, triggers compris).
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -93,6 +103,8 @@ insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, stat
 values ('9e000000-0000-4000-8000-000000000309', current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000000107',
   'C', 'processing', 'plan-fictif.pdf', '9e000000-0000-4000-8000-000000000001');
 
+-- TI-681: quantity failures are advisory. Technical fixtures preserve guard/override coverage.
+select set_config('test.technical', '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION","version":1,"acceptable":true,"reason":"Système fictif à documenter."}]', true);
 -- A failed acceptable rule (a Z1/Z2 duplicate), a failed rule verifying never settles (a quantity to enter).
 select set_config('test.duplicate', '[{"rule":"zone_overlap","status":"fail","code":"ZONE_OVERLAP_DUPLICATE","version":101,"acceptable":true,"reason":"Tronçon compté aussi en Z2."}]', true);
 select set_config('test.to_enter', '[{"rule":"non_observable","status":"fail","code":"NON_OBSERVABLE_TO_ENTER","version":1,"acceptable":false,"reason":"Quantité à saisir."}]', true);
@@ -100,16 +112,16 @@ select set_config('test.to_enter', '[{"rule":"non_observable","status":"fail","c
 insert into public.takeoff_items (id, tenant_id, job_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page,
   rule_results, rules_evaluated_at, created_at)
 select fixture.id, current_setting('test.tenant_id')::uuid, fixture.job_id, fixture.designation, fixture.quantity, fixture.unit,
-  fixture.confidence, 'Repère localisé', 'plan-fictif.pdf', 1, fixture.results::jsonb,
+  fixture.confidence, case when fixture.id='9e000000-0000-4000-8000-000000000405'::uuid then null else 'Repère localisé' end, 'plan-fictif.pdf', 1, fixture.results::jsonb,
   case when fixture.results = '[]' then null else now() end, now() + fixture.rank * interval '1 second'
 from (values
-  ('9e000000-0000-4000-8000-000000000401'::uuid, '9e000000-0000-4000-8000-000000000301'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.duplicate'), 1),
-  ('9e000000-0000-4000-8000-000000000402'::uuid, '9e000000-0000-4000-8000-000000000302'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.duplicate'), 2),
+  ('9e000000-0000-4000-8000-000000000401'::uuid, '9e000000-0000-4000-8000-000000000301'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.technical'), 1),
+  ('9e000000-0000-4000-8000-000000000402'::uuid, '9e000000-0000-4000-8000-000000000302'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.technical'), 2),
   ('9e000000-0000-4000-8000-000000000403'::uuid, '9e000000-0000-4000-8000-000000000303'::uuid, 'Soudures inox', 48::numeric, 'u', 0.95, current_setting('test.to_enter'), 3),
   ('9e000000-0000-4000-8000-000000000404'::uuid, '9e000000-0000-4000-8000-000000000304'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, '[{"rule":"dn_network","status":"pass","code":"DN_NETWORK_COMPATIBLE","version":1,"acceptable":true,"reason":"DN 22 compatible."}]', 4),
   -- 405: blocked by an old reason only (low confidence, not verified); 406: by a new reason only.
   ('9e000000-0000-4000-8000-000000000405'::uuid, '9e000000-0000-4000-8000-000000000305'::uuid, 'Vanne DN 22', 2::numeric, 'u', 0.30, '[]', 5),
-  ('9e000000-0000-4000-8000-000000000406'::uuid, '9e000000-0000-4000-8000-000000000305'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.duplicate'), 6),
+  ('9e000000-0000-4000-8000-000000000406'::uuid, '9e000000-0000-4000-8000-000000000305'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, current_setting('test.technical'), 6),
   ('9e000000-0000-4000-8000-000000000407'::uuid, '9e000000-0000-4000-8000-000000000306'::uuid, 'EF inox DN 22', 5::numeric, 'ml', 0.95, '[]', 7),
   ('9e000000-0000-4000-8000-000000000408'::uuid, '9e000000-0000-4000-8000-000000000306'::uuid, 'ECS inox DN 22', 3::numeric, 'ml', 0.95, '[]', 8),
   -- 409 (Z1, job 307) passes while its duplicate 410 (Z2, job 308) is excluded.
@@ -213,9 +225,9 @@ $$;
 
 select ok(not public.takeoff_item_rule_blocked('[]'::jsonb, false, false), 'no result never blocks');
 select ok(public.takeoff_item_rule_blocked('[]'::jsonb, true, true), 'stale results block, verified or not');
-select ok(public.takeoff_item_rule_blocked(current_setting('test.duplicate')::jsonb, false, false), 'a failed acceptable rule blocks an unverified line');
+select ok(not public.takeoff_item_rule_blocked(current_setting('test.duplicate')::jsonb, false, false), 'TI-681: a duplicate remains an advisory quantity warning');
 select ok(not public.takeoff_item_rule_blocked(current_setting('test.duplicate')::jsonb, false, true), 'verifying settles an acceptable failure');
-select ok(public.takeoff_item_rule_blocked(current_setting('test.to_enter')::jsonb, false, true), 'verifying never settles a quantity to enter');
+select ok(not public.takeoff_item_rule_blocked(current_setting('test.to_enter')::jsonb, false, true), 'TI-681: a proposed quantity need not be individually acknowledged');
 select ok(not public.takeoff_item_rule_blocked(
   '[{"rule":"non_observable","status":"pass","code":"NON_OBSERVABLE_ENTERED","version":1,"acceptable":false,"reason":"Saisie."}]'::jsonb, false, false),
   'a passed rule never blocks, acceptable or not');
@@ -247,8 +259,8 @@ select throws_ok($$select * from public.write_takeoff_rule_results(current_setti
   '42501', 'permission denied for function write_takeoff_rule_results', 'authenticated cannot call the rule results writer');
 
 -- The user's decision (V) settles the acceptable failure: the application, not forced, succeeds.
-select is(pg_temp.rules_exec('update-6', 'update public.takeoff_items set is_verified = true, verified_by = ''9e000000-0000-4000-8000-000000000001'', verified_at = now()
-  where id = ''9e000000-0000-4000-8000-000000000401'''), 'ok', 'the engineer verifies the duplicated line');
+select is(pg_temp.rules_exec('update-6', 'update public.takeoff_items set is_verified = true, verified_by = ''9e000000-0000-4000-8000-000000000001'', verified_at = now(), verification_justification = ''{"reason_code":"system_documented","system_reference":"Fabricant fictif, gamme G, certificat C"}''::jsonb
+  where id = ''9e000000-0000-4000-8000-000000000401'''), 'ok', 'the engineer justifies and verifies the technical restriction');
 select is(pg_temp.rules_apply('apply-7', '9e000000-0000-4000-8000-000000000301'), 'ok', 'after the decision, the application not forced succeeds');
 reset role;
 select pg_temp.rules_clear();
@@ -257,20 +269,89 @@ set local role authenticated;
 -- A quantity to enter: verifying never settles it.
 select is(pg_temp.rules_exec('update-7', 'update public.takeoff_items set is_verified = true, verified_by = ''9e000000-0000-4000-8000-000000000001'', verified_at = now()
   where id = ''9e000000-0000-4000-8000-000000000403'''), '23514 TAKEOFF_RULE_NOT_ACCEPTABLE', 'the engineer cannot verify a quantity that must be entered');
-select is(pg_temp.rules_apply('guard-4', '9e000000-0000-4000-8000-000000000303'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'a verified quantity to enter still blocks');
+reset role;
+select ok(not public.takeoff_item_rule_blocked((select rule_results from public.takeoff_items where id='9e000000-0000-4000-8000-000000000403'),false,false), 'TI-681: the proposed quantity is advisory, while entry attestation stays protected');
+set local role authenticated;
 
 -- The entry is attested by its author, now; another user's name is refused.
 select is(pg_temp.rules_exec('update-4', 'update public.takeoff_items set quantity_entered_by = ''9e000000-0000-4000-8000-000000000002'', quantity_entered_at = now()
   where id = ''9e000000-0000-4000-8000-000000000403'''), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID', 'an entry is attested by its own author');
 select is(pg_temp.rules_exec('update-5', 'update public.takeoff_items set quantity_entered_by = ''9e000000-0000-4000-8000-000000000001''
   where id = ''9e000000-0000-4000-8000-000000000403'''), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID', 'an entry carries its time');
-select is(pg_temp.rules_exec('update-8', 'update public.takeoff_items set quantity = 48, quantity_entered_by = ''9e000000-0000-4000-8000-000000000001'', quantity_entered_at = now()
-  where id = ''9e000000-0000-4000-8000-000000000403'''), 'ok', 'the engineer enters the quantity, the model''s value included');
+-- TI-686 D12: the entry carries its category (the columns are read through to_jsonb, so that a case fails alone before
+-- the migration instead of aborting the file).
+select is(pg_temp.rules_exec('entry-1', 'update public.takeoff_items set quantity = 48, quantity_entered_by = ''9e000000-0000-4000-8000-000000000001'', quantity_entered_at = now()
+  where id = ''9e000000-0000-4000-8000-000000000403'''), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID', 'an entry without its category is refused');
+select is(left(pg_temp.rules_exec('entry-2', $sql$update public.takeoff_items set quantity = 48, quantity_entered_by = auth.uid(),
+  quantity_entered_at = now(), quantity_entry_category = 'guess' where id = '9e000000-0000-4000-8000-000000000403'$sql$), 5), '23514',
+  'a category outside the list is refused');
+select is(left(pg_temp.rules_exec('entry-3', $sql$update public.takeoff_items set quantity = 48, quantity_entered_by = auth.uid(),
+  quantity_entered_at = now(), quantity_entry_category = 'hypothesis', quantity_entry_note = E' 123456789\t'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), 5), '23514', 'an hypothesis whose note says 9 characters is refused');
+select is(pg_temp.rules_exec('update-8', $sql$update public.takeoff_items set quantity = 48, quantity_entered_by = auth.uid(),
+  quantity_entered_at = now(), quantity_entry_category = 'site_survey', quantity_entry_note = 'Relevé fictif : 48 soudures comptées.'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), 'ok', 'the engineer enters the quantity with its category, the model''s value included');
+select is((select jsonb_build_object('category', to_jsonb(item) -> 'quantity_entry_category', 'note', to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  '{"category": "site_survey", "note": "Relevé fictif : 48 soudures comptées."}'::jsonb, 'the category and its note are stored');
+-- The journal, read as its owner (the engineer's role does not read audit_logs).
+reset role;
+select is((select jsonb_agg(jsonb_build_array(log.after_data #>> '{metadata,field}', log.after_data #> '{metadata,next_value}')
+    order by log.after_data #>> '{metadata,field}')
+  from public.audit_logs log
+  where log.user_id = '9e000000-0000-4000-8000-000000000001' and log.action = 'takeoff.item.modified'
+    and log.after_data #>> '{metadata,item_id}' = '9e000000-0000-4000-8000-000000000403'
+    and log.after_data #>> '{metadata,field}' in ('quantity_entry_category', 'quantity_entry_note')),
+  '[["quantity_entry_category", "site_survey"], ["quantity_entry_note", "Relevé fictif : 48 soudures comptées."]]'::jsonb,
+  'the category and its note are journaled, by the engineer');
+set local role authenticated;
 select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), true,
   'an entry makes the results stale until the server computes them');
+select is(pg_temp.rules_exec('entry-4', $sql$update public.takeoff_items set quantity_entry_category = 'dpgf_cctp'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID',
+  'a category never changes without a new attestation');
+select is(pg_temp.rules_exec('entry-5', $sql$update public.takeoff_items set quantity_entry_note = 'Une autre note, jamais attestée.'
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), '42501 TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID',
+  'a note never changes without a new attestation');
+-- The server computes the line again; the same author then attests another category: the rules read it.
+reset role;
+update public.takeoff_items set rules_stale = false, rules_evaluated_at = now() where id = '9e000000-0000-4000-8000-000000000403';
+set local role authenticated;
+select is(pg_temp.rules_exec('entry-6', $sql$update public.takeoff_items set quantity_entry_category = 'other_drawing',
+  quantity_entry_note = 'Plan de détail fictif D-03.', quantity_entered_at = clock_timestamp()
+  where id = '9e000000-0000-4000-8000-000000000403'$sql$), 'ok',
+  'the same author attests the quantity again with another category and its note');
+select is((select jsonb_build_object('category', to_jsonb(item) -> 'quantity_entry_category', 'note', to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  '{"category": "other_drawing", "note": "Plan de détail fictif D-03."}'::jsonb, 'the new category and its note are stored');
+select is((select rules_stale from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), true,
+  'a new category makes the results stale');
 select is(pg_temp.rules_exec('update-9', 'update public.takeoff_items set quantity = 50 where id = ''9e000000-0000-4000-8000-000000000403'''), 'ok', 'a quantity changed without a new attestation');
 select is((select quantity_entered_by from public.takeoff_items where id = '9e000000-0000-4000-8000-000000000403'), null::uuid,
   'a quantity changed without a new attestation is no longer the one entered');
+select is((select jsonb_build_array(to_jsonb(item) -> 'quantity_entered_at', to_jsonb(item) -> 'quantity_entry_category',
+    to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'), '[null, null, null]'::jsonb,
+  'its time, category and note are cleared with it');
+-- The review's RPC writes the entry's two keys, and still refuses a key it does not know.
+select is(pg_temp.rules_exec('rpc-entry-1', $sql$select count(*) from public.update_takeoff_item_for_review(current_setting('test.tenant_id')::uuid,
+  '9e000000-0000-4000-8000-000000000303', '9e000000-0000-4000-8000-000000000403',
+  (select item.updated_at from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  jsonb_build_object('quantity', 49, 'quantity_entered_by', auth.uid(), 'quantity_entered_at', clock_timestamp(),
+    'quantity_entry_category', 'hypothesis', 'quantity_entry_note', '49 soudures supposées, à confirmer au relevé.'))$sql$), 'ok',
+  'the review''s RPC saves an entry with its category and note');
+select is((select jsonb_build_array(item.quantity, to_jsonb(item) -> 'quantity_entry_category', to_jsonb(item) -> 'quantity_entry_note')
+  from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  '[49, "hypothesis", "49 soudures supposées, à confirmer au relevé."]'::jsonb, 'the RPC''s entry is stored');
+select is(pg_temp.rules_exec('rpc-entry-2', $sql$select count(*) from public.update_takeoff_item_for_review(current_setting('test.tenant_id')::uuid,
+  '9e000000-0000-4000-8000-000000000303', '9e000000-0000-4000-8000-000000000403',
+  (select item.updated_at from public.takeoff_items item where item.id = '9e000000-0000-4000-8000-000000000403'),
+  jsonb_build_object('quantity_entry_source', 'site_survey'))$sql$), '22023 TAKEOFF_ITEM_PATCH_INVALID',
+  'the RPC still refuses a key it does not know');
+select ok(coalesce((select bool_and(has_column_privilege('authenticated', 'public.takeoff_items'::regclass, attribute.attnum, 'UPDATE'))
+    from pg_attribute attribute where attribute.attrelid = 'public.takeoff_items'::regclass
+      and attribute.attname in ('quantity_entry_category', 'quantity_entry_note') having count(*) = 2), false),
+  'authenticated may update both columns (the table''s grant), under the triggers');
 
 -- A client edit makes evaluated results stale: blocked until the server computes them.
 select is(pg_temp.rules_exec('update-10', 'update public.takeoff_items set quantity = 4 where id = ''9e000000-0000-4000-8000-000000000404'''), 'ok', 'the engineer corrects an evaluated quantity');
@@ -431,7 +512,10 @@ values (current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000
     'tenant_id', current_setting('test.tenant_id'), 'user_id', '9e000000-0000-4000-8000-000000000002',
     'metadata', jsonb_build_object('estimate_version_id', '9e000000-0000-4000-8000-000000000105', 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array('9e000000-0000-4000-8000-000000000405'), 'blocked_items_count', 1,
-      'justification', 'Audit qui oublie la ligne de règle')));
+      -- TI-686 D10: each forced line's coded reason and justification.
+      'forced_justifications', jsonb_build_array('Audit qui oublie la ligne de règle'),
+      'forced_items', jsonb_build_array(jsonb_build_object('item_id', '9e000000-0000-4000-8000-000000000405',
+        'reason_code', 'additional_evidence', 'justification_index', 0)))));
 
 set local role authenticated;
 select is(pg_temp.rules_apply('guard-6', '9e000000-0000-4000-8000-000000000305'), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'an override audit that leaves out the line a rule blocks is refused');
@@ -444,7 +528,14 @@ values (current_setting('test.tenant_id')::uuid, '9e000000-0000-4000-8000-000000
     'tenant_id', current_setting('test.tenant_id'), 'user_id', '9e000000-0000-4000-8000-000000000002',
     'metadata', jsonb_build_object('estimate_version_id', '9e000000-0000-4000-8000-000000000105', 'threshold', 0.5,
       'blocked_item_ids', jsonb_build_array('9e000000-0000-4000-8000-000000000405', '9e000000-0000-4000-8000-000000000406'),
-      'blocked_items_count', 2, 'justification', 'Vérifié sur le plan fictif',
+      'blocked_items_count', 2,
+      -- TI-686 D10: each forced line's coded reason, the justification stored once.
+      'forced_justifications', jsonb_build_array('Vérifié sur le plan fictif'),
+      'forced_items', jsonb_build_array(
+        jsonb_build_object('item_id', '9e000000-0000-4000-8000-000000000405', 'reason_code', 'additional_evidence',
+          'justification_index', 0),
+        jsonb_build_object('item_id', '9e000000-0000-4000-8000-000000000406', 'reason_code', 'additional_evidence',
+          'justification_index', 0)),
       -- TI-677 (PR D): each lifted line's state, as the route records it (apply-override-state.ts).
       'blocked_items_state', (select jsonb_agg(jsonb_build_object('item_id', ti.id, 'quantity', ti.quantity, 'unit', ti.unit,
         'updated_at', ti.updated_at, 'rule_failures', public.takeoff_rule_failure_keys(ti.rule_results), 'rules_stale', ti.rules_stale,

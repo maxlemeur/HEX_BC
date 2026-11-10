@@ -62,7 +62,8 @@ const lineTruthSchema = z.object({
     label: z.string(), detail: z.string().nullable(),
   }),
   qtyStatus: z.object({
-    code: z.enum(["imported_unverified", "measured", "assumed", "provisional", "to_confirm", "missing"]),
+    code: z.enum(["imported_unverified", "measured", "assumed", "provisional", "to_confirm", "missing",
+      "internal_provision", "hypothesis"]),
     label: z.string(), detail: z.string().nullable(),
   }),
   confidence: z.object({

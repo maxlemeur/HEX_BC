@@ -1,4 +1,4 @@
-import { verificationJustificationSchema } from "@/lib/takeoff/rules/verification";
+import { verificationJustificationReadSchema } from "@/lib/takeoff/rules/verification";
 import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
 import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import "server-only";
@@ -136,6 +136,8 @@ export const TAKEOFF_ITEMS_SELECT = [
   "rules_stale",
   "quantity_entered_at",
   "quantity_entered_by",
+  "quantity_entry_category",
+  "quantity_entry_note",
 ].join(", ");
 
 export const jsonRecordSchema = z.record(z.string(), z.unknown());
@@ -286,12 +288,14 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
   verified_by: z.string().uuid().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
-  verification_justification: verificationJustificationSchema.nullable().optional(),
+  verification_justification: verificationJustificationReadSchema.nullable().optional(),
   rule_results: TakeoffRuleResultsSchema.optional(),
   rules_evaluated_at: z.string().nullable().optional(),
   rules_stale: z.boolean().optional(),
   quantity_entered_at: z.string().nullable().optional(),
   quantity_entered_by: z.string().uuid().nullable().optional(),
+  quantity_entry_category: z.string().nullable().optional(),
+  quantity_entry_note: z.string().nullable().optional(),
 }) as z.ZodType<TakeoffJobItem>;
 
 export type TakeoffJobDetailRow = {
@@ -368,6 +372,8 @@ export type TakeoffItemRow = {
   rules_stale?: boolean;
   quantity_entered_at?: string | null;
   quantity_entered_by?: string | null;
+  quantity_entry_category?: string | null;
+  quantity_entry_note?: string | null;
 };
 
 export type AuthenticatedTakeoffContext = Awaited<

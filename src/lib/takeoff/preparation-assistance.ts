@@ -94,7 +94,7 @@ export function applyTakeoffPreparationProposal(
   if (preparation.scope.confirmed) return preparation;
   const key = proposal.field.slice("scope.".length) as Exclude<keyof TakeoffPreparation["scope"], "confirmed">;
   return takeoffPreparationSchema.parse({ ...preparation, scope: {
-    ...preparation.scope, [key]: [...new Set([...preparation.scope[key], ...values])],
+    ...preparation.scope, [key]: [...new Set([...(preparation.scope[key] ?? []), ...values])],
   } });
 }
 

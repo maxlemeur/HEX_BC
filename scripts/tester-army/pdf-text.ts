@@ -9,7 +9,7 @@ import { Worker } from "node:worker_threads";
 // (offer-collector.mjs) archived for an emitted offer. Failure modes fixed in
 // docs/testing/tester-army-calc-v3.md before this helper:
 // - a non-PDF, truncated or empty attachment must fail, never read as "" and pass;
-// - PDF.js without a worker cannot be preempted by a timer (AGENTS.md): parsing
+// - PDF.js without a worker cannot be preempted by a timer: parsing
 //   runs in a worker thread that the timeout really terminates;
 // - the bytes read must be the bytes the collector committed (receipt SHA-256);
 // - no network: standard fonts come from the installed package, fetch is off.

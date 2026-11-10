@@ -90,6 +90,7 @@ export async function POST(
       concurrencyToken: resolveConcurrencyToken(request, body.concurrency_token),
       operationKey: body.operation_key,
       dryRun: resolveDryRun(request, body.dry_run),
+      currentContentRevision: true,
     });
 
     const response = ok(data);

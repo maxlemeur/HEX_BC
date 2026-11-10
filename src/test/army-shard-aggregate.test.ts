@@ -80,8 +80,10 @@ type UnitOptions = {
   extra?: Record<string, unknown>;
   revision?: string;
   calcV3?: { phases: { phase: string; status: string }[] };
-  results?: (file: string) => { status: string };
+  results?: (file: string) => { status: string; titlePath?: string[] };
   summary?: Record<string, number>;
+  /** Other evidence files of the unit, by relative path. */
+  files?: Record<string, string>;
 };
 
 /** Writes a unit's evidence as the runner does: phase reports, then the inventory, then manifest.json. */
@@ -108,6 +110,7 @@ function writeUnit(options: UnitOptions) {
     write(`${phase}/report.json`, `${JSON.stringify({ schemaVersion: 1, run: { exitCode: 0, errors: [], summary, results: [...results, ...unselected] } }, null, 2)}\n`);
   }
   if (options.calcV3) write("calc-v3.json", `${JSON.stringify({ schemaVersion: "calc-v3-campaign-1", ...options.calcV3 }, null, 2)}\n`);
+  for (const [relative, text] of Object.entries(options.files ?? {})) write(relative, text);
   const inventory: { path: string; sha256: string }[] = [];
   const walk = (current: string) => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
@@ -219,6 +222,41 @@ describe("TesterArmy shard aggregation", () => {
       writeCriticalShards(undefined, (index) => (index === 1 ? options : {}));
       expect(problems(critical(criticalSelection())), label).toMatchObject({ status: "failed", problems: expect.stringContaining("shard 1/2") });
     }
+  });
+
+  it("names every journey that did not pass, in the result and in the job summary", () => {
+    // Without the names, a red aggregate only says "N selected result(s) not
+    // passed, first <file>": finding which journeys means downloading the
+    // evidence artifact and reading report.json.
+    writeCriticalShards(undefined, (index) => (index === 1 ? {
+      results: (file) => (file === A ? { status: "failed", titlePath: ["A01 the hub opens"] }
+        : file === C ? { status: "interrupted", titlePath: ["a suite", "C02 the export downloads"] } : { status: "passed" }),
+      summary: { passed: 1, failed: 1, interrupted: 1 },
+    } : {}));
+    const result = aggregateEvidence(critical(criticalSelection()));
+    expect(result.status).toBe("failed");
+    expect(result.notPassed).toEqual([
+      "shard 1/2 : a.e2e.ts : A01 the hub opens (failed)",
+      "shard 1/2 : c.e2e.ts : a suite > C02 the export downloads (interrupted)",
+    ]);
+    const selection = path.join(directory, "selection.json");
+    fs.writeFileSync(selection, JSON.stringify(criticalSelection()));
+    const summary = path.join(directory, "github-summary.md");
+    const run = spawnSync(process.execPath, [AGGREGATOR, "critical", "--plan", selection, "--evidence", evidence,
+      "--out", out, "--results", "army-select=success,army-critical-shard=failure", "--revision", REVISION], {
+      cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: "", GITHUB_STEP_SUMMARY: summary }, windowsHide: true,
+    });
+    expect(run.status).toBe(1);
+    const written = fs.readFileSync(summary, "utf8");
+    // The retained manifest carries them too: the alert of a scheduled campaign reads them there.
+    expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).notPassed).toEqual(result.notPassed);
+    expect(written).toContain("Parcours non passés (2)");
+    expect(written).toContain("- shard 1/2 : a.e2e.ts : A01 the hub opens (failed)");
+    expect(written).toContain("- shard 1/2 : c.e2e.ts : a suite > C02 the export downloads (interrupted)");
+    // A green aggregate lists none.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards();
+    expect(aggregateEvidence(critical(criticalSelection())).notPassed).toEqual([]);
   });
 
   it("fails on evidence that is not the shard's own, on other revisions and on a swapped shard", () => {
@@ -386,16 +424,24 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
   it("passes calc-v3 only when every planned phase passed on its own stack", () => {
     const calc = (phases: string[], results = { "army-calc-v3-plan": "success", "army-calc-v3-phase": "success" }): AggregateInput =>
       ({ suite: "calc-v3", plan: phases, evidence, out, results, revision: REVISION });
-    const writePhase = (phase: string, status = "passed", recorded = phase) => writeUnit({
+    const writePhase = (phase: string, status = "passed", recorded = phase, files?: Record<string, string>) => writeUnit({
       suite: "calc-v3", artifact: `army-calc-v3-${phase}-evidence`, scope: `calc-v3-${phase}`, phases: [],
       extra: { calcV3Phase: phase, calcV3: "calc-v3.json", ...(status === "passed" ? {} : { status }) },
-      calcV3: { phases: [{ phase: recorded, status }] },
+      calcV3: { phases: [{ phase: recorded, status }] }, files,
     });
     writePhase("journeys");
     expect(problems(calc(["journeys", "components"]))).toMatchObject({ status: "failed",
       problems: expect.stringContaining("army-calc-v3-components-evidence") });
-    writePhase("components", "failed");
+    // A red phase names its red journeys from the report of its own e2e run, as a shard does:
+    // the alert of a scheduled campaign has nothing else to read them from.
+    writePhase("components", "failed", "components", { "components/sdk/report.json": JSON.stringify({ run: { results: [
+      { file: "e2e/army/local/offer-emission.e2e.ts", selected: true, status: "failed", titlePath: ["OF00 emits the frozen PDF"] },
+      { file: "e2e/army/local/offer-emission.e2e.ts", selected: true, status: "passed", titlePath: ["OF0L keeps the lease"] },
+      { file: "e2e/army/local/offer-emission.e2e.ts", selected: false, status: "skipped", titlePath: ["EC01 another phase"] },
+    ] } }) });
     expect(problems(calc(["journeys", "components"]))).toMatchObject({ status: "failed", problems: expect.stringContaining("components") });
+    expect(aggregateEvidence(calc(["journeys", "components"])).notPassed)
+      .toEqual(["calc-v3 components : offer-emission.e2e.ts : OF00 emits the frozen PDF (failed)"]);
     fs.rmSync(path.join(evidence, "army-calc-v3-components-evidence"), { recursive: true, force: true });
     writePhase("components", "passed", "numeric");
     expect(problems(calc(["journeys", "components"]))).toMatchObject({ status: "failed", problems: expect.stringContaining("numeric") });

@@ -51,6 +51,7 @@ import {
 import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
+import { useGridRowSignature } from "@/hooks/useGridNavigation";
 import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import { useEstimateV3Line } from "@/components/estimates/v3/V3LineCells";
 import {
@@ -275,6 +276,9 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   onOpenMobileEditor,
 }: EstimateEditorRowProps) {
   const navigation = useEstimateSpreadsheetNavigation();
+  // The navigation object is stable: this subscription is what re-renders the
+  // row, and only when its own active cell, editor or range slice changes.
+  useGridRowSignature(navigation, getEstimateEditorItemClientKey(item));
   // Lot 2, sous-lot 2.6 : sur une v3, le PT affiché est le brut ⌈Q × PU⌋ du moteur (D7).
   const v3Line = useEstimateV3Line(item.id);
   const {

@@ -178,7 +178,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
     await screen.getByRole("button", { name: "Google Drive", exact: true }).click();
     await screen.getByText("Fichiers Drive liés à l’affaire", { exact: true }).click();
   };
-  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
   await openDriveLinks();
   await expect(screen.getByRole("link", file.name, { exact: true })).toHaveCount(1);
   await expect(screen.getByRole("link", folder.name, { exact: true })).toBeVisible();
