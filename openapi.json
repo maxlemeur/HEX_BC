@@ -1005,6 +1005,108 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake/files/{documentId}/drawing": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Lire le dessin d’un DWG du dossier, converti en DXF",
+        "description": "Lecture privée sans cache, avec la même autorisation que l’aperçu de la pièce. Le DWG (formats AutoCAD 2004 à 2018, 50 Mo au plus, et dont le DXF ne dépasse pas 50 Mo, soit un DWG d’une dizaine de Mo) est converti en DXF par LibreDWG dans un processus séparé, sans accès au disque, au réseau ni aux secrets du serveur, arrêté après 60 s ou quand l’appelant abandonne. Le DXF n’est pas conservé. Une pièce qui n’est pas un DWG est refusée (400) ; un DWG vide, trop lourd, d’un format antérieur à 2004 ou non convertible est refusé avec sa raison (422) ; un serveur qui convertit déjà quatre DWG répond 503, et la demande peut être refaite.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeDocumentDrawingProjectIdParameter"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "Identifiant UUID de la pièce du dossier.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeDocumentDrawingDocumentIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dessin au format DXF, avec Content-Disposition attachment, Cache-Control private/no-store et X-Content-Type-Options nosniff.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/intake/files/{documentId}/preview": {
       "get": {
         "tags": [
@@ -24581,6 +24683,16 @@
             "additionalProperties": false
           }
         ]
+      },
+      "ReadAffaireIntakeDocumentDrawingProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireIntakeDocumentDrawingDocumentIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "PreviewAffaireIntakeDocumentProjectIdParameter": {
         "type": "string",

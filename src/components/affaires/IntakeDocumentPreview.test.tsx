@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { DossierDocument } from "@/lib/affaires/document-triage";
 import { IntakeDocumentPreview } from "./IntakeDocumentPreview";
 
-type CadProps = { url: string; fileName: string; canManage: boolean; expanded: boolean; onDrawingChange?(drawn: boolean): void };
+type CadProps = { url: string; drawingUrl?: string; fileName: string; canManage: boolean; expanded: boolean; onDrawingChange?(drawn: boolean): void };
 
 const cad = vi.hoisted(() => ({ props: null as CadProps | null }));
 
@@ -53,6 +53,18 @@ describe("IntakeDocumentPreview", () => {
     // The preview route is not asked for a picture of it.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Télécharger" })).toHaveAttribute("href", `${ENDPOINT}?download=1`);
+    // A DXF is the drawing itself: nothing is asked of the converter.
+    expect(cad.props?.drawingUrl).toBeUndefined();
+  });
+
+  it("gives a DWG the address where the server converts it, and no other original", async () => {
+    installFetch();
+    const { rerender } = render(<IntakeDocumentPreview projectId={PROJECT} document={dossierDocument("Plan RDC.DWG", "image/vnd.dwg")} />);
+    await screen.findByTestId("cad-preview");
+    expect(cad.props).toMatchObject({ url: `${ENDPOINT}?download=1`, drawingUrl: `/api/affaires/${PROJECT}/intake/files/${DOCUMENT}/drawing` });
+    rerender(<IntakeDocumentPreview projectId={PROJECT} document={dossierDocument("Maquette.rvt", "application/octet-stream")} />);
+    await screen.findByTestId("cad-preview");
+    expect(cad.props?.drawingUrl).toBeUndefined();
   });
 
   it("opens the large view of a drawing once it is drawn, and only its own", async () => {

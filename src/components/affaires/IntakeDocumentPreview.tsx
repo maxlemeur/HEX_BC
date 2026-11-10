@@ -194,6 +194,7 @@ export function IntakeDocumentPreview({
             projectId={projectId}
             fileName={document.fileName}
             url={`${endpoint}?download=1`}
+            drawingUrl={/\.dwg$/i.test(document.fileName.trim()) ? endpoint.replace(/preview$/, "drawing") : undefined}
             canManage={canManage}
             expanded={expanded}
             onExpandedChange={setExpanded}

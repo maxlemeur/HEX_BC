@@ -49,12 +49,14 @@ export function isAffaireIntakeCadDocument(fileName: string) {
   return Object.hasOwn(CAD_MIME_TYPES, getAffaireIntakeFileExtension(fileName));
 }
 
-/** A DXF is read in MergeOne (view, quantities, plotted PDF); a DWG or an RVT is only kept. */
+/** A DXF is read in MergeOne (view, quantities, plotted PDF), and so is a DWG once converted; an RVT is only kept. */
 export const AFFAIRE_INTAKE_DXF_NOTICE = "Original DXF conservé. Ouvrez-le pour visualiser le plan et relever ses quantités ; ajoutez son tracé PDF au dossier pour le métré.";
+export const AFFAIRE_INTAKE_DWG_NOTICE = "Original DWG conservé. Ouvrez-le pour visualiser le plan et relever ses quantités (formats AutoCAD 2004 à 2018) ; ajoutez son tracé PDF au dossier pour le métré.";
 
 export function affaireIntakeCadNotice(fileName: string): string | null {
   if (!isAffaireIntakeCadDocument(fileName)) return null;
-  return getAffaireIntakeFileExtension(fileName) === "dxf" ? AFFAIRE_INTAKE_DXF_NOTICE : AFFAIRE_INTAKE_CAD_NOTICE;
+  const extension = getAffaireIntakeFileExtension(fileName);
+  return extension === "dxf" ? AFFAIRE_INTAKE_DXF_NOTICE : extension === "dwg" ? AFFAIRE_INTAKE_DWG_NOTICE : AFFAIRE_INTAKE_CAD_NOTICE;
 }
 
 export function getAffaireIntakeAllowedMimeTypes(fileName: string): readonly string[] {

@@ -46,6 +46,13 @@ const nextConfig: NextConfig = {
       "./node_modules/@napi-rs/canvas/**",
       "./node_modules/@napi-rs/canvas-*/**",
     ],
+    // The DWG converter loads LibreDWG's WebAssembly build in a separate Node process (src/lib/cad/dwg-conversion-server.ts).
+    "/api/affaires/*/intake/files/*/drawing": [
+      "./node_modules/@mlightcad/libredwg-web/package.json",
+      "./node_modules/@mlightcad/libredwg-web/dist/libredwg-web.umd.cjs",
+      "./node_modules/@mlightcad/libredwg-web/wasm/libredwg-web.js",
+      "./node_modules/@mlightcad/libredwg-web/wasm/libredwg-web.wasm",
+    ],
     "/api/docs/swagger-ui/*": [
       "./node_modules/swagger-ui-dist/swagger-ui.css",
       "./node_modules/swagger-ui-dist/swagger-ui-bundle.js",

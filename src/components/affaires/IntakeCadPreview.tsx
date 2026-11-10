@@ -29,7 +29,7 @@ import { IntakeCadCanvas } from "./IntakeCadCanvas";
 const MAX_BLOCK_ROWS = 200;
 
 const SUMMARY_GUIDANCE: Record<CadSummary["format"], string> = {
-  dwg: "La géométrie d’un DWG n’est pas encore lue dans MergeOne. Enregistrez ce plan en DXF pour le visualiser et relever ses quantités, ou ajoutez son export PDF pour le métré.",
+  dwg: "Le dessin de ce DWG n’est pas affiché. Enregistrez ce plan en DXF pour le visualiser et relever ses quantités, ou ajoutez son export PDF pour le métré.",
   rvt: "Une maquette Revit n’est pas lue dans MergeOne. Ajoutez ses plans exportés en DXF ou en PDF pour les visualiser et les métrer.",
 };
 
@@ -41,8 +41,11 @@ type PlotState =
   | { status: "done"; fileName: string; plot: Pick<CadPlot, "denominator" | "scaleSource" | "otherScales" | "sheet_mm" | "omitted"> }
   | { status: "error"; message: string };
 
-/** What the file itself tells of a DWG or a Revit model: its release and the picture it carries. */
-function CadSummaryView({ summary }: { summary: CadSummary }) {
+/**
+ * What the file itself tells of a DWG or a Revit model: its release and the picture it carries.
+ * `notice` says why a DWG is not drawn, and `onRetry` asks for its drawing again.
+ */
+function CadSummaryView({ summary, notice, onRetry }: { summary: CadSummary; notice?: string; onRetry?(): void }) {
   const { thumbnail } = summary;
   const [picture, setPicture] = useState<string | null>(null);
 
@@ -69,7 +72,13 @@ function CadSummaryView({ summary }: { summary: CadSummary }) {
         <FileText size={30} />
       )}
       <strong>{release}</strong>
-      <p>{SUMMARY_GUIDANCE[summary.format]}</p>
+      <p>{notice ?? SUMMARY_GUIDANCE[summary.format]}</p>
+      {onRetry && (
+        <button type="button" className="document-desk-button" onClick={onRetry}>
+          <RefreshCw size={14} />
+          Réessayer
+        </button>
+      )}
     </div>
   );
 }
@@ -87,6 +96,7 @@ function CadDrawingView({
   projectId,
   fileName,
   drawing,
+  convertedFrom,
   canManage,
   expanded,
   onExpandedChange,
@@ -95,6 +105,8 @@ function CadDrawingView({
   projectId: string;
   fileName: string;
   drawing: CadDrawing;
+  /** The DWG this drawing was converted from, when it was not read from a DXF. */
+  convertedFrom?: CadSummary;
   canManage: boolean;
   expanded: boolean;
   onExpandedChange(expanded: boolean): void;
@@ -151,7 +163,7 @@ function CadDrawingView({
           <DialogHeader>
             <DialogTitle className="break-all">{fileName}</DialogTitle>
             <DialogDescription>
-              {drawing.version.label} · {summary}
+              {convertedFrom ? `DWG ${convertedFrom.version?.label ?? drawing.version.label}, converti par LibreDWG` : drawing.version.label} · {summary}
             </DialogDescription>
           </DialogHeader>
           <div className="document-cad-workspace">
@@ -163,6 +175,8 @@ function CadDrawingView({
                   {quantities.partial && <p>Les quantités affichées sont un minimum.</p>}
                 </div>
               )}
+
+              {convertedFrom && <p className="document-cad-hint">Ce dessin est la conversion du DWG par LibreDWG : vérifiez une cote connue avant de vous fier aux quantités.</p>}
 
               <section aria-labelledby="cad-quantities-title">
                 <header>
@@ -298,13 +312,15 @@ function CadDrawingView({
 
 /**
  * The preview of a CAD original: a DXF is read in the browser and shown with
- * its layers and quantities; a DWG or a Revit model shows what its file says.
+ * its layers and quantities, and so is a DWG once the server has converted it
+ * (`drawingUrl`); a Revit model, or a DWG without its drawing, shows what its file says.
  * `expanded` opens the large view of a drawing, which only a drawing has.
  */
 export function IntakeCadPreview({
   projectId,
   fileName,
   url,
+  drawingUrl,
   canManage,
   expanded,
   onExpandedChange,
@@ -314,13 +330,15 @@ export function IntakeCadPreview({
   fileName: string;
   /** Where the original is downloaded from. */
   url: string;
+  /** Where the server gives the DXF of a DWG. */
+  drawingUrl?: string;
   canManage: boolean;
   expanded: boolean;
   onExpandedChange(expanded: boolean): void;
   /** Told whether a drawing is on screen, which is when the large view can be opened. */
   onDrawingChange?(drawn: boolean): void;
 }) {
-  const { state, retry, plot } = useCadOriginal(useMemo(() => ({ url, fileName }), [url, fileName]));
+  const { state, retry, plot } = useCadOriginal(useMemo(() => ({ url, fileName, drawingUrl }), [url, fileName, drawingUrl]));
   const drawn = state.status === "ready" && state.original.kind === "drawing";
 
   useEffect(() => {
@@ -343,16 +361,17 @@ export function IntakeCadPreview({
     return (
       <div className="document-preview-empty" role="status">
         <LoaderCircle className="animate-spin" size={24} />
-        <p>Lecture du plan…</p>
+        <p>{state.status === "loading" && state.converting ? "Conversion du DWG…" : "Lecture du plan…"}</p>
       </div>
     );
   }
-  if (state.original.kind === "summary") return <CadSummaryView summary={state.original.summary} />;
+  if (state.original.kind === "summary") return <CadSummaryView summary={state.original.summary} notice={state.notice} onRetry={state.retryable ? retry : undefined} />;
   return (
     <CadDrawingView
       projectId={projectId}
       fileName={fileName}
       drawing={state.original.drawing}
+      convertedFrom={state.source}
       canManage={canManage}
       expanded={expanded}
       onExpandedChange={onExpandedChange}

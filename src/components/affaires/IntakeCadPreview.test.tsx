@@ -67,13 +67,17 @@ const drawing = readDxf(dxfBytes(fixture));
 const unitless = readDxf(dxfBytes({ ...fixture, header: [[9, "$ACADVER"], [1, "AC1027"]] }));
 const DOWNLOAD = "/api/affaires/p1/intake/files/d1/preview?download=1";
 
-function Harness({ canManage, onDrawingChange }: { canManage: boolean; onDrawingChange(drawn: boolean): void }) {
+const DRAWING = "/api/affaires/p1/intake/files/d1/drawing";
+const DWG: CadOriginal = { kind: "summary", summary: { format: "dwg", version: { code: "AC1032", label: "AutoCAD 2018" }, thumbnail: null } };
+
+function Harness({ canManage, onDrawingChange, dwg = false }: { canManage: boolean; onDrawingChange(drawn: boolean): void; dwg?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <IntakeCadPreview
       projectId="p1"
-      fileName="Réseaux.dxf"
+      fileName={dwg ? "Réseaux.dwg" : "Réseaux.dxf"}
       url={DOWNLOAD}
+      drawingUrl={dwg ? DRAWING : undefined}
       canManage={canManage}
       expanded={expanded}
       onExpandedChange={setExpanded}
@@ -132,12 +136,78 @@ describe("IntakeCadPreview", () => {
   });
 
   it("shows what a DWG says of itself, and how to have its plan read", async () => {
-    const { onDrawingChange } = await opened({ kind: "summary", summary: { format: "dwg", version: { code: "AC1032", label: "AutoCAD 2018" }, thumbnail: null } });
+    const { onDrawingChange } = await opened(DWG);
     expect(screen.getByText("Format DWG AutoCAD 2018")).toBeInTheDocument();
     expect(screen.getByText(/Enregistrez ce plan en DXF/)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Calques et quantités" })).not.toBeInTheDocument();
     expect(onDrawingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("shows a DWG as the plan the server converted it to, and says in the large view that it is a conversion", async () => {
+    const workers = installWorkers();
+    const fetchMock = installFetch();
+    const onDrawingChange = vi.fn<(drawn: boolean) => void>();
+    render(<Harness canManage dwg onDrawingChange={onDrawingChange} />);
+    const first = await lastRequest(() => workers[0]);
+    await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: DWG });
+    expect(screen.getByRole("status")).toHaveTextContent("Conversion du DWG…");
+
+    const second = await lastRequest(() => workers[0], 2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([DOWNLOAD, DRAWING]);
+    expect(second).toMatchObject({ type: "read", fileName: "Réseaux.dwg.dxf" });
+    await answer(workers[0], { requestId: second.requestId, ok: true, type: "read", original: { kind: "drawing", drawing } });
+    expect(screen.getByRole("img", { name: "Plan Réseaux.dwg" })).toBeInTheDocument();
+    expect(onDrawingChange).toHaveBeenLastCalledWith(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "Calques et quantités" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText("DWG AutoCAD 2018, converti par LibreDWG · 2 calques · 7 m de tracé")).toBeInTheDocument();
+    expect(dialog.getByText(/vérifiez une cote connue avant de vous fier aux quantités/)).toBeInTheDocument();
+    expect(dialog.getByText("Tracé").nextElementSibling).toHaveTextContent("7 m");
+    expect(dialog.getByRole("button", { name: "Ajouter le tracé PDF au dossier" })).toBeEnabled();
+  });
+
+  it("keeps what a DWG says of itself, with the server's reason, when it is not converted", async () => {
+    const workers = installWorkers();
+    const refusal = "Ce DWG est enregistré dans un format antérieur à AutoCAD 2004, que MergeOne ne convertit pas.";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url === DRAWING
+        ? { ok: false, status: 422, json: async () => ({ error: { code: "DWG_CONVERSION_OLD_FORMAT", message: refusal } }) }
+        : { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(8) }));
+    const onDrawingChange = vi.fn<(drawn: boolean) => void>();
+    render(<Harness canManage dwg onDrawingChange={onDrawingChange} />);
+    const first = await lastRequest(() => workers[0]);
+    await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: { kind: "summary", summary: { format: "dwg", version: { code: "AC1015", label: "AutoCAD 2000" }, thumbnail: null } } });
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.getByText("Format DWG AutoCAD 2000")).toBeInTheDocument();
+    expect(screen.queryByText(/Enregistrez ce plan en DXF/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Calques et quantités" })).not.toBeInTheDocument();
+    expect(workers[0].postMessage).toHaveBeenCalledTimes(1);
+    expect(onDrawingChange).toHaveBeenLastCalledWith(false);
+    // Asking again would be refused again.
+    expect(screen.queryByRole("button", { name: "Réessayer" })).not.toBeInTheDocument();
+  });
+
+  it("offers to ask again for the drawing of a DWG when the server was busy", async () => {
+    const workers = installWorkers();
+    let busy = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url === DRAWING && busy
+        ? { ok: false, status: 503, json: async () => ({ error: { code: "DWG_CONVERSION_BUSY", message: "Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant." } }) }
+        : { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(8) }));
+    render(<Harness canManage dwg onDrawingChange={vi.fn()} />);
+    const first = await lastRequest(() => workers[0]);
+    await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: DWG });
+    expect(await screen.findByText("Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant.")).toBeInTheDocument();
+
+    busy = false;
+    await userEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    const again = await lastRequest(() => workers[1]);
+    await answer(workers[1], { requestId: again.requestId, ok: true, type: "read", original: DWG });
+    const converted = await lastRequest(() => workers[1], 2);
+    await answer(workers[1], { requestId: converted.requestId, ok: true, type: "read", original: { kind: "drawing", drawing } });
+    expect(screen.getByRole("img", { name: "Plan Réseaux.dwg" })).toBeInTheDocument();
   });
 
   it("shows the picture a Revit model carries, and lets go of it when closed", async () => {
@@ -173,6 +243,7 @@ describe("IntakeCadPreview", () => {
     const { dialog } = await enlarged();
     expect(dialog.getByRole("heading", { name: "Réseaux.dxf" })).toBeInTheDocument();
     expect(dialog.getByText("AutoCAD 2013 · 2 calques · 7 m de tracé")).toBeInTheDocument();
+    expect(dialog.queryByText(/LibreDWG/)).not.toBeInTheDocument();
     expect(dialog.getByRole("img", { name: "Plan Réseaux.dxf" })).toBeInTheDocument();
     const rows = dialog.getAllByRole("listitem").map((row) => row.textContent);
     // By name; a layer the file turns off is listed, and counts for nothing until it is shown.
