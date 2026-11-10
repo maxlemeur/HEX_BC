@@ -24,8 +24,8 @@ name: TesterArmy Full
 # unsharded shard, recorded "filtered-full" with its pattern, proves only the
 # selected journeys of the production full phase and skips the development
 # phase. It never qualifies the full suite, and its run title, its check on
-# the commit and its artifact say so. The schedule has no inputs: always
-# unfiltered.
+# the commit and its artifact say so. The schedule and a push have no inputs:
+# always unfiltered.
 run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'TesterArmy Full (filtré --grep, non qualifiant)' || 'TesterArmy Full' }}
 on:
   workflow_dispatch:
@@ -35,6 +35,17 @@ on:
         required: false
         default: ""
         type: string
+  # Every push to main that is not documentation only: main is otherwise
+  # checked by the critical suite alone (docs/testing/tester-army-ci.md,
+  # "Campagnes de main après un push"). All pushes share one concurrency group
+  # that cancels nothing: one campaign runs, the newest waits and replaces an
+  # older waiting one, whose commits it contains. A documentation push starts
+  # none, so it never replaces a waiting campaign.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   schedule:
     - cron: '15 3 * * *'
 
@@ -42,7 +53,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: army-full-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: army-full-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && 'main-push' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -151,6 +162,9 @@ jobs:
     timeout-minutes: 75
     strategy:
       fail-fast: false
+      # The account runs 20 jobs at once: a push campaign takes two of them,
+      # besides its development job.
+      max-parallel: ${{ github.event_name == 'push' && 2 || 20 }}
       matrix:
         include: ${{ fromJSON(needs.army-full-plan.outputs.shards) }}
     env:

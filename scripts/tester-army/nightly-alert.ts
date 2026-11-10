@@ -1,24 +1,30 @@
-// Tells someone when a scheduled TesterArmy campaign is red on main, and when it is green again.
-// Runs with plain Node (type stripping, no npm install): node builtins, the runner's `gh` and
-// erasable TypeScript syntax. Contract: docs/testing/tester-army-ci.md, section "Alerte des campagnes planifiées".
+// Tells someone when a TesterArmy campaign of main (scheduled, or following a push) is red, and
+// when it is green again. Runs with plain Node (type stripping, no npm install): node builtins,
+// the runner's `gh` and erasable TypeScript syntax. Contract: docs/testing/tester-army-ci.md,
+// section "Alerte des campagnes de main".
 //
 // One issue per watched workflow, found by its exact title among the open issues this alert
 // opened: a red campaign opens it, or adds a comment when it is already open; the first green
 // campaign closes it. A campaign that did not conclude (cancelled, skipped) changes nothing.
 // The issue names the run, its failed jobs and every journey that did not pass, read from the
 // manifest of the aggregate evidence. It only simulates unless ALERT_WRITE is "true" and the
-// run is a scheduled one: a pull request's or a filtered run's result never reaches the issue.
+// run is a campaign of main: a pull request's or a filtered run's result never reaches the issue.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** The scheduled campaigns watched, by workflow name: their file and the artifact of their aggregate job. */
+/** The campaigns watched, by workflow name: their file and the artifact of their aggregate job. */
 export const ALERT_WORKFLOWS: Record<string, { file: string; artifact: string }> = {
   "TesterArmy Full": { file: ".github/workflows/e2e-army-full.yml", artifact: "army-full-evidence" },
   "TesterArmy calc-v3": { file: ".github/workflows/e2e-army-calc-v3.yml", artifact: "army-calc-v3-evidence" },
 };
+/**
+ * The events whose run of a watched workflow is a campaign of main: the schedule, and a push,
+ * which those workflows only accept on main. Each runs the whole unfiltered campaign.
+ */
+export const ALERT_EVENTS = ["schedule", "push"];
 
 export type AlertInput = {
   workflow: string;
@@ -43,7 +49,7 @@ export type AlertPlan =
 const RED = new Set(["failure", "timed_out", "startup_failure"]);
 const LISTED = 100;
 
-export const alertTitle = (workflow: string) => `CI nocturne rouge : ${workflow}`;
+export const alertTitle = (workflow: string) => `CI rouge sur main : ${workflow}`;
 
 export function planAlert(input: AlertInput): AlertPlan {
   const revision = `\`${input.revision.slice(0, 8)}\``;
@@ -67,7 +73,7 @@ export function planAlert(input: AlertInput): AlertPlan {
       ...input.notPassed.slice(0, LISTED).map((journey) => `- \`${journey.replaceAll("`", "'").replace(/\s+/gu, " ").slice(0, 300)}\``));
     if (input.notPassed.length > LISTED) lines.push("", `… et ${input.notPassed.length - LISTED} autres, dans le résumé du run.`);
   }
-  lines.push("", "Ce ticket reçoit un commentaire à chaque campagne planifiée rouge et se ferme seul à la première campagne verte.", "");
+  lines.push("", "Ce ticket reçoit un commentaire à chaque campagne rouge de main (planifiée ou après un push) et se ferme seul à la première campagne verte.", "");
   const body = lines.join("\n");
   return input.openIssue === null ? { action: "create", title: alertTitle(input.workflow), body } : { action: "comment", issue: input.openIssue, body };
 }
@@ -121,9 +127,9 @@ function main() {
   };
   const watched = ALERT_WORKFLOWS[run.name];
   if (!watched) throw new Error(`Run ${runId} belongs to « ${run.name} », which this alert does not watch.`);
-  // Only a scheduled campaign speaks for main: a pull request's or a dispatched (maybe filtered) run is simulated.
+  // Only a campaign of main speaks for main: a pull request's or a dispatched (maybe filtered) run is simulated.
   const simulated = process.env.ALERT_WRITE !== "true" ? "simulation, rien n'est écrit"
-    : run.event !== "schedule" ? `simulation : run « ${run.event} », seule une campagne planifiée écrit` : null;
+    : !ALERT_EVENTS.includes(run.event) ? `simulation : run « ${run.event} », seule une campagne de main (planifiée ou après un push) écrit` : null;
   const conclusion = run.conclusion ?? "";
   // A job stopped by its time limit concludes "cancelled": in a red run it is named too.
   const failedJobs = RED.has(conclusion)

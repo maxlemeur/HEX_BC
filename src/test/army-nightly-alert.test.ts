@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ALERT_WORKFLOWS, alertIssues, alertTitle, planAlert, type AlertInput } from "../../scripts/tester-army/nightly-alert";
+import { ALERT_EVENTS, ALERT_WORKFLOWS, alertIssues, alertTitle, planAlert, type AlertInput } from "../../scripts/tester-army/nightly-alert";
 
 const root = process.cwd();
 const RUN = "https://github.com/example/repository/actions/runs/42";
@@ -14,10 +14,10 @@ const red = (overrides: Partial<AlertInput> = {}): AlertInput => ({
   notPassed: ["shard 3/6 : cockpit-command-bar.e2e.ts : EST-374 > ouvre le preview (failed)"], openIssue: null, ...overrides,
 });
 
-describe("alert of a red scheduled TesterArmy campaign", () => {
+describe("alert of a red TesterArmy campaign of main", () => {
   it("opens one issue per workflow that names the run, the failed jobs and every journey that did not pass", () => {
     const plan = planAlert(red());
-    expect(plan).toMatchObject({ action: "create", title: "CI nocturne rouge : TesterArmy Full" });
+    expect(plan).toMatchObject({ action: "create", title: "CI rouge sur main : TesterArmy Full" });
     if (plan.action !== "create") throw new Error("unreachable");
     expect(plan.body).toContain("`df20b136`");
     expect(plan.body).toContain("campagne du 2026-11-10");
@@ -25,7 +25,7 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
     expect(plan.body).toContain("`army-full shard 3/6`, `army-full development`");
     expect(plan.body).toContain("### Parcours non passés (1)");
     expect(plan.body).toContain("- `shard 3/6 : cockpit-command-bar.e2e.ts : EST-374 > ouvre le preview (failed)`");
-    expect(alertTitle("TesterArmy calc-v3")).toBe("CI nocturne rouge : TesterArmy calc-v3");
+    expect(alertTitle("TesterArmy calc-v3")).toBe("CI rouge sur main : TesterArmy calc-v3");
   });
 
   it("comments the open issue of the workflow instead of opening a second one", () => {
@@ -90,7 +90,7 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
     ], title)).toEqual([22, 40]);
   });
 
-  it("watches exactly the scheduled campaigns its workflow is triggered by, each with its aggregate evidence", () => {
+  it("watches exactly the campaigns of main its workflow is triggered by, each with its aggregate evidence", () => {
     const workflow = fs.readFileSync(path.join(root, ".github/workflows/ci-night-alert.yml"), "utf8");
     const watched = /^ {4}workflows: \[(.+)\]$/mu.exec(workflow)?.[1].split(",").map((name) => name.trim().replace(/^"|"$/gu, ""));
     expect(watched?.sort()).toEqual(Object.keys(ALERT_WORKFLOWS).sort());
@@ -98,10 +98,13 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
       const watchedWorkflow = fs.readFileSync(path.join(root, file), "utf8");
       expect(watchedWorkflow, file).toMatch(new RegExp(`^name: ${name}$`, "mu"));
       expect(watchedWorkflow, file).toContain(artifact);
-      expect(watchedWorkflow, file).toMatch(/^ {2}schedule:$/mu);
+      // Each event that writes is one the watched workflow runs its whole campaign for, and a push only on main.
+      for (const event of ALERT_EVENTS) expect(watchedWorkflow, `${file} ${event}`).toMatch(new RegExp(`^ {2}${event}:$`, "mu"));
+      expect(watchedWorkflow, file).toMatch(/^ {2}push:\n {4}branches: \[main\]\n/mu);
     }
-    // Only a scheduled campaign, or a replay someone asks for, reaches the issue tracker.
-    expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule'");
+    // Only a campaign of main, or a replay someone asks for, reaches the issue tracker.
+    expect(workflow).toContain(`if: github.event_name == 'workflow_dispatch' || ${
+      ALERT_EVENTS.map((event) => `github.event.workflow_run.event == '${event}'`).join(" || ")}\n`);
     // The token that writes issues belongs to the one job that needs it.
     expect(workflow).toMatch(/^permissions:\n {2}contents: read\n/mu);
     expect(workflow).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}actions: read\n {6}issues: write\n/mu);

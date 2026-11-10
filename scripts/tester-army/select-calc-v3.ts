@@ -50,7 +50,7 @@ export function planCalcV3(root: string, environment: NodeJS.ProcessEnv): CalcSe
   if (selection === "all") return { phases: ["all"], reason: "Explicit complete campaign.", changedPaths: [] };
   if (isCalcV3Phase(selection)) return { phases: [selection], reason: "Explicit phase.", changedPaths: [] };
   if (selection !== "nightly") throw new Error("Unknown calc-v3 selection.");
-  if (environment.EVENT_NAME !== "pull_request") return all("Scheduled or manually requested campaign.");
+  if (environment.EVENT_NAME !== "pull_request") return all("Push to main, scheduled or manually requested campaign.");
   if (environment.ARMY_FULL_LABEL === "true") return all("Label army-full.");
   const git = (...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
   const second = git("rev-parse", "--verify", "HEAD^2");
